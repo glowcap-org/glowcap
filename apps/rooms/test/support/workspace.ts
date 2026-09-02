@@ -36,7 +36,7 @@ export function workspaceFixture(): RoomsWorkspaceState {
 					bridgeIntent: {
 						scope: "Libera",
 						action: "link",
-						answers: { nick: "pancake", account: "acct" },
+						answers: { nick: "glowcap", account: "acct" },
 						secretsGiven: true,
 					},
 					standing: null,

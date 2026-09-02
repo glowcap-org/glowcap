@@ -67,7 +67,7 @@ Deno.test("an unverified claim is session-scoped, not an identity", () => {
 });
 
 Deno.test("a room nick is a name for an end, never a name that identifies it", () => {
-	// A real Goblins vat joins a pancake room over plain tcp. The room server is
+	// A real Goblins vat joins a glowcap room over plain tcp. The room server is
 	// the only producer that can see it, and everything it has about that end is
 	// a claim: the vat's designator is an address, so the host's provenance
 	// verdict is `unauthenticated`, and the nick the room states is an
@@ -76,7 +76,7 @@ Deno.test("a room nick is a name for an end, never a name that identifies it", (
 	// So the end stays loose, and this is the design working rather than a gap
 	// in it. Attributing on the address would merge every session that ever
 	// claimed it; attributing on the nick would merge whoever wears it next.
-	// Nothing here concludes Goblins either — pancake speaks the v1.0 floor over
+	// Nothing here concludes Goblins either — glowcap speaks the v1.0 floor over
 	// Syrup as readily as a vat does, so the profile the far side runs is not
 	// something this observation can reach.
 	const convert = makeBaseEventConverter();

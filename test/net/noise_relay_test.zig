@@ -16,18 +16,18 @@
 //! through their public products.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ws_relay = @import("../support/ws_relay.zig");
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
-const foundation = pancake.foundation;
+const foundation = glowcap.foundation;
 const crypto = foundation.crypto;
 const sealed = foundation.sealed;
-const model = pancake.ocapn.model;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const net = glowcap.net;
 const completion = net.completion;
 const noise_completion = net.noise_completion;
-const driver = pancake.driver;
+const driver = glowcap.driver;
 
 /// A completion platform that records every submitted send and hands back
 /// test-scripted completions: the adapter's byte pipe, observable.
@@ -171,13 +171,16 @@ pub const PipePlatform = struct {
 };
 
 pub const NoiseBackend = noise_completion.CompletionBackend(PipePlatform);
-const noise_connection_state_bytes: usize = 936;
+const noise_connection_state_bytes: usize = 952;
 
 test "noise adapter connection state has a measured footprint" {
     // Dominated by the embedded `SealedChannel` (its handshake working set is
     // transient but sized into the union). The adapter also pays sixteen bytes
     // for two compact retry memberships: one recycle-gated receive queue and
-    // one actionable submission queue. Paid only by sealed legs.
+    // one actionable submission queue. Paid only by sealed legs. Stated under
+    // runtime safety, where the two ciphertext `std.ArrayList` headers each
+    // carry std's one-word `pointer_stability` lock.
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
     try std.testing.expectEqual(noise_connection_state_bytes, NoiseBackend.connection_state_bytes);
 }
 

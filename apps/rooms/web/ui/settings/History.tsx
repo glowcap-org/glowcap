@@ -224,7 +224,7 @@ function ArchivePeerModal(
 			onClose={() => commitments.request(onClose, { only: ["settings-archive-peer"] })}
 		>
 			<p className="lead">
-				A separate pancake peer keeps your history. Rooms and message recipients never receive it.
+				A separate glowcap peer keeps your history. Rooms and message recipients never receive it.
 			</p>
 			<form
 				id="archivePeerForm"

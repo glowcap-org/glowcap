@@ -10,7 +10,7 @@
 // pinned beside it because aliases published by every child share one Host
 // ledger.
 
-import type { Host, Ref } from "@pancake/runtime";
+import type { Host, Ref } from "@glowcap/runtime";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
 import type { Directory } from "../lib/room/client.ts";
 import { MAX_DM_INBOXES } from "../lib/limits.ts";

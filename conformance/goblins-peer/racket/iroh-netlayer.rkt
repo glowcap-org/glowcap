@@ -1,6 +1,6 @@
 #lang racket/base
 ;; iroh-netlayer.rkt — an iroh netlayer for Spritely Goblins's CapTP, over
-;; pancake's iroh transport.
+;; glowcap's iroh transport.
 ;;
 ;; A netlayer is a byte-stream provider plus a locator. CapTP is transport
 ;; agnostic, so this changes nothing about the protocol a Goblins vat speaks: the
@@ -8,18 +8,18 @@
 ;; its own session keys. What changes is what carries those bytes. Where
 ;; `tcp-netlayer.rkt` hands the vat a cleartext socket, this hands it an
 ;; encrypted QUIC connection to an endpoint identified by an Ed25519 key, opened
-;; through the pancake Racket binding's iroh byte-channel surface.
+;; through the glowcap Racket binding's iroh byte-channel surface.
 ;;
 ;; Address scheme: `(ocapn-node 'iroh <endpoint-id> hints)`, where the endpoint id
 ;; is the 64 lowercase hex digits of the endpoint's Ed25519 public key and the
 ;; hints carry `"direct-addresses"`, the comma-separated socket addresses a
-;; relay-less dialer needs. That is the same spelling pancake signs and dials, so
-;; a Goblins vat and a pancake peer name one endpoint the same way.
+;; relay-less dialer needs. That is the same spelling glowcap signs and dials, so
+;; a Goblins vat and a glowcap peer name one endpoint the same way.
 ;;
 ;; Provide `^iroh-netlayer` — spawn it with a reachability posture, pass the
 ;; resulting netlayer to `spawn-mycapn`, and the vat speaks CapTP over iroh.
 ;;
-;; What this is for: pancake ↔ Goblins interop over an encrypted transport. It is
+;; What this is for: glowcap ↔ Goblins interop over an encrypted transport. It is
 ;; the sibling of `tcp-netlayer.rkt`, and the two differ only in what moves the
 ;; bytes and in what a session over them can honestly claim to have proved.
 ;;
@@ -38,7 +38,7 @@
          (submod goblins/ocapn/structs-urls marshall)
          "captp-message-procs.rkt"
          "session-trace.rkt"
-         (only-in "../../../bindings/racket/pancake-iroh.rkt"
+         (only-in "../../../bindings/racket/glowcap-iroh.rkt"
                   open-iroh-endpoint make-iroh-config
                   iroh-endpoint-node-id iroh-endpoint-direct-addresses
                   iroh-endpoint-accept iroh-endpoint-dial
@@ -50,7 +50,7 @@
 (provide ^iroh-netlayer)
 
 ;; The locator hint naming an endpoint's directly dialable socket addresses. The
-;; name is pancake's `model.transport.hint_direct_addresses` and the iroh C ABI's
+;; name is glowcap's `model.transport.hint_direct_addresses` and the iroh C ABI's
 ;; documented hint; spelling it differently would leave a dialer with nothing to
 ;; dial.
 (define direct-addresses-hint "direct-addresses")

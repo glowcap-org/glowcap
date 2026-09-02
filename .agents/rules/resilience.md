@@ -1,9 +1,9 @@
 ---
-description: "Zig pancake resilience posture for attacker-controlled bytes and layer ownership."
+description: "Zig glowcap resilience posture for attacker-controlled bytes and layer ownership."
 globs: src/ocapn/codec/**/*.zig, src/ocapn/engine/**/*.zig, src/ocapn/session/**/*.zig, src/net/**/*.zig, src/c_abi/**/*.zig, test/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
 ---
 
-# pancake — Resilience
+# glowcap — Resilience
 
 Every inbound frame is attacker-controlled until codec and session validation
 complete.
@@ -18,7 +18,7 @@ complete.
 - A wire-fatal refusal retires that session into one explicit terminal state;
   it never terminates the embedding process. All owned waiters settle from the
   same first cause before the failure returns across a public close barrier.
-- Application rate limits, authorization, and deadlines belong above pancake.
+- Application rate limits, authorization, and deadlines belong above glowcap.
 
 Concern not listed? Give it to the layer that owns the decision — the
 [architecture rule](architecture.md)'s Layer Ownership list is the map — never

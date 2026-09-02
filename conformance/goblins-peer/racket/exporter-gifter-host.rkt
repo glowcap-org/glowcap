@@ -1,26 +1,26 @@
 #lang racket
 ;; exporter-gifter-host.rkt — Goblins Alice, the gifter in the handoff role
-;; pancake had never played live: **pancake as the exporter**.
+;; glowcap had never played live: **glowcap as the exporter**.
 ;;
 ;; The two shipped proofs cover the other two roles. `goblins-handoff` has
-;; pancake redeem a give Goblins minted, and `goblins-gift` has pancake mint a
+;; glowcap redeem a give Goblins minted, and `goblins-gift` has glowcap mint a
 ;; give Goblins redeems. Neither has a live Goblins pair deposit into and
-;; withdraw from a *pancake* gift registry, so pancake answering `deposit-gift`
+;; withdraw from a *glowcap* gift registry, so glowcap answering `deposit-gift`
 ;; and `withdraw-gift` for somebody else's implementation rested on the
 ;; upstream suite and an in-tree scenario. This script is the missing half.
 ;;
 ;; The shape, and how it differs from `handoff-introducer-host.rkt`: there,
 ;; Alice enlivens a greeter hosted by a second Goblins vat (Bob) and gifts it,
 ;; so Goblins is both gifter and exporter. Here Alice enlivens a greeter hosted
-;; by *pancake* and gifts that, so the exporter is pancake. A Goblins recipient
+;; by *glowcap* and gifts that, so the exporter is glowcap. A Goblins recipient
 ;; (`gift-recipient.rkt`) then enlivens Alice's introducer, asks for the
-;; greeter, and receives a `desc:handoff-give` naming pancake — which it can
-;; only use by dialing pancake directly and presenting a `desc:handoff-receive`.
-;; If pancake's gift registry mis-answers either verb, the recipient's call
+;; greeter, and receives a `desc:handoff-give` naming glowcap — which it can
+;; only use by dialing glowcap directly and presenting a `desc:handoff-receive`.
+;; If glowcap's gift registry mis-answers either verb, the recipient's call
 ;; never lands.
 ;;
 ;; Usage:
-;;   racket exporter-gifter-host.rkt <alice-port> <pancake-designator> <greeter-swiss>
+;;   racket exporter-gifter-host.rkt <alice-port> <glowcap-designator> <greeter-swiss>
 ;;
 ;; Stdout (line-buffered NDJSON):
 ;;   {"v":1,"event":"vat-ready","vat":"alice","listen":"127.0.0.1:<alice-port>"}
@@ -50,7 +50,7 @@
 (define argv (current-command-line-arguments))
 (define alice-port
   (if (>= (vector-length argv) 1) (string->number (vector-ref argv 0)) 9011))
-(define pancake-designator
+(define glowcap-designator
   (if (>= (vector-length argv) 2) (vector-ref argv 1) "127.0.0.1:9012"))
 (define greeter-swiss
   (if (>= (vector-length argv) 3) (vector-ref argv 2) "greeter"))
@@ -61,7 +61,7 @@
     (for/list ([f event-fields]) (format "\"~a\":\"~a\"" (car f) (escape (cdr f)))))
   (printf "{\"v\":1,~a}~n" (string-join pairs ",")))
 
-;; ── Alice: enliven pancake's greeter, host an introducer over it ─────────────
+;; ── Alice: enliven glowcap's greeter, host an introducer over it ─────────────
 ;; Same struct-constructor route `gift-recipient.rkt` uses: the net/url parser
 ;; rejects `host:port` in the subdomain field, so build the sturdyref directly.
 (define alice-vat (make-vat))
@@ -74,16 +74,16 @@
 
    (define greeter-sturdyref
      (ocapn-sturdyref
-      (ocapn-node 'tcp pancake-designator #f)
+      (ocapn-node 'tcp glowcap-designator #f)
       (string->bytes/latin-1 greeter-swiss)))
 
-   ;; Enlivening opens an Alice -> pancake connection. The vow goes to the
+   ;; Enlivening opens an Alice -> glowcap connection. The vow goes to the
    ;; introducer unresolved; Goblins pipelining lets the introducer hand it
-   ;; out, and the gift is minted against pancake as the exporter when a
+   ;; out, and the gift is minted against glowcap as the exporter when a
    ;; recipient asks for it.
    (define greeter-vow (<- mycapn 'enliven greeter-sturdyref))
    ;; Mutate the exporter-held actor before any introduction. The recipient's
-   ;; greeting must carry this mark even after pancake replaces the alias,
+   ;; greeting must carry this mark even after glowcap replaces the alias,
    ;; proving the gift retained the exact actor.
    (<- greeter-vow 'prime "alice-mark-7")
    (define introducer (spawn ^introducer greeter-vow))

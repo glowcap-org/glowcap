@@ -141,7 +141,7 @@ routes to. The application hosts its reply inbox on `via` and sends the DM over
 redeemed route points to, and the member answers over that session's connection
 with no dial back.
 `via` is resolved from the reply's own token, not from watching which dial ran
-during the send: `pancake_host_reference_exporter` maps the redeemed route to
+during the send: `glowcap_host_reference_exporter` maps the redeemed route to
 the exporter session the node's routing table already holds. That makes the
 attribution deterministic — it is correct with several redeems in flight at
 once, and it resolves the exporter even when the reply reused a session a prior
@@ -183,7 +183,7 @@ This stays inside `ADR-0086`'s contract: the relay still only moves opaque
 bytes, still holds no capability, still parses no frame. What is new is the
 rendezvous table (identity → held inbound socket) and the registration verb, and
 the admission policy that governs which identities may register and be dialed —
-app policy, above pancake, exactly as target admission already is. Backpressure,
+app policy, above glowcap, exactly as target admission already is. Backpressure,
 idle reclaim, and the byte cap apply to a bridged pair unchanged.
 
 A subtlety the crossed hellos force: the accept side sends its own signed
@@ -201,7 +201,7 @@ so it can never *be* that peer. What a squatter can do is flood an identity's
 registration queue, an availability lever the embedder governs exactly as it
 governs which targets may be dialed. The rooms relay bounds it with a total
 registration cap; a per-identity cap or a signed-challenge admission is the next
-step a hardened deployment adds above pancake.
+step a hardened deployment adds above glowcap.
 
 The honest limits, all recorded so they are not mistaken for gaps to close
 silently:
@@ -221,7 +221,7 @@ silently:
   configuration.
 - **The dialer needs locator route advice or a configured fallback.** The core
   classifies a `keyed-relay` locator as the `rendezvous` dial shape
-  (`PANCAKE_DIAL_SHAPE_RENDEZVOUS`), and a binding's dial executor answers it
+  (`GLOWCAP_DIAL_SHAPE_RENDEZVOUS`), and a binding's dial executor answers it
   by opening the WebSocket rendezvous leg the dialing host was configured
   with: `Host.setRendezvousUrl` in the TypeScript stack (browser or native,
   because `WebSocket` is a web-standard global), `Host.rendezvous_url` in the
@@ -297,9 +297,9 @@ it is what `currentSession()` enables.
 - Redeemed-session surfacing: `Session.sendRedeeming` resolving `via` through
   `Host.exporterFor` (`bindings/ts/runtime/session.ts`, `bindings/ts/runtime/host.ts`),
   and the same verb in every other binding: `send_redeeming` in
-  `bindings/rust/src/session.rs` and `bindings/python/pancake/_session/verbs.py`,
+  `bindings/rust/src/session.rs` and `bindings/python/glowcap/_session/verbs.py`,
   `session-send-redeeming` in `bindings/racket/private/session.rkt`
-  over the `pancake_host_reference_exporter` query, which the core answers with
+  over the `glowcap_host_reference_exporter` query, which the core answers with
   `Node.exporterPeerFor` / `Host.exporterSessionFor` from its routing table
   (`src/ocapn/engine/node.zig`, `src/driver/core/host.zig`,
   `src/c_abi/host/host.zig`); the rooms client's `DirectMessage`
@@ -307,7 +307,7 @@ it is what `currentSession()` enables.
   (native), `apps/rooms/test/dm_reredeem_test.ts` (deterministic re-redeem
   attribution), and `apps/rooms/test/web/dm_test.ts` (browser).
 - Cold-dial rendezvous: `Rendezvous` (identity → held buffering channel) and
-  `webSocketChannel` in `@pancake/relay` (`bindings/ts/relay/rendezvous.ts`,
+  `webSocketChannel` in `@glowcap/relay` (`bindings/ts/relay/rendezvous.ts`,
   `bindings/ts/relay/ws_relay.ts`); the accept side `serveRendezvous` and the
   shared WebSocket byte channel, runtime-neutral in the stack
   (`bindings/ts/runtime/rendezvous.ts`, `bindings/ts/runtime/websocket.ts`); the

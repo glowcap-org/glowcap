@@ -1,6 +1,6 @@
 // One durable session's room realization for one directory.
 
-import { PublicationNotFound, type Ref, retainCleanupFailures } from "@pancake/runtime";
+import { PublicationNotFound, type Ref, retainCleanupFailures } from "@glowcap/runtime";
 import { enterOrOpenResult } from "../lib/enter_room.ts";
 import { NOT_STEWARD, roomErrorOf } from "../lib/errors.ts";
 import { roomAuthorityToken } from "../lib/room/authority.ts";

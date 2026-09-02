@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-integrate=${root}/.agents/skills/work/bin/pancake-integrate
+integrate=${root}/.agents/skills/work/bin/glowcap-integrate
 real_git=$(command -v git)
 scratch=$(mktemp -d)
 trap 'rm -rf "${scratch}"' EXIT
@@ -10,8 +10,8 @@ trap 'rm -rf "${scratch}"' EXIT
 repo=${scratch}/repo
 tree=${scratch}/tree1
 git init -q -b main "${repo}"
-git -C "${repo}" config user.name "pancake test"
-git -C "${repo}" config user.email "test@pancake.invalid"
+git -C "${repo}" config user.name "glowcap test"
+git -C "${repo}" config user.email "test@glowcap.invalid"
 git -C "${repo}" config commit.gpgsign false
 printf 'base\n' >"${repo}/base"
 git -C "${repo}" add base
@@ -68,20 +68,20 @@ mkdir "${scratch}/bin"
 cat >"${scratch}/bin/git" <<'WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ ${1:-} == update-ref && ${2:-} == refs/heads/dev && ! -e ${PANCAKE_TEST_RACE_MARKER} ]]; then
-	: >"${PANCAKE_TEST_RACE_MARKER}"
-	"${PANCAKE_TEST_REAL_GIT}" update-ref refs/heads/dev "${PANCAKE_TEST_RACE_TIP}" "${4}"
+if [[ ${1:-} == update-ref && ${2:-} == refs/heads/dev && ! -e ${GLOWCAP_TEST_RACE_MARKER} ]]; then
+	: >"${GLOWCAP_TEST_RACE_MARKER}"
+	"${GLOWCAP_TEST_REAL_GIT}" update-ref refs/heads/dev "${GLOWCAP_TEST_RACE_TIP}" "${4}"
 fi
-exec "${PANCAKE_TEST_REAL_GIT}" "$@"
+exec "${GLOWCAP_TEST_REAL_GIT}" "$@"
 WRAPPER
 chmod +x "${scratch}/bin/git"
 
 (
 	cd "${tree}"
 	PATH="${scratch}/bin:${PATH}" \
-		PANCAKE_TEST_REAL_GIT="${real_git}" \
-		PANCAKE_TEST_RACE_TIP="${race_tip}" \
-		PANCAKE_TEST_RACE_MARKER="${scratch}/raced" \
+		GLOWCAP_TEST_REAL_GIT="${real_git}" \
+		GLOWCAP_TEST_RACE_TIP="${race_tip}" \
+		GLOWCAP_TEST_RACE_MARKER="${scratch}/raced" \
 		"${integrate}"
 )
 

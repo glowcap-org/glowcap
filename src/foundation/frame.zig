@@ -39,7 +39,7 @@ pub const Frame = struct {
     shape: FrameShape,
     owner: Owner,
 
-    /// The callback that releases storage pancake didn't allocate. See `initExternal`.
+    /// The callback that releases storage glowcap didn't allocate. See `initExternal`.
     pub const ExternalReleaseFn = *const fn (*anyopaque) void;
 
     const Owner = union(enum) {

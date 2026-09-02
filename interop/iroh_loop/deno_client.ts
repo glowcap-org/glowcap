@@ -19,8 +19,8 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`); run
 // via `zig build deno-iroh-loop`.
 
-import { formatPeerUri, Runtime, type Session, TRANSPORT_IROH } from "@pancake/runtime";
-import { dialLocatorForRelay, listen, locator, provider, Reachability } from "@pancake/iroh";
+import { formatPeerUri, Runtime, type Session, TRANSPORT_IROH } from "@glowcap/runtime";
+import { dialLocatorForRelay, listen, locator, provider, Reachability } from "@glowcap/iroh";
 import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const GATE = "deno-iroh-loop";

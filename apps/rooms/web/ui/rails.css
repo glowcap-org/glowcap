@@ -144,7 +144,7 @@
 	background: linear-gradient(90deg in oklch, var(--teal) 0%, var(--accent) 100%);
 	opacity: .38;
 }
-/* One control with two homes. The pancake mark is three stacked bars already —
+/* One control with two homes. The glowcap mark is three stacked bars already —
    a hamburger that happens to be breakfast — so the rail carries it beside the
    wordmark while it is open, and the topbar picks up the same mark when it is
    closed. On the wide layout only one of the two is on screen, so it reads as
@@ -285,7 +285,7 @@
 	align-items: baseline;
 	min-width: 0;
 }
-#members .name-row > .irc-chip {
+#members .name-row > .bridge-chip {
 	flex: none;
 }
 /* A person's name is typed as a room's name is. It named no step and took the

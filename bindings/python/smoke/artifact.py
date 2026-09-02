@@ -20,7 +20,7 @@ import zipfile
 def main() -> int:
     root = Path(__file__).resolve().parents[3]
     project = root / "bindings" / "python"
-    with tempfile.TemporaryDirectory(prefix="pancake-python-wheel-") as raw_tmp:
+    with tempfile.TemporaryDirectory(prefix="glowcap-python-wheel-") as raw_tmp:
         tmp = Path(raw_tmp)
         staged = tmp / "project"
         shutil.copytree(
@@ -50,22 +50,22 @@ def main() -> int:
         with zipfile.ZipFile(wheels[0]) as wheel:
             names = set(wheel.namelist())
             required = {
-                "pancake/_host/__init__.py",
-                "pancake/_host/lifecycle.py",
-                "pancake/_host/progress.py",
-                "pancake/_host/publication.py",
-                "pancake/_driver/__init__.py",
-                "pancake/_loop/__init__.py",
-                "pancake/_loop/configuration.py",
-                "pancake/_loop/dialing.py",
-                "pancake/_loop/errors.py",
-                "pancake/_loop/lifecycle.py",
-                "pancake/_loop/listeners.py",
-                "pancake/_loop/progress.py",
-                "pancake/_loop/sessions.py",
-                "pancake/_session/__init__.py",
-                "pancake/_session/lifecycle.py",
-                "pancake/_session/verbs.py",
+                "glowcap/_host/__init__.py",
+                "glowcap/_host/lifecycle.py",
+                "glowcap/_host/progress.py",
+                "glowcap/_host/publication.py",
+                "glowcap/_driver/__init__.py",
+                "glowcap/_loop/__init__.py",
+                "glowcap/_loop/configuration.py",
+                "glowcap/_loop/dialing.py",
+                "glowcap/_loop/errors.py",
+                "glowcap/_loop/lifecycle.py",
+                "glowcap/_loop/listeners.py",
+                "glowcap/_loop/progress.py",
+                "glowcap/_loop/sessions.py",
+                "glowcap/_session/__init__.py",
+                "glowcap/_session/lifecycle.py",
+                "glowcap/_session/verbs.py",
             }
             missing = required - names
             assert not missing, f"wheel omitted private ownership packages: {missing}"
@@ -73,35 +73,35 @@ def main() -> int:
 
         env = os.environ.copy()
         env["PYTHONPATH"] = str(site)
-        env["PANCAKE_LIB_DIR"] = str(root / "zig-out" / "lib")
+        env["GLOWCAP_LIB_DIR"] = str(root / "zig-out" / "lib")
         subprocess.run(
             [
                 sys.executable,
                 "-c",
                 """
 import importlib
-import pancake
-host = importlib.import_module("pancake._host")
-host_lifecycle = importlib.import_module("pancake._host.lifecycle")
-host_progress = importlib.import_module("pancake._host.progress")
-host_publication = importlib.import_module("pancake._host.publication")
-loop = importlib.import_module("pancake._loop")
-loop_dialing = importlib.import_module("pancake._loop.dialing")
-loop_lifecycle = importlib.import_module("pancake._loop.lifecycle")
-loop_listeners = importlib.import_module("pancake._loop.listeners")
-loop_progress = importlib.import_module("pancake._loop.progress")
-loop_sessions = importlib.import_module("pancake._loop.sessions")
-session = importlib.import_module("pancake._session")
-lifecycle = importlib.import_module("pancake._session.lifecycle")
-verbs = importlib.import_module("pancake._session.verbs")
-assert pancake.Session is session.Session
-assert pancake.Host is host.Host
-assert loop.DriverLoop.__module__ == "pancake._loop"
-assert pancake.PartnerIdentity is session.PartnerIdentity
-assert pancake.SendRedeemingResult is session.SendRedeemingResult
-assert session.Session.__module__ == "pancake._session"
-assert session.PartnerIdentity.__module__ == "pancake._session"
-assert session.SendRedeemingResult.__module__ == "pancake._session"
+import glowcap
+host = importlib.import_module("glowcap._host")
+host_lifecycle = importlib.import_module("glowcap._host.lifecycle")
+host_progress = importlib.import_module("glowcap._host.progress")
+host_publication = importlib.import_module("glowcap._host.publication")
+loop = importlib.import_module("glowcap._loop")
+loop_dialing = importlib.import_module("glowcap._loop.dialing")
+loop_lifecycle = importlib.import_module("glowcap._loop.lifecycle")
+loop_listeners = importlib.import_module("glowcap._loop.listeners")
+loop_progress = importlib.import_module("glowcap._loop.progress")
+loop_sessions = importlib.import_module("glowcap._loop.sessions")
+session = importlib.import_module("glowcap._session")
+lifecycle = importlib.import_module("glowcap._session.lifecycle")
+verbs = importlib.import_module("glowcap._session.verbs")
+assert glowcap.Session is session.Session
+assert glowcap.Host is host.Host
+assert loop.DriverLoop.__module__ == "glowcap._loop"
+assert glowcap.PartnerIdentity is session.PartnerIdentity
+assert glowcap.SendRedeemingResult is session.SendRedeemingResult
+assert session.Session.__module__ == "glowcap._session"
+assert session.PartnerIdentity.__module__ == "glowcap._session"
+assert session.SendRedeemingResult.__module__ == "glowcap._session"
 host_mixins = (
     host_lifecycle._LifecycleMixin,
     host_progress._ProgressMixin,

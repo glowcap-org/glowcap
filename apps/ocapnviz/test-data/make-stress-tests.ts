@@ -188,14 +188,14 @@ export function stressTest(source: Doc, factor: number, seed = SEED): Doc {
         `session is this crowded: the point is to find where the renderer ` +
         `gives way, and this one is two kids' afternoon in Build mode ` +
         `photocopied ${factor} times.`,
-      "dct:creator": "pancake project",
+      "dct:creator": "glowcap project",
       "dct:created": GENERATED_AT,
     },
     provenance: {
       "prov:wasGeneratedBy": "apps/ocapnviz/test-data/make-stress-tests.ts",
       "prov:wasDerivedFrom": [source.id],
       "prov:wasAttributedTo": source.metadata["dct:creator"] ??
-        "pancake project",
+        "glowcap project",
       "prov:generatedAtTime": GENERATED_AT,
       "dct:source": "apps/ocapnviz/test-data/the-kids-masterpiece.json",
       "dct:identifier": `stress-${factor}x, seed 0x${SEED.toString(16)}`,

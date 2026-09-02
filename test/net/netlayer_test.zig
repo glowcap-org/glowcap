@@ -9,12 +9,12 @@
 //! test pins the runtime dispatch the driver depends on.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const net = glowcap.net;
 const tcp = net.tcp;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
@@ -38,7 +38,7 @@ fn unusedDialFinish(
     return .{ .failed = .init(error.ConnectionLost) };
 }
 
-fn unusedDialCancel(_: *anyopaque, _: *anyopaque) ?pancake.foundation.FailureChain {
+fn unusedDialCancel(_: *anyopaque, _: *anyopaque) ?glowcap.foundation.FailureChain {
     return null;
 }
 

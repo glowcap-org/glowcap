@@ -1,13 +1,13 @@
 # Per-language consumer cost
 
 This benchmark asks what a client written in each supported language pays to run
-the same application against one native Zig pancake host.
+the same application against one native Zig glowcap host.
 
 The host and task-board workload stay fixed. The client changes between Deno,
 Python, Rust, Racket, native Zig, and Spritely Goblins as a reference CapTP peer.
 Each row therefore measures a whole consumer stack: runtime, binding, garbage
 collector, and the application written in that language. Results describe one
-machine and one run. The rows mix pancake's wire cost with that language's
+machine and one run. The rows mix glowcap's wire cost with that language's
 runtime.
 
 ## Run it
@@ -59,9 +59,9 @@ encoding. A future local path could differ in either direction.
 Read [Methodology and caveats](methodology.md) before comparing results. The
 exact client protocol is in [`contract.md`](contract.md).
 
-To compare pancake and Goblins while holding the Racket application source,
+To compare glowcap and Goblins while holding the Racket application source,
 call shape, and loopback transport constant, use the separate
-[pancake and Goblins benchmark](../goblins/README.md).
+[glowcap and Goblins benchmark](../goblins/README.md).
 
 ## Files
 

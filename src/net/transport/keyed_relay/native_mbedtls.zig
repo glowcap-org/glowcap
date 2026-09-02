@@ -1,7 +1,7 @@
-//! Optional native relay composition over Pancake's pinned Mbed TLS engine.
+//! Optional native relay composition over Glowcap's pinned Mbed TLS engine.
 //!
 //! This module is a separately composed public Zig module. The portable
-//! `pancake` module does not import or link Mbed TLS. Native Zig programs and
+//! `glowcap` module does not import or link Mbed TLS. Native Zig programs and
 //! the relay C archive consume this same owner. It lives with the relay subject
 //! because the archive is a projection of that provider, not a second transport
 //! authority.

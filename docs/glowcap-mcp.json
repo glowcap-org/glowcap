@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "glowcap": {
+      "command": "glowcap",
+      "args": ["mcp", "--tools", "default"],
+      "env": {
+        "GLOWCAP_STATE": "/tmp/glowcap-mcp-state"
+      }
+    }
+  }
+}

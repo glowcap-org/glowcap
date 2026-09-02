@@ -1,4 +1,4 @@
-//! pancake is an OCapN / CapTP implementation you use as a library, written in
+//! glowcap is an OCapN / CapTP implementation you use as a library, written in
 //! Zig.
 //!
 //! New here? Read the layers from the bottom up. Each layer leans only on the
@@ -49,7 +49,7 @@ pub const foundation = @import("foundation");
 /// codec-neutral `model`, the wire `codec`s, the authoritative `session`, and the
 /// `engine` you drive. They are grouped under one namespace because everything
 /// around them — `actors`, the adapters, the surfaces — adds no protocol of its
-/// own. Reach them as `pancake.ocapn.engine.Peer`, `pancake.ocapn.model.Message`,
+/// own. Reach them as `glowcap.ocapn.engine.Peer`, `glowcap.ocapn.model.Message`,
 /// and so on.
 pub const ocapn = struct {
     pub const model = @import("model");
@@ -74,8 +74,8 @@ pub const Session = driver.Session;
 /// Owned wire bytes for one frame; the borrowed counterpart is `Frame.view`.
 pub const Frame = foundation.Frame;
 
-// `c_abi` is referenced here so its exported `pancake_*` symbols are compiled
-// into the `libpancake_ocapn` archive, without exposing the module on the Zig namespace.
+// `c_abi` is referenced here so its exported `glowcap_*` symbols are compiled
+// into the `libglowcap_ocapn` archive, without exposing the module on the Zig namespace.
 comptime {
     _ = @import("c_abi");
 }

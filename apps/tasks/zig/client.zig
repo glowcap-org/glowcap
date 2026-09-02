@@ -1,4 +1,4 @@
-//! A tasks board client, written on pancake actors in native Zig. Zig is the home
+//! A tasks board client, written on glowcap actors in native Zig. Zig is the home
 //! language; this runs on the same core every binding wraps, and it drives the
 //! real TCP netlayer.
 //!
@@ -9,19 +9,19 @@
 //! top to bottom, no phase machine: this is the same sequence every other
 //! language's one-shot client runs.
 //!
-//!   pancake-tasks-client <port> <nick> <task-text>
+//!   glowcap-tasks-client <port> <nick> <task-text>
 //!
 //! It exits 0 once the full add-list-done-list round trip succeeds.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const demo_usage = @import("demo_usage");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
 
 const host_addr = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
@@ -163,5 +163,5 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn fail(message: []const u8) error{Usage} {
-    return demo_usage.usage("usage: pancake-tasks-client <port> <nick> <task-text>", message);
+    return demo_usage.usage("usage: glowcap-tasks-client <port> <nick> <task-text>", message);
 }

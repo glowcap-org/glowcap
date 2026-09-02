@@ -1,6 +1,6 @@
 import { dialWithConnector } from "./dial.ts";
 import { DriverLoop } from "./driver_loop.ts";
-import { PancakeError } from "./errors.ts";
+import { GlowcapError } from "./errors.ts";
 import { Host } from "./host.ts";
 import type { HostOptions } from "./host.ts";
 import { throwIfCancelled } from "./internal/cancellation.ts";
@@ -9,7 +9,7 @@ import type { CloseOptions } from "./lifecycle.ts";
 import type { Locator } from "./locator.ts";
 import { HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
 import type { Connector, DriverProvider, TransportOperationOptions } from "./transport.ts";
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
 
 type RuntimeHostOptions =
 	| ({
@@ -95,7 +95,7 @@ export class Runtime {
 		const connectors = options.connectors;
 		const host = options.adoptHost ?? new Host(options.seed, options);
 		if (host.driverLoop != null) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				"a driver-loop Host cannot be transferred to a byte-fed Runtime",
 			);
@@ -120,7 +120,7 @@ export class Runtime {
 			options.transport != null &&
 			!options.transport.transports.includes(partner.transport)
 		) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`operation options do not support transport ${JSON.stringify(partner.transport)}`,
 			);
@@ -131,7 +131,7 @@ export class Runtime {
 
 		const connector = this.#host.connectorFor(partner.transport);
 		if (connector == null) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`Runtime has no connector for transport ${JSON.stringify(partner.transport)}`,
 			);

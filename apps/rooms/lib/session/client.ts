@@ -1,7 +1,7 @@
 // Client contract for a durable Rooms application session capability.
 
-import { Ref } from "@pancake/runtime";
-import { retainCleanupFailures } from "@pancake/runtime";
+import { Ref } from "@glowcap/runtime";
+import { retainCleanupFailures } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import { type BridgeForm, BridgeFormSchema } from "../bridge/form.ts";
 import { MAX_FORM_JSON } from "../limits.ts";

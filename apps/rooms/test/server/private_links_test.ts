@@ -18,7 +18,7 @@ import {
 } from "../support/rooms_server.ts";
 
 roomsTest("a private room mints a link that reaches it, and nothing else does", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-private-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-private-" });
 	const port = stablePort();
 	let server = startStatefulServer(port, stateDirectory);
 	try {

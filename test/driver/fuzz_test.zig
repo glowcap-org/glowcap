@@ -1,6 +1,6 @@
 //! Hostile-bytes fuzzing of the byte-fed host, against a working application.
 //!
-//! A language binding and a browser peer do not hand pancake frames. They hand
+//! A language binding and a browser peer do not hand glowcap frames. They hand
 //! it whatever came back from a socket read: part of a frame, several frames, or
 //! nothing that will ever be a frame. `Host.feedBytes` turns that into sessions,
 //! and it is the only owner of the leftover tail between reads, so it carries
@@ -30,7 +30,7 @@
 //! that without ever crashing. A "no crash" fuzzer would run past it forever.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../support/core_host.zig");
 const host_pair = @import("../support/host_pair.zig");
 const promise_capture = @import("../support/capture.zig");
@@ -45,8 +45,8 @@ const bounds = @import("../support/session_bounds.zig");
 const Budget = @import("../support/fuzz_budget.zig").Budget;
 const session_span: u16 = 4096;
 
-const actors = pancake.actors;
-const driver = pancake.driver;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -104,9 +104,9 @@ fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, fr
         const at = smith.valueRangeAtMost(u16, 0, @intCast(bytes.len - 1));
         damaged[at] ^= smith.valueRangeAtMost(u8, 1, 255);
     }
-    var stream_bytes: [max_input + pancake.foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
-    var prefix_buf: [pancake.foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
-    const prefix = pancake.foundation.stream_framing.renderPrefix(&prefix_buf, bytes.len);
+    var stream_bytes: [max_input + glowcap.foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
+    var prefix_buf: [glowcap.foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
+    const prefix = glowcap.foundation.stream_framing.renderPrefix(&prefix_buf, bytes.len);
     @memcpy(stream_bytes[0..prefix.len], prefix);
     @memcpy(stream_bytes[prefix.len..][0..bytes.len], damaged[0..bytes.len]);
     host.feedBytes(session, stream_bytes[0 .. prefix.len + bytes.len]) catch {};

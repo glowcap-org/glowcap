@@ -30,6 +30,6 @@ pub const dispatch = @import("dispatch.zig");
 /// The byte form OCapN signatures are defined over: Syrup, whatever codec the
 /// session negotiated. The engine reaches signature bytes only through here.
 pub const signed = @import("signed.zig");
-/// The open set of codecs this build speaks. Declare `pub const pancake_codecs`
+/// The open set of codecs this build speaks. Declare `pub const glowcap_codecs`
 /// in your root source file to add your own (see `registry.Spec`).
 pub const registry = @import("registry.zig");

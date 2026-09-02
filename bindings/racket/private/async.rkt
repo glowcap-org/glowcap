@@ -3,7 +3,7 @@
 ;; raw bytes move (the `async-transport` closures over Racket TCP ports, with
 ;; the iroh companion injecting its own). Framing and the unconsumed tail are
 ;; the core's: the pump in `private/pump.rkt` hands each read to
-;; `pancake_host_session_feed_bytes`, whose codec delimits each complete frame
+;; `glowcap_host_session_feed_bytes`, whose codec delimits each complete frame
 ;; — both codecs, both frame shapes, the frame cap enforced during the scan —
 ;; and buffers a partial frame in the session itself. This module knows
 ;; nothing about the host.
@@ -14,7 +14,7 @@
 
 ;; ── The transport ─────────────────────────────────────────────────────────────
 ;; How bytes move for one session and how it tears down. The core supplies
-;; the TCP port transport below; the `pancake-iroh` companion supplies the iroh
+;; the TCP port transport below; the `glowcap-iroh` companion supplies the iroh
 ;; one, so the iroh artifact stays out of this core module entirely.
 ;;   write-frame! : (bytes? -> void)                 write one outbound frame
 ;;   flush!       : (-> void)                        flush buffered output

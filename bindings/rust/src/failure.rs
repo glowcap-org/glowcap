@@ -1,4 +1,4 @@
-//! Typed synchronous and lifecycle failures projected from Pancake's C waist.
+//! Typed synchronous and lifecycle failures projected from Glowcap's C waist.
 
 #[cfg(feature = "async")]
 use crate::abi_constants;
@@ -17,7 +17,7 @@ pub enum AbortDomain {
 }
 
 impl AbortDomain {
-	/// Map `PancakeLastAbort.domain` to the host label the waist defines.
+	/// Map `GlowcapLastAbort.domain` to the host label the waist defines.
 	/// Read by the async connection's feed-refusal path alone.
 	#[cfg(feature = "async")]
 	pub(crate) fn from_abi(domain: u32) -> Result<Self> {
@@ -27,14 +27,14 @@ impl AbortDomain {
 			abi_constants::ABORT_DOMAIN_FOREIGN => Ok(AbortDomain::Foreign),
 			other => Err(Error::with_detail(
 				sys::ERR_INTERNAL,
-				format!("pancake ABI returned unknown abort domain {other}"),
+				format!("glowcap ABI returned unknown abort domain {other}"),
 			)),
 		}
 	}
 }
 
 /// The typed cause of a connection's most recent local dispatch failure, the
-/// safe projection of `pancake_host_session_last_abort`. The flat `PANCAKE_ERR_*`
+/// safe projection of `glowcap_host_session_last_abort`. The flat `GLOWCAP_ERR_*`
 /// code names the failure family; this names the member: which layer refused,
 /// the projected `op:abort` kind when one applies, the originating diagnostic,
 /// any failure publishing that terminal abort, and bounded cleanup/consequence
@@ -58,7 +58,7 @@ pub struct AbortInfo {
 }
 
 /// The failure family behind an [`Error`], the matchable form of its
-/// [`code`](Error::code). Each variant names one `PANCAKE_ERR_*` family the C
+/// [`code`](Error::code). Each variant names one `GLOWCAP_ERR_*` family the C
 /// ABI returns, so a caller distinguishes a partner break from a transport fault
 /// or a malformed frame without comparing against raw negative integers.
 ///
@@ -69,40 +69,40 @@ pub struct AbortInfo {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
-	/// A required pointer argument was null (`PANCAKE_ERR_NULL_POINTER`).
+	/// A required pointer argument was null (`GLOWCAP_ERR_NULL_POINTER`).
 	NullPointer,
-	/// An argument was out of range or otherwise invalid (`PANCAKE_ERR_INVALID_ARGUMENT`).
+	/// An argument was out of range or otherwise invalid (`GLOWCAP_ERR_INVALID_ARGUMENT`).
 	InvalidArgument,
-	/// The session refused the frame on authority or table grounds (`PANCAKE_ERR_SESSION`).
+	/// The session refused the frame on authority or table grounds (`GLOWCAP_ERR_SESSION`).
 	Session,
-	/// The codec could not parse or render the frame (`PANCAKE_ERR_CODEC`).
+	/// The codec could not parse or render the frame (`GLOWCAP_ERR_CODEC`).
 	Codec,
-	/// An internal invariant failed (`PANCAKE_ERR_INTERNAL`).
+	/// An internal invariant failed (`GLOWCAP_ERR_INTERNAL`).
 	Internal,
-	/// The session or connection is closed (`PANCAKE_ERR_CLOSED`); on a blocking
+	/// The session or connection is closed (`GLOWCAP_ERR_CLOSED`); on a blocking
 	/// transport read this is a clean EOF.
 	Closed,
-	/// A transport I/O operation failed (`PANCAKE_ERR_IO`); the underlying
+	/// A transport I/O operation failed (`GLOWCAP_ERR_IO`); the underlying
 	/// `std::io::Error` message rides [`Error::message`].
 	Io,
-	/// The frame was malformed (`PANCAKE_ERR_MALFORMED`).
+	/// The frame was malformed (`GLOWCAP_ERR_MALFORMED`).
 	Malformed,
 	/// The frame declared or reached past the connection's frame cap
-	/// (`PANCAKE_ERR_FRAME_TOO_LARGE`).
+	/// (`GLOWCAP_ERR_FRAME_TOO_LARGE`).
 	FrameTooLarge,
-	/// A value the passable tree cannot carry (`PANCAKE_ERR_UNSUPPORTED_VALUE`),
+	/// A value the passable tree cannot carry (`GLOWCAP_ERR_UNSUPPORTED_VALUE`),
 	/// e.g. a handoff, sturdy, or broken target where an immediate value is
 	/// required.
 	UnsupportedValue,
-	/// The partner broke a `send`/`fetch` (`PANCAKE_ERR_BROKEN`); the break
+	/// The partner broke a `send`/`fetch` (`GLOWCAP_ERR_BROKEN`); the break
 	/// reason rides [`Error::message`].
 	Broken,
-	/// A named lookup found nothing (`PANCAKE_ERR_NOT_FOUND`).
+	/// A named lookup found nothing (`GLOWCAP_ERR_NOT_FOUND`).
 	NotFound,
 	/// A caller-provided output buffer was too small
-	/// (`PANCAKE_ERR_BUFFER_TOO_SMALL`).
+	/// (`GLOWCAP_ERR_BUFFER_TOO_SMALL`).
 	BufferTooSmall,
-	/// A caller-set deadline elapsed (`PANCAKE_ERR_TIMEOUT`): the handshake or a
+	/// A caller-set deadline elapsed (`GLOWCAP_ERR_TIMEOUT`): the handshake or a
 	/// blocking answer-wait ran out its budget. Nothing failed on the wire, so a
 	/// retry with a longer budget is a reasonable response.
 	TimedOut,
@@ -111,7 +111,7 @@ pub enum ErrorKind {
 	Other(i32),
 }
 
-/// A failed pancake call. It always carries the negative `PANCAKE_ERR_*` code;
+/// A failed glowcap call. It always carries the negative `GLOWCAP_ERR_*` code;
 /// match its family with [`kind`](Error::kind) rather than the raw integer. When
 /// a `send` was broken by the partner it also carries the break reason, so the
 /// reason a partner gave for refusing a call is not lost behind a code.
@@ -177,7 +177,7 @@ impl Error {
 		}
 	}
 
-	/// The negative `PANCAKE_ERR_*` code for this failure.
+	/// The negative `GLOWCAP_ERR_*` code for this failure.
 	pub fn code(&self) -> i32 {
 		self.code
 	}
@@ -280,8 +280,8 @@ impl Error {
 	}
 
 	/// A failure carrying the diagnostic its own archive's thread-local
-	/// last-error slot recorded (`pancake_last_error`, `pancake_host_last_error`,
-	/// `pancake_<t>_last_error`). Every `error_slot!`-minted checker builds its
+	/// last-error slot recorded (`glowcap_last_error`, `glowcap_host_last_error`,
+	/// `glowcap_<t>_last_error`). Every `error_slot!`-minted checker builds its
 	/// `Err` through this, so a diagnostic is never read from the wrong slot.
 	pub(crate) fn with_transport_detail(code: i32, detail: Option<String>) -> Error {
 		Error {
@@ -296,7 +296,7 @@ impl Error {
 
 	/// A broken promise carrying the partner's reason: a `send`/`fetch` the
 	/// remote side refused, distinct from a fault in this host or the transport.
-	/// Carries `PANCAKE_ERR_BROKEN` so a caller can tell a refusal apart from a
+	/// Carries `GLOWCAP_ERR_BROKEN` so a caller can tell a refusal apart from a
 	/// real failure by [`kind`](Error::kind) (`ErrorKind::Broken`), with the
 	/// reason on `detail`.
 	#[cfg(feature = "async")]
@@ -321,8 +321,8 @@ impl Error {
 impl std::fmt::Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self.message() {
-			Some(msg) => write!(f, "pancake error {}: {msg}", self.code),
-			None => write!(f, "pancake error {}", self.code),
+			Some(msg) => write!(f, "glowcap error {}: {msg}", self.code),
+			None => write!(f, "glowcap error {}", self.code),
 		}
 	}
 }
@@ -352,7 +352,7 @@ pub(crate) fn lifecycle_is_closed(raw: u32) -> Result<bool> {
 		sys::LIFECYCLE_CLOSED => Ok(true),
 		other => Err(Error::with_detail(
 			sys::ERR_INTERNAL,
-			format!("pancake ABI returned unknown lifecycle state {other}"),
+			format!("glowcap ABI returned unknown lifecycle state {other}"),
 		)),
 	}
 }

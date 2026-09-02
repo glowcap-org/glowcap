@@ -4,12 +4,12 @@
 //! through it.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
-const syrup = pancake.ocapn.codec.syrup;
-const capnp = pancake.ocapn.codec.capnp;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
+const syrup = glowcap.ocapn.codec.syrup;
+const capnp = glowcap.ocapn.codec.capnp;
 
 const harness = @import("session_harness.zig");
 const startSessionMessage = harness.startSessionMessage;
@@ -92,7 +92,7 @@ test "a Cap'n Proto set with duplicate elements is refused on the session inboun
         }
     }
     try std.testing.expectEqual(@as(usize, 1), flipped);
-    const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
+    const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
     // Decode admits the set (no uniqueness at Cap'n Proto parse).
     const body = try capnp.decodeBody(view);

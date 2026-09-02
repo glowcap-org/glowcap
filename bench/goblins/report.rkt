@@ -9,21 +9,21 @@
 (provide render-markdown render-svg-bars BACKENDS)
 
 ;; Palette lifted from the site (assets/style.css) so charts drop into the docs
-;; without a second theme: pancake in the accent amber, Goblins in teal, and
-;; pancake-with-time-travel in green (the same green the site uses for pancake's
+;; without a second theme: glowcap in the accent amber, Goblins in teal, and
+;; glowcap-with-time-travel in green (the same green the site uses for glowcap's
 ;; persistent/functional series).
 (define GOBLINS-COLOR "#257f88")
-(define PANCAKE-COLOR "#c76f18")
-(define PANCAKE-TT-COLOR "#4f8a5b")
+(define GLOWCAP-COLOR "#c76f18")
+(define GLOWCAP-TT-COLOR "#4f8a5b")
 (define INK "#3a3027")
 (define INK-SOFT "#6b5d4d")
 (define PAPER "#fff9ee")
 (define RULE "#e7d4b7")
 
-;; The three measured series, in chart order. `pancake-tt` is the pancake binding
+;; The three measured series, in chart order. `glowcap-tt` is the glowcap binding
 ;; with time-travel on for every actor.
-(define BACKENDS '("goblins" "pancake" "pancake-tt"))
-(define COLORS (list GOBLINS-COLOR PANCAKE-COLOR PANCAKE-TT-COLOR))
+(define BACKENDS '("goblins" "glowcap" "glowcap-tt"))
+(define COLORS (list GOBLINS-COLOR GLOWCAP-COLOR GLOWCAP-TT-COLOR))
 
 (define (esc s)
   (regexp-replaces (format "~a" s) '((#rx"&" "\\&amp;") (#rx"<" "\\&lt;") (#rx">" "\\&gt;"))))
@@ -118,10 +118,10 @@
 
 (define (render-markdown suites results mode lat-n tput-n conns svg-files)
   (string-append
-   "# pancake vs Spritely Goblins — benchmark\n\n"
+   "# glowcap vs Spritely Goblins — benchmark\n\n"
    (format "Mode **~a** · latency n=~a · throughput n=~a · connections=~a. One shared Racket application per substrate, over real loopback TCP.\n\n"
            mode lat-n tput-n conns)
-   "> These numbers come from a single machine on a single run. They are not a leaderboard — reproduce them with `zig build bench-goblins`, and read the [methodology](https://github.com/jimisaacs/pancake/blob/main/bench/goblins/METHODOLOGY.md) for the caveats (sequential driving, no pipelining, coarse per-connection memory).\n\n"
+   "> These numbers come from a single machine on a single run. They are not a leaderboard — reproduce them with `zig build bench-goblins`, and read the [methodology](https://github.com/jimisaacs/glowcap/blob/main/bench/goblins/METHODOLOGY.md) for the caveats (sequential driving, no pipelining, coarse per-connection memory).\n\n"
    "## Results\n\n"
    (md-table suites results)
    "\n## Latency — p50, milliseconds (lower is better)\n\n"

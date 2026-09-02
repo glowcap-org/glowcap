@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const pancake = @import("pancake");
-const net = pancake.net;
+const glowcap = @import("glowcap");
+const net = glowcap.net;
 
 pub fn close(listener: net.netlayer.Listener) void {
     std.testing.expect(listener.close() == null) catch unreachable;

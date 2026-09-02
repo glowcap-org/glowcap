@@ -1,0 +1,24 @@
+{
+	"abi_version": "0.1.0",
+	"default_release_base_url": "https://github.com/jimisaacs/glowcap/releases/download",
+	"tarball_template": "glowcap-c-v{version}-{target}.tar.gz",
+	"release_tag_template": "v{version}",
+	"cache_layout": "{cache_base}/{version}/{target}/lib",
+	"version_header": "include/glowcap_ocapn.h",
+	"package_copies": [
+		"bindings/rust/c-abi-resolve.json",
+		"bindings/python/glowcap/c-abi-resolve.json",
+		"bindings/ts/runtime/internal/ffi/c-abi-resolve.json",
+		"bindings/racket/private/c-abi-resolve.json"
+	],
+	"fallback_cache_name": "glowcap-c-abi-cache",
+	"marker_static": "libglowcap_ocapn.a",
+	"marker_shared_stem": "glowcap_ocapn",
+	"require_https": true,
+	"require_checksum": true,
+	"releases_published": false,
+	"max_tarball_bytes": 536870912,
+	"max_sums_bytes": 1048576,
+	"extract_prefix": "lib",
+	"user_agent": "glowcap-c-abi-fetch/0.1.0"
+}

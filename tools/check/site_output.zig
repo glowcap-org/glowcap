@@ -143,21 +143,21 @@ fn isExternal(raw: []const u8) bool {
 test "rendered URL paths resolve against their page and deployment prefix" {
     const gpa = std.testing.allocator;
 
-    const home = (try targetPath(gpa, "/pancake/", "start/index.html", "/pancake/")).?;
+    const home = (try targetPath(gpa, "/glowcap/", "start/index.html", "/glowcap/")).?;
     defer gpa.free(home);
     try std.testing.expectEqualStrings("index.html", home);
 
-    const page = (try targetPath(gpa, "/pancake/", "start/index.html", "/pancake/transports/noise/#dialing")).?;
+    const page = (try targetPath(gpa, "/glowcap/", "start/index.html", "/glowcap/transports/noise/#dialing")).?;
     defer gpa.free(page);
     try std.testing.expectEqualStrings("transports/noise/index.html", page);
 
-    const asset = (try targetPath(gpa, "/pancake/", "reference/api/index.html", "main.js")).?;
+    const asset = (try targetPath(gpa, "/glowcap/", "reference/api/index.html", "main.js")).?;
     defer gpa.free(asset);
     try std.testing.expectEqualStrings("reference/api/main.js", asset);
 
-    try std.testing.expect((try targetPath(gpa, "/pancake/", "index.html", "https://ziglang.org/")) == null);
+    try std.testing.expect((try targetPath(gpa, "/glowcap/", "index.html", "https://ziglang.org/")) == null);
     try std.testing.expectError(
         error.OutsideDeploymentPrefix,
-        targetPath(gpa, "/pancake/", "index.html", "/another-site/page/"),
+        targetPath(gpa, "/glowcap/", "index.html", "/another-site/page/"),
     );
 }

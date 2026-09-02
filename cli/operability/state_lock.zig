@@ -1,6 +1,6 @@
 //! Single-writer flock for CapTP product identity/state (ADR-0084).
 //!
-//! Product layout locks `$PANCAKE_STATE/lock` (beside `…/identity`) for the
+//! Product layout locks `$GLOWCAP_STATE/lock` (beside `…/identity`) for the
 //! process lifetime so two fronts cannot mint/rotate identity or clobber
 //! session sidecar state concurrently. A loose `--identity` seed locks
 //! `<path>.lock` beside the file instead. Released on process exit (and
@@ -30,7 +30,7 @@ pub fn stateDirOfIdentity(identity_path: []const u8) []const u8 {
 
 /// Lock path for an identity seed.
 ///
-/// Product layout (`$PANCAKE_STATE/identity`) locks `$PANCAKE_STATE/lock` so the
+/// Product layout (`$GLOWCAP_STATE/identity`) locks `$GLOWCAP_STATE/lock` so the
 /// whole state dir is single-writer. A loose `--identity` file (not named
 /// `identity`) locks `<path>.lock` beside the seed so two seeds under `/tmp`
 /// do not contend on `/tmp/lock`.
@@ -86,13 +86,13 @@ pub fn mapError(err: anyerror) u8 {
 
 /// Refuse a failed state-lock acquire, saying what went wrong.
 ///
-/// Another pancake holding the lock is the expected case and reads as such.
+/// Another glowcap holding the lock is the expected case and reads as such.
 /// Anything else is almost always the state directory being unwritable, and
 /// that used to exit silently: `init` is the first command in the quickstart,
 /// so a bare exit code and no output leaves a new user with nothing to go on.
 pub fn refuseLockFailure(io: Io, err: anyerror, identity_path: []const u8) u8 {
     if (err == error.Busy) {
-        log.err(io, "identity is locked by another pancake process", .{});
+        log.err(io, "identity is locked by another glowcap process", .{});
         return exit_codes.busy;
     }
     log.err(io, "cannot lock the state directory for identity {s}: {s}", .{ identity_path, @errorName(err) });

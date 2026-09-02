@@ -6,11 +6,11 @@
 //! following a resolution that is itself a promise.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
+const syrup = glowcap.ocapn.codec.syrup;
 
 const peer_fixture = @import("../support/peer_fixture.zig");
 
@@ -156,7 +156,7 @@ test "op:untag unwraps a variadic Goblins-shaped payload as its value List" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // pancake's Tagged carries the user-record payload as a slice (ADR-0021);
+    // glowcap's Tagged carries the user-record payload as a slice (ADR-0021);
     // a two-value payload unwraps to the List it is rather than guessing one.
     try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer21+>5\"point22+>");

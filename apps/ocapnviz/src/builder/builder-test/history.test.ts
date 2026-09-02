@@ -67,7 +67,7 @@ engineTest("a peer an author added survives a step of history", () => {
 	const e = new Engine(looseDoc());
 	const added = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 10, y: 10 },
 	});
 	assert(added);
@@ -109,7 +109,7 @@ engineTest("a discard drops the selection it took the entities from", () => {
 	const e = new Engine(looseDoc());
 	const added = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 10, y: 10 },
 	});
 	assert(added);
@@ -140,7 +140,7 @@ engineTest("undo all walks the selection back the way undo does", () => {
 	const e = new Engine(looseDoc());
 	const added = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 10, y: 10 },
 	});
 	assert(added);

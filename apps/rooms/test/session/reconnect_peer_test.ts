@@ -1,7 +1,7 @@
 // A durable Rooms session keeps retrying a directory across absence, stop, and
 // restart without pretending stale connectivity is live.
 
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import { RoomsSessionClient } from "../../lib/session/client.ts";
 import { loopbackTcpDesignator, roomsAddress, roomsHost, roomsLocator } from "../../lib/locator.ts";
 import { roomsPeerAuthority } from "../../lib/routes.ts";
@@ -19,8 +19,8 @@ import {
 import { announcedSturdyref, startRoomsSessionPeer } from "../support/standalone_peer.ts";
 
 roomsTest("a durable Rooms session retries a directory that was unavailable at startup", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-retry-" });
-	const roomDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-retry-room-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-retry-" });
+	const roomDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-retry-room-" });
 	const peerPort = freePort();
 	const roomPort = freePort();
 	const roomLocator = loopbackTcpDesignator(roomPort);

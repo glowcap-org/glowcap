@@ -1,6 +1,6 @@
 // Client custody for one passable room-manager sturdyref.
 
-import { Ref, retainCleanupFailures, type Session } from "@pancake/runtime";
+import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import { GOVERNS, LINK, MANAGED_ROOM_IDENTITY } from "../protocol.ts";
 import {

@@ -3,7 +3,7 @@
 // The gateway verbs live in `irc_gateway.ts`; this is the inventory those
 // verbs mutate. Constructing another server constructs another set of maps.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import type { IrcBridgeRoom } from "../../irc/bridge/room.ts";
 import type { IrcChannelMembership, IrcMemberConnection } from "../../irc/bridge/reader_connection.ts";
 import type { SaslPlainCredentials } from "../../irc/registration.ts";

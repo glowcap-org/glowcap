@@ -2,7 +2,7 @@
 # Per-arch SHA-256 for pinned toolchain downloads. Versions live in pins.sh.
 # Call only after pins.sh is sourced (racket_tarball_and_sha256 uses RACKET_VERSION).
 #
-# Single-value functions select through lib.sh's pancake_pick_by_arch: x86_64 first,
+# Single-value functions select through lib.sh's glowcap_pick_by_arch: x86_64 first,
 # then aarch64. Zig keys on OS-arch instead, and Racket returns a
 # tarball-and-hash pair, so each keeps its own case.
 
@@ -11,10 +11,10 @@
 # are pinned here beside the Linux ones.
 zig_sha256() {
     case "$(uname -s)-$(uname -m)" in
-        Linux-x86_64) echo "0825e4a55baf4a6647c3ce3077a7236c9ffec5b17e1ca0102a930fe33d631bc6" ;;
-        Linux-aarch64) echo "fc1899b14953c8561b0dc0be57c846e27723981b49446dbe32d74c342bb93764" ;;
-        Darwin-arm64) echo "7f8b084a7fd776a93bb45df36ee966402d260c955f2ea567ba7bde6f38e94ad1" ;;
-        Darwin-x86_64) echo "90468141517363cfb93c9aea18c3733ad4534f5abf71188bf8a10f42bff4e3bd" ;;
+        Linux-x86_64) echo "d9202688fc47f931fd64cc77b198412b070b21a3669d00ec469b58df35501e7d" ;;
+        Linux-aarch64) echo "39a83fad0c86ddfb947c597b5d0fb72536254f06772b8f6b4464c22cfb94a047" ;;
+        Darwin-arm64) echo "bde1e44e56610410142d6fcf45925bf94ea31000c5c3a7b6ee95839e7d26c44e" ;;
+        Darwin-x86_64) echo "d2279bff3e09e19473877a96906295145ce237db25278ac53896d279d25cd6e4" ;;
         *)
             echo "zig_sha256: unsupported platform: $(uname -s)-$(uname -m)" >&2
             return 1
@@ -23,19 +23,19 @@ zig_sha256() {
 }
 
 deno_sha256() {
-    pancake_pick_by_arch deno_sha256 \
-        "8b010a3b1a4a0188a67cdb8a7a27348b2a501af78aec7fc74f2ace167368d530" \
-        "6b7cae3a8fc4385a59dea3146fcb8bad7fea4230e0ad36a8c692afacbc254be0"
+    glowcap_pick_by_arch deno_sha256 \
+        "394f07f4da2bebe6ce6f1e7ce0fa16429b29b08c35e3fac3fe25972676dff4b2" \
+        "9a46afc6c392c7cd2ff71a31558935545b46408d0e87f7a86908c712721c046e"
 }
 
 node_sha256() {
-    pancake_pick_by_arch node_sha256 \
-        "982aa24dd8be4c889c6a8ab337ddff3b0896645b20f4239356e80552c16277ee" \
-        "afc7a004018485092ac8985b817b0d5684472bd9472e0b57d2ab88737e50090d"
+    glowcap_pick_by_arch node_sha256 \
+        "3e301118d7df53d563b7e96c1617545f26e2f76f9724be668d6cab65c15dda5d" \
+        "23c1b4d19e2f12a7d06fe8aa3d6e0e4923cf77a47e13c5ccdf32fadaa33960f2"
 }
 
 bun_sha256() {
-    pancake_pick_by_arch bun_sha256 \
+    glowcap_pick_by_arch bun_sha256 \
         "2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452" \
         "4b1a332ee861983eb93bcfe6f770fff94e3e31b2c388bdaea3c8ed35e58eed0e"
 }
@@ -43,27 +43,27 @@ bun_sha256() {
 # Published beside each rustup-init binary as its .sha256 file, e.g.
 # https://static.rust-lang.org/rustup/archive/<ver>/x86_64-unknown-linux-gnu/rustup-init.sha256
 rustup_init_sha256() {
-    pancake_pick_by_arch rustup_init_sha256 \
-        "4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10" \
-        "9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792"
+    glowcap_pick_by_arch rustup_init_sha256 \
+        "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71" \
+        "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433"
 }
 
 opencode_sha256() {
-    pancake_pick_by_arch opencode_sha256 \
-        "d910c3ed7613bb5791a328904615d41cc25b7d3a6b470e3199ab0426a995b38a" \
-        "d30d2cba74617f4e7b96e25563c9572ffe453f9eae70fc0df16286813537ee72"
+    glowcap_pick_by_arch opencode_sha256 \
+        "7c20c1ffa91bcca0ac903752260bcc36307dff656833baead2f5ef3b224b16c6" \
+        "90b99cc2356fea188d67352418ad7223559841178142f719848ca2c88a689c3e"
 }
 
 cursor_agent_sha256() {
-    pancake_pick_by_arch cursor_agent_sha256 \
-        "bfff4bf6f4e9dd30c1d0ef0a70b6077b074015dd2948e4c50685d53afdcfce5a" \
-        "ea13f92e295f523a99ce8d8f57d6894d21e5d1e2d030ffad718ccd5955ca2eed"
+    glowcap_pick_by_arch cursor_agent_sha256 \
+        "7e306db5750219a99c00ed517fe8b235d3c54e4ca5f77e2ff160cc97ce707798" \
+        "cf5db6b5047b3280d8a49471cfd41beb1d5e475774177df5df2851857ab6514a"
 }
 
 uv_sha256() {
-    pancake_pick_by_arch uv_sha256 \
-        "68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2" \
-        "9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31"
+    glowcap_pick_by_arch uv_sha256 \
+        "ec7a99cd05e0cd7f80243f135ce1361c76835cb0ee60055d14d20eba8eba1460" \
+        "c36fe17937ff6bd16dc42fc13854b5465999fcab2efe0af559381e945e3c6001"
 }
 
 racket_tarball_and_sha256() {

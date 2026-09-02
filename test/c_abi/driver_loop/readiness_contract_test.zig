@@ -7,7 +7,7 @@ const std = @import("std");
 
 const c = @import("c_abi");
 const cdrv = @import("c_abi_driver");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ws_relay = @import("../../support/ws_relay.zig");
 
 const harness = @import("harness.zig");
@@ -73,7 +73,7 @@ fn expectMultiplexedIoContractFailure(
     const owned_loop = try newLoop(seed);
     defer owned_loop.deinit();
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .connect_io = true,
         .read_result = read_result,
         .write_result = write_result,
@@ -82,18 +82,18 @@ fn expectMultiplexedIoContractFailure(
     var table = resident.table();
     try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "invalid-io"));
 
-    var locator: ?*c.PancakeLocator = null;
-    try expectOk(c.pancake_locator_new("invalid-io", "invalid-io".len, "endpoint", "endpoint".len, c.PANCAKE_HINTS_MAP, &locator));
-    defer c.pancake_locator_release(locator);
-    var locator_view: ?*const c.PancakeLocatorView = null;
-    try expectOk(c.pancake_locator_borrow_view(locator, &locator_view));
+    var locator: ?*c.GlowcapLocator = null;
+    try expectOk(c.glowcap_locator_new("invalid-io", "invalid-io".len, "endpoint", "endpoint".len, c.GLOWCAP_HINTS_MAP, &locator));
+    defer c.glowcap_locator_release(locator);
+    var locator_view: ?*const c.GlowcapLocatorView = null;
+    try expectOk(c.glowcap_locator_borrow_view(locator, &locator_view));
     var operation_id: u64 = 0;
-    try expectOk(cdrv.pancake_driver_dial(owned_loop.raw, locator_view, null, &operation_id));
+    try expectOk(cdrv.glowcap_driver_dial(owned_loop.raw, locator_view, null, &operation_id));
     try std.testing.expectEqual(@as(u64, 1), operation_id);
     var failed = false;
     for (0..2) |_| {
-        const code = cdrv.pancake_driver_step(owned_loop.raw, 0);
-        if (code == c.PANCAKE_ERR_INVALID_ARGUMENT) {
+        const code = cdrv.glowcap_driver_step(owned_loop.raw, 0);
+        if (code == c.GLOWCAP_ERR_INVALID_ARGUMENT) {
             failed = true;
             break;
         }
@@ -113,7 +113,7 @@ test "contradictory multiplexed connect success retains rollback close failure" 
     const owned_loop = try newLoop(0x6f);
     defer owned_loop.deinit();
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .connect_io = true,
         .finish_connect_success_report = true,
         .conn_close_failure = true,
@@ -122,25 +122,25 @@ test "contradictory multiplexed connect success retains rollback close failure" 
     var table = resident.table();
     try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "contradictory-connect"));
 
-    var locator: ?*c.PancakeLocator = null;
-    try expectOk(c.pancake_locator_new(
+    var locator: ?*c.GlowcapLocator = null;
+    try expectOk(c.glowcap_locator_new(
         "contradictory-connect",
         "contradictory-connect".len,
         "endpoint",
         "endpoint".len,
-        c.PANCAKE_HINTS_MAP,
+        c.GLOWCAP_HINTS_MAP,
         &locator,
     ));
-    defer c.pancake_locator_release(locator);
-    var view: ?*const c.PancakeLocatorView = null;
-    try expectOk(c.pancake_locator_borrow_view(locator, &view));
+    defer c.glowcap_locator_release(locator);
+    var view: ?*const c.GlowcapLocatorView = null;
+    try expectOk(c.glowcap_locator_borrow_view(locator, &view));
     var operation_id: u64 = 0;
-    try expectOk(cdrv.pancake_driver_dial(owned_loop.raw, view, null, &operation_id));
+    try expectOk(cdrv.glowcap_driver_dial(owned_loop.raw, view, null, &operation_id));
 
     var failed = false;
     for (0..2) |_| {
-        const code = cdrv.pancake_driver_step(owned_loop.raw, 0);
-        if (code == c.PANCAKE_ERR_INVALID_ARGUMENT) {
+        const code = cdrv.glowcap_driver_step(owned_loop.raw, 0);
+        if (code == c.GLOWCAP_ERR_INVALID_ARGUMENT) {
             failed = true;
             break;
         }
@@ -149,7 +149,7 @@ test "contradictory multiplexed connect success retains rollback close failure" 
     try std.testing.expect(failed);
     try std.testing.expectEqual(@as(usize, 1), resident.conn_close_calls);
     var message: [512]u8 = undefined;
-    const message_len = @min(cdrv.pancake_driver_last_error(&message, message.len), message.len);
+    const message_len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ProviderContract") != null);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ContradictoryConnectFailure") != null);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "2 secondary failures") != null);
@@ -159,7 +159,7 @@ test "multiplexed connect failure cannot leak a contradictory connection output"
     const owned_loop = try newLoop(0x70);
     defer owned_loop.deinit();
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .connect_io = true,
         .finish_connect_failure_output = true,
         .conn_close_failure = true,
@@ -168,25 +168,25 @@ test "multiplexed connect failure cannot leak a contradictory connection output"
     var table = resident.table();
     try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "failed-connect-output"));
 
-    var locator: ?*c.PancakeLocator = null;
-    try expectOk(c.pancake_locator_new(
+    var locator: ?*c.GlowcapLocator = null;
+    try expectOk(c.glowcap_locator_new(
         "failed-connect-output",
         "failed-connect-output".len,
         "endpoint",
         "endpoint".len,
-        c.PANCAKE_HINTS_MAP,
+        c.GLOWCAP_HINTS_MAP,
         &locator,
     ));
-    defer c.pancake_locator_release(locator);
-    var view: ?*const c.PancakeLocatorView = null;
-    try expectOk(c.pancake_locator_borrow_view(locator, &view));
+    defer c.glowcap_locator_release(locator);
+    var view: ?*const c.GlowcapLocatorView = null;
+    try expectOk(c.glowcap_locator_borrow_view(locator, &view));
     var operation_id: u64 = 0;
-    try expectOk(cdrv.pancake_driver_dial(owned_loop.raw, view, null, &operation_id));
+    try expectOk(cdrv.glowcap_driver_dial(owned_loop.raw, view, null, &operation_id));
 
     var failed = false;
     for (0..2) |_| {
-        const code = cdrv.pancake_driver_step(owned_loop.raw, 0);
-        if (code == c.PANCAKE_ERR_INVALID_ARGUMENT) {
+        const code = cdrv.glowcap_driver_step(owned_loop.raw, 0);
+        if (code == c.GLOWCAP_ERR_INVALID_ARGUMENT) {
             failed = true;
             break;
         }
@@ -195,7 +195,7 @@ test "multiplexed connect failure cannot leak a contradictory connection output"
     try std.testing.expect(failed);
     try std.testing.expectEqual(@as(usize, 1), resident.conn_close_calls);
     var message: [512]u8 = undefined;
-    const message_len = @min(cdrv.pancake_driver_last_error(&message, message.len), message.len);
+    const message_len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ProviderContract") != null);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ContradictoryConnectRefusal") != null);
     // The Runtime barrier retains the contract verdict, the first exact
@@ -207,7 +207,7 @@ test "multiplexed connect failure cannot leak a contradictory connection output"
 
 test "a dial resident cannot smuggle unsupported readiness events" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .invalid_mask = true,
     };
     defer resident.wake.deinit();
@@ -217,12 +217,12 @@ test "a dial resident cannot smuggle unsupported readiness events" {
     var table = resident.table();
     try expectOk(addMultiplexedProvider(loop, &table, "invalid-count"));
     _ = try resident.wake.nudge();
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cdrv.pancake_driver_step(loop, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
 }
 
 test "multiplexed readiness failure preserves its exact chain" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .drain_failure = true,
     };
     defer resident.wake.deinit();
@@ -232,9 +232,9 @@ test "multiplexed readiness failure preserves its exact chain" {
     try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "failed-drain"));
     _ = try resident.wake.nudge();
 
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, cdrv.pancake_driver_step(owned_loop.raw, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_step(owned_loop.raw, 0));
     var message: [256]u8 = undefined;
-    const len = @min(cdrv.pancake_driver_last_error(&message, message.len), message.len);
+    const len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
     try std.testing.expect(std.mem.indexOf(u8, message[0..len], "InjectedReadinessFailure") != null);
     try std.testing.expect(std.mem.indexOf(u8, message[0..len], "InjectedDrainCleanupFailure") != null);
     try std.testing.expect(std.mem.indexOf(u8, message[0..len], "2 secondary failures") != null);
@@ -243,7 +243,7 @@ test "multiplexed readiness failure preserves its exact chain" {
 test "multiplexed readiness drain rejects contradictory failure reports" {
     inline for (.{ "success-with-failure", "failure-without-report" }, 0..) |name, index| {
         var resident = InvalidMultiplexedResident{
-            .wake = try pancake.net.wake_channel.WakeChannel.open(),
+            .wake = try glowcap.net.wake_channel.WakeChannel.open(),
             .drain_success_report = index == 0,
             .drain_empty_failure = index == 1,
         };
@@ -254,15 +254,15 @@ test "multiplexed readiness drain rejects contradictory failure reports" {
         try expectOk(addMultiplexedProvider(owned_loop.raw, &table, name));
         _ = try resident.wake.nudge();
         try std.testing.expectEqual(
-            c.PANCAKE_ERR_INVALID_ARGUMENT,
-            cdrv.pancake_driver_step(owned_loop.raw, 0),
+            c.GLOWCAP_ERR_INVALID_ARGUMENT,
+            cdrv.glowcap_driver_step(owned_loop.raw, 0),
         );
     }
 }
 
 test "a resident cannot combine connect readiness with connection events" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .connect_with_readable = true,
     };
     defer resident.wake.deinit();
@@ -272,5 +272,5 @@ test "a resident cannot combine connect readiness with connection events" {
     var table = resident.table();
     try expectOk(addMultiplexedProvider(loop, &table, "combined-connect"));
     _ = try resident.wake.nudge();
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cdrv.pancake_driver_step(loop, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
 }

@@ -3,7 +3,7 @@
 //! A server child and a load child keep descriptor limits and RSS accounting
 //! independent. The server publishes one loopback listener per bounded reactor
 //! shard; spreading connections across destination ports avoids confusing the
-//! loopback ephemeral-port range with Pancake capacity. A step is successful
+//! loopback ephemeral-port range with Glowcap capacity. A step is successful
 //! only after every client has completed a signed handshake and fetched the
 //! published capability while all server sessions remain open.
 

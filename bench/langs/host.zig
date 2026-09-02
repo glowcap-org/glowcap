@@ -1,5 +1,5 @@
 //! The fixed reference host for the per-language consumer-cost bench
-//! (`zig build bench-langs`). It serves the bench taskboard app on pancake's
+//! (`zig build bench-langs`). It serves the bench taskboard app on glowcap's
 //! native Zig runtime, so the only thing that varies between bench rows is the
 //! client language dialing in, the server adds no Chez, V8, or CPython noise.
 //!
@@ -18,12 +18,12 @@
 //!   {"v":1,"event":"ready","listen":"127.0.0.1:<port>"}
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const host_addr = "127.0.0.1";

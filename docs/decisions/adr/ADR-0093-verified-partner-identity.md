@@ -48,7 +48,7 @@ verified session signer and any independent durable-authentication provenance.
 
 Add `driver_core.PartnerIdentity` and `Host.partnerIdentity(session)`, expose
 them natively as `driver.Session.partnerIdentity()`, and wrap them for C as
-`pancake_host_session_partner_identity` with a `PancakePartnerIdentity` view
+`glowcap_host_session_partner_identity` with a `GlowcapPartnerIdentity` view
 struct.
 
 **The policy lives in the core, not at the ABI.** The first cut read
@@ -124,9 +124,9 @@ Fresh session keys are normally distinct from durable locator keys.
   `src/c_abi/host` gains one view struct and two entry points, mirrored in all
   four bindings and pinned by the generated layout facts.
 - `NotAWirePosition` was mapped while the neighbouring arms were being written:
-  it fell through to `PANCAKE_ERR_INTERNAL` while the generated header for
-  ADR-0092's `pancake_host_session_release_import` promised
-  `PANCAKE_ERR_INVALID_ARGUMENT`. The mapping now matches the header.
+  it fell through to `GLOWCAP_ERR_INTERNAL` while the generated header for
+  ADR-0092's `glowcap_host_session_release_import` promised
+  `GLOWCAP_ERR_INVALID_ARGUMENT`. The mapping now matches the header.
 - `test/driver/core_host/identity_test.zig` holds the report contract: signature
   verification gates success, the canonical comparison remains literal, raw
   keyed-TCP locator claims stay unauthenticated, and matching channel proof

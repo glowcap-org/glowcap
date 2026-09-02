@@ -259,7 +259,7 @@ engineTest(
 			...e.doc.entities,
 			peers: {
 				...e.doc.entities?.peers,
-				eternal_peer: { profile: "pancake" },
+				eternal_peer: { profile: "glowcap" },
 			},
 		};
 		e.seekTo(0);
@@ -315,7 +315,7 @@ engineTest(
 					t: 0,
 					kind: "peer-joined",
 					peerId: "a",
-					profile: "pancake",
+					profile: "glowcap",
 				},
 				{
 					id: "p2",

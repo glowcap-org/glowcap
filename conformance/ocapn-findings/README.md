@@ -1,6 +1,6 @@
 # Pinned OCapN findings
 
-This directory turns protocol discrepancies found while reviewing pancake into
+This directory turns protocol discrepancies found while reviewing glowcap into
 small, neutral, reproducible checks over the exact upstream revisions in the
 repository. It does not decide which participant is correct and it does not
 modify any upstream checkout.
@@ -16,7 +16,7 @@ exact text each one holds:
 | OCapN test suite (`utils/captp_types.py`) | `assert len(record.args) == 3`, then `wants_partial = record.args[2]` |
 | Spritely Goblins (`goblins/ocapn/captp.rkt`) | `(to-desc listener-desc wants-partial?)` |
 
-pancake implements the three-operand form, following the suite and Goblins
+glowcap implements the three-operand form, following the suite and Goblins
 rather than the draft. That is a choice about interoperating with what runs
 today, not a claim about which shape is correct.
 
@@ -29,13 +29,13 @@ Two pinned sources disagree on the shape accepted for a peer locator's hints:
 | draft Netlayers specification | hints are “just a mapping of information” |
 | Spritely Goblins (`goblins/ocapn/structs-urls.rkt`) | the constructor contract accepts only false or a string |
 
-pancake currently represents non-empty hints as a Syrup dict. The constructor
+glowcap currently represents non-empty hints as a Syrup dict. The constructor
 contract applies only where Goblins-side code builds a locator. The wire
 unmarshaller constructs nodes through the raw constructor, so a dict-hinted
 locator arriving on the wire does decode, and `zig build goblins-gift-hints`
 observes that live. This finding records only the pinned source mismatch; it
 does not decide which hints shape upstream should choose or make a
-pancake-specific extension an OCapN finding.
+glowcap-specific extension an OCapN finding.
 
 ## Handoff withdrawal looks up sessions by the full node value
 
@@ -82,7 +82,7 @@ the Gifter-Exporter coordinator's remote count, and rejects the second zero as
 an invalid handoff certificate. The same mismatch affects a Receiver that
 restarts its session-local counter after reconnecting.
 
-pancake keeps accepted replay authority on each Receiver-Exporter session. Its
+glowcap keeps accepted replay authority on each Receiver-Exporter session. Its
 automatic V1 path uses a Node-lifetime issuance cursor to interoperate across
 replacement sessions belonging to one Node, but independent nodes neither
 share nor coordinate protocol state. Doing so would erase the session scope
@@ -98,8 +98,8 @@ The draft fixes the gift id at a width the suite that tests it does not use:
 | draft CapTP specification, `deposit-gift` | `A gift ID that is bytearray of 32 generated random bytes.` |
 | OCapN test suite (`tests/third_party_handoffs.py`) | `def make_valid_handoff(self, gift_id=b"my-gift")` — seven bytes, in the case named "valid" |
 
-pancake mints 32 bytes on every profile and holds inbound gift ids to that width
-on `pancake-next`, where both ends are its own. It does not hold the `1.0`
+glowcap mints 32 bytes on every profile and holds inbound gift ids to that width
+on `glowcap-next`, where both ends are its own. It does not hold the `1.0`
 profile to it, because refusing a give retires the session before the handoff is
 read, and the suite's own valid-handoff fixture would lose its Exporter and
 Receiver cases to a closed socket. That is the same choice recorded for
@@ -107,7 +107,7 @@ Receiver cases to a closed socket. That is the same choice recorded for
 correct to upstream.
 
 Width is not what makes the id safe in either direction. The signed envelope is
-the authority a redeem checks. pancake also keys handoff coordination by a
+the authority a redeem checks. glowcap also keys handoff coordination by a
 fixed-size tag derived from the id rather than by the id itself, so an
 attacker-chosen length reaches no coordination state, and a collision costs one
 bounded retry.
@@ -125,10 +125,10 @@ assigns `e2r_session`, so when a test fails before the accept that creates it,
 the `is not None` read itself raises `AttributeError`. Every early failure in
 that class therefore reports twice, and the second traceback hides the first.
 
-This is latent while the class passes, which it does against pancake today. It
+This is latent while the class passes, which it does against glowcap today. It
 matters when something breaks: whoever reads the failure sees an attribute
 error about test bookkeeping instead of the assertion that actually fired.
-pancake carries no workaround, because the suite's verdict is unaffected while
+glowcap carries no workaround, because the suite's verdict is unaffected while
 its tests pass; this note exists so a future red run here is read past the
 second traceback.
 
@@ -173,14 +173,14 @@ looking that value up. Over `onion` a peer can announce any location it likes,
 and the accepting side has nothing to check it against.
 
 This is a note about where the protocol's own machinery needs a name, not a claim
-that a peer should be identified in general. pancake reports an accepted onion
+that a peer should be identified in general. glowcap reports an accepted onion
 partner's location as unproven for the same reason (ADR-0108), and only code that
 authenticated an end-to-end channel may report a proved peer.
 
 The same netlayer file pins a second, practical observation: the dial arm matches
 `[(ocapn-node 'onion designator #f)`, so a Goblins peer handed an onion locator
 carrying hints does not dial it at all. A peer whose wire-carried onion locators
-are hinted is unreachable from Goblins, which is why pancake keeps every onion
+are hinted is unreachable from Goblins, which is why glowcap keeps every onion
 locator the wire carries bare (ADR-0108, ADR-0118).
 
 The refusal is the dial's alone. The CapTP hello arm in `captp.rkt` matches any
@@ -188,13 +188,13 @@ The refusal is the dial's alone. The CapTP hello arm in `captp.rkt` matches any
 and stores the node verbatim; its location-mismatch check is commented out and
 its dial-back remains absent. The hinted-hello probe inside `zig build
 goblins-onion` observes this live on onion itself. A real vat accepts a hello
-whose signed onion location carries the `pancake/*` profile hints, ignores
+whose signed onion location carries the `glowcap/*` profile hints, ignores
 them, settles the baseline, and answers an echo call across the circuit.
 
 ## Upstream-use note
 
-These findings and their checker were prepared with AI assistance during a pancake
-repository review, so they are evidence for the pancake maintainer rather than
+These findings and their checker were prepared with AI assistance during a glowcap
+repository review, so they are evidence for the glowcap maintainer rather than
 an upstream-ready report, and nobody should submit this text or script as-is.
 
 If you would like it filed upstream, ask. It will be reproduced by hand,

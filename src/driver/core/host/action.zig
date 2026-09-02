@@ -51,7 +51,7 @@ pub fn retainFailureMessage(allocator: std.mem.Allocator, message: []const u8) R
 ///
 /// `dial` carries the logical ticket and stable route index; the dial view
 /// lives on the node pending row (`Host.pendingDial` / C
-/// `pancake_host_pending_dial`).
+/// `glowcap_host_pending_dial`).
 pub const HostAction = union(enum) {
     /// Dial the exporter named by this attempt's active pending-dial view with
     /// this host's identity, then report

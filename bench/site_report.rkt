@@ -27,8 +27,8 @@
 ;; theme resolves to anyway, and it is also what renders if these are ever
 ;; viewed outside the page.
 (define TEAL "var(--teal, #257f88)")           ; Goblins / Syrup
-(define AMBER "var(--accent, #c76f18)")        ; pancake / Cap'n Proto
-(define GREEN "var(--dia-green, #4f8a5b)")     ; pancake + time-travel (third goblins-compare series)
+(define AMBER "var(--accent, #c76f18)")        ; glowcap / Cap'n Proto
+(define GREEN "var(--dia-green, #4f8a5b)")     ; glowcap + time-travel (third goblins-compare series)
 (define INK "var(--ink, #3a3027)")
 (define SOFT "var(--ink-soft, #6b5d4d)")
 
@@ -91,12 +91,12 @@
   h)
 
 ;; goblins: parsed from the suite's generated markdown table. Returns a hash
-;; suite -> (hash 'goblins (cons p50 rps) 'pancake (cons p50 rps) 'pancake-tt (cons p50 rps)).
-;; `pancake-tt` must precede `pancake` in the alternation so the longer backend
-;; name wins; a bare `pancake` alternative would match its prefix and skip the row.
+;; suite -> (hash 'goblins (cons p50 rps) 'glowcap (cons p50 rps) 'glowcap-tt (cons p50 rps)).
+;; `glowcap-tt` must precede `glowcap` in the alternation so the longer backend
+;; name wins; a bare `glowcap` alternative would match its prefix and skip the row.
 (define (parse-goblins-md md)
   (define h (make-hash))
-  (for ([m (regexp-match* #px"\\| (\\S+) \\| (goblins|pancake-tt|pancake) \\| ([0-9.]+) \\| [0-9.]+ \\| [0-9.]+ \\| (\\d+) \\|"
+  (for ([m (regexp-match* #px"\\| (\\S+) \\| (goblins|glowcap-tt|glowcap) \\| ([0-9.]+) \\| [0-9.]+ \\| [0-9.]+ \\| (\\d+) \\|"
                           md #:match-select values)])
     (define suite (list-ref m 1))
     (define cur (hash-ref h suite (lambda () (make-hash))))
@@ -104,7 +104,7 @@
     (hash-set! h suite cur))
   h)
 
-;; snapshot (pancake, bench/snapshot_bench.zig): the O(objects) and flat-in-bytes
+;; snapshot (glowcap, bench/snapshot_bench.zig): the O(objects) and flat-in-bytes
 ;; sweeps. Each number is a median.
 (define (parse-snapshot out)
   (define by-objects
@@ -289,33 +289,33 @@
 (define (goblins-region g)
   (define suites '("echo" "registry" "mint" "taskboard"))
   (define (val suite backend sel) (sel (hash-ref (hash-ref g suite) backend)))
-  ;; Three series: Goblins, the pancake binding, and the pancake binding with
+  ;; Three series: Goblins, the glowcap binding, and the glowcap binding with
   ;; time-travel on for every actor (GREEN), measured the same way over the wire.
   (define lat (svg-bars suites
                         (list (list "Goblins" TEAL (for/list ([s suites]) (val s 'goblins car)))
-                              (list "pancake" AMBER (for/list ([s suites]) (val s 'pancake car)))
-                              (list "pancake + time-travel" GREEN (for/list ([s suites]) (val s 'pancake-tt car))))
+                              (list "glowcap" AMBER (for/list ([s suites]) (val s 'glowcap car)))
+                              (list "glowcap + time-travel" GREEN (for/list ([s suites]) (val s 'glowcap-tt car))))
                         (lambda (v) (~r v #:precision 2))))
   (define tput (svg-bars suites
                          (list (list "Goblins" TEAL (for/list ([s suites]) (val s 'goblins cdr)))
-                               (list "pancake" AMBER (for/list ([s suites]) (val s 'pancake cdr)))
-                               (list "pancake + time-travel" GREEN (for/list ([s suites]) (val s 'pancake-tt cdr))))
+                               (list "glowcap" AMBER (for/list ([s suites]) (val s 'glowcap cdr)))
+                               (list "glowcap + time-travel" GREEN (for/list ([s suites]) (val s 'glowcap-tt cdr))))
                          (lambda (v) (~r v #:precision 0))))
   (string-append
-   (legend (list "Goblins" TEAL) (list "pancake binding" AMBER) (list "pancake binding + time-travel" GREEN))
+   (legend (list "Goblins" TEAL) (list "glowcap binding" AMBER) (list "glowcap binding + time-travel" GREEN))
    (charts (figure "Latency (p50 ms, lower is better)." lat)
            (figure "Throughput (req/s, higher is better)." tput))
-   (html-table '("suite" "Goblins p50 (ms)" "pancake p50 (ms)" "pancake +tt p50 (ms)"
-                 "Goblins req/s" "pancake req/s" "pancake +tt req/s")
+   (html-table '("suite" "Goblins p50 (ms)" "glowcap p50 (ms)" "glowcap +tt p50 (ms)"
+                 "Goblins req/s" "glowcap req/s" "glowcap +tt req/s")
                (for/list ([s suites])
-                 (list s (~r (val s 'goblins car) #:precision 2) (~r (val s 'pancake car) #:precision 2)
-                       (~r (val s 'pancake-tt car) #:precision 2)
-                       (commas (val s 'goblins cdr)) (commas (val s 'pancake cdr))
-                       (commas (val s 'pancake-tt cdr)))))))
+                 (list s (~r (val s 'goblins car) #:precision 2) (~r (val s 'glowcap car) #:precision 2)
+                       (~r (val s 'glowcap-tt car) #:precision 2)
+                       (commas (val s 'goblins cdr)) (commas (val s 'glowcap cdr))
+                       (commas (val s 'glowcap-tt cdr)))))))
 
-;; snapshot / restore comparison. p = pancake hash, g = goblins hash. Rows align
+;; snapshot / restore comparison. p = glowcap hash, g = goblins hash. Rows align
 ;; by index across both. Snapshot and restore are shown in microseconds by actor
-;; count. Measured natively (pancake Zig, Goblins Racket), so absolute times are
+;; count. Measured natively (glowcap Zig, Goblins Racket), so absolute times are
 ;; not directly comparable. Both runtimes snapshot in O(objects) and stay flat
 ;; as object size grows.
 (define (snapshot-region p g)
@@ -326,23 +326,23 @@
   (define snap-svg
     (svg-bars (for/list ([row (in-list p-obj)]) (number->string (car row)))
               (list (list "Goblins" TEAL (for/list ([row (in-list g-obj)]) (us (cadr row))))
-                    (list "pancake" AMBER (for/list ([row (in-list p-obj)]) (us (cadr row)))))
+                    (list "glowcap" AMBER (for/list ([row (in-list p-obj)]) (us (cadr row)))))
               (lambda (v) (~r v #:precision 1))))
   (define restore-svg
     (svg-bars (for/list ([row (in-list p-obj)]) (number->string (car row)))
               (list (list "Goblins" TEAL (for/list ([row (in-list g-obj)]) (us (caddr row))))
-                    (list "pancake" AMBER (for/list ([row (in-list p-obj)]) (us (caddr row)))))
+                    (list "glowcap" AMBER (for/list ([row (in-list p-obj)]) (us (caddr row)))))
               (lambda (v) (~r v #:precision 1))))
   (define small (first p-bytes))
   (define big (last p-bytes))
   (string-append
-   (legend (list "Goblins" TEAL) (list "pancake" AMBER))
+   (legend (list "Goblins" TEAL) (list "glowcap" AMBER))
    (charts (figure "Snapshot (µs by actor count)." snap-svg)
            (figure "Restore (µs by actor count)." restore-svg))
-   (html-table '("actors" "pancake snapshot µs" "Goblins snapshot µs" "pancake restore µs" "Goblins restore µs")
+   (html-table '("actors" "glowcap snapshot µs" "Goblins snapshot µs" "glowcap restore µs" "Goblins restore µs")
                (for/list ([pr (in-list p-obj)] [gr (in-list g-obj)])
                  (list (car pr) (r1 (us (cadr pr))) (r1 (us (cadr gr))) (r1 (us (caddr pr))) (r1 (us (caddr gr))))))
-   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. The runtimes differ, so their absolute times are not directly comparable; the shared O(objects) trend is the result. On restore, pancake frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
+   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. The runtimes differ, so their absolute times are not directly comparable; the shared O(objects) trend is the result. On restore, glowcap frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
            (r1 (us (cadr small))) (car small)
            (r1 (us (cadr big))) (car big))))
 
@@ -412,7 +412,7 @@
   (define racket-v
     (let ([m (regexp-match #px"v([0-9.]+) \\[(\\w+)\\]" (sh1 "racket --version"))])
       (if m (format "Racket v~a ~a" (list-ref m 1) (string-upcase (list-ref m 2))) "Racket")))
-  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>pancake</code> archives built by Zig ~a in ReleaseFast. The regeneration command is at the bottom of the page.</em></p>"
+  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>glowcap</code> archives built by Zig ~a in ReleaseFast. The regeneration command is at the bottom of the page.</em></p>"
           (sh1 "date +%Y-%m-%d") (sh1 "uname -srm") (sh1 "nproc") gib
           racket-v goblins-v (sh1 "zig version")))
 

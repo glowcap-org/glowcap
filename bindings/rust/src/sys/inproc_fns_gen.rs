@@ -4,75 +4,75 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libpancake_net_transport_inproc`. The
+// The raw extern block of `libglowcap_net_transport_inproc`. The
 // hand-written sibling (`inproc.rs`) owns the opaque types and re-exports
-// this block, so consumers keep their `sys::inproc::pancake_inproc_*` paths.
+// this block, so consumers keep their `sys::inproc::glowcap_inproc_*` paths.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uchar, c_uint};
 
-use super::inproc::{PancakeInprocConn, PancakeInprocListener, PancakeInprocNetlayer};
-use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
+use super::inproc::{GlowcapInprocConn, GlowcapInprocListener, GlowcapInprocNetlayer};
+use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame};
 
 extern "C" {
-	pub fn pancake_inproc_archive_fingerprint() -> u64;
-	pub fn pancake_inproc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_inproc_netlayer_new(out_netlayer: *mut *mut PancakeInprocNetlayer) -> c_int;
-	pub fn pancake_inproc_netlayer_release(netlayer: *mut PancakeInprocNetlayer);
-	pub fn pancake_inproc_connect(
-		netlayer: *mut PancakeInprocNetlayer,
+	pub fn glowcap_inproc_archive_fingerprint() -> u64;
+	pub fn glowcap_inproc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_inproc_netlayer_new(out_netlayer: *mut *mut GlowcapInprocNetlayer) -> c_int;
+	pub fn glowcap_inproc_netlayer_release(netlayer: *mut GlowcapInprocNetlayer);
+	pub fn glowcap_inproc_connect(
+		netlayer: *mut GlowcapInprocNetlayer,
 		designator: *const c_uchar,
 		designator_len: usize,
 		codec: c_uint,
 		max_frame_bytes: usize,
-		out_conn: *mut *mut PancakeInprocConn,
+		out_conn: *mut *mut GlowcapInprocConn,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_inproc_listen(
-		netlayer: *mut PancakeInprocNetlayer,
+	pub fn glowcap_inproc_listen(
+		netlayer: *mut GlowcapInprocNetlayer,
 		designator: *const c_uchar,
 		designator_len: usize,
-		out_listener: *mut *mut PancakeInprocListener,
+		out_listener: *mut *mut GlowcapInprocListener,
 	) -> c_int;
-	pub fn pancake_inproc_listener_readiness_fd(listener: *mut PancakeInprocListener, out_fd: *mut i32) -> c_int;
-	pub fn pancake_inproc_accept(
-		listener: *mut PancakeInprocListener,
+	pub fn glowcap_inproc_listener_readiness_fd(listener: *mut GlowcapInprocListener, out_fd: *mut i32) -> c_int;
+	pub fn glowcap_inproc_accept(
+		listener: *mut GlowcapInprocListener,
 		codec: c_uint,
 		max_frame_bytes: usize,
-		out_conn: *mut *mut PancakeInprocConn,
+		out_conn: *mut *mut GlowcapInprocConn,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_inproc_conn_read_frame(
-		conn: *mut PancakeInprocConn,
-		out_frame: *mut PancakeManagedFrame,
+	pub fn glowcap_inproc_conn_read_frame(
+		conn: *mut GlowcapInprocConn,
+		out_frame: *mut GlowcapManagedFrame,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_inproc_conn_write_frame(
-		conn: *mut PancakeInprocConn,
-		frame: *const PancakeFrame,
+	pub fn glowcap_inproc_conn_write_frame(
+		conn: *mut GlowcapInprocConn,
+		frame: *const GlowcapFrame,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_inproc_conn_shutdown(conn: *mut PancakeInprocConn);
-	pub fn pancake_inproc_conn_release(conn: *mut PancakeInprocConn);
-	pub fn pancake_inproc_listener_shutdown(listener: *mut PancakeInprocListener);
-	pub fn pancake_inproc_listener_release(
-		listener: *mut PancakeInprocListener,
+	pub fn glowcap_inproc_conn_shutdown(conn: *mut GlowcapInprocConn);
+	pub fn glowcap_inproc_conn_release(conn: *mut GlowcapInprocConn);
+	pub fn glowcap_inproc_listener_shutdown(listener: *mut GlowcapInprocListener);
+	pub fn glowcap_inproc_listener_release(
+		listener: *mut GlowcapInprocListener,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_inproc_clear_last_error();
-	pub fn pancake_inproc_netlayer_new_in(
-		context: *mut PancakeContext,
-		out_netlayer: *mut *mut PancakeInprocNetlayer,
+	pub fn glowcap_inproc_clear_last_error();
+	pub fn glowcap_inproc_netlayer_new_in(
+		context: *mut GlowcapContext,
+		out_netlayer: *mut *mut GlowcapInprocNetlayer,
 	) -> c_int;
 }

@@ -1,7 +1,7 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
+const model = glowcap.ocapn.model;
 const protocol_oracle = @import("protocol_oracle.zig");
 
 test "protocol oracle enumerates every shipped message arm" {

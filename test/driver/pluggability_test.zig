@@ -16,15 +16,15 @@
 //! uses.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const frame_cap = 4096;

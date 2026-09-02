@@ -5,7 +5,7 @@ import { ffi, NULL, type Ptr } from "../internal/ffi/runtime.ts";
 export function requireOffThreadFfi(transport: string, operation: string): void {
 	if (ffi.offloadsBlockingCalls()) return;
 	throw new Error(
-		`pancake ${transport} ${operation} requires native calls to run off the JavaScript event loop; ` +
+		`glowcap ${transport} ${operation} requires native calls to run off the JavaScript event loop; ` +
 			"this runtime's FFI executes synchronously",
 	);
 }

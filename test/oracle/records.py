@@ -1,7 +1,7 @@
 """The CapTP operation and signed-handoff record builders for the Syrup
 byte-fixture corpus. ``generate.py`` is the entry that owns the fixture
 table and serialization; this module only builds the records, one function
-per fixture, matching the shapes pancake's Syrup codec produces."""
+per fixture, matching the shapes glowcap's Syrup codec produces."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def op_abort_shutting_down() -> Record:
 def op_deliver_minimal() -> Record:
     """``<op:deliver <desc:export 7> [b"hello"] 42 #f>``.
 
-    Field 4 (``resolve-me-desc``) is pancake-shape divergent, pancake
+    Field 4 (``resolve-me-desc``) is glowcap-shape divergent, glowcap
     always emits ``#f`` (Syrup wire compatibility).
     """
     target = Record(Symbol("desc:export"), (7,))
@@ -29,8 +29,8 @@ def op_deliver_minimal() -> Record:
 def op_resolve_break() -> Record:
     """``<op:resolve 42 <resolve:break <error "target unreachable">>>``.
 
-    The ``<op:resolve …>`` envelope is pancake-shape (Syrup wire compatibility).
-    The ``<error …>`` payload label is pancake-pinned pending
+    The ``<op:resolve …>`` envelope is glowcap-shape (Syrup wire compatibility).
+    The ``<error …>`` payload label is glowcap-pinned pending
     upstream ocapn/ocapn#142.
     """
     error = Record(Symbol("error"), ("target unreachable",))
@@ -85,12 +85,12 @@ def op_listen_promise_target() -> Record:
     desc:* reference operands. ``to-desc`` may be ``desc:answer``
     (the pipelining target case) or ``desc:export`` (the local-
     export target case). ``listen-desc`` is ``desc:import-object``
-    or ``desc:import-promise`` per the spec; pancake's encoder
+    or ``desc:import-promise`` per the spec; glowcap's encoder
     emits ``desc:import-object`` for ``Reference::Near`` listener
     arguments via the standard payload-position perspective flip.
 
     V1.0 accepts this omitted third operand only as settling-only
-    compatibility with the earlier OCapN text. Pancake canonically emits the
+    compatibility with the earlier OCapN text. Glowcap canonically emits the
     Goblins three-operand form below. Next always carries its integer mode.
     """
     target = Record(Symbol("desc:answer"), (7,))
@@ -201,7 +201,7 @@ def op_gc_answers() -> Record:
 def op_abort_typed() -> Record:
     """``<op:abort "VersionMismatch: peer requested 2.0">``.
 
-    Stage 2 / ADR-0008 typed-reason wire projection: pancake's
+    Stage 2 / ADR-0008 typed-reason wire projection: glowcap's
     ``AbortReasonKind`` taxonomy emits the spec-strict single-
     string ``op:abort`` with a ``"<KindName>: <message>"`` prefix
     on V1_0 syrup. Goblins-canonical wire stays a single string;
@@ -216,7 +216,7 @@ def op_abort_typed() -> Record:
 def op_abort_resource_exhausted() -> Record:
     """``<op:abort "ResourceExhausted: ImportTable cap hit">``.
 
-    Stage 4 / ADR-0025 typed-reason wire projection: pancake's
+    Stage 4 / ADR-0025 typed-reason wire projection: glowcap's
     new ``AbortReasonKind::ResourceExhausted`` kind emits the
     spec-strict single-string ``op:abort`` with the
     ``"ResourceExhausted: <message>"`` prefix on V1_0 syrup, the
@@ -290,13 +290,13 @@ def _op_deliver_one_arg(arg) -> Record:
 def op_deliver_arg_void() -> Record:
     """``op:deliver`` carrying ``<'void>`` (zero-arg record).
 
-    ADR-0021 wire shape for the Goblins ``(void)`` value pancake
+    ADR-0021 wire shape for the Goblins ``(void)`` value glowcap
     rejected pre-ADR-0021. The fixture pins the cross-impl byte
     shape so a regression to the pre-ADR rejection (or to a
     different ``Void`` wire encoding) surfaces in CI.
 
     **Pin direction:** the bytes here are produced by the upstream
-    Python Syrup encoder against the same record shape pancake's
+    Python Syrup encoder against the same record shape glowcap's
     encoder claims to produce; both encoders agreeing on the
     Syrup grammar is the load-bearing check.
     """
@@ -308,7 +308,7 @@ def op_deliver_arg_big_integer() -> Record:
     """``op:deliver`` carrying a Python int outside i64 (2^100).
 
     ADR-0049: the upstream Syrup encoders render an arbitrary-precision
-    integer as its canonical decimal digits, the same bytes pancake's
+    integer as its canonical decimal digits, the same bytes glowcap's
     ``big_integer`` arm carries.
     """
     return _op_deliver_one_arg(1267650600228229401496703205376)
@@ -323,7 +323,7 @@ def op_deliver_arg_float64() -> Record:
     is easy to verify by eyeballing.
 
     **Pin direction:** Python Syrup encodes ``1.5`` as
-    ``D\\x3f\\xf8\\x00\\x00\\x00\\x00\\x00\\x00``; pancake's
+    ``D\\x3f\\xf8\\x00\\x00\\x00\\x00\\x00\\x00``; glowcap's
     encoder must produce identical bytes for ``Argument::Float64(1.5)``.
     """
     return _op_deliver_one_arg(1.5)
@@ -334,14 +334,14 @@ def op_deliver_arg_tagged() -> Record:
 
     ADR-0021 wire shape for the Goblins ``'user-record`` catch-all
     (a non-`'error` / non-`'kw` user-extensible tagged record).
-    pancake's ``Argument::Tagged.value`` carries a ``Vec<Argument>``
+    glowcap's ``Argument::Tagged.value`` carries a ``Vec<Argument>``
     so the model cell matches the wire's record-args list verbatim
     at every arity; a 2-element ``(1 2)`` value list exercises the
     multi-arg shape.
 
     **Pin direction:** Python Syrup encodes the
     ``Record(Symbol("user-record"), (Symbol("point"), [1, 2]))``
-    shape as the spec-canonical bytes; pancake's encoder must
+    shape as the spec-canonical bytes; glowcap's encoder must
     produce identical bytes for
     ``Argument::Tagged { tag: "point", value: vec![Integer(1), Integer(2)] }``.
     """
@@ -353,7 +353,7 @@ def op_deliver_arg_keyword() -> Record:
     """``op:deliver`` carrying ``<'kw 'name>``.
 
     ADR-0021 wire shape for the Goblins Racket keyword value (a
-    structurally-1-arg user-record that pancake special-cases on
+    structurally-1-arg user-record that glowcap special-cases on
     decode as ``Argument::Keyword``). Distinct from
     ``Argument::Symbol`` because keyword args are a discrete
     dispatch concern in OCapN's call shape, not a general-purpose
@@ -361,7 +361,7 @@ def op_deliver_arg_keyword() -> Record:
 
     **Pin direction:** Python Syrup encodes
     ``Record(Symbol("kw"), (Symbol("name"),))`` as the canonical
-    bytes; pancake's encoder must produce identical bytes for
+    bytes; glowcap's encoder must produce identical bytes for
     ``Argument::Keyword("name")``.
     """
     inner = Record(Symbol("kw"), (Symbol("name"),))
@@ -379,7 +379,7 @@ def op_deliver_arg_set() -> Record:
     ``Set([1, 2, 3])`` after the canonical-sort.
 
     **Pin direction:** Python's ``set`` type when fed to
-    ``syrup_encode`` produces canonical-sort bytes; pancake's
+    ``syrup_encode`` produces canonical-sort bytes; glowcap's
     encoder must produce identical bytes for
     ``Argument::Set(vec![Integer(1), Integer(2), Integer(3)])``.
     """
@@ -424,7 +424,7 @@ def _signature_sexp(sig_64: bytes):
 
 def _ocapn_peer_no_hints(transport: str, designator: str):
     """Build an `<ocapn-peer transport designator hints>` record
-    matching pancake's `locator_to_syrup` output for empty hints.
+    matching glowcap's `locator_to_syrup` output for empty hints.
     Empty hints emit an empty dict `{}` to match Goblins-Racket and
     the OCapN Python conformance suite's `OCapNPeer.to_syrup_record`.
     A prior fixture revision used Syrup `False` here, which diverged
@@ -475,7 +475,7 @@ def signed_handoff_receive() -> Record:
     structure as the ``desc_handoff_give_signed.bin`` fixture, but with a
     fresh inner-Gifter signature byte pattern (``0xAA``) and
     an outer Receiver signature byte pattern (``0xBB``), matches
-    pancake's ``ocapn_tests::handoff_receive_roundtrips_through_syrup``.
+    glowcap's ``ocapn_tests::handoff_receive_roundtrips_through_syrup``.
     """
     nested_signed_give = Record(
         Symbol("desc:sig-envelope"),
@@ -512,7 +512,7 @@ def op_deliver_withdraw_gift() -> Record:
     Receiver invokes ``withdraw-gift`` on the Exporter's bootstrap
     object (`<desc:export 0>`) carrying a `desc:sig-envelope`-wrapped
     `desc:handoff-receive` certificate as the second ``op:deliver``
-    arg. The argument is pancake's ``Argument::Handoff`` variant
+    arg. The argument is glowcap's ``Argument::Handoff`` variant
     per the model extension that landed alongside ADR-0009; on the
     wire it is the spec-canonical envelope itself (no extra
     wrapper), so the field-position 4 ``resolve-me-desc`` slot
@@ -523,7 +523,7 @@ def op_deliver_withdraw_gift() -> Record:
     chooses).
 
     Inner field bytes match ``signed_handoff_receive`` so a single
-    Goblins-Racket ↔ Python ↔ pancake parity assertion exercises
+    Goblins-Racket ↔ Python ↔ glowcap parity assertion exercises
     the cross-implementation byte shape of both shapes at once;
     only the outer ``op:deliver`` envelope differs.
     """
@@ -569,7 +569,7 @@ def op_start_session_v1_0() -> Record:
     ``acceptable-location`` ``<ocapn-peer>`` record, and the
     location signature s-expression. Byte patterns (``0xAA`` pubkey,
     ``0xCC`` signature) are fixture placeholders matching the
-    Goblins-Racket sibling + the pancake-side `wire_vector_fixtures`
+    Goblins-Racket sibling + the glowcap-side `wire_vector_fixtures`
     assertion.
     """
     return Record(

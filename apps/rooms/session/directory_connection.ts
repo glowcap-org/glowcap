@@ -1,6 +1,6 @@
 // Construction and partial-start cleanup for one durable directory connection.
 
-import type { Runtime } from "@pancake/runtime";
+import type { Runtime } from "@glowcap/runtime";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
 import { dialDirectory } from "../lib/locator.ts";
 import { Directory } from "../lib/room/client.ts";

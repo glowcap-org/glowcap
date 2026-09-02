@@ -5,7 +5,7 @@
 // This is the load-bearing slice — it retires the one real risk in
 // moving the browser onto the runtime. Like `bindings/ts/web/test/web_peer_test.ts`,
 // it is its own process so the wasm adapter and any native runtime never share a
-// module graph: this process loads ONLY `@pancake/web`; the room server and
+// module graph: this process loads ONLY `@glowcap/web`; the room server and
 // serve.ts's relay run as child processes with their own native graphs. If this
 // is green, the served-page work that remains (bundle the graph, swap the
 // DOM wiring, delete the JSON bridge) is wiring over a proven mechanism.
@@ -16,8 +16,8 @@
 // through the relay to the room's TCP socket. The browser peer holds the
 // directory capability itself; the relay only moves bytes.
 
-import * as tcp from "@pancake/tcp";
-import { init } from "@pancake/web";
+import * as tcp from "@glowcap/tcp";
+import { init } from "@glowcap/web";
 import { roomsHostOptions } from "../../lib/profile.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
@@ -25,7 +25,7 @@ import { fail } from "../support/page.ts";
 
 const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../../", import.meta.url).pathname;
-const WASM = new URL("../../../../zig-out/wasm/pancake_host.wasm", import.meta.url);
+const WASM = new URL("../../../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 
 const deadline = setTimeout(() => fail("relay-peer scenario timed out after 30s"), 30_000);
 

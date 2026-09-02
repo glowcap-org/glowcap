@@ -48,13 +48,13 @@ pub fn checkRoomsProofChildren(
         return;
     }
     // Deno overlays `env` onto the parent unless `clearEnv` is set, so a copied
-    // map with `PANCAKE_ROOMS_STATE` deleted still hands the pane's live directory
+    // map with `GLOWCAP_ROOMS_STATE` deleted still hands the pane's live directory
     // to a hermetic child. The owner is the one place that can hide it.
     if (!(util.fileContains(io, gpa, root, owner_path, "clearEnv: true") catch false)) {
         try appendViolation(
             gpa,
             violations,
-            "{s}: hermetic children must replace the parent environment (`clearEnv: true`). Overlaying a map that omitted `PANCAKE_ROOMS_STATE` still inherits the pane's live state directory",
+            "{s}: hermetic children must replace the parent environment (`clearEnv: true`). Overlaying a map that omitted `GLOWCAP_ROOMS_STATE` still inherits the pane's live state directory",
             .{owner_path},
         );
     }

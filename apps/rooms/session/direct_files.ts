@@ -2,7 +2,7 @@
 
 import type { Attachment, AttachmentSource } from "../lib/attachment.ts";
 import { fetchBlob, validateAttachmentSource } from "../lib/attachment.ts";
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import { settleCapabilityCleanup } from "../lib/capability_cleanup.ts";
 import {
 	BLOB_CHUNK,

@@ -234,7 +234,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		const download = page.waitForEvent("download");
 		await page.click("#stateDownload");
 		const saved = await download;
-		if (saved.suggestedFilename() !== "pancake-rooms-state.json") {
+		if (saved.suggestedFilename() !== "glowcap-rooms-state.json") {
 			fail(`Rooms state downloaded as ${saved.suggestedFilename()}`);
 		}
 		const downloadPath = await saved.path();

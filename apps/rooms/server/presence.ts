@@ -9,8 +9,8 @@
 // server losing many at once says each thing once rather than storming every
 // remaining member with a separate line per departure.
 
-import { annotateSession, type Session } from "@pancake/runtime";
-import type { Argument } from "@pancake/runtime";
+import { annotateSession, type Session } from "@glowcap/runtime";
+import type { Argument } from "@glowcap/runtime";
 import { MEMBERSHIP_ENDED, NOTIFY, ROOM_AUTHORITY_CHANGED, ROOM_POLICY_CHANGED } from "../lib/protocol.ts";
 import type { RoomServerContext } from "./context.ts";
 import { findBySession, type Member, type RoomState } from "./registry.ts";

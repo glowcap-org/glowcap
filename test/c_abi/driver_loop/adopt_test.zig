@@ -7,7 +7,7 @@ const std = @import("std");
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ws_relay = @import("../../support/ws_relay.zig");
 
 const harness = @import("harness.zig");
@@ -69,33 +69,33 @@ const reentrantSessionReleaseBehavior = typed_resident.reentrantSessionReleaseBe
 
 test "a quiescent byte-fed Host transfers exclusively to the driver" {
     const host = try newByteFedHost(0x31);
-    try expectOk(cd.pancake_host_publish(host, "widget", 6, widgetBehavior, null, null));
+    try expectOk(cd.glowcap_host_publish(host, "widget", 6, widgetBehavior, null, null));
 
-    var loop: ?*cdrv.PancakeDriverLoop = null;
-    try expectOk(cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop));
+    var loop: ?*cdrv.GlowcapDriverLoop = null;
+    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop));
     try installTcp(loop);
     defer _ = harness.releaseLoop(loop);
 
     // One runtime owns transport execution and terminal release. Neither a
     // second loop nor the old Host release path can acquire that authority.
-    var second: ?*cdrv.PancakeDriverLoop = null;
+    var second: ?*cdrv.GlowcapDriverLoop = null;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cdrv.pancake_driver_take_host(host, &driver_options_1s, &second),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cdrv.glowcap_driver_take_host(host, &driver_options_1s, &second),
     );
     try std.testing.expect(second == null);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cd.pancake_host_release(host));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_release(host));
     var limits = sessionLimitOptions(0, 17, 0, 0);
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cd.pancake_host_set_session_limits(host, &limits),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cd.glowcap_host_set_session_limits(host, &limits),
     );
 
     // Application state created before transfer remains on the same Host, and
     // transport lifecycle is immediately usable through the generic driver.
     const listener = try listenReady(loop, "tcp", "127.0.0.1:0");
     const locator = try readListenerLocator(loop, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
     try std.testing.expectEqualStrings("tcp", locator.transport);
 }
 
@@ -103,37 +103,37 @@ test "an unborrowed Host dial transfers with the Host" {
     const host = try newByteFedHost(0x35);
     const sturdyref = "ocapn://127.0.0.1%3A7999.tcp/s/d2lkZ2V0";
     var vow: u64 = 0;
-    try expectOk(cd.pancake_host_enliven(host, sturdyref, sturdyref.len, &vow));
+    try expectOk(cd.glowcap_host_enliven(host, sturdyref, sturdyref.len, &vow));
     try std.testing.expect(vow != 0);
 
-    var loop: ?*cdrv.PancakeDriverLoop = null;
-    try expectOk(cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop));
+    var loop: ?*cdrv.GlowcapDriverLoop = null;
+    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop));
     defer _ = harness.releaseLoop(loop);
 
     // The driver owns the original queued action. The former byte-fed drain
     // cannot race it after the transaction commits.
-    var action: cd.PancakeHostAction = undefined;
+    var action: cd.GlowcapHostAction = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cd.pancake_host_next_action(host, &action),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cd.glowcap_host_next_action(host, &action),
     );
 }
 
 test "borrowing a Host action prevents runtime transfer" {
     const host = try newByteFedHost(0x36);
-    defer _ = cd.pancake_host_release(host);
+    defer _ = cd.glowcap_host_release(host);
     const sturdyref = "ocapn://127.0.0.1%3A7999.tcp/s/d2lkZ2V0";
     var vow: u64 = 0;
-    try expectOk(cd.pancake_host_enliven(host, sturdyref, sturdyref.len, &vow));
+    try expectOk(cd.glowcap_host_enliven(host, sturdyref, sturdyref.len, &vow));
 
-    var action: cd.PancakeHostAction = undefined;
-    try expectOk(cd.pancake_host_next_action(host, &action));
-    try std.testing.expectEqual(cd.PANCAKE_HOST_ACTION_DIAL, action.kind);
+    var action: cd.GlowcapHostAction = undefined;
+    try expectOk(cd.glowcap_host_next_action(host, &action));
+    try std.testing.expectEqual(cd.GLOWCAP_HOST_ACTION_DIAL, action.kind);
 
-    var loop: ?*cdrv.PancakeDriverLoop = null;
+    var loop: ?*cdrv.GlowcapDriverLoop = null;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop),
     );
     try std.testing.expect(loop == null);
 }
@@ -142,29 +142,29 @@ test "failed Host adoption rolls runtime ownership back" {
     const CountingHost = @import("../../support/c_abi_counting_alloc.zig").CountingHost;
     var counting = CountingHost{};
     const spec = counting.spec();
-    var ctx: ?*c.PancakeContext = null;
-    try expectOk(c.pancake_context_new_with_allocator(&spec, &ctx));
+    var ctx: ?*c.GlowcapContext = null;
+    try expectOk(c.glowcap_context_new_with_allocator(&spec, &ctx));
 
     const seed = hostSeed(0x32);
-    var host: ?*cd.PancakeHost = null;
-    try expectOk(cd.pancake_host_new_in(
+    var host: ?*cd.GlowcapHost = null;
+    try expectOk(cd.glowcap_host_new_in(
         ctx,
         &seed,
         seed.len,
         frame_cap,
         1,
-        c.PANCAKE_CODEC_SYRUP,
-        c.PANCAKE_CAPTP_V1_0,
-        c.PANCAKE_FEATURE_FULL,
+        c.GLOWCAP_CODEC_SYRUP,
+        c.GLOWCAP_CAPTP_V1_0,
+        c.GLOWCAP_FEATURE_FULL,
         0,
         &host,
     ));
 
     counting.fail_allocations = true;
-    var loop: ?*cdrv.PancakeDriverLoop = null;
+    var loop: ?*cdrv.GlowcapDriverLoop = null;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INTERNAL,
-        cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop),
+        c.GLOWCAP_ERR_INTERNAL,
+        cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop),
     );
     try std.testing.expect(loop == null);
     counting.fail_allocations = false;
@@ -174,18 +174,18 @@ test "failed Host adoption rolls runtime ownership back" {
     // the C drive token.
     counting.allocations_before_failure = 1;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INTERNAL,
-        cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop),
+        c.GLOWCAP_ERR_INTERNAL,
+        cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop),
     );
     try std.testing.expect(loop == null);
     counting.allocations_before_failure = null;
 
     var state: u32 = undefined;
-    try expectOk(cd.pancake_host_lifecycle_state(host, &state));
-    try std.testing.expectEqual(cd.PANCAKE_LIFECYCLE_ACTIVE, state);
-    try expectOk(cd.pancake_host_publish(host, "after-rollback", 14, widgetBehavior, null, null));
-    try expectOk(cd.pancake_host_release(host));
-    c.pancake_context_release(ctx);
+    try expectOk(cd.glowcap_host_lifecycle_state(host, &state));
+    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_ACTIVE, state);
+    try expectOk(cd.glowcap_host_publish(host, "after-rollback", 14, widgetBehavior, null, null));
+    try expectOk(cd.glowcap_host_release(host));
+    c.glowcap_context_release(ctx);
     try std.testing.expect(counting.balanced());
 }
 
@@ -193,50 +193,50 @@ test "failed stream connection adoption returns rollback failure to the dial" {
     const CountingHost = @import("../../support/c_abi_counting_alloc.zig").CountingHost;
     var counting = CountingHost{};
     const spec = counting.spec();
-    var context: ?*c.PancakeContext = null;
-    try expectOk(c.pancake_context_new_with_allocator(&spec, &context));
+    var context: ?*c.GlowcapContext = null;
+    try expectOk(c.glowcap_context_new_with_allocator(&spec, &context));
 
     const seed = hostSeed(0x71);
-    var host: ?*cd.PancakeHost = null;
-    try expectOk(cd.pancake_host_new_in(
+    var host: ?*cd.GlowcapHost = null;
+    try expectOk(cd.glowcap_host_new_in(
         context,
         &seed,
         seed.len,
         frame_cap,
         1,
-        c.PANCAKE_CODEC_SYRUP,
-        c.PANCAKE_CAPTP_V1_0,
-        c.PANCAKE_FEATURE_FULL,
+        c.GLOWCAP_CODEC_SYRUP,
+        c.GLOWCAP_CAPTP_V1_0,
+        c.GLOWCAP_FEATURE_FULL,
         0,
         &host,
     ));
-    var loop: ?*cdrv.PancakeDriverLoop = null;
-    try expectOk(cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop));
+    var loop: ?*cdrv.GlowcapDriverLoop = null;
+    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop));
 
-    var resident = StreamAdoptionResident{ .wake = try pancake.net.wake_channel.WakeChannel.open() };
+    var resident = StreamAdoptionResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
     defer resident.wake.deinit();
     var table = resident.table();
     try expectOk(addStreamProvider(loop, &table, "adoption-stream"));
 
     var operation_id: u64 = 0;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
+        c.GLOWCAP_OK,
         try dialParts(loop, "adoption-stream", "endpoint", "", &operation_id),
     );
     // Prime retained readiness storage before the failure injection. The next
     // allocation belongs to connection adoption, not poll construction.
-    try expectStep(cdrv.pancake_driver_step(loop, 0));
+    try expectStep(cdrv.glowcap_driver_step(loop, 0));
     _ = try resident.wake.nudge();
     // The runtime owns its two wire buffers before the provider's connection
     // wrapper is admitted. Fail the following wrapper allocation so rollback
     // owns the already-finished provider connection.
     counting.allocations_before_failure = 2;
-    try expectStep(cdrv.pancake_driver_step(loop, 0));
+    try expectStep(cdrv.glowcap_driver_step(loop, 0));
     counting.allocations_before_failure = null;
 
-    var event: cdrv.PancakeDriverEvent = undefined;
-    try expectOk(cdrv.pancake_driver_next_event(loop, &event));
-    try std.testing.expectEqual(cdrv.PANCAKE_DRIVER_EVENT_OPEN_FAILED, event.kind);
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try expectOk(cdrv.glowcap_driver_next_event(loop, &event));
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, event.kind);
     try std.testing.expectEqual(operation_id, event.operation_id);
     try std.testing.expectEqualStrings("OutOfMemory", event.primary_name.?[0..event.primary_name_len]);
     try std.testing.expectEqual(@as(u32, 1), event.secondary_count);
@@ -247,37 +247,37 @@ test "failed stream connection adoption returns rollback failure to the dial" {
     try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
 
     try expectOk(harness.releaseLoop(loop));
-    c.pancake_context_release(context);
+    c.glowcap_context_release(context);
     try std.testing.expect(counting.balanced());
 }
 
 test "a closing byte-fed Host cannot transfer to a new driver" {
     const host = try newByteFedHost(0x3b);
-    try expectOk(cd.pancake_host_close(host, &close_cancel, 0));
+    try expectOk(cd.glowcap_host_close(host, &close_cancel, 0));
 
-    var loop: ?*cdrv.PancakeDriverLoop = null;
+    var loop: ?*cdrv.GlowcapDriverLoop = null;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_CLOSED,
-        cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop),
+        c.GLOWCAP_ERR_CLOSED,
+        cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop),
     );
     try std.testing.expect(loop == null);
 
     // Failed native adoption returns the C drive token to the byte-fed owner.
-    try expectOk(cd.pancake_host_release(host));
+    try expectOk(cd.glowcap_host_release(host));
 }
 
 test "a Host with byte-fed session state cannot transfer runtimes" {
     const host = try newByteFedHost(0x30);
-    defer _ = cd.pancake_host_release(host);
-    try expectOk(cd.pancake_host_ensure_advertised_locator(host, "tcp", 3));
-    var session: ?*cd.PancakeHostSession = null;
+    defer _ = cd.glowcap_host_release(host);
+    try expectOk(cd.glowcap_host_ensure_advertised_locator(host, "tcp", 3));
+    var session: ?*cd.GlowcapHostSession = null;
     try expectOk(openAccepted(host, "tcp", 3, &session));
-    defer _ = cd.pancake_host_session_release(session);
+    defer _ = cd.glowcap_host_session_release(session);
 
-    var loop: ?*cdrv.PancakeDriverLoop = null;
+    var loop: ?*cdrv.GlowcapDriverLoop = null;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cdrv.pancake_driver_take_host(host, &driver_options_1s, &loop),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop),
     );
     try std.testing.expect(loop == null);
 }

@@ -3,18 +3,18 @@
 //! actor on the home promise.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("../harness.zig");
 const frame_cap = harness.frame_cap;
@@ -90,7 +90,7 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     while (try relay.nextAction()) |_| {}
     var listen_frame = (try home_pair.a.takeOutbound()) orelse return error.MissingListen;
     defer listen_frame.deinit();
-    const listen = (try pancake.ocapn.codec.dispatch.decodeBodyForProfile(
+    const listen = (try glowcap.ocapn.codec.dispatch.decodeBodyForProfile(
         home_pair.a.served.port.peer.session_state.codec,
         home_pair.a.served.port.peer.session_state.captp_version,
         listen_frame.view(),

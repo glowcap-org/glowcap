@@ -1,6 +1,6 @@
 // The client side of the Rooms operator capability.
 
-import { type Ref, retainCleanupFailures, type Session } from "@pancake/runtime";
+import { type Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { ask } from "./ask.ts";
 import { takeOperationsCap } from "./operations.ts";
@@ -218,7 +218,7 @@ export function parseOperatorRetireAnswer(raw: unknown): OperatorRetireBatch {
 
 /** Encode a retire batch back into its passable tuple, for a durable session
  * relaying the operator's own answer. */
-export function operatorRetireAnswer(batch: OperatorRetireBatch): import("@pancake/runtime").Argument {
+export function operatorRetireAnswer(batch: OperatorRetireBatch): import("@glowcap/runtime").Argument {
 	return [BigInt(batch.retired), BigInt(batch.remaining), batch.refused];
 }
 

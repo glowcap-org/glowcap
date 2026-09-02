@@ -1,6 +1,6 @@
-# Contributing to pancake
+# Contributing to glowcap
 
-pancake implements CapTP for OCapN in Zig. New to those names?
+glowcap implements CapTP for OCapN in Zig. New to those names?
 [Capabilities and CapTP](docs/capabilities.md) starts from first principles.
 
 Before changing code, read [the vision](docs/vision.md) and the section of
@@ -10,7 +10,7 @@ routes agents and human contributors to the same focused rules.
 This is a one-person project, so reviews are best-effort. A narrow change with
 the right check is easiest to review. Read only the context needed, then widen
 when a claim crosses a boundary. Use the
-[issue tracker](https://github.com/jimisaacs/pancake/issues) for questions.
+[issue tracker](https://github.com/jimisaacs/glowcap/issues) for questions.
 
 ## Design boundaries
 
@@ -41,7 +41,7 @@ codec, netlayer, and layer boundaries need a decision record. Copy
 building against it.
 
 New authority models and I/O inside the synchronous core are out of scope.
-Encrypted channels between pancake peers use iroh when discovery and NAT
+Encrypted channels between glowcap peers use iroh when discovery and NAT
 traversal matter, or `noise-tcp` on a direct route. Sealed TCP is a Noise
 channel, not TLS; plain `tcp` stays cleartext.
 
@@ -102,9 +102,9 @@ zig build bench-codec                  # codec and dispatch measurements
 ## Continuous integration
 
 GitHub has separate workflows for
-[checks](https://github.com/jimisaacs/pancake/actions/workflows/check.yml),
-[the documentation site](https://github.com/jimisaacs/pancake/actions/workflows/pages.yml),
-and [tagged releases](https://github.com/jimisaacs/pancake/actions/workflows/release.yml).
+[checks](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml),
+[the documentation site](https://github.com/jimisaacs/glowcap/actions/workflows/pages.yml),
+and [tagged releases](https://github.com/jimisaacs/glowcap/actions/workflows/release.yml).
 Check the current commit's results before relying on them. CI installs the same
 versions declared in [`.devcontainer/pins.sh`](.devcontainer/pins.sh).
 

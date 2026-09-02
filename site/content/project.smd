@@ -1,14 +1,14 @@
 ---
 .title = "Project & status",
-.description = "Current support, known limitations, verification, and the route to pancake 1.0.",
+.description = "Current support, known limitations, verification, and the route to glowcap 1.0.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-pancake is unreleased. Its public APIs can change, it has not received a
+glowcap is unreleased. Its public APIs can change, it has not received a
 security audit, and it should not carry data you cannot afford to lose.
-[SECURITY.md](https://github.com/jimisaacs/pancake/blob/main/SECURITY.md)
+[SECURITY.md](https://github.com/jimisaacs/glowcap/blob/main/SECURITY.md)
 defines the current security posture and the private reporting process.
 
 # Explore the current build
@@ -26,10 +26,10 @@ defines the current security posture and the private reporting process.
 # Project records
 
 The repository keeps the detailed project record: [what ships
-today](https://github.com/jimisaacs/pancake/blob/main/docs/shipped.md), [known
-limitations](https://github.com/jimisaacs/pancake/blob/main/docs/boundaries.md),
-the [steps toward 1.0](https://github.com/jimisaacs/pancake/blob/main/docs/ladder.md),
-and the [remaining work](https://github.com/jimisaacs/pancake/blob/main/docs/roadmap.md).
-The [vision](https://github.com/jimisaacs/pancake/blob/main/docs/vision.md)
+today](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md), [known
+limitations](https://github.com/jimisaacs/glowcap/blob/main/docs/boundaries.md),
+the [steps toward 1.0](https://github.com/jimisaacs/glowcap/blob/main/docs/ladder.md),
+and the [remaining work](https://github.com/jimisaacs/glowcap/blob/main/docs/roadmap.md).
+The [vision](https://github.com/jimisaacs/glowcap/blob/main/docs/vision.md)
 defines what 1.0 is aiming for; accepted and superseded choices are recorded in the
-[decision index](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/README.md).
+[decision index](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/README.md).

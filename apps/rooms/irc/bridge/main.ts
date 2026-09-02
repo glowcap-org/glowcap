@@ -4,7 +4,7 @@
 //   deno run --allow-ffi --allow-read --allow-net main.ts \
 //     --network=libera --channel=#ocapn --irc-host=irc.libera.chat
 
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import { roomsHost, roomsListen } from "../../lib/locator.ts";
 import { IrcBridgeRoom } from "./room.ts";
 import { connectIrc, ircChannelProjection, runIrcSession } from "./client.ts";

@@ -1,9 +1,9 @@
 ---
-description: "Zig pancake test taxonomy, vocabulary, and conformance discipline."
+description: "Zig glowcap test taxonomy, vocabulary, and conformance discipline."
 globs: test/**/*.zig, src/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, test/oracle/**, build.zig
 ---
 
-# pancake — Tests and Conformance
+# glowcap — Tests and Conformance
 
 Every test answers three questions: which **layer** is under test, what
 **authority** decides "correct," and what a **failure** tells you. This rule is
@@ -27,10 +27,10 @@ a synonym.
 - **oracle** — the reference of truth a result is compared against: the
   `src/oracle/` trace generator and the `test/oracle/` corpus and arm registry.
 - **conformance** — _external_ authority: an expectation that would still hold
-  if pancake were rewritten from scratch — the OCapN spec, the live Goblins
+  if glowcap were rewritten from scratch — the OCapN spec, the live Goblins
   peer, the upstream suite. It lives in `conformance/` and nowhere else.
-- **interop** — _cross-implementation_ protocol interop: pancake↔Goblins,
-  pancake↔pancake over iroh. It lives in `interop/`. The C-ABI boundary between
+- **interop** — _cross-implementation_ protocol interop: glowcap↔Goblins,
+  glowcap↔glowcap over iroh. It lives in `interop/`. The C-ABI boundary between
   Zig and its bindings is never called interop — its authority is the C ABI
   contract, exercised by `test/c_abi` and the binding dogfoods.
 
@@ -45,7 +45,7 @@ What decides "correct" is what a red test means:
   `@cImport`s the generated header). A failure is a break at the FFI boundary.
 - **The oracle** — `oracle`: the Syrup byte corpus, the message-arm registry,
   and the scenario traces. A failure is protocol drift. The corpus is
-  pancake-authored but Syrup-serialized by the upstream encoder, so the
+  glowcap-authored but Syrup-serialized by the upstream encoder, so the
   _strongest_ external authority is the sibling live steps (`goblins-interop`,
   `ocapn-conformance`), not the in-tree bytes — see
   [`test/oracle/README.md`](../../test/oracle/README.md).
@@ -106,7 +106,7 @@ both, including the escapes that shaped it.
   name a finite handshake budget; `.unbounded` is a hang, not a slow test —
   see the [cli rule](cli.md). Product-adapter proofs use
   `cli/test_api.zig` in-process; ad-hoc live CapTP in an agent session is the
-  product binary via the [pancake-cli skill](../skills/pancake-cli/SKILL.md).
+  product binary via the [glowcap-cli skill](../skills/glowcap-cli/SKILL.md).
   Do not invent a parallel Zig dialer outside `cli/` / `test/cli/`. A shell
   echo is not Goblins/suite wire evidence
   ([community-review](../../docs/community-review.md)).
@@ -119,12 +119,12 @@ both, including the escapes that shaped it.
   writes them; `source-check` refuses one that is not wired into the replay.
 - `test/support`: shared test helpers, including the copy utilities production
   modules must not carry.
-- `test/api_surface_test.zig`: recursively references every exported `pancake`
+- `test/api_surface_test.zig`: recursively references every exported `glowcap`
   declaration, so an unreferenced public API cannot rot unanalyzed.
 - `bindings/rust`: Rust C ABI consumer smoke tests, run by
   `zig build rust-dogfood`.
 - `bindings/proofs`: hermetic per-binding proof families — one scenario per
-  family, run once per binding, every peer pancake. Authority is the C ABI
+  family, run once per binding, every peer glowcap. Authority is the C ABI
   contract, never interop; the Rust client of each family lives in
   `bindings/rust/examples/` because Cargo compiles examples there.
 

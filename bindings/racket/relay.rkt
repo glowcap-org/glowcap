@@ -15,7 +15,7 @@
 ;;
 ;; Two transports, dispatched by what the WebSocket names:
 ;;   - `?to=host:port`         a raw TCP socket (byte-level, kernel-backpressured);
-;;                             no pancake binding loads on this path at all.
+;;                             no glowcap binding loads on this path at all.
 ;;   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the Racket iroh
 ;;                             binding's `dial-locator-for-relay`, loaded lazily
 ;;                             only here, over the same C-ABI conn and readiness
@@ -45,10 +45,10 @@
 ;; `iroh-companion.rkt`, which loads it exactly once however many arrive together.
 
 ;; The bounded resource defaults come from generated binding policy. The
-;; conformance idle-timeout proof sets PANCAKE_RELAY_IDLE_MS low; a production run
+;; conformance idle-timeout proof sets GLOWCAP_RELAY_IDLE_MS low; a production run
 ;; leaves it unset.
 (define IDLE-TIMEOUT-MS
-  (let ([v (getenv "PANCAKE_RELAY_IDLE_MS")])
+  (let ([v (getenv "GLOWCAP_RELAY_IDLE_MS")])
     (or (and v (string->number v)) BINDING-RELAY-IDLE-TIMEOUT-MS)))
 (define MAX-BYTES-PER-SESSION BINDING-RELAY-MAX-BYTES-PER-SESSION)
 (define READ-CHUNK BINDING-RELAY-READ-CHUNK-BYTES)

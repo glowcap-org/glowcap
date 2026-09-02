@@ -1,4 +1,4 @@
-//! Pure lifecycle-phase goldens for `pancake app rooms-peer` (no wire): the
+//! Pure lifecycle-phase goldens for `glowcap app rooms-peer` (no wire): the
 //! `phase.zig` transition helpers and the state.json status projection.
 const std = @import("std");
 const cli = @import("cli");

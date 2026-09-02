@@ -14,8 +14,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * `127.0.0.1:9602`, over plain `tcp`. The editor's end is its own
  * report; the transcoder's end is attached by the two hosts' traces
  * agreeing on one OCapN Session ID.
- * Both peers run pancake, so this session settles on Cap'n Proto over
- * pancake-next. That is the pairing a pancake fleet configures
+ * Both peers run glowcap, so this session settles on Cap'n Proto over
+ * glowcap-next. That is the pairing a glowcap fleet configures
  * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
@@ -29,7 +29,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
 		"dct:title": "06 · Poke me when ready",
 		"dct:description":
 			'A video editor uploads a clip, and the transcode takes minutes. Rather than ask again and again, the editor leaves an op:listen on the answer that has not arrived. The transcoder resolves whenever it is ready, and the runtime delivers the result to the editor\'s callback. This is how a program says "tell me when".',
-		"dct:creator": "pancake project",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: { "prov:wasAttributedTo": AGENT },
@@ -41,7 +41,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9601",
 			label: "Video editor",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9601",
 		},
 		{
@@ -50,7 +50,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9602",
 			label: "Transcoder",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9602",
 		},
 		{

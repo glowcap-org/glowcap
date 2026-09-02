@@ -25,7 +25,7 @@ function renamedPeerDoc(): TimelineDocument {
 				t: 100,
 				kind: "peer-joined",
 				peerId: "127.0.0.1:0",
-				profile: "pancake",
+				profile: "glowcap",
 				label: "127.0.0.1:0",
 			},
 			{
@@ -150,7 +150,7 @@ engineTest(
 	() => {
 		const e = new Engine(structuredClone(doc));
 		(e.doc as TimelineDocument).entities = {
-			peers: { eternal: { profile: "pancake", label: "before" } },
+			peers: { eternal: { profile: "glowcap", label: "before" } },
 		};
 		e.seekTo(0);
 		e.dispatch({

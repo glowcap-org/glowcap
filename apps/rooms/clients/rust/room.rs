@@ -1,9 +1,9 @@
-//! A small, friendly client for the rooms chat, built on pancake actors.
+//! A small, friendly client for the rooms chat, built on glowcap actors.
 //!
 //! On the connection API this is barely a layer: connect, fetch the directory by
 //! name, ask it to open or enter a room (which hands back a live reference to
 //! that room), spawn an inbox the room can call back, subscribe by handing it
-//! that capability, and forward the room's callbacks onto a channel. The pancake
+//! that capability, and forward the room's callbacks onto a channel. The glowcap
 //! `Session` owns the peer on a background task, so the application above sees
 //! only `recv`/`say`/`leave`.
 //!
@@ -19,12 +19,12 @@
 
 use std::rc::Rc;
 
-use pancake::{
+use glowcap::{
 	designator_host_port, parse_locator, tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session,
 	TRANSPORT_IROH,
 };
 #[cfg(feature = "iroh")]
-use pancake::{iroh, HINT_DIRECT_ADDRESSES};
+use glowcap::{iroh, HINT_DIRECT_ADDRESSES};
 use tokio::sync::mpsc;
 
 const DIRECTORY: &str = "directory";
@@ -32,14 +32,14 @@ const MAX_UNREAD_LINES: usize = 256;
 
 /// Lift a capability a `send` returned (an `Argument::Reference`) into a `Ref`
 /// you can `send` to.
-fn room_ref(arg: Argument, verb: &str) -> Result<pancake::Ref, String> {
-	pancake::Ref::try_from(&arg).map_err(|_| format!("{verb} did not return a room capability"))
+fn room_ref(arg: Argument, verb: &str) -> Result<glowcap::Ref, String> {
+	glowcap::Ref::try_from(&arg).map_err(|_| format!("{verb} did not return a room capability"))
 }
 
 /// The wire reason a broken `send` carried, so a caller can classify it by the
 /// typed code at the front of the reason (`no-such-room` vs `room-exists`); falls
 /// back to the debug form when the partner gave no message.
-fn reason(err: pancake::Error) -> String {
+fn reason(err: glowcap::Error) -> String {
 	err.message().map(str::to_string).unwrap_or_else(|| format!("{err:?}"))
 }
 
@@ -51,7 +51,7 @@ fn reason(err: pancake::Error) -> String {
 /// enter-or-open is a CLI convenience and lives in `client.rs`.
 pub struct Directory {
 	session: Rc<Session>,
-	directory: pancake::Ref,
+	directory: glowcap::Ref,
 	_runtime: Runtime,
 }
 
@@ -80,7 +80,7 @@ impl Directory {
 	}
 
 	/// Create a new room and return its reference. Errs if the name is taken.
-	pub async fn open(&self, name: &str) -> Result<pancake::Ref, String> {
+	pub async fn open(&self, name: &str) -> Result<glowcap::Ref, String> {
 		let arg = self
 			.session
 			.send(&self.directory, "open", &[name.into()])
@@ -90,7 +90,7 @@ impl Directory {
 	}
 
 	/// Return an existing room's reference. Errs if there is no such room.
-	pub async fn enter(&self, name: &str) -> Result<pancake::Ref, String> {
+	pub async fn enter(&self, name: &str) -> Result<glowcap::Ref, String> {
 		let arg = self
 			.session
 			.send(&self.directory, "enter", &[name.into()])
@@ -328,8 +328,8 @@ async fn dial(locator: &str) -> Result<(Runtime, Session), String> {
 /// Minting one draws the Host's identity seed from the system, which can fail,
 /// so this answers with the failure rather than panicking inside a client whose
 /// callers already carry their own errors.
-fn rooms_host() -> Result<pancake::Host, String> {
-	pancake::Host::with_options(pancake::HostOptions::with_profile(pancake::HostProfile::Native))
+fn rooms_host() -> Result<glowcap::Host, String> {
+	glowcap::Host::with_options(glowcap::HostOptions::with_profile(glowcap::HostProfile::Native))
 		.map_err(|e| format!("rooms host: {e:?}"))
 }
 
@@ -380,7 +380,7 @@ fn read_presence(args: &[Argument]) -> Option<Presence> {
 /// room pushes. `recv` for the next line, `say` to talk, `leave` when done.
 pub struct Room {
 	session: Rc<Session>,
-	room: pancake::Ref,
+	room: glowcap::Ref,
 	msg_rx: mpsc::Receiver<Message>,
 }
 
@@ -406,7 +406,7 @@ impl Room {
 	/// Subscribe to a room you already hold a reference to, on the directory's
 	/// open connection, as `nick`. Call inside a `LocalSet` (the peer is
 	/// `!Send`).
-	pub async fn subscribe(session: Rc<Session>, room: pancake::Ref, nick: &str) -> Result<Room, String> {
+	pub async fn subscribe(session: Rc<Session>, room: glowcap::Ref, nick: &str) -> Result<Room, String> {
 		// The room calls our inbox back with each line; forward it onto a channel.
 		// A system line may carry a structured presence change after its text.
 		let (msg_tx, msg_rx) = message_channel();

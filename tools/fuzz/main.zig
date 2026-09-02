@@ -29,7 +29,7 @@
 //!
 //! Usage, which the build step fills in:
 //!
-//!     pancake-fuzz <path-to-zig> --fuzz=<budget>
+//!     glowcap-fuzz <path-to-zig> --fuzz=<budget>
 //!
 //! The budget applies to each target, not to the sweep.
 
@@ -219,7 +219,7 @@ fn fuzzingAvailable() bool {
 }
 
 fn usage() void {
-    std.debug.print("usage: pancake-fuzz <zig-exe> --fuzz=<budget>\n", .{});
+    std.debug.print("usage: glowcap-fuzz <zig-exe> --fuzz=<budget>\n", .{});
     std.process.exit(2);
 }
 

@@ -16,12 +16,12 @@ pub const service_key_cap_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/c_abi/net_transport/onion/contract.zig" },
         .kind = .require,
-        .needles = &.{"PANCAKE_ONION_SERVICE_KEY_CAP: usize = net.onion.session.service_key_cap"},
+        .needles = &.{"GLOWCAP_ONION_SERVICE_KEY_CAP: usize = net.onion.session.service_key_cap"},
         .check = "onion-service-key-cap",
         .why = "the onion C ABI projects the transport-owned service-key cap",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/onion.py" },
+        .where = .{ .file = "bindings/python/glowcap/onion.py" },
         .kind = .require,
         .needles = &.{"_SERVICE_KEY_CAP = _c.ONION_SERVICE_KEY_CAP"},
         .check = "onion-service-key-cap",
@@ -42,7 +42,7 @@ pub const service_key_cap_rows: []const Ban = &.{
         .why = "TypeScript onion listen uses the generated service-key cap instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/racket/pancake-onion.rkt" },
+        .where = .{ .file = "bindings/racket/glowcap-onion.rkt" },
         .kind = .require,
         .needles = &.{"(define SERVICE-KEY-CAP ONION-SERVICE-KEY-CAP)"},
         .check = "onion-service-key-cap",
@@ -50,10 +50,10 @@ pub const service_key_cap_rows: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/pancake/onion.py",
+            "bindings/python/glowcap/onion.py",
             "bindings/rust/src/sys/onion.rs",
             "bindings/ts/onion/mod.ts",
-            "bindings/racket/pancake-onion.rkt",
+            "bindings/racket/glowcap-onion.rkt",
         } },
         .kind = .forbid,
         .needles = &.{ "_SERVICE_KEY_CAP = 256", "ONION_SERVICE_KEY_CAP: usize = 256", "new Uint8Array(256)", "(define SERVICE-KEY-CAP 256)" },

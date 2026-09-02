@@ -1,12 +1,12 @@
 // The Deno bench client for the per-language consumer-cost bench. It drives the
-// taskboard unit against the fixed Zig host through pancake's Deno binding (the
+// taskboard unit against the fixed Zig host through glowcap's Deno binding (the
 // same connect/fetch/send the demos use) and prints one NDJSON metric line in
 // the shared schema (see bench/langs/contract.md).
 //
 //   deno run --allow-ffi --allow-read --allow-net deno_bench.ts <mode> <host> <port> <n>
 
-import { type Argument, type Ref, Runtime, type Session } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
+import { type Argument, type Ref, Runtime, type Session } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 
 const CLIENT = "deno";
 const RUNTIME = `deno/${Deno.version.deno}`;

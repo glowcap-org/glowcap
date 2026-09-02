@@ -196,7 +196,7 @@ impl LoopShared {
 		self: &Rc<Self>,
 		locator: &Locator,
 		options: Option<&[u8]>,
-	) -> Result<*mut ffi_host::PancakeHostSession> {
+	) -> Result<*mut ffi_host::GlowcapHostSession> {
 		self.guard_handle()?;
 		self.ensure_started()?;
 		let operation_id = self.driver.dial(locator, options)?;
@@ -216,7 +216,7 @@ impl LoopShared {
 	/// with the typed `ERR_CLOSED` once the loop closes, so a server
 	/// iteration ends rather than parking forever.
 	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
-	pub(crate) async fn accept(self: &Rc<Self>, listener: u64) -> Result<*mut ffi_host::PancakeHostSession> {
+	pub(crate) async fn accept(self: &Rc<Self>, listener: u64) -> Result<*mut ffi_host::GlowcapHostSession> {
 		loop {
 			let notified = self.accept_wake.notified();
 			tokio::pin!(notified);

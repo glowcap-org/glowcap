@@ -1,4 +1,4 @@
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import { READ } from "../../lib/protocol.ts";
 import { ROOMS_SESSION_CHANGED, ROOMS_SESSION_EVENT } from "../../lib/session/client.ts";
 import {

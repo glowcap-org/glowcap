@@ -41,7 +41,7 @@ import { FileArchiveBlobs } from "./blob_storage.ts";
 import { MAX_ARCHIVE_BLOB_BYTES } from "../lib/archive/blobs.ts";
 
 const FILE = "archive.jsonl";
-const FORMAT = "pancake-rooms-member-archive";
+const FORMAT = "glowcap-rooms-member-archive";
 const VERSION = 1;
 const DEFAULT_COMPACT_DELTA = 512;
 /** The protocol's worst-case 5,000-record snapshot fits below this ceiling;
@@ -151,20 +151,40 @@ function recordFromJson(row: ArchiveDiskRecord): ArchiveRecord {
 	]);
 }
 
-function parseJson<T>(line: string, what: string, schema: z.ZodMiniType<T>): T {
-	let decoded: unknown;
+function decodeJson(line: string, what: string): unknown {
 	try {
-		decoded = JSON.parse(line);
+		return JSON.parse(line);
 	} catch {
 		throw new Error(`archive file has invalid JSON in ${what}`);
 	}
-	const parsed = z.safeParse(schema, decoded);
+}
+
+function parseJson<T>(line: string, what: string, schema: z.ZodMiniType<T>): T {
+	const parsed = z.safeParse(schema, decodeJson(line, what));
 	if (!parsed.success) throw new Error(`archive file has an invalid ${what}:\n${z.prettifyError(parsed.error)}`);
 	return parsed.data;
 }
 
+/// The two fields that stamp which prerelease schema wrote a file, read loosely
+/// so a refusal can name them. Rooms has no released persistence predecessor
+/// and rewrites nothing; the operator resets the state directory.
+const ArchiveFileStampSchema = z.object({
+	archive: z.string(),
+	version: nonnegativeSafeInteger,
+});
+
 function parseHeader(line: string): Header {
-	return parseJson(line, "header", ArchiveFileHeaderSchema);
+	const decoded = decodeJson(line, "header");
+	const parsed = z.safeParse(ArchiveFileHeaderSchema, decoded);
+	if (parsed.success) return parsed.data;
+	const stamp = z.safeParse(ArchiveFileStampSchema, decoded);
+	if (stamp.success && (stamp.data.archive !== FORMAT || stamp.data.version !== VERSION)) {
+		throw new Error(
+			`archive file was written as ${stamp.data.archive} version ${stamp.data.version}, and this build reads ${FORMAT} version ${VERSION}. ` +
+				"Rooms does not rewrite prerelease state: stop the peer and remove its state directory (apps/rooms/operating.md).",
+		);
+	}
+	throw new Error(`archive file has an invalid header:\n${z.prettifyError(parsed.error)}`);
 }
 
 function parseEntry(line: string): DiskEntry {

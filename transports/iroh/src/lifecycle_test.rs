@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::lifecycle::WriterTasks;
 use crate::tests::direct_endpoint;
-use crate::{pancake_iroh_sidecar_endpoint_free, teardown_status, PancakeIrohEndpoint};
+use crate::{glowcap_iroh_sidecar_endpoint_free, teardown_status, GlowcapIrohEndpoint};
 
 #[test]
 fn teardown_panics_become_failures() {
@@ -25,7 +25,7 @@ fn endpoint_release_is_safe_inside_an_ambient_tokio_runtime() {
 		.build()
 		.unwrap();
 	ambient.block_on(async move {
-		assert_eq!(pancake_iroh_sidecar_endpoint_free(raw as *mut PancakeIrohEndpoint), 0);
+		assert_eq!(glowcap_iroh_sidecar_endpoint_free(raw as *mut GlowcapIrohEndpoint), 0);
 	});
 }
 

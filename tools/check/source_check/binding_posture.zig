@@ -30,7 +30,7 @@ pub fn check(
                 .banned = &.{"shared.inbox"},
             },
             .{
-                .path = "bindings/python/pancake/_pump.py",
+                .path = "bindings/python/glowcap/_pump.py",
                 .required = &.{"ctypes.c_char_p(chunk)"},
                 .banned = &.{"session.inbox"},
             },
@@ -65,7 +65,7 @@ pub fn check(
                 .banned = &.{"readonly vow: bigint | null"},
             },
             .{
-                .path = "bindings/python/pancake/_promise.py",
+                .path = "bindings/python/glowcap/_promise.py",
                 .required = &.{ "class PromiseState", "class Far", "class Local", "def far(", "def local(", "self._kind" },
                 .banned = &.{ "vow: Optional[int]", "vow: Optional[int] = None", "self._state =" },
             },
@@ -101,7 +101,7 @@ pub fn check(
                 .banned = &.{ "DIAL_SHAPE_IROH", "readBytes(ptr, len)" },
             },
             .{
-                .path = "bindings/python/pancake/_dial.py",
+                .path = "bindings/python/glowcap/_dial.py",
                 .required = &.{},
                 .banned = &.{ "DIAL_SHAPE_IROH", "bytes(buf)[", "return ctypes.string_at" },
             },
@@ -147,11 +147,11 @@ pub fn check(
             .{ .path = "bindings/ts/runtime/host/lifecycle.ts", .banned = "vowSessionClosing" },
             .{ .path = "bindings/ts/runtime/host/application.ts", .banned = "vowSessionClosing" },
             .{ .path = "bindings/ts/runtime/host/drive.ts", .banned = "vowSessionClosing" },
-            .{ .path = "bindings/python/pancake/_host/__init__.py", .banned = "vow_session_closing" },
-            .{ .path = "bindings/python/pancake/_host/finalizer.py", .banned = "vow_session_closing" },
-            .{ .path = "bindings/python/pancake/_host/lifecycle.py", .banned = "vow_session_closing" },
-            .{ .path = "bindings/python/pancake/_host/progress.py", .banned = "vow_session_closing" },
-            .{ .path = "bindings/python/pancake/_host/publication.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/glowcap/_host/__init__.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/glowcap/_host/finalizer.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/glowcap/_host/lifecycle.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/glowcap/_host/progress.py", .banned = "vow_session_closing" },
+            .{ .path = "bindings/python/glowcap/_host/publication.py", .banned = "vow_session_closing" },
             .{ .path = "bindings/racket/private/session.rkt", .banned = "current-breaking" },
         };
         for (binding_failure_inference) |entry| {
@@ -320,10 +320,10 @@ pub fn check(
             .{ .path = "bindings/rust/examples/iroh_reachability.rs", .banned = &.{"connect_iroh("} },
             .{ .path = "bindings/rust/examples/iroh_handoff.rs", .banned = &.{ "connect_iroh(", "connect_iroh_with_node(" } },
             .{ .path = "bindings/rust/examples/iroh_redeem_posture.rs", .banned = &.{ "connect_iroh(", "connect_iroh_with_node(" } },
-            .{ .path = "bindings/python/pancake/iroh.py", .banned = &.{ "\"connect_iroh\"", "async def connect_iroh(", "async def connect_iroh_with_node(" } },
+            .{ .path = "bindings/python/glowcap/iroh.py", .banned = &.{ "\"connect_iroh\"", "async def connect_iroh(", "async def connect_iroh_with_node(" } },
             .{ .path = "bindings/rust/src/iroh.rs", .banned = &.{ "pub async fn connect_iroh(", "pub async fn connect_iroh_with_node(" } },
             .{ .path = "bindings/ts/iroh/mod.ts", .banned = &.{ "connectIroh", "_connectIroh" } },
-            .{ .path = "bindings/racket/pancake-iroh.rkt", .banned = &.{"(provide connect-iroh/node\n         listen-iroh"} },
+            .{ .path = "bindings/racket/glowcap-iroh.rkt", .banned = &.{"(provide connect-iroh/node\n         listen-iroh"} },
         };
         for (no_public_iroh_connect) |entry| {
             const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
@@ -358,11 +358,11 @@ pub fn check(
                 break :iroh_public_surface;
             };
             defer gpa.free(conn_contents);
-            if (std.mem.indexOf(u8, conn_contents, "import(\"@pancake/iroh\")") != null) {
-                try appendViolation(gpa, violations, "bindings/ts/runtime/session.ts: forbidden public `@pancake/iroh` dial import — use the dial module", .{});
+            if (std.mem.indexOf(u8, conn_contents, "import(\"@glowcap/iroh\")") != null) {
+                try appendViolation(gpa, violations, "bindings/ts/runtime/session.ts: forbidden public `@glowcap/iroh` dial import — use the dial module", .{});
             }
-            const rkt_contents = root.readFileAlloc(io, "bindings/racket/pancake-iroh.rkt", gpa, .limited(2 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "bindings/racket/pancake-iroh.rkt: failed to read with {s}", .{@errorName(err)});
+            const rkt_contents = root.readFileAlloc(io, "bindings/racket/glowcap-iroh.rkt", gpa, .limited(2 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "bindings/racket/glowcap-iroh.rkt: failed to read with {s}", .{@errorName(err)});
                 break :iroh_public_surface;
             };
             defer gpa.free(rkt_contents);
@@ -373,7 +373,7 @@ pub fn check(
             // running against compiled bytecode cannot reach one without
             // re-expanding the module it sits in.
             if (std.mem.indexOf(u8, rkt_contents, "(module* dial") != null) {
-                try appendViolation(gpa, violations, "bindings/racket/pancake-iroh.rkt: `connect-iroh/node` must stay in private/iroh.rkt, not a `dial` submodule", .{});
+                try appendViolation(gpa, violations, "bindings/racket/glowcap-iroh.rkt: `connect-iroh/node` must stay in private/iroh.rkt, not a `dial` submodule", .{});
             }
             const rkt_impl = root.readFileAlloc(io, "bindings/racket/private/iroh/runtime.rkt", gpa, .limited(2 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "bindings/racket/private/iroh/runtime.rkt: failed to read with {s}", .{@errorName(err)});
@@ -402,7 +402,7 @@ pub fn check(
             banned: []const []const u8,
         }{
             .{
-                .path = "bindings/python/pancake/tcp.py",
+                .path = "bindings/python/glowcap/tcp.py",
                 .required = "address_designator(host, port)",
                 .min_calls = 2,
                 .banned = &.{"{_abi.HINT_DIRECT_ADDRESSES: f\"{host}:{port}\"}"},
@@ -420,7 +420,7 @@ pub fn check(
                 .banned = &.{},
             },
             .{
-                .path = "bindings/racket/pancake-tcp.rkt",
+                .path = "bindings/racket/glowcap-tcp.rkt",
                 .required = "(tcp-address-designator host port)",
                 .min_calls = 3,
                 .banned = &.{"(hash HINT-DIRECT-ADDRESSES (format \"~a:~a\" host port))"},
@@ -449,7 +449,7 @@ pub fn check(
             signature: []const u8,
             forbidden: []const u8,
         }{
-            .{ .path = "bindings/python/pancake/_locator.py", .signature = "def format_sturdyref(locator: Locator,", .forbidden = "parse_locator(locator" },
+            .{ .path = "bindings/python/glowcap/_locator.py", .signature = "def format_sturdyref(locator: Locator,", .forbidden = "parse_locator(locator" },
             .{ .path = "bindings/ts/runtime/locator.ts", .signature = "locator: Locator,", .forbidden = "parseLocator(locator" },
             .{ .path = "bindings/rust/src/uri.rs", .signature = "format_sturdyref(locator: &Locator,", .forbidden = "parse_locator(locator" },
             .{ .path = "bindings/racket/private/locator.rkt", .signature = "(define (format-sturdyref loc swissnum #:captp-version captp-version)", .forbidden = "(parse-locator loc" },

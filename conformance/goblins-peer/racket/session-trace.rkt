@@ -23,7 +23,7 @@
          provenance-authenticated-transport)
 
 ;; The two verdicts a netlayer in this directory can honestly reach about the
-;; partner's durable name. They are the timeline schema's own words (pancake's
+;; partner's durable name. They are the timeline schema's own words (glowcap's
 ;; hosts publish the same ones from `partnerDurableProvenance`), so a viewer
 ;; folds a session watched from both ends into one edge with one verdict.
 ;;

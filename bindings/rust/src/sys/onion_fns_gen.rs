@@ -4,111 +4,111 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libpancake_net_transport_onion`. The
+// The raw extern block of `libglowcap_net_transport_onion`. The
 // hand-written sibling (`onion.rs`) owns the opaque types and re-exports
-// this block, so consumers keep their `sys::onion::pancake_onion_*` paths.
+// this block, so consumers keep their `sys::onion::glowcap_onion_*` paths.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uchar, c_uint};
 
-use super::onion::{PancakeOnionConfig, PancakeOnionConn};
-use super::onion::{PancakeOnionListener, PancakeOnionNetlayer};
-use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame, PancakeTransportProvider};
+use super::onion::{GlowcapOnionConfig, GlowcapOnionConn};
+use super::onion::{GlowcapOnionListener, GlowcapOnionNetlayer};
+use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
 
 extern "C" {
-	pub fn pancake_onion_archive_fingerprint() -> u64;
-	pub fn pancake_onion_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_onion_transport_provider(
-		netlayer: *mut PancakeOnionNetlayer,
-		out_provider: *mut PancakeTransportProvider,
+	pub fn glowcap_onion_archive_fingerprint() -> u64;
+	pub fn glowcap_onion_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_onion_transport_provider(
+		netlayer: *mut GlowcapOnionNetlayer,
+		out_provider: *mut GlowcapTransportProvider,
 	) -> c_int;
-	pub fn pancake_onion_netlayer_new(
-		config: *const PancakeOnionConfig,
-		out_netlayer: *mut *mut PancakeOnionNetlayer,
+	pub fn glowcap_onion_netlayer_new(
+		config: *const GlowcapOnionConfig,
+		out_netlayer: *mut *mut GlowcapOnionNetlayer,
 	) -> c_int;
-	pub fn pancake_onion_netlayer_shutdown(netlayer: *mut PancakeOnionNetlayer);
-	pub fn pancake_onion_netlayer_release(
-		netlayer: *mut PancakeOnionNetlayer,
+	pub fn glowcap_onion_netlayer_shutdown(netlayer: *mut GlowcapOnionNetlayer);
+	pub fn glowcap_onion_netlayer_release(
+		netlayer: *mut GlowcapOnionNetlayer,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_connect(
-		netlayer: *mut PancakeOnionNetlayer,
+	pub fn glowcap_onion_connect(
+		netlayer: *mut GlowcapOnionNetlayer,
 		service_id: *const c_uchar,
 		service_id_len: usize,
 		codec: c_uint,
 		max_frame_bytes: usize,
-		out_conn: *mut *mut PancakeOnionConn,
+		out_conn: *mut *mut GlowcapOnionConn,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_listen(
-		netlayer: *mut PancakeOnionNetlayer,
+	pub fn glowcap_onion_listen(
+		netlayer: *mut GlowcapOnionNetlayer,
 		out_service_id: *mut c_uchar,
 		out_service_id_cap: usize,
 		out_service_id_len: *mut usize,
 		out_service_key: *mut c_uchar,
 		out_service_key_cap: usize,
 		out_service_key_len: *mut usize,
-		out_listener: *mut *mut PancakeOnionListener,
+		out_listener: *mut *mut GlowcapOnionListener,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_listener_wait(
-		listener: *mut PancakeOnionListener,
+	pub fn glowcap_onion_listener_wait(
+		listener: *mut GlowcapOnionListener,
 		timeout_ms: c_int,
 		out_ready: *mut u32,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_listener_readiness_fd(listener: *mut PancakeOnionListener, out_fd: *mut i32) -> c_int;
-	pub fn pancake_onion_conn_readiness_fd(conn: *mut PancakeOnionConn, out_fd: *mut i32) -> c_int;
-	pub fn pancake_onion_accept(
-		listener: *mut PancakeOnionListener,
+	pub fn glowcap_onion_listener_readiness_fd(listener: *mut GlowcapOnionListener, out_fd: *mut i32) -> c_int;
+	pub fn glowcap_onion_conn_readiness_fd(conn: *mut GlowcapOnionConn, out_fd: *mut i32) -> c_int;
+	pub fn glowcap_onion_accept(
+		listener: *mut GlowcapOnionListener,
 		codec: c_uint,
 		max_frame_bytes: usize,
-		out_conn: *mut *mut PancakeOnionConn,
+		out_conn: *mut *mut GlowcapOnionConn,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_conn_read_frame(
-		conn: *mut PancakeOnionConn,
-		out_frame: *mut PancakeManagedFrame,
+	pub fn glowcap_onion_conn_read_frame(
+		conn: *mut GlowcapOnionConn,
+		out_frame: *mut GlowcapManagedFrame,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_conn_write_frame(
-		conn: *mut PancakeOnionConn,
-		frame: *const PancakeFrame,
+	pub fn glowcap_onion_conn_write_frame(
+		conn: *mut GlowcapOnionConn,
+		frame: *const GlowcapFrame,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_conn_shutdown(conn: *mut PancakeOnionConn) -> c_int;
-	pub fn pancake_onion_conn_release(
-		conn: *mut PancakeOnionConn,
+	pub fn glowcap_onion_conn_shutdown(conn: *mut GlowcapOnionConn) -> c_int;
+	pub fn glowcap_onion_conn_release(
+		conn: *mut GlowcapOnionConn,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_listener_shutdown(listener: *mut PancakeOnionListener);
-	pub fn pancake_onion_listener_release(
-		listener: *mut PancakeOnionListener,
+	pub fn glowcap_onion_listener_shutdown(listener: *mut GlowcapOnionListener);
+	pub fn glowcap_onion_listener_release(
+		listener: *mut GlowcapOnionListener,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_clear_last_error();
-	pub fn pancake_onion_netlayer_new_in(
-		context: *mut PancakeContext,
-		config: *const PancakeOnionConfig,
-		out_netlayer: *mut *mut PancakeOnionNetlayer,
+	pub fn glowcap_onion_clear_last_error();
+	pub fn glowcap_onion_netlayer_new_in(
+		context: *mut GlowcapContext,
+		config: *const GlowcapOnionConfig,
+		out_netlayer: *mut *mut GlowcapOnionNetlayer,
 	) -> c_int;
 }

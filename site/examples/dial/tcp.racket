@@ -1,4 +1,4 @@
-(require "pancake.rkt" "pancake-tcp.rkt")
+(require "glowcap.rkt" "glowcap-tcp.rkt")
 
 ;; Plain TCP uses a cleartext host and port.
 (define partner (tcp-locator "127.0.0.1" 9099))

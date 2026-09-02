@@ -11,12 +11,12 @@
 //! guarantee no two of them alias, so there is no shared state to guard.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
 
 const Peer = engine.Peer;
 
@@ -103,7 +103,7 @@ pub fn testOnlyAcceptingVerifier() SignatureVerifier {
 /// the gifter. Signature verification reads the key from that session, never
 /// from the gift row.
 ///
-/// Sibling copy: `apps/accountability-on-pancake/zig/three_party_test.zig`.
+/// Sibling copy: `apps/accountability-on-glowcap/zig/three_party_test.zig`.
 /// That fork uses a real Ed25519 RoutingVerifier. Tests here use
 /// `testOnlyAcceptingVerifier()` when the certificate signature is not the
 /// behavior under test.
@@ -207,7 +207,7 @@ pub fn withdrawGift(
 }
 
 /// Encode exactly one pending message from `from` and dispatch it on `to`.
-/// Sibling pump copy: `apps/accountability-on-pancake/zig/three_party_test.zig`.
+/// Sibling pump copy: `apps/accountability-on-glowcap/zig/three_party_test.zig`.
 pub fn pumpOne(from: *Peer, to: *Peer) !void {
     _ = try from.step();
     const frame = from.takeOutbound() orelse return Error.NoOutboundFrame;

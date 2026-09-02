@@ -1,4 +1,4 @@
-import { IO } from "@pancake/abi";
+import { IO } from "@glowcap/abi";
 import { driverFailureError } from "../internal/driver_failure.ts";
 import { secondaryFailureCount, secondaryFailures } from "../errors.ts";
 

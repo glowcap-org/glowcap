@@ -11,18 +11,18 @@ use std::rc::Rc;
 use crate::context::ContextInner;
 use crate::host::{check_host, HostShared};
 use crate::session_shared::SessionShared;
-use crate::sys::{self, driver::PancakeDriverLoop, host as ffi_host};
+use crate::sys::{self, driver::GlowcapDriverLoop, host as ffi_host};
 use crate::{Error, FailureLayer, FailureScope, Result};
 
 enum PendingRelease {
 	Session(Rc<SessionShared>),
 	Host {
-		raw: *mut ffi_host::PancakeHost,
+		raw: *mut ffi_host::GlowcapHost,
 		context: Option<Rc<ContextInner>>,
 		refusal_reported: bool,
 	},
 	Driver {
-		raw: *mut PancakeDriverLoop,
+		raw: *mut GlowcapDriverLoop,
 		context: Option<Rc<ContextInner>>,
 		refusal_reported: bool,
 		completion: Option<FailedDriverCompletion>,
@@ -63,7 +63,7 @@ pub(crate) fn park_session(shared: Rc<SessionShared>) {
 	PENDING.with(|pending| pending.borrow_mut().push_back(PendingRelease::Session(shared)));
 }
 
-pub(crate) fn park_host(raw: *mut ffi_host::PancakeHost, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
+pub(crate) fn park_host(raw: *mut ffi_host::GlowcapHost, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Host {
 			raw,
@@ -73,7 +73,7 @@ pub(crate) fn park_host(raw: *mut ffi_host::PancakeHost, context: Option<Rc<Cont
 	});
 }
 
-pub(crate) fn park_driver(raw: *mut PancakeDriverLoop, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
+pub(crate) fn park_driver(raw: *mut GlowcapDriverLoop, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Driver {
 			raw,
@@ -88,7 +88,7 @@ pub(crate) fn park_driver(raw: *mut PancakeDriverLoop, context: Option<Rc<Contex
 /// retire only after a later consuming attempt. The first failure is already
 /// the Host close result; retries preserve it rather than reporting duplicates.
 pub(crate) fn park_failed_driver(
-	raw: *mut PancakeDriverLoop,
+	raw: *mut GlowcapDriverLoop,
 	context: Option<Rc<ContextInner>>,
 	host: Rc<HostShared>,
 	failure: Error,
@@ -153,7 +153,7 @@ pub(crate) fn drain() {
 				mut refusal_reported,
 			} => {
 				crate::trace::detach_host(raw);
-				let rc = unsafe { ffi_host::pancake_host_release(raw) };
+				let rc = unsafe { ffi_host::glowcap_host_release(raw) };
 				if rc != sys::OK {
 					if let Err(error) = check_host(rc) {
 						if crate::lifecycle::release_consumed(rc) || !refusal_reported {

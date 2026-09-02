@@ -5,11 +5,11 @@
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -198,7 +198,7 @@
 ;; our inbox actor).
 (let loop ([i 0])
   (when (and (null? (unbox xf-notes)) (< i 200))
-    (with-handlers ([exn:fail:pancake? void])
+    (with-handlers ([exn:fail:glowcap? void])
       (session-send xf-session xf-registry 'register xf-inbox))
     (loop (add1 i))))
 (expect (member "broadcast" (unbox xf-notes))
@@ -238,12 +238,12 @@
                 (encode-peer-locator
                  (locator TRANSPORT-TCP
                           (tcp-address-designator "127.0.0.1" (server-port hl-server))
-                          (hash "pancake/features"
+                          (hash "glowcap/features"
                                 "pipelining,handoff,wire_delta,sturdyref,untag")
                           'map)))
         "listen/accept: the host advertised the listener's complete locator record")
 (define hl-svc (session-fetch hl-session "svc"))
-(expect (equal? "hello pancake" (session-send hl-session hl-svc 'greet "pancake"))
+(expect (equal? "hello glowcap" (session-send hl-session hl-svc 'greet "glowcap"))
         "listen/accept: high-level call round-tripped")
 (session-close! hl-session)
 (define hl-host-result (channel-get hl-ch))
@@ -308,10 +308,10 @@
                                     (equal? (hash-ref ev 'a_label #f) "smoke")))
                   opened)
           "trace: opens carry the codec and the application's display label")
-  ;; And what this producer RUNS, because this schema is not pancake's alone: a
+  ;; And what this producer RUNS, because this schema is not glowcap's alone: a
   ;; consumer must not read an implementation off the fact that a record
-  ;; arrived, so a pancake host says so in words.
-  (expect (andmap (lambda (ev) (equal? (hash-ref ev 'a_profile #f) "pancake")) opened)
+  ;; arrived, so a glowcap host says so in words.
+  (expect (andmap (lambda (ev) (equal? (hash-ref ev 'a_profile #f) "glowcap")) opened)
           "trace: an open states the implementation this producer runs")
   ;; Identity and label are two facts. `a` is the host's own key designator —
   ;; the name a partner knows it by, and so the only name two producers can
@@ -469,11 +469,11 @@
 ;; the vow — a listen on an already-settled capability answers at once.
 (define en-observation (session-listen en-session en-cap))
 (define en-observer-refusal
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-send en-session en-observation 'hello)
     'no-error))
-(expect (and (exn:fail:pancake? en-observer-refusal)
-             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code en-observer-refusal)))
+(expect (and (exn:fail:glowcap? en-observer-refusal)
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code en-observer-refusal)))
         "listen: an observer vow is not a remote pipeline target")
 (define en-listened (session-await en-session en-observation))
 (expect (ref? en-listened) "listen: the vow settles naming the capability")

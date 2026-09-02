@@ -4,97 +4,97 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libpancake_net_transport_iroh`. The hand-written
+// The raw extern block of `libglowcap_net_transport_iroh`. The hand-written
 // sibling (`iroh.rs`) owns the opaque types, the `#[repr(C)]` mirrors and
 // their layout pins, and re-exports this block, so consumers keep their
-// `sys::iroh::pancake_iroh_*` paths.
+// `sys::iroh::glowcap_iroh_*` paths.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uchar};
 
-use super::iroh::{PancakeIrohConfig, PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent};
-use super::PancakeTransportProvider;
+use super::iroh::{GlowcapIrohConfig, GlowcapIrohConn, GlowcapIrohNetlayer, GlowcapIrohReadyEvent};
+use super::GlowcapTransportProvider;
 
 extern "C" {
-	pub fn pancake_iroh_archive_fingerprint() -> u64;
-	pub fn pancake_iroh_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_iroh_netlayer_new(
+	pub fn glowcap_iroh_archive_fingerprint() -> u64;
+	pub fn glowcap_iroh_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_iroh_netlayer_new(
 		secret_seed: *const c_uchar,
 		secret_seed_len: usize,
-		config: *const PancakeIrohConfig,
-		out_netlayer: *mut *mut PancakeIrohNetlayer,
+		config: *const GlowcapIrohConfig,
+		out_netlayer: *mut *mut GlowcapIrohNetlayer,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_close(netlayer: *mut PancakeIrohNetlayer);
-	pub fn pancake_iroh_netlayer_release(
-		netlayer: *mut PancakeIrohNetlayer,
+	pub fn glowcap_iroh_netlayer_close(netlayer: *mut GlowcapIrohNetlayer);
+	pub fn glowcap_iroh_netlayer_release(
+		netlayer: *mut GlowcapIrohNetlayer,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_node_id(
-		netlayer: *mut PancakeIrohNetlayer,
+	pub fn glowcap_iroh_netlayer_node_id(
+		netlayer: *mut GlowcapIrohNetlayer,
 		out: *mut c_uchar,
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_direct_addrs(
-		netlayer: *mut PancakeIrohNetlayer,
+	pub fn glowcap_iroh_netlayer_direct_addrs(
+		netlayer: *mut GlowcapIrohNetlayer,
 		out: *mut c_uchar,
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_iroh_conn_release(conn: *mut PancakeIrohConn);
-	pub fn pancake_iroh_conn_id(conn: *mut PancakeIrohConn) -> usize;
-	pub fn pancake_iroh_conn_remote_node_id(
-		conn: *mut PancakeIrohConn,
+	pub fn glowcap_iroh_conn_release(conn: *mut GlowcapIrohConn);
+	pub fn glowcap_iroh_conn_id(conn: *mut GlowcapIrohConn) -> usize;
+	pub fn glowcap_iroh_conn_remote_node_id(
+		conn: *mut GlowcapIrohConn,
 		out: *mut c_uchar,
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_readiness_fd(netlayer: *mut PancakeIrohNetlayer) -> c_int;
-	pub fn pancake_iroh_netlayer_drain_ready(
-		netlayer: *mut PancakeIrohNetlayer,
-		out_events: *mut PancakeIrohReadyEvent,
+	pub fn glowcap_iroh_netlayer_readiness_fd(netlayer: *mut GlowcapIrohNetlayer) -> c_int;
+	pub fn glowcap_iroh_netlayer_drain_ready(
+		netlayer: *mut GlowcapIrohNetlayer,
+		out_events: *mut GlowcapIrohReadyEvent,
 		out_cap: usize,
 		out_count: *mut usize,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_try_accept(
-		netlayer: *mut PancakeIrohNetlayer,
-		out_conn: *mut *mut PancakeIrohConn,
+	pub fn glowcap_iroh_netlayer_try_accept(
+		netlayer: *mut GlowcapIrohNetlayer,
+		out_conn: *mut *mut GlowcapIrohConn,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_start_connect(
-		netlayer: *mut PancakeIrohNetlayer,
+	pub fn glowcap_iroh_netlayer_start_connect(
+		netlayer: *mut GlowcapIrohNetlayer,
 		request_id: usize,
 		node_id: *const c_uchar,
 		node_id_len: usize,
 		addr_hints: *const c_uchar,
 		addr_hints_len: usize,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_finish_connect(
-		netlayer: *mut PancakeIrohNetlayer,
+	pub fn glowcap_iroh_netlayer_finish_connect(
+		netlayer: *mut GlowcapIrohNetlayer,
 		request_id: usize,
-		out_conn: *mut *mut PancakeIrohConn,
+		out_conn: *mut *mut GlowcapIrohConn,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_cancel_connect(netlayer: *mut PancakeIrohNetlayer, request_id: usize) -> c_int;
-	pub fn pancake_iroh_conn_try_read(
-		conn: *mut PancakeIrohConn,
+	pub fn glowcap_iroh_netlayer_cancel_connect(netlayer: *mut GlowcapIrohNetlayer, request_id: usize) -> c_int;
+	pub fn glowcap_iroh_conn_try_read(
+		conn: *mut GlowcapIrohConn,
 		buf: *mut c_uchar,
 		len: usize,
 		out_read: *mut usize,
 	) -> c_int;
-	pub fn pancake_iroh_conn_try_write(
-		conn: *mut PancakeIrohConn,
+	pub fn glowcap_iroh_conn_try_write(
+		conn: *mut GlowcapIrohConn,
 		buf: *const c_uchar,
 		len: usize,
 		out_written: *mut usize,
 	) -> c_int;
-	pub fn pancake_iroh_transport_provider(
-		netlayer: *mut PancakeIrohNetlayer,
-		out_provider: *mut PancakeTransportProvider,
+	pub fn glowcap_iroh_transport_provider(
+		netlayer: *mut GlowcapIrohNetlayer,
+		out_provider: *mut GlowcapTransportProvider,
 	) -> c_int;
-	pub fn pancake_iroh_clear_last_error();
+	pub fn glowcap_iroh_clear_last_error();
 }

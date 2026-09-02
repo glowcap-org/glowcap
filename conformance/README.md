@@ -1,14 +1,14 @@
 # conformance/
 
-External conformance pressure for pancake: the arbiters of correct that would
-hold even if pancake were rewritten from scratch. This directory holds the
-upstream OCapN test suite, the Spritely Goblins peer that pancake dials, the
+External conformance pressure for glowcap: the arbiters of correct that would
+hold even if glowcap were rewritten from scratch. This directory holds the
+upstream OCapN test suite, the Spritely Goblins peer that glowcap dials, the
 spec submodules kept for citation, the Goblins reference implementation of the
 accountability application, and the KERI and episode reference verifiers that arbitrate it.
-The worked accountability application *on pancake* is not an arbiter — it lives
+The worked accountability application *on glowcap* is not an arbiter — it lives
 beside the other worked applications under
-[`../apps/`](../apps/accountability-on-pancake/). The live
-cross-implementation drivers — pancake talking to Goblins or to another pancake
+[`../apps/`](../apps/accountability-on-glowcap/). The live
+cross-implementation drivers — glowcap talking to Goblins or to another glowcap
 over iroh — are **not** external authority either; they live in
 [`../interop/`](../interop/README.md).
 The toolchains these need are Racket with Goblins and Python, and
@@ -31,7 +31,7 @@ bash conformance/bootstrap-submodules.sh
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | [`ocapn-conformance/`](ocapn-conformance/)                 | The upstream OCapN test suite (submodule) + a native `uv` wrapper.                                                            | `bash conformance/ocapn-conformance/run.sh test '<ocapn-url>'`      |
 | [`ocapn-findings/`](ocapn-findings/)                       | Neutral, reproducible discrepancy checks over the pinned OCapN spec, suite, and Goblins sources.                              | `zig build ocapn-findings-check`                                    |
-| [`goblins-peer/`](goblins-peer/)                           | pancake's slim Spritely Goblins OCapN peer — the seven-caps conformance target + TCP netlayer + demos.                        | `bash conformance/goblins-peer/run.sh seven-caps-peer`              |
+| [`goblins-peer/`](goblins-peer/)                           | glowcap's slim Spritely Goblins OCapN peer — the seven-caps conformance target + TCP netlayer + demos.                        | `bash conformance/goblins-peer/run.sh seven-caps-peer`              |
 | [`accountability-on-goblins/`](accountability-on-goblins/) | The Goblins reference implementation of the accountability application (KERI AIDs, signed Episodes, Merkle log); its demos generate the `.data/` corpus the KERI and episode arbiters check. | (kernel/demos under `racket/`)                                      |
 | [`keri-conformance/`](keri-conformance/)                   | Python reference verifier (keripy-checked primitives) that arbitrates the KERI fixtures.                                                  | `bash conformance/keri-conformance/run.sh --fixture sample-kel`     |
 | [`episode-audit/`](episode-audit/)                         | `audit.rkt` — verifies each Episode's signature chain against the KEL.                                                        | `bash conformance/episode-audit/run.sh`                             |

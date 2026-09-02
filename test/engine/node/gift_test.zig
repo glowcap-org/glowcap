@@ -4,12 +4,12 @@
 //! `gift_failure_test.zig`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesAllocator;
 
 const Node = engine.Node;

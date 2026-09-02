@@ -58,7 +58,7 @@ fn mixIndexes(hash: *u64, indexes: []const u8) void {
 }
 
 fn isContractConstant(comptime name: []const u8) bool {
-    return std.mem.startsWith(u8, name, "PANCAKE_") and
+    return std.mem.startsWith(u8, name, "GLOWCAP_") and
         !std.mem.endsWith(u8, name, "_ARCHIVE_FINGERPRINT");
 }
 
@@ -107,26 +107,26 @@ fn mixConstantValue(hash: *u64, comptime name: []const u8, comptime value: anyty
         },
         .array => |array| {
             if (array.child != u8)
-                @compileError(name ++ " is a PANCAKE_* array constant with unsupported element type");
+                @compileError(name ++ " is a GLOWCAP_* array constant with unsupported element type");
             mix(hash, &value);
         },
         .pointer => |pointer| switch (pointer.size) {
             .slice => {
                 if (pointer.child != u8)
-                    @compileError(name ++ " is a PANCAKE_* slice constant with unsupported element type");
+                    @compileError(name ++ " is a GLOWCAP_* slice constant with unsupported element type");
                 mix(hash, value);
             },
             .one => switch (@typeInfo(pointer.child)) {
                 .array => |array| {
                     if (array.child != u8)
-                        @compileError(name ++ " is a PANCAKE_* pointer constant with unsupported target type");
+                        @compileError(name ++ " is a GLOWCAP_* pointer constant with unsupported target type");
                     mix(hash, value[0..]);
                 },
-                else => @compileError(name ++ " is a PANCAKE_* pointer constant with unsupported target type"),
+                else => @compileError(name ++ " is a GLOWCAP_* pointer constant with unsupported target type"),
             },
-            else => @compileError(name ++ " is a PANCAKE_* pointer constant with unsupported shape"),
+            else => @compileError(name ++ " is a GLOWCAP_* pointer constant with unsupported shape"),
         },
-        else => @compileError(name ++ " is a public PANCAKE_* declaration the archive fingerprint cannot represent"),
+        else => @compileError(name ++ " is a public GLOWCAP_* declaration the archive fingerprint cannot represent"),
     }
 }
 
@@ -158,7 +158,7 @@ fn mixLayout(hash: *u64, comptime entry: Layout) void {
 
 /// Fingerprint an archive from facts its C consumers can observe: every
 /// exported symbol's reflected function type and crossing annotations, every
-/// public `PANCAKE_*` value, and every struct in its canonical layout
+/// public `GLOWCAP_*` value, and every struct in its canonical layout
 /// manifests. Implementation and comment edits deliberately do not perturb
 /// the value.
 pub fn fingerprint(
@@ -168,7 +168,7 @@ pub fn fingerprint(
 ) u64 {
     @setEvalBranchQuota(10_000_000);
     var hash = offset_basis;
-    mix(&hash, "pancake-c-archive-contract-v4");
+    mix(&hash, "glowcap-c-archive-contract-v4");
     mix(&hash, archive_name);
     mixConstants(&hash, Archive);
 

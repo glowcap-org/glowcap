@@ -50,7 +50,7 @@ boundaries. Serialization is likewise explicit.
   TCP-only `connectTcp` and `acceptTcp` constructors are not part of the public
   driver surface.
 
-At the C boundary, `PancakeLocatorView` is the fixed-layout borrowed vocabulary.
+At the C boundary, `GlowcapLocatorView` is the fixed-layout borrowed vocabulary.
 The OCapN archive owns construction and URI operations, while provider archives
 borrow the view without linking another runtime. ADR-0096 owns the Host
 application surface that consumes it.

@@ -5,7 +5,7 @@
 //! (arena) for formatted lines; literals and transcript-owned lines are fine.
 const std = @import("std");
 const vaxis = @import("vaxis");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const copy = @import("copy.zig");
 const theme = @import("theme.zig");
 const teach = @import("teach.zig");
@@ -14,7 +14,7 @@ const layout = @import("layout.zig");
 const Ctx = @import("../ctx.zig").Ctx;
 
 const Window = vaxis.Window;
-const session_mod = pancake.ocapn.session;
+const session_mod = glowcap.ocapn.session;
 const Slot = session_mod.slot.Slot;
 
 pub fn slotKindLabel(s: Slot) []const u8 {
@@ -97,9 +97,9 @@ pub fn drawStatus(win: Window, ctx: *Ctx, frame: std.mem.Allocator, panel_label:
     const style = if (ctx.activeSession() != null) theme.styleStatusOpen() else theme.styleStatusBar();
     if (ctx.publishedLocator()) |loc| {
         const show = if (loc.len > 28) loc[0..28] else loc;
-        printFmt(win, 0, 1, style, frame, "◆ pancake  id={s}  session={s}  {s}", .{ id, sess, show });
+        printFmt(win, 0, 1, style, frame, "◆ glowcap  id={s}  session={s}  {s}", .{ id, sess, show });
     } else {
-        printFmt(win, 0, 1, style, frame, "◆ pancake  id={s}  session={s}", .{ id, sess });
+        printFmt(win, 0, 1, style, frame, "◆ glowcap  id={s}  session={s}", .{ id, sess });
     }
     if (panel_label.len > 0 and win.width > panel_label.len + 3) {
         const chip_x = win.width -| @as(u16, @intCast(panel_label.len + 2));
@@ -538,7 +538,7 @@ pub fn drawPromptDock(
         drawBorderTitle(win, "prompt", theme.styleMuted());
     }
     const open = ctx.activeSession() != null;
-    const prompt: []const u8 = if (open) "pancake› " else "pancake· ";
+    const prompt: []const u8 = if (open) "glowcap› " else "glowcap· ";
     const prompt_style = if (open) theme.styleAccent() else theme.styleMuted();
     const has_title = (focused and win.height >= 2) or (!focused and win.height >= 3);
     const input_row: u16 = if (has_title) 1 else 0;

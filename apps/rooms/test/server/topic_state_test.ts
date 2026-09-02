@@ -5,7 +5,7 @@ import { assert, roomsTest } from "../support/rooms_server.ts";
 import { MAX_ROOM_LINKS, newManagedRoomId } from "../../lib/limits.ts";
 
 roomsTest("a public room topic survives restart independently of room-link authority", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-topic-state-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-topic-state-" });
 	try {
 		const state = await RoomServerState.open(directory);
 		await state.setTopic("General", "the durable subject");
@@ -23,7 +23,7 @@ roomsTest("a public room topic survives restart independently of room-link autho
 });
 
 roomsTest("a private room topic remains coupled to its durable room authority", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-private-topic-state-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-private-topic-state-" });
 	try {
 		const key = newManagedRoomId();
 		const state = await RoomServerState.open(directory);
@@ -42,7 +42,7 @@ roomsTest("a private room topic remains coupled to its durable room authority", 
 });
 
 roomsTest("server state refuses orphan topics and zero durable stewardship generations", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-topic-relations-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-topic-relations-" });
 	try {
 		await RoomServerState.open(directory);
 		const path = `${directory}/rooms.json`;
@@ -75,7 +75,7 @@ roomsTest("server state refuses orphan topics and zero durable stewardship gener
 });
 
 roomsTest("linking a room cannot write one topic beyond the server state bound", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-topic-bound-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-topic-bound-" });
 	try {
 		await RoomServerState.open(directory);
 		const path = `${directory}/rooms.json`;

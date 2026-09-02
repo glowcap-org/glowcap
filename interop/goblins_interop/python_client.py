@@ -1,4 +1,4 @@
-"""Live interop proof for the Python binding: a peer built on ``libpancake``'s C
+"""Live interop proof for the Python binding: a peer built on ``libglowcap``'s C
 ABI holds a *keyed* OCapN conversation with a real Spritely Goblins vat over
 TCP, driven through the *same* ``connect``/``enliven``/``send`` application
 surface the cross-language demos use, so what is proven against a real Goblins
@@ -22,7 +22,7 @@ from helpers import fail, insert_bindings_path, parse_port, read_sturdyref_path 
 
 insert_bindings_path()
 
-from pancake import Runtime, format_locator_uri, tcp  # noqa: E402
+from glowcap import Runtime, format_locator_uri, tcp  # noqa: E402
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-interop", 22097)
 RACKET = "racket"
@@ -73,7 +73,7 @@ async def converse() -> None:
                         f"echo returned {reply!r}, expected [{expected!r}]",
                     )
 
-            assert_echoed(await session.send(echo, "", [b"pancake-ping"]), b"pancake-ping")
+            assert_echoed(await session.send(echo, "", [b"glowcap-ping"]), b"glowcap-ping")
 
             again = await session.enliven(sturdyref)
         # The dedup cache hands back the same capability, so the two handles
@@ -86,7 +86,7 @@ async def converse() -> None:
                     "repeat enliven did not return the same capability (dedup miss)",
                 )
             assert_echoed(
-                await session.send(again, "", [b"pancake-ping-again"]), b"pancake-ping-again"
+                await session.send(again, "", [b"glowcap-ping-again"]), b"glowcap-ping-again"
             )
             print(
                 "python-goblins-interop: repeat enliven same import (dedup), second call resolved"

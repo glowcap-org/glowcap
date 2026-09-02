@@ -1,8 +1,8 @@
 // Durable room and steward authorities held by one room client.
 
-import { PublicationNotFound, Ref, retainCleanupFailures } from "@pancake/runtime";
+import { PublicationNotFound, Ref, retainCleanupFailures } from "@glowcap/runtime";
 import { settleCapabilityCleanup } from "../capability_cleanup.ts";
-import type { Argument, Session } from "@pancake/runtime";
+import type { Argument, Session } from "@glowcap/runtime";
 import { roomAuthorityIdentity } from "../authority_identity.ts";
 import { ask } from "../ask.ts";
 import { NOT_STEWARD, RoomError, roomErrorOf } from "../errors.ts";

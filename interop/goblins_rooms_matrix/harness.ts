@@ -1,4 +1,4 @@
-// Heavy rooms interoperability matrix. Two browser pancake peers and two real
+// Heavy rooms interoperability matrix. Two browser glowcap peers and two real
 // Goblins rooms-chat vats exercise room movement and every direct-message pair
 // over iroh. Each phase starts clean because Goblins assigns independent
 // receivers one shared handoff-count namespace; the count-discrepancy phase
@@ -74,12 +74,12 @@ class ChatPeer {
 		// Concurrent Racket processes must not replace one shared .zo while its
 		// sibling is opening it. A private compiled root keeps startup parallel
 		// and leaves the checkout untouched.
-		this.#compiledRoot = Deno.makeTempDirSync({ prefix: "pancake-rooms-racket-" });
+		this.#compiledRoot = Deno.makeTempDirSync({ prefix: "glowcap-rooms-racket-" });
 		this.child = new Deno.Command("racket", {
 			args: ["-y", CHAT, locator, room, nick],
 			cwd: RACKET_DIR,
 			env: {
-				PANCAKE_ROOMS_VIZ_URL: vizUrl,
+				GLOWCAP_ROOMS_VIZ_URL: vizUrl,
 				// The trailing empty path is Racket's `same` fallback: reuse
 				// installed package bytecode, but write checkout-local bytecode only
 				// into this peer's private first root.
@@ -403,7 +403,7 @@ const web = new Deno.Command("deno", {
 		String(roomPort),
 	],
 	cwd: ROOT,
-	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
+	env: { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "null",
 	// Read rather than inherited, because the trace capability is announced on
 	// this stream and a viewer needs it. `scrapeVizSturdyref` tees it onward, so
@@ -461,8 +461,8 @@ try {
 			] as const
 		) await roomLine([webA, webB], [gobA, gobB], sender, text);
 	} else if (phase === "rooms-homogeneous") {
-		await Promise.all([moveWeb(webA, "pancake-only"), moveWeb(webB, "pancake-only")]);
-		await roomLine([webA, webB], [], webA, "pancake-only line");
+		await Promise.all([moveWeb(webA, "glowcap-only"), moveWeb(webB, "glowcap-only")]);
+		await roomLine([webA, webB], [], webA, "glowcap-only line");
 
 		await gobA.command(
 			"/open goblins-only",

@@ -8,10 +8,10 @@
 //! the checked path demonstrably spills on the same message.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
 /// More distinct positions than the GC fold's stack tier holds, so the

@@ -7,11 +7,11 @@
 //! `driver_core` invariant; the live loop consumer is `iroh.Backend` + Bridge
 //! (`zig build iroh-loop`).
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 const capture = @import("../support/capture.zig");
 const support_actors = @import("../support/actors.zig");
 

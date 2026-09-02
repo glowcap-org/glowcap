@@ -11,7 +11,7 @@ const std = @import("std");
 // Pure over byte buffers so hostile-input tests drive it without a socket.
 
 /// RFC 6455 opcodes this client speaks. Text frames are refused outright:
-/// pancake bytes are binary, and a text frame from a relay is a fault.
+/// glowcap bytes are binary, and a text frame from a relay is a fault.
 pub const Opcode = enum(u4) {
     continuation = 0x0,
     text = 0x1,

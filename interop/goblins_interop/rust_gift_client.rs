@@ -1,18 +1,18 @@
 //! Live three-party handoff with the Rust binding as the GIFTER (the
-//! introducer), proving pancake can mint a `desc:handoff-give` that live Goblins
+//! introducer), proving glowcap can mint a `desc:handoff-give` that live Goblins
 //! redeems and a `deposit-gift` that live Goblins accepts — the exporter half of
 //! ADR-0009 against a real cross-implementation peer, the mirror of
-//! `rust-goblins-handoff` (where pancake is the recipient).
+//! `rust-goblins-handoff` (where glowcap is the recipient).
 //!
 //! Topology (all TCP loopback):
 //!   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
-//!   Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
+//!   Gifter (glowcap)           lifts Bob's greeter from a vendor reply, then
 //!                              returns it twice in one nested Passable value.
-//!   Carol  (Goblins recipient) dials the pancake introducer, asks for the
+//!   Carol  (Goblins recipient) dials the glowcap introducer, asks for the
 //!                              greeters, transparently redeems both gives, and
 //!                              calls both directly on Bob.
 //!
-//! pancake is the gifter: returning two occurrences of Bob's greeter (whose home
+//! glowcap is the gifter: returning two occurrences of Bob's greeter (whose home
 //! is the gifter↔Bob connection) on Carol's connection deposits both with Bob and
 //! resolves Carol's send with two signed gives. One node identity (`gifter.host()`)
 //! serves both sides, so both signatures match their deposits. Carol's
@@ -24,7 +24,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pancake_rust_dogfood::{tcp, Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::{tcp, Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 
@@ -35,17 +35,17 @@ type Fail = helpers::Fail;
 
 const HOST: &str = "127.0.0.1";
 /// Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on
-/// PORT+1. pancake (the gifter) takes an ephemeral port, the recipient learns it
+/// PORT+1. glowcap (the gifter) takes an ephemeral port, the recipient learns it
 /// at spawn time. `--port=N` (from `zig build rust-goblins-gift -Dport=N`) moves
 /// the pair when 22124 is taken.
 const DEFAULT_PORT: u16 = 22124;
 const RACKET: &str = "racket";
 const EXPORTER_SCRIPT: &str = "conformance/goblins-peer/racket/gift-exporter-host.rkt";
 const RECIPIENT_SCRIPT: &str = "conformance/goblins-peer/racket/gift-recipient.rkt";
-// pancake hardcodes the same swiss the exporter host registers, the way the
+// glowcap hardcodes the same swiss the exporter host registers, the way the
 // interop clients fix the echo swiss.
-const GREETER_SWISS: &str = "pancakeGiftGreeterSwissnum000001";
-const VENDOR_SWISS: &str = "pancakeGiftVendorSwissnum0000001";
+const GREETER_SWISS: &str = "glowcapGiftGreeterSwissnum000001";
+const VENDOR_SWISS: &str = "glowcapGiftVendorSwissnum0000001";
 const INTRODUCER_SWISS: &str = "introducer";
 
 fn parse_port() -> Result<u16, Fail> {
@@ -112,7 +112,7 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn gift(port: u16) -> Result<(), Fail> {
-	// pancake (the gifter) listens for the recipient on an ephemeral port. One
+	// glowcap (the gifter) listens for the recipient on an ephemeral port. One
 	// node identity serves both the recipient connection and the exporter
 	// connection, so the give's signature matches the deposit.
 	let server = tcp::listen(HOST, 0, tcp::ListenOptions::default()).await?;
@@ -136,7 +136,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	});
 
 	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. The
-	// reply ref's home is this gifter↔Bob connection, so pancake can re-gift
+	// reply ref's home is this gifter↔Bob connection, so glowcap can re-gift
 	// it without an enrollment verb.
 	let runtime =
 		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&host)).await?;
@@ -166,9 +166,9 @@ async fn gift(port: u16) -> Result<(), Fail> {
 			}
 		})
 	})?;
-	println!("rust-goblins-gift: pancake publishing introducer swiss={INTRODUCER_SWISS} on {HOST}:{gifter_port}");
+	println!("rust-goblins-gift: glowcap publishing introducer swiss={INTRODUCER_SWISS} on {HOST}:{gifter_port}");
 
-	// Spawn Carol (the Goblins recipient): she dials pancake's introducer, asks
+	// Spawn Carol (the Goblins recipient): she dials glowcap's introducer, asks
 	// for both greeters, redeems both gives, and calls Bob directly.
 	let mut carol = Command::new(RACKET)
 		.args([
@@ -212,7 +212,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	println!(
 		"rust-goblins-gift OK: two nested binding values became distinct gives that live Goblins redeemed and called directly"
 	);
-	to_bob.close(pancake_rust_dogfood::PendingWork::Cancel).await?;
+	to_bob.close(glowcap_rust_dogfood::PendingWork::Cancel).await?;
 	Ok(())
 }
 

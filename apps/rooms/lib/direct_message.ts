@@ -19,7 +19,7 @@ import {
 	retainCleanupFailures,
 	retainSecondaryFailure,
 	type Session,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import {
 	type Attachment,
 	attachmentCapabilities,
@@ -418,7 +418,7 @@ export class DirectMessage {
 
 	/** Host a short-lived facet on this direct session so its capability can be
 	 * handed to the peer on the same connection. */
-	spawn(behavior: import("@pancake/runtime").Behavior): Ref {
+	spawn(behavior: import("@glowcap/runtime").Behavior): Ref {
 		return this.#session.spawn(behavior);
 	}
 

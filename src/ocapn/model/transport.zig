@@ -54,7 +54,7 @@ pub const Metadata = struct {
     }
 };
 
-/// The transport symbols whose locator semantics pancake defines. Extensions
+/// The transport symbols whose locator semantics glowcap defines. Extensions
 /// remain legal at runtime, but the exhaustive metadata switch gives each
 /// first-party symbol exactly one policy definition.
 pub const Known = enum {
@@ -229,7 +229,7 @@ pub const hint_via = "via";
 /// states its addresses, and both ends do it symmetrically. On the locator a
 /// dialer was handed they are read once, as knowledge rather than as a
 /// preference: their presence on an onion address marks the acceptor as
-/// pancake (ADR-0118), and the settle still runs off the two hellos alone.
+/// glowcap (ADR-0118), and the settle still runs off the two hellos alone.
 ///
 /// Three names because the axes are independent: a peer that understands one
 /// settles that axis and takes the baseline on the other.
@@ -238,9 +238,9 @@ pub const hint_via = "via";
 /// any version string but its own, so stating a preference there would refuse
 /// every partner that did not already share it. A hint is ignorable, which is
 /// the property needed.
-pub const hint_captp_version = "pancake/captp-version";
-pub const hint_codec = "pancake/codec";
-pub const hint_features = "pancake/features";
+pub const hint_captp_version = "glowcap/captp-version";
+pub const hint_codec = "glowcap/codec";
+pub const hint_features = "glowcap/features";
 
 pub fn isProfileHintName(name: []const u8) bool {
     return std.mem.eql(u8, name, hint_captp_version) or

@@ -19,7 +19,7 @@
 
 (provide iroh-ref)
 
-;; `private/iroh.rkt`, not `../pancake-iroh.rkt`: the barrel re-exports only the
+;; `private/iroh.rkt`, not `../glowcap-iroh.rkt`: the barrel re-exports only the
 ;; application surface and the provider/raw seams need it beside them. Loading
 ;; the implementation directly also keeps this a plain module load. Racket's
 ;; compile manager does not manage submodule requests, so a program running

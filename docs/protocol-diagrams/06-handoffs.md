@@ -72,7 +72,7 @@ flowchart TD
 
 The Receiver cannot verify the Gifter's signature yet, because it has never seen
 the Gifter's G-X pubkey. That check belongs to the Exporter. The spec also
-suggests the Receiver check that the give's receiver-key names it; pancake
+suggests the Receiver check that the give's receiver-key names it; glowcap
 leaves that to the Exporter too, where the receive must be signed by exactly
 that key (HO-7), so a mis-addressed give fails at withdraw rather than locally.
 What the Receiver does check locally is the exporter-location: an unparseable

@@ -108,7 +108,7 @@ function MemberRow(
 							{you && " (you)"}
 						</span>
 						{identity.mark !== null && (
-							<span className="irc-chip" data-network={identity.network}>{identity.mark}</span>
+							<span className="bridge-chip" data-network={identity.network}>{identity.mark}</span>
 						)}
 					</span>
 					{
@@ -129,12 +129,12 @@ function MemberRow(
 					<IconButton
 						className="dm-btn"
 						icon="gear"
-						label="Manage your IRC identity"
+						label={`Manage your ${bridge?.badge ?? "bridge"} identity`}
 						size="small"
 						tone="teal"
 						onClick={(event) => {
 							event.stopPropagation();
-							browser.manageIrcIdentity();
+							browser.manageBridgeIdentity();
 						}}
 					/>
 				)

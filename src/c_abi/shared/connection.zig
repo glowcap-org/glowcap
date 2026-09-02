@@ -6,16 +6,16 @@ const frame = @import("frame.zig");
 const result = @import("result.zig");
 const last_error = @import("last_error.zig");
 
-const PancakeFrame = frame.PancakeFrame;
-const PancakeManagedFrame = frame.PancakeManagedFrame;
-const PANCAKE_OK = result.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = result.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = result.PANCAKE_ERR_INVALID_ARGUMENT;
-const PANCAKE_ERR_INTERNAL = result.PANCAKE_ERR_INTERNAL;
-const PANCAKE_ERR_CLOSED = result.PANCAKE_ERR_CLOSED;
-const PANCAKE_ERR_IO = result.PANCAKE_ERR_IO;
-const PANCAKE_ERR_MALFORMED = result.PANCAKE_ERR_MALFORMED;
-const PANCAKE_ERR_FRAME_TOO_LARGE = result.PANCAKE_ERR_FRAME_TOO_LARGE;
+const GlowcapFrame = frame.GlowcapFrame;
+const GlowcapManagedFrame = frame.GlowcapManagedFrame;
+const GLOWCAP_OK = result.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = result.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = result.GLOWCAP_ERR_INVALID_ARGUMENT;
+const GLOWCAP_ERR_INTERNAL = result.GLOWCAP_ERR_INTERNAL;
+const GLOWCAP_ERR_CLOSED = result.GLOWCAP_ERR_CLOSED;
+const GLOWCAP_ERR_IO = result.GLOWCAP_ERR_IO;
+const GLOWCAP_ERR_MALFORMED = result.GLOWCAP_ERR_MALFORMED;
+const GLOWCAP_ERR_FRAME_TOO_LARGE = result.GLOWCAP_ERR_FRAME_TOO_LARGE;
 const setLastError = last_error.set;
 
 /// Admission barrier for operations entered from foreign threads. Shutdown
@@ -162,7 +162,7 @@ pub fn ConnLifecycle(comptime Payload: type) type {
     };
 }
 
-/// The one body behind every stream-shaped `pancake_*_conn_{read,write}_frame`
+/// The one body behind every stream-shaped `glowcap_*_conn_{read,write}_frame`
 /// (tcp and inproc). `Payload` declares `stream` (with `readFrame`/`writeFrame`)
 /// and `allocator`. A comptime helper, not an `export fn`, so each archive
 /// compiles its own copy and the shared leaf stays symbol-free — the archives
@@ -173,34 +173,34 @@ pub fn ConnFrameOps(comptime Payload: type) type {
     return struct {
         pub fn readFrame(
             payload: *Payload,
-            out_frame: *PancakeManagedFrame,
+            out_frame: *GlowcapManagedFrame,
             comptime onConnectionLost: fn (*Payload) void,
         ) i32 {
-            if (!payload.operations.acquire(payload.stream.io)) return PANCAKE_ERR_CLOSED;
+            if (!payload.operations.acquire(payload.stream.io)) return GLOWCAP_ERR_CLOSED;
             defer payload.operations.release(payload.stream.io);
             payload.directions.read.lockUncancelable(payload.stream.io);
             defer payload.directions.read.unlock(payload.stream.io);
             const f = payload.stream.readFrame() catch |err| return frameReadErrorToCode(payload, err, onConnectionLost);
             out_frame.* = frame.managed(f);
-            return PANCAKE_OK;
+            return GLOWCAP_OK;
         }
 
         pub fn writeFrame(
             payload: *Payload,
-            frame_in: *const PancakeFrame,
+            frame_in: *const GlowcapFrame,
             comptime onWriteErr: fn (*Payload, anyerror) void,
         ) i32 {
-            if (!payload.operations.acquire(payload.stream.io)) return PANCAKE_ERR_CLOSED;
+            if (!payload.operations.acquire(payload.stream.io)) return GLOWCAP_ERR_CLOSED;
             defer payload.operations.release(payload.stream.io);
-            const bytes_ptr = frame_in.bytes orelse return PANCAKE_ERR_NULL_POINTER;
+            const bytes_ptr = frame_in.bytes orelse return GLOWCAP_ERR_NULL_POINTER;
             payload.directions.write.lockUncancelable(payload.stream.io);
             defer payload.directions.write.unlock(payload.stream.io);
 
             payload.stream.writeFrame(bytes_ptr[0..frame_in.len]) catch |err| {
                 onWriteErr(payload, err);
-                return PANCAKE_ERR_IO;
+                return GLOWCAP_ERR_IO;
             };
-            return PANCAKE_OK;
+            return GLOWCAP_OK;
         }
 
         fn frameReadErrorToCode(
@@ -209,18 +209,18 @@ pub fn ConnFrameOps(comptime Payload: type) type {
             comptime onConnectionLost: fn (*Payload) void,
         ) i32 {
             return switch (err) {
-                error.Closed => PANCAKE_ERR_CLOSED,
-                error.MalformedFrame => PANCAKE_ERR_MALFORMED,
-                error.FrameTooLarge => PANCAKE_ERR_FRAME_TOO_LARGE,
+                error.Closed => GLOWCAP_ERR_CLOSED,
+                error.MalformedFrame => GLOWCAP_ERR_MALFORMED,
+                error.FrameTooLarge => GLOWCAP_ERR_FRAME_TOO_LARGE,
                 error.TruncatedFrame => blk: {
                     setLastError("read_frame: stream closed mid-frame", .{});
-                    break :blk PANCAKE_ERR_IO;
+                    break :blk GLOWCAP_ERR_IO;
                 },
                 error.ConnectionLost => blk: {
                     onConnectionLost(payload);
-                    break :blk PANCAKE_ERR_IO;
+                    break :blk GLOWCAP_ERR_IO;
                 },
-                error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+                error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
             };
         }
     };

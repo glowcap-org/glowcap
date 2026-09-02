@@ -1,6 +1,6 @@
 # What ships today
 
-pancake is unreleased, but the library, bindings, transports, and tools below are implemented and checked in this
+glowcap is unreleased, but the library, bindings, transports, and tools below are implemented and checked in this
 repository. Outside interoperability is signed CapTP 1.0 over Syrup. Recurring
 [Spritely Goblins](https://spritely.institute/goblins/) evidence uses the cleartext `tcp` testing adapter. Read
 [known limitations](boundaries.md) before deploying it and [stability](stability.md) for the evidence behind each
@@ -12,14 +12,14 @@ support claim.
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Zig          | `driver.Session` connects or listens, fetches and publishes capabilities, calls them, and redeems three-party introductions. `driver.HostRuntime` owns the sessions behind that API.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | I/O-free Zig | `engine.Peer` exposes the protocol engine without sockets or scheduling. Callers feed frames, step the engine, drain output, and handle events.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| C            | Opaque handles, fixed-width result codes, explicit release, and a close that takes a pending-work policy (`PancakeCloseOptions`). Managed frames carry ownership inline without a descriptor allocation or byte copy. Separate archives cover the core, Host, native loop, and transports; every archive exposes a fingerprint derived from reflected functions, public constants, and canonical layout manifests. Binding-projected manifest rows also generate language mirrors, while C-only rows remain out of package APIs. Generated binding loaders compare each fingerprint before ordinary use so a stale companion is refused. Structured diagnostic reports validate stable result codes and consequence shape before crossing into retained storage; fallible blocking transport calls can return their worker-thread diagnostic in caller-owned storage. Every status call begins a fresh archive-local diagnostic fact, so an undetailed refusal cannot inherit an earlier call's cause. |
+| C            | Opaque handles, fixed-width result codes, explicit release, and a close that takes a pending-work policy (`GlowcapCloseOptions`). Managed frames carry ownership inline without a descriptor allocation or byte copy. Separate archives cover the core, Host, native loop, and transports; every archive exposes a fingerprint derived from reflected functions, public constants, and canonical layout manifests. Binding-projected manifest rows also generate language mirrors, while C-only rows remain out of package APIs. Generated binding loaders compare each fingerprint before ordinary use so a stale companion is refused. Structured diagnostic reports validate stable result codes and consequence shape before crossing into retained storage; fallible blocking transport calls can return their worker-thread diagnostic in caller-owned storage. Every status call begins a fresh archive-local diagnostic fact, so an undetailed refusal cannot inherit an earlier call's cause. |
 | Bindings     | Rust, TypeScript, Python, and Racket expose the same session and actor model through the C ABI. They can dial, listen, host objects, call far objects, and pass capabilities.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Browser      | `@pancake/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs over WebSocket, register for sealed `noise-relay` cold-dials, and hold an ordinary keyed session over WebRTC after signaling.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Browser      | `@glowcap/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs over WebSocket, register for sealed `noise-relay` cold-dials, and hold an ordinary keyed session over WebRTC after signaling.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 The [Zig examples](../examples/README.md), [C guide](consuming-from-c.md), and [binding contract](../bindings/README.md)
 are the entry points for those surfaces.
 
-Binding fronts compose `libpancake_host` and `libpancake_driver`. The driver provides one generic dial/listen/event ABI
+Binding fronts compose `libglowcap_host` and `libglowcap_driver`. The driver provides one generic dial/listen/event ABI
 over an adopted Host. The TCP provider package owns `noise-tcp`, `keyed-tcp`, and testing `tcp`; separately built
 transports register through the common ABI. The iroh provider owns both dial and listener operations, and the onion
 archive supplies the standardized Tor transport without teaching the driver its symbol. Zig and all four bindings host
@@ -31,10 +31,10 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
 
 ## Protocol
 
-- **Sessions.** pancake negotiates a signed CapTP session and owns its imports, exports, answers, and releases. It
+- **Sessions.** glowcap negotiates a signed CapTP session and owns its imports, exports, answers, and releases. It
   validates messages before applying them and sends a typed abort when a protocol error requires the session to close.
 - **Calls and promises.** Applications can fetch a bootstrap capability, call it, send without waiting, and pipeline
-  calls or field, index, and tag projections through an unresolved answer. Pancake accepts the OCapN 1.0 `op:untag`
+  calls or field, index, and tag projections through an unresolved answer. Glowcap accepts the OCapN 1.0 `op:untag`
   operation unconditionally; it sends one only when the partner's signed hello advertises the independent `untag`
   feature, so a silent Goblins peer remains on the proven compatibility set without redefining the version. V1.0
   resolver-only calls retain a typed local answer through the same reply path without fabricating a wire position; every
@@ -55,7 +55,7 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
   `alt-locators` remain serial weak handoff fallbacks after that race is exhausted: they can redeem the signed gift that
   authorized the dial but do not establish the outer identity, enter its durable cache, or become a sturdyref dial path.
   Route advice is retained for later gives only after a withdrawal succeeds. Host-level sturdyref enlivenment supports
-  `id` sturdyrefs only when the Host opts into `pancake-next` with `multi_location`; it selects an already authenticated
+  `id` sturdyrefs only when the Host opts into `glowcap-next` with `multi_location`; it selects an already authenticated
   same-key session or stages the concrete routes through the pending-dial waist. Host `fetchAt` exposes the same route
   owner for a named publication from a typed locator; applications choose neither CapTP version nor codec for that
   operation.
@@ -109,7 +109,7 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
 - **Relayed promise settlement.** When a shared home promise settles, its complete Passable value crosses Host identity
   once. Each recipient reuses the bounded Passable transaction. Nested objects become gives, and nested promises become
   successor proxies. A recipient that cannot admit its projection breaks without publishing a prefix. No sibling rolls
-  back. The live Goblins evidence covers both directions. A Goblins recipient reads pancake's relayed give. In the
+  back. The live Goblins evidence covers both directions. A Goblins recipient reads glowcap's relayed give. In the
   reciprocal scenario, an owning native Session installs `listenTo` on a Goblins-owned pending promise. Goblins then
   settles it to a list containing a callable capability.
 
@@ -146,7 +146,7 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
   and recursively nested delivered arguments all return their opaque Host retain through one finalizer seam. A final
   import release also clears sturdyref cache state and makes every old host route fail closed before the partner may
   reuse that position.
-- **Unreturned failures.** The vendor-neutral diagnostics layer and `PancakeContext` provide one typed, bounded journal
+- **Unreturned failures.** The vendor-neutral diagnostics layer and `GlowcapContext` provide one typed, bounded journal
   for a failure whose last deterministic recipient has gone
   ([ADR-0115](decisions/adr/ADR-0115-structured-diagnostic-waist.md)). Recording allocates nothing, saturation preserves
   an explicit sequence gap, and the C claim API leaves a record queued when caller storage is too small. Contexts assign
@@ -162,8 +162,8 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
 - **Close.** Every owning front closes under an explicit pending-work policy
   ([ADR-0114](decisions/adr/ADR-0114-pending-work-close-policy.md)). Cancel stops admitted work at once. Finish seals
   admission and drives already admitted work within a bounded grace. Expiry escalates to cancel. Each owner holds one
-  close barrier. The policy ships on the Zig Host, the C ABI (`pancake_host_close`, `pancake_host_close_progress`, and
-  `pancake_host_lifecycle_state`), the driver loop, and all four language bindings. Failures stay ordered on the owner
+  close barrier. The policy ships on the Zig Host, the C ABI (`glowcap_host_close`, `glowcap_host_close_progress`, and
+  `glowcap_host_lifecycle_state`), the driver loop, and all four language bindings. Failures stay ordered on the owner
   that can still receive them: the exact primary, a bounded secondary prefix, and the total consequence count. A second
   close joins that barrier instead of running teardown again. Implicit destruction is non-panicking. A fire-and-forget
   local behavior failure cannot become a reply; its Host retains the exception. Callerless and finalizer failures prefer
@@ -188,14 +188,14 @@ not implemented; see [protocol limitations](boundaries.md#protocol-and-interop).
 | Codec       | Use                                                                                                  |
 | ----------- | ---------------------------------------------------------------------------------------------------- |
 | Syrup       | The interoperable OCapN wire format. Its fixtures are cross-checked against upstream Syrup encoders. |
-| Cap'n Proto | pancake-to-pancake, with checked golden frames. Goblins speaks Syrup.                                |
+| Cap'n Proto | glowcap-to-glowcap, with checked golden frames. Goblins speaks Syrup.                                |
 
-The authenticated OCapN 1.0 profile uses Syrup. Two pancake peers can prefer Cap'n Proto or `"pancake-next"`. Each side
+The authenticated OCapN 1.0 profile uses Syrup. Two glowcap peers can prefer Cap'n Proto or `"glowcap-next"`. Each side
 puts that offer in the hello's locator hints, and `engine.Peer.settleNegotiatedProfile` settles the pair after both
 verified hellos arrive. [ADR-0103](decisions/adr/ADR-0103-hello-carried-profile-offers.md) records that handshake. An
 absent offer is the v1.0/Syrup floor, so Goblins traffic stays wire-identical. Over onion the offer is sent only when
-the partner is known to be pancake, because the pinned Goblins cannot dial a hinted onion locator. A dial includes the
-offer when it was handed the pancake-hinted address form. An accept includes it when answering a hello that already
+the partner is known to be glowcap, because the pinned Goblins cannot dial a hinted onion locator. A dial includes the
+offer when it was handed the glowcap-hinted address form. An accept includes it when answering a hello that already
 stated one. [ADR-0118](decisions/adr/ADR-0118-onion-profile-by-knowledge.md) records that exception. Every binding
 exposes `native` and `interop` as coherent Host-profile choices reflected from `model.Preference`; the individual codec
 and version selectors remain available for protocol work. Binding checks (`zig build rust-dogfood`, `deno-dogfood`,
@@ -217,7 +217,7 @@ codec through the open registry without changing the protocol core.
 | `tcp`         | Cleartext testing path and this repository's Goblins TCP adapter. A host:port designator.                                                                                                                                                                                                                                                         |
 | `inproc`      | An in-process connection for tests and deterministic local scenarios.                                                                                                                                                                                                                                                                             |
 
-`onion` is the draft's transport and the one Goblins ships. Live Goblins also meets pancake over `tcp` and `iroh`
+`onion` is the draft's transport and the one Goblins ships. Live Goblins also meets glowcap over `tcp` and `iroh`
 through adapters in `conformance/goblins-peer/`. In-tree onion checks use fake SOCKS and control daemons under
 `zig build check`. Live Tor proofs are `onion-interop`, `goblins-onion`, `ocapn-conformance-onion`, `bindings-onion`,
 and `demo-rooms-onion`. See [stability](stability.md) and [known limitations](boundaries.md).
@@ -261,7 +261,7 @@ the call arrived on, so a peer with no listening socket can still receive replie
 
 ## Tools and applications
 
-- `zig build` installs the `pancake` command. It can listen, call, fetch, enliven, run an interactive CapTP lab, serve a
+- `zig build` installs the `glowcap` command. It can listen, call, fetch, enliven, run an interactive CapTP lab, serve a
   curated MCP interface, and join a rooms session.
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
 - The [Rooms application](../apps/rooms/) exercises browser and terminal peers with durable workspaces. Each held
@@ -314,7 +314,7 @@ the upstream encoder. The recurring [`ci/gates.sh`](../ci/gates.sh) sequence run
 binding as a live Goblins client through the C ABI and the Deno binding as a host. Those steps require their named
 external runtimes and are not evidence supplied by `zig build check`.
 
-The three-peer rooms checks are on-demand: a pancake browser tab redeems a room's introduction and holds a direct
+The three-peer rooms checks are on-demand: a glowcap browser tab redeems a room's introduction and holds a direct
 message with a real Goblins vat, off the room's path, over cleartext TCP and encrypted QUIC. They require Chromium and
 therefore do not run in the recurring sequence.
 

@@ -22,7 +22,7 @@ export function freshWorld(peerIds: string[]): GameWorld {
 	const w = new World<Components>();
 	for (const id of peerIds) {
 		w.add({
-			peer: { id, label: id, profile: "pancake" },
+			peer: { id, label: id, profile: "glowcap" },
 			position: { x: 0, y: 0 },
 		});
 	}

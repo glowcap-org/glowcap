@@ -490,7 +490,7 @@ pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, message: []const 
 /// Split an inbound deliver's args into a method verb and its arguments: a
 /// leading symbol is the verb, the rest are its arguments. This is the inverse of
 /// what the local eventual-send payload does on the way out (it prepends the
-/// verb as a leading symbol), so a pancake actor talking to a pancake actor
+/// verb as a leading symbol), so a glowcap actor talking to a glowcap actor
 /// round-trips exactly.
 ///
 /// It is a convention of this actor layer, not an OCapN rule: OCapN delivers a
@@ -498,7 +498,7 @@ pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, message: []const 
 /// a peer that does not follow the convention — a genuine Goblins object whose
 /// first real argument is itself a symbol, or a call sent with no leading verb —
 /// is read here as "the first symbol is the method." A vat hosting objects for a
-/// non-pancake peer must agree on this verb-as-leading-symbol convention, or
+/// non-glowcap peer must agree on this verb-as-leading-symbol convention, or
 /// dispatch by inspecting the args directly rather than through this split.
 fn messageFor(args: []const model.Argument) Message {
     if (args.len > 0 and args[0] == .symbol) {

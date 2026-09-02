@@ -6,7 +6,7 @@
 //
 // The relay holds no CapTP session state. Per relayed connection it keeps a
 // WebSocket, a ReadableStream over it, and the far socket it forwards to, so the
-// marginal cost is runtime and kernel socket overhead, not pancake buffers. This
+// marginal cost is runtime and kernel socket overhead, not glowcap buffers. This
 // harness stands up the real reference relay (through `scaling_probe.ts`, which
 // imports `serve.ts` unchanged and reports the relay's own resident memory),
 // opens N live relayed connections through it to a local TCP sink, and divides
@@ -110,7 +110,7 @@ async function startRelayProbe(): Promise<RelayProbe> {
 		// idle timeout must sit well above the run's wall clock, or the
 		// earliest-opened connections could be reclaimed while the last ones are
 		// still opening and spuriously fail the establish check.
-		env: { PANCAKE_RELAY_IDLE_MS: "600000" },
+		env: { GLOWCAP_RELAY_IDLE_MS: "600000" },
 	}).spawn();
 	probeChild = child;
 

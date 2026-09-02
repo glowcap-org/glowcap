@@ -54,7 +54,7 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 		{
 			name: "zig",
 			cmd: ZIG_CLIENT,
-			argv: (p) => [String(p), "zig-niklaus", "write pancake apps"],
+			argv: (p) => [String(p), "zig-niklaus", "write glowcap apps"],
 		},
 	];
 	const skipped: string[] = [];

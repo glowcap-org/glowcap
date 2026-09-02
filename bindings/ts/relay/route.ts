@@ -2,15 +2,15 @@
 //
 // The native provider enforces the same contract in Zig. This projection
 // validates before a runtime WebSocket can perform I/O and preserves admitted
-// route bytes when appending Pancake's owned rendezvous query.
+// route bytes when appending Glowcap's owned rendezvous query.
 
 import {
 	INVALID_ARGUMENT,
 	RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES,
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_NOISE_RELAY,
-} from "@pancake/abi";
-import { type Locator, PancakeError } from "@pancake/runtime/transport";
+} from "@glowcap/abi";
+import { GlowcapError, type Locator } from "@glowcap/runtime/transport";
 import { isRendezvousDesignator } from "./rendezvous.ts";
 
 const RENDEZVOUS_RELAY_HINT = "rendezvous-relay";
@@ -19,7 +19,7 @@ const REGISTER_QUERY = "id";
 const encoder = new TextEncoder();
 
 function invalid(message: string): never {
-	throw new PancakeError(INVALID_ARGUMENT, message);
+	throw new GlowcapError(INVALID_ARGUMENT, message);
 }
 
 function validateDesignator(designator: string): void {

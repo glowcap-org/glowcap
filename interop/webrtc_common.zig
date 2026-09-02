@@ -11,13 +11,13 @@
 //! the resident readiness fd; no native driver uses the old parked open wait.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 const crypto = foundation.crypto;
 
 const Host = driver.core.Host;
@@ -28,7 +28,7 @@ pub const signaling_frame_bytes: usize = webrtc.max_signal_bytes;
 
 pub fn hostFromSeed(allocator: std.mem.Allocator, durable_seed: [crypto.SEED_BYTES]u8, frame_cap: usize) !Host {
     var root: [crypto.SEED_BYTES]u8 = undefined;
-    var hasher = std.crypto.hash.Blake3.initKdf("pancake webrtc interop session root v1", .{});
+    var hasher = std.crypto.hash.Blake3.initKdf("glowcap webrtc interop session root v1", .{});
     hasher.update(&durable_seed);
     hasher.final(&root);
     return Host.init(allocator, durable_seed, root, Host.Options.withFrameCap(frame_cap));

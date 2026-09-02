@@ -21,9 +21,9 @@ function option(name: string): string | undefined {
 }
 
 function stateDirectory(): string {
-	const directory = option("state") ?? optionalEnv("PANCAKE_ARCHIVE_STATE");
+	const directory = option("state") ?? optionalEnv("GLOWCAP_ARCHIVE_STATE");
 	if (directory === undefined || directory.length === 0) {
-		throw new Error("name durable storage with --state=<directory> or PANCAKE_ARCHIVE_STATE");
+		throw new Error("name durable storage with --state=<directory> or GLOWCAP_ARCHIVE_STATE");
 	}
 	return directory;
 }
@@ -60,7 +60,7 @@ export async function start(): Promise<void> {
 			);
 			const listening = await listenStandalone(host, {
 				args: Deno.args,
-				envPrefix: "PANCAKE_ARCHIVE",
+				envPrefix: "GLOWCAP_ARCHIVE",
 				label: "archive",
 			});
 			published.locator = roomsLocator(listening.locator);

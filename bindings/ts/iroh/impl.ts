@@ -1,26 +1,26 @@
-// Public and binding-internal composition for @pancake/iroh. Native archive
+// Public and binding-internal composition for @glowcap/iroh. Native archive
 // ownership lives in native.ts; channel.ts owns the runtime readiness pump.
 
 import {
 	bareLocator,
 	type Channel,
 	Connector,
+	GlowcapError,
 	HANDSHAKE_TIMEOUT_MS,
 	HINT_DIRECT_ADDRESSES,
 	Host,
-	PancakeError,
 	parseLocator,
 	Reachability,
 	Session,
 	stringHint,
 	TRANSPORT_IROH,
-} from "@pancake/runtime";
-import { DriverListener, DriverLoop, DriverServer, retainCleanupFailures } from "@pancake/runtime/transport";
-import { CLOSED, INVALID_ARGUMENT } from "@pancake/runtime/ffi";
+} from "@glowcap/runtime";
+import { DriverListener, DriverLoop, DriverServer, retainCleanupFailures } from "@glowcap/runtime/transport";
+import { CLOSED, INVALID_ARGUMENT } from "@glowcap/runtime/ffi";
 import { dialResolving, IrohChannel, IrohLoop } from "./channel.ts";
 import { type IrohConfig, IrohConnection, IrohNetlayer } from "./native.ts";
 
-export { Reachability } from "@pancake/runtime";
+export { Reachability } from "@glowcap/runtime";
 export { type IrohConfig, IrohConnection, IrohNetlayer, locator } from "./native.ts";
 
 export type ListenOptions =
@@ -59,7 +59,7 @@ export async function _ensureIrohProvider(
 
 /** Configure an iroh endpoint package for `connect`. Reachability is provider
  * configuration because it controls endpoint services established at open. */
-export function provider(config: IrohConfig): import("@pancake/runtime").DriverProvider {
+export function provider(config: IrohConfig): import("@glowcap/runtime").DriverProvider {
 	return {
 		async install(loop) {
 			await _ensureIrohProvider(loop, config);
@@ -106,11 +106,11 @@ export async function _connectIroh(
 	handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
 	signal?: AbortSignal,
 ): Promise<Session> {
-	if (signal?.aborted) throw new PancakeError(CLOSED, "host released while dialing");
+	if (signal?.aborted) throw new GlowcapError(CLOSED, "host released while dialing");
 	const netlayer = await IrohNetlayer.open({ reachability }, undefined, signal);
 	if (signal?.aborted) {
 		await netlayer.release();
-		throw new PancakeError(CLOSED, "host released while dialing");
+		throw new GlowcapError(CLOSED, "host released while dialing");
 	}
 	const loop = new IrohLoop(netlayer);
 	loop.start();
@@ -133,7 +133,7 @@ export async function _connectIroh(
 		signal.removeEventListener("abort", cancelPending);
 		loop.close();
 		await (cancellation ?? netlayer.release());
-		throw new PancakeError(CLOSED, "host released while dialing");
+		throw new GlowcapError(CLOSED, "host released while dialing");
 	}
 	loop.register(conn);
 	signal?.removeEventListener("abort", cancelPending);
@@ -152,7 +152,7 @@ export async function _connectIroh(
 	};
 	if (signal?.aborted) {
 		cancelTransport();
-		throw new PancakeError(CLOSED, "host released while dialing");
+		throw new GlowcapError(CLOSED, "host released while dialing");
 	}
 	signal?.addEventListener("abort", cancelTransport, { once: true });
 	// This module opened the connection, so it is the one place that can say
@@ -183,7 +183,7 @@ export async function dialLocatorForRelay(
 ): Promise<Channel> {
 	const parsed = parseLocator(locator);
 	if (parsed.transport !== TRANSPORT_IROH) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			INVALID_ARGUMENT,
 			`expected iroh locator, got transport: ${parsed.transport}`,
 		);
@@ -254,10 +254,10 @@ export async function listen(
 	const { seed: suppliedSeed, host } = options;
 	const seed = suppliedSeed ?? host?.seed ?? crypto.getRandomValues(new Uint8Array(32));
 	if (suppliedSeed != null && suppliedSeed.length !== 32) {
-		throw new PancakeError(INVALID_ARGUMENT, "listen: seed must be 32 bytes");
+		throw new GlowcapError(INVALID_ARGUMENT, "listen: seed must be 32 bytes");
 	}
 	if (suppliedSeed != null && host != null) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			INVALID_ARGUMENT,
 			"listen: seed and host are alternative identity sources",
 		);

@@ -1,13 +1,13 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 
-import { DEFAULT_FAILURE_CAPACITY, DEFAULT_FAILURE_PAYLOAD_CAP, INTERNAL, INVALID_ARGUMENT, IO } from "@pancake/abi";
+import { DEFAULT_FAILURE_CAPACITY, DEFAULT_FAILURE_PAYLOAD_CAP, INTERNAL, INVALID_ARGUMENT, IO } from "@glowcap/abi";
 
 import {
 	abiVersion,
 	Context,
 	formatSturdyRef,
+	GlowcapError,
 	Host,
-	PancakeError,
 	parseSturdyRef,
 	takeRuntimeFailures,
 } from "../../runtime/mod.ts";
@@ -130,7 +130,7 @@ export async function run(): Promise<void> {
 			await raiseFeedRefusal(handle, INVALID_ARGUMENT);
 			assert(false, "feed refusal must throw");
 		} catch (error) {
-			assert(error instanceof PancakeError, "feed refusal stays typed");
+			assert(error instanceof GlowcapError, "feed refusal stays typed");
 			assert(
 				error.cause === projectionFailure,
 				"feed refusal retains the exact effect-drain failure as its cause",
@@ -212,7 +212,7 @@ export async function run(): Promise<void> {
 		try {
 			new Host(invalidSeed);
 		} catch (error) {
-			refused = error instanceof PancakeError && error.code === INVALID_ARGUMENT;
+			refused = error instanceof GlowcapError && error.code === INVALID_ARGUMENT;
 		}
 		assert(refused, "Host must reject a seed that is not 32 bytes");
 	}

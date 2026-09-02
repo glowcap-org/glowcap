@@ -1,12 +1,12 @@
 // Product-level diagnosis for opening a durable Rooms session capability.
 
-import { IO } from "@pancake/abi";
-import { PancakeError } from "@pancake/runtime";
+import { IO } from "@glowcap/abi";
+import { GlowcapError } from "@glowcap/runtime";
 
 export function attachedSessionFailureText(error: unknown): string {
 	const reason = error instanceof Error ? error.message : String(error);
 	if (
-		error instanceof PancakeError && error.code === IO &&
+		error instanceof GlowcapError && error.code === IO &&
 		(error.detail?.includes("NetworkUnreachable") === true || reason.includes("NetworkUnreachable"))
 	) {
 		return "The shared session peer could not be reached. Make sure it is running and retry the " +
@@ -28,7 +28,7 @@ export function attachedSessionFailureText(error: unknown): string {
 	}
 	// Directory signaling refusals are facts about the hosting tab, not about
 	// whether the paste contained every character. `locatorRefusal` wraps any
-	// remaining `pancake error` string as paste advice, so these must not
+	// remaining `glowcap error` string as paste advice, so these must not
 	// leave here still looking like a native parse failure.
 	if (reason.includes("no signaling inbox for that designator")) {
 		return "The hosting tab is not answering WebRTC on the directory this capability names. On that " +

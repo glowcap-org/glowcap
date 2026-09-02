@@ -4,8 +4,8 @@
    moved here and surfaces opt in by wearing `card-plane` beside their own
    card class — every modal card, the /ops pane and gate cards, and the setup
    page. One class and one authority: a group, a well, or a choice reads
-   identically wherever the plane is worn, and forms.css draws what stands on
-   it in the same way. */
+   identically wherever the plane is worn, and forms.css and entries.css draw
+   what stands on it in the same way. */
 
 .card-plane {
 	/* Native radios and checkboxes take the brand's accent instead of the
@@ -185,8 +185,8 @@
 .card-plane .entry-name {
 	text-wrap: balance;
 }
-/* Fields, labels, hints, action rows, confirms, and entry lists — everything
-   that stands on this plane — are forms.css's. This sheet ends at the ground. */
+/* Fields, labels, hints, action rows, and confirms are forms.css's; entry
+   lists and launch rows are entries.css's. This sheet ends at the ground. */
 
 /* A link inside plane content speaks accent ink, not the browser's blue:
    the panes' hints cite pages ("about Noise") and nothing else on the plane

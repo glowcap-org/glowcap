@@ -4,7 +4,7 @@ import {
 	WEBRTC_MAX_ICE_CANDIDATE_BYTES,
 	WEBRTC_MAX_SIGNAL_BYTES,
 	WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { acceptRemoteCandidate } from "../connector.ts";
 import { RtcPeer } from "../peer.ts";
 import { assertDeepEquals, deferred } from "../../dogfood/assert.ts";

@@ -1,15 +1,15 @@
 //! Completion-neutral TLS storage and failure ownership.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const tls = pancake.net.tls.engine;
-const Transform = pancake.net.tls.transform.Transform;
+const tls = glowcap.net.tls.engine;
+const Transform = glowcap.net.tls.transform.Transform;
 
 const Fake = struct {
     outcomes: []const tls.RawOutcome,
     at: usize = 0,
-    cleanup: ?pancake.foundation.FailureChain = null,
+    cleanup: ?glowcap.foundation.FailureChain = null,
 
     fn client(self: *Fake) tls.Client {
         return .init(self, &vtable);
@@ -22,7 +22,7 @@ const Fake = struct {
         return outcome;
     }
 
-    fn deinit(raw: *anyopaque) ?pancake.foundation.FailureChain {
+    fn deinit(raw: *anyopaque) ?glowcap.foundation.FailureChain {
         const self: *Fake = @ptrCast(@alignCast(raw));
         return self.cleanup;
     }

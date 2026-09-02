@@ -11,12 +11,12 @@
 //! an upper bound.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const capnp = pancake.ocapn.codec.capnp;
-const syrup = pancake.ocapn.codec.syrup;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const capnp = glowcap.ocapn.codec.capnp;
+const syrup = glowcap.ocapn.codec.syrup;
 
 /// Counts every backing allocation (fresh `alloc`, plus a `remap`/`resize` that
 /// grows an existing block), matching the inbound budget test's accounting.

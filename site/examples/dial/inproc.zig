@@ -1,15 +1,15 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 pub fn example(
     allocator: std.mem.Allocator,
-    network: *pancake.net.inproc.Network,
+    network: *glowcap.net.inproc.Network,
 ) !void {
     // The listening peer and dialer share this process-local switchboard.
-    const netlayers = [_]pancake.net.netlayer.Netlayer{network.netlayer()};
-    const partner = pancake.net.inproc.locator("greeter");
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{network.netlayer()};
+    const partner = glowcap.net.inproc.locator("greeter");
     // From here, the CapTP workflow is transport-independent.
-    const session = try pancake.driver.connect(
+    const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
         partner,

@@ -24,7 +24,7 @@ session that gave the reference is precisely the missing fact. Carrying the
 home session in every binding would duplicate a protocol identity decision and
 make language adapters authoritative for routing.
 
-Pancake also creates a local capability identity when a three-party handoff is
+Glowcap also creates a local capability identity when a three-party handoff is
 redeemed. That identity has the same requirement: it must route to the exporter
 session while never becoming a wire import on an unrelated session.
 

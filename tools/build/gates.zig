@@ -55,7 +55,7 @@ pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    /// The public `pancake` module and the shared layer instances the test
+    /// The public `glowcap` module and the shared layer instances the test
     /// suites import directly.
     lib_mod: *std.Build.Module,
     host_mods: []*std.Build.Module,
@@ -82,7 +82,7 @@ pub const Registered = struct {
 /// waiting for a Mac.
 fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
     const mods = graphFromTable(b, t, o, &layer_table, false);
-    return mods[layerIndex("pancake")];
+    return mods[layerIndex("glowcap")];
 }
 
 /// The *sans-io core* module graph (no `net` / I/O) for an arbitrary
@@ -95,7 +95,7 @@ fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Op
 }
 
 /// The browser binding's freestanding `wasm32` artifact (ADR-0070): the byte-fed
-/// CapTP Host (`libpancake_host`) and the shared `libpancake_ocapn` vocabulary
+/// CapTP Host (`libglowcap_host`) and the shared `libglowcap_ocapn` vocabulary
 /// compiled to one loadable wasm module. It roots on `src/c_abi/wasm/mod.zig`,
 /// which forces both export families in and adds the JS<->wasm linear-memory
 /// primitives. The module graph is the sans-io core (the `core = true` prefix)
@@ -167,7 +167,7 @@ fn wasmDriverExe(b: *std.Build, o: std.builtin.OptimizeMode) *std.Build.Step.Com
         .{ .name = "c_abi", .module = pick(sub, mods, "c_abi") },
         .{ .name = "c_abi_host", .module = driver_mod },
     });
-    const exe = b.addExecutable(.{ .name = "pancake_host", .root_module = wasm_root });
+    const exe = b.addExecutable(.{ .name = "glowcap_host", .root_module = wasm_root });
     // A loadable module, not a command: no `_start`, exports discovered from the
     // `export fn`s (`entry = .disabled`, `rdynamic`). The linker exports linear
     // memory so JS can read/write `ptr + len` across the boundary.
@@ -217,11 +217,11 @@ pub fn register(ctx: Context) Registered {
         .target = target,
         .optimize = optimize,
     });
-    tests_mod.addImport("pancake", lib_mod);
+    tests_mod.addImport("glowcap", lib_mod);
     // Completion deadline arithmetic is implementation authority, not a
     // supported `net` namespace. Focused tests import that leaf directly so
     // evidence never forces a consumer-root re-export.
-    // The C ABI layers and `oracle` are not on the public `pancake` namespace
+    // The C ABI layers and `oracle` are not on the public `glowcap` namespace
     // (a Zig consumer has no use for them), so their test suites import the
     // layer modules directly.
     // Renderer invariant tests use the Syrup implementation barrel directly;
@@ -239,7 +239,7 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("c_abi_driver", driver_abi_mod);
     tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
     // The persistent-collections leaf module (ADR-0061) is not on the public
-    // `pancake` namespace, so its direct test imports the layer module.
+    // `glowcap` namespace, so its direct test imports the layer module.
     tests_mod.addImport("persistent", host_mods[layerIndex("persistent")]);
     // The header-parity test imports translated generated headers to prove they
     // agree with the Zig C ABI sources (sizes, offsets, constants), so the two
@@ -285,9 +285,9 @@ pub fn register(ctx: Context) Registered {
         .target = target,
         .optimize = optimize,
     });
-    fuzz_mod.addImport("pancake", lib_mod);
+    fuzz_mod.addImport("glowcap", lib_mod);
     // Same reason the ordinary suite takes it directly: the persistent
-    // collections leaf (ADR-0061) is not on the public `pancake` namespace, and
+    // collections leaf (ADR-0061) is not on the public `glowcap` namespace, and
     // its fuzz target drives it against a plain map to see where they disagree.
     fuzz_mod.addImport("persistent", host_mods[layerIndex("persistent")]);
     const fuzz_tests = b.addTest(.{
@@ -305,7 +305,7 @@ pub fn register(ctx: Context) Registered {
 
     const fuzz_budget = b.option([]const u8, "fuzz-runs", "How long `zig build fuzz` searches each target (default 500K; accepts K, M, G suffixes)") orelse "500K";
     const fuzz_driver_exe = b.addExecutable(.{
-        .name = "pancake-fuzz",
+        .name = "glowcap-fuzz",
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/fuzz/main.zig"),
             .target = b.graph.host,
@@ -335,7 +335,7 @@ pub fn register(ctx: Context) Registered {
         .target = target,
         .optimize = optimize,
     });
-    onion_loop_tests_mod.addImport("pancake", lib_mod);
+    onion_loop_tests_mod.addImport("glowcap", lib_mod);
     const onion_loop_tests = b.addTest(.{ .root_module = onion_loop_tests_mod });
     const onion_loop_step = b.step("onion-loop", "Run the focused native OnionLoop completion tests");
     onion_loop_step.dependOn(&execution.addZigTest(b, onion_loop_tests, .{ .deterministic = 3 }).step);
@@ -345,9 +345,9 @@ pub fn register(ctx: Context) Registered {
         .target = target,
         .optimize = optimize,
     });
-    oracle_tests_mod.addImport("pancake", lib_mod);
+    oracle_tests_mod.addImport("glowcap", lib_mod);
     // The scenario traces drive the `oracle` layer directly (it is not on the
-    // public `pancake` namespace), so the focused gate imports it too.
+    // public `glowcap` namespace), so the focused gate imports it too.
     oracle_tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
     const oracle_tests = b.addTest(.{
         .root_module = oracle_tests_mod,
@@ -413,21 +413,21 @@ pub fn register(ctx: Context) Registered {
     // kqueue; `x86_64-linux` is the host and would be redundant, so the second
     // target is a different ABI to widen coverage cheaply.
     const cross_macos = b.addObject(.{
-        .name = "pancake-cross-macos",
+        .name = "glowcap-cross-macos",
         .root_module = crossLibModule(b, b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos }), .Debug),
     });
     // wasm32-freestanding type-checks the sans-io core (no I/O layers wasm
     // lacks), gating the 32-bit overflow guards the codec carries.
     const cross_wasm = b.addObject(.{
-        .name = "pancake-cross-wasm-core",
+        .name = "glowcap-cross-wasm-core",
         .root_module = crossCoreModule(b, b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }), .Debug),
     });
     // The README's first instruction, as a check: a throwaway downstream
-    // package under `tools/consumer/` depends on pancake by path the way a
-    // consumer depends on it by URL, imports the `pancake` module, and builds
+    // package under `tools/consumer/` depends on glowcap by path the way a
+    // consumer depends on it by URL, imports the `glowcap` module, and builds
     // a program against the public surface. It is the one claim in the tree
     // that every reader executes, so it gets a step rather than an assertion.
-    const consumer_check_step = b.step("consumer-check", "Build a downstream package against the pancake module (the README's fetch/import path)");
+    const consumer_check_step = b.step("consumer-check", "Build a downstream package against the glowcap module (the README's fetch/import path)");
     const consumer_build = execution.addSystemCommand(b, .build_tool, &.{
         b.graph.zig_exe,
         "build",
@@ -441,14 +441,36 @@ pub fn register(ctx: Context) Registered {
     consumer_check_step.dependOn(&consumer_build.step);
     check_step.dependOn(consumer_check_step);
 
-    const cross_check_step = b.step("cross-check", "Type-check non-host targets — macOS/kqueue (full) and wasm32 (sans-io core), compile-only");
+    // The native tree in ReleaseFast. std's runtime-safety
+    // instrumentation — the `pointer_stability` lock every list and map header
+    // carries in Debug and ReleaseSafe — is zero-sized there, so every footprint
+    // number in `docs/ladder.md` step 2 measures smaller. The ceilings absorb
+    // that; the one comptime equality, the loop slot in
+    // `src/net/completion/loop/state.zig`, states its fast-mode expectation and
+    // only this leg proves it, because nothing else in `check` instantiates the
+    // loop outside Debug while a product build may. `test/api_surface_test.zig`
+    // is the root because it references every exported declaration, which is
+    // what reaches the loop instantiations and every other comptime gate; its
+    // one test is comptime, so running it costs nothing beyond the compile.
+    const cross_fast_mod = b.createModule(.{
+        .root_source_file = b.path("test/api_surface_test.zig"),
+        .target = target,
+        .optimize = .ReleaseFast,
+    });
+    cross_fast_mod.addImport("glowcap", crossLibModule(b, target, .ReleaseFast));
+    cross_fast_mod.link_libc = true;
+    const cross_fast = b.addTest(.{ .name = "glowcap-cross-fast", .root_module = cross_fast_mod });
+    const run_cross_fast = execution.addZigTest(b, cross_fast, .{ .deterministic = 30 });
+
+    const cross_check_step = b.step("cross-check", "Type-check non-host targets — macOS/kqueue (full) and wasm32 (sans-io core), compile-only — and analyze the native tree in ReleaseFast");
     cross_check_step.dependOn(&cross_macos.step);
     cross_check_step.dependOn(&cross_wasm.step);
+    cross_check_step.dependOn(&run_cross_fast.step);
     check_step.dependOn(cross_check_step);
 
     // The browser binding's freestanding wasm32 Host module (ADR-0070): the
     // byte-fed driver tier plus the shared ocapn vocabulary, one loadable
-    // `pancake_host.wasm` under zig-out/wasm/ that a browser instantiates and
+    // `glowcap_host.wasm` under zig-out/wasm/ that a browser instantiates and
     // drives with bytes. Building it also folds the whole browser-binding graph
     // (`c_abi_host`, `c_abi_wasm`) into `cross-check`, so a wasm regression
     // fails the gate.
@@ -458,7 +480,7 @@ pub fn register(ctx: Context) Registered {
     });
     // The wasm module is a shipped artifact like the archives, so fold its
     // install into the default `zig build` install. Every serve path reads the
-    // on-disk `zig-out/wasm/pancake_host.wasm`. Each rooms serve path depends on
+    // on-disk `zig-out/wasm/glowcap_host.wasm`. Each rooms serve path depends on
     // this exact install step, and the compose deploy runs plain `zig build`.
     // Without this edge a renamed C-ABI symbol leaves the served module stale,
     // and the browser can only report the missing export at dlopen time.
@@ -478,7 +500,7 @@ pub fn register(ctx: Context) Registered {
     const wasm_driver_test_step = b.step("wasm-driver-test", "Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno; ADR-0070/0098)");
     wasm_driver_test_step.dependOn(&wasm_driver_test.step);
 
-    // The wasm32 layout descriptor (`pancake_wasm_abi_layout`) decodes cleanly:
+    // The wasm32 layout descriptor (`glowcap_wasm_abi_layout`) decodes cleanly:
     // instantiate the module, read the blob, prove it is well formed, and
     // cross-check each struct's field count against the `abi.ts` host mirror. A
     // sibling step (needs deno), not folded into the Zig-hermetic `check`.
@@ -486,10 +508,10 @@ pub fn register(ctx: Context) Registered {
     wasm_abi_layout_check.setCwd(b.path("."));
     wasm_abi_layout_check.has_side_effects = true;
     wasm_abi_layout_check.step.dependOn(&wasm_driver_install.step);
-    const wasm_abi_layout_check_step = b.step("wasm-abi-layout-check", "Prove the wasm32 Host's layout descriptor (pancake_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno; ADR-0070)");
+    const wasm_abi_layout_check_step = b.step("wasm-abi-layout-check", "Prove the wasm32 Host's layout descriptor (glowcap_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno; ADR-0070)");
     wasm_abi_layout_check_step.dependOn(&wasm_abi_layout_check.step);
 
-    // Product proof for the @pancake/web Wasm peer: keyed WebSocket call and
+    // Product proof for the @glowcap/web Wasm peer: keyed WebSocket call and
     // callback against a native host, then a native CLI cold-dial into that
     // browser-shaped Host over sealed noise-relay rendezvous. Needs the wasm
     const web_peer_test = execution.addSystemCommand(b, .{ .browser_proof = 120 }, &.{
@@ -500,7 +522,7 @@ pub fn register(ctx: Context) Registered {
     web_peer_test.has_side_effects = true;
     web_peer_test.step.dependOn(&wasm_driver_install.step);
     web_peer_test.step.dependOn(b.getInstallStep());
-    const web_peer_test_step = b.step("web-peer-test", "Prove @pancake/web holds keyed WebSocket and sealed Noise-relay sessions with native peers (needs deno + Playwright; ADR-0070/0107)");
+    const web_peer_test_step = b.step("web-peer-test", "Prove @glowcap/web holds keyed WebSocket and sealed Noise-relay sessions with native peers (needs deno + Playwright; ADR-0070/0107)");
     web_peer_test_step.dependOn(&web_peer_test.step);
 
     // The cross-runtime relay matrix (`bindings-relay`, `bindings-relay-iroh`) is

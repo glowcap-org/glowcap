@@ -1,17 +1,10 @@
-// The IRC-bridging half of the wire contract in `protocol.ts`: the directory
-// verbs that bring a bridged channel in and out, the facts a bridged room
-// states about the bridge behind it, and the seat lifecycle those facts ride
-// on. Split beside the core contract the way `protocol_handover.ts` is,
-// because its speakers are their own tree: the gateway, the bridge client,
-// and the surfaces that draw a seat.
+// The bridge half of the wire contract in `protocol.ts`: the facts a bridged
+// room states about the bridge behind it, and the seat lifecycle those facts
+// ride on. Split beside the core contract the way `protocol_handover.ts` is,
+// because its speakers are their own tree: the bridge client and the surfaces
+// that draw a seat. The operator gateway itself speaks the generic bridge
+// verbs in `bridge/gateway.ts`, so its verbs are not named here.
 
-/** Bridge an IRC channel into this directory as an ordinary room. */
-export const JOIN_IRC = "joinIrc";
-export const OPEN_IRC_NETWORK = "openIrcNetwork";
-export const IRC_NETWORK = "ircNetwork";
-export const CLOSE_IRC_NETWORK = "closeIrcNetwork";
-/** Part a bridged channel; its room leaves the directory with it. */
-export const PART_IRC = "partIrc";
 /** What a bridged room says about the bridge behind it, on the same tail its
  * other standing facts ride: the prefix its foreign members' names carry, and
  * the badge and sentence for one of them.

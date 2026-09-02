@@ -1,4 +1,4 @@
-# pancake — Claude Code Overlay
+# glowcap — Claude Code Overlay
 
 This directory is a Claude-shaped overlay over [`.agents/`](../.agents/), where
 the canonical agent guidance lives.

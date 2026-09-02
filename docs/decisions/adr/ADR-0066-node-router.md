@@ -3,7 +3,7 @@ id: ADR-0066
 status: accepted
 date: 2026-06-19
 tags: [driver, handoff, three-party, node, c-abi, bindings]
-decision: "The cross-connection handoff router is sunk into a sans-io `engine.Node` in the Zig core (at acceptance also re-exported as `driver.Node` for native ergonomics; that re-export is deleted (ADR-0079): it owns the connection table keyed by integer `conn_id`, one node-owned `engine.Peer` per connection, the retained node `seed`, the shared `engine.bootstrap.gifts.GiftRegistry`, and the redeemed / foreign-home routing tables, and at acceptance was projected through the C ABI as pancake_node_* in the sans-io `libpancake_ocapn` (that C waist is deleted; CapTP multi-connection product work uses `pancake_host_*` only). It lives in the engine core, not the I/O-bearing driver, because it is pure routing data and the sans-io archive must project it without dragging in a transport. The router is removed from each binding `Machine`) the duplicated protocol tables sink into the node: leaving a thin handle that holds only host-idiom residue (the dialed-exporter cache, the `conn_id`-to-command-channel map, the giftable factories, the redeem-reachability posture) over a vat addressed by `conn_id`. The vat (turn loop, promise resolution, await, behavior dispatch) stays in the binding; only the router sinks."
+decision: "The cross-connection handoff router is sunk into a sans-io `engine.Node` in the Zig core (at acceptance also re-exported as `driver.Node` for native ergonomics; that re-export is deleted (ADR-0079): it owns the connection table keyed by integer `conn_id`, one node-owned `engine.Peer` per connection, the retained node `seed`, the shared `engine.bootstrap.gifts.GiftRegistry`, and the redeemed / foreign-home routing tables, and at acceptance was projected through the C ABI as glowcap_node_* in the sans-io `libglowcap_ocapn` (that C waist is deleted; CapTP multi-connection product work uses `glowcap_host_*` only). It lives in the engine core, not the I/O-bearing driver, because it is pure routing data and the sans-io archive must project it without dragging in a transport. The router is removed from each binding `Machine`) the duplicated protocol tables sink into the node: leaving a thin handle that holds only host-idiom residue (the dialed-exporter cache, the `conn_id`-to-command-channel map, the giftable factories, the redeem-reachability posture) over a vat addressed by `conn_id`. The vat (turn loop, promise resolution, await, behavior dispatch) stays in the binding; only the router sinks."
 supersedes: []
 superseded_by: []
 amends: []
@@ -19,14 +19,14 @@ amended_by: [ADR-0079, ADR-0100, ADR-0113, ADR-0116]
 > counters, and exact-keyed pending groups.
 
 > **C-projection amendment.** The Zig `engine.Node` router and its semantics
-> remain accepted. The former pancake_node_* C projection in libpancake_ocapn
-> was deleted: CapTP multi-session product work uses `pancake_host_*` only.
+> remain accepted. The former glowcap_node_* C projection in libglowcap_ocapn
+> was deleted: CapTP multi-session product work uses `glowcap_host_*` only.
 > Historical Consequences text below that names that C family describes the
 > shape at acceptance time, not the current public C surface.
 >
 > **Vocabulary amendment (ADR-0079).** Living guidance no longer equates
 > binding `Node` with `engine.Node`. The multi-session product is `Host` /
-> `PancakeHost` / binding `Host`; `engine.Node` is the router Host owns. Binding
+> `GlowcapHost` / binding `Host`; `engine.Node` is the router Host owns. Binding
 > CapTP partner is `Session`. Read historical “binding Node” / `driver.Node`
 > re-export text below as the shape at acceptance time. The Follow-on section’s
 > “binding handle is Node” claim is likewise historical: that handle is now
@@ -58,7 +58,7 @@ connection object (a `tokio` channel, an `asyncio` task). The native Zig
 `BlockingSession` had no router at all.
 
 The conformance host
-([`conformance/ocapn-conformance/pancake_peer.zig`](../../../conformance/ocapn-conformance/pancake_peer.zig))
+([`conformance/ocapn-conformance/glowcap_peer.zig`](../../../conformance/ocapn-conformance/glowcap_peer.zig))
 was not a fifth copy of this router: its then-`GifterHub` was a *host-thread*
 mechanism: it served each connection on its own thread and handed a gifter
 request/result between threads under a mutex, while each thread still called the
@@ -82,7 +82,7 @@ A new `engine.Node` (`src/ocapn/engine/node.zig`; at acceptance also re-exported
 as `driver.Node`, since deleted. ADR-0079) owns the router. It lives in the
 engine core rather than the driver because it is
 pure routing data: it touches only `foundation`/`model`/`engine`, never a
-socket: so the sans-io `libpancake_ocapn` archive can project it without
+socket: so the sans-io `libglowcap_ocapn` archive can project it without
 depending on the I/O-bearing driver, and a native sans-io caller reaches it
 without one. It holds a
 connection table keyed by an integer `conn_id`, one node-owned `engine.Peer` per
@@ -91,7 +91,7 @@ registered connection, the retained node `seed`, one shared
 every route value an integer `conn_id` or owned bytes, so the table is pure
 data. The binding registers a connection (`registerConn`), which returns a
 `conn_id` and the node-owned peer; the binding pumps that peer over its own
-socket with the existing per-connection peer surface (`pancake_peer_*` /
+socket with the existing per-connection peer surface (`glowcap_peer_*` /
 `net.Connection`), so the node adds no second framing path. The router layers on
 top: it mints the recipient withdraw (`sendWithdraw`), enrolls a redeemed cap
 under a route id (`enrollRedeemed`), resolves a send to that route's exporter
@@ -105,8 +105,8 @@ binding sees the give resolution, dials the exporter, and calls `registerConn` +
 preserves the core boundary (adapters own host integration) while the routing
 *decision* lives once, in Zig.
 
-The router was projected through the C ABI as pancake_node_* in
-`libpancake_ocapn` at acceptance ([ADR-0059](ADR-0059-composable-c-abi-archives.md);
+The router was projected through the C ABI as glowcap_node_* in
+`libglowcap_ocapn` at acceptance ([ADR-0059](ADR-0059-composable-c-abi-archives.md);
 that C waist is deleted: see banner). The
 router is removed from each binding `Machine`: the redeemed-token table, the
 foreign-home table, the `next_route_id` counter, the retained-identity authority,
@@ -152,7 +152,7 @@ So routing sinks; the vat does not.
   `completion.Loop`
   ([ADR-0057](ADR-0057-iroh-completion-loop-bridge.md) owns the loop-host;
   ADR-0089 covers WebRTC).
-- The per-connection `engine.Peer` and the `pancake_peer_*` ABI stay as the
+- The per-connection `engine.Peer` and the `glowcap_peer_*` ABI stay as the
   single-connection primitive; the node is a tier above, so a one-connection
   client pays no node tax.
 
@@ -180,7 +180,7 @@ So routing sinks; the vat does not.
   redeemed greeter under a token, and routes the call back to the exporter),
   making the router its own oracle against live Goblins (`goblins-handoff`) and
   closing the native-Zig gap.
-- `conformance/ocapn-conformance/pancake_peer.zig` has since moved *onto* the
+- `conformance/ocapn-conformance/glowcap_peer.zig` has since moved *onto* the
   node: it drives one `driver.core.Host` (which owns the node router) behind a
   `driver.Bridge` over a single completion loop. The original objection (a
   threaded oracle would push locking into the sans-io node, or wrap every node
@@ -190,26 +190,26 @@ So routing sinks; the vat does not.
   independence because `driver.core.Host` is the ordinary product surface, not a
   conformance-only shim; the suite exercising the same host every embedder uses
   is stronger evidence than a bespoke harness above the node was.
-- At acceptance, `src/c_abi/ocapn/node.zig` projected pancake_node_* into the
-  *same* `libpancake_ocapn` archive and header as `pancake_peer_*` (one family,
+- At acceptance, `src/c_abi/ocapn/node.zig` projected glowcap_node_* into the
+  *same* `libglowcap_ocapn` archive and header as `glowcap_peer_*` (one family,
   ADR-0059). That C waist is deleted; CapTP multi-connection product work uses
-  `pancake_host_*` only (see banner).
+  `glowcap_host_*` only (see banner).
 - Each binding's router and route tables sink into the node; the surviving
   `Machine` is a thin node handle plus host-idiom residue (exporter cache,
   `conn_id`-to-channel map, giftable factories, reachability), and each connection
   sources its node-owned peer from `register_conn` and runs its vat over a
   `conn_id`. The Rust binding is migrated (`bindings/rust/src/session.rs`,
   with a non-owning `Peer::from_node_raw` in `bindings/rust/src/lib.rs`); the
-  Python binding is migrated (`bindings/python/pancake/__init__.py`: a
-  `NodeHandle` over pancake_node_*, a non-owning `Peer.from_node_raw`, and
-  `Ref.home` dropped for the token model: and `bindings/python/pancake/iroh.py`);
+  Python binding is migrated (`bindings/python/glowcap/__init__.py`: a
+  `NodeHandle` over glowcap_node_*, a non-owning `Peer.from_node_raw`, and
+  `Ref.home` dropped for the token model: and `bindings/python/glowcap/iroh.py`);
   the TypeScript binding is migrated (`bindings/ts/runtime/mod.ts`: a `NodeHandle`,
   a non-owning `Peer.fromNodeRaw`, and `Ref.home` dropped: and
   `bindings/ts/iroh/mod.ts`); the Racket binding is migrated
-  (`bindings/racket/pancake.rkt`: a `node-handle` over pancake_node_*, a
+  (`bindings/racket/glowcap.rkt`: a `node-handle` over glowcap_node_*, a
   non-owning `peer/from-node-raw`, the in-binding `redeemed` / `next-token` /
   `fetched-homes` / shared-`gift-registry` tables replaced by node routing, and
-  each `connection` keyed by a node `conn-id`: and `bindings/racket/pancake-iroh.rkt`).
+  each `connection` keyed by a node `conn-id`: and `bindings/racket/glowcap-iroh.rkt`).
   Every binding is now on the node. (Later vocabulary: that binding handle is
   `Host`, not `Node`. ADR-0079.)
 - The live `goblins-handoff` / `*-goblins-gift` / `*-iroh-handoff` matrix and the
@@ -222,7 +222,7 @@ So routing sinks; the vat does not.
 ### Follow-on: node-unify-and-sink (historical)
 
 The migration above left the binding handle named `Machine` with a separate
-`NodeHandle` carrier over pancake_node_*, and it sank only the recipient-redeem
+`NodeHandle` carrier over glowcap_node_*, and it sank only the recipient-redeem
 tables. A follow-on pass closed the remaining gaps; this section records that
 intermediate shape (binding handle named `Node`), later superseded by ADR-0079’s
 binding `Host`. Read “binding `Node`” below as that historical handle, not the
@@ -235,9 +235,9 @@ current public binding surface.
   binding handle is now `Host` (ADR-0079); "`engine.Node`" remains the sans-io
   router Host owns.
 - **The gifter origination recipe is sunk too.** Beyond the recipient withdraw
-  (`pancake_peer_send_withdraw_gift`), the gifter side is now one core call,
+  (`glowcap_peer_send_withdraw_gift`), the gifter side is now one core call,
   `engine.Node.provideGiftId` (at acceptance also projected through the
-  pancake_node_* serve step; CapTP product work uses `pancake_host_*`):
+  glowcap_node_* serve step; CapTP product work uses `glowcap_host_*`):
   it deposits the gift on the exporter, builds the signed `desc:handoff-give`, and
   queues its resolution on the recipient. Each binding's origination interceptor
   shrinks to that call plus its own flush; the duplicated build-and-sign glue is
@@ -250,7 +250,7 @@ current public binding surface.
   project this predicate.
 - **The dial-posture rule deliberately stays binding-side.** It was *not* sunk:
   `Reachability` is iroh-transport vocabulary, kept out of the sans-io
-  `libpancake_ocapn` core (ADR-0055), and the rule reduces to "when the locator
+  `libglowcap_ocapn` core (ADR-0055), and the rule reduces to "when the locator
   carries direct-address hints, use `Direct`; otherwise use the node's configured
   redeem posture": transport idiom over the already-shared locator grammar, not a protocol
   decision. A core helper returning a posture code would leak iroh semantics into

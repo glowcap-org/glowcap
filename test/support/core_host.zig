@@ -5,10 +5,10 @@
 //! in a separate domain from the fixture's durable seed.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const Host = pancake.driver.core.Host;
-const crypto = pancake.foundation.crypto;
+const Host = glowcap.driver.core.Host;
+const crypto = glowcap.foundation.crypto;
 
 pub fn init(
     allocator: std.mem.Allocator,
@@ -16,7 +16,7 @@ pub fn init(
     options: Host.Options,
 ) Host {
     var root: [crypto.SEED_BYTES]u8 = undefined;
-    var hasher = std.crypto.hash.Blake3.initKdf("pancake deterministic test session root v1", .{});
+    var hasher = std.crypto.hash.Blake3.initKdf("glowcap deterministic test session root v1", .{});
     hasher.update(&durable_seed);
     hasher.final(&root);
     return Host.init(allocator, durable_seed, root, options) catch unreachable;

@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 fn main() {
-	// The `iroh` feature pulls in the shared `libpancake_net_transport_iroh` (the
-	// iroh C ABI companion library). The `pancake` binding's build script links
-	// both the static C ABI archives and dynamic `libpancake_net_transport_iroh` —
+	// The `iroh` feature pulls in the shared `libglowcap_net_transport_iroh` (the
+	// iroh C ABI companion library). The `glowcap` binding's build script links
+	// both the static C ABI archives and dynamic `libglowcap_net_transport_iroh` —
 	// those propagate to this binary — but its rpath
 	// `rustc-link-arg` does not cross the crate boundary, so this example sets its
 	// own rpath to `zig-out/lib` and runs without `LD_LIBRARY_PATH`. The TCP

@@ -6,7 +6,7 @@ use core::ffi::{c_int, c_uchar, c_uint, c_void};
 use super::layouts_gen::*;
 
 #[repr(C)]
-pub struct PancakeTransportProvider {
+pub struct GlowcapTransportProvider {
 	pub abi_version: c_uint,
 	pub struct_size: usize,
 	pub entries: *const c_void,
@@ -19,15 +19,15 @@ pub struct PancakeTransportProvider {
 
 const _: () = {
 	use core::mem::{offset_of, size_of};
-	assert!(size_of::<PancakeTransportProvider>() == PANCAKE_TRANSPORT_PROVIDER_SIZE);
-	assert!(offset_of!(PancakeTransportProvider, abi_version) == PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION_OFF);
-	assert!(offset_of!(PancakeTransportProvider, struct_size) == PANCAKE_TRANSPORT_PROVIDER_STRUCT_SIZE_OFF);
-	assert!(offset_of!(PancakeTransportProvider, entries) == PANCAKE_TRANSPORT_PROVIDER_ENTRIES_OFF);
-	assert!(offset_of!(PancakeTransportProvider, entry_count) == PANCAKE_TRANSPORT_PROVIDER_ENTRY_COUNT_OFF);
-	assert!(offset_of!(PancakeTransportProvider, lease_ctx) == PANCAKE_TRANSPORT_PROVIDER_LEASE_CTX_OFF);
+	assert!(size_of::<GlowcapTransportProvider>() == GLOWCAP_TRANSPORT_PROVIDER_SIZE);
+	assert!(offset_of!(GlowcapTransportProvider, abi_version) == GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION_OFF);
+	assert!(offset_of!(GlowcapTransportProvider, struct_size) == GLOWCAP_TRANSPORT_PROVIDER_STRUCT_SIZE_OFF);
+	assert!(offset_of!(GlowcapTransportProvider, entries) == GLOWCAP_TRANSPORT_PROVIDER_ENTRIES_OFF);
+	assert!(offset_of!(GlowcapTransportProvider, entry_count) == GLOWCAP_TRANSPORT_PROVIDER_ENTRY_COUNT_OFF);
+	assert!(offset_of!(GlowcapTransportProvider, lease_ctx) == GLOWCAP_TRANSPORT_PROVIDER_LEASE_CTX_OFF);
 	assert!(
-		offset_of!(PancakeTransportProvider, same_configuration) == PANCAKE_TRANSPORT_PROVIDER_SAME_CONFIGURATION_OFF
+		offset_of!(GlowcapTransportProvider, same_configuration) == GLOWCAP_TRANSPORT_PROVIDER_SAME_CONFIGURATION_OFF
 	);
-	assert!(offset_of!(PancakeTransportProvider, retain) == PANCAKE_TRANSPORT_PROVIDER_RETAIN_OFF);
-	assert!(offset_of!(PancakeTransportProvider, release) == PANCAKE_TRANSPORT_PROVIDER_RELEASE_OFF);
+	assert!(offset_of!(GlowcapTransportProvider, retain) == GLOWCAP_TRANSPORT_PROVIDER_RETAIN_OFF);
+	assert!(offset_of!(GlowcapTransportProvider, release) == GLOWCAP_TRANSPORT_PROVIDER_RELEASE_OFF);
 };

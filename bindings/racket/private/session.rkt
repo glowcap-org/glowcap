@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the CapTP `session` surface over the byte-fed host
-;; (libpancake_host, ADR-0072 / ADR-0079). It owns the application verbs and
+;; (libglowcap_host, ADR-0072 / ADR-0079). It owns the application verbs and
 ;; serve path, construction/abandon, and the core-selected terminal effect.
 ;; `session/state.rkt`, `session/identity.rkt`,
 ;; `session/establish.rkt`, and `session/close.rkt` own their named siblings.
@@ -96,7 +96,7 @@
   (define c (session ac v m ptr
                      (make-pending-writes)
                      (make-semaphore 1)
-                     (make-PancakeManagedFrame #f 0 0 #f (make-vector 8 0))
+                     (make-GlowcapManagedFrame #f 0 0 #f (make-vector 8 0))
                      (make-bytes HOST-OUTBOUND-PREFIX-CAP)
                      (box #f)
                      (box OK)
@@ -176,10 +176,10 @@
 
 (define (session-close-code-error result)
   (and (not (= result OK))
-       (exn:fail:pancake
+       (exn:fail:glowcap
         (if (= result ERR-TIMEOUT)
             "session-close!: finish close exhausted its grace period"
-            (format "session-close!: session close failed with pancake error ~a" result))
+            (format "session-close!: session close failed with glowcap error ~a" result))
         (current-continuation-marks) result #f #f #f #f 0)))
 
 (define (raise-session-terminal-failure! c)
@@ -214,7 +214,7 @@
 
 ;; Spawn a local actor and return its opaque Host capability to hand a partner.
 ;; `(session-spawn c ^name arg …)` constructs like `spawn`. Wire export
-;; positions stay inside pancake. Callable from inside a served turn (a
+;; positions stay inside glowcap. Callable from inside a served turn (a
 ;; factory's `create` minting the task it replies with).
 (define (session-spawn c constructor . args)
   (define actor (with-vat (session-vat c) (apply spawn constructor args)))
@@ -243,11 +243,11 @@
   (define-values (rc capability)
     (call-with-host m
       (lambda ()
-        (pancake_host_session_published_ref
+        (glowcap_host_session_published_ref
          (session-ptr c) (pin-immobile nb) (bytes-length nb)))))
   (cond
     [(= rc ERR-NOT-FOUND) #f]
-    [else (check/host rc) (make-ref/internal (PancakeReference-id capability))]))
+    [else (check/host rc) (make-ref/internal (GlowcapReference-id capability))]))
 
 ;; Wrap `target` in a revocable caretaker (ADR-0064). Returns the proxy capability
 ;; to hand a partner; every call through it forwards to `target` until
@@ -276,14 +276,14 @@
 ;; fire-and-forget sibling is `session-tell`. A reference this session spawned
 ;; resolves in process; a partner's ref goes out on the wire, and a redeemed
 ;; handoff token routes to the exporter session that hosts it. A broken
-;; reply raises a typed `exn:fail:pancake` carrying PANCAKE_ERR_BROKEN, exactly
+;; reply raises a typed `exn:fail:glowcap` carrying GLOWCAP_ERR_BROKEN, exactly
 ;; as the Python and Rust `send`s fail. Single-threaded: it pumps events
 ;; itself, matching the rest of the Racket binding. The local arm is
 ;; `session-send-local` in `trampoline.rkt`.
 ;; Listen on a far capability this session holds (CapTP op:listen): the
 ;; returned vow settles with the listen notification, which may be any value,
 ;; not only a capability. In 1.0, the target may be a far promise or live far
-;; object; in pancake-next, the target must be a promise. A re-gifted promise
+;; object; in glowcap-next, the target must be a promise. A re-gifted promise
 ;; routes to its exporter session transparently.
 (define (session-listen c target)
   (guard-open 'session-listen c)
@@ -345,7 +345,7 @@
 
 ;; Drive the connection until `a-vow` settles, returning its fulfilled value,
 ;; the awaiting half of `session-send-promise` / `session-index` / `session-untag`. A
-;; broken vow raises a typed `exn:fail:pancake` (PANCAKE_ERR_BROKEN), as
+;; broken vow raises a typed `exn:fail:glowcap` (GLOWCAP_ERR_BROKEN), as
 ;; `session-send` does. A local vow settles in `drive`; a far vow on a wire reply
 ;; — or immediately, when the resolution already arrived while a sibling
 ;; projection pumped the loop. Single-threaded: it pumps events itself, like
@@ -355,7 +355,7 @@
     [(session-vow? a-vow) (await-vow c a-vow 'session-await "the vow")]
     [(local-vow? a-vow) (await-local-vow c a-vow 'session-await "the vow")]
     [else
-     (raise-pancake 'session-await ERR-INVALID-ARGUMENT "not a vow: ~a" a-vow)]))
+     (raise-glowcap 'session-await ERR-INVALID-ARGUMENT "not a vow: ~a" a-vow)]))
 
 ;; Fetch a partner's published capability by name, returning the far
 ;; reference. The canonical fetch lives in the library: one call registers the
@@ -363,8 +363,8 @@
 ;; enrolls the fulfilled capability under a node-unique token (ADR-0069)
 ;; before the completion fires, so two capabilities fetched at the same wire
 ;; position on different connections never collide, and a return re-gifts the
-;; right home. A partner break raises a typed pancake failure
-;; (PANCAKE_ERR_BROKEN); a fetch that fulfills with anything but a capability
+;; right home. A partner break raises a typed glowcap failure
+;; (GLOWCAP_ERR_BROKEN); a fetch that fulfills with anything but a capability
 ;; raises a typed unsupported-value failure, the same code the Python binding
 ;; uses for the same shape. The shared mint→await→classify body is
 ;; `blocking-fetch` in `promise.rkt`.
@@ -374,7 +374,7 @@
   (define nb (string->bytes/utf-8 name))
   (blocking-fetch c 'session-fetch "fetch" name
                   (lambda ()
-                    (pancake_host_session_fetch (session-ptr c) (pin-immobile nb)
+                    (glowcap_host_session_fetch (session-ptr c) (pin-immobile nb)
                                                 (bytes-length nb)))
                   #:track-gc? #t))
 
@@ -385,14 +385,14 @@
 ;; (its SETTLE completion is queued before the minting call returns). The
 ;; session must already be open to the sturdyref's peer; this session-level
 ;; call never dials. A partner break raises a typed
-;; PANCAKE_ERR_BROKEN; a fulfill that is not a capability raises the typed
+;; GLOWCAP_ERR_BROKEN; a fulfill that is not a capability raises the typed
 ;; unsupported-value failure, matching `session-fetch` and the other bindings.
 (define (session-enliven c sturdyref)
   (guard-open 'session-enliven c)
   (define sturdyref-bytes (string->bytes/utf-8 sturdyref))
   (blocking-fetch c 'session-enliven "enliven" sturdyref
                   (lambda ()
-                    (pancake_host_session_enliven (session-ptr c) (pin-immobile sturdyref-bytes)
+                    (glowcap_host_session_enliven (session-ptr c) (pin-immobile sturdyref-bytes)
                                                (bytes-length sturdyref-bytes)))))
 
 ;; Fire-and-forget eventual-send (Goblins `<-np`): no answer is allocated and no
@@ -457,11 +457,11 @@
           [(eq? (car s) 'ok)
            (define val (cdr s))
            (unless (ref? val)
-             (raise-pancake who ERR-UNSUPPORTED-VALUE
+             (raise-glowcap who ERR-UNSUPPORTED-VALUE
                             "~a did not resolve to a capability: ~a" subject val))
            val]
           [else
-           (raise-pancake who ERR-BROKEN "~a broke: ~a" subject (cdr s))])))
+           (raise-glowcap who ERR-BROKEN "~a broke: ~a" subject (cdr s))])))
     (lambda () (release-vow-from-host! m v))))
 
 ;; Enliven a complete sturdyref against the host: select a live session this
@@ -472,13 +472,13 @@
 ;; dialed exporter serves itself on its own thread (`run-dial!`), and this
 ;; thread parks on host progress until the settle lands. The dial executor's
 ;; failure handler breaks the vow, so the wait always ends. Every binding's
-;; `pancake_host_enliven` contract: the full sturdyref verifies before wire
+;; `glowcap_host_enliven` contract: the full sturdyref verifies before wire
 ;; traffic, and a session-scoped repeat rides `session-enliven`'s cache.
 (define (host-enliven m sturdyref
                       #:captp-version [captp-version #f]
                       #:connector [connector #f])
   (when (unbox (host-released? m))
-    (raise-pancake 'host-enliven ERR-CLOSED "host released"))
+    (raise-glowcap 'host-enliven ERR-CLOSED "host released"))
   (define version-id (and captp-version (captp-version-id captp-version)))
   (when connector (host-register-connector! m connector))
   (define sturdyref-bytes (string->bytes/utf-8 sturdyref))
@@ -487,10 +487,10 @@
       (lambda ()
         (define-values (rc id)
           (if captp-version
-              (pancake_host_enliven_for_version
+              (glowcap_host_enliven_for_version
                (host-ptr m) version-id
                (pin-immobile sturdyref-bytes) (bytes-length sturdyref-bytes))
-              (pancake_host_enliven
+              (glowcap_host_enliven
                (host-ptr m) (pin-immobile sturdyref-bytes)
                (bytes-length sturdyref-bytes))))
         (check/host rc)
@@ -501,7 +501,7 @@
 ;; owns version, codec, route admission, and physical dial selection.
 (define (host-fetch-at m locator name #:connector [connector #f])
   (when (unbox (host-released? m))
-    (raise-pancake 'host-fetch-at ERR-CLOSED "host released"))
+    (raise-glowcap 'host-fetch-at ERR-CLOSED "host released"))
   (when connector (host-register-connector! m connector))
   (define name-bytes (string->bytes/utf-8 name))
   (define v
@@ -511,7 +511,7 @@
        (call-with-host m
          (lambda ()
            (define-values (rc id)
-             (pancake_host_fetch_at
+             (glowcap_host_fetch_at
               (host-ptr m) view (pin-immobile name-bytes) (bytes-length name-bytes)))
            (check/host rc)
            (adopt-minted-vow! m #f id #f #f))))))
@@ -536,7 +536,7 @@
     (error 'host-defer-turn "the turn belongs to another host"))
   (call-with-host m
     (lambda ()
-      (define-values (rc resolver-id) (pancake_host_turn_defer (turn-context-turn t)))
+      (define-values (rc resolver-id) (glowcap_host_turn_defer (turn-context-turn t)))
       (check/host rc)
       (resolver m resolver-id))))
 
@@ -550,9 +550,9 @@
       (void acnt)
       ;; args->c hands back a raw block; the generated signature wants the
       ;; tagged single-struct pointer.
-      (check/host (pancake_host_resolver_fulfill
+      (check/host (glowcap_host_resolver_fulfill
                    (host-ptr m) (resolver-id r)
-                   (cast aptr _pointer _PancakeArgument-pointer)))
+                   (cast aptr _pointer _GlowcapArgument-pointer)))
       ;; Buffers nested inside `aptr` are reachable only through `keep`, whose
       ;; raw addresses the collector cannot see; keep them live past the call.
       (void/reference-sink keep)
@@ -564,6 +564,6 @@
   (with-host-drain m
     (lambda ()
       (define rb (string->bytes/utf-8 reason))
-      (check/host (pancake_host_resolver_break (host-ptr m) (resolver-id r)
+      (check/host (glowcap_host_resolver_break (host-ptr m) (resolver-id r)
                                                (pin-immobile rb) (bytes-length rb)))
       (drain-host-actions! m))))

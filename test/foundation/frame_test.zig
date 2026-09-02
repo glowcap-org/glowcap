@@ -1,8 +1,8 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const frame_support = @import("../support/frame.zig");
-const foundation = pancake.foundation;
+const foundation = glowcap.foundation;
 
 test "frame owns a copy of caller bytes" {
     const allocator = std.testing.allocator;

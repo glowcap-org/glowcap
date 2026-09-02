@@ -29,14 +29,14 @@ function pairDoc(): TimelineDocument {
 				t: 100,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "e2",
 				t: 100,
 				kind: "peer-joined",
 				peerId: "bob",
-				profile: "pancake",
+				profile: "glowcap",
 				label: "127.0.0.1:0",
 			},
 			{
@@ -85,7 +85,7 @@ engineTest("an end nobody is on is named by its claim, or says so", () => {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "host",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "e2",
@@ -144,7 +144,7 @@ engineTest("a peer wearing its own id is shortened like any other key", () => {
 				t: 0,
 				kind: "peer-joined",
 				peerId: key,
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "e2",

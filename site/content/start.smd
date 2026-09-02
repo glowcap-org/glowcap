@@ -1,6 +1,6 @@
 ---
 .title = "Start building",
-.description = "Write the calling half of a pancake conversation line by line, then choose the API for Zig, C, Rust, TypeScript, Python, or Racket.",
+.description = "Write the calling half of a glowcap conversation line by line, then choose the API for Zig, C, Rust, TypeScript, Python, or Racket.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -18,39 +18,39 @@ their own ownership and concurrency conventions.
 - [Racket]($link.page('bindings/racket'))
 - [Browser WebAssembly]($link.page('bindings/browser'))
 
-Pin a commit when you add pancake to a project. The public API can still
+Pin a commit when you add glowcap to a project. The public API can still
 change.
 
 # In Zig
 
-pancake is a [Zig](https://ziglang.org/) package. Add a pinned checkout to
+glowcap is a [Zig](https://ziglang.org/) package. Add a pinned checkout to
 your build:
 
 ```sh
-zig fetch --save git+https://github.com/jimisaacs/pancake#COMMIT_SHA
+zig fetch --save git+https://github.com/jimisaacs/glowcap#COMMIT_SHA
 ```
 
 Replace `COMMIT_SHA` with the revision you want to pin.
 
 ```zig
-const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimize });
-exe.root_module.addImport("pancake", pancake.module("pancake"));
+const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimize });
+exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
 ```
 
-The `pancake` module is pure Zig. Two of the tabs below import a transport
+The `glowcap` module is pure Zig. Two of the tabs below import a transport
 module of their own, and each brings its native dependency with it:
 
 ```zig
 // iroh: links the Rust sidecar, so the build needs cargo on PATH.
-exe.root_module.addImport("iroh", pancake.module("pancake_iroh"));
+exe.root_module.addImport("iroh", glowcap.module("glowcap_iroh"));
 // noise-relay and keyed-relay: builds Mbed TLS from source.
-exe.root_module.addImport("native_relay", pancake.module("pancake_native_relay"));
+exe.root_module.addImport("native_relay", glowcap.module("glowcap_native_relay"));
 ```
 
 # Dial
 
 The first tab is **iroh**: encrypted QUIC, the peer's node id is the identity.
-`noise-tcp` is the sealed TCP path for two pancake peers that already share a
+`noise-tcp` is the sealed TCP path for two glowcap peers that already share a
 route. Plain `tcp` is cleartext and for local tests only. For a deployment, pick a row from
 [Choosing a transport]($link.page('transports/choosing')) and switch tabs.
 
@@ -61,30 +61,30 @@ route. Plain `tcp` is cleartext and for local tests only. For a deployment, pick
 > **iroh**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const iroh = @import("iroh");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Discovery resolves a bare iroh node ID without an address hint.
 >     var iroh_resident = try iroh.Resident.init(io, null, .{ .reachability = .discovery });
 >     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
->     const netlayers = [_]pancake.net.netlayer.Netlayer{iroh_resident.netlayer()};
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{iroh_resident.netlayer()};
 >     const node_id = "<64 lowercase hex characters from the server>";
 >     const partner = iroh.locator(node_id);
 > ```
 > **noise-tcp**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Same TCP sockets as cleartext keyed dialing; Noise_XK seals the CapTP stream.
->     var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
->     const netlayers = [_]pancake.net.netlayer.Netlayer{noise_resident.netlayer()};
+>     var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
 >     // The designator is the peer's durable key; the hint is where to dial.
->     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+>     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
->     const partner = pancake.net.tcp.noise.locator(
+>     const partner = glowcap.net.tcp.noise.locator(
 >         peer_key,
 >         "127.0.0.1:9099",
 >         &hint_storage,
@@ -93,7 +93,7 @@ route. Plain `tcp` is cleartext and for local tests only. For a deployment, pick
 > **noise-relay**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
@@ -105,36 +105,36 @@ route. Plain `tcp` is cleartext and for local tests only. For a deployment, pick
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
->     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
+>     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
->     const partner = pancake.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
+>     const partner = glowcap.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
 > ```
 > **onion**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Dial through the same SOCKS endpoint the listener named.
->     var onion_resident = pancake.net.onion.Resident{ .io = io, .config = .{
+>     var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
 >         .socks = "/run/tor/socks",
 >     } };
->     const netlayers = [_]pancake.net.netlayer.Netlayer{onion_resident.netlayer()};
->     const partner = pancake.net.onion.locator("<56-character onion service id>");
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{onion_resident.netlayer()};
+>     const partner = glowcap.net.onion.locator("<56-character onion service id>");
 > ```
 > **keyed-tcp**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Key designator, cleartext CapTP. Reuse a seed across restarts to keep the same key.
->     var keyed_resident = pancake.net.tcp.keyed.Resident{ .io = io };
->     const netlayers = [_]pancake.net.netlayer.Netlayer{keyed_resident.netlayer()};
->     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+>     var keyed_resident = glowcap.net.tcp.keyed.Resident{ .io = io };
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{keyed_resident.netlayer()};
+>     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
->     const partner = pancake.net.tcp.keyed.locator(
+>     const partner = glowcap.net.tcp.keyed.locator(
 >         peer_key,
 >         "127.0.0.1:9099",
 >         &hint_storage,
@@ -143,7 +143,7 @@ route. Plain `tcp` is cleartext and for local tests only. For a deployment, pick
 > **keyed-relay**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
@@ -155,40 +155,40 @@ route. Plain `tcp` is cleartext and for local tests only. For a deployment, pick
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.keyed).netlayer()};
->     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.keyed).netlayer()};
+>     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
->     const partner = pancake.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);
+>     const partner = glowcap.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);
 > ```
 > **tcp**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Plain TCP uses a cleartext `host:port` locator.
->     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
->     const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
->     const partner = pancake.net.tcp.locator("127.0.0.1:9099");
+>     var tcp_resident = glowcap.net.tcp.Resident{ .io = io };
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{tcp_resident.netlayer()};
+>     const partner = glowcap.net.tcp.locator("127.0.0.1:9099");
 > ```
 > **inproc**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(
 >     allocator: std.mem.Allocator,
->     network: *pancake.net.inproc.Network,
+>     network: *glowcap.net.inproc.Network,
 > ) !void {
 >     // The listening peer and dialer share this process-local switchboard.
->     const netlayers = [_]pancake.net.netlayer.Netlayer{network.netlayer()};
->     const partner = pancake.net.inproc.locator("greeter");
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{network.netlayer()};
+>     const partner = glowcap.net.inproc.locator("greeter");
 > ```
 
 From here, the CapTP workflow is the same for every transport:
 
 ```zig
-    const session = try pancake.driver.connect(
+    const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
         partner,
@@ -232,7 +232,7 @@ timeout values keep network waits finite.
 connection. The arena owns reply allocations; dropping it frees them.
 
 See the complete client and server in
-[`01_connect_and_serve.zig`](https://github.com/jimisaacs/pancake/blob/main/examples/zig/01_connect_and_serve.zig),
+[`01_connect_and_serve.zig`](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/01_connect_and_serve.zig),
 the numbered walk over a local TCP socket.
 
 # Listen
@@ -251,15 +251,15 @@ empty and the transport fills the advertised locator.
 > **iroh**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const iroh = @import("iroh");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     const seed = @as([32]u8, @splat(7)); // keep this seed to preserve the node id
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
+>     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
 >     var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
 >     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
->     const server = try pancake.driver.listen(
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         iroh_resident.netlayer(),
 >         .{ .designator = "" },
@@ -268,7 +268,7 @@ empty and the transport fills the advertised locator.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // hand this discovery-reachable node id to partners
 >
@@ -278,13 +278,13 @@ empty and the transport fills the advertised locator.
 > **noise-tcp**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
->     var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
->     const server = try pancake.driver.listen(
+>     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
+>     var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         noise_resident.netlayer(),
 >         .{ .designator = "127.0.0.1:9099" },
@@ -293,7 +293,7 @@ empty and the transport fills the advertised locator.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise proves this durable key to dialers
 >
@@ -303,13 +303,13 @@ empty and the transport fills the advertised locator.
 > **noise-relay**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
+>     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
 >     var relay: native_relay.Provider = undefined;
 >     switch (relay.init(
 >         io,
@@ -322,7 +322,7 @@ empty and the transport fills the advertised locator.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const server = try pancake.driver.listen(
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         relay.resident(.noise).netlayer(),
 >         .{ .designator = "" },
@@ -331,7 +331,7 @@ empty and the transport fills the advertised locator.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise seals the relay path end to end
 >
@@ -341,15 +341,15 @@ empty and the transport fills the advertised locator.
 > **onion**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     // pancake starts no Tor. Name an already-running daemon's SOCKS and control endpoints.
->     var onion_resident = pancake.net.onion.Resident{ .io = io, .config = .{
+>     // glowcap starts no Tor. Name an already-running daemon's SOCKS and control endpoints.
+>     var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
 >         .socks = "/run/tor/socks",
 >         .control_endpoint = "/run/tor/control",
 >     } };
->     const server = try pancake.driver.listen(
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         onion_resident.netlayer(),
 >         .{ .designator = "" },
@@ -358,7 +358,7 @@ empty and the transport fills the advertised locator.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // hand this locator to partners
 >
@@ -374,13 +374,13 @@ empty and the transport fills the advertised locator.
 > **keyed-tcp**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
->     var keyed_resident = pancake.net.tcp.keyed.Resident{ .io = io };
->     const server = try pancake.driver.listen(
+>     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
+>     var keyed_resident = glowcap.net.tcp.keyed.Resident{ .io = io };
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         keyed_resident.netlayer(),
 >         .{ .designator = "127.0.0.1:9099" },
@@ -389,7 +389,7 @@ empty and the transport fills the advertised locator.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // key designator plus direct-addresses hint
 >
@@ -399,11 +399,11 @@ empty and the transport fills the advertised locator.
 > **tcp**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
->     const server = try pancake.driver.listen(
+>     var tcp_resident = glowcap.net.tcp.Resident{ .io = io };
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         tcp_resident.netlayer(),
 >         .{ .designator = "127.0.0.1:9099" },
@@ -412,7 +412,7 @@ empty and the transport fills the advertised locator.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // hand this locator to partners
 >
@@ -422,12 +422,12 @@ empty and the transport fills the advertised locator.
 > **inproc**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     var network = pancake.net.inproc.Network.init(allocator, io);
+>     var network = glowcap.net.inproc.Network.init(allocator, io);
 >     defer network.deinit();
->     const server = try pancake.driver.listen(
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         network.netlayer(),
 >         .{ .designator = "greeter" },
@@ -444,14 +444,14 @@ From here, the CapTP workflow is the same for every transport:
 
 ```zig
 const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *pancake.driver.HostTurn, verb: []const u8, args: []const pancake.driver.Value) !pancake.driver.Value {
+    pub fn handle(_: *Greeter, ht: *glowcap.driver.HostTurn, verb: []const u8, args: []const glowcap.driver.Value) !glowcap.driver.Value {
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         if (args.len != 1 or args[0] != .string) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{args[0].string}) };
     }
 };
 
-fn serve(server: *pancake.driver.Server) !void {
+fn serve(server: *glowcap.driver.Server) !void {
     try server.publishGiftable("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();
@@ -466,18 +466,18 @@ fn serve(server: *pancake.driver.Server) !void {
 
 The matching Listen tab is the live partner for these snippets, and the
 [CapTP CLI]($link.page('cli')) offers a cleartext lab greeter:
-`pancake ocapn listen` with `--publish greeter`.
+`glowcap ocapn listen` with `--publish greeter`.
 
 # From C, or any FFI host
 
-The library also provides a C ABI centered on `PancakeHost`. Your runtime owns
+The library also provides a C ABI centered on `GlowcapHost`. Your runtime owns
 the event loop and transport connection; it feeds bytes into a Host session,
 drains Host actions, and writes the resulting frames. Capabilities are one
-opaque Host-scoped `PancakeReference`, regardless of which session projects
+opaque Host-scoped `GlowcapReference`, regardless of which session projects
 them. The ABI uses opaque handles, fixed-width return codes, `ptr + len`
 views, and explicit release. Every native binding wraps this ABI. Build,
 ownership, and a first program:
-[consuming pancake from C](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md).
+[consuming glowcap from C](https://github.com/jimisaacs/glowcap/blob/main/docs/consuming-from-c.md).
 
 # In Rust, TypeScript, Python, or Racket
 
@@ -489,7 +489,7 @@ Each binding wraps the same C ABI with an idiomatic API. Start with the
 [Racket]($link.page('bindings/racket')).
 
 For the browser rather than a server, the TypeScript binding also compiles to
-WebAssembly as `@pancake/web`; the page always dials rather than listens.
+WebAssembly as `@glowcap/web`; the page always dials rather than listens.
 Start at [In the browser]($link.page('bindings/browser')).
 
 If capabilities, locators, pipelining, or three-party handoff are new to you,

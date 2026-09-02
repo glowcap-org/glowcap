@@ -1,5 +1,5 @@
 // The rooms page's data layer, as a real OCapN peer in the browser. The page
-// instantiates the pancake runtime over `@pancake/web` (the wasm Host, no dlopen),
+// instantiates the glowcap runtime over `@glowcap/web` (the wasm Host, no dlopen),
 // dials the room server through serve.ts's `/relay` byte pipe, and drives the
 // directory and room as capabilities — the same `lib/room/client.ts` the
 // terminal clients use. No JSON bridge: the browser holds the room capability
@@ -45,7 +45,7 @@ export { connect, leaveDirectory, openDirectory } from "./net/connection.ts";
 export { bootRuntime } from "./net/runtime_boot.ts";
 export { releaseDirectoryNick } from "./net/directory_identity.ts";
 export { installOpsInvalidation, readOpsBundle, refreshOpsCap, replaceOpsBundle } from "./net/ops.ts";
-export { closeIrcConnection, joinIrcBridge, openIrcConnection, partIrcBridge } from "./net/irc.ts";
+export { addBridgeLease, closeBridgeConnection, openBridgeConnection, removeBridgeLease } from "./net/irc.ts";
 export { askRoomBridgeForm, submitBridgeForm } from "./net/bridge_form.ts";
 export { requestListenerDown, requestListenerUp } from "./net/listeners.ts";
 export {

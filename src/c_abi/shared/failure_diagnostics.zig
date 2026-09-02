@@ -15,7 +15,7 @@ pub const truncated_primary_message = core.truncated_primary_message;
 pub const truncated_secondary_name = core.truncated_secondary_name;
 pub const truncated_secondary_message = core.truncated_secondary_message;
 
-pub const PancakeFailureReport = extern struct {
+pub const GlowcapFailureReport = extern struct {
     abi_version: u32,
     struct_size: usize,
     layer: u32,
@@ -37,7 +37,7 @@ pub const PancakeFailureReport = extern struct {
     secondary_message_len: usize,
 };
 
-pub const PancakeFailureEvent = extern struct {
+pub const GlowcapFailureEvent = extern struct {
     abi_version: u32,
     struct_size: usize,
     sequence: u64,
@@ -89,9 +89,9 @@ fn text(ptr: ?[*]const u8, len: usize) ReportError![]const u8 {
     return bytes;
 }
 
-pub fn inputFromReport(report: PancakeFailureReport) ReportError!Input {
+pub fn inputFromReport(report: GlowcapFailureReport) ReportError!Input {
     if (report.abi_version != abi_version) return error.InvalidVersion;
-    if (report.struct_size < @sizeOf(PancakeFailureReport)) return error.InvalidSize;
+    if (report.struct_size < @sizeOf(GlowcapFailureReport)) return error.InvalidSize;
     const operation = try text(report.operation, report.operation_len);
     const primary_name = try text(report.primary_name, report.primary_name_len);
     if (operation.len == 0 or primary_name.len == 0) return error.NullPointer;
@@ -115,10 +115,10 @@ fn optionalPtr(bytes: []const u8) ?[*]const u8 {
     return if (bytes.len == 0) null else bytes.ptr;
 }
 
-pub fn eventFromClaim(claim: Claim) PancakeFailureEvent {
+pub fn eventFromClaim(claim: Claim) GlowcapFailureEvent {
     return .{
         .abi_version = abi_version,
-        .struct_size = @sizeOf(PancakeFailureEvent),
+        .struct_size = @sizeOf(GlowcapFailureEvent),
         .sequence = claim.sequence,
         .dropped_before = claim.dropped_before,
         .layer = @backingInt(claim.layer),

@@ -9,8 +9,8 @@
 
 import { parseRecord, startViz, type VizServer } from "../../server/viz.ts";
 import { vizCapUrl } from "../../lib/viz_publish.ts";
-import { Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
-import type { TraceEvent } from "@pancake/runtime";
+import { Host, parseSturdyRef, Session, webSocketChannel } from "@glowcap/runtime";
+import type { TraceEvent } from "@glowcap/runtime";
 import { assertEquals } from "../assert.ts";
 
 function assert(ok: boolean, what: string): void {

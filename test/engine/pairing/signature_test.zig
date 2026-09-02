@@ -3,13 +3,13 @@
 //! when tampered, and the recorded partner keys later checks read.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
-const codec = pancake.ocapn.codec;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
+const codec = glowcap.ocapn.codec;
 const pairing = engine.pairing;
 const handshake = @import("../../support/handshake.zig");
 
@@ -96,7 +96,7 @@ test "a pinned peer opens when the partner's start-session carries exactly the e
 
 /// The exact `<ocapn-peer …>` record a hint-sending partner (a Goblins
 /// `tcp-testing-only` netlayer) puts in its `op:start-session`. The wire bytes
-/// are written verbatim rather than produced by pancake's encoder, because
+/// are written verbatim rather than produced by glowcap's encoder, because
 /// the point under test is verification over the *received* bytes — whatever
 /// hint representation the partner chose — not over a re-encode.
 const hinted_locator_bytes = "<10'ocapn-peer3'tcp14\"127.0.0.1:9001{4\"host9\"127.0.0.14\"port9001+}>";
@@ -238,7 +238,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     // A real Goblins promise that breaks from a thrown exception marshals the
     // reason as a record, not a desc:error. Simulate that shape: deliver
     // `['break, <exn:fail:mystery>]` to p1's resolver export (the V1.0
-    // resolver-callback form), where the reason is a tagged record. pancake
+    // resolver-callback form), where the reason is a tagged record. glowcap
     // cannot *emit* this (its breaks are desc:error), so it is sent by hand.
     try pair.p2.session_state.registerImport(.from(resolver_export));
     try pair.p2.sendCopying(.{ .deliver = .{

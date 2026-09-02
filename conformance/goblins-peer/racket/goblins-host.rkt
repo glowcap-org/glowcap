@@ -47,7 +47,7 @@
 (file-stream-buffer-mode (current-error-port) 'line)
 
 ;; OCapN conformance-suite canonical echo swiss-num (same as
-;; seven-caps-peer.rkt and pancake-conformance-peer's SWISS_ECHO_GC).
+;; seven-caps-peer.rkt and glowcap-conformance-peer's SWISS_ECHO_GC).
 (define ECHO-SWISS-NUM
   (string->bytes/latin-1 "IO58l1laTyhcrgDKbEzFOO32MDd6zE5w"))
 
@@ -63,7 +63,7 @@
 ;; second NDJSON line, so the echo `cap-published` line stays the
 ;; first `swiss` line every interop client parses.
 (define RECORD-SWISS-NUM
-  (string->bytes/latin-1 "pancakeRecordSwissnumABCDEF12345"))
+  (string->bytes/latin-1 "glowcapRecordSwissnumABCDEF12345"))
 
 ;; Record behavior, returns an OCapN Struct (a string-keyed Racket
 ;; hash) carrying its argument, so a partner can pipeline `op:get`
@@ -79,7 +79,7 @@
 ;; something and read it back: `bump` takes no answer and increments,
 ;; `read` answers with the count so far.
 (define TALLY-SWISS-NUM
-  (string->bytes/latin-1 "pancakeTallySwissnumABCDEF123456"))
+  (string->bytes/latin-1 "glowcapTallySwissnumABCDEF123456"))
 
 ;; Tally behavior. `bump` is what a partner's one-way deliver targets;
 ;; it returns a new behavior with the count raised, so the effect

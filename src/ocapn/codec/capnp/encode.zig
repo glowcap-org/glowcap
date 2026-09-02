@@ -1,6 +1,6 @@
 //! Cap'n Proto encode path.
 //!
-//! This module renders the codec-neutral `model.Message` tree into pancake's
+//! This module renders the codec-neutral `model.Message` tree into glowcap's
 //! self-consistent Cap'n Proto dialect. It owns builder allocation and canonical
 //! set ordering; it does not decode or materialize owned values.
 
@@ -31,7 +31,7 @@ const setU64List = layout.setU64List;
 const setData = layout.setData;
 
 /// Encode for a CapTP version, the codec-dispatch boundary's counterpart to
-/// `syrup.encodeMessageForProfile`. Cap'n Proto is pancake's self-consistent
+/// `syrup.encodeMessageForProfile`. Cap'n Proto is glowcap's self-consistent
 /// dialect (ADR-0026): the struct schema always carries `resolve_me_desc` /
 /// `wants_partial`, and word layout stays profile-independent. The profile
 /// still gates what may be encoded: `.next` refuses wire `op:resolve` and a
@@ -430,7 +430,7 @@ fn encodeStructEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: 
 ///
 /// Symmetric refusal (ADR-0003): the decoder rejects a struct whose keys are not
 /// strictly ascending as `MalformedFrame`, which a duplicate key violates, so an
-/// encoder that emitted one would ship a frame pancake and a Goblins peer both
+/// encoder that emitted one would ship a frame glowcap and a Goblins peer both
 /// reject remotely. A duplicate key is refused here with `UnsupportedArgument`,
 /// the same shape the big-integer arm uses, rather than shipped. Keys are
 /// adjacent after the sort, so one linear pass finds any repeat.

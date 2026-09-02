@@ -30,7 +30,14 @@ import { ConvCard } from "./ConvCard.tsx";
 import { ErrorDetail } from "./ErrorDetail.tsx";
 import { Viewer } from "./Viewer.tsx";
 import { Toasts } from "./Toast.tsx";
-import { dirMarkIn, type LiveRooms, opsHeldOf, sendControlsFor } from "./types.ts";
+import {
+	type AdministeredBridge,
+	dirMarkIn,
+	type IrcGatewayState,
+	type LiveRooms,
+	opsHeldOf,
+	sendControlsFor,
+} from "./types.ts";
 import { directoryName, dirWhere, roomCalled } from "./text.ts";
 import { useCapabilitySetModel } from "./settings/CapabilitySetModel.tsx";
 import { mayInteract, mayObserve } from "../../lib/session/client.ts";
@@ -50,13 +57,32 @@ const EMPTY_ROOMS: LiveRooms = new Map();
 
 const OpsMain = lazy(() => loadOpsPage().then((m) => ({ default: m.OpsMain })));
 
+/** The bridge lease this room is, when the reader holds the gateway that owns
+ * it: what the room's moderation surface needs to retire it. */
+function administeredBridgeFor(
+	gateway: IrcGatewayState | null,
+	publicationId: string | undefined,
+): AdministeredBridge | null {
+	// An empty publication id is "no room yet" on a lease, not an identity, so it
+	// must never match a room that also has none.
+	if (gateway == null || publicationId == null || publicationId === "") return null;
+	for (const connection of gateway.connections) {
+		for (const lease of connection.leases) {
+			if (lease.publicationId === publicationId) {
+				return { connectionId: connection.id, leaseId: lease.id, publicationId };
+			}
+		}
+	}
+	return null;
+}
+
 /** Unread total for the window title. Subscribes here so a line in another room
  * does not rebuild the shell. */
 function DocumentTitle({ where }: { where: string }) {
 	const unread = useRoomsState(store.unreadTotal);
 	useEffect(() => {
 		document.title = (unread > 0 ? "(" + unread + ") " : "") +
-			(where ? where + " · " : "") + "pancake rooms";
+			(where ? where + " · " : "") + "glowcap rooms";
 	}, [unread, where]);
 	return null;
 }
@@ -459,7 +485,7 @@ export function App() {
 				initialPane={state.aboutConvPane}
 				request={state.aboutConvRequest}
 				administeredBridge={conv?.type === "room" && conv.dir === state.homeDir
-					? state.irc?.bridged.find((bridge) => bridge.publicationId === conv.publicationId) ?? null
+					? administeredBridgeFor(state.irc, conv.publicationId)
 					: null}
 				dir={conv === null ? null : state.dirs.get(conv.dir) ?? null}
 				homeDir={state.homeDir}

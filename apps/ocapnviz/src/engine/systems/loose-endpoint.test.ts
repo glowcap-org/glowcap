@@ -26,7 +26,7 @@ Deno.test("a loose end is a node on the stage, and its edge is drawn", () => {
 		entities: {
 			peers: {
 				carol: {
-					profile: "pancake",
+					profile: "glowcap",
 					timing: {
 						start: { value: 0, explicit: true },
 						duration: { value: 100, explicit: true },
@@ -84,7 +84,7 @@ Deno.test("a loose end is placed by the layout, not left at the origin", () => {
 						kind: "peer-joined",
 						t: 0,
 						peerId: "carol",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "e2",
@@ -102,7 +102,7 @@ Deno.test("a loose end is placed by the layout, not left at the origin", () => {
 		entities: {
 			peers: {
 				carol: {
-					profile: "pancake",
+					profile: "glowcap",
 					timing: {
 						start: { value: 0, explicit: true },
 						duration: { value: 100, explicit: true },
@@ -169,7 +169,7 @@ Deno.test("authored loose ends are placed apart, not stacked on the origin", () 
 		entities: {
 			peers: {
 				alice: {
-					profile: "pancake",
+					profile: "glowcap",
 					timing: {
 						start: { value: 0, explicit: true },
 						duration: { value: 100, explicit: true },

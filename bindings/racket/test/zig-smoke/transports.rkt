@@ -5,11 +5,11 @@
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -48,8 +48,8 @@
          racket/tcp)
 
 ;; ── À-la-carte transports: one round-trip over each composable transport module ─
-;; Each transport archive ships as its own composable module (`pancake-tcp.rkt`,
-;; `pancake-inproc.rkt`) whose connections shuttle whole frames. These two
+;; Each transport archive ships as its own composable module (`glowcap-tcp.rkt`,
+;; `glowcap-inproc.rkt`) whose connections shuttle whole frames. These two
 ;; sections drive the *same* full deliver/serve/resolve round-trip between two
 ;; byte-fed Host sessions over each explicit netlayer's connections, proving a
 ;; Racket consumer composes the host tier with a transport à la carte exactly
@@ -108,7 +108,7 @@
     (lambda ()
       (define nb (string->bytes/utf-8 name))
       (define-values (rc id)
-        (pancake_host_session_fetch (session-ptr c) (pin-immobile nb) (bytes-length nb)))
+        (glowcap_host_session_fetch (session-ptr c) (pin-immobile nb) (bytes-length nb)))
       (check/host rc)
       (define fresh (adopt-minted-vow! m c id #f #f))
       ;; The drain parks the fetch deliver on the connection's pending-writes
@@ -162,7 +162,7 @@
       (cdr settled)
       settled))
 
-;; libpancake_net_transport_inproc: the socket-free netlayer. A listener binds a
+;; libglowcap_net_transport_inproc: the socket-free netlayer. A listener binds a
 ;; string designator; a dialer names it. The listener adds only a wake descriptor
 ;; so a Racket green thread can park without freezing the place.
 (define inproc-nl (make-inproc-netlayer))
@@ -196,7 +196,7 @@
 
 (printf "racket zig-smoke OK: drove OCapN over the socket-free in-process netlayer\n")
 
-;; libpancake_net_transport_tcp: the explicit C-ABI TCP netlayer (cleartext,
+;; libglowcap_net_transport_tcp: the explicit C-ABI TCP netlayer (cleartext,
 ;; loopback-grade). Same round-trip over real sockets, proving the tcp module
 ;; composes with the host tier just as inproc does, a different archive, one core.
 (define tcp-nl (make-netlayer))
@@ -224,9 +224,9 @@
 (listener-release! tcp-lst)
 
 (printf "racket zig-smoke OK: drove OCapN over the C-ABI TCP netlayer\n")
-;; libpancake_net_transport_onion: the one netlayer the OCapN draft standardizes,
+;; libglowcap_net_transport_onion: the one netlayer the OCapN draft standardizes,
 ;; reached through a Tor daemon the deployment runs. There is no Tor here, so a
-;; fake control endpoint on loopback answers the exact requests pancake sends. The
+;; fake control endpoint on loopback answers the exact requests glowcap sends. The
 ;; bytes those requests must contain are pinned on the Zig side against the pinned
 ;; Spritely Goblins netlayer and the upstream OCapN suite; this proves the Racket
 ;; surface reaches them and reads the answers back.
@@ -247,7 +247,7 @@
 ;; path, which is the other form `make-onion-netlayer` accepts and the one a
 ;; distribution's Tor actually offers. Nothing is bound there, so a section that
 ;; reached it would fail rather than quietly connect somewhere.
-(define absent-socks "/run/pancake-smoke/absent.socks")
+(define absent-socks "/run/glowcap-smoke/absent.socks")
 
 ;; The first record in `seen` matching `rx`, or #f. Records accumulate newest-first.
 (define (seen-line seen rx)
@@ -359,12 +359,12 @@
 (let ()
   (define-values (control _socks _seen stop!) (start-fake-tor))
   (define failure
-    (with-handlers ([exn:fail:pancake? values])
+    (with-handlers ([exn:fail:glowcap? values])
       (connect-onion (onion-locator onion-service-id)
                      #:socks absent-socks
                      #:control control)
       'connected))
-  (expect (exn:fail:pancake? failure)
+  (expect (exn:fail:glowcap? failure)
           "onion connect: an unreachable SOCKS endpoint is a typed dial refusal")
   (stop!))
 

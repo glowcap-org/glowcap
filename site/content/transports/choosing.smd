@@ -1,6 +1,6 @@
 ---
 .title = "Choosing a transport",
-.description = "Pick a pancake netlayer from the peers you have and the channel you can open: when to reach for each symbol, and what that path proves.",
+.description = "Pick a glowcap netlayer from the peers you have and the channel you can open: when to reach for each symbol, and what that path proves.",
 .date = .date("2026-07-22T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -13,7 +13,7 @@ the table below.
 
 Rows are grouped by the path's standing: implemented paths first, then a
 network you already trust, then testing only. **Implemented** means that
-pancake has the path. It is not a release, security audit, or endorsement for
+glowcap has the path. It is not a release, security audit, or endorsement for
 irreplaceable data. The **When** column is the situation. The last column is
 what proves who answered, and what someone on the path can do.
 
@@ -21,8 +21,8 @@ what proves who answered, and what someone on the path can do.
 | --- | --- | --- | --- |
 | `iroh` | Implemented | Native peers that need discovery or NAT traversal; also Goblins via this repository's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
 | `webrtc` | Implemented | Browsers talking directly | The DataChannel is encrypted. Who the peer is comes from the signaling authority that introduced it. |
-| `noise-tcp` | Implemented | Pancake peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. Pancake to pancake only. |
-| `noise-relay` | Implemented | Native pancake peers through a relay, sealed | Same Noise handshake peer to peer; the relay only forwards ciphertext. |
+| `noise-tcp` | Implemented | Glowcap peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. Glowcap to glowcap only. |
+| `noise-relay` | Implemented | Native glowcap peers through a relay, sealed | Same Noise handshake peer to peer; the relay only forwards ciphertext. |
 | `onion` | Implemented | Meeting unmodified Goblins on the standardized path | Tor proves the dialed service and hides both ends' network location. CapTP does not treat that as a channel-authenticated peer proof. |
 | `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
 | `keyed-relay` | Trusted network only | Native peers through a relay, cleartext | Same key demand; the relay reads every frame, and nothing proves who is on the far side. |

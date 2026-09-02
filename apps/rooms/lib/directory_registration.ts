@@ -1,6 +1,6 @@
 // One Directory connection's registered nickname and direct-message discovery.
 
-import { Ref, retainCleanupFailures, type Session } from "@pancake/runtime";
+import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { ask } from "./ask.ts";
 import { parseRegistrationId } from "./directory_publications.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";

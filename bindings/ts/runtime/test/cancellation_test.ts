@@ -1,4 +1,4 @@
-import { INTERNAL } from "@pancake/abi";
+import { INTERNAL } from "@glowcap/abi";
 import { takeRuntimeFailures } from "../context.ts";
 import { abortable } from "../internal/cancellation.ts";
 import { assertEquals } from "../../dogfood/assert.ts";

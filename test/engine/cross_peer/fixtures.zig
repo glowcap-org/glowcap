@@ -3,12 +3,12 @@
 //! real-signature helper.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const syrup = glowcap.ocapn.codec.syrup;
 const cross_peer = @import("../../support/cross_peer.zig");
 
 pub fn repeated(comptime n: usize, byte: u8) [n]u8 {

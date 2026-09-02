@@ -4,10 +4,10 @@
 //! read intact bytes off one converged resolve.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const promise_capture = @import("../../support/capture.zig");
@@ -28,7 +28,7 @@ const Captured = promise_capture.CapturedBytes;
 
 test "far tell delivers with no answer and the partner replies nothing" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
@@ -66,7 +66,7 @@ test "far tell delivers with no answer and the partner replies nothing" {
 
 test "on a far vow whose resolve already arrived is refused AlreadySettled" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
@@ -122,7 +122,7 @@ test "on a far vow whose resolve already arrived is refused AlreadySettled" {
 
 test "breakFarVows settles outstanding far vows broken" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const caller_peer = &pair.p2;
 
@@ -150,7 +150,7 @@ test "breakFarVows settles outstanding far vows broken" {
 
 test "bindExport refuses a far ref with NotLocal" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
 
     var vat = actors.Vat.init(allocator);
@@ -206,7 +206,7 @@ const EchoVerb = struct {
 const NestedServeCapture = struct {
     vat: *actors.Vat,
     port: *actors.Port,
-    inner_event: *pancake.ocapn.engine.Event,
+    inner_event: *glowcap.ocapn.engine.Event,
     buf: [64]u8 = undefined,
     len: usize = 0,
     broke: bool = false,
@@ -233,7 +233,7 @@ const NestedServeCapture = struct {
 
 test "a far listener that pumps a second resolve through a nested serve reads intact bytes" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
@@ -266,7 +266,7 @@ test "a far listener that pumps a second resolve through a nested serve reads in
     }
     try cross_peer.pumpAll(host_peer, caller_peer);
 
-    var resolves: [2]?pancake.ocapn.engine.Event = .{ null, null };
+    var resolves: [2]?glowcap.ocapn.engine.Event = .{ null, null };
     var resolve_count: usize = 0;
     while (caller_peer.pollEvent()) |event| {
         if (event.kind() == .resolve) {
@@ -314,19 +314,19 @@ test "one converged wire resolve fires every local far listener" {
     try peer.session_state.registerImport(.from(5));
     try peer.session_state.registerImport(.from(6));
     const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
-    try pancake.ocapn.engine.listen.ensureShorteningListener(&peer, .from(5));
-    try pancake.ocapn.engine.listen.ensureShorteningListener(&peer, .from(6));
+    try glowcap.ocapn.engine.listen.ensureShorteningListener(&peer, .from(5));
+    try glowcap.ocapn.engine.listen.ensureShorteningListener(&peer, .from(6));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
         frame.deinit();
     }
 
-    const answer_five = try pancake.ocapn.engine.listen.listenOnFar(
+    const answer_five = try glowcap.ocapn.engine.listen.listenOnFar(
         &peer,
         .{ .far = model.FarRef.promise(5) },
     );
-    const answer_six = try pancake.ocapn.engine.listen.listenOnFar(
+    const answer_six = try glowcap.ocapn.engine.listen.listenOnFar(
         &peer,
         .{ .far = model.FarRef.promise(6) },
     );
@@ -347,7 +347,7 @@ test "one converged wire resolve fires every local far listener" {
         .{ .symbol = "fulfill" },
         .{ .reference = .{ .near = model.NearRef.promise(6) } },
     };
-    var shortening = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+    var shortening = try glowcap.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(shortening_five.int()) },
         .args = &shortening_args,
     } });
@@ -358,7 +358,7 @@ test "one converged wire resolve fires every local far listener" {
         .{ .symbol = "fulfill" },
         .{ .bytes = "shared" },
     };
-    var settlement = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+    var settlement = try glowcap.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(resolver_six.int()) },
         .args = &settlement_args,
     } });
@@ -395,7 +395,7 @@ const RegisterOnBreak = struct {
 
 test "a far vow registered during breakFarVows also fires broken" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const caller_peer = &pair.p2;
 

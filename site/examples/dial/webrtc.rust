@@ -1,8 +1,8 @@
-// PLANNED: pancake has no managed WebRTC Runtime adapter yet.
+// PLANNED: glowcap has no managed WebRTC Runtime adapter yet.
 // The Rust WebRTC dial API is not yet public; this shows the planned shape.
 // Pass the signaling capability you already hold.
 //
-// use pancake::{webrtc, Runtime, RuntimeConfig};
+// use glowcap::{webrtc, Runtime, RuntimeConfig};
 //
 // let partner = webrtc::locator("<64 lowercase hex characters from the peer>");
 // let runtime = Runtime::open(RuntimeConfig::connectors([webrtc::connector(signaling)])).await?;

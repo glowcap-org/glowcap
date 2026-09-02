@@ -4,10 +4,10 @@
 // Sturdy references become live capabilities through an existing session or a
 // host-selected dial, with peer and protocol-version identity enforced.
 
-import * as tcp from "@pancake/tcp";
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import * as tcp from "@glowcap/tcp";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
 
-import { formatLocatorUri, Host, PancakeError, Runtime, Sym, VowBroken } from "../../runtime/mod.ts";
+import { formatLocatorUri, GlowcapError, Host, Runtime, Sym, VowBroken } from "../../runtime/mod.ts";
 
 import { assert, ok } from "./support.ts";
 
@@ -42,7 +42,7 @@ export async function run(managed: Runtime): Promise<void> {
 			try {
 				await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg");
 			} catch (err) {
-				mismatchRefused = err instanceof PancakeError && err.code === INVALID_ARGUMENT;
+				mismatchRefused = err instanceof GlowcapError && err.code === INVALID_ARGUMENT;
 			}
 			assert(mismatchRefused, "enliven accepted a sturdyref for another peer");
 			// The complete sturdyref must name this selected session's peer.

@@ -1,6 +1,6 @@
 // Bounded event and snapshot delivery to one attached Rooms view.
 
-import { type Argument, type Behavior, currentSession, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, Ref, type Session } from "@glowcap/runtime";
 import { attachmentArgs } from "../lib/attachment.ts";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 import type { ArchiveCoordinates } from "../lib/archive/protocol.ts";

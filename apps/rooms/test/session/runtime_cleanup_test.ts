@@ -1,4 +1,4 @@
-import type { Runtime } from "@pancake/runtime";
+import type { Runtime } from "@glowcap/runtime";
 import { MemoryArchiveBackend } from "../../lib/archive/protocol.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import type { DurableRoomsArchiveShares } from "../../session/archive_shares.ts";

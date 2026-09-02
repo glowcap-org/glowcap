@@ -2,7 +2,7 @@
 
 // A pending live room offer cannot outlive the direct session that owns it.
 
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,

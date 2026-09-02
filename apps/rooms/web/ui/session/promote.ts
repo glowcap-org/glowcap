@@ -5,7 +5,7 @@
 // attached view the CapTP path uses — through an in-process remote, because
 // a Host keeps one session per peer and this tab cannot dial itself.
 
-import { retainCleanupFailures } from "@pancake/runtime";
+import { retainCleanupFailures } from "@glowcap/runtime";
 import type { CapabilitySetEventSource } from "../ops/capability_set_events.ts";
 import type { RoomsBrowserController } from "../controller/browser.ts";
 import type { RoomsSessionController } from "../controller/session.ts";

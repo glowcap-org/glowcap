@@ -9,17 +9,17 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}" checksums
-pancake_require_devcontainer "image/cursor-agent"
+glowcap_devcontainer_init "${dir}" checksums
+glowcap_require_devcontainer "image/cursor-agent"
 
-arch="$(pancake_pick_by_arch cursor-agent x64 arm64)"
+arch="$(glowcap_pick_by_arch cursor-agent x64 arm64)"
 tarball="agent-cli-package.tar.gz"
 url="https://downloads.cursor.com/lab/${CURSOR_AGENT_VERSION}/linux/${arch}/${tarball}"
 target="${CURSOR_AGENT_DIR}/${CURSOR_AGENT_VERSION}"
-tmp="$(mktemp -d -t pancake-cursor-agent-install-XXXXXX)"
+tmp="$(mktemp -d -t glowcap-cursor-agent-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
 
-pancake_fetch_verified "${url}" "${tmp}/${tarball}" "$(cursor_agent_sha256)"
+glowcap_fetch_verified "${url}" "${tmp}/${tarball}" "$(cursor_agent_sha256)"
 
 # The package's launcher resolves its bundled node and helper binaries relative
 # to its own realpath, so the whole directory moves together and a symlink from

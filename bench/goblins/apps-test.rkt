@@ -2,7 +2,7 @@
 ;; Correctness of every app's logic, exercised in-process against a trivial
 ;; synchronous local substrate (no sockets). This proves the shared app source is
 ;; correct independent of substrate; the live network paths are proven by the
-;; orchestrator's runs against real Goblins and pancake servers.
+;; orchestrator's runs against real Goblins and glowcap servers.
 (require rackunit
          (prefix-in echo: "apps/echo.rkt")
          (prefix-in reg: "apps/registry.rkt")

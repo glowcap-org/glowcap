@@ -1,8 +1,8 @@
 import { c } from "./tokens.ts";
 
 // Mirror the legend's profile palette so the brandmark reads as a
-// legend cue: amber = pancake, purple = goblins, slate = other.
-const PROFILE_PANCAKE = "#f59e0b";
+// legend cue: amber = glowcap, purple = goblins, slate = other.
+const PROFILE_GLOWCAP = "#f59e0b";
 const PROFILE_GOBLINS = "#8b5cf6";
 const PROFILE_OTHER = "#94a3b8";
 
@@ -51,7 +51,7 @@ export function Brandmark({ size = 22 }: { size?: number }) {
 				strokeDasharray="2 2.4"
 				strokeLinecap="round"
 			/>
-			<circle cx={11} cy={4} r={2.6} fill={PROFILE_PANCAKE} />
+			<circle cx={11} cy={4} r={2.6} fill={PROFILE_GLOWCAP} />
 			<circle cx={4} cy={17} r={2.6} fill={PROFILE_GOBLINS} />
 			<circle cx={18} cy={17} r={2.6} fill={PROFILE_OTHER} />
 		</svg>

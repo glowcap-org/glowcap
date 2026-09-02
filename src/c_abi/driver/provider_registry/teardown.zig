@@ -17,9 +17,9 @@ pub fn append(target: *?foundation.FailureChain, later: foundation.FailureChain)
 
 pub fn failure(
     code: i32,
-    report: shared.PancakeProviderFailure,
+    report: shared.GlowcapProviderFailure,
 ) error{ProviderContract}!?foundation.FailureChain {
-    if (code == shared.PANCAKE_OK) {
+    if (code == shared.GLOWCAP_OK) {
         if (provider_failure.isEmpty(report)) return null;
     } else if (!provider_failure.isEmpty(report)) {
         return provider_failure.chain(code, report) catch error.ProviderContract;
@@ -29,9 +29,9 @@ pub fn failure(
 
 pub fn outcome(
     code: i32,
-    report: shared.PancakeProviderFailure,
+    report: shared.GlowcapProviderFailure,
 ) error{ProviderContract}!net.multiplexed_resident.TeardownOutcome {
-    if (code == shared.PANCAKE_ERR_WOULD_BLOCK and provider_failure.isEmpty(report))
+    if (code == shared.GLOWCAP_ERR_WOULD_BLOCK and provider_failure.isEmpty(report))
         return .pending;
     if (try failure(code, report)) |reported| return .{ .failed = reported };
     return .complete;

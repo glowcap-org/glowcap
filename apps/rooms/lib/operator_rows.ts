@@ -7,7 +7,7 @@
 // wire form, and holding them apart is how the sessions row once grew a
 // caller mark on the parsing side that the encoding side did not send.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { MAX_OPERATOR_PAGE, MAX_TROUBLE_REASON_BYTES, MAX_TROUBLE_SOURCE_BYTES } from "./limits.ts";
 import { boundedText, nonemptyText, nonnegativeSafeInteger, positiveSafeInteger } from "./schema.ts";

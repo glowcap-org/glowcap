@@ -2,8 +2,8 @@
 //!
 //! iroh's encrypted-QUIC netlayer links the Rust sidecar, which ADR-0055 keeps
 //! out of the pure-Zig archives; it ships as its own optional companion library,
-//! `libpancake_net_transport_iroh`, built with `zig build iroh-abi` (needs cargo). It exports
-//! only the `pancake_iroh_*` family, so the `iroh` cargo feature links it
+//! `libglowcap_net_transport_iroh`, built with `zig build iroh-abi` (needs cargo). It exports
+//! only the `glowcap_iroh_*` family, so the `iroh` cargo feature links it
 //! *alongside* the static core archives (core symbols come from there) and exposes a
 //! dialer/listener here.
 //!
@@ -69,20 +69,20 @@ pub fn locator(node_id: &str, direct_addresses: Option<&str>) -> Locator {
 }
 
 use ffi::{
-	PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent, PANCAKE_IROH_EV_ACCEPT, PANCAKE_IROH_EV_CLOSED,
-	PANCAKE_IROH_EV_CONNECT, PANCAKE_IROH_EV_READABLE, PANCAKE_IROH_EV_WRITABLE,
+	GlowcapIrohConn, GlowcapIrohNetlayer, GlowcapIrohReadyEvent, GLOWCAP_IROH_EV_ACCEPT, GLOWCAP_IROH_EV_CLOSED,
+	GLOWCAP_IROH_EV_CONNECT, GLOWCAP_IROH_EV_READABLE, GLOWCAP_IROH_EV_WRITABLE,
 };
 
 const DRAIN_READY_CAP: usize = BINDING_READINESS_DRAIN_CAP;
 
 crate::error_slot::error_slot!(
-	// Like the core `check`, but for `pancake_iroh_*` calls: snapshot the iroh
+	// Like the core `check`, but for `glowcap_iroh_*` calls: snapshot the iroh
 	// transport's own thread-local last-error rather than the unrelated
-	// ocapn-family one. A `pancake_iroh_*` call that returns PANCAKE_ERR_IO
+	// ocapn-family one. A `glowcap_iroh_*` call that returns GLOWCAP_ERR_IO
 	// records its concrete cause in this slot.
 	fn check_iroh;
 	fn iroh_last_error;
-	ffi::pancake_iroh_last_error
+	ffi::glowcap_iroh_last_error
 );
 
 mod sync;
@@ -92,7 +92,7 @@ mod release;
 use release::NetlayerRaw;
 
 /// One iroh endpoint's configuration, field-for-field with the header's
-/// `PancakeIrohConfig`, which documents what each setting means. `None` for a
+/// `GlowcapIrohConfig`, which documents what each setting means. `None` for a
 /// timeout takes the transport's default.
 ///
 /// `reachability` is mandatory, which is why this type has no `Default`:
@@ -154,7 +154,7 @@ impl Drop for DialGuard {
 	fn drop(&mut self) {
 		if self.armed {
 			unsafe {
-				ffi::pancake_iroh_netlayer_cancel_connect(self.netlayer.raw, self.request_id);
+				ffi::glowcap_iroh_netlayer_cancel_connect(self.netlayer.raw, self.request_id);
 			}
 		}
 	}
@@ -195,20 +195,20 @@ impl Netlayer {
 	fn from_seed_blocking(config: Config, seed: &[u8; 32]) -> Result<Netlayer> {
 		crate::require_archive_fingerprint(
 			"iroh",
-			unsafe { ffi::pancake_iroh_archive_fingerprint() },
+			unsafe { ffi::glowcap_iroh_archive_fingerprint() },
 			crate::abi_constants::IROH_ARCHIVE_FINGERPRINT,
 		)?;
-		let mut raw: *mut PancakeIrohNetlayer = core::ptr::null_mut();
+		let mut raw: *mut GlowcapIrohNetlayer = core::ptr::null_mut();
 		// `..Default::default()` zero-fills the rest, and 0 is the built-in
 		// default for every timeout — the header's zero-init contract.
-		let raw_config = ffi::PancakeIrohConfig {
+		let raw_config = ffi::GlowcapIrohConfig {
 			reachability: config.reachability as u32,
 			connect_timeout_ms: config.connect_timeout_ms.unwrap_or(0),
 			idle_timeout_ms: config.idle_timeout_ms.unwrap_or(0),
 			worker_threads: config.worker_threads.unwrap_or(0),
 		};
 		check_iroh(unsafe {
-			ffi::pancake_iroh_netlayer_new(
+			ffi::glowcap_iroh_netlayer_new(
 				seed.as_ptr(),
 				seed.len(),
 				&raw_config,
@@ -229,14 +229,14 @@ impl Netlayer {
 	pub fn node_id(&self) -> Result<String> {
 		let mut buf = [0u8; IROH_NODE_ID_BYTES];
 		let mut len: usize = 0;
-		check_iroh(unsafe { ffi::pancake_iroh_netlayer_node_id(self.raw.raw, buf.as_mut_ptr(), buf.len(), &mut len) })?;
+		check_iroh(unsafe { ffi::glowcap_iroh_netlayer_node_id(self.raw.raw, buf.as_mut_ptr(), buf.len(), &mut len) })?;
 		Ok(String::from_utf8_lossy(&buf[..len]).into_owned())
 	}
 
 	/// Return this endpoint's archive-owned provider package.
 	pub fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
-		let mut package: crate::sys::PancakeTransportProvider = unsafe { core::mem::zeroed() };
-		check_iroh(unsafe { ffi::pancake_iroh_transport_provider(self.raw.raw, &mut package) })?;
+		let mut package: crate::sys::GlowcapTransportProvider = unsafe { core::mem::zeroed() };
+		check_iroh(unsafe { ffi::glowcap_iroh_transport_provider(self.raw.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,
 			_owner: core::marker::PhantomData,
@@ -306,13 +306,13 @@ impl Netlayer {
 		// whose `Drop` now owns the shutdown, so disarm the cancel guard.
 		guard.armed = false;
 		iloop.register(conn);
-		Ok(Stream::new(conn as *mut PancakeIrohConn, iloop, Some(self), true))
+		Ok(Stream::new(conn as *mut GlowcapIrohConn, iloop, Some(self), true))
 	}
 }
 
-fn direct_addresses(raw: *mut PancakeIrohNetlayer) -> Result<String> {
+fn direct_addresses(raw: *mut GlowcapIrohNetlayer) -> Result<String> {
 	let mut cap: usize = 0;
-	let code = unsafe { ffi::pancake_iroh_netlayer_direct_addrs(raw, std::ptr::null_mut(), 0, &mut cap) };
+	let code = unsafe { ffi::glowcap_iroh_netlayer_direct_addrs(raw, std::ptr::null_mut(), 0, &mut cap) };
 	if code != sys::ERR_BUFFER_TOO_SMALL {
 		check_iroh(code)?;
 		if cap == 0 {
@@ -322,7 +322,7 @@ fn direct_addresses(raw: *mut PancakeIrohNetlayer) -> Result<String> {
 	loop {
 		let mut buf = vec![0u8; cap];
 		let mut len: usize = 0;
-		let code = unsafe { ffi::pancake_iroh_netlayer_direct_addrs(raw, buf.as_mut_ptr(), buf.len(), &mut len) };
+		let code = unsafe { ffi::glowcap_iroh_netlayer_direct_addrs(raw, buf.as_mut_ptr(), buf.len(), &mut len) };
 		if code == sys::ERR_BUFFER_TOO_SMALL && len > cap {
 			cap = len;
 			continue;
@@ -381,7 +381,7 @@ pub fn connector(config: Config) -> crate::Result<crate::Connector> {
 	)
 }
 
-// Discovery-posture dial retry (ADR-0082): lockstep with `PANCAKE_DISCOVERY_DIAL_*`.
+// Discovery-posture dial retry (ADR-0082): lockstep with `GLOWCAP_DISCOVERY_DIAL_*`.
 // Only transient dial faults (projected as `ERR_IO`) are retried; permanent
 // faults (`InvalidArgument`, `Internal`, …) surface immediately.
 async fn dial_resolving(iloop: &Arc<IrohLoop>, node_id: &str, hints: &str, retry: bool) -> Result<usize> {

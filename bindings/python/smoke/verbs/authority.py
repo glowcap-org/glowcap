@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from pancake import Host, Ref, VowBroken, tcp
+from glowcap import Host, Ref, VowBroken, tcp
 
 from smoke.runtime import tcp_connect
 
@@ -171,7 +171,7 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
                 def svc(verb, args):
                     if verb == "reenter":
                         # A driving verb inside the turn: the latch refuses it
-                        # and the raised PancakeError's words become the broken
+                        # and the raised GlowcapError's words become the broken
                         # answer.
                         session.publish("nested", lambda v, a: None)
                         return "unreachable"

@@ -58,7 +58,7 @@ def check_planned_snippets_comment_only() -> None:
 
 
 def check_python() -> None:
-    with tempfile.TemporaryDirectory(prefix="pancake-site-python-") as directory:
+    with tempfile.TemporaryDirectory(prefix="glowcap-site-python-") as directory:
         generated: list[str] = []
         for source_path in example_files("python"):
             tree = ast.parse(source_path.read_text(), filename=str(source_path))
@@ -106,7 +106,7 @@ def check_python() -> None:
 
 def check_racket() -> None:
     binding = ROOT / "bindings" / "racket"
-    with tempfile.TemporaryDirectory(prefix="pancake-site-racket-") as directory:
+    with tempfile.TemporaryDirectory(prefix="glowcap-site-racket-") as directory:
         work = Path(directory)
         for module in binding.glob("*.rkt"):
             (work / module.name).symlink_to(module)
@@ -132,18 +132,18 @@ def check_racket() -> None:
 
 
 def check_rust() -> None:
-    with tempfile.TemporaryDirectory(prefix="pancake-site-rust-") as directory:
+    with tempfile.TemporaryDirectory(prefix="glowcap-site-rust-") as directory:
         work = Path(directory)
         binding = ROOT / "bindings" / "rust"
         manifest = f"""\
 [package]
-name = "pancake-site-rust-examples"
+name = "glowcap-site-rust-examples"
 version = "0.0.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-pancake = {{ package = "pancake-rust-dogfood", path = "{binding.as_posix()}", features = ["async", "iroh", "onion", "relay"] }}
+glowcap = {{ package = "glowcap-rust-dogfood", path = "{binding.as_posix()}", features = ["async", "iroh", "onion", "relay"] }}
 """
         (work / "Cargo.toml").write_text(manifest)
         source = [
@@ -155,7 +155,7 @@ pancake = {{ package = "pancake-rust-dogfood", path = "{binding.as_posix()}", fe
             name = f"example_{source_path.parent.name}_{source_path.stem.replace('-', '_')}"
             source.extend(
                 [
-                    f"async fn {name}() -> pancake::Result<()> {{",
+                    f"async fn {name}() -> glowcap::Result<()> {{",
                     source_path.read_text(),
                     "#[allow(unreachable_code)]",
                     "Ok(())",

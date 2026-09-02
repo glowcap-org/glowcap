@@ -1,9 +1,9 @@
-//! Live Goblins GC evidence: pancake introduces a near export into Goblins'
+//! Live Goblins GC evidence: glowcap introduces a near export into Goblins'
 //! suite-echo actor and waits for inbound `op:gc-exports` naming that export.
 //!
 //! Mirrors the suite's `OpGcExportsTest` shape against a live Spritely Goblins
-//! vat instead of the pancake conformance peer: fetch echo, deliver a
-//! pancake-owned near object with no answer, pump until Goblins releases its
+//! vat instead of the glowcap conformance peer: fetch echo, deliver a
+//! glowcap-owned near object with no answer, pump until Goblins releases its
 //! import of that export. This driver is evidence-only (no engine change of
 //! its own); export-side promise listen ships separately under ADR-0007.
 //!
@@ -12,13 +12,13 @@
 //! still part of `check` so an API change cannot silently rot it.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const tcp = glowcap.net.tcp;
 
 const host = "127.0.0.1";
 /// Default listen port for the Goblins host. `--port=N` overrides when taken.

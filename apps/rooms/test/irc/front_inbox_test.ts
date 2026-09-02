@@ -1,4 +1,4 @@
-import { type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Behavior, Ref, type Session } from "@glowcap/runtime";
 import type { InboxPublisher } from "../../lib/dm_inbox.ts";
 import { DM } from "../../lib/protocol.ts";
 import type { Directory } from "../../lib/room/client.ts";

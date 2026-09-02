@@ -74,8 +74,9 @@ export function RowClose(
 export function RoomRow(
 	{ conv, unread, here, where, home, phase, bridgedFrom, canInteract, onPick, onLeave, onAbout }: {
 		conv: RoomConv;
-		/** Where a bridged room's IRC channel lives, or null for every other
-		 * room: a fact about the row, said in words and in its label. */
+		/** Where a bridged room's channel lives, or null for every other room:
+		 * a fact about the row, said in words and in its label. The bridge's own
+		 * badge on `conv.bridge` names the service; this names where it reaches. */
 		bridgedFrom: string | null;
 		unread: number;
 		here: boolean;
@@ -128,8 +129,13 @@ export function RoomRow(
 	// pointer — but that was the ordering, not the number, and the ordering is
 	// gone.
 	const membership = conv.membership === "joined" ? "" : conv.membership === "joining" ? ", joining" : ", not joined";
+	const bridgeSaid = conv.bridge !== undefined && bridgedFrom !== null
+		? ", a bridged " + conv.bridge.badge + " channel via " + bridgedFrom
+		: bridgedFrom !== null
+		? ", a bridged channel via " + bridgedFrom
+		: "";
 	const said = (here ? named : "Open " + named) + (conv.held ? ", a private room" : "") + inDir +
-		(bridgedFrom !== null ? ", an IRC channel bridged via " + bridgedFrom : "") +
+		bridgeSaid +
 		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : membership) + unwell;
 	return (
 		<li
@@ -149,7 +155,7 @@ export function RoomRow(
 				</span>
 				<span className="rname" title={conv.id}>
 					<span className="rname-text">{conv.id}</span>
-					{bridgedFrom !== null && <span className="irc-chip">IRC</span>}
+					{conv.bridge !== undefined && <span className="bridge-chip">{conv.bridge.badge}</span>}
 				</span>
 				{unread > 0
 					? <span className="rcount unread">{unread}</span>

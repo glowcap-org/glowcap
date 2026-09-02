@@ -1,8 +1,8 @@
 // Internal state and lifecycle owner for the public Session facade. Cross-file
 // `export` is module visibility; runtime/mod.ts does not expose this base.
 
-import { CLOSED, HANDSHAKE_TIMEOUT_MS, HOST_OUTBOUND_PREFIX_CAP, INVALID_ARGUMENT, OK, TIMEOUT } from "@pancake/abi";
-import { type AbortDetail, checkHost, PancakeError } from "../errors.ts";
+import { CLOSED, HANDSHAKE_TIMEOUT_MS, HOST_OUTBOUND_PREFIX_CAP, INVALID_ARGUMENT, OK, TIMEOUT } from "@glowcap/abi";
+import { type AbortDetail, checkHost, GlowcapError } from "../errors.ts";
 import type { Host } from "../host.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
@@ -171,8 +171,8 @@ export abstract class SessionLifecycle {
 		};
 	}
 
-	/** The raw PancakeHostSession handle. Binding-internal: the host's DIAL arm
-	 * reports it through `pancake_host_dialed`. */
+	/** The raw GlowcapHostSession handle. Binding-internal: the host's DIAL arm
+	 * reports it through `glowcap_host_dialed`. */
 	get raw(): Ptr {
 		return this.#ptr;
 	}
@@ -194,7 +194,7 @@ export abstract class SessionLifecycle {
 	/** Nonzero once the keyed handshake has completed and the session is open. */
 	get sessionOpen(): boolean {
 		return !this.#released &&
-			hostS.pancake_host_session_is_open(this.#ptr) === 1;
+			hostS.glowcap_host_session_is_open(this.#ptr) === 1;
 	}
 
 	/** The version, codec, and feature set this live session settled with its
@@ -424,7 +424,7 @@ export abstract class SessionLifecycle {
 	}
 
 	#beginClose(encoded: Uint8Array): void {
-		checkHost(hostS.pancake_host_session_close(
+		checkHost(hostS.glowcap_host_session_close(
 			this.#ptr,
 			ab(encoded),
 			monotonicNowMs(),
@@ -444,7 +444,7 @@ export abstract class SessionLifecycle {
 				// makes that harmless.
 				const activity = this.#host.armCloseActivity();
 				const state = new Uint8Array(4);
-				const rc = hostS.pancake_host_session_close_progress(
+				const rc = hostS.glowcap_host_session_close_progress(
 					this.#ptr,
 					monotonicNowMs(),
 					ab(state),
@@ -480,8 +480,8 @@ export abstract class SessionLifecycle {
 		this.#closeResolve = null;
 		this.#closeReject = null;
 		if (this.#wireFailure !== null) reject?.(this.#wireFailure.error);
-		else if (result === TIMEOUT) reject?.(new PancakeError(TIMEOUT, "finish close exhausted its grace period"));
-		else if (result !== 0) reject?.(new PancakeError(result));
+		else if (result === TIMEOUT) reject?.(new GlowcapError(TIMEOUT, "finish close exhausted its grace period"));
+		else if (result !== 0) reject?.(new GlowcapError(result));
 		else resolve?.();
 	}
 
@@ -509,10 +509,10 @@ export abstract class SessionLifecycle {
 	/** Project one native SESSION_CLOSED event onto this wrapper before release.
 	 * Binding-internal: the loop owns classification; Session owns only promise
 	 * and listener settlement. */
-	nativeTransportDidClose(error: PancakeError | null): Promise<void> {
+	nativeTransportDidClose(error: GlowcapError | null): Promise<void> {
 		const transport = this.#transport;
 		if (!isLoopChannel(transport)) {
-			return Promise.reject(new PancakeError(INVALID_ARGUMENT, "session is not loop-backed"));
+			return Promise.reject(new GlowcapError(INVALID_ARGUMENT, "session is not loop-backed"));
 		}
 		transport.finishClosed(error);
 		return this.closeTransport();
@@ -546,7 +546,7 @@ export abstract class SessionLifecycle {
 		const commitRelease = () => {
 			try {
 				if (isLoopChannel(transport)) transport.driverLoop.nativeSessionRelease(ptr);
-				else checkHost(hostS.pancake_host_session_release(ptr));
+				else checkHost(hostS.glowcap_host_session_release(ptr));
 			} catch (error) {
 				this.#releasePending = false;
 				throw error;
@@ -575,7 +575,7 @@ export abstract class SessionLifecycle {
 
 	protected guardOpen(): void {
 		if (this.#released) {
-			throw new PancakeError(CLOSED, "connection closed");
+			throw new GlowcapError(CLOSED, "connection closed");
 		}
 	}
 

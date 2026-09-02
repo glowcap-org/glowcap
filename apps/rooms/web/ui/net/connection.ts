@@ -127,7 +127,7 @@ async function openDirectoryAttempt(
 	try {
 		// Instantiate the wasm peer once; its adapter injection lets the runtime's
 		// `connect` (which `Directory.connect` rides) dial over the relay. Cache
-		// only a *resolved* init: `/pancake_host.wasm` answers 503 until the
+		// only a *resolved* init: `/glowcap_host.wasm` answers 503 until the
 		// module is built, so a first attempt can lose that race — a rejected
 		// promise left cached would make every reconnect re-await the same failure
 		// forever instead of retrying once the asset is live.

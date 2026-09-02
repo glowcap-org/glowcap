@@ -6,7 +6,8 @@
 // scripted fixture, so the whole conversation is hermetic.
 
 import { DIRECTORY, LIST, SNAPSHOT } from "../../lib/protocol.ts";
-import { joinIrcChannel, openIrcNetwork, partIrcChannel } from "../../lib/irc_gateway_client.ts";
+import { parseBridgeGateway } from "../../lib/bridge/gateway.ts";
+import { joinIrcChannel, openIrcNetwork, partIrcChannel } from "./irc_gateway/wire.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { Room } from "../../lib/room/client.ts";
 import {
@@ -163,14 +164,13 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 	let replacementSession: Awaited<ReturnType<typeof dial>> | null = null;
 	try {
 		const gw = await session.fetch("gw");
-		const network = await openIrcNetwork(session, gw, {
+		await openIrcNetwork(session, gw, {
 			network: "fixture",
 			host: "127.0.0.1",
 			port: ircPort,
 			tls: false,
 			nick: "gwbot",
 		});
-		session.release(network);
 		const name = await within(
 			joinIrcChannel(session, gw, "fixture", "#news"),
 			"the join answer",
@@ -294,12 +294,19 @@ roomsTest("the gateway bridges a fixture channel in and parts it again", async (
 			`a Rooms-only member silently reopened IRC: "${refusedPost}"`,
 		);
 
-		const snapshot = await within(session.send(gw, SNAPSHOT, []), "the gateway snapshot") as unknown[];
-		const networks = snapshot[0] as unknown[];
-		const rows = snapshot[1] as unknown[];
-		assert(networks.length === 1 && rows.length === 1, "the snapshot lists one network and one channel");
-		const row = rows[0] as unknown[];
-		assert(row[0] === "fixture" && row[1] === "#news" && row[2] === "fixture/#news", "the row names it");
+		const gateway = parseBridgeGateway(
+			await within(session.send(gw, SNAPSHOT, []), "the gateway snapshot") as string,
+		);
+		const connection = gateway.connections[0];
+		assert(
+			gateway.connections.length === 1 && connection?.leases.length === 1,
+			"the snapshot lists one network and one channel",
+		);
+		const lease = connection!.leases[0]!;
+		assert(
+			connection!.id === "fixture" && lease.id === "#news" && lease.roomName === "fixture/#news",
+			"the row names it",
+		);
 
 		// Transport closure is the membership boundary too. A witness observes
 		// the leave before a fresh connection claims the same Rooms name; if the
@@ -527,14 +534,13 @@ roomsTest("a member's IRC login chooses their wire nick and SASL account", async
 	let joined = false;
 	try {
 		const gw = await session.fetch("gw");
-		const network = await openIrcNetwork(session, gw, {
+		await openIrcNetwork(session, gw, {
 			network: "login-fixture",
 			host: "localhost",
 			port: ircPort,
 			tls: true,
 			nick: "gwbot",
 		});
-		session.release(network);
 		await within(
 			joinIrcChannel(session, gw, "login-fixture", "#login"),
 			"joining the login fixture",

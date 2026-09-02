@@ -25,7 +25,7 @@ export function startRoomsSessionPeer(
 			`--allow-read=${readable}`,
 			`--allow-write=${writable}`,
 			"--allow-net=127.0.0.1",
-			"--allow-env=PANCAKE_LIB_DIR",
+			"--allow-env=GLOWCAP_LIB_DIR",
 			ROOMS_SESSION_PEER,
 			`--state=${directory}`,
 			...(checkpoint == null ? [] : [`--checkpoint=${checkpoint}`]),

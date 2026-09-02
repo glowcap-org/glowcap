@@ -5,11 +5,11 @@
 
 // ── Struct layouts (@sizeOf/@offsetOf on the extern structs) ─────────────
 
-// PancakeReference
+// GlowcapReference
 export const REF_SIZE = 8;
 export const REF_ID_OFF = 0;
 
-// PancakeArgument
+// GlowcapArgument
 export const ARG_SIZE = 64;
 export const ARG_KIND_OFF = 0;
 export const ARG_BOOLEAN_OFF = 4;
@@ -21,13 +21,13 @@ export const ARG_REFERENCE_OFF = 40;
 export const ARG_ITEMS_OFF = 48;
 export const ARG_ITEMS_LEN_OFF = 56;
 
-// PancakeFrame (borrowed)
+// GlowcapFrame (borrowed)
 export const FRAME_SIZE = 24;
 export const FRAME_BYTES_OFF = 0;
 export const FRAME_LEN_OFF = 8;
 export const FRAME_SHAPE_OFF = 16;
 
-// PancakeManagedFrame (owned, self-releasing)
+// GlowcapManagedFrame (owned, self-releasing)
 export const MANAGED_FRAME_SIZE = 96;
 export const MANAGED_FRAME_BYTES_OFF = 0;
 export const MANAGED_FRAME_LEN_OFF = 8;
@@ -35,7 +35,7 @@ export const MANAGED_FRAME_SHAPE_OFF = 16;
 export const MANAGED_FRAME_RELEASE_OFF = 24;
 export const MANAGED_FRAME_PRIVATE_WORDS_OFF = 32;
 
-// PancakeLastAbort
+// GlowcapLastAbort
 export const LAST_ABORT_SIZE = 96;
 export const LAST_ABORT_DOMAIN_OFF = 0;
 export const LAST_ABORT_HAS_KIND_OFF = 4;
@@ -51,13 +51,13 @@ export const LAST_ABORT_SECONDARY_ERROR_NAME_OFF = 72;
 export const LAST_ABORT_SECONDARY_ERROR_NAME_LEN_OFF = 80;
 export const LAST_ABORT_SECONDARY_ERROR_COUNT_OFF = 88;
 
-// PancakeAllocator (pancake_context_new_with_allocator)
+// GlowcapAllocator (glowcap_context_new_with_allocator)
 export const ALLOCATOR_SIZE = 24;
 export const ALLOCATOR_ALLOC_OFF = 0;
 export const ALLOCATOR_FREE_OFF = 8;
 export const ALLOCATOR_USER_DATA_OFF = 16;
 
-// PancakeFailureReport
+// GlowcapFailureReport
 export const FAILURE_REPORT_SIZE = 136;
 export const FAILURE_REPORT_ABI_VERSION_OFF = 0;
 export const FAILURE_REPORT_STRUCT_SIZE_OFF = 8;
@@ -79,7 +79,7 @@ export const FAILURE_REPORT_SECONDARY_NAME_LEN_OFF = 112;
 export const FAILURE_REPORT_SECONDARY_MESSAGE_OFF = 120;
 export const FAILURE_REPORT_SECONDARY_MESSAGE_LEN_OFF = 128;
 
-// PancakeFailureEvent
+// GlowcapFailureEvent
 export const FAILURE_EVENT_SIZE = 152;
 export const FAILURE_EVENT_ABI_VERSION_OFF = 0;
 export const FAILURE_EVENT_STRUCT_SIZE_OFF = 8;
@@ -104,7 +104,7 @@ export const FAILURE_EVENT_SECONDARY_NAME_LEN_OFF = 128;
 export const FAILURE_EVENT_SECONDARY_MESSAGE_OFF = 136;
 export const FAILURE_EVENT_SECONDARY_MESSAGE_LEN_OFF = 144;
 
-// PancakeHostAction (libpancake_host, pancake_host_next_action)
+// GlowcapHostAction (libglowcap_host, glowcap_host_next_action)
 export const HOST_ACTION_SIZE = 120;
 export const HOST_ACTION_KIND_OFF = 0;
 export const HOST_ACTION_TICKET_OFF = 8;
@@ -115,7 +115,7 @@ export const HOST_ACTION_MESSAGE_OFF = 96;
 export const HOST_ACTION_MESSAGE_LEN_OFF = 104;
 export const HOST_ACTION_RESULT_OFF = 112;
 
-// PancakeHostPumpHooks (libpancake_host, pancake_host_pump_drain)
+// GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain)
 export const HOST_PUMP_HOOKS_SIZE = 48;
 export const HOST_PUMP_HOOKS_CTX_OFF = 0;
 export const HOST_PUMP_HOOKS_FLUSH_OFF = 8;
@@ -124,7 +124,7 @@ export const HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF = 24;
 export const HOST_PUMP_HOOKS_COMPLETE_OFF = 32;
 export const HOST_PUMP_HOOKS_DIAL_OFF = 40;
 
-// PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)
+// GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity)
 export const PARTNER_IDENTITY_SIZE = 56;
 export const PARTNER_IDENTITY_SESSION_KEY_OFF = 0;
 export const PARTNER_IDENTITY_SESSION_KEY_LEN_OFF = 8;
@@ -134,7 +134,7 @@ export const PARTNER_IDENTITY_LOCATOR_RECORD_OFF = 32;
 export const PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF = 40;
 export const PARTNER_IDENTITY_PROVENANCE_OFF = 48;
 
-// PancakeTraceEvent (libpancake_host, pancake_host_set_trace)
+// GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace)
 export const TRACE_EVENT_SIZE = 144;
 export const TRACE_EVENT_KIND_OFF = 0;
 export const TRACE_EVENT_SESSION_OFF = 8;
@@ -156,7 +156,7 @@ export const TRACE_EVENT_FRAME_TOTAL_LEN_OFF = 112;
 export const TRACE_EVENT_DROPPED_OFF = 120;
 export const TRACE_EVENT_DIGEST_OFF = 128;
 
-// PancakeDriverOptions (libpancake_driver, pancake_driver_take_host)
+// GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host)
 export const DRIVER_OPTIONS_SIZE = 48;
 export const DRIVER_OPTIONS_ABI_VERSION_OFF = 0;
 export const DRIVER_OPTIONS_STRUCT_SIZE_OFF = 8;
@@ -166,7 +166,7 @@ export const DRIVER_OPTIONS_HANDSHAKE_MS_OFF = 32;
 export const DRIVER_OPTIONS_LISTENER_SETUP_MS_OFF = 36;
 export const DRIVER_OPTIONS_SETTLE_MS_OFF = 40;
 
-// PancakeDriverFailure (libpancake_driver deterministic barriers)
+// GlowcapDriverFailure (libglowcap_driver deterministic barriers)
 export const DRIVER_FAILURE_SIZE = 80;
 export const DRIVER_FAILURE_ABI_VERSION_OFF = 0;
 export const DRIVER_FAILURE_STRUCT_SIZE_OFF = 8;
@@ -183,7 +183,7 @@ export const DRIVER_FAILURE_PRIMARY_NAME_LEN_OFF = 56;
 export const DRIVER_FAILURE_SECONDARY_NAME_OFF = 64;
 export const DRIVER_FAILURE_SECONDARY_NAME_LEN_OFF = 72;
 
-// PancakeCloseOptions (libpancake_host and libpancake_driver)
+// GlowcapCloseOptions (libglowcap_host and libglowcap_driver)
 export const CLOSE_OPTIONS_SIZE = 32;
 export const CLOSE_OPTIONS_ABI_VERSION_OFF = 0;
 export const CLOSE_OPTIONS_STRUCT_SIZE_OFF = 8;
@@ -191,7 +191,7 @@ export const CLOSE_OPTIONS_PENDING_OFF = 16;
 export const CLOSE_OPTIONS_GRACE_MODE_OFF = 20;
 export const CLOSE_OPTIONS_GRACE_MS_OFF = 24;
 
-// PancakeSessionLimitOptions (libpancake_host)
+// GlowcapSessionLimitOptions (libglowcap_host)
 export const SESSION_LIMIT_OPTIONS_SIZE = 48;
 export const SESSION_LIMIT_OPTIONS_ABI_VERSION_OFF = 0;
 export const SESSION_LIMIT_OPTIONS_STRUCT_SIZE_OFF = 8;
@@ -200,7 +200,7 @@ export const SESSION_LIMIT_OPTIONS_QUEUE_CAP_OFF = 24;
 export const SESSION_LIMIT_OPTIONS_OUTBOUND_HIGH_WATER_BYTES_OFF = 32;
 export const SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF = 40;
 
-// PancakeDriverEvent (libpancake_driver, pancake_driver_next_event)
+// GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event)
 export const DRIVER_EVENT_SIZE = 216;
 export const DRIVER_EVENT_KIND_OFF = 0;
 export const DRIVER_EVENT_PRIMARY_RESULT_OFF = 4;
@@ -220,12 +220,12 @@ export const DRIVER_EVENT_PRIMARY_NAME_LEN_OFF = 192;
 export const DRIVER_EVENT_SECONDARY_NAME_OFF = 200;
 export const DRIVER_EVENT_SECONDARY_NAME_LEN_OFF = 208;
 
-// PancakeTransportOperationOptions (pancake_driver_dial)
+// GlowcapTransportOperationOptions (glowcap_driver_dial)
 export const TRANSPORT_OPERATION_OPTIONS_SIZE = 16;
 export const TRANSPORT_OPERATION_OPTIONS_DATA_OFF = 0;
 export const TRANSPORT_OPERATION_OPTIONS_SIZE_OFF = 8;
 
-// PancakeLocatorHintView (pancake_transport_provider.h)
+// GlowcapLocatorHintView (glowcap_transport_provider.h)
 export const LOCATOR_HINT_VIEW_SIZE = 56;
 export const LOCATOR_HINT_VIEW_NAME_OFF = 0;
 export const LOCATOR_HINT_VIEW_NAME_LEN_OFF = 8;
@@ -235,7 +235,7 @@ export const LOCATOR_HINT_VIEW_BYTES_LEN_OFF = 32;
 export const LOCATOR_HINT_VIEW_BOOLEAN_VALUE_OFF = 40;
 export const LOCATOR_HINT_VIEW_INTEGER_VALUE_OFF = 48;
 
-// PancakeLocatorView (pancake_transport_provider.h)
+// GlowcapLocatorView (glowcap_transport_provider.h)
 export const LOCATOR_VIEW_SIZE = 72;
 export const LOCATOR_VIEW_ABI_VERSION_OFF = 0;
 export const LOCATOR_VIEW_STRUCT_SIZE_OFF = 8;
@@ -247,7 +247,7 @@ export const LOCATOR_VIEW_HINTS_OFF = 48;
 export const LOCATOR_VIEW_HINT_COUNT_OFF = 56;
 export const LOCATOR_VIEW_HINT_WIRE_FORM_OFF = 64;
 
-// PancakeTransportProvider (pancake_transport_provider.h, pancake_driver_add_provider)
+// GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider)
 export const TRANSPORT_PROVIDER_SIZE = 64;
 export const TRANSPORT_PROVIDER_ABI_VERSION_OFF = 0;
 export const TRANSPORT_PROVIDER_STRUCT_SIZE_OFF = 8;
@@ -258,17 +258,17 @@ export const TRANSPORT_PROVIDER_SAME_CONFIGURATION_OFF = 40;
 export const TRANSPORT_PROVIDER_RETAIN_OFF = 48;
 export const TRANSPORT_PROVIDER_RELEASE_OFF = 56;
 
-// PancakeTcpStreamOptions (libpancake_net_transport_tcp)
+// GlowcapTcpStreamOptions (libglowcap_net_transport_tcp)
 export const TCP_STREAM_OPTIONS_SIZE = 12;
 export const TCP_STREAM_OPTIONS_KEEPALIVE_IDLE_SEC_OFF = 0;
 export const TCP_STREAM_OPTIONS_KEEPALIVE_INTERVAL_SEC_OFF = 4;
 export const TCP_STREAM_OPTIONS_KEEPALIVE_COUNT_OFF = 8;
 
-// PancakeTcpConfig (libpancake_net_transport_tcp, pancake_tcp_netlayer_new)
+// GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new)
 export const TCP_CONFIG_SIZE = 12;
 export const TCP_CONFIG_STREAM_OFF = 0;
 
-// PancakeRelayConfig (libpancake_net_transport_relay, pancake_relay_runtime_new)
+// GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new)
 export const RELAY_CONFIG_SIZE = 72;
 export const RELAY_CONFIG_ABI_VERSION_OFF = 0;
 export const RELAY_CONFIG_STRUCT_SIZE_OFF = 8;
@@ -280,30 +280,30 @@ export const RELAY_CONFIG_TRUST_OFF = 48;
 export const RELAY_CONFIG_TRUST_PEM_OFF = 56;
 export const RELAY_CONFIG_TRUST_PEM_LEN_OFF = 64;
 
-// PancakeRelayTrustSummary (libpancake_net_transport_relay, pancake_relay_runtime_trust_summary)
+// GlowcapRelayTrustSummary (libglowcap_net_transport_relay, glowcap_relay_runtime_trust_summary)
 export const RELAY_TRUST_SUMMARY_SIZE = 24;
 export const RELAY_TRUST_SUMMARY_LOADED_OFF = 0;
 export const RELAY_TRUST_SUMMARY_SKIPPED_BY_ENGINE_OFF = 8;
 export const RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF = 16;
 
-// PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)
+// GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready)
 export const IROH_READY_EVENT_SIZE = 16;
 export const IROH_READY_EVENT_SUBJECT_OFF = 0;
 export const IROH_READY_EVENT_EVENTS_OFF = 8;
 
-// PancakeWebrtcReadyEvent (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_drain_ready)
+// GlowcapWebrtcReadyEvent (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_drain_ready)
 export const WEBRTC_READY_EVENT_SIZE = 16;
 export const WEBRTC_READY_EVENT_SUBJECT_OFF = 0;
 export const WEBRTC_READY_EVENT_EVENTS_OFF = 8;
 
-// PancakeIrohConfig (libpancake_net_transport_iroh, pancake_iroh_netlayer_new)
+// GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new)
 export const IROH_CONFIG_SIZE = 32;
 export const IROH_CONFIG_REACHABILITY_OFF = 0;
 export const IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF = 8;
 export const IROH_CONFIG_IDLE_TIMEOUT_MS_OFF = 16;
 export const IROH_CONFIG_WORKER_THREADS_OFF = 24;
 
-// PancakeWebrtcConfig (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_new)
+// GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new)
 export const WEBRTC_CONFIG_SIZE = 24;
 export const WEBRTC_CONFIG_ICE_SERVERS_OFF = 0;
 export const WEBRTC_CONFIG_ICE_SERVER_COUNT_OFF = 8;

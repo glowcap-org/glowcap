@@ -1,6 +1,6 @@
 ---
 .title = "API reference",
-.description = "The generated API reference for pancake: both the Zig declarations and the C ABI, kept from going stale by a build check.",
+.description = "The generated API reference for glowcap: both the Zig declarations and the C ABI, kept from going stale by a build check.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -14,7 +14,7 @@ building]($link.page('start')).
 # The Zig API
 
 The [Zig API reference]($link.page('reference/api')) documents the public
-`pancake` module imported by applications. Ownership and lifetime notes live
+`glowcap` module imported by applications. Ownership and lifetime notes live
 with the declarations they govern. [The modules]($link.page('modules'))
 explains how those declarations are divided by responsibility.
 
@@ -25,18 +25,18 @@ one archive and includes only the shared definitions it needs.
 
 | Archive | Header | What it carries |
 | --- | --- | --- |
-| `libpancake_ocapn` | [`pancake_ocapn.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_ocapn.h) | shared contexts, frames, values, locators, and URI helpers |
-| `libpancake_host` | [`pancake_host.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_host.h) | the byte-fed host tier (`pancake_host_*`) |
-| `libpancake_driver` | [`pancake_driver.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_driver.h) | the native loop; exports only `pancake_driver_*` and adopts a Host from `libpancake_host` through `pancake_driver_take_host` |
-| `libpancake_net_transport_iroh` | [`pancake_net_transport_iroh.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
-| `libpancake_net_transport_webrtc` | [`pancake_net_transport_webrtc.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel; optional, links the Rust sidecar |
-| `libpancake_net_transport_onion` | [`pancake_net_transport_onion.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_onion.h) | Tor onion services over a daemon you run |
-| `libpancake_net_transport_relay` | [`pancake_net_transport_relay.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_relay.h) | native `keyed-relay` and end-to-end sealed `noise-relay` provider package |
-| `libpancake_net_transport_tcp` | [`pancake_net_transport_tcp.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_tcp.h) | the `noise-tcp`, `keyed-tcp`, and testing `tcp` provider package plus low-level framed TCP endpoints |
-| `libpancake_net_transport_inproc` | [`pancake_net_transport_inproc.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_inproc.h) | in-process byte pipes, no sockets |
+| `libglowcap_ocapn` | [`glowcap_ocapn.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_ocapn.h) | shared contexts, frames, values, locators, and URI helpers |
+| `libglowcap_host` | [`glowcap_host.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_host.h) | the byte-fed host tier (`glowcap_host_*`) |
+| `libglowcap_driver` | [`glowcap_driver.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_driver.h) | the native loop; exports only `glowcap_driver_*` and adopts a Host from `libglowcap_host` through `glowcap_driver_take_host` |
+| `libglowcap_net_transport_iroh` | [`glowcap_net_transport_iroh.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
+| `libglowcap_net_transport_webrtc` | [`glowcap_net_transport_webrtc.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel; optional, links the Rust sidecar |
+| `libglowcap_net_transport_onion` | [`glowcap_net_transport_onion.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_onion.h) | Tor onion services over a daemon you run |
+| `libglowcap_net_transport_relay` | [`glowcap_net_transport_relay.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_relay.h) | native `keyed-relay` and end-to-end sealed `noise-relay` provider package |
+| `libglowcap_net_transport_tcp` | [`glowcap_net_transport_tcp.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_tcp.h) | the `noise-tcp`, `keyed-tcp`, and testing `tcp` provider package plus low-level framed TCP endpoints |
+| `libglowcap_net_transport_inproc` | [`glowcap_net_transport_inproc.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_inproc.h) | in-process byte pipes, no sockets |
 
 The driver and transport headers are companions, not supersets: each one
-`#include`s `pancake_ocapn.h`, declares only its own family, and expects its
-archive to be linked alongside `libpancake_ocapn`.
+`#include`s `glowcap_ocapn.h`, declares only its own family, and expects its
+archive to be linked alongside `libglowcap_ocapn`.
 For the route from a build to a first complete C program, read
-[consuming pancake from C](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md).
+[consuming glowcap from C](https://github.com/jimisaacs/glowcap/blob/main/docs/consuming-from-c.md).

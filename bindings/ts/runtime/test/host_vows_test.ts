@@ -1,5 +1,5 @@
-import { CLOSED, INTERNAL } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { CLOSED, INTERNAL } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { type PromiseFactoryHandle, promiseFor } from "../promise.ts";
 import { assert } from "../../dogfood/assert.ts";
@@ -8,7 +8,7 @@ async function assertRejectsCode(promise: Promise<unknown>, code: number): Promi
 	try {
 		await promise;
 	} catch (error) {
-		assert(error instanceof PancakeError, "rejection was not a PancakeError");
+		assert(error instanceof GlowcapError, "rejection was not a GlowcapError");
 		assert(error.code === code, `expected ${code}, got ${error.code}`);
 		return;
 	}
@@ -37,7 +37,7 @@ Deno.test("Host vow table keeps terminal failure for late loop observers", async
 	const host = new Host();
 	try {
 		host.vowMinted(7n);
-		const failure = new PancakeError(INTERNAL, "driver loop failed");
+		const failure = new GlowcapError(INTERNAL, "driver loop failed");
 
 		host.failPendingVows(failure);
 

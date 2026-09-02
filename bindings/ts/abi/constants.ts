@@ -198,15 +198,15 @@ export const NATIVE_CAPTP_VERSION = 1;
 export const ABORT_DOMAIN_CODEC = 0;
 export const ABORT_DOMAIN_SESSION = 1;
 export const ABORT_DOMAIN_FOREIGN = 2;
-export const OCAPN_ARCHIVE_FINGERPRINT = 9830185220294375633n;
-export const HOST_ARCHIVE_FINGERPRINT = 1608181863254597669n;
-export const DRIVER_ARCHIVE_FINGERPRINT = 10263628026486659027n;
-export const TCP_ARCHIVE_FINGERPRINT = 4015132820173533945n;
-export const INPROC_ARCHIVE_FINGERPRINT = 12489090800737488640n;
-export const ONION_ARCHIVE_FINGERPRINT = 10860523811064396877n;
-export const IROH_ARCHIVE_FINGERPRINT = 919461314826187588n;
-export const RELAY_ARCHIVE_FINGERPRINT = 16522701630755266341n;
-export const WEBRTC_ARCHIVE_FINGERPRINT = 15846250066093320901n;
+export const OCAPN_ARCHIVE_FINGERPRINT = 903627563263636609n;
+export const HOST_ARCHIVE_FINGERPRINT = 7069614565039222869n;
+export const DRIVER_ARCHIVE_FINGERPRINT = 9857432042397746675n;
+export const TCP_ARCHIVE_FINGERPRINT = 16173139611066418689n;
+export const INPROC_ARCHIVE_FINGERPRINT = 733628899248585432n;
+export const ONION_ARCHIVE_FINGERPRINT = 7635134773842692477n;
+export const IROH_ARCHIVE_FINGERPRINT = 14712040185389105012n;
+export const RELAY_ARCHIVE_FINGERPRINT = 10422423592179600473n;
+export const WEBRTC_ARCHIVE_FINGERPRINT = 9266146119866115897n;
 export const HINT_DIRECT_ADDRESSES = "direct-addresses";
 export const HINT_ALT_LOCATORS = "alt-locators";
 export const HINT_VIA = "via";
@@ -222,7 +222,7 @@ export const TRANSPORT_NOISE_TCP = "noise-tcp";
 export const TRANSPORT_NOISE_RELAY = "noise-relay";
 export const TRANSPORT_ID = "id";
 
-// ── Wasm layout-descriptor manifest (pancake_wasm_abi_layout) ────────────
+// ── Wasm layout-descriptor manifest (glowcap_wasm_abi_layout) ────────────
 // Struct index i of the wasm32 module's layout descriptor is row i here;
 // the descriptor's offset words for that struct name its fields, in
 // declaration order. `nativeMirror` says whether the prefix also names

@@ -6,9 +6,9 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_require_devcontainer "hooks/verify-ptrace"
+glowcap_require_devcontainer "hooks/verify-ptrace"
 
-tmp="$(mktemp -t pancake-ptrace-XXXXXX)"
+tmp="$(mktemp -t glowcap-ptrace-XXXXXX)"
 trap 'rm -f "${tmp}" "${tmp}.c"' EXIT
 
 cat > "${tmp}.c" <<'EOF'

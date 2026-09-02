@@ -1,4 +1,4 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 import { FetchFailed, type Runtime } from "../../runtime/mod.ts";
 import { assert, ok, startRelay } from "./support.ts";
 

@@ -25,10 +25,10 @@ pub const Netlayer = struct {
     // The provider projection is stored with the runtime so every callback
     // pointer and context stays valid for the complete package lease.
     provider_profile: Profile,
-    provider_profile_abi: c.PancakeTransportProfile,
-    provider_table: c.PancakeStreamTransport,
-    provider_entry: c.PancakeTransportProviderEntry,
-    provider: c.PancakeTransportProvider,
+    provider_profile_abi: c.GlowcapTransportProfile,
+    provider_table: c.GlowcapStreamTransport,
+    provider_entry: c.GlowcapTransportProviderEntry,
+    provider: c.GlowcapTransportProvider,
 
     pub fn io(self: *Netlayer) std.Io {
         return self.threaded.io();

@@ -71,7 +71,7 @@
 ;; the verifier can refuse unknown suites. Changing primitive families bumps
 ;; the suite string; the actual versioning protocol (semver, namespacing,
 ;; suite-add procedure) is application-layer scaffold design, outside
-;; pancake's ADR scope.
+;; glowcap's ADR scope.
 (define EPISODE-CRYPTO-SUITE "ed25519-blake3-cesr-v1")
 
 (define (build-episode-payload #:actor actor

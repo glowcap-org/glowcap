@@ -5,11 +5,11 @@
 //! storage, and deterministic runtime retirement.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const admission = @import("../support/keyed_relay_admission.zig");
 const fake_tls = @import("../support/fake_tls_runtime.zig");
 
-const net = pancake.net;
+const net = glowcap.net;
 const AdmissionBackend = admission.AdmissionBackend;
 const designator = @as([64]u8, @splat('a'));
 
@@ -18,7 +18,8 @@ const designator = @as([64]u8, @splat('a'));
 const secure_connection_state_bytes: usize = 37_216;
 
 test "completion WSS keeps clear state lean and pins secure state" {
-    try std.testing.expectEqual(@as(usize, 248), AdmissionBackend.connection_state_bytes);
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    try std.testing.expectEqual(@as(usize, 272), AdmissionBackend.connection_state_bytes);
     try std.testing.expectEqual(
         secure_connection_state_bytes,
         AdmissionBackend.secure_connection_state_bytes,
@@ -206,7 +207,7 @@ test "completion WSS keeps platform connect primary ahead of TLS cleanup" {
 
     _ = try backend.startDial(106, relayTarget());
     const internal_ud = backend.platform.pending_connect.?.user_data;
-    var platform_chain = pancake.foundation.FailureChain.init(error.NetworkUnreachable);
+    var platform_chain = glowcap.foundation.FailureChain.init(error.NetworkUnreachable);
     platform_chain.note(error.ResolverCleanupFailed);
     backend.platform.pending_connect = .{
         .user_data = internal_ud,

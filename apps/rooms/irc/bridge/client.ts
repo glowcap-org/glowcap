@@ -75,7 +75,7 @@ export async function runIrcSession(
 		options.username ?? options.nick,
 		"0",
 		"*",
-		options.realname ?? "pancake rooms bridge",
+		options.realname ?? "glowcap rooms bridge",
 	]);
 	let registered = false;
 	let saslAdvertised = false;

@@ -3,10 +3,10 @@
 //! primitives, and the near-promise payload, each pinned to fixture bytes.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
 const render = @import("syrup").render;
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
@@ -140,7 +140,7 @@ test "signed handoff give keeps original signed payload bytes through decode" {
     const decoded = try syrup.decodeBody(.{ .bytes = frame.items, .shape = .byte });
     const handoff_arg = try decoded.deliver.args.at(1);
     const handoff = try handoff_arg.handoff.toOwned(allocator);
-    defer pancake.ocapn.model.owned.freeHandoff(allocator, handoff);
+    defer glowcap.ocapn.model.owned.freeHandoff(allocator, handoff);
     const give = handoff.receive.signed_give;
 
     try std.testing.expect(give.raw_signed != null);
@@ -242,7 +242,7 @@ test "Syrup materializes hints by skipping exotic values Cap'n Proto cannot expr
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
         "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.14\"port5\"528335\"extra3'bad}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     const body = try syrup.decodeBody(view);
     try std.testing.expect(body.start_session.acceptable_location.hints == .lazy);
     // Materialize keeps only the known-shaped entries (host, port) — not `extra`.
@@ -446,7 +446,7 @@ test "Syrup encodes float64 as the canonical 'D' + big-endian binary64 wire shap
     } });
     defer frame.deinit();
 
-    // Pin against the pancake-authored reference frame (serialized by the
+    // Pin against the glowcap-authored reference frame (serialized by the
     // upstream Syrup encoder) rather than a hand-typed duplicate, so the corpus
     // fixture is actually load-bearing.
     try expectFixtureBytes("op_deliver_arg_float64.bin", frame);
@@ -454,9 +454,9 @@ test "Syrup encodes float64 as the canonical 'D' + big-endian binary64 wire shap
 
 test "Syrup encodes bare primitives byte-for-byte against the upstream Syrup-encoded reference fixtures" {
     const allocator = std.testing.allocator;
-    // Each `prim_*.bin` is a bare pancake-authored Syrup value serialized by the
+    // Each `prim_*.bin` is a bare glowcap-authored Syrup value serialized by the
     // upstream Syrup encoder. The
-    // pancake encoder only emits whole op-records, so encode each as the sole
+    // glowcap encoder only emits whole op-records, so encode each as the sole
     // argument of an `op:deliver` and slice the primitive sub-bytes back out:
     // the framing around the argument list is the fixed prefix and suffix below.
     const prefix = "<10'op:deliver<11'desc:export7+>[";
@@ -464,7 +464,7 @@ test "Syrup encodes bare primitives byte-for-byte against the upstream Syrup-enc
     const cases = .{
         .{ "prim_integer_pos_42.bin", model.Argument{ .integer = 42 } },
         .{ "prim_integer_neg_7.bin", model.Argument{ .integer = -7 } },
-        // 2^100 negated: a Racket bignum on the upstream side, pancake's
+        // 2^100 negated: a Racket bignum on the upstream side, glowcap's
         // `big_integer` arm on this side (ADR-0049).
         .{ "prim_integer_big_neg.bin", model.Argument{ .big_integer = .{
             .negative = true,
@@ -473,7 +473,7 @@ test "Syrup encodes bare primitives byte-for-byte against the upstream Syrup-enc
         .{ "prim_string_hello.bin", model.Argument{ .string = "hello" } },
         .{ "prim_list_of_ints.bin", model.Argument{ .list = &.{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } } } },
         .{ "prim_set_of_ints.bin", model.Argument{ .set = &.{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } } } },
-        // Racket `(hash "a" 1 "b" 2)` upstream, pancake's Struct arm here,
+        // Racket `(hash "a" 1 "b" 2)` upstream, glowcap's Struct arm here,
         // canonical key order on encode makes the bytes deterministic (ADR-0046).
         .{ "prim_dict_str_to_int.bin", model.Argument{ .@"struct" = &.{
             .{ .key = "a", .value = .{ .integer = 1 } },

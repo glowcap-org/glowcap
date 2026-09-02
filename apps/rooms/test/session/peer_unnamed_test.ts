@@ -5,7 +5,7 @@
 // startup and revisioned-state scenarios; this one holds the unnamed
 // directory alone, which is its own contract.
 
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import { RoomsSessionClient } from "../../lib/session/client.ts";
 import { loopbackTcpDesignator, roomsAddress, roomsHost, roomsLocator } from "../../lib/locator.ts";
 import { roomsPeerAuthority } from "../../lib/routes.ts";
@@ -24,8 +24,8 @@ import {
 import { announcedSturdyref, startRoomsSessionPeer } from "../support/standalone_peer.ts";
 
 roomsTest("an unnamed saved directory connects for scoped capabilities without registering a member", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-unnamed-" });
-	const roomDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-unnamed-room-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-unnamed-" });
+	const roomDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-unnamed-room-" });
 	const peerPort = freePort();
 	const roomPort = freePort();
 	const roomServer = startStatefulServer(roomPort, roomDirectory, [

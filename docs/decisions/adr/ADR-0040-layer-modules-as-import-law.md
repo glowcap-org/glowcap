@@ -3,7 +3,7 @@ id: ADR-0040
 status: accepted
 date: 2026-06-10
 tags: [architecture, build, modules, layering]
-decision: Each `src/` layer is an internal build.zig module with an explicit one-way import table, so the layer DAG is compiler-enforced: a cross-layer reach is a compile error, not a review note. `src/root.zig` curates the one public `pancake` namespace over those modules, and `tools/check/arch_check.zig` retains only the content bans a module graph cannot express.
+decision: Each `src/` layer is an internal build.zig module with an explicit one-way import table, so the layer DAG is compiler-enforced: a cross-layer reach is a compile error, not a review note. `src/root.zig` curates the one public `glowcap` namespace over those modules, and `tools/check/arch_check.zig` retains only the content bans a module graph cannot express.
 supersedes: []
 superseded_by: []
 ---
@@ -37,7 +37,7 @@ tables.
   directory fails `import of file outside module path`. Either fails every
   build, not only the gate.
 - **One public namespace.** `src/root.zig` imports the layer modules and
-  re-exports them as the `pancake` module: the only module consumers (tests,
+  re-exports them as the `glowcap` module: the only module consumers (tests,
   benches, examples, tools, the C ABI artifacts) see. Layer module names are
   internal vocabulary.
 - **The core/adapters split is the graph's second level.** The sync, no-I/O core
@@ -53,14 +53,14 @@ tables.
 
 ## Scope (what this does not decide)
 
-- One `libpancake` artifact still ships; the modules are compilation structure,
+- One `libglowcap` artifact still ships; the modules are compilation structure,
   not packaging or versioning units.
   ([ADR-0059](ADR-0059-composable-c-abi-archives.md) supersedes this on
   packaging: the C ABI now ships as composable per-family archives,
-  `libpancake_ocapn` and one per transport, with no single
-  `libpancake` umbrella. The module-per-layer mechanism this ADR establishes is
+  `libglowcap_ocapn` and one per transport, with no single
+  `libglowcap` umbrella. The module-per-layer mechanism this ADR establishes is
   unchanged; it is the scaffolding the archive set is generated from.)
-- Bindings and consumers are unaffected: the C ABI and the `pancake` Zig module
+- Bindings and consumers are unaffected: the C ABI and the `glowcap` Zig module
   are unchanged surfaces.
 
 ## Notes

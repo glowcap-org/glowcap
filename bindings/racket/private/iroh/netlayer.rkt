@@ -48,7 +48,7 @@
     ((iroh-fn 'netlayer-new)
      (pin-immobile seed*)
      (bytes-length seed*)
-     (make-PancakeIrohConfig
+     (make-GlowcapIrohConfig
       (iroh-config-reachability config)
       (or (iroh-config-connect-timeout-ms config) 0)
       (or (iroh-config-idle-timeout-ms config) 0)
@@ -120,7 +120,7 @@
 (define (iroh-loop-provider-parts config [seed #f])
   (define-values (netlayer _seed) (iroh-netlayer-new config seed))
   (define close! (lambda () (iroh-netlayer-close/release! netlayer)))
-  (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f #f))
+  (define package (make-GlowcapTransportProvider 0 0 #f 0 #f #f #f #f))
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
                      (close!)

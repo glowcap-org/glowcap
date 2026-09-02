@@ -7,7 +7,7 @@ const execution = @import("execution.zig");
 pub const Inputs = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    pancake: *std.Build.Module,
+    glowcap: *std.Build.Module,
     iroh: *std.Build.Module,
     native_relay: *std.Build.Module,
     check_relay: *std.Build.Module,
@@ -29,18 +29,18 @@ pub fn add(b: *std.Build, in: Inputs) void {
     })) |dep| dep.module("vaxis") else return;
 
     const product = cliModule(b, in, vaxis, options, "cli/main.zig", true, in.native_relay);
-    const exe = b.addExecutable(.{ .name = "pancake", .root_module = product });
+    const exe = b.addExecutable(.{ .name = "glowcap", .root_module = product });
     b.installArtifact(exe);
     const run = execution.addArtifact(b, .service, exe);
     run.setCwd(b.path("."));
     run.has_side_effects = true;
     run.addPassthruArgs();
-    b.step("pancake", "Run the pancake CapTP CLI; pass `-- <command> …` (ocapn|repl|mcp|app rooms-peer|…)")
+    b.step("glowcap", "Run the glowcap CapTP CLI; pass `-- <command> …` (ocapn|repl|mcp|app rooms-peer|…)")
         .dependOn(&run.step);
 
     const product_check = cliModule(b, in, vaxis, options, "cli/main.zig", false, in.check_relay);
     in.check.dependOn(&b.addObject(.{
-        .name = "pancake-cli-check",
+        .name = "glowcap-cli-check",
         .root_module = product_check,
     }).step);
 
@@ -59,7 +59,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
     rooms_peer.has_side_effects = true;
     rooms_peer.addArgs(&.{ "app", "rooms-peer" });
     rooms_peer.addPassthruArgs();
-    b.step("rooms-peer", "Run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`")
+    b.step("rooms-peer", "Run rooms presence via `glowcap app rooms-peer`; pass `-- <verb> [flags]`")
         .dependOn(&rooms_peer.step);
 
     const iroh_stub = b.createModule(.{
@@ -74,7 +74,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .optimize = in.optimize,
     });
     test_root.addImport("cli", api);
-    test_root.addImport("pancake", in.pancake);
+    test_root.addImport("glowcap", in.glowcap);
     test_root.addImport("vaxis", vaxis);
     const registry_tests = b.addTest(.{
         .root_module = test_root,
@@ -92,10 +92,10 @@ pub fn add(b: *std.Build, in: Inputs) void {
     });
     const run_source = execution.addZigTest(b, source_tests, .{ .deterministic = 30 });
     in.check.dependOn(&run_source.step);
-    const cli_test = b.step("cli-test", "Run hermetic pancake CLI registry + session/capture tests");
+    const cli_test = b.step("cli-test", "Run hermetic glowcap CLI registry + session/capture tests");
     cli_test.dependOn(&run_registry.step);
     cli_test.dependOn(&run_source.step);
-    b.step("cli", "Alias for cli-test — hermetic pancake CLI goldens")
+    b.step("cli", "Alias for cli-test — hermetic glowcap CLI goldens")
         .dependOn(cli_test);
 }
 
@@ -112,7 +112,7 @@ fn cliModule(
         b,
         in.target,
         in.optimize,
-        in.pancake,
+        in.glowcap,
         in.iroh,
         root,
     );
@@ -135,7 +135,7 @@ fn testApiModule(
         .target = in.target,
         .optimize = in.optimize,
     });
-    module.addImport("pancake", in.pancake);
+    module.addImport("glowcap", in.glowcap);
     module.addImport("native_relay", in.check_relay);
     module.addImport("vaxis", vaxis);
     module.addImport("iroh", in.iroh);

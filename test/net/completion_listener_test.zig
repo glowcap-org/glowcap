@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const fixtures = @import("../support/completion_loop_fixtures.zig");
 
@@ -13,14 +13,14 @@ test "completion listener: configured wildcard address is reachable through loop
         return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
-    const backend = try pancake.net.Backend.initWithListenerIp4(
+    const backend = try glowcap.net.Backend.initWithListenerIp4(
         allocator,
         8,
         2,
         fixtures.frame_cap,
         .{ 0, 0, 0, 0 },
     );
-    var loop = try pancake.net.TcpLoop.initWithBackend(
+    var loop = try glowcap.net.TcpLoop.initWithBackend(
         allocator,
         backend,
         fixtures.makeServerPeer,

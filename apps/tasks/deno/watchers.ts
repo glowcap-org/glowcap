@@ -1,4 +1,4 @@
-import { type Argument, type Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Ref, type Session } from "@glowcap/runtime";
 import { MAX_WATCHERS } from "./limits.ts";
 import { UPDATE } from "./protocol.ts";
 

@@ -1,6 +1,6 @@
 # The route to 1.0
 
-pancake has five milestones on the way to 1.0. Their order matters: protocol
+glowcap has five milestones on the way to 1.0. Their order matters: protocol
 behavior comes before performance work, and the public APIs come before adding
 more ways to reach a peer.
 
@@ -25,10 +25,10 @@ architecture a property of the build rather than a convention
 
 ## 1. Protocol conformance
 
-pancake checks its protocol behavior three ways:
+glowcap checks its protocol behavior three ways:
 
 - the upstream OCapN suite runs against the production host;
-- live Spritely Goblins peers call pancake and accept calls from it,
+- live Spritely Goblins peers call glowcap and accept calls from it,
   recurring over testing TCP;
 - in-tree scenarios cover message arms, failure paths, limits, and both codecs.
 
@@ -50,16 +50,21 @@ explicitly:
 
 | Cost | Checked limit |
 | --- | --- |
-| `engine.Peer` inline state | at most 1136 bytes |
+| `engine.Peer` inline state | at most 1176 bytes |
 | Warm protocol state | at most 2 KiB |
-| Completion-loop slot beyond its embedded peer | exactly 128 bytes |
-| Completion-backed keyed-relay adapter state | exactly 248 bytes per relay leg |
-| Sealing completion-adapter state (`noise-relay`) | exactly 936 bytes per sealed leg, on top of the leg it wraps |
+| Completion-loop slot beyond its embedded peer | exactly 144 bytes |
+| Completion-backed keyed-relay adapter state | exactly 272 bytes per relay leg |
+| Sealing completion-adapter state (`noise-relay`) | exactly 952 bytes per sealed leg, on top of the leg it wraps |
 | Host session shell | at most 528 bytes |
 | Host session locator identity | one owned transport/designator block per session |
 | Warm local Vat queue batch | zero general-purpose allocations |
 | Retained queue spare in the Host-owned Vat | one 4,152-byte chunk per Host with at most 4 KiB of payload arena |
 | Steady delivery to a live export | one owned-frame allocation |
+
+These are Debug and ReleaseSafe measurements: Debug is where the checks run,
+and ReleaseSafe is what `release-pack` asks for. In those modes every embedded standard-library list or
+map header carries a one-word pointer-stability lock that ReleaseFast and
+ReleaseSmall drop, so a fast build measures a word less per container.
 
 A busy connection can also retain two 16 KiB outbound buffers. That 32 KiB
 ceiling is much larger than the protocol state, so it matters more when sizing
@@ -94,11 +99,11 @@ listeners so one ephemeral-port range is not mistaken for session capacity:
 ```sh
 unshare -Urn sh -eu -c '
 ip link set lo up
-nft add table inet pancake_scale
-nft "add chain inet pancake_scale prerouting { type filter hook prerouting priority raw; policy accept; }"
-nft "add chain inet pancake_scale output { type filter hook output priority raw; policy accept; }"
-nft add rule inet pancake_scale prerouting iifname lo notrack
-nft add rule inet pancake_scale output oifname lo notrack
+nft add table inet glowcap_scale
+nft "add chain inet glowcap_scale prerouting { type filter hook prerouting priority raw; policy accept; }"
+nft "add chain inet glowcap_scale output { type filter hook output priority raw; policy accept; }"
+nft add rule inet glowcap_scale prerouting iifname lo notrack
+nft add rule inet glowcap_scale output oifname lo notrack
 exec zig build -Doptimize=ReleaseFast bench-peer-scaling -- --live --live-max=500000
 '
 ```
@@ -121,7 +126,7 @@ This milestone is met.
 
 The C headers are generated from Zig and checked for drift. Rust, TypeScript,
 Python, and Racket consume the same ABI and archives through generated function
-tables and checked layout mirrors. Each binding runs an ordinary pancake
+tables and checked layout mirrors. Each binding runs an ordinary glowcap
 conversation and a live Goblins conversation through that ABI.
 
 Those checks cover the shared session API, both application-facing handoff

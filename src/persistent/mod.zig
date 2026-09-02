@@ -16,7 +16,7 @@
 //!
 //! Scope (ADR-0061): one map keyed by `u64`, values stored by value. It is a
 //! sharp leaf module, not a general collections package, and is not exported on
-//! the public `pancake` namespace — consumers import `persistent` directly.
+//! the public `glowcap` namespace — consumers import `persistent` directly.
 //! Values are POD-shaped, stored and copied by value: leaves are shared across
 //! versions and freed inside the trie's own refcounting with no per-value
 //! hook, so an external owner could never learn when the last copy of a value

@@ -4,7 +4,7 @@
 // It does not own a session or any directory lifecycle, so clients and the
 // directory wrapper can share one parser without depending on each other.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { MAX_DIRECTORY_DISCOVERY_ROWS, MAX_NICK, MAX_ROOM } from "./limits.ts";
 import { boundedText, nonemptyText, nonnegativeSafeInteger } from "./schema.ts";

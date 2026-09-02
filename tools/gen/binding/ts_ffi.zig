@@ -19,7 +19,7 @@ fn checkInventory(comptime M: type) void {
     comptime {
         @setEvalBranchQuota(50_000);
         for (@typeInfo(M).@"struct".decl_names) |decl_name| {
-            if (!std.mem.startsWith(u8, decl_name, "pancake_")) continue;
+            if (!std.mem.startsWith(u8, decl_name, "glowcap_")) continue;
             if (@typeInfo(@TypeOf(@field(M, decl_name))) != .@"fn") continue;
             var listed = false;
             for (M.symbols.symbols) |row| {
@@ -251,7 +251,7 @@ fn renderDlopenFile(gpa: std.mem.Allocator, comptime M: type, comptime preamble:
     try out.print(gpa, "export const {s} = lazySymbols(() => libPath(\"{s}\"), {{\n", .{ table, lib });
     try out.appendSlice(gpa, rows);
     if (fingerprint) |spec| {
-        try out.print(gpa, "}}, {{\n\tsymbol: \"pancake_{s}_archive_fingerprint\",\n\texpected: {s},\n\tarchive: \"{s}\",\n}});\n", .{ spec.stem, spec.constant, lib });
+        try out.print(gpa, "}}, {{\n\tsymbol: \"glowcap_{s}_archive_fingerprint\",\n\texpected: {s},\n\tarchive: \"{s}\",\n}});\n", .{ spec.stem, spec.constant, lib });
     } else try out.appendSlice(gpa, "});\n");
     return out.toOwnedSlice(gpa);
 }
@@ -262,12 +262,12 @@ const host_ffi_preamble =
     \\// — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of the `pancake_host_*` family — the byte-fed
+    \\// Internal: the FFI mirror of the `glowcap_host_*` family — the byte-fed
     \\// host tier (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
     \\//
-    \\// Nothing here is public. This table loads `libpancake_host`, the archive
-    \\// that owns every `pancake_host_*` symbol. The driver archive is a separate
-    \\// consumer of Host and exports only its `pancake_driver_*` family. Host shares the
+    \\// Nothing here is public. This table loads `libglowcap_host`, the archive
+    \\// that owns every `glowcap_host_*` symbol. The driver archive is a separate
+    \\// consumer of Host and exports only its `glowcap_driver_*` family. Host shares the
     \\// frame, argument, reference, and last-abort layouts by layout, so this
     \\// loader declares no core symbol. The host surface over it spans
     \\// `../../host.ts`, `../../session.ts`, `../../action.ts`, and
@@ -276,12 +276,12 @@ const host_ffi_preamble =
     \\//
     \\// Callback discipline: the ONE native callback in the whole binding, the
     \\// shared behavior trampoline (`../../trampoline.ts`), fires synchronously
-    \\// on the thread executing the enclosing `pancake_host_*` call. Deno and Bun
+    \\// on the thread executing the enclosing `glowcap_host_*` call. Deno and Bun
     \\// both register callbacks globally, so it is minted through the runtime
     \\// FFI's `makeCallback`, callable from any loaded archive; the wasm adapter
     \\// routes it through the module's single import. Settlements carry no
     \\// callback at all: they ride the action queue as SETTLE/FAIL, popped by
-    \\// `pancake_host_next_action` and routed by vow id (`../../action.ts` +
+    \\// `glowcap_host_next_action` and routed by vow id (`../../action.ts` +
     \\// `../../promise.ts`).
     \\//
     \\// `fetch`/`enliven`/`send` and the `vow_*` verbs each mint a host vow whose id
@@ -290,8 +290,8 @@ const host_ffi_preamble =
     \\// from this binding: the JS side owns its behavior entries in the trampoline
     \\// registry, so there is nothing for the library to free.
     \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\import { HOST_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { HOST_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
 ;
@@ -302,15 +302,15 @@ const ocapn_ffi_preamble =
     \\// — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libpancake_ocapn` — the core archive (ADR-0059).
+    \\// Internal: the FFI mirror of `libglowcap_ocapn` — the core archive (ADR-0059).
     \\//
     \\// Nothing here is part of the public API. The ergonomic surface reaches these
     \\// symbols through `ocapnS`; a consumer never imports this file. This loader
-    \\// opens *only* `libpancake_ocapn`, and only the shared-vocabulary rows the
+    \\// opens *only* `libglowcap_ocapn`, and only the shared-vocabulary rows the
     \\// binding still speaks directly: the ABI version, the core last-error slot, the
     \\// allocation context, managed-frame release, the exporter-locator encoder, and
     \\// the OCapN URI grammar. The peer itself is driven through the byte-fed host
-    \\// archive (`host.ts`, `libpancake_host`, ADR-0072), never through raw
+    \\// archive (`host.ts`, `libglowcap_host`, ADR-0072), never through raw
     \\// raw per-session engine calls. Each transport archive has its own sibling loader
     \\// here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
     \\//
@@ -318,14 +318,14 @@ const ocapn_ffi_preamble =
     \\// signature sit on one line, so the table reads down like the C header it
     \\// mirrors. Every `internal/ffi` loader opens with the same header.
     \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\import { OCAPN_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { OCAPN_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
 ;
 
 pub fn generateHostFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cd, host_ffi_preamble, "pancake_host", "hostS", .{ .stem = "host", .constant = "HOST_ARCHIVE_FINGERPRINT" });
+    return renderDlopenFile(gpa, cd, host_ffi_preamble, "glowcap_host", "hostS", .{ .stem = "host", .constant = "HOST_ARCHIVE_FINGERPRINT" });
 }
 
 const loop_ffi_preamble =
@@ -334,27 +334,27 @@ const loop_ffi_preamble =
     \\// — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of the `pancake_driver_*` loop family —
-    \\// `libpancake_driver`, the driver archive (ADR-0112).
+    \\// Internal: the FFI mirror of the `glowcap_driver_*` loop family —
+    \\// `libglowcap_driver`, the driver archive (ADR-0112).
     \\//
     \\// Nothing here is public; `../../driver_loop.ts` is the surface over it.
     \\// The archive exports only this family and consumes a Host transferred from
-    \\// `libpancake_host`. One thread drives one loop:
-    \\// `pancake_driver_wake` is the one cross-thread call, and borrowed views
-    \\// in a popped event die at the next `pancake_driver_next_event`.
+    \\// `libglowcap_host`. One thread drives one loop:
+    \\// `glowcap_driver_wake` is the one cross-thread call, and borrowed views
+    \\// in a popped event die at the next `glowcap_driver_next_event`.
     \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\import { DRIVER_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { DRIVER_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
 ;
 
 pub fn generateLoopFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cdr, loop_ffi_preamble, "pancake_driver", "loopS", .{ .stem = "driver", .constant = "DRIVER_ARCHIVE_FINGERPRINT" });
+    return renderDlopenFile(gpa, cdr, loop_ffi_preamble, "glowcap_driver", "loopS", .{ .stem = "driver", .constant = "DRIVER_ARCHIVE_FINGERPRINT" });
 }
 
 pub fn generateOcapnFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, c, ocapn_ffi_preamble, "pancake_ocapn", "ocapnS", .{ .stem = "ocapn", .constant = "OCAPN_ARCHIVE_FINGERPRINT" });
+    return renderDlopenFile(gpa, c, ocapn_ffi_preamble, "glowcap_ocapn", "ocapnS", .{ .stem = "ocapn", .constant = "OCAPN_ARCHIVE_FINGERPRINT" });
 }
 
 const tcp_ffi_preamble =
@@ -363,24 +363,24 @@ const tcp_ffi_preamble =
     \\// signature) — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_tcp` — the blocking-TCP
+    \\// Internal: the FFI mirror of `libglowcap_net_transport_tcp` — the blocking-TCP
     \\// transport archive (ADR-0059).
     \\//
     \\// Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
     \\// loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in
     \\// the inproc or iroh archives. The TCP archive is symbol-disjoint from the core
     \\// (it shares the frame/context types by layout, not by symbol), so it loads
-    \\// alongside `libpancake_ocapn` rather than instead of it, and carries its own
-    \\// thread-local last-error read through `pancake_tcp_last_error`.
+    \\// alongside `libglowcap_ocapn` rather than instead of it, and carries its own
+    \\// thread-local last-error read through `glowcap_tcp_last_error`.
     \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\import { TCP_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { TCP_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
 ;
 
 pub fn generateTcpFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, ct, tcp_ffi_preamble, "pancake_net_transport_tcp", "tcpS", .{ .stem = "tcp", .constant = "TCP_ARCHIVE_FINGERPRINT" });
+    return renderDlopenFile(gpa, ct, tcp_ffi_preamble, "glowcap_net_transport_tcp", "tcpS", .{ .stem = "tcp", .constant = "TCP_ARCHIVE_FINGERPRINT" });
 }
 
 const inproc_ffi_preamble =
@@ -389,23 +389,23 @@ const inproc_ffi_preamble =
     \\// signature) — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_inproc` — the
+    \\// Internal: the FFI mirror of `libglowcap_net_transport_inproc` — the
     \\// in-process transport archive (ADR-0059).
     \\//
     \\// Nothing here is public; `inproc.ts` is the ergonomic surface over it. This
     \\// loader opens *only* the inproc archive, so importing `inproc.ts` never pulls
     \\// in the TCP or iroh archives. The inproc family is symbol-disjoint from the
     \\// core and shares the frame/context types by layout; it carries its own
-    \\// thread-local last-error read through `pancake_inproc_last_error`.
+    \\// thread-local last-error read through `glowcap_inproc_last_error`.
     \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\import { INPROC_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { INPROC_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
 ;
 
 pub fn generateInprocFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cin, inproc_ffi_preamble, "pancake_net_transport_inproc", "inprocS", .{ .stem = "inproc", .constant = "INPROC_ARCHIVE_FINGERPRINT" });
+    return renderDlopenFile(gpa, cin, inproc_ffi_preamble, "glowcap_net_transport_inproc", "inprocS", .{ .stem = "inproc", .constant = "INPROC_ARCHIVE_FINGERPRINT" });
 }
 
 const onion_ffi_preamble =
@@ -414,23 +414,23 @@ const onion_ffi_preamble =
     \\// reflected signature) — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_onion`'s C ABI.
+    \\// Internal: the FFI mirror of `libglowcap_net_transport_onion`'s C ABI.
     \\//
     \\// Nothing here is public; `transport/onion.ts` is the ergonomic surface over
     \\// it. This loader opens *only* the onion archive, so importing that module
     \\// never pulls in the TCP, inproc, or iroh archives. The onion family is
     \\// symbol-disjoint from the core and shares the frame/context types by layout;
     \\// it carries its own thread-local last-error read through
-    \\// `pancake_onion_last_error`.
+    \\// `glowcap_onion_last_error`.
     \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\import { ONION_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { ONION_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
 ;
 
 pub fn generateOnionFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, con, onion_ffi_preamble, "pancake_net_transport_onion", "onionS", .{ .stem = "onion", .constant = "ONION_ARCHIVE_FINGERPRINT" });
+    return renderDlopenFile(gpa, con, onion_ffi_preamble, "glowcap_net_transport_onion", "onionS", .{ .stem = "onion", .constant = "ONION_ARCHIVE_FINGERPRINT" });
 }
 
 const relay_ffi_preamble =
@@ -439,19 +439,19 @@ const relay_ffi_preamble =
     \\// reflected signature) — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_relay`'s C ABI.
+    \\// Internal: the FFI mirror of `libglowcap_net_transport_relay`'s C ABI.
     \\// The archive owns one provider package for keyed-relay and noise-relay;
     \\// profile policy remains in the native driver.
     \\//
     \\// Nothing here is public; `transport/relay.ts` is the ergonomic surface.
     \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\import { RELAY_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { RELAY_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
 ;
 
 pub fn generateRelayFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cr, relay_ffi_preamble, "pancake_net_transport_relay", "relayS", .{ .stem = "relay", .constant = "RELAY_ARCHIVE_FINGERPRINT" });
+    return renderDlopenFile(gpa, cr, relay_ffi_preamble, "glowcap_net_transport_relay", "relayS", .{ .stem = "relay", .constant = "RELAY_ARCHIVE_FINGERPRINT" });
 }
 
 const iroh_ffi_preamble =
@@ -460,17 +460,17 @@ const iroh_ffi_preamble =
     \\// reflected signature) — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_iroh`'s C ABI.
+    \\// Internal: the FFI mirror of `libglowcap_net_transport_iroh`'s C ABI.
     \\//
-    \\// The iroh companion library (`libpancake_net_transport_iroh`, ADR-0055) is
+    \\// The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0055) is
     \\// optional — absent unless built with cargo — so it loads lazily on first use
     \\// through `irohS()`, which names how to produce it rather than surfacing a raw
     \\// dlopen failure. This loader opens *only* the iroh archive, through the core's
-    \\// shared FFI runtime (`@pancake/runtime/ffi`). Nothing here is public; `mod.ts` is
+    \\// shared FFI runtime (`@glowcap/runtime/ffi`). Nothing here is public; `mod.ts` is
     \\// the ergonomic surface over it.
     \\
-    \\import { ffi, libFile, libPath, requireArchiveFingerprint, type Symbols } from "@pancake/runtime/ffi";
-    \\import { IROH_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+    \\import { ffi, libFile, libPath, requireArchiveFingerprint, type Symbols } from "@glowcap/runtime/ffi";
+    \\import { IROH_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
 ;
@@ -485,19 +485,19 @@ const iroh_ffi_postamble =
     "\tif (irohSyms !== null) return irohSyms;\n" ++
     "\ttry {\n" ++
     "\t\tirohSyms = ffi.dlopen(\n" ++
-    "\t\t\tlibPath(\"pancake_net_transport_iroh\"),\n" ++
+    "\t\t\tlibPath(\"glowcap_net_transport_iroh\"),\n" ++
     "\t\t\tirohSymbolDefs,\n" ++
     "\t\t);\n" ++
     "\t\trequireArchiveFingerprint(irohSyms, {\n" ++
-    "\t\t\tsymbol: \"pancake_iroh_archive_fingerprint\",\n" ++
+    "\t\t\tsymbol: \"glowcap_iroh_archive_fingerprint\",\n" ++
     "\t\t\texpected: IROH_ARCHIVE_FINGERPRINT,\n" ++
-    "\t\t\tarchive: \"pancake_net_transport_iroh\",\n" ++
+    "\t\t\tarchive: \"glowcap_net_transport_iroh\",\n" ++
     "\t\t});\n" ++
     "\t} catch (e) {\n" ++
     "\t\tthrow new Error(\n" ++
     "\t\t\t`iroh transport unavailable: could not load ${\n" ++
-    "\t\t\t\tlibFile(\"pancake_net_transport_iroh\")\n" ++
-    "\t\t\t} from PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. ` +\n" ++
+    "\t\t\t\tlibFile(\"glowcap_net_transport_iroh\")\n" ++
+    "\t\t\t} from GLOWCAP_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. ` +\n" ++
     "\t\t\t\t\"Build it with `zig build iroh-abi` (needs cargo). \" +\n" ++
     "\t\t\t\t(e instanceof Error ? e.message : String(e)),\n" ++
     "\t\t);\n" ++

@@ -1,5 +1,5 @@
-import type { Argument } from "@pancake/runtime";
-import { noise } from "@pancake/tcp";
+import type { Argument } from "@glowcap/runtime";
+import { noise } from "@glowcap/tcp";
 
 // Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 const seed = crypto.getRandomValues(new Uint8Array(32));

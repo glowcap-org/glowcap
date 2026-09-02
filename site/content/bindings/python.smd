@@ -8,11 +8,11 @@
 
 The Python binding gives you `Session` and `Host` with native Python values over
 `ctypes`
-([`pancake`](https://github.com/jimisaacs/pancake/blob/main/bindings/python/pancake)).
+([`glowcap`](https://github.com/jimisaacs/glowcap/blob/main/bindings/python/glowcap)).
 `Runtime.open` retains one Host and one configured provider or connector set;
 `runtime.connect` selects a locator's installed transport authority. The
-transport modules include `pancake.iroh`, `pancake.onion`, `pancake.relay`, and
-`pancake.tcp`. Start from the
+transport modules include `glowcap.iroh`, `glowcap.onion`, `glowcap.relay`, and
+`glowcap.tcp`. Start from the
 [checkout instructions]($link.page('bindings')).
 
 # The same round-trip
@@ -28,8 +28,8 @@ initiates calls does not need to call it.
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```python
-> from pancake import Runtime
-> from pancake.iroh import IrohConfig, Reachability, locator, provider
+> from glowcap import Runtime
+> from glowcap.iroh import IrohConfig, Reachability, locator, provider
 >
 > # DISCOVERY resolves a bare iroh node ID without an address hint.
 > node_id = "<64 lowercase hex characters from the server>"
@@ -41,7 +41,7 @@ initiates calls does not need to call it.
 > ```
 > **noise-tcp**
 > ```python
-> from pancake import Runtime, tcp
+> from glowcap import Runtime, tcp
 >
 > # Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > peer_key = "<64 lowercase hex characters from the server>"
@@ -51,7 +51,7 @@ initiates calls does not need to call it.
 > ```
 > **noise-relay**
 > ```python
-> from pancake import Runtime, relay
+> from glowcap import Runtime, relay
 >
 > # Noise_XK seals the CapTP stream end to end through the relay.
 > peer_key = "<64 lowercase hex characters from the server>"
@@ -62,9 +62,9 @@ initiates calls does not need to call it.
 > ```
 > **onion**
 > ```python
-> from pancake import Runtime, onion
+> from glowcap import Runtime, onion
 >
-> # pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+> # glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > partner = onion.locator("<56-character onion service id>")
 >
 > async with Runtime.open(
@@ -73,7 +73,7 @@ initiates calls does not need to call it.
 > ```
 > **keyed-tcp**
 > ```python
-> from pancake import Runtime, tcp
+> from glowcap import Runtime, tcp
 >
 > # Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > peer_key = "<64 lowercase hex characters from the server>"
@@ -83,7 +83,7 @@ initiates calls does not need to call it.
 > ```
 > **keyed-relay**
 > ```python
-> from pancake import Runtime, relay
+> from glowcap import Runtime, relay
 >
 > # The key names the peer; the hint names the relay that can reach it.
 > peer_key = "<64 lowercase hex characters from the server>"
@@ -94,7 +94,7 @@ initiates calls does not need to call it.
 > ```
 > **tcp**
 > ```python
-> from pancake import Runtime, tcp
+> from glowcap import Runtime, tcp
 >
 > # Plain TCP uses a cleartext host and port.
 > partner = tcp.locator("127.0.0.1", 9099)
@@ -130,8 +130,8 @@ designator survives a restart; `iroh.listen` binds a node id instead.
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```python
-> from pancake import Argument
-> from pancake.iroh import IrohConfig, Reachability, listen
+> from glowcap import Argument
+> from glowcap.iroh import IrohConfig, Reachability, listen
 >
 > # This listener is named by its node id. Partners can dial it from anywhere.
 > async with await listen(IrohConfig(Reachability.DISCOVERY)) as server:
@@ -139,7 +139,7 @@ designator survives a restart; `iroh.listen` binds a node id instead.
 > **noise-tcp**
 > ```python
 > import os
-> from pancake import Argument, tcp
+> from glowcap import Argument, tcp
 >
 > # Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > # Persist the 32-byte seed to keep the same key.
@@ -149,7 +149,7 @@ designator survives a restart; `iroh.listen` binds a node id instead.
 > **noise-relay**
 > ```python
 > import os
-> from pancake import Argument, relay
+> from glowcap import Argument, relay
 >
 > # Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > seed = os.urandom(32)  # load durable secret bytes in a real service
@@ -161,16 +161,16 @@ designator survives a restart; `iroh.listen` binds a node id instead.
 > ```
 > **onion**
 > ```python
-> from pancake import Argument, onion
+> from glowcap import Argument, onion
 >
-> # pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+> # glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > async with await onion.listen("/run/tor/socks", control="/run/tor/control") as server:
 >     service_key = server.service_key  # persist securely to restore this service
 > ```
 > **keyed-tcp**
 > ```python
 > import os
-> from pancake import Argument, tcp
+> from glowcap import Argument, tcp
 >
 > # Key designator, cleartext CapTP. Persist the 32-byte seed to keep the same key.
 > seed = os.urandom(32)
@@ -178,7 +178,7 @@ designator survives a restart; `iroh.listen` binds a node id instead.
 > ```
 > **tcp**
 > ```python
-> from pancake import Argument, tcp
+> from glowcap import Argument, tcp
 >
 > # Plain TCP binds the host and port you choose.
 > async with await tcp.listen("127.0.0.1", 9099) as server:
@@ -223,7 +223,7 @@ publish it on a `Host` with `publish_giftable`. You hold a `Host` as `server.hos
 from `listen`.
 
 The complete API lives in the
-[Python binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/python/README.md),
+[Python binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/python/README.md),
 and the
-[rooms chat client](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/clients/python/room_client.py)
+[rooms chat client](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/clients/python/room_client.py)
 shows the rest.

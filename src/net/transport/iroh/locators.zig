@@ -17,7 +17,7 @@ pub const transport_name = transport_profile.symbol;
 /// How an endpoint becomes reachable, chosen explicitly when the resident is
 /// created — there is no default, so enabling relays or a discovery service is
 /// always the host's visible decision, never a hidden implementation detail.
-/// The values mirror `PANCAKE_IROH_REACH_*` in the sidecar header.
+/// The values mirror `GLOWCAP_IROH_REACH_*` in the sidecar header.
 pub const Reachability = enum(u32) {
     /// Relay-less and lookup-less: a dial needs the partner's direct-address
     /// hints, and a hint-less dial refuses as `error.InvalidAddress`. The
@@ -42,7 +42,7 @@ pub fn resolvesById(reachability: Reachability) bool {
 }
 
 /// The locator hint carrying the partner's comma-separated direct socket
-/// addresses (the string `pancake_iroh_sidecar_endpoint_direct_addrs` produces).
+/// addresses (the string `glowcap_iroh_sidecar_endpoint_direct_addrs` produces).
 /// A `direct` endpoint runs no relay or lookup service, so a dial without this
 /// hint cannot reach its partner and `DialResolver.resolve` / `dialRawConn` refuse
 /// such a locator with `error.InvalidAddress` instead of timing out; an endpoint

@@ -1,13 +1,13 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     const seed = @as([32]u8, @splat(7)); // keep this seed to preserve the node id
-    const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
+    const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
     var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
-    const server = try pancake.driver.listen(
+    const server = try glowcap.driver.listen(
         allocator,
         iroh_resident.netlayer(),
         .{ .designator = "" },
@@ -16,7 +16,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     );
     defer server.deinit();
 
-    const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+    const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
     defer allocator.free(uri);
     std.debug.print("{s}\n", .{uri}); // hand this discovery-reachable node id to partners
 
@@ -25,14 +25,14 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 
 // From here, the CapTP workflow is transport-independent.
 const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *pancake.driver.HostTurn, verb: []const u8, args: []const pancake.driver.Value) !pancake.driver.Value {
+    pub fn handle(_: *Greeter, ht: *glowcap.driver.HostTurn, verb: []const u8, args: []const glowcap.driver.Value) !glowcap.driver.Value {
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         if (args.len != 1 or args[0] != .string) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{args[0].string}) };
     }
 };
 
-fn serve(server: *pancake.driver.Server) !void {
+fn serve(server: *glowcap.driver.Server) !void {
     try server.publishGiftable("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();

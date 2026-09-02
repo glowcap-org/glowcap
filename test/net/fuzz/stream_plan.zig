@@ -5,12 +5,12 @@
 //! bounded the way ADR-0041 promises.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const net = pancake.net;
-const engine = pancake.ocapn.engine;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const net = glowcap.net;
+const engine = glowcap.ocapn.engine;
 const completion = net.completion;
 
 const seeds = @import("../../support/corpus_seeds.zig");
@@ -353,8 +353,8 @@ pub fn ratifyStreamShapes() !void {
     for ([_]usize{ small_frame_cap, large_frame_cap }) |cap| {
         var prefix_buf: [32]u8 = undefined;
         const at_cap = try std.fmt.bufPrint(&prefix_buf, "{d}:", .{cap});
-        try std.testing.expect(pancake.net.outerPrefix(at_cap, cap) == .incomplete);
+        try std.testing.expect(glowcap.net.outerPrefix(at_cap, cap) == .incomplete);
         const over_cap = try std.fmt.bufPrint(&prefix_buf, "{d}:", .{cap + 1});
-        try std.testing.expect(pancake.net.outerPrefix(over_cap, cap) == .too_large);
+        try std.testing.expect(glowcap.net.outerPrefix(over_cap, cap) == .too_large);
     }
 }

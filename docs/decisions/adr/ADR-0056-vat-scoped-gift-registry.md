@@ -37,7 +37,7 @@ withdrawal authority; the registry is vat-scoped authority that only the
 verified callers consult. _Conformance is load-bearing_: the upstream suite and
 `test/engine/gift_registry_test.zig` / `test/engine/cross_peer/` exercise this
 registry directly. The live Goblins recipient and gifter checks cover adjacent
-wire roles; pancake is not the exporter-side registry in those checks.
+wire roles; glowcap is not the exporter-side registry in those checks.
 
 ## Decision
 
@@ -71,13 +71,13 @@ deposit lands. The bootstrap responder returns
 `PendingWithdrawCapExceeded`, a `resource_exhausted` abort), and every
 `Peer.step` retries parked withdraws against the registry. A withdraw whose
 deposit never arrives stays parked until teardown; deadlines belong to the
-application, above pancake.
+application, above glowcap.
 
 The registry carries no lock. The engine is externally synchronized everywhere;
 the prior spinlock made the registry the one self-locking corner. A host that
 shares one registry across OS threads owns the locking; a single-threaded host
 needs none. The OCapN conformance host
-(`conformance/ocapn-conformance/pancake_peer.zig`) is the latter: one
+(`conformance/ocapn-conformance/glowcap_peer.zig`) is the latter: one
 `driver.core.Host` behind a `driver.Bridge` over a single completion loop, so
 every `deposit-gift` / `withdraw-gift` on a sharing peer dispatches on the one
 loop thread with no lock. A `deposit-gift` and its matching `withdraw-gift`

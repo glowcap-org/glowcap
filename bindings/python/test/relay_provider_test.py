@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import unittest
 
-from pancake import relay
+from glowcap import relay
 
 
 DESIGNATOR = "ab" * 32

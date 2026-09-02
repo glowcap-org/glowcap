@@ -3,18 +3,18 @@
 // signature) — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// Internal: the FFI mirror of `libpancake_net_transport_tcp` — the blocking-TCP
+// Internal: the FFI mirror of `libglowcap_net_transport_tcp` — the blocking-TCP
 // transport archive (ADR-0059).
 //
 // Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
 // loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in
 // the inproc or iroh archives. The TCP archive is symbol-disjoint from the core
 // (it shares the frame/context types by layout, not by symbol), so it loads
-// alongside `libpancake_ocapn` rather than instead of it, and carries its own
-// thread-local last-error read through `pancake_tcp_last_error`.
+// alongside `libglowcap_ocapn` rather than instead of it, and carries its own
+// thread-local last-error read through `glowcap_tcp_last_error`.
 
-import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-import { TCP_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+import { TCP_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 
 const P = "pointer",
 	B = "buffer",
@@ -23,36 +23,36 @@ const P = "pointer",
 	V = "void",
 	U64 = "u64";
 
-export const tcpS = lazySymbols(() => libPath("pancake_net_transport_tcp"), {
-	pancake_tcp_archive_fingerprint: { parameters: [], result: U64 },
-	pancake_tcp_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_tcp_netlayer_new: { parameters: [B, B], result: I, outBuffers: [1] },
-	pancake_tcp_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_tcp_netlayer_shutdown: { parameters: [P], result: V },
-	pancake_tcp_netlayer_release: { parameters: [P], result: V, nonblocking: true },
-	pancake_tcp_connect: {
+export const tcpS = lazySymbols(() => libPath("glowcap_net_transport_tcp"), {
+	glowcap_tcp_archive_fingerprint: { parameters: [], result: U64 },
+	glowcap_tcp_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
+	glowcap_tcp_netlayer_new: { parameters: [B, B], result: I, outBuffers: [1] },
+	glowcap_tcp_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_tcp_netlayer_shutdown: { parameters: [P], result: V },
+	glowcap_tcp_netlayer_release: { parameters: [P], result: V, nonblocking: true },
+	glowcap_tcp_connect: {
 		parameters: [P, B, U, "u16", B, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [7, 8, 10],
 		nonblocking: true,
 	},
-	pancake_tcp_listen: { parameters: [P, B, U, "u16", B], result: I, outBuffers: [4] },
-	pancake_tcp_listener_port: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_tcp_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_tcp_accept: {
+	glowcap_tcp_listen: { parameters: [P, B, U, "u16", B], result: I, outBuffers: [4] },
+	glowcap_tcp_listener_port: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_tcp_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_tcp_accept: {
 		parameters: [P, B, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [4, 5, 7],
 		nonblocking: true,
 	},
-	pancake_tcp_conn_read_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4], nonblocking: true },
-	pancake_tcp_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
-	pancake_tcp_conn_shutdown: { parameters: [P], result: I },
-	pancake_tcp_conn_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
-	pancake_tcp_listener_shutdown: { parameters: [P], result: V },
-	pancake_tcp_listener_release: { parameters: [P], result: V, nonblocking: true },
+	glowcap_tcp_conn_read_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4], nonblocking: true },
+	glowcap_tcp_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
+	glowcap_tcp_conn_shutdown: { parameters: [P], result: I },
+	glowcap_tcp_conn_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+	glowcap_tcp_listener_shutdown: { parameters: [P], result: V },
+	glowcap_tcp_listener_release: { parameters: [P], result: V, nonblocking: true },
 }, {
-	symbol: "pancake_tcp_archive_fingerprint",
+	symbol: "glowcap_tcp_archive_fingerprint",
 	expected: TCP_ARCHIVE_FINGERPRINT,
-	archive: "pancake_net_transport_tcp",
+	archive: "glowcap_net_transport_tcp",
 });

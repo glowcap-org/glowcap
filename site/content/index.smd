@@ -1,19 +1,19 @@
 ---
 .title = "Object-capability RPC for OCapN, in Zig",
-.description = "pancake is a Zig library for OCapN and CapTP: object-capability RPC with no ambient authority to fall back on.",
+.description = "glowcap is a Zig library for OCapN and CapTP: object-capability RPC with no ambient authority to fall back on.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "index.shtml",
 .draft = false,
 ---
 
-pancake is a [Zig](https://ziglang.org/) library for
+glowcap is a [Zig](https://ziglang.org/) library for
 [OCapN](https://github.com/ocapn/ocapn). Two programs hand each other
 references to objects and call them across a session, under the same rule as a
 local call: a peer can use the references it was given and cannot forge others.
 
-pancake is built with AI coding assistants. The maintainer directs the work
+glowcap is built with AI coding assistants. The maintainer directs the work
 and is answerable for what lands.
-[PROVENANCE.md](https://github.com/jimisaacs/pancake/blob/main/PROVENANCE.md)
+[PROVENANCE.md](https://github.com/jimisaacs/glowcap/blob/main/PROVENANCE.md)
 records how.
 
 If capabilities are new, [Why OCapN]($link.page('why')) holds them against the
@@ -30,10 +30,10 @@ The same fetch-and-call over iroh:
 
 ```zig
 var iroh_resident = try iroh.Resident.init(io, null, .{ .reachability = .discovery });
-const netlayers = [_]pancake.net.netlayer.Netlayer{iroh_resident.netlayer()};
+const netlayers = [_]glowcap.net.netlayer.Netlayer{iroh_resident.netlayer()};
 const node_id = "<64 lowercase hex characters from the server>";
 const partner = iroh.locator(node_id);
-const session = try pancake.driver.connect(
+const session = try glowcap.driver.connect(
     allocator,
     &netlayers,
     partner,
@@ -68,7 +68,7 @@ Hold the library as a Zig package, a plain C ABI, or a native binding (Rust,
 TypeScript, Python, Racket). The TypeScript binding also compiles to
 WebAssembly, so the same session runs in the browser. The [CapTP
 CLI]($link.page('cli')) exposes the same operations from a shell; `zig build`
-puts the `pancake` binary in `zig-out/bin`. [Choose an
+puts the `glowcap` binary in `zig-out/bin`. [Choose an
 API]($link.page('surfaces')) compares all of these entry points.
 
 If the ideas are new, start at [Why OCapN]($link.page('why')). If you are ready

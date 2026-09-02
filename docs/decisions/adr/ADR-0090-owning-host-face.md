@@ -41,13 +41,13 @@ Two different types answered to the name `Session`, and the weaker one owned
 the front door. In every binding, `Session` is a view onto a multi-session
 Host: when a reply introduces a capability on a third machine, the Host dials
 that machine and the call settles with a live reference. Native Zig's
-`pancake.Session` owned exactly one connection and no router, so the same
+`glowcap.Session` owned exactly one connection and no router, so the same
 reply handed the caller a `.give` value that tier could not redeem.
 
 The core that fixes this exists and is proven five times over:
 `driver_core.Host` carries identity, crossed hellos, auto-redeem, vows, and
 both handoff halves, and every binding drives it byte-fed through
-`libpancake_host`. What Zig lacked was a *blocking face* over that machinery:
+`libglowcap_host`. What Zig lacked was a *blocking face* over that machinery:
 the bindings block on their languages' event loops, and native Zig has none.
 
 ## Architecture

@@ -2,7 +2,7 @@
 //!
 //! Neither half is a new kind of socket. A dial is a stream to the local Tor's
 //! SOCKS endpoint with a handshake in front of it, and an accept is a stream Tor
-//! opened to a local endpoint pancake bound. What reaches CapTP is the ordinary
+//! opened to a local endpoint glowcap bound. What reaches CapTP is the ordinary
 //! Syrup frame stream either way, so nothing above `net` learns a new shape.
 //!
 //! The designator is an address, not a key. A version 3 service id encodes an
@@ -44,7 +44,7 @@ const Server = std.Io.net.Server;
 const Stream = std.Io.net.Stream;
 
 /// The transport symbol. `onion` is what the OCapN draft standardizes and what
-/// the pinned Goblins netlayer reports as its own name, so a pancake locator
+/// the pinned Goblins netlayer reports as its own name, so a glowcap locator
 /// addresses and is addressed by a Goblins onion peer.
 const known_transport = model.transport.Known.onion;
 pub const transport_name = known_transport.metadata().symbol;
@@ -166,8 +166,8 @@ fn residentDial(
 /// Locator hints are ignored rather than refused. The designator already says
 /// where to dial, so a hint carries nothing this transport needs, and refusing a
 /// hinted locator would turn a partner's harmless extra field into a failed
-/// dial — including the pancake-hinted form of an onion address, whose profile
-/// hints are read one tier up as partner knowledge (ADR-0118). What pancake
+/// dial — including the glowcap-hinted form of an onion address, whose profile
+/// hints are read one tier up as partner knowledge (ADR-0118). What glowcap
 /// itself *emits on the wire* carries no hints, which is a separate rule and
 /// the one the pinned Goblins actually requires (ADR-0108).
 pub fn dial(
@@ -273,7 +273,7 @@ fn residentListen(
     const self = resident_ctx.of(ctx);
     // `ListenConfig.designator` is not read. For every other address-scheme
     // transport the caller names where to bind; here Tor mints the service id and
-    // pancake learns it from the reply, so a caller-supplied designator would be
+    // glowcap learns it from the reply, so a caller-supplied designator would be
     // a value nothing could honour.
     return switch (Listener.create(allocator, self.io, self.config)) {
         .ready => |listener| .{ .admitted = .{ .ready = listener.asNetlayer() } },

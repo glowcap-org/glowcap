@@ -3,7 +3,7 @@ id: ADR-0112
 status: accepted
 date: 2026-08-09
 tags: [c-abi, bindings, netlayer, driver, iroh, webrtc, archives]
-decision: "One driver archive, libpancake_driver, projects driver.HostRuntime to C beside the byte-fed libpancake_host archive: it exports only pancake_driver_* and adopts a Host through pancake_driver_take_host. A new loop starts with zero transports and accepts provider packages through the standalone pancake_transport_provider.h ABI. The TCP transport archive owns tcp, keyed-tcp, noise-tcp, and its low-level framed connection API. Provider retain/release is the native transport lifetime authority. The byte-fed seam remains the primitive."
+decision: "One driver archive, libglowcap_driver, projects driver.HostRuntime to C beside the byte-fed libglowcap_host archive: it exports only glowcap_driver_* and adopts a Host through glowcap_driver_take_host. A new loop starts with zero transports and accepts provider packages through the standalone glowcap_transport_provider.h ABI. The TCP transport archive owns tcp, keyed-tcp, noise-tcp, and its low-level framed connection API. Provider retain/release is the native transport lifetime authority. The byte-fed seam remains the primitive."
 supersedes: []
 superseded_by: []
 amends: [ADR-0057, ADR-0059, ADR-0072, ADR-0078, ADR-0090]
@@ -50,7 +50,7 @@ Three moves, one rule.
 is compulsory.** iroh and WebRTC are Rust sidecars; no Zig archive can contain
 them, so they cross the standalone provider ABI. The Host and driver remain
 separate C archives, with the driver importing no Host symbols: it adopts a
-quiescent Host through `pancake_driver_take_host`. The native TCP implementation
+quiescent Host through `glowcap_driver_take_host`. The native TCP implementation
 is one transport archive. It owns the complete `tcp` / `keyed-tcp` /
 `noise-tcp` provider package and the low-level framed connection API used by an
 embedder driving a byte-fed Host. The driver knows only provider metadata and
@@ -72,17 +72,17 @@ This retires the recorded HostRuntime boundary for multiplexed-readiness
 transports; `inproc` stays on `driver.BlockingSession`, having no readiness
 primitive at all.
 
-**Second, the archive.** A new self-contained archive, `libpancake_driver`
+**Second, the archive.** A new self-contained archive, `libglowcap_driver`
 (the name ADR-0059 reserved), rooted at `src/c_abi/driver/`, exports only the
-`pancake_driver_*` family. Its `pancake_driver_take_host` operation adopts a
-quiescent `PancakeHost` created through `libpancake_host`; failure leaves the
+`glowcap_driver_*` family. Its `glowcap_driver_take_host` operation adopts a
+quiescent `GlowcapHost` created through `libglowcap_host`; failure leaves the
 Host with its caller, while success transfers Host teardown to the loop. The
 loop family has the exact C spelling landed in its generated header: Host
 adoption and release, provider registration, a non-blocking locator dial that
 answers with an operation id, listen, one readiness descriptor for the whole loop,
 step with a timeout, wake, and one event queue. Construction installs no
 transport. The caller creates a transport package and registers it once through
-`pancake_transport_provider.h`; the TCP archive's package carries all three TCP
+`glowcap_transport_provider.h`; the TCP archive's package carries all three TCP
 profiles without per-profile setup verbs for bindings to repeat.
 Listeners are stable loop-local ids. ACCEPTED events retain that id through
 every binding's queue, and each listener has explicit locator selection and
@@ -96,15 +96,15 @@ selects another route by map iteration; callers select a remaining listener
 explicitly.
 Step executes transport-shaped actions internally and forwards the
 application-visible ones, so the one-queue rule of ADR-0072 survives with the
-queue moved one tier up. A native-loop consumer links `libpancake_host` and
-`libpancake_driver` together, plus the provider archives it installs. A
-byte-fed consumer links `libpancake_host` without the driver. The symbol
+queue moved one tier up. A native-loop consumer links `libglowcap_host` and
+`libglowcap_driver` together, plus the provider archives it installs. A
+byte-fed consumer links `libglowcap_host` without the driver. The symbol
 families remain disjoint, so there is one owner for each diagnostic slot and
 one explicit Host-to-driver ownership transfer.
 
 **Third, the provider.** `c_abi_shared` owns the layout-only provider contract,
 including stream and multiplexed implementation tables, while the standalone
-`pancake_transport_provider.h` header is the C authority shared by the driver
+`glowcap_transport_provider.h` header is the C authority shared by the driver
 and transport archives. A transport archive fills one package and the driver
 copies its profiles and callback tables after acquiring the package lease. The
 binding's whole transport role is: load the Host archive, the driver archive,
@@ -200,7 +200,7 @@ their stable request id.
   Rust staticlib behind cargo, which is the compulsory artifact boundary this
   design exists to cross (ADR-0055). Its provider package crosses the common
   ABI instead.
-- **The loop family inside `libpancake_host`**: no second archive.
+- **The loop family inside `libglowcap_host`**: no second archive.
   Rejected because the wasm root imports `c_abi_host`, and the loop family
   drags `net` and sockets into a build that must stay net-free.
 - **Callback vtables for scheduling, as first drafted in ADR-0072**: stays
@@ -229,7 +229,7 @@ into its corresponding server queue.
 Successful Host adoption is a durable promotion to loop mode. A later provider
 or listener setup failure preserves a caller-supplied Host and its valid loop so
 the caller can retry; only a Host minted by the failed operation is torn down.
-The transactional claim is the `pancake_driver_take_host` call itself: if that
+The transactional claim is the `glowcap_driver_take_host` call itself: if that
 call refuses, the original Host remains byte-fed and untouched.
 Final driver release has the same ownership distinction. A non-consuming
 refusal leaves one binding-owned release lease, which retries once per later

@@ -1,10 +1,10 @@
 .{
-    .name = .pancake_consumer,
+    .name = .glowcap_consumer,
     .version = "0.0.0",
     .dependencies = .{
-        .pancake = .{ .path = "../.." },
+        .glowcap = .{ .path = "../.." },
     },
-    .fingerprint = 0x733992b805617dec,
+    .fingerprint = 0xb24b87d22c55f634,
     .minimum_zig_version = "0.17.0-dev.1818+7051f8e73",
     .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
 }

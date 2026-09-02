@@ -1,8 +1,8 @@
-//! Artifact entry root for `libpancake_driver`.
+//! Artifact entry root for `libglowcap_driver`.
 //!
 //! `mod.zig` is also imported as the driver C vocabulary. Keeping export
 //! rooting here makes archive ownership structural: importing that vocabulary
-//! cannot make another archive emit the `pancake_driver_*` family.
+//! cannot make another archive emit the `glowcap_driver_*` family.
 
 const api = @import("mod.zig");
 

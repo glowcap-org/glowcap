@@ -41,7 +41,7 @@ else
 	(cd "$archive_dir" && shasum -a 256 -c SHA256SUMS)
 fi
 
-workdir=$(mktemp -d "${TMPDIR:-/tmp}/pancake-release-pack.XXXXXX")
+workdir=$(mktemp -d "${TMPDIR:-/tmp}/glowcap-release-pack.XXXXXX")
 trap 'rm -rf -- "$workdir"' EXIT
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 . "$repo_root/tools/c-abi/archive-hygiene.sh"
@@ -65,7 +65,7 @@ fi
 
 readonly include_dir=$workdir/include
 readonly lib_dir=$workdir/lib
-for binary in pancake rooms-peer; do
+for binary in glowcap rooms-peer; do
 	if [[ ! -x $workdir/bin/$binary ]]; then
 		printf 'release-pack-smoke: missing executable product binary: bin/%s\n' "$binary" >&2
 		exit 1
@@ -99,7 +99,7 @@ write_consumer() {
 	local name transport
 	for name in "$@"; do
 		validate_identifier library "$name"
-		if [[ $name == pancake_ocapn ]]; then
+		if [[ $name == glowcap_ocapn ]]; then
 			has_version=1
 		fi
 	done
@@ -120,23 +120,23 @@ write_consumer() {
 			'    volatile size_t errors = 0;'
 		for name in "$@"; do
 			case $name in
-				pancake_ocapn)
-					printf '%s\n' '    pancake_abi_version(&major, &minor, &patch);'
-					printf '%s\n' '    fingerprints ^= pancake_ocapn_archive_fingerprint();'
+				glowcap_ocapn)
+					printf '%s\n' '    glowcap_abi_version(&major, &minor, &patch);'
+					printf '%s\n' '    fingerprints ^= glowcap_ocapn_archive_fingerprint();'
 					;;
-				pancake_host)
+				glowcap_host)
 					printf '%s\n' \
-						'    errors += pancake_host_last_error(NULL, 0);' \
-						'    fingerprints ^= pancake_host_archive_fingerprint();'
+						'    errors += glowcap_host_last_error(NULL, 0);' \
+						'    fingerprints ^= glowcap_host_archive_fingerprint();'
 					;;
-				pancake_driver)
+				glowcap_driver)
 					printf '%s\n' \
-						'    errors += pancake_driver_last_error(NULL, 0);' \
-						'    fingerprints ^= pancake_driver_archive_fingerprint();'
+						'    errors += glowcap_driver_last_error(NULL, 0);' \
+						'    fingerprints ^= glowcap_driver_archive_fingerprint();'
 					;;
-				pancake_net_transport_*)
-					transport=${name#pancake_net_transport_}
-					printf '    fingerprints ^= pancake_%s_archive_fingerprint();\n' "$transport"
+				glowcap_net_transport_*)
+					transport=${name#glowcap_net_transport_}
+					printf '    fingerprints ^= glowcap_%s_archive_fingerprint();\n' "$transport"
 					;;
 				*)
 					printf 'release-pack-smoke: no safe consumer probe for library: %s\n' "$name" >&2
@@ -149,9 +149,9 @@ write_consumer() {
 			'    (void)errors;'
 		if [[ $has_version -eq 1 ]]; then
 			printf '%s\n' \
-				'    return major != PANCAKE_VERSION_MAJOR ||' \
-				'           minor != PANCAKE_VERSION_MINOR ||' \
-				'           patch != PANCAKE_VERSION_PATCH;'
+				'    return major != GLOWCAP_VERSION_MAJOR ||' \
+				'           minor != GLOWCAP_VERSION_MINOR ||' \
+				'           patch != GLOWCAP_VERSION_PATCH;'
 		else
 			printf '%s\n' '    return 0;'
 		fi
@@ -181,12 +181,12 @@ manifest_has() {
 	done
 	return 1
 }
-if ! manifest_has pancake_ocapn "${static_names[@]}"; then
-	printf 'release-pack-smoke: static manifest omits libpancake_ocapn\n' >&2
+if ! manifest_has glowcap_ocapn "${static_names[@]}"; then
+	printf 'release-pack-smoke: static manifest omits libglowcap_ocapn\n' >&2
 	exit 1
 fi
-if ! manifest_has pancake_ocapn "${shared_names[@]}"; then
-	printf 'release-pack-smoke: shared manifest omits libpancake_ocapn\n' >&2
+if ! manifest_has glowcap_ocapn "${shared_names[@]}"; then
+	printf 'release-pack-smoke: shared manifest omits libglowcap_ocapn\n' >&2
 	exit 1
 fi
 
@@ -238,7 +238,7 @@ zig cc -std=c11 -Wall -Wextra -Werror -I"$include_dir" \
 	"${shared_archives[@]}" "${native_libraries[@]}" -o "$workdir/shared-consumer"
 env "$loader_variable=$lib_dir" "$workdir/shared-consumer"
 
-(cd "$workdir" && "$workdir/bin/pancake" --help >/dev/null)
+(cd "$workdir" && "$workdir/bin/glowcap" --help >/dev/null)
 (cd "$workdir" && "$workdir/bin/rooms-peer" --help >/dev/null)
 
 printf 'release-pack-smoke: per-archive static consumers, shared consumer, and product binaries passed\n'

@@ -1,4 +1,4 @@
-import { type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { sendWithAttachments } from "../lib/attachment.ts";
 import type { Directory } from "../lib/directory.ts";
 import { DirectMessage } from "../lib/direct_message.ts";

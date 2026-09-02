@@ -3,8 +3,8 @@
 //! [`Session::spawn`](crate::Session::spawn) /
 //! [`publish`](crate::Session::publish) actor, a caretaker or attenuator
 //! proxy, a host-wide giftable — shares a single process-lifetime
-//! `PancakeHostBehavior` whose ctx is a [`Box<ActorCell>`] raw pointer;
-//! `PancakeHostCtxFree` re-boxes and drops it exactly once when the Host tears
+//! `GlowcapHostBehavior` whose ctx is a [`Box<ActorCell>`] raw pointer;
+//! `GlowcapHostCtxFree` re-boxes and drops it exactly once when the Host tears
 //! the object down at Host release, so there is no keep table and
 //! no leak. Settlements never cross the C boundary as callbacks; they ride the
 //! action queue (SETTLE/FAIL, `crate::host`).
@@ -16,10 +16,10 @@
 //! cross the extern "C" frame (that is undefined behavior), so the body runs
 //! under `catch_unwind` and every failure — a panicking behavior, an
 //! attenuator's `Attenuated`, a revoked caretaker's `Revoked`, an
-//! unknown-method error — crosses as `pancake_host_turn_break` carrying the
+//! unknown-method error — crosses as `glowcap_host_turn_break` carrying the
 //! behavior's own words; a bare non-OK return would flatten them into a
 //! generic reason. A [`TurnOutcome::Forward`] maps onto
-//! `pancake_host_turn_forward` (the caretaker/attenuator primitive): a target
+//! `glowcap_host_turn_forward` (the caretaker/attenuator primitive): a target
 //! hosted by the same Host composes in process, a far target defers the
 //! answer onto the forwarded send's vow.
 
@@ -119,7 +119,7 @@ pub(crate) struct ActorCell {
 // (ADR-0112) delivers for any of its host's sessions at once, so it brackets
 // itself with the loop's adopted Host instead — the loop-tier sibling of the
 // Session bracket, and it latches a turn to its Host (turn-time spawn)
-// when a behavior fires inside `pancake_driver_step`.
+// when a behavior fires inside `glowcap_driver_step`.
 enum DeliverCtx {
 	Session(Weak<SessionShared>),
 	Host(Weak<crate::host::HostShared>),
@@ -143,7 +143,7 @@ impl DeliverGuard {
 		DeliverGuard { prev }
 	}
 
-	/// The loop-step bracket: behaviors fired inside `pancake_driver_step`
+	/// The loop-step bracket: behaviors fired inside `glowcap_driver_step`
 	/// latch their turns to the loop's adopted Host through this.
 	pub(crate) fn enter_host(host: &Rc<crate::host::HostShared>) -> DeliverGuard {
 		let prev = ACTIVE_DELIVER.with(|active| active.replace(Some(DeliverCtx::Host(Rc::downgrade(host)))));
@@ -167,7 +167,7 @@ fn active_deliver_host() -> Option<Rc<crate::host::HostShared>> {
 	})
 }
 
-fn turn_session(turn: *mut ffi::PancakeHostTurn) -> crate::Result<Option<Rc<SessionShared>>> {
+fn turn_session(turn: *mut ffi::GlowcapHostTurn) -> crate::Result<Option<Rc<SessionShared>>> {
 	let host = active_deliver_host().ok_or_else(|| {
 		Error::with_detail(
 			sys::ERR_INTERNAL,
@@ -175,7 +175,7 @@ fn turn_session(turn: *mut ffi::PancakeHostTurn) -> crate::Result<Option<Rc<Sess
 		)
 	})?;
 	let mut ptr = core::ptr::null_mut();
-	crate::host::check_host(unsafe { ffi::pancake_host_turn_session(turn, &mut ptr) })?;
+	crate::host::check_host(unsafe { ffi::glowcap_host_turn_session(turn, &mut ptr) })?;
 	Ok(host.session_for_ptr(ptr))
 }
 
@@ -191,7 +191,7 @@ fn active_deliver_host_key() -> usize {
 }
 
 // The turn context while a hosted object's trampoline runs: the opaque
-// `PancakeHostTurn*` and the identity of the Session whose Port delivered it,
+// `GlowcapHostTurn*` and the identity of the Session whose Port delivered it,
 // or None outside any turn. `Session::spawn` reads it to
 // pick the turn-time spawn over the top-level one (which the host refuses
 // inside a callback); the action drain reads it to defer to the enclosing
@@ -203,9 +203,9 @@ thread_local! {
 
 /// The current turn pointer when it belongs to `host_key` (the
 /// `Rc<HostShared>` address), else `None`.
-pub(crate) fn current_turn_for(host_key: usize) -> Option<*mut ffi::PancakeHostTurn> {
+pub(crate) fn current_turn_for(host_key: usize) -> Option<*mut ffi::GlowcapHostTurn> {
 	CURRENT_TURN.with(|t| match t.get() {
-		Some((turn, key)) if key == host_key => Some(turn as *mut ffi::PancakeHostTurn),
+		Some((turn, key)) if key == host_key => Some(turn as *mut ffi::GlowcapHostTurn),
 		_ => None,
 	})
 }
@@ -257,7 +257,7 @@ struct TurnGuard {
 }
 
 impl TurnGuard {
-	fn enter(turn: *mut ffi::PancakeHostTurn, host_key: usize) -> TurnGuard {
+	fn enter(turn: *mut ffi::GlowcapHostTurn, host_key: usize) -> TurnGuard {
 		let prev = CURRENT_TURN.with(|t| t.replace(Some((turn as usize, host_key))));
 		TurnGuard { prev }
 	}
@@ -367,8 +367,8 @@ pub(crate) async fn run_local_send(
 
 // Break this turn's answer with the actor's own diagnostic and return the code
 // the trampoline hands back (OK: the break already settled the answer).
-fn turn_break(turn: *mut ffi::PancakeHostTurn, message: &str) -> i32 {
-	let rc = unsafe { ffi::pancake_host_turn_break(turn, message.as_ptr(), message.len()) };
+fn turn_break(turn: *mut ffi::GlowcapHostTurn, message: &str) -> i32 {
+	let rc = unsafe { ffi::glowcap_host_turn_break(turn, message.as_ptr(), message.len()) };
 	if rc == sys::OK {
 		sys::OK
 	} else {
@@ -382,9 +382,9 @@ fn turn_break(turn: *mut ffi::PancakeHostTurn, message: &str) -> i32 {
 // the answer broken with the behavior's own words.
 fn settle_reply(
 	session: Option<&SessionShared>,
-	turn: *mut ffi::PancakeHostTurn,
+	turn: *mut ffi::GlowcapHostTurn,
 	outcome: TurnOutcome,
-	out_reply: *mut sys::PancakeArgument,
+	out_reply: *mut sys::GlowcapArgument,
 ) -> i32 {
 	// The locally hosted Forward prefix runs in this same turn through the Host
 	// index reached by the arriving Session.
@@ -408,7 +408,7 @@ fn settle_reply(
 				Err(_) => return turn_break(turn, "forward arguments failed to marshal"),
 			};
 			let rc = unsafe {
-				ffi::pancake_host_turn_forward(turn, &wire, verb.as_ptr(), verb.len(), args_ptr, args_len, out_reply)
+				ffi::glowcap_host_turn_forward(turn, &wire, verb.as_ptr(), verb.len(), args_ptr, args_len, out_reply)
 			};
 			if rc != sys::OK {
 				let reason = host_last_error().unwrap_or_else(|| "forward refused".to_string());
@@ -436,12 +436,12 @@ fn settle_reply(
 // under the turn context, and settle the reply.
 unsafe fn trampoline_body(
 	ctx: *mut core::ffi::c_void,
-	turn: *mut ffi::PancakeHostTurn,
+	turn: *mut ffi::GlowcapHostTurn,
 	verb: *const u8,
 	verb_len: usize,
-	args: *const sys::PancakeArgument,
+	args: *const sys::GlowcapArgument,
 	args_len: usize,
-	out_reply: *mut sys::PancakeArgument,
+	out_reply: *mut sys::GlowcapArgument,
 ) -> i32 {
 	if ctx.is_null() {
 		return turn_break(turn, "no such hosted object");
@@ -476,17 +476,17 @@ unsafe fn trampoline_body(
 	settle_reply(session.as_deref(), turn, outcome, out_reply)
 }
 
-/// The one shared `PancakeHostBehavior` in the process. A panic in the
+/// The one shared `GlowcapHostBehavior` in the process. A panic in the
 /// behavior (or anywhere in the body) is caught here — never unwound across
 /// the C frame — and settles the answer broken with the panic's own message.
 pub(crate) unsafe extern "C" fn trampoline(
 	ctx: *mut core::ffi::c_void,
-	turn: *mut ffi::PancakeHostTurn,
+	turn: *mut ffi::GlowcapHostTurn,
 	verb: *const u8,
 	verb_len: usize,
-	args: *const sys::PancakeArgument,
+	args: *const sys::GlowcapArgument,
 	args_len: usize,
-	out_reply: *mut sys::PancakeArgument,
+	out_reply: *mut sys::GlowcapArgument,
 ) -> i32 {
 	match catch_unwind(AssertUnwindSafe(|| {
 		trampoline_body(ctx, turn, verb, verb_len, args, args_len, out_reply)
@@ -504,7 +504,7 @@ pub(crate) unsafe extern "C" fn trampoline(
 
 /// The ctx-free sibling: re-box and drop the [`ActorCell`] the registration
 /// handed the host. Runs exactly once per row that took ownership, at Host
-/// release; it calls no `pancake_host_*` function, and a
+/// release; it calls no `glowcap_host_*` function, and a
 /// panicking drop is swallowed rather than unwound across the C frame.
 pub(crate) unsafe extern "C" fn ctx_free(ctx: *mut core::ffi::c_void) {
 	if ctx.is_null() {
@@ -544,10 +544,10 @@ pub(crate) unsafe fn reclaim_refused_cell(code: i32, cell: *mut ActorCell) -> Re
 /// allows where the top-level spawn is refused. Returns its opaque Host id; on
 /// a refusal that left ctx ours the cell is
 /// reclaimed.
-pub(crate) fn turn_spawn(turn: *mut ffi::PancakeHostTurn, cell: *mut ActorCell) -> Result<u64> {
-	let mut reference = sys::PancakeReference { id: 0 };
+pub(crate) fn turn_spawn(turn: *mut ffi::GlowcapHostTurn, cell: *mut ActorCell) -> Result<u64> {
+	let mut reference = sys::GlowcapReference { id: 0 };
 	let rc = unsafe {
-		ffi::pancake_host_turn_spawn(
+		ffi::glowcap_host_turn_spawn(
 			turn,
 			trampoline,
 			cell as *mut core::ffi::c_void,

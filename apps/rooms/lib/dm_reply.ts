@@ -8,7 +8,7 @@
 // later user send rather than inline, so this helper models the inline-reply
 // demos, not what the app ships.
 
-import { type Behavior } from "@pancake/runtime";
+import { type Behavior } from "@glowcap/runtime";
 import { settleCapabilityCleanup } from "./capability_cleanup.ts";
 import { directMessageReceiverBehavior } from "./direct_message.ts";
 import { DM } from "./protocol.ts";

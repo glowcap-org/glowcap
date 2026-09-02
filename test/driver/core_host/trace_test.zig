@@ -1,21 +1,21 @@
 //! The live trace and the profile matrix: opens, both directions, and
-//! closes are reported exactly once, a pancake pair settles the next
+//! closes are reported exactly once, a glowcap pair settles the next
 //! profile over capnp beside a baseline session, feature offers ride the
 //! signed hello, and both ends tag one message identically.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 const SessionOpenFailingAllocator = harness.SessionOpenFailingAllocator;
@@ -170,8 +170,8 @@ test "core host: deinit closes every traced open exactly once" {
     try std.testing.expectEqual(@as(usize, 1), closes);
 }
 
-test "core host: a pancake-to-pancake pair holds the next profile over capnp" {
-    // The native pancake job — `engine.negotiation.Offer.native` prefers
+test "core host: a glowcap-to-glowcap pair holds the next profile over capnp" {
+    // The native glowcap job — `engine.negotiation.Offer.native` prefers
     // `next` and Cap'n Proto together — run at the Host tier for the first
     // time. Only `engine.pairing` (in-process, no Host) had ever exercised
     // `next`, because `Host.Options` carried no version and every socket
@@ -207,7 +207,7 @@ test "core host: a pancake-to-pancake pair holds the next profile over capnp" {
 
 test "core host: one host holds a next capnp session and a baseline session at once" {
     // The shape `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts` draws:
-    // a pancake peer talking Cap'n Proto to another pancake peer while talking
+    // a glowcap peer talking Cap'n Proto to another glowcap peer while talking
     // the v1.0 Syrup baseline to a peer that speaks only that, on the same host
     // at the same time. Nothing in the tree could do this before: a host's
     // profile was stamped onto every session it minted, so a partner that
@@ -364,10 +364,10 @@ test "core host: both peers of one session report the same wire name" {
     }
 }
 
-test "core host: a three-vat handoff holds native between the pancake pair and baseline with the third" {
+test "core host: a three-vat handoff holds native between the glowcap pair and baseline with the third" {
     // The cast `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts` draws:
-    // a pancake gifter introduces a peer that speaks only the v1.0 Syrup
-    // baseline — a Goblins vat's profile — to a pancake exporter. Three
+    // a glowcap gifter introduces a peer that speaks only the v1.0 Syrup
+    // baseline — a Goblins vat's profile — to a glowcap exporter. Three
     // sessions, and the profile each runs on is a property of its pair:
     // gifter-to-exporter is native because both ends can be, and both of the
     // recipient's sessions are the baseline because it cannot.
@@ -423,7 +423,7 @@ test "core host: a three-vat handoff holds native between the pancake pair and b
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
     const parked = dials.items[0];
 
-    // The redeem dial: two pancake hosts on the wire, but the recipient still
+    // The redeem dial: two glowcap hosts on the wire, but the recipient still
     // cannot do native, so this session settles on the baseline too.
     const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7021", &.{});
     const redeem_view = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
@@ -449,9 +449,9 @@ test "core host: a three-vat handoff holds native between the pancake pair and b
     try std.testing.expectEqualStrings("greeter", tag.buf[0..tag.len]);
 
     // Each session runs the profile its own pair could reach.
-    const pancake_pair = &g_to_e.a.served.port.peer.session_state;
-    try std.testing.expectEqual(model.CaptpVersion.next, pancake_pair.captp_version);
-    try std.testing.expectEqual(model.CodecId.capnp, pancake_pair.codec);
+    const glowcap_pair = &g_to_e.a.served.port.peer.session_state;
+    try std.testing.expectEqual(model.CaptpVersion.next, glowcap_pair.captp_version);
+    try std.testing.expectEqual(model.CodecId.capnp, glowcap_pair.codec);
 
     inline for (.{ r_to_g.a, r_to_e }) |with_recipient| {
         const state = &with_recipient.served.port.peer.session_state;

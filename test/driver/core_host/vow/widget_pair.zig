@@ -1,9 +1,9 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const harness = @import("../harness.zig");
 
-const model = pancake.ocapn.model;
-const Host = pancake.driver.core.Host;
+const model = glowcap.ocapn.model;
+const Host = glowcap.driver.core.Host;
 
 pub fn open(
     allocator: std.mem.Allocator,

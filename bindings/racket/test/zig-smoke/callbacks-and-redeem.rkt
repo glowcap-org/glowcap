@@ -6,11 +6,11 @@
          racket/async-channel
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -159,7 +159,7 @@
 ;; removal still answers.
 (define up-swiss (host-publish-durable (server-host up-server) (methods [(probe) 21])))
 (expect (and (= 50 (string-length up-swiss))
-             (equal? "pancake-durable-1-" (substring up-swiss 0 18)))
+             (equal? "glowcap-durable-1-" (substring up-swiss 0 18)))
         "durable: the minted swiss carries the durable prefix and length")
 (define up-durable (session-fetch up-session up-swiss))
 (expect (equal? 21 (session-send up-session up-durable 'probe))

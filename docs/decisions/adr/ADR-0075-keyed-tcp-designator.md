@@ -107,7 +107,7 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
 - Binding-level `keyed-tcp` dial/host surfaces and per-binding restart checks
   are shipped. Each TCP package constructs a typed keyed locator, and the one
   `connect(locator)` front door dials it (`zig build bindings-keyed-tcp-restart`). The C ABI
-  peer-level partner-key pin is `pancake_peer_expect_partner_key`.
+  peer-level partner-key pin is `glowcap_peer_expect_partner_key`.
 - `designatorSchemeForTransport` maps both `keyed-tcp` and `iroh` to `.key`.
   Binding-hosted iroh servers mint one seed for the endpoint and the `Node`,
   so designator, session key, and netlayer identity stay one value; a byte-fed

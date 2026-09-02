@@ -5,7 +5,7 @@ use tokio::sync::Notify;
 
 use super::check_iroh;
 use super::sync::lock_iroh;
-use crate::sys::iroh::{self as ffi, PancakeIrohNetlayer};
+use crate::sys::iroh::{self as ffi, GlowcapIrohNetlayer};
 use crate::{sys, Error, Result};
 
 const RELEASE_OPEN: u8 = 0;
@@ -133,12 +133,12 @@ impl NetlayerRelease {
 }
 
 unsafe fn close_native(raw: usize) {
-	ffi::pancake_iroh_netlayer_close(raw as *mut PancakeIrohNetlayer);
+	ffi::glowcap_iroh_netlayer_close(raw as *mut GlowcapIrohNetlayer);
 }
 
 unsafe fn release_native(raw: usize) -> i32 {
-	ffi::pancake_iroh_netlayer_release(
-		raw as *mut PancakeIrohNetlayer,
+	ffi::glowcap_iroh_netlayer_release(
+		raw as *mut GlowcapIrohNetlayer,
 		core::ptr::null_mut(),
 		0,
 		core::ptr::null_mut(),
@@ -152,7 +152,7 @@ unsafe fn release_native(raw: usize) -> i32 {
 // claiming the same state it sends the idempotent close signal, then releases
 // synchronously, never racing a queued release.
 pub(super) struct NetlayerRaw {
-	pub(super) raw: *mut PancakeIrohNetlayer,
+	pub(super) raw: *mut GlowcapIrohNetlayer,
 	release: Arc<NetlayerRelease>,
 }
 
@@ -160,14 +160,14 @@ pub(super) struct NetlayerRaw {
 // pointer *value*, which is trivially safe. Concurrent *FFI use* of the endpoint
 // behind it — the dispatcher's `drain_ready` on the reactor thread versus the
 // public handle's accessors/`close` on a caller thread — is defined because the
-// sidecar endpoint behind `pancake_iroh_netlayer_*` is internally synchronized:
+// sidecar endpoint behind `glowcap_iroh_netlayer_*` is internally synchronized:
 // iroh's `Endpoint` is `Send + Sync` and the readiness queue is mutex-guarded.
 // The `Arc` only keeps the handle alive and moves its release across threads.
 unsafe impl Send for NetlayerRaw {}
 unsafe impl Sync for NetlayerRaw {}
 
 impl NetlayerRaw {
-	pub(super) fn new(raw: *mut PancakeIrohNetlayer) -> NetlayerRaw {
+	pub(super) fn new(raw: *mut GlowcapIrohNetlayer) -> NetlayerRaw {
 		NetlayerRaw {
 			raw,
 			release: Arc::new(NetlayerRelease::new()),

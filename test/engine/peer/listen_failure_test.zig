@@ -1,9 +1,9 @@
 //! Terminal ownership when an inbound listen frame is consumed under pressure.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const session = pancake.ocapn.session;
+const session = glowcap.ocapn.session;
 const peer_fixture = @import("../../support/peer_fixture.zig");
 
 test "consumed listen frame closes when event allocation fails after listener publication" {

@@ -2,22 +2,22 @@
 	// Bun resolves bare specifiers through the nearest tsconfig/jsconfig
 	// `paths`; Deno uses the deno.json workspace and ignores this file (a
 	// tsconfig.json here would perturb `deno check`, so it is a jsconfig on
-	// purpose). The two maps name the same packages, so `@pancake/*` resolves
+	// purpose). The two maps name the same packages, so `@glowcap/*` resolves
 	// identically on both runtimes (`deno-dogfood` / `bun-dogfood` hold it).
 	"compilerOptions": {
 		"paths": {
-			"@pancake/abi": ["./abi/constants.ts"],
-			"@pancake/runtime": ["./runtime/mod.ts"],
-			"@pancake/runtime/transport": ["./runtime/transport.ts"],
-			"@pancake/tcp": ["./tcp/mod.ts"],
-			"@pancake/tcp/transport": ["./tcp/transport.ts"],
-			"@pancake/inproc": ["./inproc/mod.ts"],
-			"@pancake/onion": ["./onion/mod.ts"],
-			"@pancake/relay": ["./relay/mod.ts"],
-			"@pancake/runtime/ffi": ["./runtime/ffi.ts"],
-			"@pancake/iroh": ["./iroh/mod.ts"],
-			"@pancake/iroh/internal": ["./iroh/internal.ts"],
-			"@pancake/web": ["./web/mod.ts"]
+			"@glowcap/abi": ["./abi/constants.ts"],
+			"@glowcap/runtime": ["./runtime/mod.ts"],
+			"@glowcap/runtime/transport": ["./runtime/transport.ts"],
+			"@glowcap/tcp": ["./tcp/mod.ts"],
+			"@glowcap/tcp/transport": ["./tcp/transport.ts"],
+			"@glowcap/inproc": ["./inproc/mod.ts"],
+			"@glowcap/onion": ["./onion/mod.ts"],
+			"@glowcap/relay": ["./relay/mod.ts"],
+			"@glowcap/runtime/ffi": ["./runtime/ffi.ts"],
+			"@glowcap/iroh": ["./iroh/mod.ts"],
+			"@glowcap/iroh/internal": ["./iroh/internal.ts"],
+			"@glowcap/web": ["./web/mod.ts"]
 		}
 	}
 }

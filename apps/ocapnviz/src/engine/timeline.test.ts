@@ -11,7 +11,7 @@ const goodDoc = TimelineDocument.parse({
 			t: 0,
 			kind: "peer-joined",
 			peerId: "a",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "e2",
@@ -72,7 +72,7 @@ Deno.test(
 					t: 0,
 					kind: "peer-joined",
 					peerId: "alice",
-					profile: "pancake",
+					profile: "glowcap",
 					label: "Alice",
 				},
 				{
@@ -106,7 +106,7 @@ Deno.test(
 				},
 			],
 		});
-		assertEquals(doc.entities?.peers?.alice?.profile, "pancake");
+		assertEquals(doc.entities?.peers?.alice?.profile, "glowcap");
 		assertEquals(doc.entities?.peers?.alice?.label, "Alice");
 		assertEquals(doc.entities?.peers?.bob?.profile, "goblins");
 		assertEquals(doc.entities?.sessions?.s1?.a?.peer, "alice");
@@ -134,7 +134,7 @@ Deno.test(
 					t: 0,
 					kind: "peer-joined",
 					peerId: "alice",
-					profile: "pancake",
+					profile: "glowcap",
 					label: "Alice from event",
 				},
 			],
@@ -171,14 +171,14 @@ Deno.test("TimelineDocument rejects out-of-order events", () => {
 				t: 2000,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "e2",
 				t: 1000,
 				kind: "peer-joined",
 				peerId: "b",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 		],
 	});
@@ -200,7 +200,7 @@ Deno.test("TimelineDocument rejects events beyond duration", () => {
 				t: 2000,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 		],
 	});
@@ -217,14 +217,14 @@ Deno.test("TimelineDocument rejects duplicate event ids", () => {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "e1",
 				t: 1000,
 				kind: "peer-joined",
 				peerId: "b",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 		],
 	});
@@ -320,7 +320,7 @@ Deno.test("TimelineDocument: input events project into recording.sources[0]", ()
 				t: 0,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 		],
 	});

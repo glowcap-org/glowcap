@@ -1,9 +1,9 @@
 #lang racket/base
 ;; Internal: publishable C-ABI archive resolve + open (ADR-0077).
 ;;
-;; Language-native cascade: PANCAKE_LIB_DIR → abi-versioned cache → zig-out →
+;; Language-native cascade: GLOWCAP_LIB_DIR → abi-versioned cache → zig-out →
 ;; bare name (Windows refuses bare DLLs). Mirror of
-;; bindings/python/pancake/_lib_resolve.py. The shared cstruct vocabulary stays
+;; bindings/python/glowcap/_lib_resolve.py. The shared cstruct vocabulary stays
 ;; in ffi-shared.rkt — this module owns path resolution and ffi-lib only.
 (require ffi/unsafe
          json
@@ -13,7 +13,7 @@
          racket/runtime-path
          racket/string
          racket/system)
-(provide open-pancake-archive
+(provide open-glowcap-archive
          require-archive-fingerprint!)
 
 (define (require-archive-fingerprint! who read expected)
@@ -33,7 +33,7 @@
 
 ;; Package-local contract (ADR-0077). Ships with the binding; not the monorepo.
 (define-runtime-path resolve-contract "c-abi-resolve.json")
-;; Dev-only: walk to a pancake checkout when present (dogfoods / in-tree).
+;; Dev-only: walk to a glowcap checkout when present (dogfoods / in-tree).
 (define-runtime-path package-private-dir ".")
 
 (define (env-truthy? name)
@@ -42,35 +42,35 @@
 
 (define (soft-fail! msg)
   (cond
-    [(env-truthy? "PANCAKE_STRICT")
-     (error 'pancake msg)]
+    [(env-truthy? "GLOWCAP_STRICT")
+     (error 'glowcap msg)]
     [else
-     (eprintf "pancake: ~a (soft-fail)\n" msg)
+     (eprintf "glowcap: ~a (soft-fail)\n" msg)
      #f]))
 
 ;; Hygiene/security failures always fail closed (never gated on STRICT).
-(struct exn:fail:pancake-hard exn:fail ())
+(struct exn:fail:glowcap-hard exn:fail ())
 (define (hard-fail! msg)
-  (raise (exn:fail:pancake-hard
-          (string-append "pancake: " msg)
+  (raise (exn:fail:glowcap-hard
+          (string-append "glowcap: " msg)
           (current-continuation-marks))))
 
 (define (load-contract)
   (define c (call-with-input-file resolve-contract read-json))
   (unless (eq? (hash-ref c 'require_https #f) #t)
-    (error 'pancake "c-abi-resolve.json: require_https must be true"))
+    (error 'glowcap "c-abi-resolve.json: require_https must be true"))
   (unless (eq? (hash-ref c 'require_checksum #f) #t)
-    (error 'pancake "c-abi-resolve.json: require_checksum must be true"))
+    (error 'glowcap "c-abi-resolve.json: require_checksum must be true"))
   (define releases-published (hash-ref c 'releases_published 'missing))
   (unless (boolean? releases-published)
-    (error 'pancake "c-abi-resolve.json: releases_published must be a bool"))
+    (error 'glowcap "c-abi-resolve.json: releases_published must be a bool"))
   c)
 
 ;; Cold-cache network gate from contract releases_published.
 (define (want-release-fetch? contract)
   (if (hash-ref contract 'releases_published)
-      (not (env-truthy? "PANCAKE_SKIP_DOWNLOAD"))
-      (env-truthy? "PANCAKE_DOWNLOAD")))
+      (not (env-truthy? "GLOWCAP_SKIP_DOWNLOAD"))
+      (env-truthy? "GLOWCAP_DOWNLOAD")))
 
 (define (apply-contract-template tmpl version target #:cache-base [cache-base ""])
   (string-replace
@@ -83,7 +83,7 @@
   (let loop ([dir (simplify-path package-private-dir #f)])
     (cond
       [(and (file-exists? (build-path dir "build.zig"))
-            (file-exists? (build-path dir "include" "pancake_ocapn.h")))
+            (file-exists? (build-path dir "include" "glowcap_ocapn.h")))
        dir]
       [else
        (define parent (simplify-path (build-path dir 'up) #f))
@@ -104,9 +104,9 @@
           (define m (regexp-match rx text))
           (if m (string->number (cadr m)) default))
         (format "~a.~a.~a"
-                (macro "PANCAKE_VERSION_MAJOR" 0)
-                (macro "PANCAKE_VERSION_MINOR" 1)
-                (macro "PANCAKE_VERSION_PATCH" 0))])]
+                (macro "GLOWCAP_VERSION_MAJOR" 0)
+                (macro "GLOWCAP_VERSION_MINOR" 1)
+                (macro "GLOWCAP_VERSION_PATCH" 0))])]
     [else (hash-ref contract 'abi_version)]))
 
 ;; All host aliases from tools/c-abi/c-abi-host-aliases.json (source_check per-port presence).
@@ -145,12 +145,12 @@
     [else (string-append "lib" stem ".so")]))
 
 (define (cache-base contract)
-  (or (getenv "PANCAKE_CACHE_DIR")
+  (or (getenv "GLOWCAP_CACHE_DIR")
       (let ([xdg (getenv "XDG_CACHE_HOME")])
-        (and xdg (build-path xdg "pancake" "c-abi")))
+        (and xdg (build-path xdg "glowcap" "c-abi")))
       (let ([home (or (getenv "HOME") (getenv "USERPROFILE"))])
         (if home
-            (build-path home ".cache" "pancake" "c-abi")
+            (build-path home ".cache" "glowcap" "c-abi")
             (build-path (find-system-path 'temp-dir)
                         (hash-ref contract 'fallback_cache_name))))))
 
@@ -163,11 +163,11 @@
 
 (define (require-https? base)
   (or (string-prefix? base "https://")
-      (env-truthy? "PANCAKE_ALLOW_INSECURE")
+      (env-truthy? "GLOWCAP_ALLOW_INSECURE")
       (hard-fail! (format "refusing non-HTTPS release base URL: ~a" base))))
 
 (define (curl-tls-args url)
-  (if (and (env-truthy? "PANCAKE_ALLOW_INSECURE")
+  (if (and (env-truthy? "GLOWCAP_ALLOW_INSECURE")
            (not (string-prefix? url "https://")))
       '()
       '("--proto" "=https" "--tlsv1.2")))
@@ -237,7 +237,7 @@
          [(not entry)
           (format (string-append "unrecognized tar listing format "
                                  "(need GNU or BSD tar; got: ~a)\n"
-                                 "  install GNU tar, or set PANCAKE_LIB_DIR "
+                                 "  install GNU tar, or set GLOWCAP_LIB_DIR "
                                  "to a directory you extracted yourself")
                   (car lines))]
          [else
@@ -342,7 +342,7 @@
 ;; operator shell helper. Callers pass version/target/cache-lib once — no
 ;; second walk.
 (define (try-download-into-cache! contract version target cache-lib)
-  (define base (or (getenv "PANCAKE_RELEASE_BASE_URL")
+  (define base (or (getenv "GLOWCAP_RELEASE_BASE_URL")
                    (hash-ref contract 'default_release_base_url)))
   (define tag (apply-contract-template
                (hash-ref contract 'release_tag_template)
@@ -360,14 +360,14 @@
   (define max-sums (hash-ref contract 'max_sums_bytes))
   (define (swallow-or-raise e)
     (cond
-      [(exn:fail:pancake-hard? e) (raise e)]
-      [(env-truthy? "PANCAKE_STRICT") (raise e)]
+      [(exn:fail:glowcap-hard? e) (raise e)]
+      [(env-truthy? "GLOWCAP_STRICT") (raise e)]
       [else (void)]))
   (define (under-lock!)
     (define marker (build-path cache-lib (ocapn-shared-marker contract)))
     (unless (file-exists? marker)
       (define tarball-path (build-path cache-root tarball))
-      (eprintf "pancake: downloading ~a\n" url)
+      (eprintf "glowcap: downloading ~a\n" url)
       (unless (curl-download curl url tarball-path ua max-bytes)
         (when (file-exists? tarball-path) (delete-file tarball-path))
         (soft-fail! (format "download failed: ~a" url)))
@@ -432,12 +432,12 @@
           [else (sleep 0.1) (lock-loop (add1 n))])))))
 
 (define (zig-out-lib)
-  ;; In-tree dogfood rung: discoverable pancake checkout → zig-out/lib.
+  ;; In-tree dogfood rung: discoverable glowcap checkout → zig-out/lib.
   (define root (find-dev-root))
   (and root (build-path root "zig-out" "lib")))
 
 (define (resolve-cache-lib! zig-out-dir)
-  ;; Soft-fail download when the cache is cold (or when PANCAKE_DOWNLOAD=1
+  ;; Soft-fail download when the cache is cold (or when GLOWCAP_DOWNLOAD=1
   ;; refreshes even with zig-out present, including when releases_published is
   ;; false). Returns the cache lib path when the shared-lib marker is present
   ;; afterwards, else #f.
@@ -451,7 +451,7 @@
     (and zig-out-dir (build-path zig-out-dir (ocapn-shared-marker contract))))
   (cond
     [(file-exists? marker) cache-lib]
-    [(and zig-marker (file-exists? zig-marker) (env-truthy? "PANCAKE_DOWNLOAD"))
+    [(and zig-marker (file-exists? zig-marker) (env-truthy? "GLOWCAP_DOWNLOAD"))
      (try-download-into-cache! contract version target cache-lib)
      (and (file-exists? marker) cache-lib)]
     [(or (not zig-marker) (not (file-exists? zig-marker)))
@@ -464,28 +464,28 @@
 ;; abi-versioned cache, then optional in-tree zig-out (find-dev-root), then bare
 ;; name. On Windows the shared archive is `{stem}.dll` (no `lib` prefix); refuse
 ;; bare DLL names (search-order plant risk), matching Python/TS.
-(define (open-pancake-archive stem #:fail [fail #f])
+(define (open-glowcap-archive stem #:fail [fail #f])
   (define (try spec) (ffi-lib spec #:fail (lambda () #f)))
   (define name
     (case (system-type)
       [(windows) stem]
       [else (string-append "lib" stem)]))
   (define zig-out (zig-out-lib))
-  (or (let ([dir (getenv "PANCAKE_LIB_DIR")])
+  (or (let ([dir (getenv "GLOWCAP_LIB_DIR")])
         (and dir (try (build-path dir name))))
       (let ([cache-dir (resolve-cache-lib! zig-out)])
         (and cache-dir (try (build-path cache-dir name))))
       (and zig-out (try (build-path zig-out name)))
       (cond
         [(eq? (system-type) 'windows)
-         (error 'pancake
-                "could not resolve an absolute path for ~a; set PANCAKE_LIB_DIR or populate the abi-versioned cache (Windows refuses bare DLL names to avoid search-order plants)"
+         (error 'glowcap
+                "could not resolve an absolute path for ~a; set GLOWCAP_LIB_DIR or populate the abi-versioned cache (Windows refuses bare DLL names to avoid search-order plants)"
                 name)]
         [else
-         (eprintf "pancake: warning: loading bare ~a via the OS search path\n" name)
+         (eprintf "glowcap: warning: loading bare ~a via the OS search path\n" name)
          (ffi-lib name #:fail
                   (or fail
                       (lambda ()
-                        (error 'pancake
-                               "could not load ~a from PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path"
+                        (error 'glowcap
+                               "could not load ~a from GLOWCAP_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path"
                                name))))])))

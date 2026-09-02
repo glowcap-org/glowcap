@@ -22,7 +22,7 @@
   (if lp
       ((unbox loop-begin-session-close-hook) lp c options)
       (check/host
-       (pancake_host_session_close (session-ptr c) options (monotonic-ms))))
+       (glowcap_host_session_close (session-ptr c) options (monotonic-ms))))
   (set-box! (session-closing-state c) #t))
 
 ;; Drive one byte-fed session's close to its release, event-driven like
@@ -46,7 +46,7 @@
              [(session-released? c) no-drain-effects]
              [else
               (define-values (rc state)
-                (pancake_host_session_close_progress
+                (glowcap_host_session_close_progress
                  (session-ptr c) (monotonic-ms)))
               (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/host rc))
               ;; The loop's exit is the session's release (it rides an action
@@ -56,7 +56,7 @@
               ;; action) before parking; a productive drain bumps below.
               (define effects (drain-host-actions! m))
               (define-values (wrc w)
-                (pancake_host_close_wait_ms (host-ptr m) (monotonic-ms)))
+                (glowcap_host_close_wait_ms (host-ptr m) (monotonic-ms)))
               (check/host wrc)
               (set! wait-ms w)
               effects]))))

@@ -1,7 +1,7 @@
-//! Hermetic harness goldens for `pancake app rooms-peer` (no iroh / no CapTP wire).
+//! Hermetic harness goldens for `glowcap app rooms-peer` (no iroh / no CapTP wire).
 const std = @import("std");
 const cli = @import("cli");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 test "rooms-peer usage and unsupervised map to exit usage" {
     try std.testing.expectEqual(cli.exit_codes.usage, cli.rooms_peer.verbExit(error.UsageFailed).?);
@@ -25,7 +25,7 @@ test "rooms-peer deriveRendezvousUrl from http locator bootstrap" {
     try std.testing.expectEqualStrings("ws://127.0.0.1:8000/relay", ip);
 }
 
-test "rooms-peer resolveRendezvousUrl prefers PANCAKE_RENDEZVOUS" {
+test "rooms-peer resolveRendezvousUrl prefers GLOWCAP_RENDEZVOUS" {
     const gpa = std.testing.allocator;
     const url = (try cli.rooms_peer_common.resolveRendezvousUrl(
         gpa,
@@ -50,7 +50,7 @@ test "rooms-peer admitRelayUrl passes a DNS host through for the resident to res
     const url = (try cli.rooms_peer_common.admitRelayUrl(gpa, "ws://localhost:8000/relay")).?;
     defer gpa.free(url);
     try std.testing.expectEqualStrings("ws://localhost:8000/relay", url);
-    const parsed = try pancake.net.relay.RelayUrl.parse(url);
+    const parsed = try glowcap.net.relay.RelayUrl.parse(url);
     try std.testing.expectEqualStrings("localhost", parsed.host);
     try std.testing.expectEqual(@as(u16, 8000), parsed.port);
     try std.testing.expectEqualStrings("/relay", parsed.path);
@@ -62,7 +62,7 @@ test "rooms-peer admitRelayUrl passes a DNS host through for the resident to res
 }
 
 test "rooms-peer peerCliPrefix for install alias vs product" {
-    try std.testing.expectEqualStrings("app rooms-peer ", cli.rooms_peer.peerCliPrefix("pancake"));
+    try std.testing.expectEqualStrings("app rooms-peer ", cli.rooms_peer.peerCliPrefix("glowcap"));
     try std.testing.expectEqualStrings("", cli.rooms_peer.peerCliPrefix("rooms-peer"));
 }
 

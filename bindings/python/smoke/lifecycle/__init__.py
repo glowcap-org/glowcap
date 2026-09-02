@@ -8,21 +8,21 @@ import asyncio
 from contextvars import ContextVar
 import threading
 
-import pancake
+import glowcap
 
-from pancake import (
+from glowcap import (
     FEATURE_FULL,
     FEATURE_MULTI_LOCATION,
     tcp,
     Locator,
     Host,
-    PancakeError,
+    GlowcapError,
     Symbol,
     Runtime,
     encode_peer_locator,
     parse_locator,
 )
-from pancake._constants import (
+from glowcap._constants import (
     DESIGNATOR_SCHEME_ADDRESS,
     ERR_INVALID_ARGUMENT,
     TRANSPORT_KEYED_TCP,
@@ -78,7 +78,7 @@ async def _listen_surfaces_bound_port() -> None:
             Locator(
                 TRANSPORT_TCP,
                 tcp.address_designator("127.0.0.1", port),
-                {"pancake/features": ("pipelining,handoff,wire_delta,sturdyref,untag")},
+                {"glowcap/features": ("pipelining,handoff,wire_delta,sturdyref,untag")},
                 "map",
             )
         )
@@ -178,7 +178,7 @@ async def _failed_listener_preserves_supplied_host() -> None:
         try:
             await tcp.listen("0.0.0.0", 0, host=supplied)
             raise AssertionError("wildcard listen without an advertised host must fail")
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
 
         assert not supplied.released, "failed listen released the supplied Host"
@@ -199,9 +199,9 @@ async def _failed_listener_preserves_supplied_host() -> None:
 
 async def _supplied_host_iroh_listener_ownership() -> None:
     """The iroh resident uses the same supplied Host and driver barrier."""
-    from pancake.iroh import IrohConfig, Reachability, listen
+    from glowcap.iroh import IrohConfig, Reachability, listen
 
-    supplied = Host(seed=b"pancake-supplied-iroh-seed-000000"[:32])
+    supplied = Host(seed=b"glowcap-supplied-iroh-seed-000000"[:32])
     server = await listen(IrohConfig(Reachability.LOCAL_DISCOVERY), host=supplied)
     accepted_task = asyncio.create_task(server.__anext__())
     client = None
@@ -210,7 +210,7 @@ async def _supplied_host_iroh_listener_ownership() -> None:
         assert server.host is supplied, (
             "iroh listener did not preserve the supplied Host wrapper"
         )
-        from pancake.iroh import provider as iroh_provider
+        from glowcap.iroh import provider as iroh_provider
 
         runtime = await Runtime.open(
             provider=iroh_provider(IrohConfig(Reachability.LOCAL_DISCOVERY))
@@ -267,7 +267,7 @@ async def _host_release_joins_dial_task() -> None:
     so this proves the real Host registry and done
     callback rather than a second test-only task list.
     """
-    import pancake._dial as dial_module
+    import glowcap._dial as dial_module
 
     original = dial_module.run_dial_ticket
     started = asyncio.Event()
@@ -286,8 +286,8 @@ async def _host_release_joins_dial_task() -> None:
         # Drive the same generated action dispatcher production uses. The DIAL
         # arm must return after transferring ownership to Host, not await the
         # network operation inline and serialize every later action behind it.
-        from pancake._action import _run_action
-        from pancake._host_action_gen import CancelDial, Dial
+        from glowcap._action import _run_action
+        from glowcap._host_action_gen import CancelDial, Dial
 
         await _run_action(host, Dial(ticket=7, route_index=0))
         await asyncio.wait_for(started.wait(), timeout=1)
@@ -308,7 +308,7 @@ async def _host_release_joins_dial_task() -> None:
 
 async def _proof_refusal_releases_minted_session() -> None:
     """Failure between native mint and handshake has one teardown owner."""
-    import pancake._session as session_module
+    import glowcap._session as session_module
 
     class Transport:
         designator_scheme = DESIGNATOR_SCHEME_ADDRESS
@@ -327,8 +327,8 @@ async def _proof_refusal_releases_minted_session() -> None:
     )
     transport = Transport()
     releases = 0
-    original_bind = session_module._host.pancake_host_session_bind_verified_channel_key
-    original_release = session_module._host.pancake_host_session_release
+    original_bind = session_module._host.glowcap_host_session_bind_verified_channel_key
+    original_release = session_module._host.glowcap_host_session_release
 
     def refuse_proof(*_args) -> int:
         return ERR_INVALID_ARGUMENT
@@ -338,8 +338,8 @@ async def _proof_refusal_releases_minted_session() -> None:
         releases += 1
         return original_release(raw)
 
-    session_module._host.pancake_host_session_bind_verified_channel_key = refuse_proof
-    session_module._host.pancake_host_session_release = count_release
+    session_module._host.glowcap_host_session_bind_verified_channel_key = refuse_proof
+    session_module._host.glowcap_host_session_release = count_release
     try:
         try:
             await session_module.Session.establish_dialed_locator(
@@ -348,7 +348,7 @@ async def _proof_refusal_releases_minted_session() -> None:
                 transport,
                 verified_channel_key="00" * 32,
             )
-        except PancakeError as exc:
+        except GlowcapError as exc:
             assert exc.code == ERR_INVALID_ARGUMENT, exc.code
         else:
             raise AssertionError("a refused channel proof unexpectedly established")
@@ -366,7 +366,7 @@ async def _proof_refusal_releases_minted_session() -> None:
                 accepted_local_addr="127.0.0.1:2",
                 verified_channel_key="00" * 32,
             )
-        except PancakeError as exc:
+        except GlowcapError as exc:
             assert exc.code == ERR_INVALID_ARGUMENT, exc.code
         else:
             raise AssertionError(
@@ -382,22 +382,22 @@ async def _proof_refusal_releases_minted_session() -> None:
             "accepted proof refusal left a session registered on its Host"
         )
     finally:
-        session_module._host.pancake_host_session_bind_verified_channel_key = (
+        session_module._host.glowcap_host_session_bind_verified_channel_key = (
             original_bind
         )
-        session_module._host.pancake_host_session_release = original_release
+        session_module._host.glowcap_host_session_release = original_release
         await host.close()
 
 
 async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
     """Cancellation cannot abandon an endpoint still constructing off-thread."""
-    from pancake.iroh import IrohConfig, IrohNetlayer, Reachability
+    from glowcap.iroh import IrohConfig, IrohNetlayer, Reachability
 
     started = threading.Event()
     finish = threading.Event()
     released = threading.Event()
     cleanup_failure = RuntimeError("canceled iroh construction cleanup failed")
-    pancake.take_runtime_failures()
+    glowcap.take_runtime_failures()
 
     class ControlledNetlayer(IrohNetlayer):
         def __init__(
@@ -425,7 +425,7 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
     assert released.is_set(), (
         "cancelled iroh startup abandoned the constructed endpoint"
     )
-    diagnostics = pancake.take_runtime_failures()
+    diagnostics = glowcap.take_runtime_failures()
     assert len(diagnostics) == 1, diagnostics
     assert diagnostics[0].operation == "iroh-release-after-cancel"
     assert diagnostics[0].primary_message == str(cleanup_failure)
@@ -433,7 +433,7 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
 
 async def _iroh_close_joins_after_cancellation() -> None:
     """A canceled close waiter cannot detach the native release task."""
-    from pancake.iroh import IrohNetlayer
+    from glowcap.iroh import IrohNetlayer
 
     started = threading.Event()
     finish = threading.Event()
@@ -468,7 +468,7 @@ async def _iroh_close_joins_after_cancellation() -> None:
 
 async def _session_close_joins_owned_transport_release() -> None:
     """Session.close joins transport cleanup after the core close effect."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     started = asyncio.Event()
     finish = asyncio.Event()
@@ -517,7 +517,7 @@ async def _session_close_joins_owned_transport_release() -> None:
 
 async def _session_repeated_close_joins_published_failure() -> None:
     """Released state cannot let a repeated close outrun its shared result."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     class HostStub:
         def _assert_owner(self) -> None:
@@ -544,11 +544,11 @@ async def _session_repeated_close_joins_published_failure() -> None:
     repeated = asyncio.create_task(session.close())
 
     session._close_future.set_exception(
-        PancakeError(ERR_INVALID_ARGUMENT, "published close failure")
+        GlowcapError(ERR_INVALID_ARGUMENT, "published close failure")
     )
     try:
         await repeated
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == ERR_INVALID_ARGUMENT, error
     else:
         raise AssertionError("repeated close discarded the shared close failure")
@@ -557,7 +557,7 @@ async def _session_repeated_close_joins_published_failure() -> None:
 async def _session_close_retains_every_terminal_failure() -> None:
     """The exact primary remains raised while later owned-barrier failures
     remain inspectable in deterministic observation order."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     primary = OSError("primary wire failure")
     close_result = RuntimeError("native close result failed")

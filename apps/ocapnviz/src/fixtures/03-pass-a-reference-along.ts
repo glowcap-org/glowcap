@@ -12,8 +12,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * `127.0.0.1:9302`, over plain `tcp`, and each end carries what backed
  * it — the laptop's own report, and for the printer the two hosts'
  * traces agreeing on one OCapN Session ID.
- * Both peers run pancake, so this session settles on Cap'n Proto over
- * pancake-next. That is the pairing a pancake fleet configures
+ * Both peers run glowcap, so this session settles on Cap'n Proto over
+ * glowcap-next. That is the pairing a glowcap fleet configures
  * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
@@ -27,7 +27,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
 		"dct:title": "03 · Pass a reference along",
 		"dct:description":
 			"A client calls print on a printer and hands over the document as the argument. The document is itself a capability, so the printer reads it directly and the client never sends the bytes. One object, and a different name for it on each side of the session.",
-		"dct:creator": "pancake project",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: { "prov:wasAttributedTo": AGENT },
@@ -39,7 +39,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9301",
 			label: "Laptop",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9301",
 		},
 		{
@@ -48,7 +48,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9302",
 			label: "Printer",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9302",
 		},
 		{

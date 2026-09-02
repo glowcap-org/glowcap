@@ -3,7 +3,7 @@ id: ADR-0124
 status: accepted
 date: 2026-08-24
 tags: [c-abi, bindings, session, memory, configuration]
-decision: "The C Host applies selective session limits through one versioned, caller-owned PancakeSessionLimitOptions record. Zero fields preserve the current value; the record includes independent transient outbound and durable sent-answer byte budgets, and every binding projects it as one named options value."
+decision: "The C Host applies selective session limits through one versioned, caller-owned GlowcapSessionLimitOptions record. Zero fields preserve the current value; the record includes independent transient outbound and durable sent-answer byte budgets, and every binding projects it as one named options value."
 supersedes: []
 superseded_by: []
 amends: [ADR-0082, ADR-0121, ADR-0123]
@@ -21,13 +21,13 @@ easy to transpose and had no principled extension point. Leaving the durable
 budget at its default in C and the bindings would also make the public Host less
 resource-honest than the Zig Host it wraps.
 
-pancake is prerelease, so preserving the positional spelling as a compatibility
+glowcap is prerelease, so preserving the positional spelling as a compatibility
 shim would retain the ambiguity without serving a released consumer.
 
 ## Decision
 
-`pancake_host_set_session_limits` borrows a
-`PancakeSessionLimitOptions`. The record carries `abi_version`, `struct_size`,
+`glowcap_host_set_session_limits` borrows a
+`GlowcapSessionLimitOptions`. The record carries `abi_version`, `struct_size`,
 and four selective overrides:
 
 - inbound frame bytes;

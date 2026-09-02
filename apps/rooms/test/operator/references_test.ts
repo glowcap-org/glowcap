@@ -1,4 +1,4 @@
-import { type Ref, type Session } from "@pancake/runtime";
+import { type Ref, type Session } from "@glowcap/runtime";
 import { parseOperatorPageAnswer } from "../../lib/operator.ts";
 import { OperatorReferenceInventory, type OperatorReferenceRow } from "../../server/operator/references.ts";
 import type { OperatorRowSource } from "../../server/operator/page.ts";

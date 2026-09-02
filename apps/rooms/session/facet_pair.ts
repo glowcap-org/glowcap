@@ -1,6 +1,6 @@
 // Transactional creation of an ephemeral Rooms facet and its revoker.
 
-import { type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 
 export function spawnFacetPair(session: Session, facet: Behavior, revoker: Behavior): [Ref, Ref] {

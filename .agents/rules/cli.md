@@ -1,9 +1,9 @@
 ---
-description: "Zig pancake execution model, gates, generated state, and git posture."
+description: "Zig glowcap execution model, gates, generated state, and git posture."
 alwaysApply: true
 ---
 
-# pancake — Execution Model
+# glowcap — Execution Model
 
 ## Gates
 
@@ -20,8 +20,8 @@ captured stderr under a `failed command:` label, so error-shaped output in a
 green log is not a failure verdict.
 
 `check` needs no network, no submodules, and no live peer, and is the step to run
-while iterating; its cost is that a green `check` proves only that pancake agrees
-with pancake. It is not Zig-only: Python enforces deterministic deadlines and
+while iterating; its cost is that a green `check` proves only that glowcap agrees
+with glowcap. It is not Zig-only: Python enforces deterministic deadlines and
 compile-checks its benchmark client, Cargo checks the Rust client and links the
 CLI tests' iroh sidecar, `raco` compiles the Racket clients, Bash harnesses make
 `tar` part of the hard floor, and Deno type-checks TypeScript surfaces. **Run
@@ -31,7 +31,7 @@ build graph and the interpreter scripts or modules allowed to hide host-tool
 calls, so raising the hard floor is a reviewed edit rather than a silent one.
 
 `check-external` is the other half, every check whose authority is outside
-pancake, and `ci/gates.sh` runs the same set on every push to the mirror. Run it
+glowcap, and `ci/gates.sh` runs the same set on every push to the mirror. Run it
 before believing a protocol claim. Cross-language dogfood, live Goblins interop,
 and the Rust/TypeScript formatting check stay siblings rather than members,
 because each needs an outside authority or a whole language runtime of its own.
@@ -83,10 +83,10 @@ zig build arch-check
 zig build source-check
 zig build oracle-check
 zig build fmt                # format Zig sources in place
-zig build cli-test           # hermetic pancake CLI goldens
+zig build cli-test           # hermetic glowcap CLI goldens
 zig build examples
 zig build fuzz               # mutation-fuzz every hostile-input target
-zig build pancake            # run the CapTP CLI; pass `-- <command> …`
+zig build glowcap            # run the CapTP CLI; pass `-- <command> …`
 ```
 
 ## Devcontainer
@@ -133,7 +133,7 @@ Generated state is ignored and must not be committed:
 - `bindings/rust/Cargo.lock`
 
 In the devcontainer, Zig's local cache and extracted packages live under
-`~/.cache/pancake/work/<worktree>/` (`ZIG_LOCAL_CACHE_DIR`,
+`~/.cache/glowcap/work/<worktree>/` (`ZIG_LOCAL_CACHE_DIR`,
 `ZIG_LOCAL_PKG_DIR`), not in the checkout. `zig-out/` stays at the worktree
 root: it is the install prefix.
 
@@ -144,7 +144,7 @@ The committed FFI tiers are generated too, and are never hand-edited. Each says
 so in its own first lines, a GENERATED header naming the `gen-*` step that
 writes it. Trust that header rather than any list, because a directory mixes
 generated and hand-written files freely: `bindings/ts/runtime/internal/ffi/` holds
-both, as does every binding tree and `include/pancake_*.h`.
+both, as does every binding tree and `include/glowcap_*.h`.
 
 Changing a C signature means editing the Zig export, its row in that archive's
 `symbols.zig` inventory, and the header prose in _both_ the export's doc comment
@@ -182,7 +182,7 @@ diagnosing a broad gate on an older branch, synchronize a clean worktree without
 publishing it:
 
 ```sh
-.agents/skills/work/bin/pancake-integrate --sync
+.agents/skills/work/bin/glowcap-integrate --sync
 ```
 
 This rebases the current branch onto observed `main` and `dev`, but never moves
@@ -192,7 +192,7 @@ integrated repairs before adding or judging new work.
 After a clean, evidenced commit, run the repository-owned integration command:
 
 ```sh
-.agents/skills/work/bin/pancake-integrate
+.agents/skills/work/bin/glowcap-integrate
 ```
 
 Both modes refuse detached heads, `main`/`dev`, and a dirty tree. Publication
@@ -210,10 +210,10 @@ as one squash listing their subjects.
 
 When CapTP must happen live in the session — call/fetch/tell a peer, host a
 temporary listener, open a REPL, or script `--json` — load the
-[pancake-cli skill](../skills/pancake-cli/SKILL.md): `zig build`, put
-`zig-out/bin` on `PATH`, then use `pancake`. CapTP through the agent host's MCP
+[glowcap-cli skill](../skills/glowcap-cli/SKILL.md): `zig build`, put
+`zig-out/bin` on `PATH`, then use `glowcap`. CapTP through the agent host's MCP
 tools uses the project server (`.cursor/mcp.json` / `.mcp.json` →
-`./pancake mcp`); load [pancake-mcp](../skills/pancake-mcp/SKILL.md).
+`./glowcap mcp`); load [glowcap-mcp](../skills/glowcap-mcp/SKILL.md).
 Do not invent a Zig harness or binding stub for a shell-shaped CapTP act.
 Room presence wake-loops stay in [rooms-peer](../skills/rooms-peer/SKILL.md).
 Human walkthrough: [`docs/cli.md`](../../docs/cli.md). Hermetic goldens:

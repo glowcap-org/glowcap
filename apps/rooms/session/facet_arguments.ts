@@ -1,6 +1,6 @@
 // Capability-argument admission for durable Rooms session facets.
 
-import { type Argument, Ref, type Session } from "@pancake/runtime";
+import { type Argument, Ref, type Session } from "@glowcap/runtime";
 import { hasCapabilityArguments, refuseCapabilityArguments } from "../lib/argument_custody.ts";
 import { ROOMS_SESSION_FILES, ROOMS_SESSION_REFILE, ROOMS_SESSION_WATCH } from "../lib/session/client.ts";
 

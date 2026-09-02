@@ -7,9 +7,9 @@
 //! comparisons (references, arguments, argument slices, locators, handoffs).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
+const model = glowcap.ocapn.model;
 
 /// True when `a` and `b` are the same message arm carrying equal contents.
 pub fn messagesEqual(a: model.Message, b: model.Message) bool {

@@ -12,7 +12,7 @@
 ;; The vat is the LOCAL half only: cells, the queued-turn loop (`drive`), local
 ;; vows and their listeners, `bcom`, and the time-travel history. Everything
 ;; wire-shaped — hosting exports, far sends, far vows, three-party redemption —
-;; lives in the byte-fed host archive (libpancake_host) behind
+;; lives in the byte-fed host archive (libglowcap_host) behind
 ;; `private/session.rkt`. A session installs a `far-ops` record into its
 ;; vat, so `<-` to a far reference and `on` over a far vow stay
 ;; location-transparent for the application; a pure-local vat (no session)
@@ -77,7 +77,7 @@
 (struct forward (target method args) #:transparent)
 
 ;; Hop cap and cycle message live in constants.rkt (mirrored against
-;; PANCAKE_MAX_LOCAL_FORWARD_HOPS). Sentinels the shared chase returns so
+;; GLOWCAP_MAX_LOCAL_FORWARD_HOPS). Sentinels the shared chase returns so
 ;; callers translate them into error / on-break / turn-break.
 (struct forward-cycle () #:transparent)
 (struct hop-broke (message) #:transparent)
@@ -140,7 +140,7 @@
 ;; every actor in this vat into a retained, revisable behavior history reachable
 ;; through `vat-snapshot` / `vat-restore!`; the default vat keeps no history and
 ;; its turn path is the in-place box write below, unchanged. This is the
-;; adapter-local Racket actor runtime, not the native Vat owned by PancakeHost. A
+;; adapter-local Racket actor runtime, not the native Vat owned by GlowcapHost. A
 ;; connection builds one and installs the far half; an application uses
 ;; `session-vat`.
 (define (make-vat #:time-travel? [time-travel? #f])

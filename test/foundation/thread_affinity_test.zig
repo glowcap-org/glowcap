@@ -2,7 +2,7 @@
 //! unclaimed value, and an owner that does not track pays nothing.
 
 const std = @import("std");
-const foundation = @import("pancake").foundation;
+const foundation = @import("glowcap").foundation;
 
 test "an owner thread token is never the unclaimed value" {
     const Tracked = foundation.thread_affinity.OwnerThread(true);

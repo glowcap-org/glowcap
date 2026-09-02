@@ -6,11 +6,11 @@
 //! IPv4 loopback dial does not reach.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const tcp = pancake.net.tcp;
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
+const tcp = glowcap.net.tcp;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
 
 fn resolve(transport: []const u8, designator: []const u8, direct: []const u8) !std.Io.net.IpAddress {
     var entry: [1]model.HintEntry = undefined;
@@ -51,7 +51,7 @@ test "DialResolver.resolve: tcp uses the designator; keyed-tcp uses the hint" {
 
 test "profile resolution needs no transport-name dispatch" {
     const plain = try tcp.resolveProfile(
-        pancake.ocapn.model.transport.Known.tcp.metadata(),
+        glowcap.ocapn.model.transport.Known.tcp.metadata(),
         "127.0.0.1:8081",
         &.{},
     );
@@ -60,7 +60,7 @@ test "profile resolution needs no transport-name dispatch" {
     const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5f))).publicKey();
     const designator = key.toDesignator();
     const sealed = try tcp.resolveProfile(
-        pancake.ocapn.model.transport.Known.noise_tcp.metadata(),
+        glowcap.ocapn.model.transport.Known.noise_tcp.metadata(),
         &designator,
         "127.0.0.1:9002",
     );

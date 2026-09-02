@@ -33,7 +33,7 @@ export function errorDetailTitle(kind: "failure" | "warning" | "success"): strin
  * when the peer simply said no sends them to check the one thing that was
  * never wrong. `noun` names what the link was meant to be. */
 export function locatorRefusal(why: string, noun: string): string {
-	if (why === "" || !why.startsWith("pancake error")) return why;
+	if (why === "" || !why.startsWith("glowcap error")) return why;
 	return `This ${noun} was refused. Check that you pasted all of it, from ocapn:// to the end. (${why})`;
 }
 

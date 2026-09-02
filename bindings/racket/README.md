@@ -1,11 +1,11 @@
 # Racket binding
 
-This binding uses pancake's C ABI with Racket threads and ports. Pin a
+This binding uses glowcap's C ABI with Racket threads and ports. Pin a
 checkout, run `zig build`, and use the modules from the tree.
 
 ```racket
-(require "pancake.rkt"
-         "pancake-tcp.rkt")
+(require "glowcap.rkt"
+         "glowcap-tcp.rkt")
 
 (define peer-key "<64 lowercase hex characters from the server>")
 (define runtime (open-runtime #:providers (list (tcp-provider))))
@@ -16,7 +16,7 @@ checkout, run `zig build`, and use the modules from the tree.
 (runtime-close! runtime)
 ```
 
-`pancake.rkt` provides sessions, hosts, native values, locators, and the actor
+`glowcap.rkt` provides sessions, hosts, native values, locators, and the actor
 API. Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
 `on`, `bcom`, and `methods`.
 
@@ -24,12 +24,12 @@ API. Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
 
 | Module | Purpose |
 | --- | --- |
-| [`pancake.rkt`](pancake.rkt) | Sessions, hosts, actors, generic connection management, locators, and values. |
-| [`pancake-iroh.rkt`](pancake-iroh.rkt) | Optional encrypted QUIC provider/connector and `listen-iroh`. |
-| [`pancake-onion.rkt`](pancake-onion.rkt) | Tor-backed provider/connector, `listen-onion` / `connect-onion`, and raw onion netlayer handles. |
-| [`pancake-relay.rkt`](pancake-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers, managed listeners, and keyed byte connector. |
-| [`pancake-tcp.rkt`](pancake-tcp.rkt) | TCP locators, explicit provider/connector values, native listeners, and blocking netlayer handles. |
-| [`pancake-inproc.rkt`](pancake-inproc.rkt) | Explicit in-process byte connector and blocking connections. |
+| [`glowcap.rkt`](glowcap.rkt) | Sessions, hosts, actors, generic connection management, locators, and values. |
+| [`glowcap-iroh.rkt`](glowcap-iroh.rkt) | Optional encrypted QUIC provider/connector and `listen-iroh`. |
+| [`glowcap-onion.rkt`](glowcap-onion.rkt) | Tor-backed provider/connector, `listen-onion` / `connect-onion`, and raw onion netlayer handles. |
+| [`glowcap-relay.rkt`](glowcap-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers, managed listeners, and keyed byte connector. |
+| [`glowcap-tcp.rkt`](glowcap-tcp.rkt) | TCP locators, explicit provider/connector values, native listeners, and blocking netlayer handles. |
+| [`glowcap-inproc.rkt`](glowcap-inproc.rkt) | Explicit in-process byte connector and blocking connections. |
 
 The wire codec is chosen for a host. `open-runtime` and `listen` accept
 `#:codec`; the default is `'syrup`, and both peers must agree before using
@@ -49,10 +49,10 @@ relay route partners use, and `accept` yields ordinary sessions.
 ## The native loop
 
 Every provider-backed `runtime-connect` and `listen` ride the native loop posture:
-`libpancake_host` supplies the Host and `libpancake_driver` supplies only the
-loop family. The driver adopts the Host through `pancake_driver_take_host`,
+`libglowcap_host` supplies the Host and `libglowcap_driver` supplies only the
+loop family. The driver adopts the Host through `glowcap_driver_take_host`,
 starts with zero providers, and receives the TCP package from
-`libpancake_net_transport_tcp` through the common provider ABI. The library owns
+`libglowcap_net_transport_tcp` through the common provider ABI. The library owns
 the socket, the readiness set, and every accepted session's pumping, and the
 binding parks one green thread on the loop's readiness descriptor and steps. A
 bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial
@@ -86,7 +86,7 @@ settle it through an eventual send.
 ## Current semantic limits
 
 The actor API uses Goblins-shaped vocabulary (`spawn`, `$`, `<-`). An existing
-Goblins program still needs pancake's module names and Host wiring.
+Goblins program still needs glowcap's module names and Host wiring.
 
 An inner actor state change is not rolled back when an outer actor later fails.
 Local time travel is available only on TCP listeners through the listener's

@@ -15,8 +15,8 @@ Deno.test("key order is not part of the answer", () => {
 	// The case that reaches the app: unpinning a peer deletes
 	// `position` and re-pinning writes it back at the end of the
 	// object. Same document, different text.
-	const before = { profile: "pancake", position: { x: 1, y: 2 }, label: "a" };
-	const after = { profile: "pancake", label: "a", position: { x: 1, y: 2 } };
+	const before = { profile: "glowcap", position: { x: 1, y: 2 }, label: "a" };
+	const after = { profile: "glowcap", label: "a", position: { x: 1, y: 2 } };
 	assert(deepEqual(before, after));
 	assert(JSON.stringify(before) !== JSON.stringify(after));
 });

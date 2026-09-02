@@ -1,13 +1,13 @@
 //! Answer-to-Slot projection and typed answer-row storage.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const protocol_oracle = @import("../oracle/protocol_oracle.zig");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
-const answers = pancake.ocapn.session;
-const slot = pancake.ocapn.session.slot;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
+const answers = glowcap.ocapn.session;
+const slot = glowcap.ocapn.session.slot;
 
 fn encodeFulfillRef(allocator: std.mem.Allocator, reference: model.Reference) ![]u8 {
     var frame = try syrup.encodeMessage(allocator, .{

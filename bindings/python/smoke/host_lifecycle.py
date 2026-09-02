@@ -7,18 +7,18 @@ import ctypes
 import gc
 import threading
 
-import pancake._host as _host_module
-import pancake._host.finalizer as _host_finalizer
-from pancake import Host, Locator, PancakeError
-from pancake._constants import ERR_INVALID_ARGUMENT, ERR_IO
-from pancake._trampoline import _entry_for
+import glowcap._host as _host_module
+import glowcap._host.finalizer as _host_finalizer
+from glowcap import Host, Locator, GlowcapError
+from glowcap._constants import ERR_INVALID_ARGUMENT, ERR_IO
+from glowcap._trampoline import _entry_for
 
 
 def run() -> None:
     for invalid_seed in (b"\0" * 31, b"\0" * 33):
         try:
             Host(seed=invalid_seed)
-        except PancakeError as exc:
+        except GlowcapError as exc:
             assert exc.code == ERR_INVALID_ARGUMENT, exc.code
         else:
             raise AssertionError("Host must reject a seed that is not 32 bytes")
@@ -31,7 +31,7 @@ def run() -> None:
     asyncio.run(interop.close())
     try:
         Host(profile="native", codec="syrup")
-    except PancakeError as exc:
+    except GlowcapError as exc:
         assert exc.code == ERR_INVALID_ARGUMENT, exc.code
     else:
         raise AssertionError("Host profile must reject an independent codec")
@@ -128,7 +128,7 @@ def run() -> None:
     # A finalizer release refused outside a callback transfers to one process
     # retry owner. The next safe Host boundary retries it instead of retaining
     # the raw Host and allocator context forever.
-    original_host_release = _host_module._host.pancake_host_release
+    original_host_release = _host_module._host.glowcap_host_release
     attempts = 0
 
     def refuse_once(_raw) -> int:
@@ -139,7 +139,7 @@ def run() -> None:
     retry_state = _host_module._HostFinalizerState(
         ctypes.c_void_p(1), {}, [], {}, None, 0
     )
-    _host_module._host.pancake_host_release = refuse_once
+    _host_module._host.glowcap_host_release = refuse_once
     try:
         _host_module._release_finalizer_state(retry_state, checked=False)
         assert _host_finalizer._pending_finalizer_retry_count() == 1
@@ -148,7 +148,7 @@ def run() -> None:
         assert _host_finalizer._pending_finalizer_retry_count() == 0
         assert attempts == 2
     finally:
-        _host_module._host.pancake_host_release = original_host_release
+        _host_module._host.glowcap_host_release = original_host_release
 
     construction_releases = []
 
@@ -160,7 +160,7 @@ def run() -> None:
             self.released += 1
 
     construction_context = ConstructionContext()
-    _host_module._host.pancake_host_release = lambda raw: (
+    _host_module._host.glowcap_host_release = lambda raw: (
         construction_releases.append(raw) or ERR_INVALID_ARGUMENT
     )
     try:
@@ -168,20 +168,20 @@ def run() -> None:
             ctypes.c_void_p(3), construction_context
         )
         assert (
-            isinstance(cleanup, PancakeError) and cleanup.code == ERR_INVALID_ARGUMENT
+            isinstance(cleanup, GlowcapError) and cleanup.code == ERR_INVALID_ARGUMENT
         )
         assert construction_context.released == 0, (
             "pre-commit construction cleanup freed the borrowed Context"
         )
         assert _host_finalizer._pending_finalizer_retry_count() == 1
-        _host_module._host.pancake_host_release = lambda raw: (
+        _host_module._host.glowcap_host_release = lambda raw: (
             construction_releases.append(raw) or 0
         )
         _host_module._drain_deferred_finalizer_states()
         assert construction_context.released == 1
         assert len(construction_releases) == 2
     finally:
-        _host_module._host.pancake_host_release = original_host_release
+        _host_module._host.glowcap_host_release = original_host_release
 
     reports = []
 
@@ -195,7 +195,7 @@ def run() -> None:
     consumed_state = _host_module._HostFinalizerState(
         ctypes.c_void_p(2), {}, [], {}, FinalizerRecorder(), 73
     )
-    _host_module._host.pancake_host_release = lambda _raw: ERR_IO
+    _host_module._host.glowcap_host_release = lambda _raw: ERR_IO
     try:
         _host_module._release_finalizer_state(consumed_state, checked=False)
         assert consumed_state.raw is None, (
@@ -205,4 +205,4 @@ def run() -> None:
         assert len(reports) == 1 and reports[0]["scope_id"] == 73, reports
         assert reports[0]["operation"] == "host.finalizer.release", reports
     finally:
-        _host_module._host.pancake_host_release = original_host_release
+        _host_module._host.glowcap_host_release = original_host_release

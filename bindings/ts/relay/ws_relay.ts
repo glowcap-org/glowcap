@@ -13,9 +13,9 @@ import {
 	type WebSocketByteChannel,
 	webSocketChannel as byteWebSocketChannel,
 	type WebSocketChannelOptions,
-} from "@pancake/runtime/websocket";
-import { retainCleanupFailures } from "@pancake/runtime/transport";
-import { BINDING_WEBSOCKET_MESSAGE_CAP_BYTES } from "@pancake/abi";
+} from "@glowcap/runtime/websocket";
+import { retainCleanupFailures } from "@glowcap/runtime/transport";
+import { BINDING_WEBSOCKET_MESSAGE_CAP_BYTES } from "@glowcap/abi";
 
 /** A far-side dial the relay could not complete. The browser's socket was
  * already closed with code 1011 and the caller's dial-fail reason, so nothing

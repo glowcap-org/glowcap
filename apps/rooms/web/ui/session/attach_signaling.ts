@@ -4,7 +4,7 @@
 // Share writes that directory on the sturdyref. This Host reuses a session it
 // already holds to that peer; it opens one only when it holds none.
 
-import { retainCleanupFailures } from "@pancake/runtime";
+import { retainCleanupFailures } from "@glowcap/runtime";
 import { Directory } from "../../../lib/room/client.ts";
 import { NICK_TAKEN, roomErrorOf } from "../../../lib/errors.ts";
 import { suggestedNick } from "../../../lib/limits.ts";

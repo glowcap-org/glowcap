@@ -13,7 +13,7 @@ const provider_failure = @import("../provider_failure.zig");
 
 const shared = @import("c_abi_shared");
 
-const PANCAKE_OK = shared.PANCAKE_OK;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
 
 pub const operationFailureFromProvider = provider_failure.operation;
 pub const failureChainFromProvider = provider_failure.chain;
@@ -40,7 +40,7 @@ pub const Owner = struct {
     /// Retain it and any rollback consequence behind ProviderContract.
     pub fn retainContradictoryReport(
         self: *Owner,
-        report: shared.PancakeProviderFailure,
+        report: shared.GlowcapProviderFailure,
         cleanup: ?foundation.FailureChain,
     ) void {
         var reported = failureChainFromProvider(report.result, report) catch {
@@ -54,10 +54,10 @@ pub const Owner = struct {
     pub fn providerCallbackFailure(
         self: *Owner,
         code: i32,
-        report: shared.PancakeProviderFailure,
+        report: shared.GlowcapProviderFailure,
         operation: []const u8,
     ) ?driver.OperationFailure {
-        if (code == PANCAKE_OK) {
+        if (code == GLOWCAP_OK) {
             if (providerFailureIsEmpty(report)) return null;
             self.failContract("provider callback reported failure data on success");
             self.retainContradictoryReport(report, null);
@@ -73,7 +73,7 @@ pub const Owner = struct {
 
 pub fn listenerRestorationOutcome(
     owner: *Owner,
-    callback: shared.transport_provider.PancakeTransportListenerRestorationStateFn,
+    callback: shared.transport_provider.GlowcapTransportListenerRestorationStateFn,
     listener_ctx: *anyopaque,
     out: []u8,
 ) net.netlayer.ListenerRestorationOutcome {
@@ -86,8 +86,8 @@ pub fn listenerRestorationOutcome(
         &needed,
         &report,
     );
-    const completed = (code == PANCAKE_OK and needed <= out.len) or
-        (code == shared.PANCAKE_ERR_BUFFER_TOO_SMALL and needed > out.len);
+    const completed = (code == GLOWCAP_OK and needed <= out.len) or
+        (code == shared.GLOWCAP_ERR_BUFFER_TOO_SMALL and needed > out.len);
     if (completed) {
         if (providerFailureIsEmpty(report)) return .{ .size = needed };
         owner.failContract("listener restoration state reported failure data on success");

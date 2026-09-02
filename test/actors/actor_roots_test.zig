@@ -6,11 +6,11 @@
 //! bindings, gift rows) are proven in `test/driver/core_host/`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const promise_capture = @import("../support/capture.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 
 /// A stateful probe whose deinit raises a flag, so a test observes exactly
 /// when the Vat let go of the state box.

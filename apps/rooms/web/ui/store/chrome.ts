@@ -221,7 +221,7 @@ export function closeErrorDetail(projection: PageProjection): void {
  * about pane is the one that holds Leave, so asking always opens there. */
 export function showAboutConv(
 	projection: PageProjection,
-	pane: "about" | "irc" | "capabilities" = "about",
+	pane: "about" | "bridge" | "capabilities" = "about",
 	askingLeave = false,
 ): void {
 	const state = projection.get();

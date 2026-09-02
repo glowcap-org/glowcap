@@ -1,5 +1,5 @@
 #lang racket/base
-;; rooms-member.rkt — one Spritely Goblins vat joining a pancake rooms chat,
+;; rooms-member.rkt — one Spritely Goblins vat joining a glowcap rooms chat,
 ;; saying one thing, and leaving.
 ;;
 ;; This is the scripted half of the Goblins rooms member; `rooms-chat.rkt` is
@@ -23,7 +23,7 @@
 ;; exiting 1. Every `notify` it hears is printed as it arrives, so a person
 ;; watching the terminal sees the room.
 ;;
-;; Set `PANCAKE_ROOMS_VIZ_URL` to a live timeline endpoint and this vat publishes its own
+;; Set `GLOWCAP_ROOMS_VIZ_URL` to a live timeline endpoint and this vat publishes its own
 ;; trace there, so the session it holds appears beside every other peer's. With
 ;; the variable unset it holds no publishing socket and sends nothing.
 

@@ -1,6 +1,6 @@
 //! The binding verification siblings: the per-language C ABI dogfoods, the
 //! Racket unit tests, the `bindings` and `bindings-onion` aggregates, the
-//! pancake-only deno gifter handoff, and the formatting/type/lint half —
+//! glowcap-only deno gifter handoff, and the formatting/type/lint half —
 //! `fmt`/`fmt-check` in-tree, `bindings-fmt`/`bindings-fmt-check` over every
 //! language scope, with the TypeScript stack suites beside them.
 
@@ -22,14 +22,14 @@ pub const dogfoods = [_]struct {
 }{
     .{
         .step_name = "rust-dogfood",
-        .description = "Run Rust C ABI dogfood tests against the pancake C ABI archives (needs cargo)",
+        .description = "Run Rust C ABI dogfood tests against the glowcap C ABI archives (needs cargo)",
         .argv = &.{ "cargo", "test", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async" },
         .needs_iroh_abi = false,
         .posture = .{ .deterministic = 5 },
     },
     .{
         .step_name = "deno-dogfood",
-        .description = "Run the Deno C ABI dogfood against the pancake C ABI archives (needs deno)",
+        .description = "Run the Deno C ABI dogfood against the glowcap C ABI archives (needs deno)",
         // `--v8-flags=--expose-gc` gives the dogfood a deterministic `gc()` so
         // the ADR-0063 finalizer-GC scenario can force collection and prove a
         // dropped import releases its export.
@@ -39,21 +39,21 @@ pub const dogfoods = [_]struct {
     },
     .{
         .step_name = "bun-dogfood",
-        .description = "Run the Bun C ABI dogfood against the pancake C ABI archives — same multi-runtime binding as Deno (needs bun)",
+        .description = "Run the Bun C ABI dogfood against the glowcap C ABI archives — same multi-runtime binding as Deno (needs bun)",
         .argv = &.{ "bun", "run", "bindings/ts/dogfood/zig_smoke.ts" },
         .needs_iroh_abi = true,
         .posture = .{ .deterministic = 15 },
     },
     .{
         .step_name = "python-dogfood",
-        .description = "Run the Python C ABI dogfood against the pancake C ABI archives (needs python3)",
+        .description = "Run the Python C ABI dogfood against the glowcap C ABI archives (needs python3)",
         .argv = &.{ "python3", "bindings/python/zig_smoke.py" },
         .needs_iroh_abi = true,
         .posture = .{ .deterministic = 10 },
     },
     .{
         .step_name = "racket-dogfood",
-        .description = "Run the Racket C ABI dogfood against the pancake C ABI archives (needs racket)",
+        .description = "Run the Racket C ABI dogfood against the glowcap C ABI archives (needs racket)",
         .argv = &.{ "racket", "-y", "bindings/racket/zig-smoke.rkt" },
         .needs_iroh_abi = true,
         .posture = .{ .deterministic = 15 },
@@ -111,12 +111,12 @@ pub fn register(
     python_artifact_smoke.step.dependOn(b.getInstallStep());
     const python_dogfood = dogfood_runs[dogfoodIndex("python-dogfood")];
     python_dogfood.step.dependOn(&python_artifact_smoke.step);
-    // The macOS Rust test executable resolves pancake's installed dylibs at
+    // The macOS Rust test executable resolves glowcap's installed dylibs at
     // load time. Bind both Cargo's resolver and the test process to the archives
     // this step installed.
     const dogfood_lib_dir = common.rootPath(b, "zig-out/lib");
-    dogfood_runs[0].setEnvironmentVariable("PANCAKE_LIB_DIR", dogfood_lib_dir);
-    rust_dogfood_compile.setEnvironmentVariable("PANCAKE_LIB_DIR", dogfood_lib_dir);
+    dogfood_runs[0].setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
+    rust_dogfood_compile.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
     switch (builtin.os.tag) {
         .macos => {
             dogfood_runs[0].setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
@@ -138,7 +138,7 @@ pub fn register(
         });
         run.step.dependOn(b.getInstallStep());
         run.setEnvironmentVariable("PYTHONPATH", common.rootPath(b, "bindings/python"));
-        run.setEnvironmentVariable("PANCAKE_LIB_DIR", dogfood_lib_dir);
+        run.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
         switch (builtin.os.tag) {
             .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir),
             .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir),
@@ -219,7 +219,7 @@ pub fn register(
     bindings_step.dependOn(site_reg.racket_examples_check);
     const bindings_onion_step = b.step("bindings-onion", "Run the onion provider proof in every native language binding (needs cargo + deno + python3 + racket)");
 
-    // Pancake-only three-party handoff: pancake is exporter, gifter, and
+    // Glowcap-only three-party handoff: glowcap is exporter, gifter, and
     // recipient over loopback TCP. A broker introduces a recipient to an
     // exporter's node-giftable object; the recipient transparently redeems the
     // give and messages the exporter *directly*, the broker never relays. Proves
@@ -230,7 +230,7 @@ pub fn register(
         "bindings/ts/dogfood/gifter_handoff.ts",
     });
     run_gifter_handoff.step.dependOn(b.getInstallStep());
-    b.step("deno-gifter-handoff", "Pancake-only 3-node three-party handoff: a broker introduces a recipient to an exporter, who is then messaged directly (needs deno)")
+    b.step("deno-gifter-handoff", "Glowcap-only 3-node three-party handoff: a broker introduces a recipient to an exporter, who is then messaged directly (needs deno)")
         .dependOn(&run_gifter_handoff.step);
     return .{
         .bindings_step = bindings_step,
@@ -363,7 +363,7 @@ pub fn registerChecks(
     });
     bindings_fmt_check_step.dependOn(&ruff_check.step);
     const mypy_check = execution.addSystemCommand(b, .build_tool, &.{
-        "uvx", "mypy@1.15.0", "--ignore-missing-imports", "bindings/python/pancake", "tools/run-with-timeout.py",
+        "uvx", "mypy@1.15.0", "--ignore-missing-imports", "bindings/python/glowcap", "tools/run-with-timeout.py",
     });
     bindings_fmt_check_step.dependOn(&mypy_check.step);
 
@@ -413,18 +413,18 @@ pub fn registerChecks(
     // These tests touch native FFI but open no sockets; keep that capability out
     // of the otherwise pure stack suite.
     const deno_native_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts",
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts",
     });
     const deno_native_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts",
+        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts",
     });
     deno_native_runtime_test.step.dependOn(&deno_native_runtime_cache.step);
     bindings_fmt_check_step.dependOn(&deno_native_runtime_test.step);
     const deno_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno", "test", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
     });
     const deno_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
+        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
     });
     deno_runtime_test.step.dependOn(&deno_runtime_cache.step);
     bindings_fmt_check_step.dependOn(&deno_runtime_test.step);

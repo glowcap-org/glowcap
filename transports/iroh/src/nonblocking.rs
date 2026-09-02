@@ -7,7 +7,7 @@ use super::*;
 /// Non-blocking state for one connection: the bounded inbound/outbound buffers
 /// the reader and writer tasks move bytes through, the notifies that wake those
 /// tasks, and the endpoint readiness this connection signals into. The reader
-/// and writer tasks own the QUIC streams (moved out of `PancakeIrohConn`), so
+/// and writer tasks own the QUIC streams (moved out of `GlowcapIrohConn`), so
 /// they can hold them across `.await` without a `!Send` guard.
 pub(crate) struct NbConn {
 	readiness: Arc<Readiness>,
@@ -114,7 +114,7 @@ pub(crate) fn enqueue_outbound(out: &mut Outbound, src: &[u8]) -> isize {
 
 /// Get or lazily create this endpoint's readiness channel. Returns `None` only
 /// if the self-pipe could not be created.
-pub(crate) fn endpoint_readiness(ep: &PancakeIrohEndpoint) -> Option<&Arc<Readiness>> {
+pub(crate) fn endpoint_readiness(ep: &GlowcapIrohEndpoint) -> Option<&Arc<Readiness>> {
 	if ep.readiness.get().is_none() {
 		if let Some(r) = Readiness::new() {
 			let _ = ep.readiness.set(r);
@@ -256,13 +256,13 @@ async fn nb_acceptor(
 /// The OS readiness fd for this endpoint's scale surface: the read end of the
 /// self-pipe the sidecar nudges whenever a connection (or the acceptor) becomes
 /// ready. The completion loop registers this once and polls it; on wake it
-/// calls `pancake_iroh_sidecar_endpoint_drain_ready`, which clears the fd's
+/// calls `glowcap_iroh_sidecar_endpoint_drain_ready`, which clears the fd's
 /// coalesced bytes before it drains records.
 /// Returns -1 if the readiness channel could not be created. Borrows the handle;
 /// the fd is owned by the endpoint and is valid until
-/// `pancake_iroh_sidecar_endpoint_free`.
+/// `glowcap_iroh_sidecar_endpoint_free`.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_readiness_fd(ep: *const PancakeIrohEndpoint) -> i32 {
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_readiness_fd(ep: *const GlowcapIrohEndpoint) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		match endpoint_readiness(ep) {
@@ -274,14 +274,14 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_readiness_fd(ep: *const PancakeI
 }
 
 /// Drain pending readiness records into the caller's buffer. `out` points at
-/// `out_cap` `PancakeIrohReadyEvent` records; the call writes up to that many and
+/// `out_cap` `GlowcapIrohReadyEvent` records; the call writes up to that many and
 /// returns the count (>= 0), or -1 on error. No allocation per call. If more
 /// records remain queued than fit, the endpoint re-nudges its readiness fd so the
 /// loop wakes again to drain the rest. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_drain_ready(
-	ep: *const PancakeIrohEndpoint,
-	out: *mut PancakeIrohReadyEvent,
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_drain_ready(
+	ep: *const GlowcapIrohEndpoint,
+	out: *mut GlowcapIrohReadyEvent,
 	out_cap: usize,
 ) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
@@ -304,7 +304,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_drain_ready(
 /// blocking `accept`. Idempotent. Returns 0 on success, -1 if the readiness
 /// channel could not be created. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *mut PancakeIrohEndpoint) -> i32 {
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *mut GlowcapIrohEndpoint) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		if ep.accept.get().is_some() {
@@ -334,7 +334,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *mut 
 /// to bind it to the readiness surface. Returns an owned handle or null. The
 /// endpoint must outlive the connection.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_try_accept(ep: *mut PancakeIrohEndpoint) -> *mut PancakeIrohConn {
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_try_accept(ep: *mut GlowcapIrohEndpoint) -> *mut GlowcapIrohConn {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		let acc = ep.accept.get()?;
@@ -354,9 +354,9 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_try_accept(ep: *mut PancakeIrohE
 /// were already taken. `ep` must be the endpoint that minted `conn`. Borrows
 /// both handles.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_set_nonblocking(
-	ep: *mut PancakeIrohEndpoint,
-	conn: *mut PancakeIrohConn,
+pub extern "C" fn glowcap_iroh_sidecar_conn_set_nonblocking(
+	ep: *mut GlowcapIrohEndpoint,
+	conn: *mut GlowcapIrohConn,
 ) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
@@ -406,7 +406,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_set_nonblocking(
 /// Stable readiness identity for a connection. It is unique for the endpoint's
 /// lifetime and never derived from the allocation address.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_id(conn: *const PancakeIrohConn) -> usize {
+pub extern "C" fn glowcap_iroh_sidecar_conn_id(conn: *const GlowcapIrohConn) -> usize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		if conn.is_null() {
 			return 0;
@@ -418,11 +418,11 @@ pub extern "C" fn pancake_iroh_sidecar_conn_id(conn: *const PancakeIrohConn) -> 
 
 /// Non-blocking read: copy up to `len` buffered inbound bytes into `buf`. Returns
 /// the byte count (> 0), 0 at clean end of stream, -1 on error, or
-/// `PANCAKE_IROH_WOULD_BLOCK` (-2) when no bytes are buffered yet. Draining the
+/// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no bytes are buffered yet. Draining the
 /// buffer frees room for the reader task to resume. The connection must have been
 /// moved to the readiness surface with `conn_set_nonblocking`. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_try_read(conn: *mut PancakeIrohConn, buf: *mut u8, len: usize) -> isize {
+pub extern "C" fn glowcap_iroh_sidecar_conn_try_read(conn: *mut GlowcapIrohConn, buf: *mut u8, len: usize) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let nb = match conn.nb.get() {
@@ -478,11 +478,11 @@ pub extern "C" fn pancake_iroh_sidecar_conn_try_read(conn: *mut PancakeIrohConn,
 
 /// Non-blocking write: copy the prefix that fits into the bounded outbound
 /// buffer and wake the writer task. Returns the admitted byte count,
-/// `PANCAKE_IROH_WOULD_BLOCK` (-2) when no outbound room remains, and -1 on
+/// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no outbound room remains, and -1 on
 /// error. The connection must have been moved to the readiness surface with
 /// `conn_set_nonblocking`. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_try_write(conn: *mut PancakeIrohConn, buf: *const u8, len: usize) -> isize {
+pub extern "C" fn glowcap_iroh_sidecar_conn_try_write(conn: *mut GlowcapIrohConn, buf: *const u8, len: usize) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let nb = match conn.nb.get() {

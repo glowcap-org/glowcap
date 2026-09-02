@@ -8,9 +8,9 @@ import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outUsize, readBytes, releaseManagedFrame } from "./internal/seam.ts";
 import { enterDeliver, exitDeliver, type TurnHostOwner } from "./trampoline.ts";
-import { type AbortDetail, abortDomainLabel, checkHost, hostError, PancakeError } from "./errors.ts";
+import { type AbortDetail, abortDomainLabel, checkHost, GlowcapError, hostError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
-import { CLOSED, OK, TIMEOUT, WOULD_BLOCK } from "@pancake/abi";
+import { CLOSED, OK, TIMEOUT, WOULD_BLOCK } from "@glowcap/abi";
 
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
@@ -21,7 +21,7 @@ const utf8Decoder = new TextDecoder();
 export interface PumpHandle {
 	readonly ptr: Ptr;
 	readonly released: boolean;
-	/** True once the keyed handshake completed (`pancake_host_session_is_open`). */
+	/** True once the keyed handshake completed (`glowcap_host_session_is_open`). */
 	readonly sessionOpen: boolean;
 	/** Host identity that owns the Vat entered by this delivery. */
 	readonly deliverHost: TurnHostOwner;
@@ -69,7 +69,7 @@ async function driveHandshake(h: PumpHandle): Promise<void> {
 	while (!h.sessionOpen) {
 		const chunk = await h.read();
 		if (chunk === null) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				CLOSED,
 				"connection closed during the OCapN handshake",
 			);
@@ -87,7 +87,7 @@ export function runHandshake(h: PumpHandle, timeoutMs: number | null): Promise<v
 		timer = setTimeout(
 			() =>
 				reject(
-					new PancakeError(
+					new GlowcapError(
 						TIMEOUT,
 						`the partner did not finish the OCapN handshake within ${timeoutMs}ms`,
 					),
@@ -139,7 +139,7 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 		h.closingFlag = true;
 		const msg = utf8Encoder.encode("connection closed");
 		try {
-			checkHost(hostS.pancake_host_session_transport_closed(
+			checkHost(hostS.glowcap_host_session_transport_closed(
 				h.ptr,
 				ab(msg),
 				BigInt(msg.length),
@@ -178,7 +178,7 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 		const prevDeliver = enterDeliver(h.deliverHost);
 		let rc: number;
 		try {
-			rc = hostS.pancake_host_session_feed_packet(
+			rc = hostS.glowcap_host_session_feed_packet(
 				h.ptr,
 				ab(chunk),
 				BigInt(chunk.length),
@@ -211,7 +211,7 @@ async function resumeFeed(h: PumpHandle): Promise<void> {
 		const prevDeliver = enterDeliver(h.deliverHost);
 		let rc: number;
 		try {
-			rc = hostS.pancake_host_session_resume_feed(h.ptr);
+			rc = hostS.glowcap_host_session_resume_feed(h.ptr);
 		} finally {
 			exitDeliver(prevDeliver);
 		}
@@ -233,7 +233,7 @@ async function resumeFeed(h: PumpHandle): Promise<void> {
 export function lastAbort(h: PumpHandle): AbortDetail | null {
 	if (h.released) return null;
 	const buf = new Uint8Array(L.LAST_ABORT_SIZE);
-	const rc = hostS.pancake_host_session_last_abort(h.ptr, ab(buf));
+	const rc = hostS.glowcap_host_session_last_abort(h.ptr, ab(buf));
 	if (rc === WOULD_BLOCK) return null;
 	checkHost(rc);
 	const dv = new DataView(buf.buffer);
@@ -295,7 +295,7 @@ export async function flushOutbound(h: PumpHandle): Promise<void> {
 			const { managedFrame: mf, prefix, prefixLen } = h.outboundScratch;
 			while (true) {
 				if (h.released) return;
-				const rc = hostS.pancake_host_session_take_packet(
+				const rc = hostS.glowcap_host_session_take_packet(
 					h.ptr,
 					ab(mf),
 					ab(prefix),

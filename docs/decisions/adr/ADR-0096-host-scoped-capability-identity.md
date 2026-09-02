@@ -30,7 +30,7 @@ target after its alias is replaced and withdrawal occurs on another Port.
 
 Alias-only unpublish also ships, wired through every publication tier
 (`Host.unpublish`, the native `HostRuntime` / `Server` surfaces,
-`pancake_host_unpublish`, and all four bindings), with the production-Host
+`glowcap_host_unpublish`, and all four bindings), with the production-Host
 scenario holding its three outcomes: a removed alias misses on every session,
 an issued capability stays callable, and a deposited gift redeems the exact
 actor.
@@ -55,7 +55,7 @@ bootstrap stores the local object reference in its gift table, and withdrawal
 returns that object. All of its CapTP sessions and bootstrap objects run in one
 vat, so the same local reference can be projected onto a different session.
 
-Before this migration, pancake had a different shape:
+Before this migration, glowcap had a different shape:
 
 - every `HostSession` owns a separate `actors.Vat`;
 - Host-wide publication spawns a separate actor copy in every session vat;
@@ -76,7 +76,7 @@ The visible deposited-gift failure is:
 2. A gifter deposits A.
 3. Replace `S` with object B.
 4. Withdraw over another session.
-5. pancake returns B, or fails if `S` is absent.
+5. glowcap returns B, or fails if `S` is absent.
 
 The same substitution class lets two sessions' equal numeric import positions
 be confused unless the application remembers to call `enroll`. It also blocks
@@ -100,7 +100,7 @@ Vat. A `HostSession` owns a session-specific Port into that Vat. The Host's
 actor-layer projections and listeners scoped to its session. Neither owns
 another actor heap. A pure-local Vat remains usable without a Host. A raw
 `engine.Node` remains usable with an application-supplied dispatcher instead of
-pancake's actor layer.
+glowcap's actor layer.
 
 ```text
 standard runtime composition
@@ -362,7 +362,7 @@ The decision is accepted only when these production-Host scenarios pass:
    with both paths explicitly using the same live exporter session and canonical
    import row. Both reuse one Host ref and compare Equal. This is the positive
    remote half of target pass-invariant equality. Parallel sessions carry no
-   stable target id from which pancake could infer equality; ADR-0097 must
+   stable target id from which glowcap could infer equality; ADR-0097 must
    separately prove that fresh-key peer/session selection preserves convergence.
 8. Close a session, reuse its numeric ranges, and prove every stale Host ref
    fails closed.
@@ -421,11 +421,11 @@ object, replaces the alias with a decoy, and asserts the withdrawn object is
 the mutated original. Their recurring sturdyref scenarios also require a
 cached Host id to compare equal through Rust `PartialEq`, Python `==`, Racket
 `equal?`, and TypeScript `Ref.equals`; release state is not part of that fact.
-The browser surface shares the same `@pancake/runtime`
+The browser surface shares the same `@glowcap/runtime`
 gift logic over the wasm adapter, whose equivalence `zig build web-peer-test`
 holds and whose live redemption `zig build rooms-web-dm` proves in a real
 Chromium. The live Goblins exporter fixture (`zig build goblins-exporter`)
-now primes the pancake-hosted actor from the Goblins gifter, replaces the
+now primes the glowcap-hosted actor from the Goblins gifter, replaces the
 alias with a decoy, and requires the Goblins recipient's withdrawn greeting
 to carry the mark.
 

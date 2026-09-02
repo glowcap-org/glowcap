@@ -264,7 +264,7 @@ test "a racket provide clause owns nothing" {
     try std.testing.expect(owners.advance("         session-close!)") == .inert);
     const owned = owners.advance("(define (session-release! c ref)");
     try std.testing.expectEqualStrings("session-release!", owned.definition[0]);
-    const body = owners.advance("  (pancake_host_ref_release c ref))");
+    const body = owners.advance("  (glowcap_host_ref_release c ref))");
     try std.testing.expectEqualStrings("session-release!", body.definition[0]);
 }
 

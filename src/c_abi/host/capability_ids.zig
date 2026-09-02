@@ -27,7 +27,7 @@ pub fn issuer(seed: [crypto.SEED_BYTES]u8) driver_core.CapabilityIdIssuer {
 
 fn deriveKey(seed: [crypto.SEED_BYTES]u8) [16]u8 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    hasher.update("pancake opaque capability id permutation\x00");
+    hasher.update("glowcap opaque capability id permutation\x00");
     hasher.update(&seed);
     var digest: [32]u8 = undefined;
     hasher.final(&digest);

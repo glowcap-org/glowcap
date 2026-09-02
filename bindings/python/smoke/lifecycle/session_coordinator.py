@@ -8,7 +8,7 @@ import gc
 
 async def cancelled_close_waiter_preserves_transport_coordinator() -> None:
     """Caller cancellation cannot orphan the physical transport barrier."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     primary = OSError("exact preexisting wire failure")
     cleanup = LookupError("transport retirement failed")
@@ -75,7 +75,7 @@ async def cancelled_close_waiter_preserves_transport_coordinator() -> None:
 
 async def cancelled_loop_close_waiter_preserves_terminal_chain() -> None:
     """The Session coordinator strongly owns a loop-backed close coroutine."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     primary = RuntimeError("loop close failed")
     cleanup = LookupError("loop transport retirement failed")

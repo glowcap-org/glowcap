@@ -1,17 +1,17 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // Discovery resolves a bare iroh node ID without an address hint.
     var iroh_resident = try iroh.Resident.init(io, null, .{ .reachability = .discovery });
     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
-    const netlayers = [_]pancake.net.netlayer.Netlayer{iroh_resident.netlayer()};
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{iroh_resident.netlayer()};
     const node_id = "<64 lowercase hex characters from the server>";
     const partner = iroh.locator(node_id);
 
     // From here, the CapTP workflow is transport-independent.
-    const session = try pancake.driver.connect(
+    const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
         partner,

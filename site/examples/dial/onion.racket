@@ -1,6 +1,6 @@
-(require "pancake.rkt" "pancake-onion.rkt")
+(require "glowcap.rkt" "glowcap-onion.rkt")
 
-;; pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+;; glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 (define partner (onion-locator "<56-character onion service id>"))
 (define runtime
   (open-runtime #:providers

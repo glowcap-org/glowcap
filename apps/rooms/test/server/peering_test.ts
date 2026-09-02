@@ -6,7 +6,7 @@ import {
 	Ref,
 	stringHint,
 	TRANSPORT_ID,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import { loopbackTcpDesignator, parseRoomsSturdyref, roomsHost, roomsLocator } from "../../lib/locator.ts";
 import { PUBLICATION_READY, PUBLISH_DURABLE_ROOM, REVOKE } from "../../lib/protocol.ts";
 import { Directory, DirectoryPeering, listenerUp, Room, takeListeners } from "../../lib/room/client.ts";
@@ -44,7 +44,7 @@ roomsTest("peering redeems an identity-routed room through its weak TCP fallback
 	const sourceProc = spawnOwned("deno", {
 		args: [...IROH_FLAGS, SERVER, "--transport=iroh", "--admin-listeners"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: sourceState },
+		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: sourceState },
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -279,7 +279,7 @@ roomsTest("a synchronous peering listen refusal releases the reservation immedia
 			const authority = await publisher.session.fetch(peeringSwiss);
 
 			// Sending the destination's own live peering object back to it produces
-			// a near object, not the far promise pancake-next listen requires. The
+			// a near object, not the far promise glowcap-next listen requires. The
 			// refusal happens synchronously while the server admits listen.
 			let refused = false;
 			try {
@@ -311,7 +311,7 @@ roomsTest("no peering capability exists without the flag", async () => {
 	let proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, "--allow-write", SERVER, "0", "--peering"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: state },
+		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -327,7 +327,7 @@ roomsTest("no peering capability exists without the flag", async () => {
 	proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, "--allow-write", SERVER, "0"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: state },
+		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",
 		stderr: "piped",
 	});

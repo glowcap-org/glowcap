@@ -20,9 +20,9 @@ const shared = @import("c_abi_shared");
 
 const Owner = owner_mod.Owner;
 
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 
 pub const ProviderInstallOutcome = install_outcome.Outcome;
 
@@ -30,8 +30,8 @@ const PreparedPackage = struct {
     owner: *Owner,
     adapters: []Adapter,
     lease_ctx: ?*anyopaque,
-    same_configuration: shared.transport_provider.PancakeTransportProviderSameConfigurationFn,
-    release: shared.transport_provider.PancakeTransportReleaseFn,
+    same_configuration: shared.transport_provider.GlowcapTransportProviderSameConfigurationFn,
+    release: shared.transport_provider.GlowcapTransportReleaseFn,
 
     fn sameConfiguration(installed_raw: *anyopaque, candidate_raw: *anyopaque) anyerror!bool {
         const installed: *PreparedPackage = @ptrCast(@alignCast(installed_raw));
@@ -88,18 +88,18 @@ pub const Registry = struct {
     /// is validated and allocated before HostRuntime publishes any registration.
     pub fn addProvider(
         self: *Registry,
-        provider: ?*const shared.PancakeTransportProvider,
+        provider: ?*const shared.GlowcapTransportProvider,
     ) ProviderInstallOutcome {
         const package = provider orelse
-            return .fromCode(PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+            return .fromCode(GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
         self.owner.runtime.checkApplicationAdmission() catch |err| return errorOutcome(err);
-        if (package.abi_version != shared.transport_provider.PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION or
-            package.struct_size < @sizeOf(shared.PancakeTransportProvider) or
+        if (package.abi_version != shared.transport_provider.GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION or
+            package.struct_size < @sizeOf(shared.GlowcapTransportProvider) or
             package.entry_count == 0 or package.entries == null or
             package.same_configuration == null or package.retain == null or package.release == null)
         {
             shared.setLastError("driver: invalid transport provider package", .{});
-            return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
+            return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
         }
 
         const entries = package.entries.?[0..package.entry_count];
@@ -109,7 +109,7 @@ pub const Registry = struct {
         for (entries, decoded_profiles) |entry, *profile| {
             const profile_table = entry.profile orelse {
                 shared.setLastError("driver: provider entry has no transport profile", .{});
-                return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
+                return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
             };
             profile.* = validation.transportProfile(profile_table) catch |err| return errorOutcome(err);
         }
@@ -121,7 +121,7 @@ pub const Registry = struct {
             // A success status commits the lease even when its contradictory
             // diagnostic makes the callback a contract failure. Retire that
             // lease before refusing registration.
-            if (retain_code == PANCAKE_OK) {
+            if (retain_code == GLOWCAP_OK) {
                 var release_report = shared.transport_provider.emptyProviderFailure();
                 const release_code = package.release.?(package.lease_ctx, &release_report);
                 if (self.owner.providerCallbackFailure(
@@ -151,8 +151,8 @@ pub const Registry = struct {
 
     fn addRetainedProvider(
         self: *Registry,
-        package: *const shared.PancakeTransportProvider,
-        entries: []const shared.PancakeTransportProviderEntry,
+        package: *const shared.GlowcapTransportProvider,
+        entries: []const shared.GlowcapTransportProviderEntry,
         decoded_profiles: []const model.transport.Metadata,
         lease_consumed: *bool,
     ) ProviderInstallOutcome {
@@ -170,38 +170,38 @@ pub const Registry = struct {
         for (entries, prepared_entries, decoded_profiles) |entry, *prepared_entry, profile| {
             const implementation = entry.implementation orelse {
                 shared.setLastError("driver: provider entry has no implementation table", .{});
-                return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
+                return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
             };
             for (prepared_entries[0..prepared]) |prior| {
                 if (prior.implementation != implementation) continue;
                 const same_model = switch (prior.adapter) {
-                    .stream => entry.execution_model == shared.transport_provider.PANCAKE_TRANSPORT_EXEC_STREAM,
-                    .multiplexed => entry.execution_model == shared.transport_provider.PANCAKE_TRANSPORT_EXEC_MULTIPLEXED,
+                    .stream => entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM,
+                    .multiplexed => entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED,
                 };
                 if (!same_model) {
                     shared.setLastError("driver: one implementation table cannot use two execution models", .{});
-                    return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
+                    return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
                 }
-                if (entry.execution_model == shared.transport_provider.PANCAKE_TRANSPORT_EXEC_STREAM) {
+                if (entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM) {
                     shared.setLastError("driver: each stream profile requires its own implementation table", .{});
-                    return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
+                    return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
                 }
             }
 
             const adapter: Adapter = switch (entry.execution_model) {
-                shared.transport_provider.PANCAKE_TRANSPORT_EXEC_STREAM => blk: {
-                    const table = validation.implementationTable(shared.PancakeStreamTransport, implementation, "stream") catch |err|
+                shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM => blk: {
+                    const table = validation.implementationTable(shared.GlowcapStreamTransport, implementation, "stream") catch |err|
                         return errorOutcome(err);
                     const adapter = stream_adapter.prepare(&self.owner, profile, table) catch |err| return errorOutcome(err);
                     owned_adapters[owned] = .{ .stream = adapter };
                     owned += 1;
                     break :blk .{ .stream = adapter };
                 },
-                shared.transport_provider.PANCAKE_TRANSPORT_EXEC_MULTIPLEXED => blk: {
+                shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED => blk: {
                     for (prepared_entries[0..prepared]) |prior| {
                         if (prior.implementation == implementation) break :blk prior.adapter;
                     }
-                    const table = validation.implementationTable(shared.PancakeMultiplexedTransport, implementation, "multiplexed") catch |err|
+                    const table = validation.implementationTable(shared.GlowcapMultiplexedTransport, implementation, "multiplexed") catch |err|
                         return errorOutcome(err);
                     const adapter = multiplexed_adapter.prepare(&self.owner, table) catch |err| return errorOutcome(err);
                     owned_adapters[owned] = .{ .multiplexed = adapter };
@@ -210,7 +210,7 @@ pub const Registry = struct {
                 },
                 else => {
                     shared.setLastError("driver: provider entry has an unknown execution model", .{});
-                    return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
+                    return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
                 },
             };
             prepared_entry.* = .{

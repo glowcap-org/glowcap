@@ -5,12 +5,12 @@
 //! every allocation failure.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const codec = pancake.ocapn.codec;
-const foundation = pancake.foundation;
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const foundation = glowcap.foundation;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
 const peer_fixture = @import("../support/peer_fixture.zig");
 
 /// A paired session on `version` over Syrup, so a wire-shape assertion reads
@@ -170,7 +170,7 @@ test "the partner's break on the listener export surfaces as a broken resolve" {
         var listening = try listenOnImportFive(&pair.p1);
         defer listening.deinit();
 
-        // A break rides as a bare Symbol, the same payload shape pancake's own
+        // A break rides as a bare Symbol, the same payload shape glowcap's own
         // listener fire emits.
         try notify(&pair.p2, &pair.p1, listening.listener, &.{
             .{ .symbol = "break" },

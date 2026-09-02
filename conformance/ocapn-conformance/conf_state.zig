@@ -3,18 +3,18 @@
 //! suite interceptors write (resolver map, pending gifter enlivens,
 //! deferred Host effects).
 //!
-//! `pancake_peer.zig` owns the bootstrap actors, the promise-resolver
+//! `glowcap_peer.zig` owns the bootstrap actors, the promise-resolver
 //! interceptor, and `main`. Gift/recipient interceptors live in
 //! `handoff.zig`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const peer_options = @import("ocapn_peer_options");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const net = pancake.net;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const net = glowcap.net;
+const driver = glowcap.driver;
 const tcp = net.tcp;
 
 const Host = driver.core.Host;

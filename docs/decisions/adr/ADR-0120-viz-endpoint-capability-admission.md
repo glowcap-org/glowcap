@@ -21,16 +21,16 @@ reachability as the whole authority to write into the timeline, and the
 socket on either path could be held open by anyone who could reach the port.
 Writing is the wider hole: a reachable process could invent sessions, labels,
 and closures for every viewer. Meanwhile the rooms app already had the shape
-for operator authority — the flag-minted, `PANCAKE_ROOMS_STATE`-persisted operations
+for operator authority — the flag-minted, `GLOWCAP_ROOMS_STATE`-persisted operations
 swiss taken in the web UI through the toggle-is-the-capability flow.
 
 ## Decision
 
-Enabling the endpoint (`--viz`, or its env twin `PANCAKE_ROOMS_VIZ=1`;
-the `PANCAKE_ROOMS_VIZ_PORT` override moves only the port and enables
+Enabling the endpoint (`--viz`, or its env twin `GLOWCAP_ROOMS_VIZ=1`;
+the `GLOWCAP_ROOMS_VIZ_PORT` override moves only the port and enables
 nothing) mints the viz capability: one swiss
 from the same `persistentSwiss` machinery as the other operator capabilities,
-persisted as `PANCAKE_ROOMS_STATE/viz` and printed as a `ROOMS-VIZ` token line. With
+persisted as `GLOWCAP_ROOMS_STATE/viz` and printed as a `ROOMS-VIZ` token line. With
 the endpoint off, nothing is minted, persisted, or published.
 
 `startViz` (`apps/rooms/server/viz.ts`) takes that swiss and refuses every

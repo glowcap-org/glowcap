@@ -3,18 +3,18 @@
 //! own key.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 const frame_cap = harness.frame_cap;
@@ -266,10 +266,10 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
     var victim_designator: [64]u8 = undefined;
     _ = try std.fmt.bufPrint(&victim_designator, "{x}", .{victim.node.secretKey().publicKey().bytes});
 
-    const keyed_locator: pancake.ocapn.model.PeerLocator = .{
+    const keyed_locator: glowcap.ocapn.model.PeerLocator = .{
         .transport = "keyed-tcp",
         .designator = &victim_designator,
-        .hints = pancake.ocapn.model.Hints.emptyFalse(),
+        .hints = glowcap.ocapn.model.Hints.emptyFalse(),
     };
     const our_designator = us.node.secretKey().publicKey().toDesignator();
     var our_hint = [_]model.HintEntry{.{
@@ -312,7 +312,7 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
         attacker.node.secretKey(),
         "keyed-tcp",
         &victim_designator,
-        pancake.ocapn.model.Hints.emptyFalse(),
+        glowcap.ocapn.model.Hints.emptyFalse(),
     );
     defer claim.deinit();
 
@@ -511,7 +511,7 @@ test "session identity: a host signs each session with that session's own key" {
     // reaches the wire rather than stopping at the accessor.
     var frame = first.served.port.peer.takeOutbound().?;
     defer frame.deinit();
-    const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+    const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
     try std.testing.expectEqualSlices(u8, first_key.asBytes(), view.start_session.session_pubkey);
 
     // Both sessions are open at once, so this is the simultaneous case and not
@@ -521,7 +521,7 @@ test "session identity: a host signs each session with that session's own key" {
     // keys above differ per connection.
     var second_frame = second.served.port.peer.takeOutbound().?;
     defer second_frame.deinit();
-    const second_view = try pancake.ocapn.codec.syrup.decodeBody(second_frame.view());
+    const second_view = try glowcap.ocapn.codec.syrup.decodeBody(second_frame.view());
     try std.testing.expectEqualSlices(u8, second_key.asBytes(), second_view.start_session.session_pubkey);
     try std.testing.expectEqualStrings(
         view.start_session.acceptable_location.designator,

@@ -1,4 +1,4 @@
-"""An agent, written on pancake actors in native Python. It connects to the tools
+"""An agent, written on glowcap actors in native Python. It connects to the tools
 coordinator (which may be written in any language) and proves the three
 capability properties — delegation, attenuation, revocation — over the wire.
 
@@ -17,7 +17,7 @@ from tools_check import make_check  # noqa: E402
 
 add_bindings_path()
 
-from pancake import Runtime, VowBroken, tcp  # noqa: E402
+from glowcap import Runtime, VowBroken, tcp  # noqa: E402
 TOOLS = "tools"
 GRANT, GRANT_REVOCABLE, REVOKE_LAST = "grant", "grant-revocable", "revoke-last"
 NOW, READ, WRITE = "now", "read", "write"

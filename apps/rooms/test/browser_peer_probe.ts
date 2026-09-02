@@ -1,5 +1,5 @@
 // The browser entry the rooms browser peer is built on. A real page loads a
-// bundle of this — the `@pancake/web` wasm Host,
+// bundle of this — the `@glowcap/web` wasm Host,
 // no dlopen — and drives the room directory as a capability, dialing every
 // locator through serve.ts's `/relay` by mapping host:port to a WebSocket URL.
 // This probe is the smallest such page: it dials, fetches the directory, lists
@@ -7,8 +7,8 @@
 // read from a real headless Chromium. The full page's data layer replaces
 // `web/ui/net.ts`'s JSON client with exactly these calls.
 
-import * as tcp from "@pancake/tcp";
-import { init } from "@pancake/web";
+import * as tcp from "@glowcap/tcp";
+import { init } from "@glowcap/web";
 import { roomsHostOptions } from "../lib/profile.ts";
 
 const params = new URLSearchParams(location.search);
@@ -18,7 +18,7 @@ const roomPort = Number(params.get("roomPort") ?? "0");
 
 async function main(status: HTMLElement): Promise<void> {
 	const runtime = await init({
-		wasm: fetch("/pancake_host.wasm"),
+		wasm: fetch("/glowcap_host.wasm"),
 		wsUrl: (host, port) => `ws://${relay}/relay?target=${host}:${port}`,
 		...roomsHostOptions(),
 	});

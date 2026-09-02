@@ -112,7 +112,7 @@ function endChangesHands(): TimelineDocument {
 		recording: {
 			sources: [{
 				id: "live",
-				meta: { kind: "pancake-host" },
+				meta: { kind: "glowcap-host" },
 				observations: [
 					{ id: "j1", t: 0, kind: "peer-joined", peerId: "rooms" },
 					{ id: "j2", t: 0, kind: "peer-joined", peerId: "carol" },
@@ -209,7 +209,7 @@ function oneOfEach(): TimelineDocument {
 		recording: {
 			sources: [{
 				id: "live",
-				meta: { kind: "pancake-host" },
+				meta: { kind: "glowcap-host" },
 				observations: [
 					{ id: "j1", t: 0, kind: "peer-joined", peerId: "rooms" },
 					{

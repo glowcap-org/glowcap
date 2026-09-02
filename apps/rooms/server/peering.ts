@@ -1,4 +1,4 @@
-import { type Argument, type Behavior, currentSession, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, Ref, type Session } from "@glowcap/runtime";
 import { MAX_ROOM, PEERED_ROOM_READY_TIMEOUT_MS } from "../lib/limits.ts";
 import { PUBLICATION_READY, PUBLISH_DURABLE_ROOM, REVOKE } from "../lib/protocol.ts";
 import { notifyPublicRoom } from "./discovery.ts";

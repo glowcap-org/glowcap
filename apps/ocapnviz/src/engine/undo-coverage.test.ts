@@ -42,7 +42,7 @@ const source = {
 			t: 0,
 			kind: "peer-joined",
 			peerId: "a",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "e2",
@@ -56,7 +56,7 @@ const source = {
 			t: 0,
 			kind: "peer-joined",
 			peerId: "c",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "e4",
@@ -123,7 +123,7 @@ const CASES: Record<BuilderIntent["kind"], Case> = {
 	"add-peer": {
 		intent: () => ({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 10, y: 20 },
 		}),
 	},

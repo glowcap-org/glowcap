@@ -1,6 +1,6 @@
 // The directory's public room list and its live deltas.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import type { RoomRecordShape } from "../lib/protocol.ts";
 import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../lib/limits.ts";
 import { roomIsListed } from "../lib/room/policy.ts";

@@ -1,7 +1,7 @@
-import * as tcp from "@pancake/tcp";
-import { DESIGNATOR_SCHEME_ADDRESS, TIMEOUT } from "@pancake/abi";
+import * as tcp from "@glowcap/tcp";
+import { DESIGNATOR_SCHEME_ADDRESS, TIMEOUT } from "@glowcap/abi";
 import { connectTcp, listenTcp } from "../../runtime/internal/seam.ts";
-import { bareLocator, Host, PancakeError, Runtime, Session, Sym } from "../../runtime/mod.ts";
+import { bareLocator, GlowcapError, Host, Runtime, Session, Sym } from "../../runtime/mod.ts";
 import { assert, ok, within } from "./support.ts";
 
 /** Prove finish-close settlement and finite-grace escalation on both fronts. */
@@ -65,18 +65,18 @@ export async function runFinishClosePolicy(): Promise<void> {
 			bareLocator("tcp", designator),
 			connection,
 		).catch(() => null);
-		let timedOut: PancakeError | null = null;
+		let timedOut: GlowcapError | null = null;
 		try {
 			await within(host.close({ pending: "finish", graceMs: 20 }), 5_000, "finite-grace finish close");
 		} catch (error) {
-			if (error instanceof PancakeError) timedOut = error;
+			if (error instanceof GlowcapError) timedOut = error;
 		}
 		assert(timedOut?.code === TIMEOUT, "a spent finish grace surfaces the typed timeout");
-		let repeated: PancakeError | null = null;
+		let repeated: GlowcapError | null = null;
 		try {
 			await host.close();
 		} catch (error) {
-			if (error instanceof PancakeError) repeated = error;
+			if (error instanceof GlowcapError) repeated = error;
 		}
 		assert(repeated?.code === TIMEOUT, "close after the barrier observes the recorded timeout");
 		connection.close();
@@ -93,11 +93,11 @@ export async function runFinishClosePolicy(): Promise<void> {
 		const runtime = await Runtime.open({ providers: [tcp.provider()] });
 		const silent = listener.accept();
 		const negotiating = runtime.connect(tcp.locator("127.0.0.1", listener.port)).catch(() => null);
-		let timedOut: PancakeError | null = null;
+		let timedOut: GlowcapError | null = null;
 		try {
 			await within(runtime.close({ pending: "finish", graceMs: 20 }), 5_000, "loop finite-grace finish close");
 		} catch (error) {
-			if (error instanceof PancakeError) timedOut = error;
+			if (error instanceof GlowcapError) timedOut = error;
 		}
 		assert(timedOut?.code === TIMEOUT, "a spent loop finish grace surfaces the typed timeout");
 		(await silent).close();

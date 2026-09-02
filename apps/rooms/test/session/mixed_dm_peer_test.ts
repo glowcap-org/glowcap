@@ -1,4 +1,4 @@
-import { type Behavior, parseSturdyRef, type Session } from "@pancake/runtime";
+import { type Behavior, parseSturdyRef, type Session } from "@glowcap/runtime";
 import { RoomsSessionClient, type RoomsSessionLineEvent } from "../../lib/session/client.ts";
 import {
 	dial as dialRooms,
@@ -30,8 +30,8 @@ import {
 import { announcedSturdyref, startRoomsSessionPeer } from "../support/standalone_peer.ts";
 
 roomsTest("a durable session and an ordinary member share one bidirectional direct line", async () => {
-	const serverState = await Deno.makeTempDir({ prefix: "pancake-rooms-mixed-dm-server-" });
-	const aliceState = await Deno.makeTempDir({ prefix: "pancake-rooms-mixed-dm-alice-" });
+	const serverState = await Deno.makeTempDir({ prefix: "glowcap-rooms-mixed-dm-server-" });
+	const aliceState = await Deno.makeTempDir({ prefix: "glowcap-rooms-mixed-dm-alice-" });
 	const roomPort = freePort();
 	const alicePort = freePort();
 	const server = startStatefulServer(roomPort, serverState);

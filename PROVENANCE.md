@@ -1,6 +1,6 @@
-# How pancake is built
+# How glowcap is built
 
-pancake began as the capability-secure substrate for an agent orchestrator.
+glowcap began as the capability-secure substrate for an agent orchestrator.
 The maintainer builds it with AI coding assistants, authors every commit,
 directs the work, and is answerable for what lands. There is no earlier,
 human-only codebase; the first commit is from June 2026.
@@ -13,35 +13,35 @@ trailers, and some emit none.
 
 [Codeberg](https://codeberg.org/) amended its Terms of Use in July 2026 after a
 member vote. § 2 (1) 7 says: “You must not share projects that mostly consist
-of code written by ‘generative AI’-tools.” pancake falls under that rule. The
+of code written by ‘generative AI’-tools.” glowcap falls under that rule. The
 accompanying post, [Protecting our FLOSS commons from
 LLMs](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html),
 also discusses projects built and maintained with heavy LLM use.
 
 The [Zig project](https://ziglang.org/code-of-conduct/#strict-no-llm-no-ai-policy)
 does not accept LLM-assisted contributions and also excludes LLM-assisted bug
-finding. pancake therefore sends no generated patches, reports, or discussion
+finding. glowcap therefore sends no generated patches, reports, or discussion
 upstream to Zig or to any project with a comparable policy. An issue found in
-an agent-assisted pancake session is not reported by pancake; only an
+an agent-assisted glowcap session is not reported by glowcap; only an
 independently discovered issue may be handled under the target project's
 policy.
 
 The pinned OCapN repository has its own [generative-AI
 policy](https://github.com/ocapn/ocapn#generative-ai-policy): specifications,
 suite, official tooling, and surrounding communication must be human-authored,
-and generated issues and pull requests are rejected. pancake's implementation
+and generated issues and pull requests are rejected. glowcap's implementation
 may use agents; its messages to OCapN may not. Any finding or review request is
 independently understood and written by the maintainer rather than forwarded
 from an agent-produced packet.
 
 ## Responsibility and licensing
 
-The maintainer uses pancake and stands behind the repository. The author field
+The maintainer uses glowcap and stands behind the repository. The author field
 records who accepted responsibility for what landed; it is not evidence of
 independent review, does not erase how the work was made, and creates no
 exception to another project's policy.
 
-pancake-authored work is available under [Apache-2.0](LICENSE-APACHE). This does
+glowcap-authored work is available under [Apache-2.0](LICENSE-APACHE). This does
 not settle broader copyright questions about generated code. Third-party files
 keep their original terms.
 
@@ -53,17 +53,17 @@ A paid commercial forge avoids both conflicts.
 
 `zig build check` covers the tests, public examples, architecture rules,
 protocol fixtures, and allocation budgets written inside this repository.
-Those checks show that pancake agrees with its own expectations.
+Those checks show that glowcap agrees with its own expectations.
 
 External evidence is separate:
 
 - `zig build ocapn-conformance` runs every portable upstream OCapN test module
-  except its TCP-reset-sensitive `op:abort` case, then runs pancake's stricter
+  except its TCP-reset-sensitive `op:abort` case, then runs glowcap's stricter
   pre-setup abort and handshake-refusal probe against the same peer.
 - `zig build goblins-interop` runs a two-way conversation with a live
   [Spritely Goblins](https://spritely.institute/goblins/) vat.
 - `zig build goblins-handoff`, `goblins-gift`, and `goblins-exporter` exercise
-  pancake in each three-party handoff role against Goblins.
+  glowcap in each three-party handoff role against Goblins.
 
 External evidence does not resolve its direct inputs from moving package
 catalogs. OCapN conformance dependencies and Python WebSocket proofs use

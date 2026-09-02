@@ -20,7 +20,7 @@ impl Codec {
 			sys::CODEC_CAPNP => Ok(Codec::Capnp),
 			other => Err(Error::with_detail(
 				sys::ERR_INTERNAL,
-				format!("pancake ABI returned unknown session codec {other}"),
+				format!("glowcap ABI returned unknown session codec {other}"),
 			)),
 		}
 	}
@@ -39,13 +39,13 @@ impl Default for Codec {
 		match sys::DEFAULT_CODEC {
 			sys::CODEC_SYRUP => Codec::Syrup,
 			sys::CODEC_CAPNP => Codec::Capnp,
-			_ => unreachable!("generated default codec must be a known PANCAKE_CODEC_* value"),
+			_ => unreachable!("generated default codec must be a known GLOWCAP_CODEC_* value"),
 		}
 	}
 }
 
 /// The CapTP profile a session speaks (ADR-0003). `V1_0` is the interop floor a
-/// Goblins vat and the upstream suite speak; `Next` is the pancake-to-pancake
+/// Goblins vat and the upstream suite speak; `Next` is the glowcap-to-glowcap
 /// track that `Offer::native` prefers together with Cap'n Proto. A Host states
 /// its preference in signed locator hints; each session settles the pair with
 /// its partner.
@@ -97,7 +97,7 @@ impl CaptpVersion {
 			sys::CAPTP_NEXT => Ok(CaptpVersion::Next),
 			other => Err(Error::with_detail(
 				sys::ERR_INTERNAL,
-				format!("pancake ABI returned unknown session CapTP version {other}"),
+				format!("glowcap ABI returned unknown session CapTP version {other}"),
 			)),
 		}
 	}
@@ -115,7 +115,7 @@ impl Default for CaptpVersion {
 		match sys::DEFAULT_CAPTP_VERSION {
 			sys::CAPTP_V1_0 => CaptpVersion::V1_0,
 			sys::CAPTP_NEXT => CaptpVersion::Next,
-			_ => unreachable!("generated default CapTP version must be a known PANCAKE_CAPTP_* value"),
+			_ => unreachable!("generated default CapTP version must be a known GLOWCAP_CAPTP_* value"),
 		}
 	}
 }

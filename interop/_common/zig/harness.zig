@@ -14,14 +14,14 @@
 //! it sits outside the `src/` layer DAG.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const crypto = glowcap.foundation.crypto;
 
 /// A published actor that answers exactly one verb with a fixed string reply
 /// and refuses everything else with `error.NoSuchMethod`. Each driver picks a

@@ -1,7 +1,7 @@
 //! The message, described once, with no codec attached.
 //!
 //! Both codecs produce this same shape, and the engine works against it, so all
-//! of pancake shares one vocabulary for what a message actually is. The
+//! of glowcap shares one vocabulary for what a message actually is. The
 //! mutually-recursive value-tree core lives here directly — `Message` and its
 //! arms, `Reference`, `Argument`, `Resolution`, and the handshake/locator and gc
 //! shapes — because those types reference one another and read best as one unit.
@@ -539,7 +539,7 @@ pub const message_kinds = [_]MessageKind{
 /// Bind a satellite kind registry to `Message` at compile time: assert that
 /// `Registry`'s fields mirror `Message`'s arms by name and order. Each registry
 /// that restates the message-kind set — the engine's `EventKind`, the Cap'n
-/// Proto wire `Kind`, the C `PANCAKE_EVENT_*` block through its `EventKind`
+/// Proto wire `Kind`, the C `GLOWCAP_EVENT_*` block through its `EventKind`
 /// mirror — calls this so a new `Message` arm cannot land without its mirror.
 /// The wire ids and C discriminants stay explicit (they are external contracts,
 /// not derivations); this only forbids the set from drifting. `Registry` may be

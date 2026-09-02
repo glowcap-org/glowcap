@@ -511,7 +511,7 @@ Deno.test("attached image lines and refiles start their bounded automatic fetch"
 		name,
 		mime: "image/png",
 		size: 80,
-		blob: {} as import("@pancake/runtime").Ref,
+		blob: {} as import("@glowcap/runtime").Ref,
 		width: 4,
 		height: 2,
 	});

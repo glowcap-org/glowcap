@@ -5,11 +5,11 @@
 //! deadline escalation, and one session's timeout leaving its Host active.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const frame_cap = 8192;
@@ -39,12 +39,12 @@ test "a blocking netlayer returns its exact failure chain to the dial observer" 
 
         fn dial(
             _: *anyopaque,
-            _: *pancake.ocapn.engine.Peer,
+            _: *glowcap.ocapn.engine.Peer,
             _: model.PeerLocator,
             _: net.netlayer.Buffers,
             _: net.OperationOptions,
         ) net.netlayer.DialOutcome {
-            var chain = pancake.foundation.FailureChain.initNamed(
+            var chain = glowcap.foundation.FailureChain.initNamed(
                 error.ProviderIo,
                 "ExactBlockingDialRefusal",
             );

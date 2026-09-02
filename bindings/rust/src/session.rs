@@ -1,4 +1,4 @@
-//! The application surface over the byte-fed host (`libpancake_host`,
+//! The application surface over the byte-fed host (`libglowcap_host`,
 //! ADR-0072): [`Session`] and its verbs (`fetch`/`send`/`tell`/`spawn`/
 //! `publish`/`enliven`/`serve`/`close`), plus mint/handshake (`establish_*`).
 //! The managed dial executor (provider selection + channel open + [`Runtime::connect`]) lives in
@@ -7,7 +7,7 @@
 //! decode+execute lives in [`crate::action`].
 //! Per-session [`Caretaker`] / [`SessionShared`] live in [`crate::session_shared`];
 //! the Host-scoped [`Ref`] lives beside [`Argument`](crate::Argument).
-//! The byte-fed pump choreography — read raw bytes, `pancake_host_session_feed_bytes`,
+//! The byte-fed pump choreography — read raw bytes, `glowcap_host_session_feed_bytes`,
 //! drain the action queue, write what `take_outbound` drains, feed-refusal /
 //! `last_abort`, EOF / `break_far_vows` — lives in [`crate::pump`]; this module
 //! keeps CapTP verbs and thin wrappers into that path. A loop-backed session
@@ -59,7 +59,7 @@ pub(crate) type DesignatorScheme = u32;
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u64);
 
 /// A live CapTP session with one OCapN partner — the one object an application
-/// holds, over one byte-fed `PancakeHostSession` the shared [`Host`] minted.
+/// holds, over one byte-fed `GlowcapHostSession` the shared [`Host`] minted.
 /// `!Send` by construction; use it on a single task inside a `LocalSet`.
 /// A dial or accept returns an owning handle whose drop closes the session.
 /// Host-retained views, such as `send_redeeming`'s `via`, do not close on drop;
@@ -77,7 +77,7 @@ impl Session {
 	/// Binding-internal: the raw handles the trace veneer names a
 	/// session by (`annotate_session`). Null session pointer after
 	/// close — the veneer treats that as nothing to annotate.
-	pub(crate) fn trace_handles(&self) -> (*mut ffi::PancakeHost, *mut ffi::PancakeHostSession) {
+	pub(crate) fn trace_handles(&self) -> (*mut ffi::GlowcapHost, *mut ffi::GlowcapHostSession) {
 		(self.shared.host.raw(), self.shared.ptr.get())
 	}
 }
@@ -138,9 +138,9 @@ impl Session {
 	{
 		host.guard_handle()?;
 		let owned = OwnedLocator::new(locator)?;
-		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
+		let mut ptr: *mut ffi::GlowcapHostSession = core::ptr::null_mut();
 		check_host(unsafe {
-			ffi::pancake_host_session_open_dialed_locator(host.raw(), owned.borrow_view()?, &mut ptr)
+			ffi::glowcap_host_session_open_dialed_locator(host.raw(), owned.borrow_view()?, &mut ptr)
 		})?;
 		let session = Session::owning(SessionShared::new(ptr, host, stream));
 		// Before the first partner byte, which is the only window a realizer's
@@ -177,9 +177,9 @@ impl Session {
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
 		host.guard_handle()?;
-		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
+		let mut ptr: *mut ffi::GlowcapHostSession = core::ptr::null_mut();
 		check_host(unsafe {
-			ffi::pancake_host_session_open_accepted(
+			ffi::glowcap_host_session_open_accepted(
 				host.raw(),
 				transport_name.as_ptr(),
 				transport_name.len(),
@@ -277,7 +277,7 @@ impl Session {
 			Some(value) => value.borrow_view()?,
 			None => core::ptr::null(),
 		};
-		check_host(unsafe { ffi::pancake_host_session_set_exporter_location(self.shared.ptr.get(), view) })?;
+		check_host(unsafe { ffi::glowcap_host_session_set_exporter_location(self.shared.ptr.get(), view) })?;
 		Ok(())
 	}
 
@@ -309,9 +309,9 @@ impl Session {
 	/// answer a local send.
 	pub fn published_ref(&self, name: &str) -> Result<Option<Ref>> {
 		self.shared.guard_open()?;
-		let mut reference = sys::PancakeReference { id: 0 };
+		let mut reference = sys::GlowcapReference { id: 0 };
 		let rc = unsafe {
-			ffi::pancake_host_session_published_ref(self.shared.ptr.get(), name.as_ptr(), name.len(), &mut reference)
+			ffi::glowcap_host_session_published_ref(self.shared.ptr.get(), name.as_ptr(), name.len(), &mut reference)
 		};
 		if rc == sys::ERR_NOT_FOUND {
 			return Ok(None);
@@ -354,7 +354,7 @@ impl Session {
 
 	/// Spawn a local actor and return a capability to it. Pass the returned `Ref`
 	/// as a `send` argument to hand a partner a callback. The returned identity
-	/// is opaque and Host-scoped; wire export positions stay inside pancake.
+	/// is opaque and Host-scoped; wire export positions stay inside glowcap.
 	/// Callable from inside a served turn (a factory's `create` minting the task
 	/// it replies with).
 	pub fn spawn(
@@ -406,7 +406,7 @@ impl Session {
 			&self.shared,
 			name.as_bytes(),
 			name,
-			ffi::pancake_host_session_fetch,
+			ffi::glowcap_host_session_fetch,
 			true,
 		)
 		.await
@@ -426,7 +426,7 @@ impl Session {
 			&self.shared,
 			sturdyref.as_bytes(),
 			"enliven",
-			ffi::pancake_host_session_enliven,
+			ffi::glowcap_host_session_enliven,
 			false,
 		)
 		.await
@@ -446,7 +446,7 @@ impl Session {
 	/// Listen on a far capability this session holds (CapTP `op:listen`,
 	/// ADR-0095): the returned handle settles with the listen notification,
 	/// which may be any value, not only a capability. In 1.0, the target may be
-	/// a far promise or live far object; in pancake-next, the target must be a
+	/// a far promise or live far object; in glowcap-next, the target must be a
 	/// promise. A re-gifted promise routes to its exporter session
 	/// transparently.
 	pub fn listen(&self, target: &Ref) -> RemotePromise {
@@ -549,7 +549,7 @@ impl Session {
 		}
 	}
 
-	pub(crate) fn raw_session(&self) -> *mut ffi::PancakeHostSession {
+	pub(crate) fn raw_session(&self) -> *mut ffi::GlowcapHostSession {
 		self.shared.raw_session()
 	}
 

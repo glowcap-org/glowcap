@@ -26,7 +26,7 @@ Deno.test("IRC bridge configuration defaults to a credential-free read-only serv
 Deno.test("IRC bridge two-way configuration requires TLS and an environment-only SASL secret", () => {
 	const config = parseIrcBridgeConfig(
 		["--mode=two-way", "--sasl-account=bridge-account", "--irc-nick=bridgebot"],
-		(name) => name === "PANCAKE_ROOMS_IRC_SASL_PASSWORD" ? "bridge-password" : undefined,
+		(name) => name === "GLOWCAP_ROOMS_IRC_SASL_PASSWORD" ? "bridge-password" : undefined,
 	);
 	assertEquals(config.sasl, { account: "bridge-account", password: "bridge-password" });
 	assertEquals(
@@ -36,7 +36,7 @@ Deno.test("IRC bridge two-way configuration requires TLS and an environment-only
 		true,
 	);
 	assertEquals(
-		refusal(["--mode=two-way", "--sasl-account=bridge-account"]).includes("PANCAKE_ROOMS_IRC_SASL_PASSWORD"),
+		refusal(["--mode=two-way", "--sasl-account=bridge-account"]).includes("GLOWCAP_ROOMS_IRC_SASL_PASSWORD"),
 		true,
 	);
 	assertEquals(

@@ -1,7 +1,7 @@
-// Internal: the runtime-neutral half of `@pancake/runtime/ffi`.
+// Internal: the runtime-neutral half of `@glowcap/runtime/ffi`.
 //
 // Native programs pair this surface with `load.ts`; browser programs pair it
-// with `@pancake/web`'s stem-only resolver. Keeping the split here means the
+// with `@glowcap/web`'s stem-only resolver. Keeping the split here means the
 // browser module graph never has to import a filesystem/archive cascade merely
 // to reach the shared symbol-table and marshalling seams.
 

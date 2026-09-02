@@ -2,7 +2,7 @@
 # The register half of the rendezvous, natively (ADR-0088).
 #
 # The sibling rows prove the *dialing* half: a consumer cold-dials a peer that
-# registered at a relay. This proves the other side — a native pancake CLI is
+# registered at a relay. This proves the other side — a native glowcap CLI is
 # the peer that registers. It binds no listening socket at all; it holds an
 # inbound socket at the relay under its key designator, prints the
 # `keyed-relay` locator that names it, and answers a partner that arrives
@@ -48,7 +48,7 @@ port=$(grep "DENO-RELAY-READY" "$relay_log" | awk '{print $2}')
 
 # The registrant: no bind, a relay registration instead. `--publish` answers
 # one partner and exits, which is the whole conversation this row needs.
-PANCAKE_STATE="$host_state" ./zig-out/bin/pancake --json ocapn listen \
+GLOWCAP_STATE="$host_state" ./zig-out/bin/glowcap --json ocapn listen \
 	--rendezvous "ws://127.0.0.1:${port}/register" \
 	--rendezvous-relay "ws://127.0.0.1:${port}/relay" \
 	--publish greeter >"$host_log" 2>&1 &
@@ -66,8 +66,8 @@ esac
 
 # The client has a deliberately dead deployment fallback. It can cold-dial
 # only if the locator's route advice is authoritative.
-out=$(PANCAKE_STATE="$client_state" PANCAKE_RENDEZVOUS="ws://127.0.0.1:1/relay" \
-	./zig-out/bin/pancake --json ocapn call "$locator" greeter greet registered 2>&1) || true
+out=$(GLOWCAP_STATE="$client_state" GLOWCAP_RENDEZVOUS="ws://127.0.0.1:1/relay" \
+	./zig-out/bin/glowcap --json ocapn call "$locator" greeter greet registered 2>&1) || true
 case "$out" in
 *"Hello, registered"*)
 		echo "PASS: a native CLI registered at the relay and answered a cold dial through locator-carried route advice"

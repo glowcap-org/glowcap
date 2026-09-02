@@ -4,7 +4,7 @@
 ;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
 ;; (part of `check`) fails when this is stale.
 ;;
-;; The raw `ffi/unsafe` table of libpancake_net_transport_inproc. The
+;; The raw `ffi/unsafe` table of libglowcap_net_transport_inproc. The
 ;; hand-written sibling (`ffi-inproc.rkt`) owns the prose and re-provides
 ;; this module. The blocking rows (`#:blocking?`) park the calling thread
 ;; on the in-process pipes; the mark keeps the runtime GC-cooperative
@@ -14,46 +14,46 @@
          "ffi-shared.rkt"
          "constants-gen.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
-                     pancake_inproc_netlayer_new*
-                     pancake_inproc_listen*
-                     pancake_inproc_listener_readiness_fd*))
+                     glowcap_inproc_netlayer_new*
+                     glowcap_inproc_listen*
+                     glowcap_inproc_listener_readiness_fd*))
 
-(define inproc-lib (open-pancake-archive "pancake_net_transport_inproc"))
+(define inproc-lib (open-glowcap-archive "glowcap_net_transport_inproc"))
 
-(define-ffi-definer define-pancake-inproc inproc-lib)
+(define-ffi-definer define-glowcap-inproc inproc-lib)
 
-(define-pancake-inproc pancake_inproc_archive_fingerprint (_fun -> _uint64))
-(define-pancake-inproc pancake_inproc_last_error (_fun _pointer _size -> _size))
-(define-pancake-inproc pancake_inproc_netlayer_new*
+(define-glowcap-inproc glowcap_inproc_archive_fingerprint (_fun -> _uint64))
+(define-glowcap-inproc glowcap_inproc_last_error (_fun _pointer _size -> _size))
+(define-glowcap-inproc glowcap_inproc_netlayer_new*
   (_fun _pointer -> _int32)
-  #:c-id pancake_inproc_netlayer_new)
-(define pancake_inproc_netlayer_new (wrap-out1 pancake_inproc_netlayer_new* _pointer #f))
-(define-pancake-inproc pancake_inproc_netlayer_release (_fun #:blocking? #t _pointer -> _void))
-(define-pancake-inproc pancake_inproc_connect*
+  #:c-id glowcap_inproc_netlayer_new)
+(define glowcap_inproc_netlayer_new (wrap-out1 glowcap_inproc_netlayer_new* _pointer #f))
+(define-glowcap-inproc glowcap_inproc_netlayer_release (_fun #:blocking? #t _pointer -> _void))
+(define-glowcap-inproc glowcap_inproc_connect*
   (_fun _pointer _pointer _size _uint32 _size _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_inproc_connect)
-(define-pancake-inproc pancake_inproc_listen*
+  #:c-id glowcap_inproc_connect)
+(define-glowcap-inproc glowcap_inproc_listen*
   (_fun _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_inproc_listen)
-(define pancake_inproc_listen (wrap-out1 pancake_inproc_listen* _pointer #f))
-(define-pancake-inproc pancake_inproc_listener_readiness_fd*
+  #:c-id glowcap_inproc_listen)
+(define glowcap_inproc_listen (wrap-out1 glowcap_inproc_listen* _pointer #f))
+(define-glowcap-inproc glowcap_inproc_listener_readiness_fd*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_inproc_listener_readiness_fd)
-(define pancake_inproc_listener_readiness_fd (wrap-out1 pancake_inproc_listener_readiness_fd* _int32 0))
-(define-pancake-inproc pancake_inproc_accept*
+  #:c-id glowcap_inproc_listener_readiness_fd)
+(define glowcap_inproc_listener_readiness_fd (wrap-out1 glowcap_inproc_listener_readiness_fd* _int32 0))
+(define-glowcap-inproc glowcap_inproc_accept*
   (_fun #:blocking? #t _pointer _uint32 _size _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_inproc_accept)
-(define-pancake-inproc pancake_inproc_conn_read_frame*
-  (_fun #:blocking? #t _pointer (_or-null _PancakeManagedFrame-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_inproc_conn_read_frame)
-(define-pancake-inproc pancake_inproc_conn_write_frame*
-  (_fun #:blocking? #t _pointer (_or-null _PancakeFrame-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_inproc_conn_write_frame)
-(define-pancake-inproc pancake_inproc_conn_shutdown (_fun _pointer -> _void))
-(define-pancake-inproc pancake_inproc_conn_release (_fun #:blocking? #t _pointer -> _void))
-(define-pancake-inproc pancake_inproc_listener_shutdown (_fun _pointer -> _void))
-(define-pancake-inproc pancake_inproc_listener_release*
+  #:c-id glowcap_inproc_accept)
+(define-glowcap-inproc glowcap_inproc_conn_read_frame*
+  (_fun #:blocking? #t _pointer (_or-null _GlowcapManagedFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_inproc_conn_read_frame)
+(define-glowcap-inproc glowcap_inproc_conn_write_frame*
+  (_fun #:blocking? #t _pointer (_or-null _GlowcapFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_inproc_conn_write_frame)
+(define-glowcap-inproc glowcap_inproc_conn_shutdown (_fun _pointer -> _void))
+(define-glowcap-inproc glowcap_inproc_conn_release (_fun #:blocking? #t _pointer -> _void))
+(define-glowcap-inproc glowcap_inproc_listener_shutdown (_fun _pointer -> _void))
+(define-glowcap-inproc glowcap_inproc_listener_release*
   (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_inproc_listener_release)
+  #:c-id glowcap_inproc_listener_release)
 
-(require-archive-fingerprint! 'inproc pancake_inproc_archive_fingerprint INPROC-ARCHIVE-FINGERPRINT)
+(require-archive-fingerprint! 'inproc glowcap_inproc_archive_fingerprint INPROC-ARCHIVE-FINGERPRINT)

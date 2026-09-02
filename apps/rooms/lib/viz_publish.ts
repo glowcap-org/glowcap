@@ -29,7 +29,7 @@
 // full anyway); a send that throws is swallowed; a socket that dies is retried
 // with backoff.
 
-import type { TraceEvent } from "@pancake/runtime";
+import type { TraceEvent } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { nonnegativeSafeInteger } from "./schema.ts";
 

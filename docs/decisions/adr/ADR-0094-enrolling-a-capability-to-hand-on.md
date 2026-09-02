@@ -44,7 +44,7 @@ capability system is for, and it could not.
 ## Decision
 
 Add `driver_core.Host.enrollCapability`, expose it natively and as
-`pancake_host_session_enroll_capability`, and give every binding a
+`glowcap_host_session_enroll_capability`, and give every binding a
 `session.enroll` that takes a capability and returns one naming the token.
 
 **An explicit verb, not blanket enrollment.** The alternative considered was

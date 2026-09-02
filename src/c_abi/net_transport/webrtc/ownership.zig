@@ -15,7 +15,7 @@ pub const PeerPayload = struct {
     netlayer: *NetlayerPayload,
     references: usize = 1,
     provider_claimed: bool = false,
-    failure: c.PancakeProviderFailure = std.mem.zeroes(c.PancakeProviderFailure),
+    failure: c.GlowcapProviderFailure = std.mem.zeroes(c.GlowcapProviderFailure),
 };
 
 pub const NetlayerPayload = struct {
@@ -23,9 +23,9 @@ pub const NetlayerPayload = struct {
     allocator: std.mem.Allocator,
     references: usize = 1,
     peers: std.AutoHashMapUnmanaged(usize, *PeerPayload) = .{},
-    provider_profile: c.PancakeTransportProfile = undefined,
-    multiplexed_transport: c.PancakeMultiplexedTransport = undefined,
-    provider_entry: c.PancakeTransportProviderEntry = undefined,
+    provider_profile: c.GlowcapTransportProfile = undefined,
+    multiplexed_transport: c.GlowcapMultiplexedTransport = undefined,
+    provider_entry: c.GlowcapTransportProviderEntry = undefined,
     provider_initialized: bool = false,
 };
 

@@ -1,5 +1,5 @@
-import { Runtime } from "@pancake/runtime";
-import { keyed, provider } from "@pancake/relay";
+import { Runtime } from "@glowcap/runtime";
+import { keyed, provider } from "@glowcap/relay";
 
 // The key names the peer; the hint names the relay that can reach it.
 const peerKey = "<64 lowercase hex characters from the server>";

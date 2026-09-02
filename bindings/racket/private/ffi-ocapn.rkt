@@ -1,13 +1,13 @@
 #lang racket/base
-;; Internal: the raw `ffi/unsafe` loader for libpancake_ocapn, the core archive.
+;; Internal: the raw `ffi/unsafe` loader for libglowcap_ocapn, the core archive.
 ;;
-;; Nothing here is public. This surface binds the library-level `pancake_*`
+;; Nothing here is public. This surface binds the library-level `glowcap_*`
 ;; family the binding consumes: the ABI version and per-thread last error, the
 ;; managed-frame release every archive's frames free through, the OCapN
 ;; locator URI grammar, and the exporter location-record encoder gifter
 ;; origination feeds. The wire itself rides the byte-fed host archive
 ;; (`ffi-host.rkt`); the native Zig engine peer is not mirrored into C
-;; surface with no Racket wrapper. This loader opens ONLY libpancake_ocapn:
+;; surface with no Racket wrapper. This loader opens ONLY libglowcap_ocapn:
 ;; the universal base usable alone (ADR-0059). The transport archives have
 ;; their own loaders (`ffi-tcp.rkt`, `ffi-inproc.rkt`, `ffi-iroh.rkt`), each
 ;; opening only its own symbol-disjoint archive, so requiring the core pulls
@@ -23,7 +23,7 @@
          "ffi-ocapn-gen.rkt"
          "ffi-shared.rkt")
 (require-archive-fingerprint!
- 'ocapn pancake_ocapn_archive_fingerprint OCAPN-ARCHIVE-FINGERPRINT)
+ 'ocapn glowcap_ocapn_archive_fingerprint OCAPN-ARCHIVE-FINGERPRINT)
 ;; Re-export the shared cstruct vocabulary so a module that requires this loader
 ;; has the layouts the bound functions read and write.
 (provide (all-from-out "ffi-shared.rkt")

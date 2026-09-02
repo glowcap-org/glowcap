@@ -1,7 +1,7 @@
 # bindings/proofs/
 
 Each directory runs one end-to-end scenario through every language binding.
-All peers are pancake and all traffic stays on loopback. A failure points to
+All peers are glowcap and all traffic stays on loopback. A failure points to
 the binding or C ABI, not an interoperability disagreement.
 
 These are deeper than the per-binding `zig_smoke.*` consumers, which touch the
@@ -20,4 +20,4 @@ are in [`interop/_common/`](../../interop/_common/).
 | [`noise_relay_listen/`](noise_relay_listen/) | Each binding registers a durable key, advertises its relay locator, and serves a Noise-sealed session dialed by one fixed client | `zig build bindings-noise-relay-listen` and language siblings |
 
 `zig build source-check` also reads these scripts. Every wrapped
-`pancake_host_*` verb must appear in a script that a build step runs.
+`glowcap_host_*` verb must appear in a script that a build step runs.

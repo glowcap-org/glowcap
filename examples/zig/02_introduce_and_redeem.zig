@@ -1,4 +1,4 @@
-//! 02 — An introduction: the capability pattern pancake exists for.
+//! 02 — An introduction: the capability pattern glowcap exists for.
 //!
 //! Chapter 01 held one session between two peers. Here there are three, and
 //! the point is what you do *not* write. A directory you already talk to
@@ -20,12 +20,12 @@
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const opts: driver.SessionOptions = .{

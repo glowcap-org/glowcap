@@ -3,14 +3,14 @@
 ocapnviz draws CapTP sessions and messages on a timeline so you can watch a
 live Rooms server or replay a recorded run. Peers and sessions animate as a
 deterministic entity world advanced by a playback clock and drawn with PixiJS.
-Each peer carries an implementation profile (`goblins`, `pancake`, and so on),
+Each peer carries an implementation profile (`goblins`, `glowcap`, and so on),
 and each session carries its codec, CapTP version, and lifecycle state.
 
 The [active backlog](../../docs/planning/ocapnviz-backlog.md) records remaining viz
 work; [the roadmap](../../docs/roadmap.md) lists the object-layer and control
 capability items that sit above it. ocapnviz replays timelines that
-`pancake griddle run` produces, converted by `scripts/griddle-import.ts`, and it
-reads the same schema live from a running pancake host. It runs on its own Deno
+`glowcap griddle run` produces, converted by `scripts/griddle-import.ts`, and it
+reads the same schema live from a running glowcap host. It runs on its own Deno
 toolchain under `apps/ocapnviz/`.
 
 ## Quick start
@@ -31,10 +31,11 @@ only when that probe runs against the app.
 
 The dev server defaults to <http://127.0.0.1:5173> and answers only localhost
 Host headers, so a laptop run is not a LAN service. The devcontainer binds
-`0.0.0.0` and answers any Host header, so the published port works as localhost
-or as the machine's own hostname. Hit **Play** and watch Alice introduce Bob to
-Carol. The new Bob-to-Carol session lands on `syrup/v1_0` because Bob is
-Goblins-flavored, so codec and CapTP version negotiate per session.
+`0.0.0.0` inside the container and answers any Host header, so Compose's
+host-loopback publish reaches Vite. Open that published port as localhost.
+Hit **Play** and watch Alice introduce Bob to Carol. The new Bob-to-Carol
+session lands on `syrup/v1_0` because Bob is Goblins-flavored, so codec and
+CapTP version negotiate per session.
 
 `dev.sh` supervises vite so that Ctrl-C and closing the terminal stop the dev
 server. A bare `deno run -A npm:vite` can outlive its terminal through deno's

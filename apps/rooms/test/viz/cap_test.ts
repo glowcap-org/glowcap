@@ -9,7 +9,7 @@
 // producer, never a viewer, nothing it sends parsed or forwarded.
 //
 // The server half is the mint: enabling the endpoint (`--viz`, or its env
-// twin `PANCAKE_ROOMS_VIZ=1`) is what mints and persists the swiss, a server
+// twin `GLOWCAP_ROOMS_VIZ=1`) is what mints and persists the swiss, a server
 // without it mints nothing, and a stale swiss left in state answers nothing
 // anywhere.
 
@@ -159,7 +159,7 @@ function spawnServer(stateDir: string, env: Record<string, string> = {}): Deno.C
 	return spawnOwned("deno", {
 		args: [...DENO_FLAGS, `--allow-write=${stateDir}`, SERVER, "0"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: stateDir, ...env },
+		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: stateDir, ...env },
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -224,7 +224,7 @@ roomsTest("viz off mints nothing, and a stale persisted swiss answers nothing", 
 
 roomsTest("enabling the endpoint mints one persistent swiss the announcement carries", async () => {
 	const stateDir = await Deno.makeTempDir();
-	const proc = spawnServer(stateDir, { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: "0" });
+	const proc = spawnServer(stateDir, { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: "0" });
 	const announced = scrapeStderr(proc.stderr, [
 		/^ROOMS-VIZ ([0-9a-f]{64})$/m,
 		/ROOMS-VIZ-LISTENING (\S+)/,

@@ -1,8 +1,8 @@
-//! The in-process transport's public C ABI — `libpancake_net_transport_inproc`.
+//! The in-process transport's public C ABI — `libglowcap_net_transport_inproc`.
 //!
 //! The socket-free sibling of the TCP transport (`src/c_abi/net_transport/tcp/`): the same
 //! host-driven netlayer boundary, but the two peers run in one process with no
-//! kernel transport. A `PancakeInprocNetlayer` is a switchboard
+//! kernel transport. A `GlowcapInprocNetlayer` is a switchboard
 //! (`net.inproc.Network`) plus the one `std.Io` backend its pipes block on; a
 //! listener binds to a *string designator* (not host:port) and a dialer names
 //! that designator. The C listener adds a socketpair wake descriptor for foreign
@@ -14,11 +14,11 @@
 //! host's peer, step, take outbound, write it back. Only the addressing and the
 //! transport behind the `FrameStream` differ, so the C host's loop is unchanged.
 //!
-//! This is a *separate archive* from `libpancake_ocapn` (ADR-0059): it imports
+//! This is a *separate archive* from `libglowcap_ocapn` (ADR-0059): it imports
 //! only the shared vocabulary leaf (`@import("c_abi_shared")`), so it exports
-//! just the `pancake_inproc_*` family and shares no core symbol with the ocapn
+//! just the `glowcap_inproc_*` family and shares no core symbol with the ocapn
 //! archive. The transport carries its own per-thread last-error slot, read
-//! through `pancake_inproc_last_error`.
+//! through `glowcap_inproc_last_error`.
 
 const std = @import("std");
 
@@ -26,65 +26,65 @@ const net = @import("net");
 
 // The shared C-ABI vocabulary leaf, *not* the ocapn root. Importing the leaf
 // gives this transport ABI the same frame and context types
-// `pancake_ocapn.h` declares, with its own compiled copy of the helpers and
+// `glowcap_ocapn.h` declares, with its own compiled copy of the helpers and
 // last-error slot, and pulls *none* of the ocapn archive's exported surface
 // (ADR-0059 companion split).
 const c = @import("c_abi_shared");
 
 pub const contract_layouts = [_]c.archive_contract.Layout{};
 
-pub const PANCAKE_INPROC_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+pub const GLOWCAP_INPROC_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
     "inproc",
     @This(),
     .{ c.contract_layouts, contract_layouts },
 );
 
-pub export fn pancake_inproc_archive_fingerprint() u64 {
-    return PANCAKE_INPROC_ARCHIVE_FINGERPRINT;
+pub export fn glowcap_inproc_archive_fingerprint() u64 {
+    return GLOWCAP_INPROC_ARCHIVE_FINGERPRINT;
 }
 
 /// The netlayer handle owns the in-process switchboard and the one `std.Io`
 /// backend its pipes block on. Created and released explicitly by the host; it
 /// must outlive every connection and listener made from it.
-pub const PancakeInprocNetlayer = opaque {};
+pub const GlowcapInprocNetlayer = opaque {};
 /// One in-process connection carrying one OCapN session. Owned by the caller;
-/// released with `pancake_inproc_conn_release`.
-pub const PancakeInprocConn = opaque {};
+/// released with `glowcap_inproc_conn_release`.
+pub const GlowcapInprocConn = opaque {};
 /// A bound in-process listener. Owned by the caller; released with
-/// `pancake_inproc_listener_release`.
-pub const PancakeInprocListener = opaque {};
+/// `glowcap_inproc_listener_release`.
+pub const GlowcapInprocListener = opaque {};
 
-const PancakeContext = c.PancakeContext;
-const PancakeFrame = c.PancakeFrame;
-const PancakeManagedFrame = c.PancakeManagedFrame;
+const GlowcapContext = c.GlowcapContext;
+const GlowcapFrame = c.GlowcapFrame;
+const GlowcapManagedFrame = c.GlowcapManagedFrame;
 
 const setLastError = c.setLastError;
 
-const PANCAKE_OK = c.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = c.PANCAKE_ERR_INVALID_ARGUMENT;
-const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
-const PANCAKE_ERR_CLOSED = c.PANCAKE_ERR_CLOSED;
-const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
+const GLOWCAP_OK = c.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = c.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = c.GLOWCAP_ERR_INVALID_ARGUMENT;
+const GLOWCAP_ERR_INTERNAL = c.GLOWCAP_ERR_INTERNAL;
+const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
+const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 
 /// The annotated symbol inventory (crossing semantics per export) the
 /// binding FFI-table generators reflect from — see `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
 /// Copy the calling thread's last inproc-transport error message into `out_buf`,
-/// the inproc sibling of `pancake_last_error`. `libpancake_net_transport_inproc`
+/// the inproc sibling of `glowcap_last_error`. `libglowcap_net_transport_inproc`
 /// carries its own per-thread slot (a separate compiled copy of the shared
-/// leaf's slot), so a `pancake_inproc_*` call that returns a cause-bearing code
+/// leaf's slot), so a `glowcap_inproc_*` call that returns a cause-bearing code
 /// records it here, readable independently of the ocapn archive's. Copies at
 /// most `cap - 1` bytes and always NUL-terminates when `cap > 0`;
 /// `out_buf == NULL` or `cap == 0` queries the length. Returns the full message
 /// length, or 0 when none is set.
-pub export fn pancake_inproc_last_error(out_buf: ?[*]u8, cap: usize) usize {
+pub export fn glowcap_inproc_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return c.lastErrorRead(out_buf, cap);
 }
 
 /// Clear the calling thread's inproc-transport last error slot.
-pub export fn pancake_inproc_clear_last_error() void {
+pub export fn glowcap_inproc_clear_last_error() void {
     c.lastErrorClear();
 }
 
@@ -135,25 +135,25 @@ const destroyConn = conn_lifecycle.destroy;
 const conn_frame_ops = c.ConnFrameOps(InprocConnPayload);
 
 /// Create a netlayer handle allocating through the library-owned allocator.
-/// Release it with `pancake_inproc_netlayer_release` after closing every
+/// Release it with `glowcap_inproc_netlayer_release` after closing every
 /// endpoint made from it.
-pub export fn pancake_inproc_netlayer_new(out_netlayer: ?*?*PancakeInprocNetlayer) i32 {
+pub export fn glowcap_inproc_netlayer_new(out_netlayer: ?*?*GlowcapInprocNetlayer) i32 {
     c.lastErrorClear();
-    const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_netlayer orelse return GLOWCAP_ERR_NULL_POINTER;
     return netlayerNewIn(c.library_allocator, slot);
 }
 
 /// Create a netlayer handle whose switchboard, backend, and per-connection
 /// buffers all allocate through `context`. Released with
-/// `pancake_inproc_netlayer_release`.
-pub export fn pancake_inproc_netlayer_new_in(context: ?*PancakeContext, out_netlayer: ?*?*PancakeInprocNetlayer) i32 {
+/// `glowcap_inproc_netlayer_release`.
+pub export fn glowcap_inproc_netlayer_new_in(context: ?*GlowcapContext, out_netlayer: ?*?*GlowcapInprocNetlayer) i32 {
     c.lastErrorClear();
-    const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
+    const c_ctx = c.ctxFromOpaque(context) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_netlayer orelse return GLOWCAP_ERR_NULL_POINTER;
     return netlayerNewIn(c_ctx.allocator(), slot);
 }
 
-fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*PancakeInprocNetlayer) i32 {
+fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*GlowcapInprocNetlayer) i32 {
     const payload = alloc.create(InprocNetlayerPayload) catch |err|
         return c.failInternal("inproc netlayer_new", err);
     payload.threaded = std.Io.Threaded.init(alloc, .{});
@@ -163,10 +163,10 @@ fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*PancakeInprocNetlayer) i32 {
     // `&payload.threaded` — valid now that the payload has its stable address.
     payload.network = net.inproc.Network.init(alloc, payload.threaded.io());
     slot.* = @ptrCast(payload);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-pub export fn pancake_inproc_netlayer_release(netlayer: ?*PancakeInprocNetlayer) void {
+pub export fn glowcap_inproc_netlayer_release(netlayer: ?*GlowcapInprocNetlayer) void {
     const payload = netlayerFromOpaque(netlayer) orelse return;
     _ = payload.calls.beginShutdown(payload.io());
     payload.calls.wait(payload.io());
@@ -179,20 +179,20 @@ pub export fn pancake_inproc_netlayer_release(netlayer: ?*PancakeInprocNetlayer)
 /// Dial the in-process listener bound at `designator` and return an owned
 /// connection handle framing on `codec`. Non-blocking on the dial itself.
 fn inprocConnect(
-    netlayer: ?*PancakeInprocNetlayer,
+    netlayer: ?*GlowcapInprocNetlayer,
     designator: ?[*]const u8,
     designator_len: usize,
     codec: u32,
     max_frame_bytes: usize,
-    out_conn: ?*?*PancakeInprocConn,
+    out_conn: ?*?*GlowcapInprocConn,
 ) i32 {
-    const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!nl.calls.acquire(nl.io())) return PANCAKE_ERR_CLOSED;
+    const nl = netlayerFromOpaque(netlayer) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (!nl.calls.acquire(nl.io())) return GLOWCAP_ERR_CLOSED;
     defer nl.calls.release(nl.io());
-    const slot = out_conn orelse return PANCAKE_ERR_NULL_POINTER;
-    const designator_ptr = designator orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_conn orelse return GLOWCAP_ERR_NULL_POINTER;
+    const designator_ptr = designator orelse return GLOWCAP_ERR_NULL_POINTER;
     const codec_id = c.framingOptionsFromC(codec, max_frame_bytes, "inproc connect") catch
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
 
     const payload = beginConn(nl.allocator, max_frame_bytes) orelse
         return c.failInternal("inproc connect", error.OutOfMemory);
@@ -201,23 +201,23 @@ fn inprocConnect(
         return dialErrorToCode(err);
     };
     slot.* = @ptrCast(payload);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-pub export fn pancake_inproc_connect(
-    netlayer: ?*PancakeInprocNetlayer,
+pub export fn glowcap_inproc_connect(
+    netlayer: ?*GlowcapInprocNetlayer,
     designator: ?[*]const u8,
     designator_len: usize,
     codec: u32,
     max_frame_bytes: usize,
-    out_conn: ?*?*PancakeInprocConn,
+    out_conn: ?*?*GlowcapInprocConn,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return PANCAKE_ERR_NULL_POINTER;
+        return GLOWCAP_ERR_NULL_POINTER;
     }
     return c.captureCallError(
         inprocConnect(netlayer, designator, designator_len, codec, max_frame_bytes, out_conn),
@@ -228,18 +228,18 @@ pub export fn pancake_inproc_connect(
 }
 
 /// Bind an in-process listener on `designator`. Returns an owned listener handle.
-pub export fn pancake_inproc_listen(
-    netlayer: ?*PancakeInprocNetlayer,
+pub export fn glowcap_inproc_listen(
+    netlayer: ?*GlowcapInprocNetlayer,
     designator: ?[*]const u8,
     designator_len: usize,
-    out_listener: ?*?*PancakeInprocListener,
+    out_listener: ?*?*GlowcapInprocListener,
 ) i32 {
     c.lastErrorClear();
-    const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!nl.calls.acquire(nl.io())) return PANCAKE_ERR_CLOSED;
+    const nl = netlayerFromOpaque(netlayer) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (!nl.calls.acquire(nl.io())) return GLOWCAP_ERR_CLOSED;
     defer nl.calls.release(nl.io());
-    const slot = out_listener orelse return PANCAKE_ERR_NULL_POINTER;
-    const designator_ptr = designator orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_listener orelse return GLOWCAP_ERR_NULL_POINTER;
+    const designator_ptr = designator orelse return GLOWCAP_ERR_NULL_POINTER;
 
     const payload = nl.allocator.create(InprocListenerPayload) catch |err|
         return c.failInternal("inproc listen", err);
@@ -253,36 +253,36 @@ pub export fn pancake_inproc_listen(
         .allocator = nl.allocator,
     };
     slot.* = @ptrCast(payload);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Return the listener's borrowed readiness descriptor. Inproc has no transport
 /// fd, so this is its wake channel, nudged when a dial is queued.
-/// Park on it before calling `pancake_inproc_accept`; the listener owns it.
-pub export fn pancake_inproc_listener_readiness_fd(listener: ?*PancakeInprocListener, out_fd: ?*i32) i32 {
+/// Park on it before calling `glowcap_inproc_accept`; the listener owns it.
+pub export fn glowcap_inproc_listener_readiness_fd(listener: ?*GlowcapInprocListener, out_fd: ?*i32) i32 {
     c.lastErrorClear();
-    const payload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!payload.operations.acquire(payload.io)) return PANCAKE_ERR_CLOSED;
+    const payload = listenerFromOpaque(listener) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (!payload.operations.acquire(payload.io)) return GLOWCAP_ERR_CLOSED;
     defer payload.operations.release(payload.io);
-    const slot = out_fd orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_fd orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = payload.listener.readinessFd();
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Block until a dialer connects, returning an owned connection handle framing
 /// on `codec`.
 fn inprocAccept(
-    listener: ?*PancakeInprocListener,
+    listener: ?*GlowcapInprocListener,
     codec: u32,
     max_frame_bytes: usize,
-    out_conn: ?*?*PancakeInprocConn,
+    out_conn: ?*?*GlowcapInprocConn,
 ) i32 {
-    const lpayload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!lpayload.operations.acquire(lpayload.io)) return PANCAKE_ERR_CLOSED;
+    const lpayload = listenerFromOpaque(listener) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (!lpayload.operations.acquire(lpayload.io)) return GLOWCAP_ERR_CLOSED;
     defer lpayload.operations.release(lpayload.io);
-    const slot = out_conn orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_conn orelse return GLOWCAP_ERR_NULL_POINTER;
     const codec_id = c.framingOptionsFromC(codec, max_frame_bytes, "inproc accept") catch
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
 
     const payload = beginConn(lpayload.allocator, max_frame_bytes) orelse
         return c.failInternal("inproc accept", error.OutOfMemory);
@@ -291,21 +291,21 @@ fn inprocAccept(
         return acceptErrorToCode(err);
     };
     slot.* = @ptrCast(payload);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-pub export fn pancake_inproc_accept(
-    listener: ?*PancakeInprocListener,
+pub export fn glowcap_inproc_accept(
+    listener: ?*GlowcapInprocListener,
     codec: u32,
     max_frame_bytes: usize,
-    out_conn: ?*?*PancakeInprocConn,
+    out_conn: ?*?*GlowcapInprocConn,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return PANCAKE_ERR_NULL_POINTER;
+        return GLOWCAP_ERR_NULL_POINTER;
     }
     return c.captureCallError(
         inprocAccept(listener, codec, max_frame_bytes, out_conn),
@@ -318,22 +318,22 @@ pub export fn pancake_inproc_accept(
 /// Block until one whole frame arrives, writing it as an *owned* managed frame
 /// into `out_frame`. `_CLOSED` on graceful EOF, `_MALFORMED` / `_FRAME_TOO_LARGE`
 /// for a bad frame.
-fn inprocConnReadFrame(conn: ?*PancakeInprocConn, out_frame: ?*PancakeManagedFrame) i32 {
-    const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_frame orelse return PANCAKE_ERR_NULL_POINTER;
+fn inprocConnReadFrame(conn: ?*GlowcapInprocConn, out_frame: ?*GlowcapManagedFrame) i32 {
+    const payload = connFromOpaque(conn) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_frame orelse return GLOWCAP_ERR_NULL_POINTER;
     return conn_frame_ops.readFrame(payload, slot, onReadConnectionLost);
 }
 
-pub export fn pancake_inproc_conn_read_frame(
-    conn: ?*PancakeInprocConn,
-    out_frame: ?*PancakeManagedFrame,
+pub export fn glowcap_inproc_conn_read_frame(
+    conn: ?*GlowcapInprocConn,
+    out_frame: ?*GlowcapManagedFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return PANCAKE_ERR_NULL_POINTER;
+        return GLOWCAP_ERR_NULL_POINTER;
     }
     return c.captureCallError(
         inprocConnReadFrame(conn, out_frame),
@@ -344,22 +344,22 @@ pub export fn pancake_inproc_conn_read_frame(
 }
 
 /// Write one frame's *borrowed* bytes into the partner's pipe.
-fn inprocConnWriteFrame(conn: ?*PancakeInprocConn, frame_in: ?*const PancakeFrame) i32 {
-    const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
-    const borrowed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
+fn inprocConnWriteFrame(conn: ?*GlowcapInprocConn, frame_in: ?*const GlowcapFrame) i32 {
+    const payload = connFromOpaque(conn) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const borrowed = frame_in orelse return GLOWCAP_ERR_NULL_POINTER;
     return conn_frame_ops.writeFrame(payload, borrowed, onWriteErr);
 }
 
-pub export fn pancake_inproc_conn_write_frame(
-    conn: ?*PancakeInprocConn,
-    frame_in: ?*const PancakeFrame,
+pub export fn glowcap_inproc_conn_write_frame(
+    conn: ?*GlowcapInprocConn,
+    frame_in: ?*const GlowcapFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return PANCAKE_ERR_NULL_POINTER;
+        return GLOWCAP_ERR_NULL_POINTER;
     }
     return c.captureCallError(
         inprocConnWriteFrame(conn, frame_in),
@@ -371,46 +371,46 @@ pub export fn pancake_inproc_conn_write_frame(
 
 /// Interrupt blocked reads and writes and seal new operation admission without
 /// freeing the connection. Release joins every admitted operation.
-pub export fn pancake_inproc_conn_shutdown(conn: ?*PancakeInprocConn) void {
+pub export fn glowcap_inproc_conn_shutdown(conn: ?*GlowcapInprocConn) void {
     const payload = connFromOpaque(conn) orelse return;
     conn_lifecycle.shutdown(payload);
 }
 
-pub export fn pancake_inproc_conn_release(conn: ?*PancakeInprocConn) void {
+pub export fn glowcap_inproc_conn_release(conn: ?*GlowcapInprocConn) void {
     const payload = connFromOpaque(conn) orelse return;
     destroyConn(payload);
 }
 
 /// Stop admission and wake a blocked accept without freeing the listener.
 /// Release joins every accept already admitted.
-pub export fn pancake_inproc_listener_shutdown(listener: ?*PancakeInprocListener) void {
+pub export fn glowcap_inproc_listener_shutdown(listener: ?*GlowcapInprocListener) void {
     const payload = listenerFromOpaque(listener) orelse return;
     if (payload.operations.beginShutdown(payload.io)) payload.listener.shutdown();
 }
 
-fn inprocListenerRelease(listener: ?*PancakeInprocListener) i32 {
-    const payload = listenerFromOpaque(listener) orelse return PANCAKE_OK;
-    pancake_inproc_listener_shutdown(listener);
+fn inprocListenerRelease(listener: ?*GlowcapInprocListener) i32 {
+    const payload = listenerFromOpaque(listener) orelse return GLOWCAP_OK;
+    glowcap_inproc_listener_shutdown(listener);
     payload.operations.wait(payload.io);
     const alloc = payload.allocator;
     const failure = payload.listener.close();
     alloc.destroy(payload);
     if (failure) |chain| {
         setLastError("listener release: {s}", .{@errorName(chain.cause)});
-        return PANCAKE_ERR_IO;
+        return GLOWCAP_ERR_IO;
     }
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-pub export fn pancake_inproc_listener_release(
-    listener: ?*PancakeInprocListener,
+pub export fn glowcap_inproc_listener_release(
+    listener: ?*GlowcapInprocListener,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
-        return PANCAKE_ERR_NULL_POINTER;
+        return GLOWCAP_ERR_NULL_POINTER;
     }
     return c.captureCallError(
         inprocListenerRelease(listener),
@@ -424,22 +424,22 @@ fn dialErrorToCode(err: net.netlayer.DialError) i32 {
     return switch (err) {
         error.InvalidAddress => blk: {
             setLastError("connect: empty inproc designator", .{});
-            break :blk PANCAKE_ERR_INVALID_ARGUMENT;
+            break :blk GLOWCAP_ERR_INVALID_ARGUMENT;
         },
         error.ConnectionRefused => blk: {
             setLastError("connect: no listener bound at that inproc designator", .{});
-            break :blk PANCAKE_ERR_IO;
+            break :blk GLOWCAP_ERR_IO;
         },
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
         // ConnectionLost is reachable — a listener acquired for the dial can be
         // torn down before `enqueue`. NetworkUnreachable and TimedOut have no
         // in-memory meaning and never arise for inproc; the shared DialError set
         // only spells them because network transports need them. Surface the
         // exact classification by name rather than collapsing it, so a consumer
-        // reading `pancake_inproc_last_error` sees which one it hit.
+        // reading `glowcap_inproc_last_error` sees which one it hit.
         else => blk: {
             setLastError("connect: inproc dial failed: {s}", .{@errorName(err)});
-            break :blk PANCAKE_ERR_IO;
+            break :blk GLOWCAP_ERR_IO;
         },
     };
 }
@@ -448,14 +448,14 @@ fn listenErrorToCode(err: net.netlayer.ListenError) i32 {
     return switch (err) {
         error.InvalidAddress => blk: {
             setLastError("listen: empty inproc designator", .{});
-            break :blk PANCAKE_ERR_INVALID_ARGUMENT;
+            break :blk GLOWCAP_ERR_INVALID_ARGUMENT;
         },
-        error.InvalidOptions => PANCAKE_ERR_INVALID_ARGUMENT,
+        error.InvalidOptions => GLOWCAP_ERR_INVALID_ARGUMENT,
         error.BindFailed => blk: {
             setLastError("listen: inproc designator already bound", .{});
-            break :blk PANCAKE_ERR_INVALID_ARGUMENT;
+            break :blk GLOWCAP_ERR_INVALID_ARGUMENT;
         },
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
     };
 }
 
@@ -463,21 +463,21 @@ fn acceptErrorToCode(err: net.netlayer.AcceptError) i32 {
     return switch (err) {
         error.ConnectionLost => blk: {
             setLastError("accept: listener closed", .{});
-            break :blk PANCAKE_ERR_IO;
+            break :blk GLOWCAP_ERR_IO;
         },
         error.SocketConfigurationFailed => blk: {
             setLastError("accept: transport socket configuration failed", .{});
-            break :blk PANCAKE_ERR_IO;
+            break :blk GLOWCAP_ERR_IO;
         },
         error.WakeNudgeFailed => blk: {
             setLastError("accept: in-process listener wake failed", .{});
-            break :blk PANCAKE_ERR_IO;
+            break :blk GLOWCAP_ERR_IO;
         },
         error.WakeDrainFailed => blk: {
             setLastError("accept: in-process listener wake drain failed", .{});
-            break :blk PANCAKE_ERR_IO;
+            break :blk GLOWCAP_ERR_IO;
         },
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
     };
 }
 
@@ -489,17 +489,17 @@ fn onWriteErr(_: *InprocConnPayload, err: anyerror) void {
     setLastError("write_frame: {s}", .{@errorName(err)});
 }
 
-fn netlayerFromOpaque(netlayer: ?*PancakeInprocNetlayer) ?*InprocNetlayerPayload {
+fn netlayerFromOpaque(netlayer: ?*GlowcapInprocNetlayer) ?*InprocNetlayerPayload {
     const ptr = netlayer orelse return null;
     return @ptrCast(@alignCast(ptr));
 }
 
-fn connFromOpaque(conn: ?*PancakeInprocConn) ?*InprocConnPayload {
+fn connFromOpaque(conn: ?*GlowcapInprocConn) ?*InprocConnPayload {
     const ptr = conn orelse return null;
     return @ptrCast(@alignCast(ptr));
 }
 
-fn listenerFromOpaque(listener: ?*PancakeInprocListener) ?*InprocListenerPayload {
+fn listenerFromOpaque(listener: ?*GlowcapInprocListener) ?*InprocListenerPayload {
     const ptr = listener orelse return null;
     return @ptrCast(@alignCast(ptr));
 }

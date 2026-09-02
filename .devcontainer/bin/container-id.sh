@@ -26,7 +26,7 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 checkout=""
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_require_host "container-id.sh"
+glowcap_require_host "container-id.sh"
 
 mode=if-missing
 for argument in "$@"; do
@@ -59,13 +59,13 @@ if [[ ! -d "${checkout}" ]]; then
     echo "container-id.sh: checkout does not exist: ${checkout}" >&2
     exit 1
 fi
-if ! lifecycle="$(pancake_devcontainer_checkout_entry "${checkout}" up.sh)"; then
+if ! lifecycle="$(glowcap_devcontainer_checkout_entry "${checkout}" up.sh)"; then
     echo "container-id.sh: checkout has no devcontainer lifecycle entry point: ${checkout}" >&2
     exit 1
 fi
 
 if [[ "${mode}" == if-missing ]]; then
-    if container="$(pancake_devcontainer_running_container "${checkout}" 2>/dev/null)"; then
+    if container="$(glowcap_devcontainer_running_container "${checkout}" 2>/dev/null)"; then
         printf '%s\n' "${container}"
         exit 0
     fi
@@ -80,4 +80,4 @@ case "${mode}" in
     no-cache) bash "${lifecycle}" --no-cache >&2 ;;
     up) bash "${lifecycle}" >&2 ;;
 esac
-pancake_devcontainer_running_container "${checkout}"
+glowcap_devcontainer_running_container "${checkout}"

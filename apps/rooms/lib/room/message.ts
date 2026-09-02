@@ -9,7 +9,7 @@
 // Each reader answers "did the room say this" rather than throwing, because the
 // arguments are a peer's and a malformed one means the room said nothing.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import type { Attachment } from "../attachment.ts";
 import {

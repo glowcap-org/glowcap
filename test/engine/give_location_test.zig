@@ -1,17 +1,17 @@
 //! The give's exporter-location form (ADR-0118): a `desc:handoff-give`
 //! embeds the exporter's hello location in the form its recipient can use.
 //! `handoff_gifter.exporterLocationForRecipient` keeps ADR-0118's byte-exact
-//! profile behavior while stripping pancake-private route vocabulary before a
+//! profile behavior while stripping glowcap-private route vocabulary before a
 //! give reaches an unknown recipient, so a Goblins recipient sees one concrete
 //! baseline route rather than private vocabulary it never negotiated.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const codec = pancake.ocapn.codec;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const codec = glowcap.ocapn.codec;
+const crypto = glowcap.foundation.crypto;
 
 fn recordBytes(allocator: std.mem.Allocator, locator: model.PeerLocator) ![]u8 {
     return codec.signed.encodeLocatorRecord(allocator, locator);
@@ -34,7 +34,7 @@ test "a bare exporter location needs no stripping and allocates nothing" {
 test "profile hints strip to the bare onion form" {
     const allocator = std.testing.allocator;
     const hints = [_]model.HintEntry{
-        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "pancake-next" } },
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "glowcap-next" } },
         .{ .name = model.transport.hint_codec, .value = .{ .string = "1" } },
     };
     const raw = try recordBytes(allocator, .{
@@ -58,7 +58,7 @@ test "routing hints a receiver needs survive the onion profile strip" {
     const allocator = std.testing.allocator;
     const hints = [_]model.HintEntry{
         .{ .name = "direct-addresses", .value = .{ .string = "192.0.2.7:9045" } },
-        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "pancake-next" } },
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "glowcap-next" } },
     };
     const raw = try recordBytes(allocator, .{
         .transport = model.transport.onion,
@@ -88,7 +88,7 @@ test "a profile-only non-onion give keeps the exporter's hello verbatim" {
     const allocator = std.testing.allocator;
     const hints = [_]model.HintEntry{
         .{ .name = "direct-addresses", .value = .{ .string = "192.0.2.7:9045" } },
-        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "pancake-next" } },
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "glowcap-next" } },
     };
     const raw = try recordBytes(allocator, .{
         .transport = model.transport.iroh,
@@ -164,7 +164,7 @@ test "id gives lower to the recipient session transport" {
     defer allocator.free(id_raw);
 
     const give = try expectMintedExporter(allocator, id_raw, .{
-        .known_pancake = true,
+        .known_glowcap = true,
         .session_transport = model.transport.iroh,
     });
     defer model.freeHandoffGive(allocator, give);
@@ -225,7 +225,7 @@ test "route vocabulary recipients keep id locators verbatim" {
     defer allocator.free(raw);
 
     const give = try expectMintedExporter(allocator, raw, .{
-        .known_pancake = true,
+        .known_glowcap = true,
         .route_vocabulary = true,
     });
     defer model.freeHandoffGive(allocator, give);
@@ -265,7 +265,7 @@ test "route vocabulary recipients use a baseline exporter's session location" {
         &@as([32]u8, @splat(0x2b)),
         &@as([32]u8, @splat(0x2c)),
         id_raw,
-        .{ .known_pancake = true, .route_vocabulary = true },
+        .{ .known_glowcap = true, .route_vocabulary = true },
         .{ .route_vocabulary = false, .session_location = baseline_raw },
     );
     defer allocator.free(signed);
@@ -298,7 +298,7 @@ test "route vocabulary recipients keep a baseline-compatible exporter override" 
         &@as([32]u8, @splat(0x2f)),
         &@as([32]u8, @splat(0x30)),
         override_raw,
-        .{ .known_pancake = true, .route_vocabulary = true },
+        .{ .known_glowcap = true, .route_vocabulary = true },
         .{ .route_vocabulary = false, .session_location = session_raw },
     );
     defer allocator.free(signed);

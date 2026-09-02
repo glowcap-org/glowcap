@@ -1,4 +1,4 @@
-# pancake devcontainer
+# glowcap devcontainer
 
 This is the supported ready-to-build environment for VS Code and Cursor. It
 installs Zig, conformance tools, binding runtimes, the Chromium the browser
@@ -14,7 +14,7 @@ zig build check
 On first use, `hooks/initialize.sh` runs
 [`bin/configure.sh`](bin/configure.sh). The primary checkout needs no setup:
 the command derives its Git common directory, writes the ignored `.env`, and
-creates an isolated `pancake-main-egress` network. `hooks/post-create.sh` runs
+creates an isolated `glowcap-main-egress` network. `hooks/post-create.sh` runs
 automatically after the image is ready, verifies the toolchains, and initializes
 the conformance submodules before the editor opens the workspace.
 
@@ -32,19 +32,19 @@ bash .devcontainer/bin/up.sh --no-cache   # Rebuild Container Without Cache
 
 [`bin/enter.sh`](bin/enter.sh) wraps that in tmux. It starts or reuses the named
 worktree's container, then attaches the default tmux session or an explicitly
-named alternate session. `pancake` is the CapTP CLI inside the container, so
+named alternate session. `glowcap` is the CapTP CLI inside the container, so
 the host launcher does not take that name. Run it from the checkout, or symlink
 it onto the host `PATH` under another name:
 
 ```sh
-bash .devcontainer/bin/enter.sh                          # tmux: pancake-main
-bash .devcontainer/bin/enter.sh --session review         # tmux: pancake-main-review
-bash .devcontainer/bin/enter.sh tree1                    # tmux: pancake-tree1
-bash .devcontainer/bin/enter.sh tree1 --session review   # tmux: pancake-tree1-review
+bash .devcontainer/bin/enter.sh                          # tmux: glowcap-main
+bash .devcontainer/bin/enter.sh --session review         # tmux: glowcap-main-review
+bash .devcontainer/bin/enter.sh tree1                    # tmux: glowcap-tree1
+bash .devcontainer/bin/enter.sh tree1 --session review   # tmux: glowcap-tree1-review
 bash .devcontainer/bin/enter.sh tree1 --session review --rebuild
 
-ln -s "$(pwd)/.devcontainer/bin/enter.sh" ~/.local/bin/pancake-enter
-pancake-enter tree1 --session review
+ln -s "$(pwd)/.devcontainer/bin/enter.sh" ~/.local/bin/glowcap-enter
+glowcap-enter tree1 --session review
 ```
 
 The launcher follows its symlink and asks Git for the primary checkout, so it
@@ -56,8 +56,8 @@ beside compose if that checkout has not moved it yet, then attaches.
 
 The option `--session NAME` selects another tmux session without creating
 another Docker container. Omitting it preserves the default
-`pancake-<worktree>` session; supplying it uses
-`pancake-<worktree>-<name>`. Each session opens its own shell, while all
+`glowcap-<worktree>` session; supplying it uses
+`glowcap-<worktree>-<name>`. Each session opens its own shell, while all
 sessions for a worktree share that container's processes and filesystem.
 A session designator starts with a lowercase letter, ends with a
 lowercase letter or digit, contains only lowercase letters, digits, and
@@ -71,7 +71,7 @@ force either behavior; detection covers a local iTerm2 tab and, with iTerm2's
 shell integration installed, an ssh session from one.
 
 The same identity names both Docker artifacts. A `tree1` checkout uses the
-container `pancake-tree1` and builds the image `vsc-pancake-tree1`.
+container `glowcap-tree1` and builds the image `vsc-glowcap-tree1`.
 
 [`bin/enter-grid.sh`](bin/enter-grid.sh) opens many worktrees at once: one tmux
 session holding a grid with one column per worktree. With no arguments, every
@@ -80,13 +80,13 @@ those columns. It runs that checkout's own `up.sh`, looking under `bin/` first
 and beside compose if that checkout still keeps it there, so each column keeps
 the tooling and ports it was built with. `--rebuild`, `--no-cache`,
 `--session`, `--cc`, and `--no-cc` work as in `bin/enter.sh`, with sessions
-named `pancake-grid` or `pancake-grid-<name>`. Percentage splits need tmux 3.1
+named `glowcap-grid` or `glowcap-grid-<name>`. Percentage splits need tmux 3.1
 or newer.
 
 ```sh
-bash .devcontainer/bin/enter-grid.sh                  # tmux: pancake-grid
+bash .devcontainer/bin/enter-grid.sh                  # tmux: glowcap-grid
 bash .devcontainer/bin/enter-grid.sh main tree2       # only these columns
-bash .devcontainer/bin/enter-grid.sh --session review # tmux: pancake-grid-review
+bash .devcontainer/bin/enter-grid.sh --session review # tmux: glowcap-grid-review
 ```
 
 Each worktree configures its own column through the ignored
@@ -112,8 +112,8 @@ Every pane both launchers open keeps a shell on the host, in that worktree's
 checkout, and runs the container shell inside it. Two words move between them:
 
 ```sh
-pancake_devcontainer_exit    # step out to the host, in this worktree
-pancake_devcontainer_enter   # go back into the container
+glowcap_devcontainer_exit    # step out to the host, in this worktree
+glowcap_devcontainer_enter   # go back into the container
 ```
 
 `exit` still ends the pane, container shell and tmux pane together, because
@@ -143,7 +143,7 @@ path. Neither one replaces your shell: each sources your own `~/.zshrc` or
 Each checkout has one short name in its ignored `.devcontainer/.env`.
 [`bin/configure.sh`](bin/configure.sh) derives the name and Git common
 directory. The primary checkout uses `main`, so its Docker container is
-`pancake-main`. A linked worktree uses the same lowercase name as its
+`glowcap-main`. A linked worktree uses the same lowercase name as its
 directory; its branch name remains independent. Create and configure one with:
 
 ```sh
@@ -160,16 +160,16 @@ whether ports are free and then racing Docker for them.
 an identity, port offset, or egress network, stop that checkout's container,
 remove the ignored file, and run the command again with the new choice.
 
-Opening that checkout creates `pancake-tree1`, even though its branch is
+Opening that checkout creates `glowcap-tree1`, even though its branch is
 `failure-sweep`. Startup refuses a mismatched linked-worktree directory instead
 of attaching an ambiguous container name. Names start with a letter, contain
 only lowercase letters and digits, and are at most 12 characters.
 
-These names are host-global Docker names. Two independent pancake clones may
+These names are host-global Docker names. Two independent glowcap clones may
 run together only when their worktree designators differ; startup refuses a
 duplicate container name rather than guessing which checkout the user meant.
 
-The ignored file also records `PANCAKE_GIT_COMMON_DIR`, derived from:
+The ignored file also records `GLOWCAP_GIT_COMMON_DIR`, derived from:
 
 ```sh
 git rev-parse --path-format=absolute --git-common-dir
@@ -188,17 +188,17 @@ every concurrently running worktree a different set. The generated `tree1` file
 contains:
 
 ```dotenv
-PANCAKE_ROOMS_WEB_HOST_PORT=18000
-PANCAKE_ROOMS_CAPTP_HOST_PORT=19099
-PANCAKE_ROOMS_RELAY_HOST_PORT=19200
-PANCAKE_ROOMS_TRACE_HOST_PORT=19300
-PANCAKE_OCAPNVIZ_HOST_PORT=15173
-PANCAKE_DOCS_HOST_PORT=11990
+GLOWCAP_ROOMS_WEB_HOST_PORT=18000
+GLOWCAP_ROOMS_CAPTP_HOST_PORT=19099
+GLOWCAP_ROOMS_RELAY_HOST_PORT=19200
+GLOWCAP_ROOMS_TRACE_HOST_PORT=19300
+GLOWCAP_OCAPNVIZ_HOST_PORT=15173
+GLOWCAP_DOCS_HOST_PORT=11990
 ```
 
 The file uses one plain `KEY=value` assignment per line. Exported host
 variables take precedence over Compose `.env` files, so startup refuses an
-inherited `PANCAKE_*` or `EGRESS_NET` value that differs from this checkout's
+inherited `GLOWCAP_*` or `EGRESS_NET` value that differs from this checkout's
 file.
 
 ## What runs when
@@ -218,6 +218,7 @@ in [`checksums.sh`](checksums.sh).
 | Group | Tools | Installer |
 | --- | --- | --- |
 | Base image | The Debian image both this container and the rooms deploy image build on, pinned by digest | `Dockerfile` |
+| Workspace shell | zsh (`/bin/zsh`), which the pane runtime execs | `Dockerfile` |
 | Zig | Zig, with ZLS disabled until upstream supports the pinned compiler | `image/zig.sh`, `image/zls.sh` |
 | Conformance | Python, Racket, and Goblins | `image/python.sh`, `image/racket-goblins.sh` |
 | Bindings | Rust, Deno, Node, npm, and Bun | `image/rust.sh`, `image/js-toolchains.sh` |
@@ -226,8 +227,8 @@ in [`checksums.sh`](checksums.sh).
 | Debugging | gdb, lldb, strace, valgrind, perf, hyperfine | `Dockerfile` |
 | Tor | the `tor` daemon the `onion` netlayer's live checks talk to | `Dockerfile` |
 
-The image also puts the repository's own CapTP CLI on PATH: `pancake` links to
-the repo-root shim, which builds `zig-out/bin/pancake` on first use, so the
+The image also puts the repository's own CapTP CLI on PATH: `glowcap` links to
+the repo-root shim, which builds `zig-out/bin/glowcap` on first use, so the
 [CLI](../docs/cli.md) is callable from any directory in the container.
 
 Cursor's agent CLI answers to both of the names upstream installs, `agent` and
@@ -239,7 +240,7 @@ build keeps answering and `bin/update-pins.sh` stays the way to move it. There
 is no browser in the container, so sign in with `NO_OPEN_BROWSER=1 agent login`
 and open the printed URL on the host; `agent status` says who you are.
 
-No Tor is running when the container opens, and that is deliberate: pancake
+No Tor is running when the container opens, and that is deliberate: glowcap
 reaches an onion service through a daemon whoever deployed it started, so the
 library never starts, supervises, or configures one. The image installs the
 binary and stops there. A check that needs a live daemon starts its own with its
@@ -271,7 +272,7 @@ the build if one ever does. Path changes are still hand edits: keep the
 The script's own modules are in `lib/`, one per subject, named
 `update-pins-*.sh`. To start tracking a new dependency, add it to
 [`lib/update-pins-deps.sh`](lib/update-pins-deps.sh): a name in
-`PANCAKE_PINS_DEPS`, its `pins.sh` variable, how a bump is proven, and the query
+`GLOWCAP_PINS_DEPS`, its `pins.sh` variable, how a bump is proven, and the query
 that asks its release channel what the latest version is. If a file outside
 `pins.sh` also names that version, give it a row in
 `lib/update-pins-companions.sh` and you are done: the bump rewrites it from that
@@ -289,9 +290,9 @@ rebuild, or a `git clean` that throws away the wrong thing.
 The **image** holds compilers, Goblins in `PLTUSERHOME`, Playwright browsers,
 rustup, uv tools, and the Cursor agent binary. A pin bump is a rebuild.
 
-The **host user** holds agent logins and pancake caches. Those scoped binds are
-in [`devcontainer.json`](devcontainer.json). Look at `~/.cache/pancake` on the
-host and `/home/vscode/.cache/pancake` in the container: same tree, a `LAYOUT`
+The **host user** holds agent logins and glowcap caches. Those scoped binds are
+in [`devcontainer.json`](devcontainer.json). Look at `~/.cache/glowcap` on the
+host and `/home/vscode/.cache/glowcap` in the container: same tree, a `LAYOUT`
 file at the root. [Host configuration](docs/host-configuration.md) covers the
 login mounts.
 
@@ -319,11 +320,11 @@ are unused; post-create deletes them.
 
 | Variable | During image build | In an open container |
 | --- | --- | --- |
-| `CARGO_HOME` | `/usr/local/cargo` | `~/.cache/pancake/cargo` host bind |
+| `CARGO_HOME` | `/usr/local/cargo` | `~/.cache/glowcap/cargo` host bind |
 | `RUSTUP_HOME` | `/usr/local/rustup` | unchanged |
 | `PLAYWRIGHT_BROWSERS_PATH` | `/usr/local/share/ms-playwright` | unchanged |
-| `PLTUSERHOME` | `/opt/pancake-racket-userhome` | unchanged |
-| `ZIG_GLOBAL_CACHE_DIR` | `/home/vscode/.cache/pancake/tool/zig` | same path on the host bind |
+| `PLTUSERHOME` | `/opt/glowcap-racket-userhome` | unchanged |
+| `ZIG_GLOBAL_CACHE_DIR` | `/home/vscode/.cache/glowcap/tool/zig` | same path on the host bind |
 | `ZIG_LOCAL_CACHE_DIR` | unset (image build uses a checkout `.zig-cache`) | `work/<worktree>/zig-local` on the host bind |
 | `ZIG_LOCAL_PKG_DIR` | unset (image build uses a checkout `zig-pkg/`) | `work/<worktree>/zig-pkg` on the host bind |
 | `UV_CACHE_DIR` | unset | `tool/uv` on the host bind |
@@ -341,7 +342,7 @@ the host. The Cursor agent CLI on Linux still writes login tokens under
 [Host configuration](docs/host-configuration.md) covers the mounts themselves.
 
 Playwright's default download directory is `~/.cache/ms-playwright`, outside
-the pancake cache bind, so a browser landing there would vanish with the
+the glowcap cache bind, so a browser landing there would vanish with the
 container. Browsers still belong to the image: `PLAYWRIGHT_BROWSERS_PATH`
 points at a shared system directory the image build fills once. Root installs
 the browsers and every user reads them, so the browser proofs
@@ -363,15 +364,16 @@ Two detailed guides cover the parts that vary by machine:
 
 ### Ports the container forwards
 
-`docker-compose.yml` publishes six ports on every host interface: the rooms
+`docker-compose.yml` publishes six ports on host loopback: the rooms
 web page (8000), the rooms directory's CapTP listener (9099), the reference
 relay (9200), the protocol-visualizer trace feed (9300), the ocapnviz Vite
 dev server (5173), and the documentation preview (1990). Services always use
 those canonical numbers inside the container. Their host ports come from
 `.env`, so the primary checkout's web page is `http://localhost:8000`, while
 the example worktree above uses `http://localhost:18000`. The ocapnviz page
-and the docs preview can be opened as localhost or as the machine's own
-hostname on that published port.
+and the docs preview open as localhost on that published port. A tailnet
+listener such as Tailscale Serve can bind the same numbers on the machine's
+tailnet addresses without colliding with this publish.
 
 They are declared rather than left to the editor noticing a listener, because a
 guessed forward goes away again when it stops noticing, and
@@ -400,8 +402,8 @@ files that carry versions, and the front-door prose.
 | `docs/` | The longer prose: host setup and networking |
 
 Each script declares where it runs and refuses the wrong side: host-side
-scripts call `pancake_require_host`, container-side ones
-`pancake_require_devcontainer`, and `lib/context.sh` owns the detection. The
+scripts call `glowcap_require_host`, container-side ones
+`glowcap_require_devcontainer`, and `lib/context.sh` owns the detection. The
 two exceptions are noted in their own headers: `image/zig.sh` also runs on CI
 runners, macOS included, and `test/env-sync.sh` is pure file checks.
 `hooks/post-create.sh` runs shellcheck over every shell file here, so a lint
@@ -432,7 +434,7 @@ finding fails container open and the CI push checks.
 | `hooks/post-create.sh` | Verifies an open container and fills the conformance submodules | container |
 | `hooks/verify-ptrace.sh` | Checks ptrace access | container |
 | `pane/host/.bashrc` | Host half of the pane runtime: enters the container, and decides whether the pane ends with the shell that leaves it | host |
-| `pane/container/.zshrc` | Container half: initializes the shell, runs that pane's function from the worktree's ignored `pane/panes.sh`, and owns `pancake_devcontainer_exit` | container |
+| `pane/container/.zshrc` | Container half: initializes the shell, runs that pane's function from the worktree's ignored `pane/panes.sh`, and owns `glowcap_devcontainer_exit` | container |
 | `pane/panes.example.sh` | The shape a worktree's own `pane/panes.sh` takes | example |
 | `test/env-sync.sh` | Checks pins, mounts, names, structure, and host lifecycle contracts | anywhere |
 | `test/host-invariants.sh` | Tests checkout configuration, identity, networks, Git-owned lookup, and the pane runtime | anywhere |

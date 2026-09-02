@@ -4,7 +4,7 @@
 //! segments. You reach structured data by following pointers, struct or list,
 //! each of which packs a signed word offset to whatever it points at.
 //!
-//! Nothing in this file knows about pancake's messages. It's purely mechanical:
+//! Nothing in this file knows about glowcap's messages. It's purely mechanical:
 //! framing segments, packing and unpacking pointer bits, a small single-segment
 //! builder, and bounds-checked word reads. Mapping all of that onto the model is
 //! `decode.zig` and `encode.zig`'s job.
@@ -216,7 +216,7 @@ pub const Builder = struct {
     /// refusal leaves the builder exactly as it was.
     ///
     /// `toOwnedSlice` trims the growable buffer's spare capacity, which the
-    /// allocators pancake ships against do in place. One that cannot falls back
+    /// allocators glowcap ships against do in place. One that cannot falls back
     /// to `std`'s allocate-and-copy, the same cost this method replaced.
     pub fn finishOwned(self: *Builder, allocator: std.mem.Allocator) !foundation.Frame {
         std.debug.assert(self.words.items.len >= frame_header_words);

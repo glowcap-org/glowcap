@@ -1,6 +1,6 @@
 // Process proof for durable Rooms session facets, watches, and restart identity.
 
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import { RoomsSessionClient, type RoomsSessionLineEvent } from "../../lib/session/client.ts";
 import { Directory, Room } from "../../lib/room/client.ts";
 import { loopbackTcpDesignator, roomsAddress, roomsHost, roomsLocator } from "../../lib/locator.ts";
@@ -46,8 +46,8 @@ async function refused(action: () => Promise<unknown>): Promise<boolean> {
 }
 
 roomsTest("online room authority rotation reconciles the shared checkpoint without a browser", async () => {
-	const sessionDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-authority-" });
-	const roomDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-authority-room-" });
+	const sessionDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-authority-" });
+	const roomDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-authority-room-" });
 	const sessionPort = freePort();
 	const roomPort = freePort();
 	const roomLocator = loopbackTcpDesignator(roomPort);
@@ -334,10 +334,10 @@ roomsTest("online room authority rotation reconciles the shared checkpoint witho
 });
 
 roomsTest("a durable Rooms session shares revisioned state through attenuated facets and restart", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-peer-" });
-	const readinessDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-ready-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-peer-" });
+	const readinessDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-ready-" });
 	const readinessFile = sessionAdminPath(readinessDirectory);
-	const roomDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-room-" });
+	const roomDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-room-" });
 	const port = freePort();
 	const roomPort = freePort();
 	const roomServer = startStatefulServer(roomPort, roomDirectory);

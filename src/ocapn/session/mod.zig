@@ -189,14 +189,14 @@ pub const Session = struct {
     /// The partner's, or the baseline before its hello has arrived. The
     /// session records the claim; the engine decides with it.
     partner_preference: model.Preference = model.Preference.baseline,
-    /// Whether this partner is known to be pancake before our hello states a
+    /// Whether this partner is known to be glowcap before our hello states a
     /// preference, which on onion is the licence to state one at all
     /// (ADR-0118). The engine mints it at exactly two seams, and the pinned
     /// Goblins onion netlayer can produce neither: a dial handed a
-    /// `pancake/*`-hinted locator (`Peer.noteKnownPancakePartner`), and a
+    /// `glowcap/*`-hinted locator (`Peer.noteKnownGlowcapPartner`), and a
     /// deferred onion accept whose inbound hello stated a non-baseline
     /// preference (`Peer.answerDeferredHello`).
-    partner_known_pancake: bool = false,
+    partner_known_glowcap: bool = false,
     features: model.FeatureSet,
     limits: SessionLimits,
     next_export_position: u64,
@@ -412,7 +412,7 @@ pub const Session = struct {
     pub const awaitsPartnerHello = handshake.awaitsPartnerHello;
     pub const transitionToOpen = handshake.transitionToOpen;
     pub const partnerSessionKey = handshake.partnerSessionKey;
-    pub const partnerKnownPancake = handshake.partnerKnownPancake;
+    pub const partnerKnownGlowcap = handshake.partnerKnownGlowcap;
     pub const statesUpgradedProfile = handshake.statesUpgradedProfile;
     pub const localSessionKey = handshake.localSessionKey;
     pub const partnerDesignator = handshake.partnerDesignator;

@@ -14,7 +14,7 @@
 
 const std = @import("std");
 const zig_builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ctx_mod = @import("../ctx.zig");
 const cmd_types = @import("../cmd/types.zig");
 const argv = @import("../argv.zig");
@@ -23,10 +23,10 @@ const ocapn = @import("mod.zig");
 const relay_runtime = @import("relay_runtime.zig");
 const signals = @import("../operability/signals.zig");
 
-const driver = pancake.driver;
-const model = pancake.ocapn.model;
+const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
 const Ctx = ctx_mod.Ctx;
-const FailureChain = pancake.foundation.FailureChain;
+const FailureChain = glowcap.foundation.FailureChain;
 const session_opts = @import("session_opts.zig");
 const listen_close = @import("listen_close.zig");
 
@@ -42,7 +42,7 @@ pub const Handle = struct {
     /// The listening transport's residents. They live here rather than on
     /// `start`'s frame because the server borrows one for the accept thread's
     /// whole life; which one is chosen is `ocapn.listenTarget`'s decision.
-    tcp: pancake.net.tcp.Resident = undefined,
+    tcp: glowcap.net.tcp.Resident = undefined,
     relay: ?relay_runtime.Provider = null,
     server: *driver.Server,
     thread: std.Thread = undefined,

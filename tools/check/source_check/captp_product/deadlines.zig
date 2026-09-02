@@ -175,8 +175,8 @@ pub fn valuePositive(file: []const u8, value_expr: []const u8, allow_name: bool)
     for ([_][]const u8{
         "driver.default_handshake_budget",
         "driver.default_settle_budget",
-        "pancake.driver.default_handshake_budget",
-        "pancake.driver.default_settle_budget",
+        "glowcap.driver.default_handshake_budget",
+        "glowcap.driver.default_settle_budget",
     }) |shared| {
         if (std.mem.startsWith(u8, value, shared) and ends(value[shared.len..])) return true;
     }

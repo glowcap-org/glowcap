@@ -35,7 +35,7 @@ impl LoopShared {
 
 	pub(crate) fn request_session_close(
 		self: &Rc<Self>,
-		session: *mut ffi_host::PancakeHostSession,
+		session: *mut ffi_host::GlowcapHostSession,
 		pending: PendingWork,
 	) -> Result<()> {
 		if self.released.get() {

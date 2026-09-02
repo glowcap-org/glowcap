@@ -4,16 +4,16 @@
 //! `beginSendNamed`/`beginTellNamed` chains and their break stages.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
-const net = pancake.net;
-const syrup = pancake.ocapn.codec.syrup;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
+const net = glowcap.net;
+const syrup = glowcap.ocapn.codec.syrup;
+const crypto = glowcap.foundation.crypto;
 
 const harness = @import("harness.zig");
 const handshake_budget = harness.handshake_budget;
@@ -28,7 +28,7 @@ const HostedGreeter = harness.HostedGreeter;
 //
 // A `driver.Served` owns no socket: the caller feeds inbound frames with
 // `feedBorrowed` and drains outbound with `takeOutbound`, owning the loop
-// itself. This is the sans-io driving mode `libpancake_host` and a browser
+// itself. This is the sans-io driving mode `libglowcap_host` and a browser
 // ride. The test shuttles a real eventual-send and its resolution between two
 // byte-fed vats over an already-open in-memory session, with no `net.Connection`
 // on either side, so the byte-fed path serves identically to the socket path.

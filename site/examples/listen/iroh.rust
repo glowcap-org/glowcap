@@ -1,8 +1,8 @@
-use pancake::iroh::{self, Reachability};
-use pancake::Argument;
+use glowcap::iroh::{self, Reachability};
+use glowcap::Argument;
 
 // This listener is named by its node id. Partners can dial it from anywhere.
-// Cargo.toml: pancake = { …, features = ["iroh"] }
+// Cargo.toml: glowcap = { …, features = ["iroh"] }
 let server = iroh::listen(
     iroh::Config::new(Reachability::Discovery),
     iroh::ListenOptions::default(),

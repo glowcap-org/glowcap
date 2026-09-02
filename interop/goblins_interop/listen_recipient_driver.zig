@@ -1,7 +1,7 @@
 //! Live foreign-promise recipient proof on the owning native Session face.
 //!
 //! A real Goblins vat delivers one of its still-unsettled promises as an
-//! argument to a pancake actor. pancake installs `Session.listenTo` on that
+//! argument to a glowcap actor. glowcap installs `Session.listenTo` on that
 //! capability, then queues the Goblins settlement request on the same wire.
 //! FIFO delivery therefore makes listen-before-settle a protocol fact. The
 //! listener fulfillment is a list containing a fresh Goblins greeter; calling
@@ -9,18 +9,18 @@
 //! Every application retain is released and the session finishes explicitly.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const driver = pancake.driver;
-const actors = pancake.actors;
-const tcp = pancake.net.tcp;
+const driver = glowcap.driver;
+const actors = glowcap.actors;
+const tcp = glowcap.net.tcp;
 
 const host = "127.0.0.1";
 const default_port: u16 = 22180;
 const frame_cap: usize = 1 << 16;
-const rendezvous_swiss = "pancakeDeferredRendezvousSwiss01";
+const rendezvous_swiss = "glowcapDeferredRendezvousSwiss01";
 const exporter_script = "conformance/goblins-peer/racket/deferred-exporter-host.rkt";
 
 const opts: driver.SessionOptions = .{
@@ -100,7 +100,7 @@ fn requireGreeting(reply: driver.Reply) !void {
         .broken => return error.GreeterCallBroke,
     };
     if (value != .string or
-        !std.mem.eql(u8, value.string, "hello pancake, from goblins-bob"))
+        !std.mem.eql(u8, value.string, "hello glowcap, from goblins-bob"))
     {
         return error.WrongGreeting;
     }
@@ -187,7 +187,7 @@ pub fn main(init: std.process.Init) !void {
     requireGreeting(try session.call(
         greeter,
         "",
-        &.{.{ .string = "pancake" }},
+        &.{.{ .string = "glowcap" }},
         arena,
     )) catch |err| {
         goblins_child.dumpChildStderr(io, "goblins-listen-recipient", &bob);

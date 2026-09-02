@@ -1,6 +1,6 @@
 // Parse and transfer custody of one durable-session line event.
 
-import { type Argument, type Session } from "@pancake/runtime";
+import { type Argument, type Session } from "@glowcap/runtime";
 import { releaseCapabilityArguments } from "../argument_custody.ts";
 import { parseLineEvent, type RoomsSessionLineEvent } from "./messages.ts";
 

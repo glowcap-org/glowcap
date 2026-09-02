@@ -1,6 +1,6 @@
 // The narrowing authority and per-root issuer state of an archive capability.
 
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import { ALL_ARCHIVE_RECORDS, type ArchiveAccess, type ArchiveFilter } from "./scope.ts";
 
 export interface ArchiveFacet {

@@ -21,14 +21,14 @@
 //! at scale, so it runs as the sibling step `zig build tcp-loop`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 
 const TcpBridge = driver.Bridge(net.TcpLoop);
 const runLoop = harness.LoopRunner(net.TcpLoop).runAfterClosed;
@@ -216,7 +216,7 @@ const backpressure_batch: usize = 512;
 /// against a number the kernel picks.
 ///
 /// Setting `SO_RCVBUF` explicitly opts this socket out of that auto-tuning,
-/// so the proof is a statement about pancake rather than about the host's
+/// so the proof is a statement about glowcap rather than about the host's
 /// sysctls. Small on purpose: the window closes almost at once, so
 /// the server's writes back up into the queue ADR-0042 bounds.
 const client_rcvbuf_bytes: c_int = 4096;
@@ -396,12 +396,12 @@ pub fn main(init: std.process.Init) !void {
         // Volume alone is therefore an arms race against numbers the host
         // picks, and the proof lost it: the queue peaked around 3 KiB while
         // the mark sat at 4 KiB, so the park never fired and the failure read
-        // as a pancake regression.
+        // as a glowcap regression.
         //
         // The mark is configuration, so the honest proof configures it. What
         // ADR-0042 claims is that the queue parks the read once it passes the
         // mark, and that claim is the same at any mark; pinning a low one
-        // makes the assertion about pancake rather than about sysctls.
+        // makes the assertion about glowcap rather than about sysctls.
         .outbound_high_water_bytes = 1024,
         .fan_in_throttle = true,
         .park_kill_ms = 30_000,

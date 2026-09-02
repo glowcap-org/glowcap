@@ -2,14 +2,14 @@
 //! of every authority kind, and completion/promise failure classification.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 const host_pair = @import("../../support/host_pair.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const core = pancake.driver.core;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const core = glowcap.driver.core;
+const actors = glowcap.actors;
 
 const LocalActor = struct {
     pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Message) !model.Argument {

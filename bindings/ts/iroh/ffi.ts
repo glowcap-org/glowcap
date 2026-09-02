@@ -3,17 +3,17 @@
 // reflected signature) — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// Internal: the FFI mirror of `libpancake_net_transport_iroh`'s C ABI.
+// Internal: the FFI mirror of `libglowcap_net_transport_iroh`'s C ABI.
 //
-// The iroh companion library (`libpancake_net_transport_iroh`, ADR-0055) is
+// The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0055) is
 // optional — absent unless built with cargo — so it loads lazily on first use
 // through `irohS()`, which names how to produce it rather than surfacing a raw
 // dlopen failure. This loader opens *only* the iroh archive, through the core's
-// shared FFI runtime (`@pancake/runtime/ffi`). Nothing here is public; `mod.ts` is
+// shared FFI runtime (`@glowcap/runtime/ffi`). Nothing here is public; `mod.ts` is
 // the ergonomic surface over it.
 
-import { ffi, libFile, libPath, requireArchiveFingerprint, type Symbols } from "@pancake/runtime/ffi";
-import { IROH_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+import { ffi, libFile, libPath, requireArchiveFingerprint, type Symbols } from "@glowcap/runtime/ffi";
+import { IROH_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 
 const P = "pointer",
 	B = "buffer",
@@ -23,35 +23,35 @@ const P = "pointer",
 	U64 = "u64";
 
 const irohSymbolDefs = {
-	pancake_iroh_archive_fingerprint: { parameters: [], result: U64 },
-	pancake_iroh_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_iroh_netlayer_new: {
+	glowcap_iroh_archive_fingerprint: { parameters: [], result: U64 },
+	glowcap_iroh_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
+	glowcap_iroh_netlayer_new: {
 		parameters: [B, U, B, B, B, U, B],
 		result: I,
 		outBuffers: [3, 4, 6],
 		nonblocking: true,
 	},
-	pancake_iroh_netlayer_close: { parameters: [P], result: V, nonblocking: true },
-	pancake_iroh_netlayer_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
-	pancake_iroh_netlayer_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
-	pancake_iroh_netlayer_direct_addrs: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
-	pancake_iroh_conn_release: { parameters: [P], result: V },
-	pancake_iroh_conn_id: { parameters: [P], result: U },
-	pancake_iroh_conn_remote_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
+	glowcap_iroh_netlayer_close: { parameters: [P], result: V, nonblocking: true },
+	glowcap_iroh_netlayer_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+	glowcap_iroh_netlayer_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
+	glowcap_iroh_netlayer_direct_addrs: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
+	glowcap_iroh_conn_release: { parameters: [P], result: V },
+	glowcap_iroh_conn_id: { parameters: [P], result: U },
+	glowcap_iroh_conn_remote_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	// The event-driven loop surface: the netlayer's one I/O model.
 	// `readiness_fd` hands back the endpoint's single OS readiness fd, which the
 	// event loop parks on (a `node:net` Socket over a dup of it); `drain_ready`,
 	// connect lifecycle, and the `try_*` calls all return immediately.
-	pancake_iroh_netlayer_readiness_fd: { parameters: [P], result: I },
-	pancake_iroh_netlayer_drain_ready: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
-	pancake_iroh_netlayer_try_accept: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_iroh_netlayer_start_connect: { parameters: [P, U, B, U, B, U], result: I, outBuffers: [] },
-	pancake_iroh_netlayer_finish_connect: { parameters: [P, U, B], result: I, outBuffers: [2] },
-	pancake_iroh_netlayer_cancel_connect: { parameters: [P, U], result: I },
-	pancake_iroh_conn_try_read: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
-	pancake_iroh_conn_try_write: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
-	pancake_iroh_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_iroh_netlayer_new_in: {
+	glowcap_iroh_netlayer_readiness_fd: { parameters: [P], result: I },
+	glowcap_iroh_netlayer_drain_ready: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
+	glowcap_iroh_netlayer_try_accept: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_iroh_netlayer_start_connect: { parameters: [P, U, B, U, B, U], result: I, outBuffers: [] },
+	glowcap_iroh_netlayer_finish_connect: { parameters: [P, U, B], result: I, outBuffers: [2] },
+	glowcap_iroh_netlayer_cancel_connect: { parameters: [P, U], result: I },
+	glowcap_iroh_conn_try_read: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
+	glowcap_iroh_conn_try_write: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
+	glowcap_iroh_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_iroh_netlayer_new_in: {
 		parameters: [P, B, U, B, B, B, U, B],
 		result: I,
 		outBuffers: [4, 5, 7],
@@ -68,19 +68,19 @@ export function irohS(): Symbols {
 	if (irohSyms !== null) return irohSyms;
 	try {
 		irohSyms = ffi.dlopen(
-			libPath("pancake_net_transport_iroh"),
+			libPath("glowcap_net_transport_iroh"),
 			irohSymbolDefs,
 		);
 		requireArchiveFingerprint(irohSyms, {
-			symbol: "pancake_iroh_archive_fingerprint",
+			symbol: "glowcap_iroh_archive_fingerprint",
 			expected: IROH_ARCHIVE_FINGERPRINT,
-			archive: "pancake_net_transport_iroh",
+			archive: "glowcap_net_transport_iroh",
 		});
 	} catch (e) {
 		throw new Error(
 			`iroh transport unavailable: could not load ${
-				libFile("pancake_net_transport_iroh")
-			} from PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. ` +
+				libFile("glowcap_net_transport_iroh")
+			} from GLOWCAP_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. ` +
 				"Build it with `zig build iroh-abi` (needs cargo). " +
 				(e instanceof Error ? e.message : String(e)),
 		);

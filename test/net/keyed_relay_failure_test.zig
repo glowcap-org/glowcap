@@ -1,10 +1,10 @@
 //! Exact relay stream failures at the native owner boundary.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ws_relay = @import("../support/ws_relay.zig");
 
-const relay = pancake.net.relay;
+const relay = glowcap.net.relay;
 
 fn serveMaskedFrame(io: std.Io, server: *std.Io.net.Server) !void {
     var leg: ws_relay.Leg = .{ .stream = try server.accept(io), .io = io };
@@ -37,8 +37,8 @@ test "relay stream failure is exact and claim-once" {
     );
     var resident = try relay.Resident.init(allocator, io, url);
     defer _ = resident.deinit();
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x72)),
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x72)),
     );
     const designator = identity.publicKey().toDesignator();
     var connection = try resident.dialRaw(.{

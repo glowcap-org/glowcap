@@ -24,7 +24,7 @@ function newLiveDoc(): TimelineDocument {
 		recording: {
 			sources: [{
 				id: "live",
-				meta: { kind: "pancake-host" },
+				meta: { kind: "glowcap-host" },
 				observations: [],
 			}],
 		},
@@ -331,7 +331,7 @@ Deno.test("makeLiveAppender lands the first event at clock.t + 1", () => {
 		kind: "peer-joined",
 		t: 999, // producer time base; the latched offset maps it to now
 		peerId: "p",
-		profile: "pancake",
+		profile: "glowcap",
 	});
 	assertEquals(primaryObservations(liveDoc)[0]!.t, 43);
 });
@@ -351,7 +351,7 @@ Deno.test("makeLiveAppender preserves producer inter-event spacing", () => {
 		kind: "peer-joined" as const,
 		t,
 		peerId: id,
-		profile: "pancake" as const,
+		profile: "glowcap" as const,
 	});
 	append(join("p1", 1000));
 	append(join("p2", 1000.25)); // same engine tick, 250 µs later
@@ -374,7 +374,7 @@ Deno.test("makeLiveAppender collapses a backlog burst to now, then resumes caden
 		kind: "peer-joined" as const,
 		t,
 		peerId: id,
-		profile: "pancake" as const,
+		profile: "glowcap" as const,
 	});
 	// Backlog burst: producer times a minute apart, delivered at once.
 	append(join("old1", 1000));
@@ -410,7 +410,7 @@ Deno.test("claimRecording: fresh id, content-derived duration", () => {
 			t: 0,
 			kind: "peer-joined",
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "e2",
@@ -457,7 +457,7 @@ Deno.test("claimRecording: the claim owns its observations", () => {
 		t: 0,
 		kind: "peer-joined",
 		peerId: "alice",
-		profile: "pancake",
+		profile: "glowcap",
 	});
 	const claimed = claimRecording(doc, "rec-3")!;
 	assertEquals(primaryObservations(claimed).length, 1);
@@ -467,7 +467,7 @@ Deno.test("claimRecording: the claim owns its observations", () => {
 		t: 10,
 		kind: "peer-joined",
 		peerId: "bob",
-		profile: "pancake",
+		profile: "glowcap",
 	});
 	assertEquals(
 		primaryObservations(claimed).length,

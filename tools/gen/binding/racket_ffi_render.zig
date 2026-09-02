@@ -16,7 +16,7 @@ pub const Special = struct {
 
 /// The raw `_fun` spelling of one parameter type. Out cells and every
 /// non-struct pointer spell `_pointer`; a single struct pointer spells its
-/// `_PancakeX-pointer` cstruct type, while a borrowed struct *array* stays
+/// `_GlowcapX-pointer` cstruct type, while a borrowed struct *array* stays
 /// `_pointer` (the caller hands a raw block, which a tagged cstruct pointer
 /// type would refuse); scalars spell `_size` / `_uintN`.
 fn rktParamType(comptime T: type, comptime specials: []const Special) []const u8 {
@@ -108,8 +108,8 @@ pub fn slotCell(comptime T: type) ?Cell {
                     },
                     .init = "0",
                 },
-                .@"struct" => break :blk if (p.child == c.PancakeReference)
-                    .{ .ctype = "_PancakeReference", .init = "(make-PancakeReference 0)" }
+                .@"struct" => break :blk if (p.child == c.GlowcapReference)
+                    .{ .ctype = "_GlowcapReference", .init = "(make-GlowcapReference 0)" }
                 else
                     null,
                 else => break :blk null,
@@ -239,7 +239,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
         }
     }
     try out.appendSlice(gpa, "))\n\n");
-    try out.print(gpa, "(define {s} (open-pancake-archive \"{s}\"))\n\n", .{ cfg.lib_var, cfg.archive });
+    try out.print(gpa, "(define {s} (open-glowcap-archive \"{s}\"))\n\n", .{ cfg.lib_var, cfg.archive });
     try out.print(gpa, "(define-ffi-definer {s} {s})\n\n", .{ cfg.definer, cfg.lib_var });
 
     inline for (cfg.M.symbols.symbols) |row| {
@@ -276,7 +276,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
     }
     if (cfg.check_fingerprint_at_load) {
         if (cfg.fingerprint_stem) |stem| {
-            try out.print(gpa, "\n(require-archive-fingerprint! '{s} pancake_{s}_archive_fingerprint {s})\n", .{
+            try out.print(gpa, "\n(require-archive-fingerprint! '{s} glowcap_{s}_archive_fingerprint {s})\n", .{
                 stem,
                 stem,
                 cfg.fingerprint_constant orelse @compileError("fingerprint constant required"),

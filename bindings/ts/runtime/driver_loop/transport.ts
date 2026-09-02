@@ -1,5 +1,5 @@
-import { INVALID_ARGUMENT } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import type { LoopChannel } from "../session.ts";
 import type { DriverLoop } from "../driver_loop.ts";
 
@@ -11,7 +11,7 @@ export class LoopTransport implements LoopChannel {
 	readonly driverLoop: DriverLoop;
 	readonly #closed: Promise<void>;
 	#markClosed!: () => void;
-	#markFailed!: (error: PancakeError) => void;
+	#markFailed!: (error: GlowcapError) => void;
 	#settled = false;
 
 	constructor(driverLoop: DriverLoop) {
@@ -34,7 +34,7 @@ export class LoopTransport implements LoopChannel {
 
 	write(_data: Uint8Array): Promise<void> {
 		return Promise.reject(
-			new PancakeError(INVALID_ARGUMENT, "the native loop owns this session's wire"),
+			new GlowcapError(INVALID_ARGUMENT, "the native loop owns this session's wire"),
 		);
 	}
 
@@ -42,7 +42,7 @@ export class LoopTransport implements LoopChannel {
 		this.finishClosed(null);
 	}
 
-	finishClosed(error: PancakeError | null): void {
+	finishClosed(error: GlowcapError | null): void {
 		if (this.#settled) return;
 		this.#settled = true;
 		if (error == null) this.#markClosed();

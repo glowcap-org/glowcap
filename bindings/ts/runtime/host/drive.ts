@@ -1,7 +1,7 @@
 // The CapTP host — multi-session CapTP product over the byte-fed host archive
-// (libpancake_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns — never
-// a single-type equation. The `PancakeHost` owns every decision: the retained
+// a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
 // the embedder contract leaves to the binding: the host handle, the
@@ -12,9 +12,9 @@
 // `pump.ts`; the dial executor lives in `dial.ts`. `session.ts` owns the
 // `Session` they act on. `mod.ts` re-exports the public `Host`.
 
-import { CLOSED } from "@pancake/abi";
+import { CLOSED } from "@glowcap/abi";
 import { parkActions, runAction } from "../action.ts";
-import { PancakeError, retainSecondaryFailure } from "../errors.ts";
+import { GlowcapError, retainSecondaryFailure } from "../errors.ts";
 import { drainFinalizerRetries } from "../finalizer_retry.ts";
 import { NULL } from "../internal/ffi/runtime.ts";
 import { traceDrainHost } from "../trace.ts";
@@ -45,7 +45,7 @@ export abstract class HostDrive extends HostApplication {
 
 	/** Reject every pending vow with one loop failure before loop teardown
 	 * clears the table. A later observation receives the same failure. */
-	failPendingVows(error: PancakeError): void {
+	failPendingVows(error: GlowcapError): void {
 		if (this._terminalVowFailure == null) this._terminalVowFailure = error;
 		for (const row of this._vows.values()) {
 			if (row.state.tag === "awaited") row.state.waiter.reject(error);
@@ -61,7 +61,7 @@ export abstract class HostDrive extends HostApplication {
 	}
 
 	/** The vow's eventual outcome: the fulfilled wire value, or a rejection —
-	 * `VowBroken` for a partner break, the typed CLOSED `PancakeError` when the
+	 * `VowBroken` for a partner break, the typed CLOSED `GlowcapError` when the
 	 * settle was the disconnect's own break. Settles immediately from the
 	 * recorded state when the outcome already landed. Binding-internal. */
 	awaitVow(vow: bigint): Promise<Argument> {
@@ -72,7 +72,7 @@ export abstract class HostDrive extends HostApplication {
 			}
 			// Evicted (never awaited until past the cap) or never minted here.
 			return Promise.reject(
-				new PancakeError(CLOSED, "the vow's outcome is gone (unobserved past the cap)"),
+				new GlowcapError(CLOSED, "the vow's outcome is gone (unobserved past the cap)"),
 			);
 		}
 		if (row.state.tag !== "settled") {
@@ -90,7 +90,7 @@ export abstract class HostDrive extends HostApplication {
 	/** The drain's settle arms: fire the waiter, or record the outcome for a
 	 * late observation (bounded FIFO — an outcome nobody ever awaits is evicted
 	 * at the cap). Binding-internal: `action.ts` calls it. */
-	settleVow(vow: bigint, outcome: { ok: Argument } | { err: PancakeError }): void {
+	settleVow(vow: bigint, outcome: { ok: Argument } | { err: GlowcapError }): void {
 		const row = this._vows.get(vow);
 		if (row === undefined) return; // an outcome nobody registered for
 		if (row.trackGc && "ok" in outcome) this._gc.trackArgument(outcome.ok);
@@ -194,7 +194,7 @@ export abstract class HostDrive extends HostApplication {
 	/** Pop and honor every pending embedder action. Reentrant on purpose: DIAL
 	 * starts its connection task without awaiting establishment, and that task's
 	 * start-session FLUSH re-enters this drain independently. Actions are
-	 * popped and decoded first (`parkActions` over `pancake_host_next_action`,
+	 * popped and decoded first (`parkActions` over `glowcap_host_next_action`,
 	 * each copied out before the next pop frees its views) and awaited after
 	 * the pops, so async I/O never runs while a borrowed view is live.
 	 * Re-parks until empty: a NEED_GIFT_ID's `provide_gift_id` can queue FLUSH

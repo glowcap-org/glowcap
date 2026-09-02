@@ -24,7 +24,7 @@
          goblins/ocapn/captp
          racket/string
          "iroh-netlayer.rkt"
-         (only-in "../../../bindings/racket/pancake-iroh.rkt" IROH-REACH-DIRECT))
+         (only-in "../../../bindings/racket/glowcap-iroh.rkt" IROH-REACH-DIRECT))
 
 ;; Line-buffer stdout so the driver sees the readiness lines as they are printed
 ;; rather than block-buffered until exit.

@@ -1,7 +1,7 @@
 // Internal application-verb and capability-projection owner for Session.
 
-import { INVALID_ARGUMENT, NOT_FOUND } from "@pancake/abi";
-import { checkHost, PancakeError } from "../errors.ts";
+import { INVALID_ARGUMENT, NOT_FOUND } from "@glowcap/abi";
+import { checkHost, GlowcapError } from "../errors.ts";
 import { releaseRef } from "../gc.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL } from "../internal/ffi/runtime.ts";
@@ -47,7 +47,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	/** Listen on a far capability this session holds (CapTP `op:listen`,
 	 * ADR-0095): the returned handle settles with the listen notification,
 	 * which may be any value, not only a capability. In 1.0, the target may be
-	 * a far promise or live far object; in pancake-next, the target must be a
+	 * a far promise or live far object; in glowcap-next, the target must be a
 	 * promise. A re-gifted promise routes to its exporter session
 	 * transparently. */
 	listen(target: Ref): RemotePromise {
@@ -59,7 +59,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * auto-marshals when passed as a `send` argument, so handing a partner a
 	 * callback is just `send(target, verb, [..., session.spawn(behavior)])`. The
 	 * returned identity is opaque and Host-scoped; wire export positions stay
-	 * inside pancake. Callable from inside a served turn (a factory's `create`
+	 * inside glowcap. Callable from inside a served turn (a factory's `create`
 	 * minting the task it replies with). */
 	spawn(behavior: Behavior): Ref {
 		return spawnHosted(this.#makeHosting(), behavior);
@@ -90,7 +90,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 		this.guardOpen();
 		const bytes = utf8Encoder.encode(name);
 		const out = new Uint8Array(8);
-		const code = hostS.pancake_host_session_published_ref(
+		const code = hostS.glowcap_host_session_published_ref(
 			this.nativePtr,
 			ab(bytes),
 			BigInt(bytes.length),
@@ -146,7 +146,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 			this.makeMintAwait(),
 			swiss,
 			name,
-			hostS.pancake_host_session_fetch,
+			hostS.glowcap_host_session_fetch,
 			true,
 		);
 		return ref;
@@ -170,7 +170,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 			this.makeMintAwait(),
 			utf8Encoder.encode(sturdyref),
 			sturdyref,
-			hostS.pancake_host_session_enliven,
+			hostS.glowcap_host_session_enliven,
 			false,
 		);
 	}
@@ -223,7 +223,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 			// reports through the handle, and a channel that is mixed depending
 			// on the error is the trap again in a narrower form.
 			return RemotePromise.failed(
-				err instanceof PancakeError ? err : new PancakeError(INVALID_ARGUMENT, String(err)),
+				err instanceof GlowcapError ? err : new GlowcapError(INVALID_ARGUMENT, String(err)),
 			);
 		}
 	}
@@ -291,13 +291,13 @@ export abstract class SessionApplication extends SessionLifecycle {
 	setExporterLocator(locator: Locator | null): void {
 		this.guardOpen();
 		if (locator === null) {
-			checkHost(hostS.pancake_host_session_set_exporter_location(this.nativePtr, NULL));
+			checkHost(hostS.glowcap_host_session_set_exporter_location(this.nativePtr, NULL));
 			return;
 		}
 		withOwnedLocator(
 			locator,
 			(owned) =>
-				checkHost(hostS.pancake_host_session_set_exporter_location(
+				checkHost(hostS.glowcap_host_session_set_exporter_location(
 					this.nativePtr,
 					owned.borrowView(),
 				)),
@@ -326,7 +326,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	partnerIdentity(): PartnerIdentity {
 		this.guardOpen();
 		const buf = new Uint8Array(L.PARTNER_IDENTITY_SIZE);
-		checkHost(hostS.pancake_host_session_partner_identity(this.nativePtr, ab(buf)));
+		checkHost(hostS.glowcap_host_session_partner_identity(this.nativePtr, ab(buf)));
 		// The views the call filled in are session-owned and a later call can
 		// invalidate them, so every field is copied here (`readBytes` owns its
 		// result) before this returns.
@@ -354,7 +354,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	/** Testify what proved this connection's far end, when your own transport
 	 * proved one.
 	 *
-	 * pancake does not open your sockets, so it cannot see what opening them
+	 * glowcap does not open your sockets, so it cannot see what opening them
 	 * established. An iroh connection completes only with the holder of the
 	 * node id you dialed or accepted, and that is a stronger fact than anything
 	 * a partner can claim about itself — but only you hold it. Pass the node id
@@ -372,7 +372,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	bindVerifiedChannelKey(designator: string): void {
 		this.guardOpen();
 		const bytes = utf8Encoder.encode(designator);
-		checkHost(hostS.pancake_host_session_bind_verified_channel_key(
+		checkHost(hostS.glowcap_host_session_bind_verified_channel_key(
 			this.nativePtr,
 			ab(bytes),
 			BigInt(bytes.length),
@@ -411,7 +411,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * and throws. */
 	release(ref: Ref): void {
 		if (ref.released) {
-			throw new Error("pancake: capability already released");
+			throw new Error("glowcap: capability already released");
 		}
 		releaseRef(this.hostOwner.raw, ref);
 		this.hostOwner.disarmGc(ref);

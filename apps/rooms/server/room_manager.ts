@@ -1,6 +1,6 @@
 // Passable authority over one room's durable link and moderator generations.
 
-import { type Argument, type Behavior, currentSession, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, type Session } from "@glowcap/runtime";
 import { releaseUnclaimedCapabilityArguments } from "../lib/argument_custody.ts";
 import { GOVERNS, LINK, MANAGED_ROOM_IDENTITY, ROOM_AUTHORITIES } from "../lib/protocol.ts";
 import {

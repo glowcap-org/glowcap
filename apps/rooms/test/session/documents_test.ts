@@ -1,4 +1,4 @@
-import { DURABLE_SWISS_ENTROPY_BYTES, type Session } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES, type Session } from "@glowcap/runtime";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import { memorySessionDocuments } from "../../session/documents.ts";
 import { fileSessionDocuments } from "../../session/file_documents.ts";
@@ -75,7 +75,7 @@ Deno.test("a memory store still refuses an effects ledger missing beside a check
 });
 
 Deno.test("a file session store treats a missing directory as absence and creates it only on write", async () => {
-	const parent = await Deno.makeTempDir({ prefix: "pancake-rooms-session-docs-" });
+	const parent = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-docs-" });
 	const directory = `${parent}/missing`;
 	try {
 		const documents = fileSessionDocuments(directory);

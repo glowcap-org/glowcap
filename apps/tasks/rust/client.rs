@@ -9,7 +9,7 @@ mod board;
 mod demo_run;
 
 use board::Board;
-use pancake::{tcp, Locator};
+use glowcap::{tcp, Locator};
 
 async fn run_client(locator: &Locator, nick: &str, task_text: &str) -> Result<(), String> {
 	let board = Board::join(locator).await?;

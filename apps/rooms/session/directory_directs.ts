@@ -1,6 +1,6 @@
 // Direct conversations realized inside one durable session directory.
 
-import { Ref, retainSecondaryFailure, type Session } from "@pancake/runtime";
+import { Ref, retainSecondaryFailure, type Session } from "@glowcap/runtime";
 import type { Message } from "../lib/room/client.ts";
 import { DirectMessage, directMessageReceiverBehavior } from "../lib/direct_message.ts";
 import { type Attachment, attachmentCapabilities } from "../lib/attachment.ts";

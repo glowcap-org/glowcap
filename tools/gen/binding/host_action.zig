@@ -1,6 +1,6 @@
 //! Generates the four binding HostAction mirrors — kind constants, typed
-//! HostAction, and decode — from `src/c_abi/host` (`PANCAKE_HOST_ACTION_*`,
-//! `PancakeHostAction`). Same authority pattern as `tools/gen/binding/ts_abi.zig`: a
+//! HostAction, and decode — from `src/c_abi/host` (`GLOWCAP_HOST_ACTION_*`,
+//! `GlowcapHostAction`). Same authority pattern as `tools/gen/binding/ts_abi.zig`: a
 //! Zig declaration rename is a compile error here, and
 //! `zig build gen-binding-host-action-check` (part of `check`) holds each
 //! committed file against a fresh generation.
@@ -20,7 +20,7 @@ pub const step_name = "gen-binding-host-action";
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/ts/runtime/internal/host_action.ts", .generate = generateTs },
-    .{ .path = "bindings/python/pancake/_host_action_gen.py", .generate = native.generatePython },
+    .{ .path = "bindings/python/glowcap/_host_action_gen.py", .generate = native.generatePython },
     .{ .path = "bindings/rust/src/host_action_gen.rs", .generate = native.generateRust },
     .{ .path = "bindings/racket/private/host-action-gen.rkt", .generate = native.generateRacket },
 };
@@ -37,7 +37,7 @@ pub const Shape = enum {
 };
 
 pub const Arm = struct {
-    /// Trailing name after `PANCAKE_HOST_ACTION_` / `HOST_ACTION_`.
+    /// Trailing name after `GLOWCAP_HOST_ACTION_` / `HOST_ACTION_`.
     name: []const u8,
     value: u32,
     /// Rust / Python class name (`NeedGiftId`).
@@ -48,25 +48,25 @@ pub const Arm = struct {
 };
 
 pub const arms = [_]Arm{
-    .{ .name = "DIAL", .value = cd.PANCAKE_HOST_ACTION_DIAL, .variant = "Dial", .racket = "dial", .shape = .dial_attempt },
-    .{ .name = "FLUSH", .value = cd.PANCAKE_HOST_ACTION_FLUSH, .variant = "Flush", .racket = "flush", .shape = .session },
-    .{ .name = "NEED_GIFT_ID", .value = cd.PANCAKE_HOST_ACTION_NEED_GIFT_ID, .variant = "NeedGiftId", .racket = "need-gift-id", .shape = .ticket },
-    .{ .name = "SETTLE", .value = cd.PANCAKE_HOST_ACTION_SETTLE, .variant = "Settle", .racket = "settle", .shape = .settle },
-    .{ .name = "FAIL", .value = cd.PANCAKE_HOST_ACTION_FAIL, .variant = "Fail", .racket = "fail", .shape = .fail },
-    .{ .name = "CLOSE", .value = cd.PANCAKE_HOST_ACTION_CLOSE, .variant = "Close", .racket = "close", .shape = .close },
-    .{ .name = "RESUME", .value = cd.PANCAKE_HOST_ACTION_RESUME, .variant = "Resume", .racket = "resume", .shape = .none },
-    .{ .name = "CANCEL_DIAL", .value = cd.PANCAKE_HOST_ACTION_CANCEL_DIAL, .variant = "CancelDial", .racket = "cancel-dial", .shape = .dial_attempt },
+    .{ .name = "DIAL", .value = cd.GLOWCAP_HOST_ACTION_DIAL, .variant = "Dial", .racket = "dial", .shape = .dial_attempt },
+    .{ .name = "FLUSH", .value = cd.GLOWCAP_HOST_ACTION_FLUSH, .variant = "Flush", .racket = "flush", .shape = .session },
+    .{ .name = "NEED_GIFT_ID", .value = cd.GLOWCAP_HOST_ACTION_NEED_GIFT_ID, .variant = "NeedGiftId", .racket = "need-gift-id", .shape = .ticket },
+    .{ .name = "SETTLE", .value = cd.GLOWCAP_HOST_ACTION_SETTLE, .variant = "Settle", .racket = "settle", .shape = .settle },
+    .{ .name = "FAIL", .value = cd.GLOWCAP_HOST_ACTION_FAIL, .variant = "Fail", .racket = "fail", .shape = .fail },
+    .{ .name = "CLOSE", .value = cd.GLOWCAP_HOST_ACTION_CLOSE, .variant = "Close", .racket = "close", .shape = .close },
+    .{ .name = "RESUME", .value = cd.GLOWCAP_HOST_ACTION_RESUME, .variant = "Resume", .racket = "resume", .shape = .none },
+    .{ .name = "CANCEL_DIAL", .value = cd.GLOWCAP_HOST_ACTION_CANCEL_DIAL, .variant = "CancelDial", .racket = "cancel-dial", .shape = .dial_attempt },
 };
 
 comptime {
-    if (arms[0].value != cd.PANCAKE_HOST_ACTION_DIAL) @compileError("arms DIAL value drift");
-    if (arms[1].value != cd.PANCAKE_HOST_ACTION_FLUSH) @compileError("arms FLUSH value drift");
-    if (arms[2].value != cd.PANCAKE_HOST_ACTION_NEED_GIFT_ID) @compileError("arms NEED_GIFT_ID value drift");
-    if (arms[3].value != cd.PANCAKE_HOST_ACTION_SETTLE) @compileError("arms SETTLE value drift");
-    if (arms[4].value != cd.PANCAKE_HOST_ACTION_FAIL) @compileError("arms FAIL value drift");
-    if (arms[5].value != cd.PANCAKE_HOST_ACTION_CLOSE) @compileError("arms CLOSE value drift");
-    if (arms[6].value != cd.PANCAKE_HOST_ACTION_RESUME) @compileError("arms RESUME value drift");
-    if (arms[7].value != cd.PANCAKE_HOST_ACTION_CANCEL_DIAL) @compileError("arms CANCEL_DIAL value drift");
+    if (arms[0].value != cd.GLOWCAP_HOST_ACTION_DIAL) @compileError("arms DIAL value drift");
+    if (arms[1].value != cd.GLOWCAP_HOST_ACTION_FLUSH) @compileError("arms FLUSH value drift");
+    if (arms[2].value != cd.GLOWCAP_HOST_ACTION_NEED_GIFT_ID) @compileError("arms NEED_GIFT_ID value drift");
+    if (arms[3].value != cd.GLOWCAP_HOST_ACTION_SETTLE) @compileError("arms SETTLE value drift");
+    if (arms[4].value != cd.GLOWCAP_HOST_ACTION_FAIL) @compileError("arms FAIL value drift");
+    if (arms[5].value != cd.GLOWCAP_HOST_ACTION_CLOSE) @compileError("arms CLOSE value drift");
+    if (arms[6].value != cd.GLOWCAP_HOST_ACTION_RESUME) @compileError("arms RESUME value drift");
+    if (arms[7].value != cd.GLOWCAP_HOST_ACTION_CANCEL_DIAL) @compileError("arms CANCEL_DIAL value drift");
 }
 
 pub fn writeUpperKebab(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const u8) !void {
@@ -87,7 +87,7 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     errdefer out.deinit(gpa);
     // Struct offsets come from the active layout `L` (64-bit mirror or the
     // wasm32 descriptor); the kind constants and INTERNAL are
-    // target-independent and live in the @pancake/abi package. Imports are
+    // target-independent and live in the @glowcap/abi package. Imports are
     // lexical source order, independent of the protocol arm order used below;
     // coupling those two made a correct generated inventory fail `deno fmt`.
     const const_imports = [_][]const u8{
@@ -109,11 +109,11 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
         \\// this is stale.
         \\//
         \\// Typed HostAction + decode for the TypeScript binding. Kind constant
-        \\// values live in `@pancake/abi`; struct offsets come from the active
+        \\// values live in `@glowcap/abi`; struct offsets come from the active
         \\// layout `L` (the 64-bit mirror, or the wasm32 descriptor under the
         \\// browser adapter). This file owns the discriminant union and the
         \\// layout walk that copies borrowed views out before the next
-        \\// `pancake_host_next_action` frees them.
+        \\// `glowcap_host_next_action` frees them.
         \\
         \\import { L } from "./layout.ts";
         \\import {
@@ -125,11 +125,11 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
         try out.appendSlice(gpa, ",\n");
     }
     try out.appendSlice(gpa,
-        \\} from "@pancake/abi";
+        \\} from "@glowcap/abi";
         \\import type { Ptr } from "./ffi/runtime.ts";
         \\import { readBytes } from "./seam.ts";
         \\import { readArg } from "../abi_value.ts";
-        \\import { PancakeError } from "../errors.ts";
+        \\import { GlowcapError } from "../errors.ts";
         \\import type { Argument } from "../value.ts";
         \\
         \\const utf8Decoder = new TextDecoder();
@@ -137,7 +137,7 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
         \\/** One popped embedder action, a discriminated union over the action
         \\ * kind so each arm carries exactly the fields the C struct fills for
         \\ * it. Every borrowed view is copied out (and a SETTLE's value lifted)
-        \\ * before the next `pancake_host_next_action` call can free them. */
+        \\ * before the next `glowcap_host_next_action` call can free them. */
         \\export type HostAction =
         \\
     );
@@ -147,7 +147,7 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.append(gpa, '\n');
     try out.appendSlice(gpa,
-        \\/** Decode a filled `PancakeHostAction` buffer into an owned HostAction. */
+        \\/** Decode a filled `GlowcapHostAction` buffer into an owned HostAction. */
         \\export function decodeHostAction(dv: DataView): HostAction {
         \\
     );
@@ -162,9 +162,9 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
         try emitTsDecodeCase(&out, gpa, arm);
     }
     try tline(&out, gpa, 2, "default:");
-    try tline(&out, gpa, 3, "throw new PancakeError(");
+    try tline(&out, gpa, 3, "throw new GlowcapError(");
     try tline(&out, gpa, 4, "INTERNAL,");
-    try tline(&out, gpa, 4, "`pancake ABI returned unknown host action kind ${kind}`,");
+    try tline(&out, gpa, 4, "`glowcap ABI returned unknown host action kind ${kind}`,");
     try tline(&out, gpa, 3, ");");
     try tline(&out, gpa, 1, "}");
     try out.appendSlice(gpa, "}\n\n");
@@ -199,7 +199,7 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     try tline(&out, gpa, 2, "default: {");
     try tline(&out, gpa, 3, "const _exhaustive: never = action;");
     try tline(&out, gpa, 3, "void _exhaustive;");
-    try tline(&out, gpa, 3, "throw new PancakeError(INVALID_ARGUMENT, \"unknown host action\");");
+    try tline(&out, gpa, 3, "throw new GlowcapError(INVALID_ARGUMENT, \"unknown host action\");");
     try tline(&out, gpa, 2, "}");
     try tline(&out, gpa, 1, "}");
     try out.appendSlice(gpa, "}\n");

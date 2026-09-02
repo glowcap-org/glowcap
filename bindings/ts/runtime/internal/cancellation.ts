@@ -1,9 +1,9 @@
-import { CLOSED } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { CLOSED } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import { recordProcessBindingFailure } from "../context.ts";
 
-function cancelled(): PancakeError {
-	return new PancakeError(CLOSED, "host released while dialing");
+function cancelled(): GlowcapError {
+	return new GlowcapError(CLOSED, "host released while dialing");
 }
 
 export function cancellationError(signal: AbortSignal): unknown {

@@ -1,11 +1,11 @@
 # conformance/goblins-peer
 
-Slim Spritely Goblins OCapN peer packaged for pancake conformance work. It gives
-pancake a real Goblins-shaped peer for wire-shape lookup, local demos, and the
+Slim Spritely Goblins OCapN peer packaged for glowcap conformance work. It gives
+glowcap a real Goblins-shaped peer for wire-shape lookup, local demos, and the
 upstream OCapN test suite target.
 
 This is not Spritely Goblins itself. The upstream source lives in the
-`../spritely-goblins/upstream/` submodule; this directory contains pancake-owned
+`../spritely-goblins/upstream/` submodule; this directory contains glowcap-owned
 wrappers and small Racket programs around that API.
 
 ## Files
@@ -15,7 +15,7 @@ wrappers and small Racket programs around that API.
 | File                      | Role                                               |
 | ------------------------- | -------------------------------------------------- |
 | `racket/tcp-netlayer.rkt` | Testing TCP netlayer for loopback OCapN runs.      |
-| `racket/iroh-netlayer.rkt` | iroh netlayer: the same vats over encrypted QUIC, through the pancake Racket binding's byte-channel surface. |
+| `racket/iroh-netlayer.rkt` | iroh netlayer: the same vats over encrypted QUIC, through the glowcap Racket binding's byte-channel surface. |
 | `racket/session-trace.rkt` | The CapTP session facts a netlayer sees at the wire, reported to a trace sink. Shared by both netlayers. |
 | `racket/ocapn-names.rkt`  | The Public Identifier and Session ID both ends of a session derive alike. |
 | `racket/trace-publish.rkt` | Publishes a vat's own sessions to a live timeline endpoint.        |
@@ -34,22 +34,22 @@ wrappers and small Racket programs around that API.
 
 | File                              | Role                                                                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `racket/goblins-host.rkt`         | Echo + Struct host pancake dials as client (NDJSON readiness).                               |
+| `racket/goblins-host.rkt`         | Echo + Struct host glowcap dials as client (NDJSON readiness).                               |
 | `racket/goblins-iroh-host.rkt`    | The same echo host over iroh: a vat reachable at an `iroh` locator, announcing its endpoint id and direct addresses (`goblins-iroh`). |
-| `racket/pancake-iroh-caller.rkt`  | Goblins client over iroh: dials a pancake peer by endpoint id, calls its actor, and prints what its netlayer proved about the partner (`goblins-iroh`). |
+| `racket/glowcap-iroh-caller.rkt`  | Goblins client over iroh: dials a glowcap peer by endpoint id, calls its actor, and prints what its netlayer proved about the partner (`goblins-iroh`). |
 | `racket/gc-echo-host.rkt`         | Echo host with a background collect loop, so `op:gc-exports` fires within `goblins-gc`'s deadline. |
-| `racket/pancake-actor-call.rkt`   | Goblins client: settle-call a pancake-hosted actor.                                          |
-| `racket/goblins-tap-dialer.rkt`   | Goblins client: pipelined enliven-and-call against pancake.                                  |
-| `racket/pancake-break-call.rkt`   | Goblins client: unknown-swiss fetch, asserts pancake's break reason.                         |
-| `racket/pancake-export-listen.rkt` | Goblins client: `listen` on a live pancake object export, asserts the fulfill.              |
-| `racket/pancake-projection-asker.rkt` | Goblins client: writes canonical `op:get` / `op:index` at pancake's responders, sends `op:listen` for each projected answer, and observes pancake's resolver-callback fulfillments. Goblins 0.18.0 has no application-level outbound projection send, so it marshals records Goblins already defines through the live session. |
-| `racket/captp-projection-wire.rkt` | The projection records and marshallers `pancake-projection-asker.rkt` writes with.          |
+| `racket/glowcap-actor-call.rkt`   | Goblins client: settle-call a glowcap-hosted actor.                                          |
+| `racket/goblins-tap-dialer.rkt`   | Goblins client: pipelined enliven-and-call against glowcap.                                  |
+| `racket/glowcap-break-call.rkt`   | Goblins client: unknown-swiss fetch, asserts glowcap's break reason.                         |
+| `racket/glowcap-export-listen.rkt` | Goblins client: `listen` on a live glowcap object export, asserts the fulfill.              |
+| `racket/glowcap-projection-asker.rkt` | Goblins client: writes canonical `op:get` / `op:index` at glowcap's responders, sends `op:listen` for each projected answer, and observes glowcap's resolver-callback fulfillments. Goblins 0.18.0 has no application-level outbound projection send, so it marshals records Goblins already defines through the live session. |
+| `racket/captp-projection-wire.rkt` | The projection records and marshallers `glowcap-projection-asker.rkt` writes with.          |
 | `racket/handoff-introducer-host.rkt` | Goblins Alice+Bob for recipient-side handoff (`goblins-handoff` / `*-goblins-handoff`).   |
-| `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for pancake-as-gifter (`*-goblins-gift`).                                  |
-| `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a pancake-minted give (`*-goblins-gift`).             |
-| `racket/exporter-gifter-host.rkt` | Goblins Alice (gifter) over a greeter pancake exports, so a Goblins pair deposits into and withdraws from pancake's gift registry (`goblins-exporter`). |
-| `racket/deferred-exporter-host.rkt` | Goblins Bob (exporter) holding a promise he has not settled. He hands it to pancake as a delivered argument, then either settles from stdin for `goblins-relayed-give` or settles a nested-capability value after pancake's ordered `listenTo` in `goblins-listen-recipient`. |
-| `racket/relayed-give-recipient.rkt` | Goblins Carol (recipient), who waits on a promise pancake introduced her to and reads the give out of the listener fire (`goblins-relayed-give`). |
+| `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for glowcap-as-gifter (`*-goblins-gift`).                                  |
+| `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a glowcap-minted give (`*-goblins-gift`).             |
+| `racket/exporter-gifter-host.rkt` | Goblins Alice (gifter) over a greeter glowcap exports, so a Goblins pair deposits into and withdraws from glowcap's gift registry (`goblins-exporter`). |
+| `racket/deferred-exporter-host.rkt` | Goblins Bob (exporter) holding a promise he has not settled. He hands it to glowcap as a delivered argument, then either settles from stdin for `goblins-relayed-give` or settles a nested-capability value after glowcap's ordered `listenTo` in `goblins-listen-recipient`. |
+| `racket/relayed-give-recipient.rkt` | Goblins Carol (recipient), who waits on a promise glowcap introduced her to and reads the give out of the listener fire (`goblins-relayed-give`). |
 | `racket/rooms-client.rkt`         | The rooms wire protocol in Goblins terms — dial, reach the directory, enter or open a room, spawn the inbox the room calls back — shared by the three rooms members below. |
 | `racket/rooms-dm.rkt`             | The direct-message half of that protocol: claim a name, mint one inbox per peer and offer it to the room, receive a message off-room and answer over the connection it arrived on. |
 | `racket/rooms-member.rkt`         | Goblins vat joining the rooms chat as an ordinary member, scripted: it enters a room, subscribes, posts one line, waits to hear what it came for, and exits (`goblins-rooms`). |
@@ -84,16 +84,16 @@ TCP testing and iroh adapters used by the other conformance vats.
 
 | Path | Transport symbol | Who dials whom |
 | ---- | ---------------- | -------------- |
-| Live Goblins interop (`zig build goblins-interop`, handoff, gift, both foreign-promise directions, binding clients) | `tcp` (`tcp-netlayer.rkt`, pancake `net.tcp`) | Real Goblins ↔ pancake CapTP over cleartext TCP |
-| Live Goblins over QUIC (`zig build goblins-iroh`) | `iroh` (`iroh-netlayer.rkt`, pancake `net.transport.iroh`) | Real Goblins ↔ pancake CapTP over encrypted QUIC, both directions |
-| Live Goblins over Tor (`zig build goblins-onion`) | `onion` (upstream Goblins netlayer, pancake `net.onion`) | Real Goblins ↔ pancake CapTP over onion circuits, both directions |
-| Upstream OCapN suite target (`seven-caps-peer`, `ocapn-conformance`) | `tcp-testing-only` in printed URLs | Suite harness ↔ pancake or seven-caps peer |
+| Live Goblins interop (`zig build goblins-interop`, handoff, gift, both foreign-promise directions, binding clients) | `tcp` (`tcp-netlayer.rkt`, glowcap `net.tcp`) | Real Goblins ↔ glowcap CapTP over cleartext TCP |
+| Live Goblins over QUIC (`zig build goblins-iroh`) | `iroh` (`iroh-netlayer.rkt`, glowcap `net.transport.iroh`) | Real Goblins ↔ glowcap CapTP over encrypted QUIC, both directions |
+| Live Goblins over Tor (`zig build goblins-onion`) | `onion` (upstream Goblins netlayer, glowcap `net.onion`) | Real Goblins ↔ glowcap CapTP over onion circuits, both directions |
+| Upstream OCapN suite target (`seven-caps-peer`, `ocapn-conformance`) | `tcp-testing-only` in printed URLs | Suite harness ↔ glowcap or seven-caps peer |
 
 Do not infer that the suite netlayer is the Goblins parity path.
 
-## How Pancake Uses This
+## How Glowcap Uses This
 
-- **As an external peer.** Goblins emits OCapN/Syrup bytes pancake must parse
+- **As an external peer.** Goblins emits OCapN/Syrup bytes glowcap must parse
   and answer correctly.
 - **As a conformance-suite target.** `seven-caps-peer.rkt` supplies the target
   capabilities the upstream Python suite expects.
@@ -102,7 +102,7 @@ Do not infer that the suite netlayer is the Goblins parity path.
 
 ## Posture
 
-- The demos are editable pancake-owned wrappers.
+- The demos are editable glowcap-owned wrappers.
 - `seven-caps-peer.rkt` must stay compatible with the upstream suite's expected
   cap behavior.
 - The testing TCP netlayer is cleartext loopback infrastructure, not a

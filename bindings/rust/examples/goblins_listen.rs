@@ -1,8 +1,8 @@
 //! Rust row of the live Goblins-listener matrix.
 
-use pancake_rust_dogfood::{tcp, Argument, PendingWork};
+use glowcap_rust_dogfood::{tcp, Argument, PendingWork};
 
-const ACTOR_SWISS: &str = "pancakeActorSwissnumABCDEFGH1234";
+const ACTOR_SWISS: &str = "glowcapActorSwissnumABCDEFGH1234";
 
 fn greeter(_verb: &str, args: &[Argument]) -> Result<Argument, String> {
 	let who = match args.first() {

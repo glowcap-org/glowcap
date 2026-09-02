@@ -8,11 +8,11 @@
 //
 // The dialing half is not here: a member reaches a `webrtc` peer by installing
 // `webrtc.connector` over the `directorySignalingAuthority` below and dialing
-// the bare locator — the connector owns the bring-up (`@pancake/webrtc`).
+// the bare locator — the connector owns the bring-up (`@glowcap/webrtc`).
 
-import { retainCleanupFailures, Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@pancake/runtime";
-import { RtcPeer, type SignalingAuthority } from "@pancake/webrtc";
-import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
+import { retainCleanupFailures, Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@glowcap/runtime";
+import { RtcPeer, type SignalingAuthority } from "@glowcap/webrtc";
+import { DESIGNATOR_SCHEME_KEY } from "@glowcap/abi";
 import { SIG_CANDIDATE, SIG_OFFER } from "./protocol.ts";
 import { relayedSignalFits } from "./limits.ts";
 import { type Directory, signalingRoute } from "./room/client.ts";
@@ -88,7 +88,7 @@ export function directorySignalingAuthority(
  * and again after a reconnect (the inbox lives on the directory session).
  * Returns the accept loop's sessions through `onError` only when they fail. */
 export async function serveWebrtcSignaling(opts: {
-	host: import("@pancake/runtime").Host;
+	host: import("@glowcap/runtime").Host;
 	dir: () => Directory | null;
 	/** ICE servers this side answers through. It must match the reach the
 	 * dialing side was given: a candidate one peer cannot produce is a path

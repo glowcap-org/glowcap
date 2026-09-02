@@ -8,7 +8,7 @@
 //! never a blind sleep while CapTP is busy. Spinner glyphs appear only after
 //! `spinner_show_after_ms` so same-turn settlement never flashes a wait.
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const Ctx = @import("../ctx.zig").Ctx;
 const ocapn = @import("../ocapn/mod.zig");
 const registry = @import("../registry.zig");
@@ -19,9 +19,9 @@ const teach = @import("teach.zig");
 const complete = @import("complete.zig");
 const splitLine = @import("mod.zig").splitLine;
 
-const driver = pancake.driver;
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 
 pub const spinner_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
 /// Frame budget while animating a wait (~60 Hz). Also the `stepReadable` cap so

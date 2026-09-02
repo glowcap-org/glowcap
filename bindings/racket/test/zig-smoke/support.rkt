@@ -3,16 +3,16 @@
 ;; reporting, fresh Runtime/session construction, aggregate Runtime teardown,
 ;; and the one counter actor several independent scenarios exercise.
 
-(require "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
+(require "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
          (only-in "../../private/session.rkt" build-session)
          (only-in "../../private/host/state.rkt" call-with-host host-ptr)
          (only-in "../../private/locator.rkt" call-with-locator-view)
          (only-in "../../private/errors.rkt" check/host)
          (only-in "../../private/ffi-shared.rkt" pin-immobile)
          (only-in "../../private/ffi-host.rkt"
-                  pancake_host_session_open_dialed_locator
-                  pancake_host_session_open_accepted)
+                  glowcap_host_session_open_dialed_locator
+                  glowcap_host_session_open_accepted)
          racket/tcp)
 
 (provide expect
@@ -59,7 +59,7 @@
       (call-with-host m
         (lambda ()
           (define-values (rc ptr)
-            (pancake_host_session_open_dialed_locator (host-ptr m) view))
+            (glowcap_host_session_open_dialed_locator (host-ptr m) view))
           (check/host rc)
           (build-session m ptr tr #f))))))
 
@@ -76,7 +76,7 @@
       (define dbpin (pin-immobile db))
       (define hbpin (pin-immobile hb))
       (define-values (rc ptr)
-        (pancake_host_session_open_accepted (host-ptr m)
+        (glowcap_host_session_open_accepted (host-ptr m)
                                              tpin (bytes-length tb)
                                              designator-scheme
                                              dbpin (bytes-length db)

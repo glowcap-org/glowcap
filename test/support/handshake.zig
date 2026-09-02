@@ -14,10 +14,10 @@
 
 const std = @import("std");
 
-const pancake = @import("pancake");
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
+const glowcap = @import("glowcap");
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
 const crypto = foundation.crypto;
 
 pub const zero_pubkey = @as([32]u8, @splat(0));

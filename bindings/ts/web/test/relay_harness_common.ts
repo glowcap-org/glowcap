@@ -14,7 +14,7 @@
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 export { ROOT };
-export const WASM = `${ROOT}zig-out/wasm/pancake_host.wasm`;
+export const WASM = `${ROOT}zig-out/wasm/glowcap_host.wasm`;
 
 export function fail(message: string): never {
 	console.error(`FAIL: ${message}`);

@@ -3,7 +3,7 @@ id: ADR-0074
 status: accepted
 date: 2026-07-11
 tags: [session, engine, actors, driver, c-abi, security, gc]
-decision: "Partner admission of a near export requires a wire-count grant: an export row's refcount is its local baseline plus the wire references and explicit grants on top, a partner may address only a position whose wire-held share (`ExportTable.wireHeld`, count minus baseline) is nonzero, and a reserved-but-ungranted position is refused with the same `InvalidReference` as a nonexistent one. `Session.allocateExport` / `reserveExport` are the reservation (baseline only); the capability's first marshal is the grant (`retainSentExports`, which also mints absent rows registerExport-shaped and advances the allocator past them); `Session.registerExport` / `Peer.exportObject` / `pancake_peer_register_export` are the explicit out-of-band grant; `Port.bindExport` reserves and never grants. Inbound `op:gc-exports` validates its cumulative deltas against `wireHeld`, never raw `count`, so a hostile over-release is a loud `GcUnderflow` and an export row can never be deleted by the partner."
+decision: "Partner admission of a near export requires a wire-count grant: an export row's refcount is its local baseline plus the wire references and explicit grants on top, a partner may address only a position whose wire-held share (`ExportTable.wireHeld`, count minus baseline) is nonzero, and a reserved-but-ungranted position is refused with the same `InvalidReference` as a nonexistent one. `Session.allocateExport` / `reserveExport` are the reservation (baseline only); the capability's first marshal is the grant (`retainSentExports`, which also mints absent rows registerExport-shaped and advances the allocator past them); `Session.registerExport` / `Peer.exportObject` / `glowcap_peer_register_export` are the explicit out-of-band grant; `Port.bindExport` reserves and never grants. Inbound `op:gc-exports` validates its cumulative deltas against `wireHeld`, never raw `count`, so a hostile over-release is a loud `GcUnderflow` and an export row can never be deleted by the partner."
 supersedes: []
 superseded_by: []
 ---
@@ -14,7 +14,7 @@ superseded_by: []
 
 A spawned capability's export position was addressable the moment it was
 allocated. `driver.spawnAt` (and every surface riding it: `Served.spawn`,
-`pancake_host_session_spawn`, `pancake_host_turn_spawn`, the bindings' `spawn`)
+`glowcap_host_session_spawn`, `glowcap_host_turn_spawn`, the bindings' `spawn`)
 allocated a position from the session's export allocator and registered it
 live, so in the window between spawning an object and first sending its
 reference, a partner that guessed the small, dense, monotonic integer could
@@ -58,7 +58,7 @@ route through them, so spawned and published-but-unfetched capabilities are
 unaddressable until their reference first crosses the wire: the fetch reply
 or the spawning turn's own reply is the grant, and it lands under the ordered
 stream before the partner can act on it. `registerExport` (and `Peer.
-exportObject`, `pancake_peer_register_export`) is the explicit grant for
+exportObject`, `glowcap_peer_register_export`) is the explicit grant for
 positions a partner legitimately learns out-of-band. `Port.bindExport`
 (`src/actors/vat/mod.zig`) reserves and never grants: binding an actor to a
 position is routing, not authority. Mint is uniform: a first-export marshal of
@@ -87,7 +87,7 @@ not add entropy to them, it removes the need for it at this layer.
 
 - **Lazy position minting at the marshal chokepoint** (no position exists
   until the reference first encodes). Rejected: the C ABI's identity model is
-  the eager position. `pancake_host_session_spawn` and its kin return the export
+  the eager position. `glowcap_host_session_spawn` and its kin return the export
   position at spawn time: so lazy minting forks near identity into a
   token-plus-position pair across five bindings, while the session-table rule
   closes the same window for every producer, including a raw engine consumer
@@ -113,5 +113,5 @@ exercise fetch, GC, and withdraw against these rules.
 ## Notes
 
 Builds on ADR-0008 (wire-delta GC accounting) and ADR-0010 (perspective
-flip); the explicit-grant verb is the same `pancake_peer_register_export` the
+flip); the explicit-grant verb is the same `glowcap_peer_register_export` the
 C ABI has always shipped, now with its meaning stated.

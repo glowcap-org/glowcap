@@ -78,7 +78,7 @@ Each client runs a counter actor through two paths:
   path in both directions.
 
 Both paths run sequential send-and-settle units and report mean and p99
-nanoseconds per turn. Goblins has no pancake C host, so its `via_host` fields
+nanoseconds per turn. Goblins has no glowcap C host, so its `via_host` fields
 are empty.
 
 `via_host` is the existing loopback C-host path, included to inform the question
@@ -105,8 +105,8 @@ ahead-of-time runtimes have fundamentally different startup work.
   runtime heaps.
 - Optional clients are skipped when unavailable. A Zig-only smoke run is still
   valid, but it is not a comparison.
-- The Goblins row is a Goblins peer dialing the pancake host, not Racket using
-  pancake's binding.
+- The Goblins row is a Goblins peer dialing the glowcap host, not Racket using
+  glowcap's binding.
 
 These limits are why reports are dated artifacts rather than permanent project
 claims.

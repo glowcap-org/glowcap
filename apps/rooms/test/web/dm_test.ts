@@ -15,11 +15,11 @@
 
 import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { type Session, TRANSPORT_IROH } from "@pancake/runtime";
+import { type Session, TRANSPORT_IROH } from "@glowcap/runtime";
 
 import { recordingReplyDm } from "../../lib/dm_reply.ts";
 import { inboxPublisher } from "../../lib/dm_inbox.ts";
-import * as iroh from "@pancake/iroh";
+import * as iroh from "@glowcap/iroh";
 import { Directory, Room } from "../../lib/room/client.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { dial, roomsHost } from "../../lib/locator.ts";

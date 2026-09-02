@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 
-use crate::PancakeWebrtcReadyEvent;
+use crate::GlowcapWebrtcReadyEvent;
 
 /// One endpoint's readiness channel: a non-blocking self-pipe plus the
 /// authoritative queue of pending records. Wake bytes are coalescing hints;
@@ -70,7 +70,7 @@ impl Readiness {
 	/// Clear coalesced wake bytes before draining authoritative records. A signal
 	/// racing this operation either joins this drain or leaves a byte for the next
 	/// poll. A short record drain re-nudges the fd for its remaining backlog.
-	pub(crate) fn drain(&self, dest: &mut [PancakeWebrtcReadyEvent]) -> usize {
+	pub(crate) fn drain(&self, dest: &mut [GlowcapWebrtcReadyEvent]) -> usize {
 		let mut wake = [0u8; 256];
 		let mut reader = &self.reader;
 		loop {
@@ -87,7 +87,7 @@ impl Readiness {
 		for slot in dest.iter_mut().take(count) {
 			let subject = state.subjects.pop_front().unwrap();
 			let events = state.events.remove(&subject).unwrap();
-			*slot = PancakeWebrtcReadyEvent { subject, events };
+			*slot = GlowcapWebrtcReadyEvent { subject, events };
 		}
 		let remaining = !state.subjects.is_empty();
 		drop(state);

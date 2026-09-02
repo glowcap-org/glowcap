@@ -52,7 +52,7 @@ CapTP works on it. Cleartext keyed transports still speak CapTP. Anyone who can
 see the path can also read and alter every frame.
 
 [Choosing a transport]($link.page('transports/choosing')) is the decision
-table: every symbol pancake ships, when to reach for it, how far you can trust
+table: every symbol glowcap ships, when to reach for it, how far you can trust
 it, and what the path proves. The Noise, iroh, WebRTC, and onion pages cover
 setup once you know which path you want. A browser that cannot open a native
 socket uses the [relay]($link.page('relay')) as a WebSocket that forwards bytes
@@ -60,5 +60,5 @@ to a peer that already has a transport name.
 
 One program can listen on several of these at once, and today's locator
 vocabulary makes that two peers. [Multi-home peers]($link.page('multihome'))
-is pancake's prototype answer: one durable key as the name, with the routes
+is glowcap's prototype answer: one durable key as the name, with the routes
 underneath it.

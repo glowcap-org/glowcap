@@ -7,7 +7,7 @@
 // a facet that carries nothing must be as easy to project as one that carries
 // everything.
 
-import type { Argument, Session } from "@pancake/runtime";
+import type { Argument, Session } from "@glowcap/runtime";
 import { mayInteract, mayObserve, type RoomsSessionAccess, type RoomsSessionRoomView } from "../lib/session/client.ts";
 import { emptyRoomsSessionState, redactRoomsSessionCapabilities, type RoomsSessionState } from "../lib/rooms_state.ts";
 import { describeRoomsSessionResult, EXTERNAL_SESSION_OPERATION } from "./result_commands.ts";

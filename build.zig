@@ -1,4 +1,4 @@
-//! pancake's build manifest: module DAG, archive set, and check steps.
+//! glowcap's build manifest: module DAG, archive set, and check steps.
 //!
 //! `layer_table` is the import graph `arch-check` verifies. `archive_table`
 //! names the composable C ABI archives. Helpers below those tables own the
@@ -31,12 +31,12 @@ const release_build = @import("tools/build/release.zig");
 const bindings_steps_build = @import("tools/build/bindings_steps.zig");
 const relay_matrix_build = @import("tools/build/relay_matrix.zig");
 
-const pancakeExecutable = build_common.pancakeExecutable;
-const addPancakeRun = build_common.addPancakeRun;
+const glowcapExecutable = build_common.glowcapExecutable;
+const addGlowcapRun = build_common.addGlowcapRun;
 const addRootedSystemCommand = build_common.addRootedSystemCommand;
 
-/// C ABI version (keep in lockstep with `PANCAKE_VERSION_*` in
-/// `include/pancake_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
+/// C ABI version (keep in lockstep with `GLOWCAP_VERSION_*` in
+/// `include/glowcap_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
 /// in `build.zig.zon` — the source gate holds the zon triple to this one). Each
 /// archive's dynamic library soname tracks `major`.
 const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
@@ -47,7 +47,7 @@ const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 /// verifies it against the source tree: a granted edge no file imports fails
 /// the gate, so the table carries the edges the code uses, never a wider
 /// silent allowance. Rows are in dependency order; the sans-io core graph is
-/// the table prefix ending at `actors`, and the final `pancake` row is
+/// the table prefix ending at `actors`, and the final `glowcap` row is
 /// `src/root.zig`, the curated public namespace over the layers.
 pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "foundation", .prefix = "foundation/", .imports = &.{}, .core = true },
@@ -78,7 +78,7 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "c_abi_host", .prefix = "c_abi/host/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_driver", .prefix = "c_abi/driver/", .imports = &.{ "foundation", "model", "engine", "net", "driver_core", "driver", "c_abi_shared", "c_abi_host" }, .core = false, .graph = false },
     .{ .name = "c_abi_wasm", .prefix = "c_abi/wasm/", .imports = &.{ "c_abi_shared", "c_abi", "c_abi_host" }, .core = false, .graph = false },
-    .{ .name = "pancake", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "net", "driver", "c_abi" }, .core = false },
+    .{ .name = "glowcap", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "net", "driver", "c_abi" }, .core = false },
 };
 
 /// The composable C ABI archive set (ADR-0059), declared once beside
@@ -108,20 +108,20 @@ const ArchiveSpec = struct {
     release_install: bool = true,
 };
 const archive_table = [_]ArchiveSpec{
-    .{ .artifact = "pancake_ocapn", .layer = "c_abi", .header = "pancake_ocapn.h" },
-    .{ .artifact = "pancake_net_transport_tcp", .layer = "c_abi_net_transport_tcp", .header = "pancake_net_transport_tcp.h" },
-    .{ .artifact = "pancake_net_transport_relay", .layer = "c_abi_net_transport_relay", .header = "pancake_net_transport_relay.h" },
-    .{ .artifact = "pancake_net_transport_inproc", .layer = "c_abi_net_transport_inproc", .header = "pancake_net_transport_inproc.h" },
-    .{ .artifact = "pancake_net_transport_onion", .layer = "c_abi_net_transport_onion", .header = "pancake_net_transport_onion.h" },
-    .{ .artifact = "pancake_host", .layer = "c_abi_host", .header = "pancake_host.h" },
-    .{ .artifact = "pancake_driver", .layer = "c_abi_driver", .header = "pancake_driver.h" },
-    .{ .artifact = "pancake_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "pancake_net_transport_iroh.h", .default_install = false },
-    .{ .artifact = "pancake_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "pancake_net_transport_webrtc.h", .default_install = false, .release_install = false },
+    .{ .artifact = "glowcap_ocapn", .layer = "c_abi", .header = "glowcap_ocapn.h" },
+    .{ .artifact = "glowcap_net_transport_tcp", .layer = "c_abi_net_transport_tcp", .header = "glowcap_net_transport_tcp.h" },
+    .{ .artifact = "glowcap_net_transport_relay", .layer = "c_abi_net_transport_relay", .header = "glowcap_net_transport_relay.h" },
+    .{ .artifact = "glowcap_net_transport_inproc", .layer = "c_abi_net_transport_inproc", .header = "glowcap_net_transport_inproc.h" },
+    .{ .artifact = "glowcap_net_transport_onion", .layer = "c_abi_net_transport_onion", .header = "glowcap_net_transport_onion.h" },
+    .{ .artifact = "glowcap_host", .layer = "c_abi_host", .header = "glowcap_host.h" },
+    .{ .artifact = "glowcap_driver", .layer = "c_abi_driver", .header = "glowcap_driver.h" },
+    .{ .artifact = "glowcap_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "glowcap_net_transport_iroh.h", .default_install = false },
+    .{ .artifact = "glowcap_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "glowcap_net_transport_webrtc.h", .default_install = false, .release_install = false },
 };
 
 const shared_header_table = [_][]const u8{
-    "pancake_locator.h",
-    "pancake_transport_provider.h",
+    "glowcap_locator.h",
+    "glowcap_transport_provider.h",
 };
 
 comptime {
@@ -140,16 +140,16 @@ pub fn layerIndex(comptime name: []const u8) usize {
 
 /// Materialize one module per table row, in order, resolving each row's edges
 /// against the earlier rows. Every module is position-independent so each
-/// static archive (`libpancake_ocapn.a`, the transport archives) links cleanly
+/// static archive (`libglowcap_ocapn.a`, the transport archives) links cleanly
 /// into a PIE consumer (the Rust C ABI dogfood links a static archive into a
 /// position-independent test binary;
 /// without this, the archive's R_X86_64_32S relocations are rejected at link
 /// time). The shared library requires PIC regardless, so both artifacts share
 /// one PIC graph.
 ///
-/// When `expose_root` is set, the `pancake` row is registered through
+/// When `expose_root` is set, the `glowcap` row is registered through
 /// `b.addModule`, so a downstream package's
-/// `b.dependency("pancake", ...).module("pancake")` resolves to the same graph
+/// `b.dependency("glowcap", ...).module("glowcap")` resolves to the same graph
 /// the artifacts are built from. The cross-target graphs pass false: they are
 /// compile-only gates, not the public module.
 pub fn graphFromTable(
@@ -176,8 +176,8 @@ pub fn graphFromTable(
             .optimize = o,
             .pic = true,
         };
-        mods[i] = if (expose_root and std.mem.eql(u8, spec.name, "pancake"))
-            b.addModule("pancake", create_options)
+        mods[i] = if (expose_root and std.mem.eql(u8, spec.name, "glowcap"))
+            b.addModule("glowcap", create_options)
         else
             b.createModule(create_options);
         for (spec.imports) |edge| {
@@ -220,7 +220,7 @@ pub fn build(b: *std.Build) void {
     const rooms_admin_listeners = b.option(bool, "admin-listeners", "When serving the rooms web UI, mint a listener-admin capability and print its swiss") orelse false;
     const rooms_operator = b.option(bool, "operator", "When serving the rooms web UI, mint a room-steward operator capability and print its swiss") orelse false;
     const rooms_peering = b.option(bool, "peering", "When serving the rooms web UI, mint a directory-peering capability and print its swiss") orelse false;
-    const rooms_viz = b.option(bool, "viz", "When serving the rooms web UI, serve the live timeline endpoint (default port 9300; PANCAKE_ROOMS_VIZ_PORT overrides) and mint the viz capability") orelse false;
+    const rooms_viz = b.option(bool, "viz", "When serving the rooms web UI, serve the live timeline endpoint (default port 9300; GLOWCAP_ROOMS_VIZ_PORT overrides) and mint the viz capability") orelse false;
     if (attach and pin_port == null) {
         std.process.fatal("-Dattach requires -Dport: there is no server to join without a port", .{});
     }
@@ -234,7 +234,7 @@ pub fn build(b: *std.Build) void {
     // (no `std.Io` / `std.Thread` in core, no platform syscall namespaces in
     // portable code) live as prose checks.
     const host_mods = graphFromTable(b, target, optimize, &layer_table, true);
-    const lib_mod = host_mods[layerIndex("pancake")];
+    const lib_mod = host_mods[layerIndex("glowcap")];
 
     // The secure relay dependency is an explicit, networked sibling step. The
     // ordinary core library graph never fetches or links it; the secure relay
@@ -244,8 +244,8 @@ pub fn build(b: *std.Build) void {
     // ── Composable C ABI archives (ADR-0059) ─────────────────────────────────
     // The single umbrella artifact is dropped: each family
     // ships as its own archive linked à la carte, exporting only its
-    // `pancake_<family>_*` symbols and sharing core types by header layout.
-    // `libpancake_ocapn` is the shared vocabulary; each transport is a
+    // `glowcap_<family>_*` symbols and sharing core types by header layout.
+    // `libglowcap_ocapn` is the shared vocabulary; each transport is a
     // self-contained companion that embeds its private lower layers as local
     // symbols.
     // The transport roots are minted by `transportAbiModule` because they sit
@@ -284,10 +284,10 @@ pub fn build(b: *std.Build) void {
     // this is also the ordinary threading contract a C library should expose.
     tcp_abi_mod.linkSystemLibrary("c", .{});
     onion_abi_mod.linkSystemLibrary("c", .{});
-    // `libpancake_host`: the byte-fed driver tier over the C ABI (ADR-0072).
+    // `libglowcap_host`: the byte-fed driver tier over the C ABI (ADR-0072).
     // Roots on its own layer module, importing `driver_core` (the sans-io serve
     // core it wraps) and the shared vocabulary leaf, so it exports only
-    // `pancake_host_*`.
+    // `glowcap_host_*`.
     const host_abi_imports = [_]AbiImport{
         .{ .name = "foundation", .module = host_mods[layerIndex("foundation")] },
         .{ .name = "model", .module = host_mods[layerIndex("model")] },
@@ -299,7 +299,7 @@ pub fn build(b: *std.Build) void {
     const host_abi_mod = transportAbiModule(b, target, optimize, "src/c_abi/host/mod.zig", &host_abi_imports);
     const host_archive_mod = transportAbiModule(b, target, optimize, "src/c_abi/host/archive.zig", &host_abi_imports);
 
-    // `libpancake_driver`: the driver archive (ADR-0112). Roots on its
+    // `libglowcap_driver`: the driver archive (ADR-0112). Roots on its
     // own layer module, importing `driver` (whose `HostRuntime` it steps) and the
     // Host implementation namespace without rooting the Host export family.
     // Owns a `std.Io.Threaded`, so it links libc like the transport archives.
@@ -319,20 +319,20 @@ pub fn build(b: *std.Build) void {
     driver_archive_mod.linkSystemLibrary("c", .{});
 
     // The static lib of each archive, kept so the C examples can link the
-    // composed set the consumer would. `libpancake_ocapn` roots on the `c_abi`
+    // composed set the consumer would. `libglowcap_ocapn` roots on the `c_abi`
     // (ocapn) layer module directly — the same module the ocapn header generator
     // reflects over — so it exports exactly the sans-io ocapn family and nothing
-    // the `pancake` root module would otherwise drag in.
-    const ocapn_archive = installArchive(b, "pancake_ocapn", host_mods[layerIndex("c_abi")], abi_version);
+    // the `glowcap` root module would otherwise drag in.
+    const ocapn_archive = installArchive(b, "glowcap_ocapn", host_mods[layerIndex("c_abi")], abi_version);
     const ocapn_static = ocapn_archive.static;
-    const tcp_archive = installArchive(b, "pancake_net_transport_tcp", tcp_abi_mod, abi_version);
-    const relay_archive = installArchive(b, "pancake_net_transport_relay", relay_abi_mod, abi_version);
+    const tcp_archive = installArchive(b, "glowcap_net_transport_tcp", tcp_abi_mod, abi_version);
+    const relay_archive = installArchive(b, "glowcap_net_transport_relay", relay_abi_mod, abi_version);
     mbedtls_build.addArchiveChecks(b, target, optimize, native_relay.secure_check, relay_archive.static, relay_archive.dynamic);
-    _ = installArchive(b, "pancake_net_transport_inproc", inproc_abi_mod, abi_version);
-    const onion_archive = installArchive(b, "pancake_net_transport_onion", onion_abi_mod, abi_version);
-    const host_archive = installArchive(b, "pancake_host", host_archive_mod, abi_version);
+    _ = installArchive(b, "glowcap_net_transport_inproc", inproc_abi_mod, abi_version);
+    const onion_archive = installArchive(b, "glowcap_net_transport_onion", onion_abi_mod, abi_version);
+    const host_archive = installArchive(b, "glowcap_host", host_archive_mod, abi_version);
     const host_static = host_archive.static;
-    const driver_archive = installArchive(b, "pancake_driver", driver_archive_mod, abi_version);
+    const driver_archive = installArchive(b, "glowcap_driver", driver_archive_mod, abi_version);
 
     // Install each archive's public header.
     inline for (archive_table) |arch| {
@@ -431,13 +431,13 @@ pub fn build(b: *std.Build) void {
     // `check`.
     examples_build.register(b, target, optimize, lib_mod, check_step, ocapn_static, host_static);
     // Optimize mode is per-module: every consumer that claims optimized
-    // pancake figures imports this dedicated ReleaseFast graph, never
+    // glowcap figures imports this dedicated ReleaseFast graph, never
     // `lib_mod`. The benches and their `perf-check` tripwire register from
     // tools/build/bench.zig; the Cap'n Proto fixture generator joins the gen
     // family it belongs to.
-    const fast_lib_mod = graphFromTable(b, target, .ReleaseFast, &layer_table, false)[layerIndex("pancake")];
+    const fast_lib_mod = graphFromTable(b, target, .ReleaseFast, &layer_table, false)[layerIndex("glowcap")];
     bench_build.register(b, target, optimize, lib_mod, fast_lib_mod, host_mods, check_step);
-    gen_build.registerCapnpFixtures(b, target, optimize, lib_mod);
+    gen_build.registerCapnpFixtures(b, target, optimize, lib_mod, check_step);
 
     // The per-language dogfoods and their aggregates register from
     // tools/build/bindings_steps.zig; the iroh-dependent wiring joins below,
@@ -529,7 +529,7 @@ pub fn build(b: *std.Build) void {
     });
     check_step.dependOn(&iroh_abi_check.step);
 
-    // `include/pancake_net_transport_iroh.h` and the binding FFI layout facts
+    // `include/glowcap_net_transport_iroh.h` and the binding FFI layout facts
 
     gen_build.registerMirrors(gen_ctx, iroh_resident_mod, webrtc_resident_mod);
 
@@ -554,7 +554,7 @@ pub fn build(b: *std.Build) void {
         .static_archives = release_static_archives.items,
         .dynamic_archives = release_dynamic_archives.items,
         .headers = release_headers.items,
-        .binaries = &.{ "pancake", "rooms-peer" },
+        .binaries = &.{ "glowcap", "rooms-peer" },
     });
     // External conformance pressure registers from tools/build/conformance.zig,
     // bundling the upstream suite, the findings, corpus parity, and the live
@@ -603,7 +603,7 @@ pub fn build(b: *std.Build) void {
     cli_build.add(b, .{
         .target = target,
         .optimize = optimize,
-        .pancake = lib_mod,
+        .glowcap = lib_mod,
         .iroh = iroh_resident_mod,
         .native_relay = native_relay.relay,
         .check_relay = native_relay.check_relay,
@@ -631,6 +631,6 @@ pub fn build(b: *std.Build) void {
     // Serena's SolidLSP ZLS adapter currently hard-codes build-on-save args to
     // `zig build build`; keep that editor-only alias pointed at the normal
     // install step. The project correctness gate remains `zig build check`.
-    const build_step = b.step("build", "Build and install the pancake C ABI archives");
+    const build_step = b.step("build", "Build and install the glowcap C ABI archives");
     build_step.dependOn(b.getInstallStep());
 }

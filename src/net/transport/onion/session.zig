@@ -26,14 +26,14 @@ pub const Error = error{
     /// Authentication was rejected.
     AuthFailed,
     /// A reply line ran past `control.max_line_bytes`, or the whole reply ran
-    /// past `max_reply_lines`. Both are pancake's bounds, not Tor's.
+    /// past `max_reply_lines`. Both are glowcap's bounds, not Tor's.
     ReplyTooLong,
     /// The designator is not a well-formed version 3 onion address.
     InvalidServiceId,
 };
 
 /// How many lines one control reply may carry before it is refused. Every reply
-/// pancake reads is a status line or two key-value pairs and a terminator, so
+/// glowcap reads is a status line or two key-value pairs and a terminator, so
 /// this is far above the real shapes and exists only so a wedged daemon cannot
 /// stream without end.
 pub const max_reply_lines = 64;
@@ -114,7 +114,7 @@ pub fn socksHandshake(io: std.Io, stream: Stream, service_id: []const u8) Error!
 /// brings it back.
 pub const Service = struct {
     /// The version 3 service id, without its `.onion` suffix. This is the
-    /// locator designator pancake publishes.
+    /// locator designator glowcap publishes.
     id: [socks5.service_id_len]u8,
     /// The `250-PrivateKey=` value verbatim, including its `ED25519-V3:` prefix,
     /// or an empty slice when the request restored an existing service (Tor

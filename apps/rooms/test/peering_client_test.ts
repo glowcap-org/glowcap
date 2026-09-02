@@ -1,4 +1,4 @@
-import type { Argument, Session } from "@pancake/runtime";
+import type { Argument, Session } from "@glowcap/runtime";
 import { refFromId } from "../../../bindings/ts/runtime/value.ts";
 import type { Directory } from "../lib/directory.ts";
 import { DirectoryPeering, type DurableRoom, RoomPublication } from "../lib/peering.ts";

@@ -63,7 +63,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pancake-ocapn-conformance-environment"
+name = "glowcap-ocapn-conformance-environment"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [

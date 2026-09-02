@@ -5,10 +5,10 @@
 //! failure whose last deterministic return is gone; it writes the process
 //! context so a later close can still name the exact primary.
 
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const Ctx = @import("../ctx.zig").Ctx;
 
-const driver = pancake.driver;
+const driver = glowcap.driver;
 
 /// Product CapTP deadlines (ADR-0081). `.unbounded` parks a silent peer; a
 /// `.ms` of zero or less has already expired and times out immediately.

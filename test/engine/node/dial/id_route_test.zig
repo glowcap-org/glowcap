@@ -1,11 +1,11 @@
 //! Identity-layer route proof cases for the Node dial scheduler.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 
 const Node = engine.Node;
 const harness = @import("../harness.zig");

@@ -1,10 +1,10 @@
 //! Async relay DNS and pre-admission dial-lifecycle evidence.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const admission = @import("../support/keyed_relay_admission.zig");
 
-const net = pancake.net;
+const net = glowcap.net;
 
 test "completion relay retries refused loser close admission without parking" {
     var backend = try admission.admissionBackend(std.testing.allocator);

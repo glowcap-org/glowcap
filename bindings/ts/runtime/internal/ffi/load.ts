@@ -1,16 +1,16 @@
 // Internal: how every archive loader finds its shared library.
 //
-// pancake ships its C ABI as à-la-carte archives (ADR-0059), one per concern,
+// glowcap ships its C ABI as à-la-carte archives (ADR-0059), one per concern,
 // and each loader under this folder opens exactly one of them through the
 // runtime FFI seam. This module holds the one piece they all share: resolving a
 // built archive's path. Nothing here is public.
 //
 // Publishable cascade (ADR-0077; see `c-abi-resolve.json` and
 // `bindings/README.md`):
-//   1. `PANCAKE_LIB_DIR` (configure) — never downloads.
+//   1. `GLOWCAP_LIB_DIR` (configure) — never downloads.
 //   2. Abi-versioned download cache — language-native fetch (HTTP + tar) that
 //      ships inside this package; no monorepo operator shell helper required.
-//   3. In-tree `zig-out/lib` when a pancake checkout is discoverable (dev only).
+//   3. In-tree `zig-out/lib` when a glowcap checkout is discoverable (dev only).
 //   4. Bare library name (OS dynamic-linker search).
 //
 // Deno without `--allow-env` / `--allow-read` / `--allow-net` / `--allow-write`
@@ -64,7 +64,7 @@ const host: HostModules | null = (globalThis as Record<symbol, unknown>)[injecte
 // Call-syntax aliases for the cascade's rungs. Every use sits beneath
 // `libPath`'s browser early-return, so a null host can never reach one.
 function hostOnly(): never {
-	throw new Error("pancake archive resolution needs a host runtime (Deno/Bun)");
+	throw new Error("glowcap archive resolution needs a host runtime (Deno/Bun)");
 }
 const process = host?.process ??
 	({
@@ -207,9 +207,9 @@ function loadContract(): Contract {
 /** Cold-cache network gate from contract `releases_published`. */
 function wantReleaseFetch(contract: Contract): boolean {
 	if (contract.releases_published) {
-		return !envTruthy("PANCAKE_SKIP_DOWNLOAD");
+		return !envTruthy("GLOWCAP_SKIP_DOWNLOAD");
 	}
-	return envTruthy("PANCAKE_DOWNLOAD");
+	return envTruthy("GLOWCAP_DOWNLOAD");
 }
 
 function applyContractTemplate(
@@ -230,7 +230,7 @@ function findDevRoot(): string | null {
 		try {
 			if (
 				existsSync(join(dir, "build.zig")) &&
-				existsSync(join(dir, "include/pancake_ocapn.h"))
+				existsSync(join(dir, "include/glowcap_ocapn.h"))
 			) {
 				return dir;
 			}
@@ -250,8 +250,8 @@ function abiVersion(devRoot: string | null, contract: Contract): string {
 				const m = text.match(new RegExp(`^#define\\s+${name}\\s+(\\d+)\\s*$`, "m"));
 				return m ? Number(m[1]) : fallback;
 			};
-			return `${macro("PANCAKE_VERSION_MAJOR", 0)}.${macro("PANCAKE_VERSION_MINOR", 1)}.${
-				macro("PANCAKE_VERSION_PATCH", 0)
+			return `${macro("GLOWCAP_VERSION_MAJOR", 0)}.${macro("GLOWCAP_VERSION_MINOR", 1)}.${
+				macro("GLOWCAP_VERSION_PATCH", 0)
 			}`;
 		} catch { /* fall through to contract pin */ }
 	}
@@ -283,12 +283,12 @@ function hostTargetTriple(): string {
 }
 
 function cacheBase(contract: Contract): string | null {
-	const override = envVar("PANCAKE_CACHE_DIR");
+	const override = envVar("GLOWCAP_CACHE_DIR");
 	if (override !== null) return override;
 	const xdg = envVar("XDG_CACHE_HOME");
-	if (xdg !== null) return join(xdg, "pancake/c-abi");
+	if (xdg !== null) return join(xdg, "glowcap/c-abi");
 	const home = envVar("HOME");
-	if (home !== null) return join(home, ".cache/pancake/c-abi");
+	if (home !== null) return join(home, ".cache/glowcap/c-abi");
 	const tmp = envVar("TMPDIR");
 	if (tmp !== null) return join(tmp, contract.fallback_cache_name);
 	return null;
@@ -305,10 +305,10 @@ function cacheLibDir(
 }
 
 function softFail(msg: string): void {
-	if (envTruthy("PANCAKE_STRICT")) {
+	if (envTruthy("GLOWCAP_STRICT")) {
 		throw new Error(msg);
 	}
-	console.error(`pancake: ${msg} (soft-fail)`);
+	console.error(`glowcap: ${msg} (soft-fail)`);
 }
 
 function curlDownload(
@@ -319,7 +319,7 @@ function curlDownload(
 ): boolean {
 	const args = [
 		"-fsSL",
-		...curlTransportArgs(url, envTruthy("PANCAKE_ALLOW_INSECURE")),
+		...curlTransportArgs(url, envTruthy("GLOWCAP_ALLOW_INSECURE")),
 		"--max-filesize",
 		String(maxBytes),
 		"-A",
@@ -381,9 +381,9 @@ function fetchIntoCache(
 	target: string,
 	cacheLib: string,
 ): void {
-	const base = envVar("PANCAKE_RELEASE_BASE_URL") ??
+	const base = envVar("GLOWCAP_RELEASE_BASE_URL") ??
 		contract.default_release_base_url;
-	requireSecureReleaseUrl(base, envTruthy("PANCAKE_ALLOW_INSECURE"));
+	requireSecureReleaseUrl(base, envTruthy("GLOWCAP_ALLOW_INSECURE"));
 	const userAgent = contract.user_agent;
 	const maxBytes = contract.max_tarball_bytes;
 	const maxSums = contract.max_sums_bytes;
@@ -420,7 +420,7 @@ function fetchIntoCache(
 		if (existsSync(markerPath(cacheLib, contract))) return;
 
 		const tarballPath = join(cacheRoot, tarball);
-		console.error(`pancake: downloading ${url}`);
+		console.error(`glowcap: downloading ${url}`);
 		if (!curlDownload(url, tarballPath, userAgent, maxBytes)) {
 			try {
 				rmSync(tarballPath, { force: true });
@@ -492,7 +492,7 @@ function fetchIntoCache(
 		// Soft-fail: missing curl/tar, denied permissions, or I/O error.
 		// HardFailError and STRICT always re-throw — do not swallow them.
 		if (err instanceof HardFailError) throw err;
-		if (envTruthy("PANCAKE_STRICT")) throw err;
+		if (envTruthy("GLOWCAP_STRICT")) throw err;
 	} finally {
 		try {
 			rmdirSync(lockDir);
@@ -505,7 +505,7 @@ function markerPath(dir: string, contract: Contract): string {
 }
 
 function libDir(): string | null {
-	const override = envVar("PANCAKE_LIB_DIR");
+	const override = envVar("GLOWCAP_LIB_DIR");
 	if (override !== null) return override;
 
 	let contract: Contract;
@@ -546,9 +546,9 @@ function libDir(): string | null {
 	}
 
 	if (zigHasMarker) {
-		// PANCAKE_DOWNLOAD refreshes the cache even when zig-out exists,
+		// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists,
 		// including when releases_published is false.
-		if (cacheLib !== null && envTruthy("PANCAKE_DOWNLOAD")) {
+		if (cacheLib !== null && envTruthy("GLOWCAP_DOWNLOAD")) {
 			fetchIntoCache(contract, version, target, cacheLib);
 			try {
 				if (existsSync(markerPath(cacheLib, contract))) return cacheLib;
@@ -592,9 +592,9 @@ export function libPath(stem: string): string {
 	if (dir !== null) return `${dir.replace(/\/$/, "")}/${file}`;
 	if (process.platform === "win32") {
 		throw new Error(
-			`pancake: could not resolve an absolute path for ${file}; set PANCAKE_LIB_DIR or populate the abi-versioned cache (Windows refuses bare DLL names to avoid search-order plants)`,
+			`glowcap: could not resolve an absolute path for ${file}; set GLOWCAP_LIB_DIR or populate the abi-versioned cache (Windows refuses bare DLL names to avoid search-order plants)`,
 		);
 	}
-	console.error(`pancake: warning: loading bare ${file} via the OS search path`);
+	console.error(`glowcap: warning: loading bare ${file} via the OS search path`);
 	return file;
 }

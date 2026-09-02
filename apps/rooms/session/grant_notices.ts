@@ -11,7 +11,7 @@
 // only half the promise. The other half is that a change reaches whoever is
 // already holding the link, which is the person it was about.
 
-import type { Argument, Ref, Session } from "@pancake/runtime";
+import type { Argument, Ref, Session } from "@glowcap/runtime";
 import { accessOf, narrows, ROOMS_SESSION_CHANGED, type RoomsSessionAccess } from "../lib/session/client.ts";
 import { cleanupSettledBySessionClose } from "../lib/capability_cleanup.ts";
 import type { RoomsSessionGrantAuthority } from "./grants.ts";

@@ -14,7 +14,7 @@ import { awaitMarker, fail } from "../_support/harness.ts";
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../../zig-out/lib/", import.meta.url).pathname;
 const installedArchiveEnv = {
-	PANCAKE_LIB_DIR: LIB_DIR,
+	GLOWCAP_LIB_DIR: LIB_DIR,
 	...(Deno.build.os === "darwin" ? { DYLD_LIBRARY_PATH: LIB_DIR } : { LD_LIBRARY_PATH: LIB_DIR }),
 };
 

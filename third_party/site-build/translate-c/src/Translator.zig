@@ -1185,6 +1185,8 @@ fn transType(t: *Translator, scope: *Scope, qt: QualType, source_loc: TokenIndex
             .ulong_long => return ZigTag.type.create(t.arena, "c_ulonglong"),
             .int128 => return ZigTag.type.create(t.arena, "i128"),
             .uint128 => return ZigTag.type.create(t.arena, "u128"),
+            .int24 => return ZigTag.type.create(t.arena, "i24"),
+            .uint24 => return ZigTag.type.create(t.arena, "u24"),
         },
         .float => |float_ty| switch (float_ty) {
             .fp16, .float16 => return ZigTag.type.create(t.arena, "f16"),
@@ -1537,6 +1539,7 @@ fn transTypeIntWidthOf(t: *Translator, qt: QualType, is_signed: bool) TypeError!
             .long, .ulong => if (is_signed) "c_long" else "c_ulong",
             .long_long, .ulong_long => if (is_signed) "c_longlong" else "c_ulonglong",
             .int128, .uint128 => if (is_signed) "i128" else "u128",
+            .int24, .uint24 => if (is_signed) "i24" else "u24",
         },
         .bit_int => |bit_int_ty| try std.fmt.allocPrint(t.arena, "{s}{d}", .{
             if (is_signed) "i" else "u",
@@ -1618,8 +1621,8 @@ fn signedness(t: *Translator, qt: QualType) ?std.builtin.Signedness {
         .bit_int => |bit_int| bit_int.signedness,
         .int => |int_ty| switch (int_ty) {
             .char => .unsigned, // Always translated as u8
-            .schar, .short, .int, .long, .long_long, .int128 => .signed,
-            .uchar, .ushort, .uint, .ulong, .ulong_long, .uint128 => .unsigned,
+            .schar, .short, .int, .long, .long_long, .int128, .int24 => .signed,
+            .uchar, .ushort, .uint, .ulong, .ulong_long, .uint128, .uint24 => .unsigned,
         },
         .@"enum" => |enum_ty| {
             const tag_qt = enum_ty.tag orelse return .signed;

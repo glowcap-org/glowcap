@@ -9,7 +9,7 @@ import {
 	FEATURE_MULTI_LOCATION,
 	FEATURE_PIPELINING,
 	FEATURE_UNTAG,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { type CaptpVersion, captpVersionId, type Codec, codecId, featureMask, refFromId } from "../value.ts";
 import { assertEquals } from "../../dogfood/assert.ts";
 
@@ -34,8 +34,8 @@ Deno.test("captpVersionId names only concrete CapTP profiles", () => {
 	assertEquals(captpVersionId("v1_0"), CAPTP_V1_0);
 	assertEquals(captpVersionId("next"), CAPTP_NEXT);
 	assertThrows(
-		() => captpVersionId("pancake-future" as CaptpVersion),
-		"unknown CapTP version pancake-future",
+		() => captpVersionId("glowcap-future" as CaptpVersion),
+		"unknown CapTP version glowcap-future",
 	);
 	assertThrows(() => captpVersionId(0 as unknown as CaptpVersion), "unknown CapTP version 0");
 });

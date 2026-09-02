@@ -14,7 +14,7 @@ import { loopbackTcpDesignator, roomsHost, roomsListen } from "../../../lib/loca
 import { DM, EDIT, REFILE, WITHDRAW } from "../../../lib/protocol.ts";
 
 import { assert, dial, roomsTest } from "../../support/rooms_server.ts";
-import { Argument, currentSession, Ref, Session } from "@pancake/runtime";
+import { Argument, currentSession, Ref, Session } from "@glowcap/runtime";
 roomsTest("files ride a direct message in both directions over its existing transport", async () => {
 	const encoder = new TextEncoder();
 	const sent = new Uint8Array(BLOB_CHUNK + 17);

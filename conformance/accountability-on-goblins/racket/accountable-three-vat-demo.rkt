@@ -28,7 +28,7 @@
          goblins/ocapn
          goblins/ocapn/structs-urls
          ;; tcp-netlayer.rkt lives in goblins-peer/ (the slim Goblins peer
-         ;; pancake dials). accountability-on-goblins reuses it; the container
+         ;; glowcap dials). accountability-on-goblins reuses it; the container
          ;; mounts both racket/ trees so this relative path resolves.
          "../../goblins-peer/racket/tcp-netlayer.rkt"
          (prefix-in id: "identity.rkt")

@@ -36,14 +36,14 @@ pub fn checkAbiFreeingVerb(
         defer decls.deinit(gpa);
         try collectHeaderDeclarations(gpa, contents, &decls);
         if (decls.items.len == 0) {
-            try appendViolation(gpa, violations, "{s}: found no pancake_ declarations; the ABI freeing-verb scanner no longer matches this header", .{path});
+            try appendViolation(gpa, violations, "{s}: found no glowcap_ declarations; the ABI freeing-verb scanner no longer matches this header", .{path});
             continue;
         }
 
         for (decls.items) |decl| {
             const name = decl.name;
             // `*_free` is not an allowed freeing spelling: a handle that frees
-            // is `*_release`, so a `pancake_*_free` export is the inconsistency
+            // is `*_release`, so a `glowcap_*_free` export is the inconsistency
             // this rule exists to prevent, not merely a `*_close` to document.
             if (std.mem.endsWith(u8, name, "_free")) {
                 try appendViolation(gpa, violations, "{s}: {s} frees a handle but is not spelled *_release; the one freeing verb is *_release", .{ path, name });
@@ -117,7 +117,7 @@ pub fn checkCAbiSurfaceShape(
         defer decls.deinit(gpa);
         try collectHeaderDeclarations(gpa, contents, &decls);
         if (decls.items.len == 0) {
-            try appendViolation(gpa, violations, "{s}: found no pancake_ declarations; the ABI surface-shape scanner no longer matches this header", .{path});
+            try appendViolation(gpa, violations, "{s}: found no glowcap_ declarations; the ABI surface-shape scanner no longer matches this header", .{path});
             continue;
         }
         for (decls.items) |decl| {
@@ -157,10 +157,10 @@ pub fn checkCAbiSurfaceShape(
         if (std.mem.endsWith(u8, name, "_clear_last_error")) continue;
         const head = name[0 .. name.len - "_last_error".len];
         var family: []const u8 = undefined;
-        if (std.mem.eql(u8, head, "pancake")) {
+        if (std.mem.eql(u8, head, "glowcap")) {
             family = "";
-        } else if (std.mem.startsWith(u8, head, "pancake_")) {
-            family = head["pancake_".len..];
+        } else if (std.mem.startsWith(u8, head, "glowcap_")) {
+            family = head["glowcap_".len..];
         } else continue;
 
         var family_ok = false;
@@ -172,9 +172,9 @@ pub fn checkCAbiSurfaceShape(
             continue;
         }
         const clear = if (family.len == 0)
-            try std.fmt.allocPrint(gpa, "pancake_clear_last_error", .{})
+            try std.fmt.allocPrint(gpa, "glowcap_clear_last_error", .{})
         else
-            try std.fmt.allocPrint(gpa, "pancake_{s}_clear_last_error", .{family});
+            try std.fmt.allocPrint(gpa, "glowcap_{s}_clear_last_error", .{family});
         defer gpa.free(clear);
         if (!name_set.contains(clear)) {
             try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no matching {s}; an error channel is a last_error/clear_last_error pair", .{ name, clear });
@@ -227,26 +227,26 @@ pub fn checkLocatorAuthoritySplit(
     violations: *std.ArrayList([]const u8),
 ) !void {
     try expectFileContains(io, gpa, root, violations, "src/c_abi/ocapn/uri.zig", &.{
-        "const PancakeLocator = c.PancakeLocator;",
-        "const PancakeSturdyRef = c.PancakeSturdyRef;",
-        "pancake_sturdyref_borrow_locator",
-        "pancake_sturdyref_swissnum",
-        "pancake_sturdyref_release",
+        "const GlowcapLocator = c.GlowcapLocator;",
+        "const GlowcapSturdyRef = c.GlowcapSturdyRef;",
+        "glowcap_sturdyref_borrow_locator",
+        "glowcap_sturdyref_swissnum",
+        "glowcap_sturdyref_release",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/ocapn/uri/ownership.zig", &.{
         "pub const SturdyRefPayload = struct",
         "locator: *LocatorPayload",
         "swissnum: []u8",
     });
-    try expectFileContains(io, gpa, root, violations, "include/pancake_ocapn.h", &.{
-        "typedef struct PancakeLocator PancakeLocator;",
-        "typedef struct PancakeSturdyRef PancakeSturdyRef;",
-        "pancake_sturdyref_borrow_locator",
-        "pancake_sturdyref_swissnum",
-        "pancake_sturdyref_release",
+    try expectFileContains(io, gpa, root, violations, "include/glowcap_ocapn.h", &.{
+        "typedef struct GlowcapLocator GlowcapLocator;",
+        "typedef struct GlowcapSturdyRef GlowcapSturdyRef;",
+        "glowcap_sturdyref_borrow_locator",
+        "glowcap_sturdyref_swissnum",
+        "glowcap_sturdyref_release",
     });
     if (try fileContains(io, gpa, root, "src/c_abi/shared/locator.zig", "swiss")) {
-        try appendViolation(gpa, violations, "src/c_abi/shared/locator.zig: PancakeLocatorView must remain peer-location vocabulary and cannot carry sturdyref authority", .{});
+        try appendViolation(gpa, violations, "src/c_abi/shared/locator.zig: GlowcapLocatorView must remain peer-location vocabulary and cannot carry sturdyref authority", .{});
     }
 }
 
@@ -254,9 +254,9 @@ pub fn checkLocatorAuthoritySplit(
 /// somewhere under `bindings/`, `examples/`, `interop/`, or `test/`. An export
 /// nobody consumes or exercises is dead surface — the drift mode is a verb the
 /// waist has superseded that keeps shipping because nothing points at it. The
-/// scan collects every `pancake_*` identifier the consumer trees mention (one
-/// pass, identifier boundaries), so `pancake_host_session_feed` cannot satisfy
-/// `pancake_host_session_feed_bytes`.
+/// scan collects every `glowcap_*` identifier the consumer trees mention (one
+/// pass, identifier boundaries), so `glowcap_host_session_feed` cannot satisfy
+/// `glowcap_host_session_feed_bytes`.
 pub fn checkAbiExportsConsumed(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -279,13 +279,13 @@ pub fn checkAbiExportsConsumed(
         defer decls.deinit(gpa);
         try collectHeaderDeclarations(gpa, contents, &decls);
         if (decls.items.len == 0) {
-            try appendViolation(gpa, violations, "{s}: found no pancake_ declarations; the ABI consumer scanner no longer matches this header", .{path});
+            try appendViolation(gpa, violations, "{s}: found no glowcap_ declarations; the ABI consumer scanner no longer matches this header", .{path});
             continue;
         }
         for (decls.items) |decl| try exports.append(gpa, .{ .name = decl.name, .header = path });
     }
 
-    // Every pancake_* identifier the consumer trees mention, one walk.
+    // Every glowcap_* identifier the consumer trees mention, one walk.
     var consumed = std.StringHashMap(void).init(gpa);
     defer consumed.deinit();
     const consumer_roots = [_][]const u8{ "bindings", "examples", "interop", "test" };
@@ -320,7 +320,7 @@ pub fn checkAbiExportsConsumed(
             };
             defer gpa.free(contents);
             var search: usize = 0;
-            while (std.mem.indexOfPos(u8, contents, search, "pancake_")) |start| {
+            while (std.mem.indexOfPos(u8, contents, search, "glowcap_")) |start| {
                 var end = start;
                 while (end < contents.len and shared.isIdentChar(contents[end])) end += 1;
                 search = end;
@@ -354,7 +354,7 @@ pub fn checkAbiExportsConsumed(
     }
 }
 
-/// Collect every C ABI function declaration in a generated header: a `pancake_`
+/// Collect every C ABI function declaration in a generated header: a `glowcap_`
 /// identifier at an identifier boundary directly followed by `(`, found after
 /// blanking `/* */` comments so a prose mention of a name is never mistaken for
 /// a prototype. Matching on that call shape rather than on a set of allowed
@@ -377,7 +377,7 @@ fn collectHeaderDeclarations(
         i = close + 2;
     }
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, text, search, "pancake_")) |start| {
+    while (std.mem.indexOfPos(u8, text, search, "glowcap_")) |start| {
         var end = start;
         while (end < text.len and shared.isIdentChar(text[end])) end += 1;
         search = end;
@@ -403,7 +403,7 @@ const HeaderDecl = struct { name: []const u8, offset: usize };
 /// is rejected outright, and a `*_close` must document that it does not free.
 /// The endpoint
 /// surfaces converged on that law — every handle frees through exactly one
-/// `pancake_*_release`, and a `pancake_*_close` is a shutdown lever that
+/// `glowcap_*_release`, and a `glowcap_*_close` is a shutdown lever that
 /// leaves the handle alive — so this holds it in the generated headers:
 /// every `*_close` declaration must carry a doc comment that says
 /// "without releasing" and never claims to free. A future netlayer that
@@ -413,13 +413,13 @@ const HeaderDecl = struct { name: []const u8, offset: usize };
 /// exporting archive, one list, so a new archive cannot join some checks and
 /// silently miss others.
 const abi_vocabulary_headers = [_][]const u8{
-    "include/pancake_ocapn.h",
-    "include/pancake_host.h",
-    "include/pancake_driver.h",
-    "include/pancake_net_transport_tcp.h",
-    "include/pancake_net_transport_relay.h",
-    "include/pancake_net_transport_inproc.h",
-    "include/pancake_net_transport_onion.h",
-    "include/pancake_net_transport_iroh.h",
-    "include/pancake_net_transport_webrtc.h",
+    "include/glowcap_ocapn.h",
+    "include/glowcap_host.h",
+    "include/glowcap_driver.h",
+    "include/glowcap_net_transport_tcp.h",
+    "include/glowcap_net_transport_relay.h",
+    "include/glowcap_net_transport_inproc.h",
+    "include/glowcap_net_transport_onion.h",
+    "include/glowcap_net_transport_iroh.h",
+    "include/glowcap_net_transport_webrtc.h",
 };

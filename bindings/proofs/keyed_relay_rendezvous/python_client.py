@@ -21,19 +21,19 @@ from helpers import fail, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import CarrierPhase, Host, PancakeError, Runtime, parse_locator  # noqa: E402
-from pancake.relay import RelayConfig, connector, keyed, provider  # noqa: E402
+from glowcap import CarrierPhase, Host, GlowcapError, Runtime, parse_locator  # noqa: E402
+from glowcap.relay import RelayConfig, connector, keyed, provider  # noqa: E402
 
 
 async def expect_native_refusal(partner, route: str, trust_pem: bytes | None, cause: str) -> None:
     async with Runtime.open(
         provider=provider(RelayConfig(route, trust_pem=trust_pem))
     ) as runtime:
-        refused: PancakeError | None = None
+        refused: GlowcapError | None = None
         session = None
         try:
             session = await runtime.connect(keyed.locator(partner.designator, route))
-        except PancakeError as error:
+        except GlowcapError as error:
             refused = error
         if session is not None:
             await session.close()
@@ -62,8 +62,8 @@ async def main() -> None:
         fail("keyed-relay-rendezvous", "usage: python_client.py <locator>")
     locator = sys.argv[-1]
     partner = parse_locator(locator)
-    native_relay_url = os.environ.get("PANCAKE_PROOF_NATIVE_RELAY_URL")
-    native_ca_file = os.environ.get("PANCAKE_PROOF_NATIVE_RELAY_CA_FILE")
+    native_relay_url = os.environ.get("GLOWCAP_PROOF_NATIVE_RELAY_URL")
+    native_ca_file = os.environ.get("GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE")
 
     host = Host()
     if native_relay_url is None:
@@ -72,7 +72,7 @@ async def main() -> None:
         if native_ca_file is None:
             fail(
                 "keyed-relay-rendezvous",
-                "native WSS proof needs PANCAKE_PROOF_NATIVE_RELAY_CA_FILE",
+                "native WSS proof needs GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE",
             )
         pem = Path(native_ca_file).read_bytes()
         wrong_host = native_relay_url.replace("//localhost:", "//127.0.0.1:", 1)

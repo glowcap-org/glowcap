@@ -5,7 +5,7 @@
 // answers with the grant as the ledger now holds it rather than with what the
 // caller asked for.
 
-import { type Argument, type Behavior, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, type Session } from "@glowcap/runtime";
 import {
 	ROOMS_SESSION_ISSUE_GRANT,
 	ROOMS_SESSION_REVOKE_GRANT,

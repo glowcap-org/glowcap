@@ -1,6 +1,6 @@
 // Positional CapTP encoding for a durable Rooms session snapshot.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import type { RoomsSessionDirectoryView, RoomsSessionRoomView } from "../lib/session/client.ts";
 import type { RoomsSessionGrantView } from "../lib/session/grants.ts";
 import type { RoomsSessionAccess } from "../lib/session/grants.ts";

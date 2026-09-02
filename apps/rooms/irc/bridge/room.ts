@@ -3,10 +3,10 @@
 // channel's roster and messages into the same public Rooms verbs every other
 // server answers. An injected relay grants the optional outbound direction.
 
-import { type Argument, type Behavior, currentSession, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, Ref, type Session } from "@glowcap/runtime";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../../lib/argument_custody.ts";
 import { settleCapabilityCleanup } from "../../lib/capability_cleanup.ts";
-import { NO_SUCH_ROOM, READ_ONLY_MEMBERSHIP, RoomError } from "../../lib/errors.ts";
+import { NO_SUCH_ROOM, NOT_ROOM_MEMBER, READ_ONLY_MEMBERSHIP, RoomError } from "../../lib/errors.ts";
 import { MAX_AWAY, MAX_ROOM, nickRefusal } from "../../lib/limits.ts";
 import {
 	AWAY,
@@ -370,7 +370,12 @@ export class IrcBridgeRoom {
 			if (hasCapabilityArguments(args)) {
 				refuseCall(caller, args, `IRC bridge membership ${verb} does not take capability arguments`);
 			}
-			if (this.#members.get(member.session) !== member) throw new Error("this IRC bridge membership has ended");
+			// The same typed refusal a native room gives, so a caller retires the
+			// membership and offers to restore access rather than reading a bare
+			// sentence and retrying into it. A dropped bridge feed is one way here.
+			if (this.#members.get(member.session) !== member) {
+				throw new RoomError(NOT_ROOM_MEMBER, "this IRC bridge membership has ended");
+			}
 			if (verb === MEMBERSHIP_KIND) {
 				if (args.length !== 0) throw new Error("membershipKind takes no arguments");
 				return member.kind;

@@ -182,7 +182,7 @@ pub const Turn = struct {
     /// Forward this turn's call to `target` and let this actor's own answer
     /// resolve to the target's eventual result, the primitive a forwarding
     /// proxy (caretaker, attenuator) is built on. Goblins expresses this as a
-    /// behavior that returns `(apply <- target args)`; pancake's handler returns
+    /// behavior that returns `(apply <- target args)`; glowcap's handler returns
     /// a concrete value, so `forward` instead defers the inbound answer and
     /// settles it when the forwarded send settles, local or far. `target` may be
     /// local or far: a far forward is what lets a holder hand out an attenuated

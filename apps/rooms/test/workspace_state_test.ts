@@ -194,7 +194,7 @@ Deno.test("workspace projection restores room and moderator capabilities togethe
 	// already-split answers in instead would prove only that this test can leave
 	// a password out.
 	const submission = splitBridgeSubmission(IRC_SECRET_FIELDS, {
-		nick: "pancake",
+		nick: "glowcap",
 		account: "acct",
 		password: "hunter2",
 	});
@@ -222,7 +222,7 @@ Deno.test("workspace projection restores room and moderator capabilities togethe
 	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
 	const persisted = memory.get(WORKSPACE_STATE_KEY)!;
 	assert(!persisted.includes("hunter2"), "a secret answer entered browser storage");
-	assert(persisted.includes("pancake"), "the remembered answers did not reach browser storage");
+	assert(persisted.includes("glowcap"), "the remembered answers did not reach browser storage");
 	store.dropInvite(page.projection, "saved-invite");
 	store.forgetConv(page.projection, room.key);
 	store.forgetDir(page.projection, directory);
@@ -232,7 +232,7 @@ Deno.test("workspace projection restores room and moderator capabilities togethe
 	assert(restored.membership === "unavailable", "workspace reconstruction invented a live membership");
 	assert(restored.link === roomLink, "the room capability was not restored");
 	assert(restored.steward === moderatorLink, "the moderator capability was not restored");
-	assert(restored.bridgeIntent?.answers["nick"] === "pancake", "the room IRC identity intent was lost");
+	assert(restored.bridgeIntent?.answers["nick"] === "glowcap", "the room IRC identity intent was lost");
 	assert(
 		page.projection.get().dirs.get(directory)?.requestedNick === "ada",
 		"the requested nickname intent was lost",
@@ -416,7 +416,7 @@ Deno.test("workspace state preserves unnamed intent and refuses invalid authorit
 		bridgeIntent: {
 			scope: "Libera",
 			action: "link",
-			answers: { nick: "pancake", account: "acct" },
+			answers: { nick: "glowcap", account: "acct" },
 			secretsGiven: true,
 		},
 		standing: null,

@@ -8,11 +8,11 @@
 //! the same oracle scenario now framed by `recvStreamPrefix` over a byte stream.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const tcp = glowcap.net.tcp;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
 

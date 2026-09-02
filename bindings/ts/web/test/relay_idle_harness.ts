@@ -7,13 +7,13 @@
 // It needs no browser peer or wasm. A silent TCP sink accepts the relay's dial
 // and never sends; a raw WebSocket client upgrades through the relay and then
 // goes quiet. With no chunk in either direction, the relay's idle timer (set low
-// through `PANCAKE_RELAY_IDLE_MS` for this proof) must fire and close the
+// through `GLOWCAP_RELAY_IDLE_MS` for this proof) must fire and close the
 // WebSocket. If it does not, the client's socket stays open past the ceiling and
 // the harness fails — catching a runtime that dropped the idle timeout.
 
 import { fail, kill, parseHarnessArgs, readToken, spawnRelay } from "./relay_harness_common.ts";
 
-// The relay is launched with PANCAKE_RELAY_IDLE_MS=500 (see the build row); the
+// The relay is launched with GLOWCAP_RELAY_IDLE_MS=500 (see the build row); the
 // ceiling is generous so a slow scheduler never flakes, yet far below the 60s
 // production default, so a relay that ignored the override cannot pass.
 const CEILING_MS = 8000;

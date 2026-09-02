@@ -1,6 +1,6 @@
 // Blob verbs layered on the member-owned archive record protocol.
 
-import { type Argument, currentSession, type Ref, type Session } from "@pancake/runtime";
+import { type Argument, currentSession, type Ref, type Session } from "@glowcap/runtime";
 import { type Attachment, attachmentCapabilities, fetchBlobChunk, readAttachmentsExact } from "../attachment.ts";
 import {
 	hasCapabilityArguments,
@@ -42,7 +42,7 @@ export function dispatchArchiveBlob(
 	backend: ArchiveBackend,
 	facet: ArchiveBlobFacet,
 	parse: ArchiveBlobParsers,
-): ReturnType<import("@pancake/runtime").Behavior> | typeof ARCHIVE_BLOB_UNHANDLED {
+): ReturnType<import("@glowcap/runtime").Behavior> | typeof ARCHIVE_BLOB_UNHANDLED {
 	if (verb !== ARCHIVE_PUT_FILES && verb !== ARCHIVE_ATTACHMENT && verb !== ARCHIVE_BLOB) {
 		return ARCHIVE_BLOB_UNHANDLED;
 	}

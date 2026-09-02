@@ -1,5 +1,5 @@
-import { type Behavior, type Host } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
+import { type Behavior, type Host } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 import { DirectMessage, Directory, Room } from "../../lib/room/client.ts";
 import { inboxPublisher } from "../../lib/dm_inbox.ts";
 import { DM } from "../../lib/protocol.ts";

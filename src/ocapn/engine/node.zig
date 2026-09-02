@@ -21,7 +21,7 @@
 //! `peer_handle` or owned bytes, so the router is pure data, which is exactly why it
 //! lives here in the sync, no-I/O engine core (not the I/O-bearing driver layer)
 //! instead of being reimplemented per binding, and why the sans-io
-//! `libpancake_ocapn` archive can project it (ADR-0066). The vat (turn loop,
+//! `libglowcap_ocapn` archive can project it (ADR-0066). The vat (turn loop,
 //! promise resolution, behavior dispatch) stays above the node; the standard
 //! `driver_core.Host` owns one beside the Node, while embedders still own the
 //! scheduler and transport policy above this core boundary.

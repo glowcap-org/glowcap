@@ -9,14 +9,14 @@
 //! tier.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../support/core_host.zig");
 const promise_capture = @import("../support/capture.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -154,12 +154,12 @@ test "openDialedOver retains onion profile knowledge through adoption" {
     defer host.releaseSession(session) catch |err|
         std.debug.panic("test session cleanup failed: {s}", .{@errorName(err)});
 
-    try std.testing.expect(pinned.session_state.partner_known_pancake);
+    try std.testing.expect(pinned.session_state.partner_known_glowcap);
     var frame = (try session.takeOutbound()) orelse return error.MissingHello;
     defer frame.deinit();
-    const body = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+    const body = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
     try std.testing.expect(body == .start_session);
-    const preference = try pancake.ocapn.session.parsePreferenceHints(
+    const preference = try glowcap.ocapn.session.parsePreferenceHints(
         body.start_session.acceptable_location.hints,
     );
     try std.testing.expectEqual(model.CaptpVersion.next, preference.captp_version);

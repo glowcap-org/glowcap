@@ -3,7 +3,7 @@
 // Called from the file proof after posting, because that is when both rails
 // are on screen with a room and a roster, and none of these questions are
 // about the files themselves. Settings lives in the rail title while the list
-// is up and on the conversation bar when it is away; the pancake mark is the
+// is up and on the conversation bar when it is away; the glowcap mark is the
 // same control in both homes.
 
 import type { Page } from "playwright";
@@ -288,10 +288,10 @@ export async function runChrome(
 		}
 	};
 
-	// The rail title sits in the gap between the pancake mark and Settings.
+	// The rail title sits in the gap between the glowcap mark and Settings.
 	// Mixed type on one line shares a baseline: centering the two boxes was
 	// what parked ROOMS high, because the smaller caps sit in the top of their
-	// em while pancake's descender sits in the bottom of its. Measured on the
+	// em while glowcap's descender sits in the bottom of its. Measured on the
 	// feet of letters that have none.
 	const title = await tab.evaluate(() => {
 		const glyphs = (el: Element, from?: number, to?: number) => {
@@ -326,15 +326,15 @@ export async function runChrome(
 			btnMidY: (markBox.top + markBox.bottom) / 2,
 		};
 	});
-	if (title == null) fail("the rail title is not pancake plus rooms");
+	if (title == null) fail("the rail title is not glowcap plus rooms");
 	if (title.home !== "rail") fail("Settings is not in the rail's title bar");
-	// The lockup is baseline-true: ROOMS shares pancake's baseline, feet
+	// The lockup is baseline-true: ROOMS shares glowcap's baseline, feet
 	// level within a pixel. Owner-tuned; every lifted variant read as
 	// floating, and the metrics are the fixed pixels of the .wordmark
 	// logotype contract in mark.css.
 	if (Math.abs(title.nameEye.bottom - title.roomsEye.bottom) > 1) {
 		fail(
-			`ROOMS does not sit on pancake's baseline: pancake foot ${title.nameEye.bottom.toFixed(1)} vs rooms ${
+			`ROOMS does not sit on glowcap's baseline: glowcap foot ${title.nameEye.bottom.toFixed(1)} vs rooms ${
 				title.roomsEye.bottom.toFixed(1)
 			}`,
 		);

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const net = @import("pancake").net;
+const net = @import("glowcap").net;
 
 const WakeChannel = net.wake_channel.WakeChannel;
 const FailureLatch = net.wake_channel.FailureLatch;

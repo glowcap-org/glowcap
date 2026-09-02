@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pancake — format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript).
+# glowcap — format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript).
 # Python and Racket have no single-file formatter on PATH; the
 # `bindings-fmt-check` gate holds them.
 #
@@ -26,14 +26,14 @@ abs_path="$(realpath "$file_path")"
 case "$abs_path" in
   *.zig)
     if ! command -v zig >/dev/null 2>&1; then
-      printf 'pancake hook: zig not on PATH; skipping %s\n' "$abs_path" >&2
+      printf 'glowcap hook: zig not on PATH; skipping %s\n' "$abs_path" >&2
       exit 0
     fi
     zig fmt "$abs_path" >&2 || true
     ;;
   *.rs)
     if ! command -v rustfmt >/dev/null 2>&1; then
-      printf 'pancake hook: rustfmt not on PATH; skipping %s\n' "$abs_path" >&2
+      printf 'glowcap hook: rustfmt not on PATH; skipping %s\n' "$abs_path" >&2
       exit 0
     fi
     # Config (tabs, edition) comes from the root rustfmt.toml, which rustfmt
@@ -42,7 +42,7 @@ case "$abs_path" in
     ;;
   *.ts|*.tsx|*.js)
     if ! command -v deno >/dev/null 2>&1; then
-      printf 'pancake hook: deno not on PATH; skipping %s\n' "$abs_path" >&2
+      printf 'glowcap hook: deno not on PATH; skipping %s\n' "$abs_path" >&2
       exit 0
     fi
     # Run from the file's directory so deno discovers the nearest deno.json

@@ -2,7 +2,7 @@
 
 First-party applications live here. They use the same public
 `connect`/`publish`/`fetch`/`send`/`serve` API as the language bindings, not
-private `libpancake_*` calls.
+private `libglowcap_*` calls.
 
 - [`rooms/`](rooms/): capability-secure chat. The browser UI
   (`zig build rooms-web`) rides encrypted iroh; `demo-rooms` is the
@@ -10,13 +10,13 @@ private `libpancake_*` calls.
 - [`tasks/`](tasks/): a shared task board (`zig build demo-tasks`).
 - [`tools/`](tools/): the delegation/attenuation/revocation showcase for AI
   agent harnesses (`zig build demo-tools`).
-- [`accountability-on-pancake/`](accountability-on-pancake/): signed-call
-  accountability above pancake's runtime (`zig build accountability`).
+- [`accountability-on-glowcap/`](accountability-on-glowcap/): signed-call
+  accountability above glowcap's runtime (`zig build accountability`).
 - [`ocapnviz/`](ocapnviz/): the OCapN topology visualizer. It runs on its own
   Deno toolchain (see its README). `zig build ocapnviz-test` runs the suite and
   is part of `zig build check` when deno is present; `zig build ocapnviz-check`
   also type-checks, formats, and lints. `scripts/griddle-import.ts` converts a
-  `pancake griddle run` timeline into a document its Play mode replays.
+  `glowcap griddle run` timeline into a document its Play mode replays.
 - `_demo/`: plumbing the demo steps share.
 
 Each app has its own build step. The accountability app runs in
@@ -43,7 +43,7 @@ runtimes. Individual app guides list their exceptions and extra requirements.
 
 | Path | Role |
 |------|------|
-| [`cli/`](../cli/) | The installable `pancake` binary |
+| [`cli/`](../cli/) | The installable `glowcap` binary |
 | [`examples/`](../examples/) | Teaching-sized, single-file walks |
 | [`tools/`](../tools/) | Maintainer check steps, codegen, and operator scripts |
 

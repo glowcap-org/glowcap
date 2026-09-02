@@ -123,7 +123,7 @@ the engine runs no actor method itself.
 - **Export-side listen: object exports fire, bare promise exports refuse.** A
   listen on a live object export (held `local_value`, no inbound answer) fires
   fulfill of that export immediately. A listen on a bare unresolved promise
-  export is refused loud (`InvalidReference`): pancake exports no free-standing
+  export is refused loud (`InvalidReference`): glowcap exports no free-standing
   resolvable promise: the only promise exports it mints are resolver callbacks
   the partner delivers to, never listens on: so a listener on one could never
   fire, and accepting it would be a subscription silently owed forever. A
@@ -165,7 +165,7 @@ the engine runs no actor method itself.
 ## Forward compatibility
 
 New codecs map the same position-only promise reference and explicit operation
-messages. A codec-specific derived-path operand is not part of pancake's model;
+messages. A codec-specific derived-path operand is not part of glowcap's model;
 adding one requires a separate semantic operation and conformance evidence, not
 a wider encoding of `desc:answer`.
 

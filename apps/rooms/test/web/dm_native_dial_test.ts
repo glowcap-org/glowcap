@@ -30,9 +30,9 @@
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { formatPeerUri, Runtime, TRANSPORT_NOISE_RELAY } from "@pancake/runtime";
-import * as relay from "@pancake/relay";
-import * as tcp from "@pancake/tcp";
+import { formatPeerUri, Runtime, TRANSPORT_NOISE_RELAY } from "@glowcap/runtime";
+import * as relay from "@glowcap/relay";
+import * as tcp from "@glowcap/tcp";
 import { dial, roomsHost } from "../../lib/locator.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../../lib/room/client.ts";

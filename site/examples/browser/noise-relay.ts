@@ -1,9 +1,9 @@
-import { connector, noise } from "@pancake/relay";
-import { init } from "@pancake/web";
+import { connector, noise } from "@glowcap/relay";
+import { init } from "@glowcap/web";
 
 const relayUrl = "wss://relay.example/relay";
 const web = await init({
-	wasm: fetch("/pancake_host.wasm"),
+	wasm: fetch("/glowcap_host.wasm"),
 	connectors: [connector()],
 });
 await using runtime = web.runtime;

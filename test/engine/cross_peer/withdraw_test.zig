@@ -4,14 +4,14 @@
 //! fresh projection back.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
-const crypto = pancake.foundation.crypto;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
+const crypto = glowcap.foundation.crypto;
+const syrup = glowcap.ocapn.codec.syrup;
 const cross_peer = @import("../../support/cross_peer.zig");
 const CountingAllocator = @import("../../support/alloc_metrics.zig").CountingAllocator;
 const peer_fixture = @import("../../support/peer_fixture.zig");

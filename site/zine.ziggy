@@ -3,10 +3,10 @@
     .headings_h2 = true,
 },
 .site = .simple(.{
-    .title = "pancake",
+    .title = "glowcap",
     // GitHub Pages host used for canonical and sitemap URLs.
     .host_url = "https://jimisaacs.github.io",
-    .url_path_prefix = "pancake",
+    .url_path_prefix = "glowcap",
     .content_dir_path = "content",
     .layouts_dir_path = "layouts",
     .assets_dir_path = "assets",

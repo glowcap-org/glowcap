@@ -1,6 +1,6 @@
 // Inbound wire envelope shared by durable checkpoint replacement and adoption.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import { parseRoomsSessionState, type RoomsSessionState } from "../lib/rooms_state.ts";
 import { validateOperationId } from "./effects.ts";
 

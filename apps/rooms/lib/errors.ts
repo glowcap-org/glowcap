@@ -16,7 +16,7 @@
 // capability, a bad verb) is an invariant violation nobody branches on — those stay
 // untyped, and `RoomError.from()` returns null for them.
 
-import { VowBroken } from "@pancake/runtime";
+import { VowBroken } from "@glowcap/runtime";
 
 /** A room subscribe whose nick is already claimed in that room. */
 export const NICK_TAKEN = "nick-taken";
@@ -176,7 +176,7 @@ export class RoomError extends Error {
 	 * no known code (an anonymous failure). */
 	static from(reason: string): RoomError | null {
 		// A break reason reaches a caller as the message of a thrown error, and the
-		// binding may have said something of its own first ("pancake error -14: ").
+		// binding may have said something of its own first ("glowcap error -14: ").
 		// The code is a segment of that message, not necessarily its head, so look
 		// for it across the colons rather than only at the front.
 		const parts = reason.split(": ");
@@ -203,7 +203,7 @@ export function roomErrorOf(err: unknown): RoomError | null {
  * Calling a shared library built from a different revision than the source that
  * declares its signatures looks like this from up here: the call returns
  * whatever happened to be in the register, and the binding reads it as a status.
- * Every pancake status is a small negative integer, so a positive one, or one
+ * Every glowcap status is a small negative integer, so a positive one, or one
  * far below the range, is not a status at all — and it is a different number on
  * each attempt, which is the other half of the tell.
  *

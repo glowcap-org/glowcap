@@ -2,14 +2,14 @@
 //! root deliberately re-exports the stable vocabulary every symbol-disjoint
 //! archive and generated binding consumes.
 //!
-//! This leaf declares **no `export fn`**. The public `pancake_*` entry points
+//! This leaf declares **no `export fn`**. The public `glowcap_*` entry points
 //! live in the `c_abi/ocapn` families (context, frame, uri), the Host, and
 //! the `c_abi/net_transport/{tcp,inproc}` transport families, and the
-//! `pancake_iroh_*` entry points in `c_abi_net_transport_iroh`; all reach this
+//! `glowcap_iroh_*` entry points in `c_abi_net_transport_iroh`; all reach this
 //! vocabulary through `@import("c_abi_shared")`. Because importing the leaf pulls the
-//! vocabulary without pulling either library's exported surface, `libpancake_ocapn`
-//! carries the core families and `libpancake_net_transport_iroh` carries only
-//! the iroh family, each reusing these types, and each from `pancake_ocapn.h`
+//! vocabulary without pulling either library's exported surface, `libglowcap_ocapn`
+//! carries the core families and `libglowcap_net_transport_iroh` carries only
+//! the iroh family, each reusing these types, and each from `glowcap_ocapn.h`
 //! on the C side
 //! (ADR-0055 companion split). The two artifacts therefore share no exported
 //! core symbol; they share the *layout* of these types, exactly as a C consumer
@@ -19,26 +19,26 @@
 /// remaining return recipient (ADR-0115). This leaf owns no mutable global;
 /// storage belongs to an explicit Context, Host, or driver owner.
 pub const failure_diagnostics = @import("failure_diagnostics.zig");
-pub const PancakeFailureEvent = failure_diagnostics.PancakeFailureEvent;
-pub const PancakeFailureReport = failure_diagnostics.PancakeFailureReport;
-pub const PANCAKE_FAILURE_EVENT_ABI_VERSION = failure_diagnostics.abi_version;
-pub const PANCAKE_FAILURE_LAYER_CORE: u32 = @backingInt(failure_diagnostics.Layer.core);
-pub const PANCAKE_FAILURE_LAYER_DRIVER: u32 = @backingInt(failure_diagnostics.Layer.driver);
-pub const PANCAKE_FAILURE_LAYER_TRANSPORT: u32 = @backingInt(failure_diagnostics.Layer.transport);
-pub const PANCAKE_FAILURE_LAYER_BINDING: u32 = @backingInt(failure_diagnostics.Layer.binding);
-pub const PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER: u32 = @backingInt(failure_diagnostics.Layer.application_observer);
-pub const PANCAKE_FAILURE_SCOPE_PROCESS: u32 = @backingInt(failure_diagnostics.ScopeKind.process);
-pub const PANCAKE_FAILURE_SCOPE_CONTEXT: u32 = @backingInt(failure_diagnostics.ScopeKind.context);
-pub const PANCAKE_FAILURE_SCOPE_HOST: u32 = @backingInt(failure_diagnostics.ScopeKind.host);
-pub const PANCAKE_FAILURE_SCOPE_SESSION: u32 = @backingInt(failure_diagnostics.ScopeKind.session);
-pub const PANCAKE_FAILURE_SCOPE_LISTENER: u32 = @backingInt(failure_diagnostics.ScopeKind.listener);
-pub const PANCAKE_FAILURE_SCOPE_TRANSPORT: u32 = @backingInt(failure_diagnostics.ScopeKind.transport);
-pub const PANCAKE_FAILURE_SCOPE_OPERATION: u32 = @backingInt(failure_diagnostics.ScopeKind.operation);
-pub const PANCAKE_FAILURE_TRUNCATED_OPERATION = failure_diagnostics.truncated_operation;
-pub const PANCAKE_FAILURE_TRUNCATED_PRIMARY_NAME = failure_diagnostics.truncated_primary_name;
-pub const PANCAKE_FAILURE_TRUNCATED_PRIMARY_MESSAGE = failure_diagnostics.truncated_primary_message;
-pub const PANCAKE_FAILURE_TRUNCATED_SECONDARY_NAME = failure_diagnostics.truncated_secondary_name;
-pub const PANCAKE_FAILURE_TRUNCATED_SECONDARY_MESSAGE = failure_diagnostics.truncated_secondary_message;
+pub const GlowcapFailureEvent = failure_diagnostics.GlowcapFailureEvent;
+pub const GlowcapFailureReport = failure_diagnostics.GlowcapFailureReport;
+pub const GLOWCAP_FAILURE_EVENT_ABI_VERSION = failure_diagnostics.abi_version;
+pub const GLOWCAP_FAILURE_LAYER_CORE: u32 = @backingInt(failure_diagnostics.Layer.core);
+pub const GLOWCAP_FAILURE_LAYER_DRIVER: u32 = @backingInt(failure_diagnostics.Layer.driver);
+pub const GLOWCAP_FAILURE_LAYER_TRANSPORT: u32 = @backingInt(failure_diagnostics.Layer.transport);
+pub const GLOWCAP_FAILURE_LAYER_BINDING: u32 = @backingInt(failure_diagnostics.Layer.binding);
+pub const GLOWCAP_FAILURE_LAYER_APPLICATION_OBSERVER: u32 = @backingInt(failure_diagnostics.Layer.application_observer);
+pub const GLOWCAP_FAILURE_SCOPE_PROCESS: u32 = @backingInt(failure_diagnostics.ScopeKind.process);
+pub const GLOWCAP_FAILURE_SCOPE_CONTEXT: u32 = @backingInt(failure_diagnostics.ScopeKind.context);
+pub const GLOWCAP_FAILURE_SCOPE_HOST: u32 = @backingInt(failure_diagnostics.ScopeKind.host);
+pub const GLOWCAP_FAILURE_SCOPE_SESSION: u32 = @backingInt(failure_diagnostics.ScopeKind.session);
+pub const GLOWCAP_FAILURE_SCOPE_LISTENER: u32 = @backingInt(failure_diagnostics.ScopeKind.listener);
+pub const GLOWCAP_FAILURE_SCOPE_TRANSPORT: u32 = @backingInt(failure_diagnostics.ScopeKind.transport);
+pub const GLOWCAP_FAILURE_SCOPE_OPERATION: u32 = @backingInt(failure_diagnostics.ScopeKind.operation);
+pub const GLOWCAP_FAILURE_TRUNCATED_OPERATION = failure_diagnostics.truncated_operation;
+pub const GLOWCAP_FAILURE_TRUNCATED_PRIMARY_NAME = failure_diagnostics.truncated_primary_name;
+pub const GLOWCAP_FAILURE_TRUNCATED_PRIMARY_MESSAGE = failure_diagnostics.truncated_primary_message;
+pub const GLOWCAP_FAILURE_TRUNCATED_SECONDARY_NAME = failure_diagnostics.truncated_secondary_name;
+pub const GLOWCAP_FAILURE_TRUNCATED_SECONDARY_MESSAGE = failure_diagnostics.truncated_secondary_message;
 
 // ── Return codes ─────────────────────────────────────────────────────────────
 
@@ -52,26 +52,26 @@ pub const archive_contract = @import("archive_contract.zig");
 /// archives. This inventory drives both archive identity and every generated
 /// language-binding layout expectation.
 pub const contract_layouts = [_]archive_contract.Layout{
-    archive_contract.layout("PANCAKE_REFERENCE", PancakeReference),
-    archive_contract.layout("PANCAKE_ARGUMENT", PancakeArgument),
-    archive_contract.layout("PANCAKE_FRAME", PancakeFrame),
-    archive_contract.layout("PANCAKE_MANAGED_FRAME", PancakeManagedFrame),
-    archive_contract.layout("PANCAKE_LAST_ABORT", PancakeLastAbort),
-    archive_contract.layout("PANCAKE_ALLOCATOR", PancakeAllocator),
-    archive_contract.layout("PANCAKE_FAILURE_REPORT", PancakeFailureReport),
-    archive_contract.layout("PANCAKE_FAILURE_EVENT", PancakeFailureEvent),
-    archive_contract.layout("PANCAKE_CLOSE_OPTIONS", PancakeCloseOptions),
-    archive_contract.layout("PANCAKE_LOCATOR_HINT_VIEW", PancakeLocatorHintView),
-    archive_contract.layout("PANCAKE_LOCATOR_VIEW", PancakeLocatorView),
-    archive_contract.cOnlyLayout("PANCAKE_TRANSPORT_PROFILE", PancakeTransportProfile),
-    archive_contract.layout("PANCAKE_TRANSPORT_OPERATION_OPTIONS", PancakeTransportOperationOptions),
-    archive_contract.cOnlyLayout("PANCAKE_PROVIDER_FAILURE", PancakeProviderFailure),
-    archive_contract.cOnlyLayout("PANCAKE_LISTEN_RESULT", PancakeListenResult),
-    archive_contract.cOnlyLayout("PANCAKE_STREAM_TRANSPORT", PancakeStreamTransport),
-    archive_contract.cOnlyLayout("PANCAKE_TRANSPORT_PROVIDER_ENTRY", PancakeTransportProviderEntry),
-    archive_contract.layout("PANCAKE_TRANSPORT_PROVIDER", PancakeTransportProvider),
-    archive_contract.cOnlyLayout("PANCAKE_MULTIPLEXED_READY_EVENT", PancakeMultiplexedReadyEvent),
-    archive_contract.cOnlyLayout("PANCAKE_MULTIPLEXED_TRANSPORT", PancakeMultiplexedTransport),
+    archive_contract.layout("GLOWCAP_REFERENCE", GlowcapReference),
+    archive_contract.layout("GLOWCAP_ARGUMENT", GlowcapArgument),
+    archive_contract.layout("GLOWCAP_FRAME", GlowcapFrame),
+    archive_contract.layout("GLOWCAP_MANAGED_FRAME", GlowcapManagedFrame),
+    archive_contract.layout("GLOWCAP_LAST_ABORT", GlowcapLastAbort),
+    archive_contract.layout("GLOWCAP_ALLOCATOR", GlowcapAllocator),
+    archive_contract.layout("GLOWCAP_FAILURE_REPORT", GlowcapFailureReport),
+    archive_contract.layout("GLOWCAP_FAILURE_EVENT", GlowcapFailureEvent),
+    archive_contract.layout("GLOWCAP_CLOSE_OPTIONS", GlowcapCloseOptions),
+    archive_contract.layout("GLOWCAP_LOCATOR_HINT_VIEW", GlowcapLocatorHintView),
+    archive_contract.layout("GLOWCAP_LOCATOR_VIEW", GlowcapLocatorView),
+    archive_contract.cOnlyLayout("GLOWCAP_TRANSPORT_PROFILE", GlowcapTransportProfile),
+    archive_contract.layout("GLOWCAP_TRANSPORT_OPERATION_OPTIONS", GlowcapTransportOperationOptions),
+    archive_contract.cOnlyLayout("GLOWCAP_PROVIDER_FAILURE", GlowcapProviderFailure),
+    archive_contract.cOnlyLayout("GLOWCAP_LISTEN_RESULT", GlowcapListenResult),
+    archive_contract.cOnlyLayout("GLOWCAP_STREAM_TRANSPORT", GlowcapStreamTransport),
+    archive_contract.cOnlyLayout("GLOWCAP_TRANSPORT_PROVIDER_ENTRY", GlowcapTransportProviderEntry),
+    archive_contract.layout("GLOWCAP_TRANSPORT_PROVIDER", GlowcapTransportProvider),
+    archive_contract.cOnlyLayout("GLOWCAP_MULTIPLEXED_READY_EVENT", GlowcapMultiplexedReadyEvent),
+    archive_contract.cOnlyLayout("GLOWCAP_MULTIPLEXED_TRANSPORT", GlowcapMultiplexedTransport),
 };
 
 /// The multiplexed-transport table layout (ADR-0112): how a sidecar transport
@@ -82,132 +82,132 @@ pub const close = @import("close.zig");
 pub const locator = @import("locator.zig");
 pub const locator_adapter = @import("locator_adapter.zig");
 pub const transport_provider = @import("transport_provider.zig");
-pub const PancakeMultiplexedTransport = multiplexed_transport.PancakeMultiplexedTransport;
-pub const PancakeMultiplexedReadyEvent = multiplexed_transport.PancakeMultiplexedReadyEvent;
-pub const PancakeCloseOptions = close.PancakeCloseOptions;
-pub const PancakeListenResult = transport_provider.PancakeListenResult;
-pub const PancakeStreamTransport = transport_provider.PancakeStreamTransport;
-pub const PancakeLocatorHintView = locator.PancakeLocatorHintView;
-pub const PancakeLocatorView = locator.PancakeLocatorView;
-pub const PancakeTransportProfile = transport_provider.PancakeTransportProfile;
-pub const PancakeTransportOperationOptions = transport_provider.PancakeTransportOperationOptions;
-pub const PancakeProviderFailure = transport_provider.PancakeProviderFailure;
-pub const PancakeTransportProviderEntry = transport_provider.PancakeTransportProviderEntry;
-pub const PancakeTransportProvider = transport_provider.PancakeTransportProvider;
-pub const PancakeStreamStartConnectFn = transport_provider.PancakeStreamStartConnectFn;
-pub const PancakeStreamFinishConnectFn = transport_provider.PancakeStreamFinishConnectFn;
-pub const PancakeStreamCancelConnectFn = transport_provider.PancakeStreamCancelConnectFn;
-pub const PancakeStreamListenFn = transport_provider.PancakeStreamListenFn;
-pub const PancakeStreamFinishListenFn = transport_provider.PancakeStreamFinishListenFn;
-pub const PancakeStreamCancelListenFn = transport_provider.PancakeStreamCancelListenFn;
-pub const PANCAKE_LISTEN_READY = transport_provider.PANCAKE_LISTEN_READY;
-pub const PANCAKE_LISTEN_PENDING = transport_provider.PANCAKE_LISTEN_PENDING;
-pub const PancakeStreamListenerWaitFn = transport_provider.PancakeStreamListenerWaitFn;
-pub const PancakeStreamListenerReadinessFdFn = transport_provider.PancakeStreamListenerReadinessFdFn;
-pub const PancakeLocatorSinkFn = locator.PancakeLocatorSinkFn;
-pub const PancakeTransportListenerRestorationStateFn = transport_provider.PancakeTransportListenerRestorationStateFn;
-pub const PancakeTransportListenerLocatorFn = transport_provider.PancakeTransportListenerLocatorFn;
-pub const PancakeTransportListenerAdvertiseFn = transport_provider.PancakeTransportListenerAdvertiseFn;
-pub const PancakeStreamAcceptFn = transport_provider.PancakeStreamAcceptFn;
-pub const PancakeStreamListenerCloseFn = transport_provider.PancakeStreamListenerCloseFn;
-pub const PancakeStreamReadFn = transport_provider.PancakeStreamReadFn;
-pub const PancakeStreamWriteAllFn = transport_provider.PancakeStreamWriteAllFn;
-pub const PancakeStreamConnCloseFn = transport_provider.PancakeStreamConnCloseFn;
-pub const PancakeStreamConnTakeFailureFn = transport_provider.PancakeStreamConnTakeFailureFn;
-pub const PancakeTransportProviderSameConfigurationFn = transport_provider.PancakeTransportProviderSameConfigurationFn;
-pub const PancakeTransportRetainFn = transport_provider.PancakeTransportRetainFn;
-pub const PancakeTransportReleaseFn = transport_provider.PancakeTransportReleaseFn;
-pub const PancakeMultiplexedReadinessFdFn = multiplexed_transport.PancakeMultiplexedReadinessFdFn;
-pub const PancakeMultiplexedDrainReadyFn = multiplexed_transport.PancakeMultiplexedDrainReadyFn;
-pub const PancakeMultiplexedStartConnectFn = multiplexed_transport.PancakeMultiplexedStartConnectFn;
-pub const PancakeMultiplexedFinishConnectFn = multiplexed_transport.PancakeMultiplexedFinishConnectFn;
-pub const PancakeMultiplexedClaimExternalFn = multiplexed_transport.PancakeMultiplexedClaimExternalFn;
-pub const PancakeMultiplexedListenFn = multiplexed_transport.PancakeMultiplexedListenFn;
-pub const PancakeMultiplexedFinishListenFn = multiplexed_transport.PancakeMultiplexedFinishListenFn;
-pub const PancakeMultiplexedFinishAcceptFn = multiplexed_transport.PancakeMultiplexedFinishAcceptFn;
-pub const PancakeMultiplexedStopListenFn = multiplexed_transport.PancakeMultiplexedStopListenFn;
-pub const PancakeMultiplexedSubjectFn = multiplexed_transport.PancakeMultiplexedSubjectFn;
-pub const PancakeMultiplexedConnTakeFailureFn = multiplexed_transport.PancakeMultiplexedConnTakeFailureFn;
-pub const PancakeMultiplexedTryReadFn = multiplexed_transport.PancakeMultiplexedTryReadFn;
-pub const PancakeMultiplexedTryWriteFn = multiplexed_transport.PancakeMultiplexedTryWriteFn;
-pub const PancakeMultiplexedConnRemoteKeyFn = multiplexed_transport.PancakeMultiplexedConnRemoteKeyFn;
-pub const PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION = transport_provider.PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION;
-pub const PANCAKE_TRANSPORT_PROFILE_ABI_VERSION = transport_provider.PANCAKE_TRANSPORT_PROFILE_ABI_VERSION;
-pub const PANCAKE_LOCATOR_VIEW_ABI_VERSION = locator.PANCAKE_LOCATOR_VIEW_ABI_VERSION;
-pub const PANCAKE_STREAM_TRANSPORT_ABI_VERSION = transport_provider.PANCAKE_STREAM_TRANSPORT_ABI_VERSION;
-pub const PANCAKE_TRANSPORT_EXEC_STREAM = transport_provider.PANCAKE_TRANSPORT_EXEC_STREAM;
-pub const PANCAKE_TRANSPORT_EXEC_MULTIPLEXED = transport_provider.PANCAKE_TRANSPORT_EXEC_MULTIPLEXED;
-pub const PANCAKE_MULTIPLEXED_WOULD_BLOCK = multiplexed_transport.PANCAKE_MULTIPLEXED_WOULD_BLOCK;
-pub const PANCAKE_MULTIPLEXED_EV_READABLE = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_READABLE;
-pub const PANCAKE_MULTIPLEXED_EV_WRITABLE = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_WRITABLE;
-pub const PANCAKE_MULTIPLEXED_EV_CLOSED = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_CLOSED;
-pub const PANCAKE_MULTIPLEXED_EV_ACCEPT = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_ACCEPT;
-pub const PANCAKE_MULTIPLEXED_EV_CONNECT = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_CONNECT;
-pub const PANCAKE_MULTIPLEXED_EV_LISTEN = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_LISTEN;
-pub const PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION = multiplexed_transport.PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION;
-pub const PANCAKE_DESIGNATOR_SCHEME_ADDRESS = transport_provider.PANCAKE_DESIGNATOR_SCHEME_ADDRESS;
-pub const PANCAKE_DESIGNATOR_SCHEME_KEY = transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY;
-pub const PANCAKE_SEALED_CHANNEL_NONE = transport_provider.PANCAKE_SEALED_CHANNEL_NONE;
-pub const PANCAKE_SEALED_CHANNEL_NOISE_XK = transport_provider.PANCAKE_SEALED_CHANNEL_NOISE_XK;
-pub const PANCAKE_WIRE_FRAMING_BYTE_STREAM = transport_provider.PANCAKE_WIRE_FRAMING_BYTE_STREAM;
-pub const PANCAKE_WIRE_FRAMING_MESSAGE = transport_provider.PANCAKE_WIRE_FRAMING_MESSAGE;
-pub const PANCAKE_PENDING_CANCEL = close.PANCAKE_PENDING_CANCEL;
-pub const PANCAKE_PENDING_FINISH = close.PANCAKE_PENDING_FINISH;
-pub const PANCAKE_CLOSE_OPTIONS_ABI_VERSION = close.PANCAKE_CLOSE_OPTIONS_ABI_VERSION;
-pub const PANCAKE_CLOSE_MAX_GRACE_MS = close.PANCAKE_CLOSE_MAX_GRACE_MS;
-pub const PANCAKE_CLOSE_GRACE_UNSPECIFIED = close.PANCAKE_CLOSE_GRACE_UNSPECIFIED;
-pub const PANCAKE_CLOSE_GRACE_FINITE = close.PANCAKE_CLOSE_GRACE_FINITE;
-pub const PANCAKE_CLOSE_GRACE_UNBOUNDED = close.PANCAKE_CLOSE_GRACE_UNBOUNDED;
-pub const PANCAKE_HINT_STRING = locator.PANCAKE_HINT_STRING;
-pub const PANCAKE_HINT_BYTES = locator.PANCAKE_HINT_BYTES;
-pub const PANCAKE_HINT_BOOLEAN = locator.PANCAKE_HINT_BOOLEAN;
-pub const PANCAKE_HINT_INTEGER = locator.PANCAKE_HINT_INTEGER;
-pub const PANCAKE_HINTS_MAP = locator.PANCAKE_HINTS_MAP;
-pub const PANCAKE_HINTS_BOOLEAN_FALSE = locator.PANCAKE_HINTS_BOOLEAN_FALSE;
+pub const GlowcapMultiplexedTransport = multiplexed_transport.GlowcapMultiplexedTransport;
+pub const GlowcapMultiplexedReadyEvent = multiplexed_transport.GlowcapMultiplexedReadyEvent;
+pub const GlowcapCloseOptions = close.GlowcapCloseOptions;
+pub const GlowcapListenResult = transport_provider.GlowcapListenResult;
+pub const GlowcapStreamTransport = transport_provider.GlowcapStreamTransport;
+pub const GlowcapLocatorHintView = locator.GlowcapLocatorHintView;
+pub const GlowcapLocatorView = locator.GlowcapLocatorView;
+pub const GlowcapTransportProfile = transport_provider.GlowcapTransportProfile;
+pub const GlowcapTransportOperationOptions = transport_provider.GlowcapTransportOperationOptions;
+pub const GlowcapProviderFailure = transport_provider.GlowcapProviderFailure;
+pub const GlowcapTransportProviderEntry = transport_provider.GlowcapTransportProviderEntry;
+pub const GlowcapTransportProvider = transport_provider.GlowcapTransportProvider;
+pub const GlowcapStreamStartConnectFn = transport_provider.GlowcapStreamStartConnectFn;
+pub const GlowcapStreamFinishConnectFn = transport_provider.GlowcapStreamFinishConnectFn;
+pub const GlowcapStreamCancelConnectFn = transport_provider.GlowcapStreamCancelConnectFn;
+pub const GlowcapStreamListenFn = transport_provider.GlowcapStreamListenFn;
+pub const GlowcapStreamFinishListenFn = transport_provider.GlowcapStreamFinishListenFn;
+pub const GlowcapStreamCancelListenFn = transport_provider.GlowcapStreamCancelListenFn;
+pub const GLOWCAP_LISTEN_READY = transport_provider.GLOWCAP_LISTEN_READY;
+pub const GLOWCAP_LISTEN_PENDING = transport_provider.GLOWCAP_LISTEN_PENDING;
+pub const GlowcapStreamListenerWaitFn = transport_provider.GlowcapStreamListenerWaitFn;
+pub const GlowcapStreamListenerReadinessFdFn = transport_provider.GlowcapStreamListenerReadinessFdFn;
+pub const GlowcapLocatorSinkFn = locator.GlowcapLocatorSinkFn;
+pub const GlowcapTransportListenerRestorationStateFn = transport_provider.GlowcapTransportListenerRestorationStateFn;
+pub const GlowcapTransportListenerLocatorFn = transport_provider.GlowcapTransportListenerLocatorFn;
+pub const GlowcapTransportListenerAdvertiseFn = transport_provider.GlowcapTransportListenerAdvertiseFn;
+pub const GlowcapStreamAcceptFn = transport_provider.GlowcapStreamAcceptFn;
+pub const GlowcapStreamListenerCloseFn = transport_provider.GlowcapStreamListenerCloseFn;
+pub const GlowcapStreamReadFn = transport_provider.GlowcapStreamReadFn;
+pub const GlowcapStreamWriteAllFn = transport_provider.GlowcapStreamWriteAllFn;
+pub const GlowcapStreamConnCloseFn = transport_provider.GlowcapStreamConnCloseFn;
+pub const GlowcapStreamConnTakeFailureFn = transport_provider.GlowcapStreamConnTakeFailureFn;
+pub const GlowcapTransportProviderSameConfigurationFn = transport_provider.GlowcapTransportProviderSameConfigurationFn;
+pub const GlowcapTransportRetainFn = transport_provider.GlowcapTransportRetainFn;
+pub const GlowcapTransportReleaseFn = transport_provider.GlowcapTransportReleaseFn;
+pub const GlowcapMultiplexedReadinessFdFn = multiplexed_transport.GlowcapMultiplexedReadinessFdFn;
+pub const GlowcapMultiplexedDrainReadyFn = multiplexed_transport.GlowcapMultiplexedDrainReadyFn;
+pub const GlowcapMultiplexedStartConnectFn = multiplexed_transport.GlowcapMultiplexedStartConnectFn;
+pub const GlowcapMultiplexedFinishConnectFn = multiplexed_transport.GlowcapMultiplexedFinishConnectFn;
+pub const GlowcapMultiplexedClaimExternalFn = multiplexed_transport.GlowcapMultiplexedClaimExternalFn;
+pub const GlowcapMultiplexedListenFn = multiplexed_transport.GlowcapMultiplexedListenFn;
+pub const GlowcapMultiplexedFinishListenFn = multiplexed_transport.GlowcapMultiplexedFinishListenFn;
+pub const GlowcapMultiplexedFinishAcceptFn = multiplexed_transport.GlowcapMultiplexedFinishAcceptFn;
+pub const GlowcapMultiplexedStopListenFn = multiplexed_transport.GlowcapMultiplexedStopListenFn;
+pub const GlowcapMultiplexedSubjectFn = multiplexed_transport.GlowcapMultiplexedSubjectFn;
+pub const GlowcapMultiplexedConnTakeFailureFn = multiplexed_transport.GlowcapMultiplexedConnTakeFailureFn;
+pub const GlowcapMultiplexedTryReadFn = multiplexed_transport.GlowcapMultiplexedTryReadFn;
+pub const GlowcapMultiplexedTryWriteFn = multiplexed_transport.GlowcapMultiplexedTryWriteFn;
+pub const GlowcapMultiplexedConnRemoteKeyFn = multiplexed_transport.GlowcapMultiplexedConnRemoteKeyFn;
+pub const GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION = transport_provider.GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION;
+pub const GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION = transport_provider.GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION;
+pub const GLOWCAP_LOCATOR_VIEW_ABI_VERSION = locator.GLOWCAP_LOCATOR_VIEW_ABI_VERSION;
+pub const GLOWCAP_STREAM_TRANSPORT_ABI_VERSION = transport_provider.GLOWCAP_STREAM_TRANSPORT_ABI_VERSION;
+pub const GLOWCAP_TRANSPORT_EXEC_STREAM = transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM;
+pub const GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED = transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED;
+pub const GLOWCAP_MULTIPLEXED_WOULD_BLOCK = multiplexed_transport.GLOWCAP_MULTIPLEXED_WOULD_BLOCK;
+pub const GLOWCAP_MULTIPLEXED_EV_READABLE = multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_READABLE;
+pub const GLOWCAP_MULTIPLEXED_EV_WRITABLE = multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_WRITABLE;
+pub const GLOWCAP_MULTIPLEXED_EV_CLOSED = multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CLOSED;
+pub const GLOWCAP_MULTIPLEXED_EV_ACCEPT = multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_ACCEPT;
+pub const GLOWCAP_MULTIPLEXED_EV_CONNECT = multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CONNECT;
+pub const GLOWCAP_MULTIPLEXED_EV_LISTEN = multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_LISTEN;
+pub const GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION = multiplexed_transport.GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION;
+pub const GLOWCAP_DESIGNATOR_SCHEME_ADDRESS = transport_provider.GLOWCAP_DESIGNATOR_SCHEME_ADDRESS;
+pub const GLOWCAP_DESIGNATOR_SCHEME_KEY = transport_provider.GLOWCAP_DESIGNATOR_SCHEME_KEY;
+pub const GLOWCAP_SEALED_CHANNEL_NONE = transport_provider.GLOWCAP_SEALED_CHANNEL_NONE;
+pub const GLOWCAP_SEALED_CHANNEL_NOISE_XK = transport_provider.GLOWCAP_SEALED_CHANNEL_NOISE_XK;
+pub const GLOWCAP_WIRE_FRAMING_BYTE_STREAM = transport_provider.GLOWCAP_WIRE_FRAMING_BYTE_STREAM;
+pub const GLOWCAP_WIRE_FRAMING_MESSAGE = transport_provider.GLOWCAP_WIRE_FRAMING_MESSAGE;
+pub const GLOWCAP_PENDING_CANCEL = close.GLOWCAP_PENDING_CANCEL;
+pub const GLOWCAP_PENDING_FINISH = close.GLOWCAP_PENDING_FINISH;
+pub const GLOWCAP_CLOSE_OPTIONS_ABI_VERSION = close.GLOWCAP_CLOSE_OPTIONS_ABI_VERSION;
+pub const GLOWCAP_CLOSE_MAX_GRACE_MS = close.GLOWCAP_CLOSE_MAX_GRACE_MS;
+pub const GLOWCAP_CLOSE_GRACE_UNSPECIFIED = close.GLOWCAP_CLOSE_GRACE_UNSPECIFIED;
+pub const GLOWCAP_CLOSE_GRACE_FINITE = close.GLOWCAP_CLOSE_GRACE_FINITE;
+pub const GLOWCAP_CLOSE_GRACE_UNBOUNDED = close.GLOWCAP_CLOSE_GRACE_UNBOUNDED;
+pub const GLOWCAP_HINT_STRING = locator.GLOWCAP_HINT_STRING;
+pub const GLOWCAP_HINT_BYTES = locator.GLOWCAP_HINT_BYTES;
+pub const GLOWCAP_HINT_BOOLEAN = locator.GLOWCAP_HINT_BOOLEAN;
+pub const GLOWCAP_HINT_INTEGER = locator.GLOWCAP_HINT_INTEGER;
+pub const GLOWCAP_HINTS_MAP = locator.GLOWCAP_HINTS_MAP;
+pub const GLOWCAP_HINTS_BOOLEAN_FALSE = locator.GLOWCAP_HINTS_BOOLEAN_FALSE;
 
 pub const result = @import("result.zig");
-pub const PANCAKE_OK = result.PANCAKE_OK;
-pub const PANCAKE_ERR_NULL_POINTER = result.PANCAKE_ERR_NULL_POINTER;
-pub const PANCAKE_ERR_INVALID_ARGUMENT = result.PANCAKE_ERR_INVALID_ARGUMENT;
-pub const PANCAKE_ERR_SESSION = result.PANCAKE_ERR_SESSION;
-pub const PANCAKE_ERR_CODEC = result.PANCAKE_ERR_CODEC;
-pub const PANCAKE_ERR_INTERNAL = result.PANCAKE_ERR_INTERNAL;
-pub const PANCAKE_ERR_WOULD_BLOCK = result.PANCAKE_ERR_WOULD_BLOCK;
-pub const PANCAKE_ERR_CLOSED = result.PANCAKE_ERR_CLOSED;
-pub const PANCAKE_ERR_IO = result.PANCAKE_ERR_IO;
-pub const PANCAKE_ERR_MALFORMED = result.PANCAKE_ERR_MALFORMED;
-pub const PANCAKE_ERR_FRAME_TOO_LARGE = result.PANCAKE_ERR_FRAME_TOO_LARGE;
-pub const PANCAKE_ERR_UNSUPPORTED_VALUE = result.PANCAKE_ERR_UNSUPPORTED_VALUE;
-pub const PANCAKE_ERR_BROKEN = result.PANCAKE_ERR_BROKEN;
-pub const PANCAKE_ERR_NOT_FOUND = result.PANCAKE_ERR_NOT_FOUND;
-pub const PANCAKE_ERR_BUFFER_TOO_SMALL = result.PANCAKE_ERR_BUFFER_TOO_SMALL;
-pub const PANCAKE_ERR_TIMEOUT = result.PANCAKE_ERR_TIMEOUT;
+pub const GLOWCAP_OK = result.GLOWCAP_OK;
+pub const GLOWCAP_ERR_NULL_POINTER = result.GLOWCAP_ERR_NULL_POINTER;
+pub const GLOWCAP_ERR_INVALID_ARGUMENT = result.GLOWCAP_ERR_INVALID_ARGUMENT;
+pub const GLOWCAP_ERR_SESSION = result.GLOWCAP_ERR_SESSION;
+pub const GLOWCAP_ERR_CODEC = result.GLOWCAP_ERR_CODEC;
+pub const GLOWCAP_ERR_INTERNAL = result.GLOWCAP_ERR_INTERNAL;
+pub const GLOWCAP_ERR_WOULD_BLOCK = result.GLOWCAP_ERR_WOULD_BLOCK;
+pub const GLOWCAP_ERR_CLOSED = result.GLOWCAP_ERR_CLOSED;
+pub const GLOWCAP_ERR_IO = result.GLOWCAP_ERR_IO;
+pub const GLOWCAP_ERR_MALFORMED = result.GLOWCAP_ERR_MALFORMED;
+pub const GLOWCAP_ERR_FRAME_TOO_LARGE = result.GLOWCAP_ERR_FRAME_TOO_LARGE;
+pub const GLOWCAP_ERR_UNSUPPORTED_VALUE = result.GLOWCAP_ERR_UNSUPPORTED_VALUE;
+pub const GLOWCAP_ERR_BROKEN = result.GLOWCAP_ERR_BROKEN;
+pub const GLOWCAP_ERR_NOT_FOUND = result.GLOWCAP_ERR_NOT_FOUND;
+pub const GLOWCAP_ERR_BUFFER_TOO_SMALL = result.GLOWCAP_ERR_BUFFER_TOO_SMALL;
+pub const GLOWCAP_ERR_TIMEOUT = result.GLOWCAP_ERR_TIMEOUT;
 pub const locatorAdapterErrorCode = result.locatorAdapterErrorCode;
 pub const isStableFailureResult = result.isStableFailureResult;
 pub const hasValidFailureCauses = result.hasValidFailureCauses;
 
 pub const profile = @import("profile.zig");
-pub const PANCAKE_CODEC_UNKNOWN = profile.PANCAKE_CODEC_UNKNOWN;
-pub const PANCAKE_CODEC_SYRUP = profile.PANCAKE_CODEC_SYRUP;
-pub const PANCAKE_CODEC_CAPNP = profile.PANCAKE_CODEC_CAPNP;
-pub const PANCAKE_CAPTP_V1_0 = profile.PANCAKE_CAPTP_V1_0;
-pub const PANCAKE_CAPTP_NEXT = profile.PANCAKE_CAPTP_NEXT;
-pub const PANCAKE_FEATURE_PIPELINING = profile.PANCAKE_FEATURE_PIPELINING;
-pub const PANCAKE_FEATURE_HANDOFF = profile.PANCAKE_FEATURE_HANDOFF;
-pub const PANCAKE_FEATURE_WIRE_DELTA = profile.PANCAKE_FEATURE_WIRE_DELTA;
-pub const PANCAKE_FEATURE_STURDYREF = profile.PANCAKE_FEATURE_STURDYREF;
-pub const PANCAKE_FEATURE_UNTAG = profile.PANCAKE_FEATURE_UNTAG;
-pub const PANCAKE_FEATURE_MULTI_LOCATION = profile.PANCAKE_FEATURE_MULTI_LOCATION;
-pub const PANCAKE_FEATURE_MINIMUM = profile.PANCAKE_FEATURE_MINIMUM;
-pub const PANCAKE_FEATURE_FULL = profile.PANCAKE_FEATURE_FULL;
-pub const PANCAKE_FEATURE_BASELINE = profile.PANCAKE_FEATURE_BASELINE;
-pub const PANCAKE_DEFAULT_CODEC = profile.PANCAKE_DEFAULT_CODEC;
-pub const PANCAKE_DEFAULT_CAPTP_VERSION = profile.PANCAKE_DEFAULT_CAPTP_VERSION;
-pub const PANCAKE_DEFAULT_FEATURES = profile.PANCAKE_DEFAULT_FEATURES;
-pub const PANCAKE_INTEROP_CODEC = profile.PANCAKE_INTEROP_CODEC;
-pub const PANCAKE_INTEROP_CAPTP_VERSION = profile.PANCAKE_INTEROP_CAPTP_VERSION;
-pub const PANCAKE_NATIVE_CODEC = profile.PANCAKE_NATIVE_CODEC;
-pub const PANCAKE_NATIVE_CAPTP_VERSION = profile.PANCAKE_NATIVE_CAPTP_VERSION;
+pub const GLOWCAP_CODEC_UNKNOWN = profile.GLOWCAP_CODEC_UNKNOWN;
+pub const GLOWCAP_CODEC_SYRUP = profile.GLOWCAP_CODEC_SYRUP;
+pub const GLOWCAP_CODEC_CAPNP = profile.GLOWCAP_CODEC_CAPNP;
+pub const GLOWCAP_CAPTP_V1_0 = profile.GLOWCAP_CAPTP_V1_0;
+pub const GLOWCAP_CAPTP_NEXT = profile.GLOWCAP_CAPTP_NEXT;
+pub const GLOWCAP_FEATURE_PIPELINING = profile.GLOWCAP_FEATURE_PIPELINING;
+pub const GLOWCAP_FEATURE_HANDOFF = profile.GLOWCAP_FEATURE_HANDOFF;
+pub const GLOWCAP_FEATURE_WIRE_DELTA = profile.GLOWCAP_FEATURE_WIRE_DELTA;
+pub const GLOWCAP_FEATURE_STURDYREF = profile.GLOWCAP_FEATURE_STURDYREF;
+pub const GLOWCAP_FEATURE_UNTAG = profile.GLOWCAP_FEATURE_UNTAG;
+pub const GLOWCAP_FEATURE_MULTI_LOCATION = profile.GLOWCAP_FEATURE_MULTI_LOCATION;
+pub const GLOWCAP_FEATURE_MINIMUM = profile.GLOWCAP_FEATURE_MINIMUM;
+pub const GLOWCAP_FEATURE_FULL = profile.GLOWCAP_FEATURE_FULL;
+pub const GLOWCAP_FEATURE_BASELINE = profile.GLOWCAP_FEATURE_BASELINE;
+pub const GLOWCAP_DEFAULT_CODEC = profile.GLOWCAP_DEFAULT_CODEC;
+pub const GLOWCAP_DEFAULT_CAPTP_VERSION = profile.GLOWCAP_DEFAULT_CAPTP_VERSION;
+pub const GLOWCAP_DEFAULT_FEATURES = profile.GLOWCAP_DEFAULT_FEATURES;
+pub const GLOWCAP_INTEROP_CODEC = profile.GLOWCAP_INTEROP_CODEC;
+pub const GLOWCAP_INTEROP_CAPTP_VERSION = profile.GLOWCAP_INTEROP_CAPTP_VERSION;
+pub const GLOWCAP_NATIVE_CODEC = profile.GLOWCAP_NATIVE_CODEC;
+pub const GLOWCAP_NATIVE_CAPTP_VERSION = profile.GLOWCAP_NATIVE_CAPTP_VERSION;
 pub const captpVersionToC = profile.captpVersionToC;
 pub const captpVersionFromC = profile.captpVersionFromC;
 pub const codecToC = profile.codecToC;
@@ -217,19 +217,19 @@ pub const featureSetToC = profile.featureSetToC;
 pub const featureSetFromC = profile.featureSetFromC;
 
 pub const frame = @import("frame.zig");
-pub const PANCAKE_FRAME_SHAPE_BYTE = frame.PANCAKE_FRAME_SHAPE_BYTE;
-pub const PANCAKE_FRAME_SHAPE_WORD = frame.PANCAKE_FRAME_SHAPE_WORD;
+pub const GLOWCAP_FRAME_SHAPE_BYTE = frame.GLOWCAP_FRAME_SHAPE_BYTE;
+pub const GLOWCAP_FRAME_SHAPE_WORD = frame.GLOWCAP_FRAME_SHAPE_WORD;
 pub const frameShapeFromC = frame.shapeFromC;
-pub const PancakeFrame = frame.PancakeFrame;
+pub const GlowcapFrame = frame.GlowcapFrame;
 pub const ReleaseFn = frame.ReleaseFn;
-pub const PancakeManagedFrame = frame.PancakeManagedFrame;
+pub const GlowcapManagedFrame = frame.GlowcapManagedFrame;
 pub const managedFrame = frame.managed;
 
 pub const context = @import("context.zig");
-pub const PancakeAllocFn = context.PancakeAllocFn;
-pub const PancakeFreeFn = context.PancakeFreeFn;
-pub const PancakeAllocator = context.PancakeAllocator;
-pub const PancakeContext = context.PancakeContext;
+pub const GlowcapAllocFn = context.GlowcapAllocFn;
+pub const GlowcapFreeFn = context.GlowcapFreeFn;
+pub const GlowcapAllocator = context.GlowcapAllocator;
+pub const GlowcapContext = context.GlowcapContext;
 pub const library_allocator = context.library_allocator;
 pub const ContextAllocator = context.ContextAllocator;
 pub const default_failure_capacity = context.default_failure_capacity;
@@ -249,35 +249,35 @@ pub const captureCallError = last_error.captureCall;
 pub const optionalCallErrorOutputIsValid = last_error.optionalOutputIsValid;
 
 pub const value = @import("value.zig");
-pub const PANCAKE_ARG_INTEGER = value.PANCAKE_ARG_INTEGER;
-pub const PANCAKE_ARG_FLOAT64 = value.PANCAKE_ARG_FLOAT64;
-pub const PANCAKE_ARG_BOOLEAN = value.PANCAKE_ARG_BOOLEAN;
-pub const PANCAKE_ARG_BYTES = value.PANCAKE_ARG_BYTES;
-pub const PANCAKE_ARG_STRING = value.PANCAKE_ARG_STRING;
-pub const PANCAKE_ARG_SYMBOL = value.PANCAKE_ARG_SYMBOL;
-pub const PANCAKE_ARG_VOID = value.PANCAKE_ARG_VOID;
-pub const PANCAKE_ARG_REFERENCE = value.PANCAKE_ARG_REFERENCE;
-pub const PANCAKE_ARG_LIST = value.PANCAKE_ARG_LIST;
-pub const PANCAKE_ARG_SET = value.PANCAKE_ARG_SET;
-pub const PANCAKE_ARG_TAGGED = value.PANCAKE_ARG_TAGGED;
-pub const PANCAKE_ARG_KEYWORD = value.PANCAKE_ARG_KEYWORD;
-pub const PANCAKE_ARG_BIG_INTEGER = value.PANCAKE_ARG_BIG_INTEGER;
-pub const PANCAKE_ARG_STRUCT = value.PANCAKE_ARG_STRUCT;
-pub const PANCAKE_ARG_ERROR = value.PANCAKE_ARG_ERROR;
-pub const PANCAKE_RESOLUTION_FULFILL = value.PANCAKE_RESOLUTION_FULFILL;
-pub const PANCAKE_RESOLUTION_BREAK = value.PANCAKE_RESOLUTION_BREAK;
-pub const PANCAKE_RESOLUTION_HANDOFF = value.PANCAKE_RESOLUTION_HANDOFF;
-pub const PancakeReference = value.PancakeReference;
-pub const PancakeArgument = value.PancakeArgument;
+pub const GLOWCAP_ARG_INTEGER = value.GLOWCAP_ARG_INTEGER;
+pub const GLOWCAP_ARG_FLOAT64 = value.GLOWCAP_ARG_FLOAT64;
+pub const GLOWCAP_ARG_BOOLEAN = value.GLOWCAP_ARG_BOOLEAN;
+pub const GLOWCAP_ARG_BYTES = value.GLOWCAP_ARG_BYTES;
+pub const GLOWCAP_ARG_STRING = value.GLOWCAP_ARG_STRING;
+pub const GLOWCAP_ARG_SYMBOL = value.GLOWCAP_ARG_SYMBOL;
+pub const GLOWCAP_ARG_VOID = value.GLOWCAP_ARG_VOID;
+pub const GLOWCAP_ARG_REFERENCE = value.GLOWCAP_ARG_REFERENCE;
+pub const GLOWCAP_ARG_LIST = value.GLOWCAP_ARG_LIST;
+pub const GLOWCAP_ARG_SET = value.GLOWCAP_ARG_SET;
+pub const GLOWCAP_ARG_TAGGED = value.GLOWCAP_ARG_TAGGED;
+pub const GLOWCAP_ARG_KEYWORD = value.GLOWCAP_ARG_KEYWORD;
+pub const GLOWCAP_ARG_BIG_INTEGER = value.GLOWCAP_ARG_BIG_INTEGER;
+pub const GLOWCAP_ARG_STRUCT = value.GLOWCAP_ARG_STRUCT;
+pub const GLOWCAP_ARG_ERROR = value.GLOWCAP_ARG_ERROR;
+pub const GLOWCAP_RESOLUTION_FULFILL = value.GLOWCAP_RESOLUTION_FULFILL;
+pub const GLOWCAP_RESOLUTION_BREAK = value.GLOWCAP_RESOLUTION_BREAK;
+pub const GLOWCAP_RESOLUTION_HANDOFF = value.GLOWCAP_RESOLUTION_HANDOFF;
+pub const GlowcapReference = value.GlowcapReference;
+pub const GlowcapArgument = value.GlowcapArgument;
 pub const zero_reference = value.zero_reference;
 pub const zero_argument = value.zero_argument;
 pub const MarshalError = value.MarshalError;
 pub const feedErrorToCode = value.feedErrorToCode;
 pub const marshalErrorToCode = value.marshalErrorToCode;
-pub const PANCAKE_ABORT_DOMAIN_CODEC = value.PANCAKE_ABORT_DOMAIN_CODEC;
-pub const PANCAKE_ABORT_DOMAIN_SESSION = value.PANCAKE_ABORT_DOMAIN_SESSION;
-pub const PANCAKE_ABORT_DOMAIN_FOREIGN = value.PANCAKE_ABORT_DOMAIN_FOREIGN;
-pub const PancakeLastAbort = value.PancakeLastAbort;
+pub const GLOWCAP_ABORT_DOMAIN_CODEC = value.GLOWCAP_ABORT_DOMAIN_CODEC;
+pub const GLOWCAP_ABORT_DOMAIN_SESSION = value.GLOWCAP_ABORT_DOMAIN_SESSION;
+pub const GLOWCAP_ABORT_DOMAIN_FOREIGN = value.GLOWCAP_ABORT_DOMAIN_FOREIGN;
+pub const GlowcapLastAbort = value.GlowcapLastAbort;
 pub const lastAbortToC = value.lastAbortToC;
 pub const sliceFromC = value.sliceFromC;
 pub const max_marshal_depth = value.max_marshal_depth;

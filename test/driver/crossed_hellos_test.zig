@@ -9,11 +9,11 @@
 //! host scenarios and the wire-level three-party test.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const CrossedHellos = pancake.driver.core.CrossedHellos;
-const DialTarget = pancake.driver.core.DialTarget;
+const foundation = glowcap.foundation;
+const CrossedHellos = glowcap.driver.core.CrossedHellos;
+const DialTarget = glowcap.driver.core.DialTarget;
 
 fn target(transport: []const u8, designator: []const u8) DialTarget {
     return .{ .transport = transport, .designator = designator };

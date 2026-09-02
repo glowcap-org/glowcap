@@ -1,6 +1,6 @@
 // Pure trace-record admission and replay-state contracts for the Rooms viz endpoint.
 
-import type { TraceEvent } from "@pancake/runtime";
+import type { TraceEvent } from "@glowcap/runtime";
 import { announceLines, publishUrl } from "../../lib/viz_publish.ts";
 import { parseRecord, replayLines } from "../../server/viz.ts";
 import { utf8Bytes } from "../../server/viz/records.ts";
@@ -86,9 +86,9 @@ Deno.test("what a producer says about itself is bounded like everything else", (
 			`unbounded ${field} accepted`,
 		);
 		assert(parseRecord(producerOpen({ [field]: 7 })) === null, `non-string ${field} accepted`);
-		const ok = parseRecord(producerOpen({ [field]: "pancake" }));
+		const ok = parseRecord(producerOpen({ [field]: "glowcap" }));
 		assert(ok !== null, `an ordinary ${field} was refused`);
-		assertEquals((ok as unknown as Record<string, unknown>)[field], "pancake");
+		assertEquals((ok as unknown as Record<string, unknown>)[field], "glowcap");
 	}
 });
 

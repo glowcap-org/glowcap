@@ -3,14 +3,14 @@
 // mode-0700 state directory and never enters snapshots or diagnostics.
 
 import * as z from "zod/mini";
-import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES } from "@glowcap/runtime";
 import {
 	type IrcBridgeIntent,
 	IrcBridgeIntentSchema,
 	type IrcNetworkChoice,
 	IrcNetworkChoiceSchema,
 	sameIrcNetworkChoice,
-} from "../lib/irc_gateway_client.ts";
+} from "./irc_gateway/model.ts";
 import { listenerOptionsFitTransport, ListenerOptionsSchema, ListenerTransportSchema } from "../lib/listeners.ts";
 import { MAX_OPERATIONS_ROWS } from "../lib/limits.ts";
 import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";

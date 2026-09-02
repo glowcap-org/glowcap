@@ -56,8 +56,8 @@ The policy sits at the layer that owns the work:
 | Surface | Close contract |
 | --- | --- |
 | `driver_core.Host` | Owns the admission barrier and the inventory of pending CapTP work. It does not read a clock or perform I/O. |
-| `driver.HostRuntime` and `libpancake_driver` | Supply monotonic time, drive existing wires, flush terminal output, and interrupt transports when the core requests cancellation. |
-| `libpancake_host` | Exposes begin/escalate and readiness to an embedding that owns the clock and byte channels. Release remains memory ownership, not a policy choice. |
+| `driver.HostRuntime` and `libglowcap_driver` | Supply monotonic time, drive existing wires, flush terminal output, and interrupt transports when the core requests cancellation. |
+| `libglowcap_host` | Exposes begin/escalate and readiness to an embedding that owns the clock and byte channels. Release remains memory ownership, not a policy choice. |
 | Zig and language-binding Host, Runtime, and owning Session fronts | Present one idiomatic close operation and wait for its barrier. Resource-management protocols use cancel. |
 | Server/listener fronts | Stop admission and retire unclaimed accepts. Sessions already returned to an application remain application-owned; a server close does not gain a misleading policy knob. |
 | Transport connections, listeners, endpoints, and provider runtimes | Keep one interruptible close/shutdown lever and one release boundary. They do not decide whether CapTP work should finish. |

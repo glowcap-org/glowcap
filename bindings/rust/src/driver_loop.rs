@@ -1,6 +1,6 @@
 //! The native loop tier (ADR-0112): the public `connect`/`listen` route for
 //! the shapes the driver archive carries, over a thin package around one
-//! `PancakeDriverLoop`.
+//! `GlowcapDriverLoop`.
 //!
 //! The driver archive composes transport providers and owns sockets and
 //! pumping, so this package's whole job is choreography. [`DriverLoop`] is the
@@ -83,14 +83,14 @@ pub(crate) struct LoopShared {
 	/// refuses with the same exact cause instead of treating a dead step as idle.
 	terminal_failure: RefCell<Option<Error>>,
 	close_task_started: Cell<bool>,
-	/// Re-entrancy latch: `pancake_driver_step` must never nest (a behavior
+	/// Re-entrancy latch: `glowcap_driver_step` must never nest (a behavior
 	/// fired inside a step kicks through deferred tasks, never a direct step).
 	stepping: Cell<bool>,
 	parked: Cell<bool>,
 	park: RefCell<Option<tokio::task::AbortHandle>>,
-	pending_dials: RefCell<HashMap<u64, oneshot::Sender<Result<*mut ffi_host::PancakeHostSession>>>>,
+	pending_dials: RefCell<HashMap<u64, oneshot::Sender<Result<*mut ffi_host::GlowcapHostSession>>>>,
 	pending_listeners: RefCell<HashMap<u64, oneshot::Sender<Result<()>>>>,
-	accepts: RefCell<VecDeque<(u64, *mut ffi_host::PancakeHostSession)>>,
+	accepts: RefCell<VecDeque<(u64, *mut ffi_host::GlowcapHostSession)>>,
 	/// Event-delivered handles not yet wrapped by the binding. A terminal event
 	/// that follows OPENED/ACCEPTED in the same drain retains its exact failure;
 	/// the handle stays valid until adoption or explicit release.
@@ -472,7 +472,7 @@ impl LoopShared {
 	/// Announce the embedder is serving `session`: post-open setup is done, so
 	/// the loop may deliver its inbound (early bytes replay in order).
 	/// Idempotent; the byte-fed serve-resume contract at the loop tier.
-	pub(crate) fn serve_session(self: &Rc<Self>, session: *mut ffi_host::PancakeHostSession) -> Result<()> {
+	pub(crate) fn serve_session(self: &Rc<Self>, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
 		if self.released.get() || session.is_null() {
 			return Ok(());
 		}

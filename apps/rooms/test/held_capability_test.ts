@@ -1,4 +1,4 @@
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { releaseHeldCapability } from "../web/ui/net/held_capability.ts";
 import { dirId } from "../web/ui/types.ts";
 import { assertEquals } from "./assert.ts";

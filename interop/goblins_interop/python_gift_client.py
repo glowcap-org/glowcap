@@ -1,19 +1,19 @@
 """Live three-party handoff with the Python binding as the GIFTER (the
-introducer), proving pancake can mint a ``desc:handoff-give`` that live Goblins
+introducer), proving glowcap can mint a ``desc:handoff-give`` that live Goblins
 redeems and a ``deposit-gift`` that live Goblins accepts, the exporter half of
 ADR-0009 against a real cross-implementation peer, the mirror of
-``python-goblins-handoff`` (where pancake is the recipient).
+``python-goblins-handoff`` (where glowcap is the recipient).
 
 Topology (all TCP loopback):
   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
-  Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
+  Gifter (glowcap)           lifts Bob's greeter from a vendor reply, then
                              publishes an "introducer" that returns it twice
                              in one nested Passable value.
-  Carol  (Goblins recipient) dials the pancake introducer, asks for the
+  Carol  (Goblins recipient) dials the glowcap introducer, asks for the
                              greeters, transparently redeems both gives, and
                              calls both directly on Bob.
 
-pancake is the gifter: when Carol asks for the greeters, pancake deposits both
+glowcap is the gifter: when Carol asks for the greeters, glowcap deposits both
 occurrences with Bob and resolves Carol's send with two signed gives. Goblins
 must redeem both and reach Bob directly; Carol's ``GIFT NESTED OK`` line carries
 both replies and the distinct names she sent.
@@ -38,17 +38,17 @@ from helpers import (  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Ref, Runtime, tcp  # noqa: E402
+from glowcap import Ref, Runtime, tcp  # noqa: E402
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-gift", 22122, max_port=65534)
 
 RACKET = "racket"
 EXPORTER_SCRIPT = "conformance/goblins-peer/racket/gift-exporter-host.rkt"
 RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt"
-# pancake hardcodes the same swiss the exporter host registers, the way the
+# glowcap hardcodes the same swiss the exporter host registers, the way the
 # interop clients fix the echo swiss.
-GREETER_SWISS = "pancakeGiftGreeterSwissnum000001"
-VENDOR_SWISS = "pancakeGiftVendorSwissnum0000001"
+GREETER_SWISS = "glowcapGiftGreeterSwissnum000001"
+VENDOR_SWISS = "glowcapGiftVendorSwissnum0000001"
 INTRODUCER_SWISS = "introducer"
 
 
@@ -81,7 +81,7 @@ async def run() -> None:
         await await_greeter_ready(bob, "python-goblins-gift")
         print(f"python-goblins-gift: goblins-bob exporting greeter swiss={GREETER_SWISS} on {HOST}:{PORT}")
 
-        # pancake (the gifter) listens for the recipient on an ephemeral port and
+        # glowcap (the gifter) listens for the recipient on an ephemeral port and
         # runs its accept loop. One node identity (gifter.host) serves both the
         # recipient connection and the exporter connection, so the give's
         # signature matches the deposit.
@@ -95,7 +95,7 @@ async def run() -> None:
         gifter_port = gifter.port
 
         # Fetch a vendor, then lift Bob's greeter from an ordinary call reply.
-        # The reply ref's home is this gifter<->Bob connection, so pancake can
+        # The reply ref's home is this gifter<->Bob connection, so glowcap can
         # re-gift it without an enrollment verb.
         gifter_runtime = await Runtime.open(
             provider=tcp.provider(), adopt_host=gifter.host
@@ -114,9 +114,9 @@ async def run() -> None:
             return [greeter, [greeter]] if verb == "get-greeter" else None
 
         gifter.host.publish_giftable(INTRODUCER_SWISS, introducer)
-        print(f"python-goblins-gift: pancake publishing introducer swiss={INTRODUCER_SWISS} on {HOST}:{gifter_port}")
+        print(f"python-goblins-gift: glowcap publishing introducer swiss={INTRODUCER_SWISS} on {HOST}:{gifter_port}")
 
-        # Spawn Carol (the Goblins recipient): she dials pancake's introducer,
+        # Spawn Carol (the Goblins recipient): she dials glowcap's introducer,
         # asks for both greeters, redeems both gives, and calls Bob directly.
         carol = await asyncio.create_subprocess_exec(
             RACKET, RECIPIENT_SCRIPT, tcp.address_designator(HOST, gifter_port), INTRODUCER_SWISS, str(PORT + 1), "nested",

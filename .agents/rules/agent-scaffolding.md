@@ -3,7 +3,7 @@ description: "The scaffolding is a public API whose consumers are agents. Living
 alwaysApply: true
 ---
 
-# pancake — Agent Scaffolding
+# glowcap — Agent Scaffolding
 
 The scaffolding — `AGENTS.md`, everything under `.agents/`, the `.claude/`,
 `.cursor/`, and `.codex/` overlays, the hooks, the skills — is a public API

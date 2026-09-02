@@ -1,6 +1,6 @@
 // Selected archive capability custody for one durable Rooms session.
 
-import { type Ref, retainCleanupFailures, type Runtime, type Session } from "@pancake/runtime";
+import { type Ref, retainCleanupFailures, type Runtime, type Session } from "@glowcap/runtime";
 import {
 	ALL_ARCHIVE_RECORDS,
 	type ArchiveConversationKind,

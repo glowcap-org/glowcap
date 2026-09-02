@@ -24,14 +24,14 @@
 //! nothing crashed.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const frame_cap = 8192;
@@ -270,7 +270,7 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     defer threaded.deinit();
     const io = threaded.io();
 
-    const foundation = pancake.foundation;
+    const foundation = glowcap.foundation;
     const exporter_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.SEED_BYTES]u8, @splat(0x5b)));
     var keyed_resident = net.tcp.keyed.Resident{ .io = io };
     var tcp_resident = tcp.Resident{ .io = io };
@@ -332,7 +332,7 @@ test "driver Server can replace listener-derived reachability with deployment ro
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = pancake.foundation.crypto.SecretKey.fromSeed(@as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x6b)));
+    const secret = glowcap.foundation.crypto.SecretKey.fromSeed(@as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x6b)));
     var resident = net.tcp.keyed.Resident{ .io = io };
     var server = try driver.listen(
         allocator,

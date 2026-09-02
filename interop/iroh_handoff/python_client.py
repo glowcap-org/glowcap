@@ -38,7 +38,7 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import (  # noqa: E402
+from glowcap import (  # noqa: E402
     HINT_DIRECT_ADDRESSES,
     Ref,
     Runtime,
@@ -46,7 +46,7 @@ from pancake import (  # noqa: E402
     Locator,
     format_peer_uri,
 )
-from pancake.iroh import (  # noqa: E402
+from glowcap.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
     listen,

@@ -2,11 +2,11 @@
 ;; goblins-onion-host.rkt — a Goblins vat reachable at a Tor onion address.
 ;;
 ;; The vat runs its own CapTP, unchanged, over the onion netlayer upstream
-;; Goblins ships. Nothing in this file is pancake's: `new-onion-netlayer` is
+;; Goblins ships. Nothing in this file is glowcap's: `new-onion-netlayer` is
 ;; Goblins' own, and it asks the Tor daemon for a version 3 service exactly as it
 ;; would in a deployment. That is the point of the check that drives this. onion
 ;; is the one netlayer the OCapN draft standardizes and the one Goblins ships, so
-;; it is the ground where a pancake peer and a Goblins vat meet without either
+;; it is the ground where a glowcap peer and a Goblins vat meet without either
 ;; having written the other's transport.
 ;;
 ;; It publishes the OCapN conformance suite's canonical echo cap and waits to be
@@ -19,7 +19,7 @@
 ;; and the third is a directory this vat may put its own forwarded sockets in.
 ;;
 ;; **That Tor must accept an unauthenticated control connection**, because
-;; Goblins sends a bare `AUTHENTICATE` with no credential. pancake can send a
+;; Goblins sends a bare `AUTHENTICATE` with no credential. glowcap can send a
 ;; cookie or a password; its partner here cannot, so the daemon the check starts
 ;; is configured for the narrower of the two.
 ;;

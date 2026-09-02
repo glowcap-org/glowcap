@@ -39,7 +39,7 @@ Deno.test("snapshot round-trips recording.sources observations", () => {
 					t: 0,
 					kind: "peer-joined",
 					peerId: "alice",
-					profile: "pancake",
+					profile: "glowcap",
 				},
 			],
 		}],
@@ -53,7 +53,7 @@ Deno.test("snapshot round-trips recording.sources observations", () => {
 			t: 100,
 			kind: "peer-joined",
 			peerId: "bob",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 	);
 	assertEquals(doc.recording.sources[0]!.observations.length, 2);
@@ -76,7 +76,7 @@ Deno.test("restore from a snapshot taken before recording was set clears it", ()
 				t: 0,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 			}],
 		}],
 	};
@@ -96,7 +96,7 @@ Deno.test("snapshot is independent — mutating snap doesn't reach doc", () => {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 			}],
 		}],
 	};

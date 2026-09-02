@@ -6,7 +6,7 @@
 # down somewhere, so these answers hold wherever the repository lives and
 # whichever checkout is asking.
 
-pancake_devcontainer_worktree_kind() {
+glowcap_devcontainer_worktree_kind() {
     local checkout="$1" git_dir common_dir
     git_dir="$(git -C "${checkout}" rev-parse --path-format=absolute --git-dir)" || return 1
     common_dir="$(git -C "${checkout}" rev-parse --path-format=absolute --git-common-dir)" || return 1
@@ -18,19 +18,19 @@ pancake_devcontainer_worktree_kind() {
 }
 
 # Read the checkout-local identity from Compose's ignored .env file.
-pancake_devcontainer_worktree_name() {
+glowcap_devcontainer_worktree_name() {
     local root="$1" value
-    value="$(pancake_devcontainer_env_value "${root}" PANCAKE_WORKTREE)"
+    value="$(glowcap_devcontainer_env_value "${root}" GLOWCAP_WORKTREE)"
     if [[ -z "${value}" ]]; then
-        echo "devcontainer: PANCAKE_WORKTREE is missing from ${root}/.env" >&2
+        echo "devcontainer: GLOWCAP_WORKTREE is missing from ${root}/.env" >&2
         echo "devcontainer: run: bash .devcontainer/bin/configure.sh" >&2
         return 1
     fi
-    pancake_devcontainer_validate_worktree_name "${value}" || return
+    glowcap_devcontainer_validate_worktree_name "${value}" || return
     printf '%s\n' "${value}"
 }
 
-pancake_devcontainer_primary_checkout() {
+glowcap_devcontainer_primary_checkout() {
     local checkout="$1" line listing
     listing="$(git -C "${checkout}" worktree list --porcelain)" || return 1
     while IFS= read -r line; do
@@ -48,7 +48,7 @@ pancake_devcontainer_primary_checkout() {
 # `main` is the primary checkout that owns the common Git directory. Any other
 # name is a linked worktree whose directory basename is that name. Git's
 # registered worktree list is the only authority on where it lives.
-pancake_devcontainer_checkout_for_worktree() {
+glowcap_devcontainer_checkout_for_worktree() {
     local primary="$1" name="$2" path listed="" line listing
     if [[ "${name}" == main ]]; then
         printf '%s\n' "${primary}"
@@ -80,22 +80,22 @@ pancake_devcontainer_checkout_for_worktree() {
 
 # The ignored value is useful only if the worktree and container identities
 # agree. The primary checkout may live in a repository directory named
-# `pancake`; linked worktrees use their designator as the directory basename.
+# `glowcap`; linked worktrees use their designator as the directory basename.
 # Branch names are intentionally independent.
-pancake_devcontainer_validate_worktree() {
+glowcap_devcontainer_validate_worktree() {
     local root="$1" name="$2" checkout kind
     checkout="$(basename "$(cd "${root}/.." && pwd -P)")"
-    kind="$(pancake_devcontainer_worktree_kind "${root}/..")" || return
+    kind="$(glowcap_devcontainer_worktree_kind "${root}/..")" || return
     if [[ "${kind}" == primary ]]; then
         if [[ "${name}" != main ]]; then
-            echo "devcontainer: the primary checkout must use PANCAKE_WORKTREE=main, not ${name}" >&2
+            echo "devcontainer: the primary checkout must use GLOWCAP_WORKTREE=main, not ${name}" >&2
             return 1
         fi
     elif [[ "${name}" == main ]]; then
-        echo "devcontainer: a linked worktree may not use PANCAKE_WORKTREE=main" >&2
+        echo "devcontainer: a linked worktree may not use GLOWCAP_WORKTREE=main" >&2
         return 1
     elif [[ "${checkout}" != "${name}" ]]; then
-        echo "devcontainer: PANCAKE_WORKTREE=${name}, but the worktree directory is ${checkout}" >&2
+        echo "devcontainer: GLOWCAP_WORKTREE=${name}, but the worktree directory is ${checkout}" >&2
         echo "devcontainer: use the same short name for the worktree and container" >&2
         return 1
     fi
@@ -104,22 +104,22 @@ pancake_devcontainer_validate_worktree() {
 # Linked worktrees store their administrative state in the primary checkout's
 # common Git directory. Their .git file may contain an absolute host path, so
 # Compose must mount that directory at the same path inside the container.
-pancake_devcontainer_validate_git_common_dir() {
+glowcap_devcontainer_validate_git_common_dir() {
     local root="$1" configured expected
-    configured="$(pancake_devcontainer_env_value "${root}" PANCAKE_GIT_COMMON_DIR)"
+    configured="$(glowcap_devcontainer_env_value "${root}" GLOWCAP_GIT_COMMON_DIR)"
     if [[ -z "${configured}" ]]; then
-        echo "devcontainer: set PANCAKE_GIT_COMMON_DIR in .devcontainer/.env" >&2
+        echo "devcontainer: set GLOWCAP_GIT_COMMON_DIR in .devcontainer/.env" >&2
         echo "devcontainer: obtain it with: git rev-parse --path-format=absolute --git-common-dir" >&2
         return 1
     fi
     expected="$(git -C "${root}/.." rev-parse --path-format=absolute --git-common-dir)"
     if [[ "${configured}" != "${expected}" ]]; then
-        echo "devcontainer: PANCAKE_GIT_COMMON_DIR=${configured}" >&2
+        echo "devcontainer: GLOWCAP_GIT_COMMON_DIR=${configured}" >&2
         echo "devcontainer: expected ${expected}" >&2
         return 1
     fi
     if [[ ! -d "${configured}" ]]; then
-        echo "devcontainer: PANCAKE_GIT_COMMON_DIR is not a directory: ${configured}" >&2
+        echo "devcontainer: GLOWCAP_GIT_COMMON_DIR is not a directory: ${configured}" >&2
         return 1
     fi
 }
@@ -131,7 +131,7 @@ pancake_devcontainer_validate_git_common_dir() {
 # commands moved into bin/, so both spellings are looked for, newest first.
 # This is the one place that knows a checkout may be behind, and it can be
 # deleted once no branch in play predates the move.
-pancake_devcontainer_checkout_entry() {
+glowcap_devcontainer_checkout_entry() {
     local checkout="$1" name="$2" candidate
     for candidate in "bin/${name}" "${name}"; do
         if [[ -x "${checkout}/.devcontainer/${candidate}" ]]; then

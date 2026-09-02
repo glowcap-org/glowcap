@@ -1,7 +1,7 @@
 // DENO-SPECIFIC: The rooms chat host process for Deno.
 // It serves the browser page and stays out of the OCapN wire.
 //
-// The page is a real pancake peer. It loads `@pancake/web` (the wasm Host) and
+// The page is a real glowcap peer. It loads `@glowcap/web` (the wasm Host) and
 // dials the room server itself; this process only serves the page, the wasm
 // module, and one dumb byte pipe:
 //
@@ -33,10 +33,10 @@
 import { isLoopbackHost, isWildcardHost } from "../lib/bind_host.ts";
 import { Directory } from "../lib/room/client.ts";
 import { dialDirectory, isUriLocator, loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
-import { addressDesignator } from "@pancake/tcp";
+import { addressDesignator } from "@glowcap/tcp";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 import { nextRestartWait } from "./restart.ts";
-import { Reachability } from "@pancake/iroh";
+import { Reachability } from "@glowcap/iroh";
 import { parseTcpPeers, shutdownRelay } from "./relay.ts";
 import { prepareAndListen } from "./serve_http.ts";
 import { ensureTor, type TorEndpoints } from "./tor.ts";
@@ -50,7 +50,7 @@ const HTTP_PORT = Number(positional[0] ?? "8000");
 // A fixed room port (override as the 2nd positional arg) so a TCP room is stable
 // across server restarts and CLI clients always know where to connect.
 const ROOM_PORT = positional[1] ?? "9099";
-// `--diagnostics` (or `PANCAKE_ROOMS_DIAGNOSTICS=1`) mints an unguessable
+// `--diagnostics` (or `GLOWCAP_ROOMS_DIAGNOSTICS=1`) mints an unguessable
 // inspect capability on the room server and prints it here. The other entries
 // in `BOOT_CAPS` follow the same operator-capability shape. None is a page flag:
 // the Operations page takes each by
@@ -59,23 +59,23 @@ const ROOM_PORT = positional[1] ?? "9099";
 const DIAGNOSTICS = flagOrEnv(flags, BOOT_CAPS.diagnostics.flag, BOOT_CAPS.diagnostics.env);
 const ADMIN_LISTENERS = flagOrEnv(flags, BOOT_CAPS.adminListeners.flag, BOOT_CAPS.adminListeners.env);
 const PEERING = flagOrEnv(flags, BOOT_CAPS.peering.flag, BOOT_CAPS.peering.env);
-// `--viz` (or `PANCAKE_ROOMS_VIZ=1`) has the room server serve the live
+// `--viz` (or `GLOWCAP_ROOMS_VIZ=1`) has the room server serve the live
 // timeline endpoint and mint the viz capability, the same enabling shape as
 // the other entries.
-// `--irc` (or `PANCAKE_ROOMS_IRC=1`) mints the IRC gateway capability:
+// `--irc` (or `GLOWCAP_ROOMS_IRC=1`) mints the IRC gateway capability:
 // holding it bridges IRC channels into this directory as ordinary rooms.
 const IRC = flagOrEnv(flags, BOOT_CAPS.irc.flag, BOOT_CAPS.irc.env);
 const OPERATOR = flagOrEnv(flags, BOOT_CAPS.operator.flag, BOOT_CAPS.operator.env);
 const VIZ = flagOrEnv(flags, BOOT_CAPS.viz.flag, BOOT_CAPS.viz.env);
-// `--history` (or `PANCAKE_ROOMS_HISTORY=1`) has the room server keep listed
+// `--history` (or `GLOWCAP_ROOMS_HISTORY=1`) has the room server keep listed
 // rooms' last lines in its state directory and answer them to members. A
 // policy flag, not a capability: there is no swiss to take, only a stated
 // retention the room's own divider names.
-const HISTORY = flagOrEnv(flags, "--history", "PANCAKE_ROOMS_HISTORY");
+const HISTORY = flagOrEnv(flags, "--history", "GLOWCAP_ROOMS_HISTORY");
 // `--storage=` rides to the server as the env var it honors, the same road
 // the LAN flags take: one destination, its shape judged by the server alone.
 const flagStorage = flags.findLast((a) => a.startsWith("--storage="))?.slice("--storage=".length) || undefined;
-// `--transport=<tcp|iroh|onion>` (or `PANCAKE_ROOMS_TRANSPORT`) picks the room's wire.
+// `--transport=<tcp|iroh|onion>` (or `GLOWCAP_ROOMS_TRANSPORT`) picks the room's wire.
 // Over iroh and onion the server announces an ocapn:// URI; over onion ROOM_PORT
 // becomes the local endpoint Tor forwards the service to, which is also where
 // the relay reaches it. The last flag wins, so a build step that bakes a default
@@ -92,8 +92,8 @@ const TRANSPORT = (() => {
 	}
 })();
 // `--bind=<host>` and `--announce-host=<host>` are the TCP room's LAN knobs,
-// forwarded to the spawned server as the `PANCAKE_ROOMS_BIND` and
-// `PANCAKE_ROOMS_ANNOUNCE_HOST` env vars it already honors (setting the env
+// forwarded to the spawned server as the `GLOWCAP_ROOMS_BIND` and
+// `GLOWCAP_ROOMS_ANNOUNCE_HOST` env vars it already honors (setting the env
 // vars directly keeps working): the bind host it listens on (default
 // 127.0.0.1), and the dialable hostname it prints and advertises. `tcp` is
 // cleartext and proves no peer, so exposing it on a LAN shows the conversation
@@ -101,10 +101,10 @@ const TRANSPORT = (() => {
 const flagBind = flags.findLast((a) => a.startsWith("--bind="))?.slice("--bind=".length) || undefined;
 const flagAnnounceHost = flags.findLast((a) => a.startsWith("--announce-host="))?.slice("--announce-host=".length) ||
 	undefined;
-const BIND_HOST = flagBind ?? optionalEnv("PANCAKE_ROOMS_BIND") ?? "127.0.0.1";
-const ANNOUNCE_HOST = flagAnnounceHost ?? optionalEnv("PANCAKE_ROOMS_ANNOUNCE_HOST");
+const BIND_HOST = flagBind ?? optionalEnv("GLOWCAP_ROOMS_BIND") ?? "127.0.0.1";
+const ANNOUNCE_HOST = flagAnnounceHost ?? optionalEnv("GLOWCAP_ROOMS_ANNOUNCE_HOST");
 // The port the room server's live timeline endpoint binds while `--viz` is on:
-// the canonical default unless `PANCAKE_ROOMS_VIZ_PORT` overrides it, resolved
+// the canonical default unless `GLOWCAP_ROOMS_VIZ_PORT` overrides it, resolved
 // here with the same `vizPortChoice` the child uses so the origin door and the
 // endpoint cannot disagree. The page publishes its own trace through that
 // door — `/viz` and `/publish` upgrades are carried to the endpoint — which is
@@ -130,7 +130,7 @@ const VIZ_PORT = (() => {
 // OCapN peer holding a key (`relayAllowed`). A member reachable only over
 // cleartext TCP — a Goblins vat on a TCP netlayer — belongs here; one on iroh
 // needs no entry.
-const RELAY_TCP_PEERS = parseTcpPeers(optionalEnv("PANCAKE_RELAY_TCP_PEERS"));
+const RELAY_TCP_PEERS = parseTcpPeers(optionalEnv("GLOWCAP_RELAY_TCP_PEERS"));
 // A browser served on the announce host dials the room as `<host>:<port>`, so
 // that pair joins the allow-list beside the operator-named peers: it is still
 // only the room server, under the name this deployment tells browsers to use.
@@ -141,10 +141,10 @@ const ROOT = new URL(".", import.meta.url).pathname;
 // A supervised child is another process incarnation of the same room server,
 // not a new authority. Keep its Host identity and durable room publications in
 // one state directory for the supervisor's whole lifetime. An operator-supplied
-// PANCAKE_ROOMS_STATE survives the supervisor too; the temporary default is
+// GLOWCAP_ROOMS_STATE survives the supervisor too; the temporary default is
 // removed when this development process stops.
-const configuredRoomState = optionalEnv("PANCAKE_ROOMS_STATE");
-const temporaryRoomState = configuredRoomState ? null : await Deno.makeTempDir({ prefix: "pancake-rooms-" });
+const configuredRoomState = optionalEnv("GLOWCAP_ROOMS_STATE");
+const temporaryRoomState = configuredRoomState ? null : await Deno.makeTempDir({ prefix: "glowcap-rooms-" });
 const ROOM_STATE = configuredRoomState || temporaryRoomState!;
 // `--no-lock` on both arms, because this process spawns the room server as a
 // child and the child needs the same posture the parent was given. The deploy
@@ -189,7 +189,7 @@ let roomLocator = "";
 let child: Deno.ChildProcess | null = null;
 // The Tor whose endpoints the onion room server receives. Owned here rather
 // than by the child, so a respawned child keeps the same daemon and, with the
-// service key the server stores under PANCAKE_ROOMS_STATE, the same onion address.
+// service key the server stores under GLOWCAP_ROOMS_STATE, the same onion address.
 let tor: TorEndpoints | null = null;
 // Tor's control round-trip can sit behind a still-bootstrapping daemon, so the
 // onion announce gets a longer leash than a local bind.
@@ -279,21 +279,21 @@ function spawnRoomServer(): Deno.ChildProcess {
 	return new Deno.Command("deno", {
 		args: [...DENO_FLAGS, ...serverArgs],
 		env: {
-			PANCAKE_ROOMS_STATE: ROOM_STATE,
+			GLOWCAP_ROOMS_STATE: ROOM_STATE,
 			// This supervisor owns the operator-facing boot block, so the child
 			// keeps its stderr to the greppable `ROOMS-*` token lines.
-			PANCAKE_ROOMS_SUPERVISED: "1",
-			...(DIAGNOSTICS ? { PANCAKE_ROOMS_DIAGNOSTICS: "1" } : {}),
-			...(ADMIN_LISTENERS ? { PANCAKE_ROOMS_ADMIN_LISTENERS: "1" } : {}),
-			...(OPERATOR ? { PANCAKE_ROOMS_OPERATOR: "1" } : {}),
-			...(PEERING ? { PANCAKE_ROOMS_PEERING: "1" } : {}),
-			...(VIZ ? { PANCAKE_ROOMS_VIZ: "1" } : {}),
+			GLOWCAP_ROOMS_SUPERVISED: "1",
+			...(DIAGNOSTICS ? { GLOWCAP_ROOMS_DIAGNOSTICS: "1" } : {}),
+			...(ADMIN_LISTENERS ? { GLOWCAP_ROOMS_ADMIN_LISTENERS: "1" } : {}),
+			...(OPERATOR ? { GLOWCAP_ROOMS_OPERATOR: "1" } : {}),
+			...(PEERING ? { GLOWCAP_ROOMS_PEERING: "1" } : {}),
+			...(VIZ ? { GLOWCAP_ROOMS_VIZ: "1" } : {}),
 			// The LAN flags ride to the server as the env vars it honors; env
 			// vars an operator set directly are inherited untouched.
-			...(flagStorage !== undefined ? { PANCAKE_ROOMS_STORAGE: flagStorage } : {}),
-			...(flagBind !== undefined ? { PANCAKE_ROOMS_BIND: flagBind } : {}),
-			...(flagAnnounceHost !== undefined ? { PANCAKE_ROOMS_ANNOUNCE_HOST: flagAnnounceHost } : {}),
-			...(tor !== null ? { PANCAKE_ONION_SOCKS: tor.socks, PANCAKE_ONION_CONTROL: tor.control } : {}),
+			...(flagStorage !== undefined ? { GLOWCAP_ROOMS_STORAGE: flagStorage } : {}),
+			...(flagBind !== undefined ? { GLOWCAP_ROOMS_BIND: flagBind } : {}),
+			...(flagAnnounceHost !== undefined ? { GLOWCAP_ROOMS_ANNOUNCE_HOST: flagAnnounceHost } : {}),
+			...(tor !== null ? { GLOWCAP_ONION_SOCKS: tor.socks, GLOWCAP_ONION_CONTROL: tor.control } : {}),
 		},
 		stdout: "piped",
 		stderr: "inherit",

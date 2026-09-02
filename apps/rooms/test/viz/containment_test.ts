@@ -1,4 +1,4 @@
-import type { Ref } from "@pancake/runtime";
+import type { Ref } from "@glowcap/runtime";
 import { observeCloseFailure, observeSettledFailures, releaseRefusedCapability } from "../../server/viz/lifecycle.ts";
 import { MAX_REMOTE_PRODUCERS, MAX_REPLAY_ROWS, ProducerBudget } from "../../server/viz/policy.ts";
 

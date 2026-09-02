@@ -1,6 +1,6 @@
 // CapTP command admission for runtime-only archive shares.
 
-import { type Argument, type Behavior } from "@pancake/runtime";
+import { type Argument, type Behavior } from "@glowcap/runtime";
 import { mayInteract, type RoomsSessionAccess } from "../lib/session/client.ts";
 import type { DurableRoomsRuntime } from "./runtime.ts";
 import { archiveRecordRow } from "../lib/archive/protocol.ts";

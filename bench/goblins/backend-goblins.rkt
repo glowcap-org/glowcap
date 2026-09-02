@@ -16,7 +16,7 @@
 ;; A fixed swiss-num the bench server registers its root under. The client knows
 ;; it (the bench always publishes one root named "root"), so nothing has to travel
 ;; through the readiness line except the listen address.
-(define BENCH-SWISS (string->bytes/latin-1 "pancakeBenchRootSwissnum00000001"))
+(define BENCH-SWISS (string->bytes/latin-1 "glowcapBenchRootSwissnum00000001"))
 
 ;; build-root : mint-cap -> root-ctor. On Goblins a returned actor reference
 ;; auto-marshals, so mint-cap is just `spawn`.
@@ -38,11 +38,11 @@
   (sync (make-semaphore)))
 
 ;; A client owns its own vat + netlayer (ephemeral listen port) + mycapn, so each
-;; client-connect is a distinct CapTP session — the same shape as one pancake
+;; client-connect is a distinct CapTP session — the same shape as one glowcap
 ;; connection. The server's host/port are kept to rebuild the sturdyref. One
 ;; settle channel is reused across all (sequential) calls so the driver adds no
 ;; per-call allocation overhead beyond what entering the vat requires — the
-;; pancake side's `session-send` likewise reuses a single result cell per call.
+;; glowcap side's `session-send` likewise reuses a single result cell per call.
 (struct gclient (run mycapn host port ch))
 
 (define (client-connect host port)

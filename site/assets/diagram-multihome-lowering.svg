@@ -4,7 +4,7 @@
   width="760"
   height="430"
   role="img"
-  aria-label="Three partners, three outcomes. A partner that negotiated the pancake-next multi_location feature receives the id bundle intact. A baseline partner such as Goblins receives one concrete route it can dial, with the private vocabulary stripped. A baseline partner with no route it could dial gets nothing: the give is refused before send."
+  aria-label="Three partners, three outcomes. A partner that negotiated the glowcap-next multi_location feature receives the id bundle intact. A baseline partner such as Goblins receives one concrete route it can dial, with the private vocabulary stripped. A baseline partner with no route it could dial gets nothing: the give is refused before send."
 >
   <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); paint-order: stroke; stroke: var(--paper, #fff3df); stroke-width: 3.5px; stroke-linejoin: round; }
     .title { font-size: 14px; font-weight: 700; fill: var(--ink, #3a3027); }
@@ -16,7 +16,7 @@
     .dead { font-size: 12px; font-weight: 600; fill: var(--dia-muted, #8a7862); }</style>
 
   <!-- Row 1: both sessions negotiated the route vocabulary -->
-  <text x="24" y="34" class="title">negotiated pancake-next</text>
+  <text x="24" y="34" class="title">negotiated glowcap-next</text>
   <text x="212" y="34" class="ok">multi_location on both sessions</text>
   <rect x="24" y="52" width="110" height="52" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
   <text x="79" y="82" text-anchor="middle" class="chip">you</text>

@@ -17,7 +17,7 @@ const messageDoc = (openT: number) =>
 				t: 0,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "j2",
@@ -122,7 +122,7 @@ engineTest(
 					t: 0,
 					kind: "peer-joined",
 					peerId: "p",
-					profile: "pancake",
+					profile: "glowcap",
 				},
 				{ id: "l1", t: 1_000, kind: "peer-left", peerId: "p" },
 			],
@@ -143,7 +143,7 @@ engineTest("undo restores a duration the edit extended", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const peerId = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	e.dispatch({ kind: "set-peer-end", peerId, t: 90_000 });
@@ -170,7 +170,7 @@ engineTest(
 			duration: 1_000,
 			entities: {
 				peers: {
-					alice: { profile: "pancake", position: { x: 500, y: 500 } },
+					alice: { profile: "glowcap", position: { x: 500, y: 500 } },
 				},
 			},
 			events: [
@@ -179,7 +179,7 @@ engineTest(
 					t: 0,
 					kind: "peer-joined",
 					peerId: "alice",
-					profile: "pancake",
+					profile: "glowcap",
 				},
 			],
 		}));
@@ -243,7 +243,7 @@ engineTest(
 			recording: {
 				sources: [{
 					id: "live",
-					meta: { kind: "pancake-host" },
+					meta: { kind: "glowcap-host" },
 					observations: [],
 				}],
 			},
@@ -257,14 +257,14 @@ engineTest(
 				t: e.clock.t + 1,
 				kind: "peer-joined",
 				peerId: "rooms",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "l2",
 				t: e.clock.t + 1,
 				kind: "peer-joined",
 				peerId: "bob",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "l3",
@@ -314,7 +314,7 @@ engineTest(
 			recording: {
 				sources: [{
 					id: "live",
-					meta: { kind: "pancake-host" },
+					meta: { kind: "glowcap-host" },
 					observations: [],
 				}],
 			},
@@ -392,21 +392,21 @@ engineTest(
 			recording: {
 				sources: [{
 					id: "live",
-					meta: { kind: "pancake-host" },
+					meta: { kind: "glowcap-host" },
 					observations: [
 						{
 							id: "o1",
 							t: 0,
 							kind: "peer-joined",
 							peerId: "rooms",
-							profile: "pancake",
+							profile: "glowcap",
 						},
 						{
 							id: "o2",
 							t: 0,
 							kind: "peer-joined",
 							peerId: "rogue",
-							profile: "pancake",
+							profile: "glowcap",
 						},
 						{
 							id: "o3",
@@ -477,14 +477,14 @@ engineTest(
 			recording: {
 				sources: [{
 					id: "live",
-					meta: { kind: "pancake-host" },
+					meta: { kind: "glowcap-host" },
 					observations: [
 						{
 							id: "o1",
 							t: 100,
 							kind: "peer-joined",
 							peerId: "127.0.0.1:0",
-							profile: "pancake",
+							profile: "glowcap",
 						},
 						{
 							id: "o2",

@@ -10,12 +10,12 @@ impl Session {
 		self.shared.guard_open()?;
 		let mut ptr = core::ptr::null();
 		let mut len = 0;
-		check_host(unsafe { ffi::pancake_host_session_transport_name(self.shared.ptr.get(), &mut ptr, &mut len) })?;
+		check_host(unsafe { ffi::glowcap_host_session_transport_name(self.shared.ptr.get(), &mut ptr, &mut len) })?;
 		let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
 		let text = core::str::from_utf8(bytes).map_err(|error| {
 			Error::with_detail(
 				sys::ERR_INTERNAL,
-				format!("pancake ABI returned non-UTF-8 session transport name: {error}"),
+				format!("glowcap ABI returned non-UTF-8 session transport name: {error}"),
 			)
 		})?;
 		Ok(text.to_owned())
@@ -29,7 +29,7 @@ impl Session {
 		let mut codec = 0;
 		let mut features = 0;
 		check_host(unsafe {
-			ffi::pancake_host_session_profile(self.shared.ptr.get(), &mut captp_version, &mut codec, &mut features)
+			ffi::glowcap_host_session_profile(self.shared.ptr.get(), &mut captp_version, &mut codec, &mut features)
 		})?;
 		Ok(SessionProfile {
 			captp_version: CaptpVersion::from_c(captp_version)?,
@@ -37,7 +37,7 @@ impl Session {
 			features: FeatureSet::from_bits(features).ok_or_else(|| {
 				Error::with_detail(
 					sys::ERR_INTERNAL,
-					format!("pancake ABI returned unknown session feature mask {features}"),
+					format!("glowcap ABI returned unknown session feature mask {features}"),
 				)
 			})?,
 		})

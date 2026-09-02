@@ -43,12 +43,12 @@ ADR-0079 had selected `DialResolver`.
   further protocol verbs; transport failures retain connection terminology.
 - `MultiplexedResident` is the Zig runtime contract for one readiness
   descriptor and stable connection ids. Its C projection is
-  `PancakeMultiplexedTransport`; provider entries select STREAM or MULTIPLEXED
+  `GlowcapMultiplexedTransport`; provider entries select STREAM or MULTIPLEXED
   execution. `endpoint` remains available for an iroh identity, a bound
   address, or another actual transport endpoint.
 - The relay archive's provider-only owner is `RelayRuntime` /
-  `PancakeRelayRuntime`, with `pancake_relay_runtime_new` and
-  `pancake_relay_runtime_release` lifecycle verbs. It is not itself one
+  `GlowcapRelayRuntime`, with `glowcap_relay_runtime_new` and
+  `glowcap_relay_runtime_release` lifecycle verbs. It is not itself one
   netlayer.
 - Bindings with named result types return
   `SendRedeemingResult { reply, via }` from `send_redeeming`; Racket returns
@@ -64,7 +64,7 @@ separate facts: the locator-selected transport symbol, the netlayer semantics,
 and the live execution state. `Provider` remains the artifact/package boundary
 that composes profiles and leases that state.
 
-Because pancake is prerelease, the old names are removed rather than retained
+Because glowcap is prerelease, the old names are removed rather than retained
 as aliases. Generated headers and binding mirrors move in the same change.
 
 ## Consequences

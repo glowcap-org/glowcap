@@ -23,7 +23,7 @@ impl FailureLayer {
 			abi_constants_gen::FAILURE_LAYER_APPLICATION_OBSERVER => Ok(Self::ApplicationObserver),
 			other => Err(Error::with_detail(
 				sys::ERR_INTERNAL,
-				format!("pancake ABI returned unknown failure layer {other}"),
+				format!("glowcap ABI returned unknown failure layer {other}"),
 			)),
 		}
 	}
@@ -54,7 +54,7 @@ impl FailureScope {
 			abi_constants_gen::FAILURE_SCOPE_OPERATION => Ok(Self::Operation),
 			other => Err(Error::with_detail(
 				sys::ERR_INTERNAL,
-				format!("pancake ABI returned unknown failure scope {other}"),
+				format!("glowcap ABI returned unknown failure scope {other}"),
 			)),
 		}
 	}

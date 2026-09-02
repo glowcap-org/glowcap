@@ -9,7 +9,7 @@
 // it and a client is trusted by nobody, and both are peers: what arrives is
 // bounded and parsed before anything is built from it.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { ask } from "../ask.ts";
 import { type BridgeAnswers, type BridgeForm, BridgeFormSchema } from "./form.ts";

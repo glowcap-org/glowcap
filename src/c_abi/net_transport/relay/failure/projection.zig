@@ -5,12 +5,12 @@ const net = @import("net");
 const abi = c.transport_provider;
 
 pub fn carrierPhase(phase: ?net.carrier_failure.Phase) u32 {
-    const value = phase orelse return abi.PANCAKE_CARRIER_PHASE_NONE;
+    const value = phase orelse return abi.GLOWCAP_CARRIER_PHASE_NONE;
     return abi.carrierPhaseCode(value);
 }
 
 pub fn failDial(
-    out: ?*c.PancakeProviderFailure,
+    out: ?*c.GlowcapProviderFailure,
     failure: net.netlayer.DialFailure,
 ) i32 {
     const code = dial(failure.classification);
@@ -19,11 +19,11 @@ pub fn failDial(
         slot.carrier_phase = carrierPhase(failure.carrier_phase);
         slot.carrier_verification_flags = failure.carrier_detail.verification_flags;
         if (failure.carrier_detail.peer_alert) |alert| {
-            slot.carrier_detail_flags |= abi.PANCAKE_CARRIER_DETAIL_PEER_ALERT;
+            slot.carrier_detail_flags |= abi.GLOWCAP_CARRIER_DETAIL_PEER_ALERT;
             slot.carrier_peer_alert = alert;
         }
         if (failure.carrier_detail.engine_code) |engine_code| {
-            slot.carrier_detail_flags |= abi.PANCAKE_CARRIER_DETAIL_ENGINE_CODE;
+            slot.carrier_detail_flags |= abi.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE;
             slot.carrier_engine_code = engine_code;
         }
     }
@@ -32,25 +32,25 @@ pub fn failDial(
 
 pub fn dial(cause: anyerror) i32 {
     return switch (cause) {
-        error.InvalidAddress => c.PANCAKE_ERR_INVALID_ARGUMENT,
-        error.TimedOut => c.PANCAKE_ERR_TIMEOUT,
-        error.OutOfMemory => c.PANCAKE_ERR_INTERNAL,
-        else => c.PANCAKE_ERR_IO,
+        error.InvalidAddress => c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        error.TimedOut => c.GLOWCAP_ERR_TIMEOUT,
+        error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
+        else => c.GLOWCAP_ERR_IO,
     };
 }
 
 pub fn listen(cause: anyerror) i32 {
     return switch (cause) {
-        error.InvalidAddress, error.InvalidOptions => c.PANCAKE_ERR_INVALID_ARGUMENT,
-        error.OutOfMemory => c.PANCAKE_ERR_INTERNAL,
-        else => c.PANCAKE_ERR_IO,
+        error.InvalidAddress, error.InvalidOptions => c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
+        else => c.GLOWCAP_ERR_IO,
     };
 }
 
 pub fn release(cause: anyerror) i32 {
     return switch (cause) {
-        error.OutOfMemory => c.PANCAKE_ERR_INTERNAL,
-        error.Closed, error.Closing => c.PANCAKE_ERR_CLOSED,
-        else => c.PANCAKE_ERR_IO,
+        error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
+        error.Closed, error.Closing => c.GLOWCAP_ERR_CLOSED,
+        else => c.GLOWCAP_ERR_IO,
     };
 }

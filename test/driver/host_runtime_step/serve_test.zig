@@ -6,11 +6,11 @@
 //! sink, and a refusing open observer settles failure cleanly.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const frame_cap = 8192;
@@ -56,7 +56,7 @@ test "native operation failures can retain archive-crossing cause names" {
     try std.testing.expectEqualStrings("TcpReadFailed", outer.secondaryName().?);
     try std.testing.expectEqual(@as(u16, 2), outer.secondary_count);
 
-    var chain = pancake.foundation.FailureChain.initNamed(error.ProviderIo, "ProviderListenerCloseFailed");
+    var chain = glowcap.foundation.FailureChain.initNamed(error.ProviderIo, "ProviderListenerCloseFailed");
     chain.noteNamed(error.ProviderInternal, "ProviderLeaseReleaseFailed");
     const projected = driver.OperationFailure.fromChain(chain);
     try std.testing.expectEqualStrings("ProviderListenerCloseFailed", projected.primaryName());

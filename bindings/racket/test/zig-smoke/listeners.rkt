@@ -5,11 +5,11 @@
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -246,11 +246,11 @@
 ;; explicit advertised host is supplied, a silent first peer consumes one
 ;; bounded handshake lane and a real peer must still be admitted promptly.
 (define wildcard-error
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (listen "0.0.0.0" 0)
     #f))
 (expect (and wildcard-error
-             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code wildcard-error)))
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code wildcard-error)))
         "native listener admission: a wildcard bind requires an advertised host")
 (define ca-server
   (listen "0.0.0.0" 0

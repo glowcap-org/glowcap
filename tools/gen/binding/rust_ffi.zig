@@ -39,7 +39,7 @@ pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/relay_fns_gen.rs", .generate = generateRelay },
 };
 
-/// `module.PancakeIrohNetlayer` → `PancakeIrohNetlayer`.
+/// `module.GlowcapIrohNetlayer` → `GlowcapIrohNetlayer`.
 const baseName = @import("reflect").baseName;
 
 /// A named function-pointer alias the base spelling has no case for: the Zig
@@ -224,10 +224,10 @@ fn renderArchive(
 }
 
 fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, cdr, "include/pancake_driver.h",
-        \\// The raw extern block of the `pancake_driver_*` loop family (ADR-0112),
-        \\// exported only by `libpancake_driver`. The loop adopts a Host created
-        \\// through the separate `libpancake_host` archive. The hand-written
+    return renderArchive(gpa, cdr, "include/glowcap_driver.h",
+        \\// The raw extern block of the `glowcap_driver_*` loop family (ADR-0112),
+        \\// exported only by `libglowcap_driver`. The loop adopts a Host created
+        \\// through the separate `libglowcap_host` archive. The hand-written
         \\// sibling (`driver.rs`) owns the `#[repr(C)]` mirrors and their layout
         \\// pins, and re-exports this block.
         \\
@@ -236,135 +236,135 @@ fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
         \\use core::ffi::{c_int, c_uchar, c_uint};
         \\
     ++ "\nuse super::driver::{\n" ++
-        "\tPancakeDriverEvent, PancakeDriverFailure, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportOperationOptions,\n" ++
+        "\tGlowcapDriverEvent, GlowcapDriverFailure, GlowcapDriverLoop, GlowcapDriverOptions, GlowcapTransportOperationOptions,\n" ++
         "};\n" ++
-        \\use super::host::{PancakeCloseOptions, PancakeHost, PancakeHostSession};
-        \\use super::ocapn::PancakeLocatorView;
-        \\use crate::sys::{PancakeReference, PancakeTransportProvider};
+        \\use super::host::{GlowcapCloseOptions, GlowcapHost, GlowcapHostSession};
+        \\use super::ocapn::GlowcapLocatorView;
+        \\use crate::sys::{GlowcapReference, GlowcapTransportProvider};
         \\
     , &.{});
 }
 
 fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, c, "include/pancake_ocapn.h",
-        \\// The raw extern block of `libpancake_ocapn`. The hand-written sibling
+    return renderArchive(gpa, c, "include/glowcap_ocapn.h",
+        \\// The raw extern block of `libglowcap_ocapn`. The hand-written sibling
         \\// (`ocapn.rs`) owns the shared `#[repr(C)]` mirrors and their layout pins,
-        \\// and re-exports this block, so consumers keep their `sys::pancake_*` paths.
+        \\// and re-exports this block, so consumers keep their `sys::glowcap_*` paths.
         \\
         \\
     , "use core::ffi::{c_int, c_uchar, c_uint};\n\n" ++
         "use super::ocapn::{\n" ++
-        "\tPancakeAllocator, PancakeContext, PancakeFailureEvent, PancakeFailureReport, PancakeLocator,\n" ++
-        "\tPancakeLocatorHintView, PancakeLocatorView, PancakeManagedFrame, PancakeSturdyRef,\n" ++
+        "\tGlowcapAllocator, GlowcapContext, GlowcapFailureEvent, GlowcapFailureReport, GlowcapLocator,\n" ++
+        "\tGlowcapLocatorHintView, GlowcapLocatorView, GlowcapManagedFrame, GlowcapSturdyRef,\n" ++
         "};\n", &.{});
 }
 
 fn generateHost(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, cd, "include/pancake_host.h",
-        \\// The raw extern block of the `pancake_host_*` family, exported by the
-        \\// `libpancake_host` archive. The hand-written sibling
+    return renderArchive(gpa, cd, "include/glowcap_host.h",
+        \\// The raw extern block of the `glowcap_host_*` family, exported by the
+        \\// `libglowcap_host` archive. The hand-written sibling
         \\// (`host.rs`) owns the `#[repr(C)]` mirrors, the callback `pub type`
         \\// aliases, and their layout pins, and re-exports this block, so consumers
-        \\// keep their `sys::host::pancake_host_*` paths.
+        \\// keep their `sys::host::glowcap_host_*` paths.
         \\
         \\
     , "use core::ffi::{c_int, c_uchar, c_uint, c_void};\n\n" ++
         "use super::host::{\n" ++
-        "\tPancakeCloseOptions, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree, PancakeHostPumpHooks,\n" ++
-        "\tPancakeHostSession, PancakeHostTurn, PancakePartnerIdentity, PancakeSessionLimitOptions, PancakeTraceCallback,\n" ++
+        "\tGlowcapCloseOptions, GlowcapHost, GlowcapHostBehavior, GlowcapHostCtxFree, GlowcapHostPumpHooks,\n" ++
+        "\tGlowcapHostSession, GlowcapHostTurn, GlowcapPartnerIdentity, GlowcapSessionLimitOptions, GlowcapTraceCallback,\n" ++
         "};\n" ++
-        "use super::ocapn::{PancakeLocatorHintView, PancakeLocatorView};\n" ++
-        "use crate::sys::{PancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference};\n", &.{
-        .{ .T = cd.PancakeHostBehavior, .spelling = "PancakeHostBehavior" },
-        .{ .T = cd.PancakeTraceCallback, .spelling = "PancakeTraceCallback" },
-        .{ .T = cd.PancakeHostCtxFree, .spelling = "PancakeHostCtxFree" },
+        "use super::ocapn::{GlowcapLocatorHintView, GlowcapLocatorView};\n" ++
+        "use crate::sys::{GlowcapArgument, GlowcapContext, GlowcapLastAbort, GlowcapManagedFrame, GlowcapReference};\n", &.{
+        .{ .T = cd.GlowcapHostBehavior, .spelling = "GlowcapHostBehavior" },
+        .{ .T = cd.GlowcapTraceCallback, .spelling = "GlowcapTraceCallback" },
+        .{ .T = cd.GlowcapHostCtxFree, .spelling = "GlowcapHostCtxFree" },
     });
 }
 
 fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, ct, "include/pancake_net_transport_tcp.h",
-        \\// The raw extern block of `libpancake_net_transport_tcp`. The hand-written
+    return renderArchive(gpa, ct, "include/glowcap_net_transport_tcp.h",
+        \\// The raw extern block of `libglowcap_net_transport_tcp`. The hand-written
         \\// sibling (`tcp.rs`) owns the opaque types and re-exports this block, so
-        \\// consumers keep their `sys::tcp::pancake_tcp_*` paths.
+        \\// consumers keep their `sys::tcp::glowcap_tcp_*` paths.
         \\
         \\
     , "use core::ffi::{c_int, c_uchar, c_uint};\n\n" ++
-        "use super::tcp::{PancakeTcpConfig, PancakeTcpConn, PancakeTcpListener, PancakeTcpNetlayer, PancakeTcpStreamOptions};\n" ++
-        "use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame, PancakeTransportProvider};\n", &.{});
+        "use super::tcp::{GlowcapTcpConfig, GlowcapTcpConn, GlowcapTcpListener, GlowcapTcpNetlayer, GlowcapTcpStreamOptions};\n" ++
+        "use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};\n", &.{});
 }
 
 fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, cin, "include/pancake_net_transport_inproc.h",
-        \\// The raw extern block of `libpancake_net_transport_inproc`. The
+    return renderArchive(gpa, cin, "include/glowcap_net_transport_inproc.h",
+        \\// The raw extern block of `libglowcap_net_transport_inproc`. The
         \\// hand-written sibling (`inproc.rs`) owns the opaque types and re-exports
-        \\// this block, so consumers keep their `sys::inproc::pancake_inproc_*` paths.
+        \\// this block, so consumers keep their `sys::inproc::glowcap_inproc_*` paths.
         \\
         \\
     ,
         \\use core::ffi::{c_int, c_uchar, c_uint};
         \\
-        \\use super::inproc::{PancakeInprocConn, PancakeInprocListener, PancakeInprocNetlayer};
-        \\use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
+        \\use super::inproc::{GlowcapInprocConn, GlowcapInprocListener, GlowcapInprocNetlayer};
+        \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame};
         \\
     , &.{});
 }
 
 fn generateOnion(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, con, "include/pancake_net_transport_onion.h",
-        \\// The raw extern block of `libpancake_net_transport_onion`. The
+    return renderArchive(gpa, con, "include/glowcap_net_transport_onion.h",
+        \\// The raw extern block of `libglowcap_net_transport_onion`. The
         \\// hand-written sibling (`onion.rs`) owns the opaque types and re-exports
-        \\// this block, so consumers keep their `sys::onion::pancake_onion_*` paths.
+        \\// this block, so consumers keep their `sys::onion::glowcap_onion_*` paths.
         \\
         \\
     ,
         \\use core::ffi::{c_int, c_uchar, c_uint};
         \\
-        \\use super::onion::{PancakeOnionConfig, PancakeOnionConn};
-        \\use super::onion::{PancakeOnionListener, PancakeOnionNetlayer};
-        \\use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame, PancakeTransportProvider};
+        \\use super::onion::{GlowcapOnionConfig, GlowcapOnionConn};
+        \\use super::onion::{GlowcapOnionListener, GlowcapOnionNetlayer};
+        \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
         \\
     , &.{});
 }
 
 fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, ci, "include/pancake_net_transport_iroh.h",
-        \\// The raw extern block of `libpancake_net_transport_iroh`. The hand-written
+    return renderArchive(gpa, ci, "include/glowcap_net_transport_iroh.h",
+        \\// The raw extern block of `libglowcap_net_transport_iroh`. The hand-written
         \\// sibling (`iroh.rs`) owns the opaque types, the `#[repr(C)]` mirrors and
         \\// their layout pins, and re-exports this block, so consumers keep their
-        \\// `sys::iroh::pancake_iroh_*` paths.
+        \\// `sys::iroh::glowcap_iroh_*` paths.
         \\
         \\
     ,
         \\use core::ffi::{c_int, c_uchar};
         \\
-        \\use super::iroh::{PancakeIrohConfig, PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent};
-        \\use super::PancakeTransportProvider;
+        \\use super::iroh::{GlowcapIrohConfig, GlowcapIrohConn, GlowcapIrohNetlayer, GlowcapIrohReadyEvent};
+        \\use super::GlowcapTransportProvider;
         \\
     , &.{});
 }
 
 fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, cw, "include/pancake_net_transport_webrtc.h",
-        \\// The raw extern block of `libpancake_net_transport_webrtc`. The
+    return renderArchive(gpa, cw, "include/glowcap_net_transport_webrtc.h",
+        \\// The raw extern block of `libglowcap_net_transport_webrtc`. The
         \\// hand-written sibling (`webrtc.rs`) owns the opaque handles and readiness
         \\// record and re-exports this block, so consumers keep their
-        \\// `sys::webrtc::pancake_webrtc_*` paths.
+        \\// `sys::webrtc::glowcap_webrtc_*` paths.
         \\
         \\
     , "use core::ffi::{c_int, c_uchar};\n\n" ++
-        "use super::webrtc::{PancakeWebrtcConfig, PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};\n" ++
-        "use super::PancakeTransportProvider;\n", &.{});
+        "use super::webrtc::{GlowcapWebrtcConfig, GlowcapWebrtcNetlayer, GlowcapWebrtcPeer, GlowcapWebrtcReadyEvent};\n" ++
+        "use super::GlowcapTransportProvider;\n", &.{});
 }
 
 fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, cr, "include/pancake_net_transport_relay.h",
-        \\// The raw extern block of `libpancake_net_transport_relay`. The hand-written
+    return renderArchive(gpa, cr, "include/glowcap_net_transport_relay.h",
+        \\// The raw extern block of `libglowcap_net_transport_relay`. The hand-written
         \\// sibling (`relay.rs`) owns the config and opaque handle mirrors and
         \\// re-exports this block, so consumers keep their `sys::relay::*` paths.
         \\
         \\
     , "use core::ffi::{c_int, c_uchar};\n\n" ++
-        "use super::ocapn::PancakeContext;\n" ++
-        "use super::relay::{PancakeRelayConfig, PancakeRelayRuntime, PancakeRelayTrustSummary};\n" ++
-        "use super::PancakeTransportProvider;\n", &.{});
+        "use super::ocapn::GlowcapContext;\n" ++
+        "use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime, GlowcapRelayTrustSummary};\n" ++
+        "use super::GlowcapTransportProvider;\n", &.{});
 }

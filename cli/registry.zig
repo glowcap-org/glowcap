@@ -27,9 +27,9 @@ pub const Command = struct {
     argv_only: bool = false,
     /// Omitted from every MCP catalog (accept loops starve stdio).
     mcp_never: bool = false,
-    /// Included in `pancake mcp --tools default`.
+    /// Included in `glowcap mcp --tools default`.
     mcp_default: bool = false,
-    /// Included in `pancake mcp --tools readonly`.
+    /// Included in `glowcap mcp --tools readonly`.
     mcp_readonly: bool = false,
     /// Non-null routes the command through the REPL's cooperative CapTP queue.
     session_verb: ?SessionVerb = null,
@@ -43,7 +43,7 @@ const listen_flags = [_]Flag{
     .{ .long = "publish", .help = "Publish built-in NAME on first accept then exit (greeter|echo; implies --once)", .kind = .string_flag },
     .{ .long = "once", .help = "Accept one partner then exit" },
     .{ .long = "rendezvous", .help = "Register at this relay (ws:// or wss://) instead of binding a socket", .kind = .string_flag },
-    .{ .long = "rendezvous-relay", .help = "Advertise the ws:// or wss:// dial route for --rendezvous (defaults to PANCAKE_RENDEZVOUS)", .kind = .string_flag },
+    .{ .long = "rendezvous-relay", .help = "Advertise the ws:// or wss:// dial route for --rendezvous (defaults to GLOWCAP_RENDEZVOUS)", .kind = .string_flag },
 };
 
 const dial_flags = [_]Flag{
@@ -192,5 +192,5 @@ pub fn helpEveryday(writer: anytype, front: Front) !void {
         if (!leafVisible(&cmd, front)) continue;
         try writer.print("  {s:<10}  {s}\n", .{ cmd.name, cmd.help });
     }
-    try writer.writeAll("\nFull verb list: `pancake help ocapn`.\n");
+    try writer.writeAll("\nFull verb list: `glowcap help ocapn`.\n");
 }

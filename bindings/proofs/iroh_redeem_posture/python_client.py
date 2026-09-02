@@ -41,8 +41,8 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Locator, Ref, Runtime  # noqa: E402
-from pancake.iroh import (  # noqa: E402
+from glowcap import Locator, Ref, Runtime  # noqa: E402
+from glowcap.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
     listen,

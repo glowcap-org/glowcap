@@ -5,11 +5,11 @@
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -53,7 +53,7 @@
 ;; this same session spawned resolves in process (the server hosts no such
 ;; export, so a wire route would never reply, mirroring Rust's
 ;; send_to_a_self_spawned_actor_resolves_in_process); a partner break raises a
-;; typed exn:fail:pancake carrying PANCAKE_ERR_BROKEN; and a failed fetch
+;; typed exn:fail:glowcap carrying GLOWCAP_ERR_BROKEN; and a failed fetch
 ;; re-raises that typed failure untouched.
 (define cp-server (listen "127.0.0.1" 0))
 (define cp-ready (make-semaphore 0))
@@ -98,25 +98,25 @@
                             (failure-event-primary-message (car cp-tell-failures))))
         "self-spawn: local tell failure enters the Host diagnostic seam")
 
-;; A partner break is a typed pancake failure carrying PANCAKE_ERR_BROKEN.
+;; A partner break is a typed glowcap failure carrying GLOWCAP_ERR_BROKEN.
 (define cp-svc (session-fetch cp-session "svc"))
 (define cp-broken
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-send cp-session cp-svc 'boom)
     'no-error))
-(expect (exn:fail:pancake? cp-broken) "break: session-send raised exn:fail:pancake")
-(expect (equal? ERR-BROKEN (exn:fail:pancake-code cp-broken)) "break: code is PANCAKE_ERR_BROKEN")
+(expect (exn:fail:glowcap? cp-broken) "break: session-send raised exn:fail:glowcap")
+(expect (equal? ERR-BROKEN (exn:fail:glowcap-code cp-broken)) "break: code is GLOWCAP_ERR_BROKEN")
 (expect (regexp-match? #rx"deliberate failure" (exn-message cp-broken))
         "break: the partner's own diagnostic crossed the wire")
 
 ;; A fetch of an unpublished name breaks too, and session-fetch re-raises the typed
 ;; failure untouched instead of flattening it to a generic exn:fail.
 (define cp-missing
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-fetch cp-session "no-such-name")
     'no-error))
-(expect (exn:fail:pancake? cp-missing) "fetch: an unknown name raised exn:fail:pancake")
-(expect (equal? ERR-BROKEN (exn:fail:pancake-code cp-missing)) "fetch: code is PANCAKE_ERR_BROKEN")
+(expect (exn:fail:glowcap? cp-missing) "fetch: an unknown name raised exn:fail:glowcap")
+(expect (equal? ERR-BROKEN (exn:fail:glowcap-code cp-missing)) "fetch: code is GLOWCAP_ERR_BROKEN")
 
 (session-close! cp-session)
 (define cp-host-result (channel-get cp-ch))
@@ -241,19 +241,19 @@
 (expect (= (session-vow-id pl-task) (session-vow-id pl2-task))
         "host-scope: the scenario exercises colliding vow ids")
 (define foreign-vow-error
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-send-promise pl2-session pl-task 'status)
     'no-error))
-(expect (and (exn:fail:pancake? foreign-vow-error)
-             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code foreign-vow-error)))
+(expect (and (exn:fail:glowcap? foreign-vow-error)
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code foreign-vow-error)))
         "host-scope: a foreign vow is refused before FFI")
 (define foreign-projection-error
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-index pl2-session pl-task 0)
     'no-error))
-(expect (and (exn:fail:pancake? foreign-projection-error)
+(expect (and (exn:fail:glowcap? foreign-projection-error)
              (= ERR-INVALID-ARGUMENT
-                (exn:fail:pancake-code foreign-projection-error)))
+                (exn:fail:glowcap-code foreign-projection-error)))
         "host-scope: a foreign projection is refused before FFI")
 (expect (equal? "open" (session-send pl2-session pl2-task 'status))
         "host-scope: the destination vow remains exact")
@@ -297,15 +297,15 @@
         (void)))
      (semaphore-post qs-ready)
      (define serve-failure
-       (with-handlers ([exn:fail:pancake? values])
+       (with-handlers ([exn:fail:glowcap? values])
          (session-serve hsession)
          'served))
      (define close-failure
-       (with-handlers ([exn:fail:pancake? values])
+       (with-handlers ([exn:fail:glowcap? values])
          (session-close! hsession)
          'closed))
      (define repeated-close-failure
-       (with-handlers ([exn:fail:pancake? values])
+       (with-handlers ([exn:fail:glowcap? values])
          (session-close! hsession)
          'closed))
      (channel-put qs-result
@@ -322,7 +322,7 @@
 (define qs-saturated
   (session-send-promise qs-session qs-task 'assign "saturated"))
 (define qs-client-failure
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-await qs-session qs-saturated)
     'settled))
 (define qs-observed (sync/timeout 10 qs-result))
@@ -331,12 +331,12 @@
 (define qs-close-failure (list-ref qs-observed 1))
 (define qs-repeated-close-failure (list-ref qs-observed 2))
 (define qs-abort
-  (and (exn:fail:pancake? qs-serve-failure)
-       (exn:fail:pancake-abort qs-serve-failure)))
-(expect (and (exn:fail:pancake? qs-client-failure)
-             (= ERR-CLOSED (exn:fail:pancake-code qs-client-failure))
-             (exn:fail:pancake? qs-serve-failure)
-             (= ERR-SESSION (exn:fail:pancake-code qs-serve-failure))
+  (and (exn:fail:glowcap? qs-serve-failure)
+       (exn:fail:glowcap-abort qs-serve-failure)))
+(expect (and (exn:fail:glowcap? qs-client-failure)
+             (= ERR-CLOSED (exn:fail:glowcap-code qs-client-failure))
+             (exn:fail:glowcap? qs-serve-failure)
+             (= ERR-SESSION (exn:fail:glowcap-code qs-serve-failure))
              (abort-info? qs-abort)
              (equal? "QueueCapExceeded" (abort-info-kind qs-abort)))
         (format "queue saturation: exact terminal results missing (client ~a, server ~a, abort ~a)"
@@ -385,7 +385,7 @@
        (define hsession (accept pj-server))
        (define hprofile (session-profile hsession))
        (expect (equal? (settled-profile-captp-version hprofile) 'next)
-               "projections: accepted session reports pancake-next")
+               "projections: accepted session reports glowcap-next")
        (expect (equal? (settled-profile-codec hprofile) 'capnp)
                "projections: accepted session reports Cap'n Proto")
        (expect (= (settled-profile-features hprofile) FEATURE-FULL)
@@ -419,7 +419,7 @@
                             #:features 'full))
 (define pj-profile (session-profile pj-session))
 (expect (equal? (settled-profile-captp-version pj-profile) 'next)
-        "projections: dialed session reports pancake-next")
+        "projections: dialed session reports glowcap-next")
 (expect (equal? (settled-profile-codec pj-profile) 'capnp)
         "projections: dialed session reports Cap'n Proto")
 (expect (= (settled-profile-features pj-profile) FEATURE-FULL)
@@ -456,7 +456,7 @@
 ;; `session-send-promise` whose reply breaks stays silent — no listener means the
 ;; broken vow crashes nothing, and the connection keeps answering. Second: a
 ;; partner that hangs up mid-question settles the pending `session-send` with a
-;; typed PANCAKE_ERR_CLOSED failure instead of hanging it forever.
+;; typed GLOWCAP_ERR_CLOSED failure instead of hanging it forever.
 (define ub-server (listen "127.0.0.1" 0))
 (define ub-ready (make-semaphore 0))
 (define ub-boom-seen (make-semaphore 0))
@@ -504,10 +504,10 @@
 (semaphore-wait dcs-ready)
 (define dcs-cap (session-fetch dcs-session "svc"))
 (define dcs-err
-  (with-handlers ([exn:fail:pancake? (lambda (e) e)])
+  (with-handlers ([exn:fail:glowcap? (lambda (e) e)])
     (session-send dcs-session dcs-cap 'hang)
     #f))
-(expect (and dcs-err (= ERR-CLOSED (exn:fail:pancake-code dcs-err)))
+(expect (and dcs-err (= ERR-CLOSED (exn:fail:glowcap-code dcs-err)))
         "disconnect: the pending send failed typed ERR-CLOSED, never hung")
 (session-close! dcs-session)
 (void (sync/timeout 2 (thread-dead-evt dcs-host)))

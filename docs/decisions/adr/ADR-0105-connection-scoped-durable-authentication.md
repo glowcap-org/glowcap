@@ -25,7 +25,7 @@ key-designator route; a selected address route describes independent ingress.
 The Context through Notes below preserve the design and rollout as adopted.
 Present-tense references there to `session-key-attestation`, credentials,
 attested partner keys, or `.durable_key_attestation` are historical and do not
-describe current pancake behavior.
+describe current glowcap behavior.
 
 ## Context
 
@@ -60,7 +60,7 @@ this a class rather than a browser bug.
   `.unauthenticated` through another.
 - A binding-hosted iroh listener has an end-to-end QUIC connection and no way to
   say so. The C ABI exports no seam for a verified remote key, and
-  `pancake_iroh_netlayer_try_accept` surfaces no remote node id, so every
+  `glowcap_iroh_netlayer_try_accept` surfaces no remote node id, so every
   binding's iroh session reports a fact weaker than the one it holds.
 - A key-designator dial pins `expected_durable_key`, and the pre-open check in
   `engine.inbound` refuses a hello claiming a *different* key. A hello claiming
@@ -398,9 +398,9 @@ while the live browser relay probe, the live substituted-node negative, the
 missing per-binding provenance assertions, and the WebRTC answer leg are not.
 Required evidence items 1 through 5 above say which half of each is covered.
 
-Step 5 has landed. `pancake_iroh_conn_remote_node_id` hands a connection's
+Step 5 has landed. `glowcap_iroh_conn_remote_node_id` hands a connection's
 QUIC-verified endpoint id to whoever opened it, on an accepted connection as on
-a dialed one, and `pancake_host_session_bind_verified_channel_key` is where that
+a dialed one, and `glowcap_host_session_bind_verified_channel_key` is where that
 proof reaches a session: the C entry point for `engine.Peer.bindVerifiedChannelKey`,
 refused once the partner's handshake has been applied. The Goblins netlayer in
 `conformance/goblins-peer/racket/iroh-netlayer.rkt` weighs the id itself, and
@@ -410,12 +410,12 @@ refused once the partner's handshake has been applied. The Goblins netlayer in
 Each binding's own iroh accept and dial paths now testify without being asked,
 so an application that calls the binding's `listen`/`connect` gets the fact for
 free and never names this verb. That is what closes the gap the step was
-written for: a binding hosting its own pancake iroh listener reported only what
+written for: a binding hosting its own glowcap iroh listener reported only what
 its partner's credential proved, while a stronger fact sat one call away in the
 transport archive it had already linked.
 
-The archives stay symbol-disjoint through it. `libpancake_net_transport_iroh`
-still does not link `libpancake_host`, because the relay dials iroh as a byte
+The archives stay symbol-disjoint through it. `libglowcap_net_transport_iroh`
+still does not link `libglowcap_host`, because the relay dials iroh as a byte
 pipe with no CapTP host at all; a transport that called into the host would take
 the session pointer from the same caller that holds the connection, which is the
 composition the embedder was already doing.
@@ -454,7 +454,7 @@ Each step is green on its own gate before the next begins.
    `bindings-keyed-relay-rendezvous`, `bindings-keyed-tcp-restart`,
    `rooms-web-dm`.
 5. **The C ABI seam.** Landed as
-   `pancake_host_session_bind_verified_channel_key`, the C entry point for
+   `glowcap_host_session_bind_verified_channel_key`, the C entry point for
    `engine.Peer.bindVerifiedChannelKey`, over `Host.bindVerifiedChannelKey`. It
    is refused once the partner's handshake has been applied, so it needs no new
    per-session flag, and it takes the key as a locator writes it so the one
@@ -473,7 +473,7 @@ Each step is green on its own gate before the next begins.
    pin's own field name appears only in the file that declares it, so a direct
    write or a rival derivation is refused rather than merely discouraged. Add
    `checkHostErrorCodeMap`, so a new `HostError` member cannot reach a C
-   embedder as `PANCAKE_ERR_INTERNAL` by falling through two `else` arms. Add
+   embedder as `GLOWCAP_ERR_INTERNAL` by falling through two `else` arms. Add
    the transport-symbol row to the Names table in
    `tools/check/source_check/namespaces.zig` recording that a transport string does
    not name an authentication mechanism. Update `docs/boundaries.md`,

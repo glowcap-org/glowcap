@@ -14,10 +14,10 @@ source "${dir}/lib/playwright.sh"
 # process, and `validate_effective_env` is right to refuse a fixture whose
 # `.env` says something else — so the ambient identity is cleared here rather
 # than the guard being weakened. The list is the one the guard reads.
-while IFS= read -r pancake_compose_variable; do
-    unset "${pancake_compose_variable}"
-done < <(pancake_devcontainer_compose_variables)
-unset pancake_compose_variable
+while IFS= read -r glowcap_compose_variable; do
+    unset "${glowcap_compose_variable}"
+done < <(glowcap_devcontainer_compose_variables)
+unset glowcap_compose_variable
 
 scratch="$(mktemp -d)"
 cleanup() {
@@ -39,14 +39,14 @@ for playwright_layout in arm64 x86_64; do
     fi
     mkdir -p "${playwright_root}/${chromium_rel%/*}" "${playwright_root}/${headless_rel%/*}"
     touch "${playwright_root}/${chromium_rel}" "${playwright_root}/${headless_rel}"
-    if ! pancake_playwright_binaries "${playwright_root}"; then
+    if ! glowcap_playwright_binaries "${playwright_root}"; then
         echo "test/host-invariants: Playwright resolver missed the ${playwright_layout} browser layout" >&2
         exit 1
     fi
     [[ "${playwright_bins[0]}" == "${playwright_root}/${chromium_rel}" ]]
     [[ "${playwright_bins[1]}" == "${playwright_root}/${headless_rel}" ]]
     rm "${playwright_root}/${headless_rel}"
-    if pancake_playwright_binaries "${playwright_root}"; then
+    if glowcap_playwright_binaries "${playwright_root}"; then
         echo "test/host-invariants: Playwright resolver accepted a missing headless shell" >&2
         exit 1
     fi
@@ -61,7 +61,7 @@ mkdir -p "${playwright_root}/chromium-1111/chrome-linux" \
 touch "${playwright_root}/chromium-1111/chrome-linux/chrome" \
     "${playwright_root}/chromium-2222/chrome-linux64/chrome" \
     "${playwright_root}/chromium_headless_shell-2222/chrome-headless-shell-linux64/chrome-headless-shell"
-if pancake_playwright_binaries "${playwright_root}"; then
+if glowcap_playwright_binaries "${playwright_root}"; then
     echo "test/host-invariants: Playwright resolver accepted two full browsers" >&2
     exit 1
 fi
@@ -81,24 +81,24 @@ expect_launcher_error() {
 }
 
 mkdir "${scratch}/host"
-ln -s "${dir}/bin/enter.sh" "${scratch}/host/pancake"
-help_output="$(cd / && "${scratch}/host/pancake" --help)"
+ln -s "${dir}/bin/enter.sh" "${scratch}/host/glowcap"
+help_output="$(cd / && "${scratch}/host/glowcap" --help)"
 [[ "${help_output}" == *"bash .devcontainer/bin/enter.sh tree1"* ]]
 [[ "${help_output}" == *"--session review"* ]]
 
-[[ "$(pancake_devcontainer_tmux_session_name main)" == pancake-main ]]
-[[ "$(pancake_devcontainer_tmux_session_name main review)" == pancake-main-review ]]
-[[ "$(pancake_devcontainer_tmux_session_name tree1 investigation-2)" == pancake-tree1-investigation-2 ]]
-pancake_devcontainer_validate_session_designator review
-pancake_devcontainer_validate_session_designator investigation-2
-pancake_devcontainer_validate_session_designator abcdefghijklmnopqrstuvwx
+[[ "$(glowcap_devcontainer_tmux_session_name main)" == glowcap-main ]]
+[[ "$(glowcap_devcontainer_tmux_session_name main review)" == glowcap-main-review ]]
+[[ "$(glowcap_devcontainer_tmux_session_name tree1 investigation-2)" == glowcap-tree1-investigation-2 ]]
+glowcap_devcontainer_validate_session_designator review
+glowcap_devcontainer_validate_session_designator investigation-2
+glowcap_devcontainer_validate_session_designator abcdefghijklmnopqrstuvwx
 for invalid_session in Review review_one review:one -review review- 123review; do
-    if pancake_devcontainer_validate_session_designator "${invalid_session}" >/dev/null 2>&1; then
+    if glowcap_devcontainer_validate_session_designator "${invalid_session}" >/dev/null 2>&1; then
         echo "test/host-invariants: accepted invalid session designator: ${invalid_session}" >&2
         exit 1
     fi
 done
-if pancake_devcontainer_validate_session_designator abcdefghijklmnopqrstuvwxy >/dev/null 2>&1; then
+if glowcap_devcontainer_validate_session_designator abcdefghijklmnopqrstuvwxy >/dev/null 2>&1; then
     echo "test/host-invariants: accepted an overlong session designator" >&2
     exit 1
 fi
@@ -112,9 +112,9 @@ printf '%s\n' \
     'if [[ "$1" == ps ]]; then printf "abc123\\n"; exit 0; fi' \
     'printf "%s\\n" "$*"' > "${scratch}/bin/docker"
 chmod 755 "${scratch}/bin/docker"
-ln -s "${dir}/../.agents/skills/work/bin/pancake-dev" "${scratch}/host/pancake-dev"
-dev_exec="$(cd / && PATH="${scratch}/bin:${PATH}" PANCAKE_DEV_CONTAINER=test-container "${scratch}/host/pancake-dev" /bin/true)"
-[[ "${dev_exec}" == *"--workdir /workspaces/pancake abc123 /bin/true"* ]]
+ln -s "${dir}/../.agents/skills/work/bin/glowcap-dev" "${scratch}/host/glowcap-dev"
+dev_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${scratch}/host/glowcap-dev" /bin/true)"
+[[ "${dev_exec}" == *"--workdir /workspaces/glowcap abc123 /bin/true"* ]]
 
 expect_launcher_error enter.sh "mutually exclusive" --rebuild --no-cache
 expect_launcher_error enter.sh "--session requires a designator" --session
@@ -133,15 +133,15 @@ expect_launcher_error enter-grid.sh "--cc and --no-cc are mutually exclusive" --
 
 # Control-mode detection recognizes iTerm2 locally and over ssh, and no one
 # else.
-if TERM_PROGRAM='' LC_TERMINAL='' pancake_devcontainer_client_is_iterm2; then
+if TERM_PROGRAM='' LC_TERMINAL='' glowcap_devcontainer_client_is_iterm2; then
     echo "test/host-invariants: a non-iTerm2 client was detected as iTerm2" >&2
     exit 1
 fi
-TERM_PROGRAM=iTerm.app pancake_devcontainer_client_is_iterm2
-TERM_PROGRAM='' LC_TERMINAL=iTerm2 pancake_devcontainer_client_is_iterm2
+TERM_PROGRAM=iTerm.app glowcap_devcontainer_client_is_iterm2
+TERM_PROGRAM='' LC_TERMINAL=iTerm2 glowcap_devcontainer_client_is_iterm2
 grid_help_output="$(bash "${dir}/bin/enter-grid.sh" --help)"
 [[ "${grid_help_output}" == *"columns: every registered worktree"* ]]
-[[ "${grid_help_output}" == *"tmux: pancake-grid-review"* ]]
+[[ "${grid_help_output}" == *"tmux: glowcap-grid-review"* ]]
 
 # The container half of the pane runtime sources the worktree's panes.sh in
 # an initialized interactive shell: top-level lines run in every pane, and the
@@ -162,9 +162,9 @@ printf 'pane1() { echo review > pane.out; }\n' \
 run_pane_shell() {
     (cd "${grid}" && printf '%s\n' "$1" |
         HOME="${grid}" ZDOTDIR="${grid}/.devcontainer/pane/container" \
-            PANCAKE_TMUX_ROW="$2" \
-            PANCAKE_TMUX_PANES_FILE="${grid}/.devcontainer/pane/$3" \
-            PANCAKE_TMUX_DETACH_STATUS="${4:-}" zsh -i \
+            GLOWCAP_TMUX_ROW="$2" \
+            GLOWCAP_TMUX_PANES_FILE="${grid}/.devcontainer/pane/$3" \
+            GLOWCAP_TMUX_DETACH_STATUS="${4:-}" zsh -i \
             > /dev/null 2> "${grid}/pane.err")
 }
 run_grid_pane() {
@@ -200,9 +200,9 @@ if [[ "${have_zsh}" == true ]]; then
     # the status the host half declares and hands over is the status this
     # shell exits with. 89 is that status, and pane/host/.bashrc owns it.
     pane_exit_status=0
-    run_pane_shell pancake_devcontainer_exit 1 panes.sh 89 || pane_exit_status=$?
+    run_pane_shell glowcap_devcontainer_exit 1 panes.sh 89 || pane_exit_status=$?
     if [[ "${pane_exit_status}" -ne 89 ]]; then
-        echo "test/host-invariants: pancake_devcontainer_exit reported ${pane_exit_status}, not the detach status" >&2
+        echo "test/host-invariants: glowcap_devcontainer_exit reported ${pane_exit_status}, not the detach status" >&2
         exit 1
     fi
 
@@ -210,9 +210,9 @@ if [[ "${have_zsh}" == true ]]; then
     # rather than ending the shell on a guess: whatever this shell reports,
     # it is not the one status a waiting host shell reads as a detach.
     pane_exit_status=0
-    run_pane_shell pancake_devcontainer_exit 1 panes.sh || pane_exit_status=$?
+    run_pane_shell glowcap_devcontainer_exit 1 panes.sh || pane_exit_status=$?
     if [[ "${pane_exit_status}" -eq 89 ]]; then
-        echo "test/host-invariants: pancake_devcontainer_exit detached a shell no pane opened" >&2
+        echo "test/host-invariants: glowcap_devcontainer_exit detached a shell no pane opened" >&2
         exit 1
     fi
 fi
@@ -231,7 +231,7 @@ printf 'stub-container\n'
 EOF
 cat > "${runtime}/bin/docker" <<'EOF'
 #!/usr/bin/env bash
-exit "${PANCAKE_TEST_CONTAINER_STATUS}"
+exit "${GLOWCAP_TEST_CONTAINER_STATUS}"
 EOF
 chmod +x "${runtime}/bin/docker"
 runtime_status=0
@@ -240,7 +240,7 @@ run_pane_runtime() {
     runtime_status=0
     (cd "${runtime}" && printf 'echo alive > alive.out\nexit\n' |
         HOME="${runtime}" PATH="${runtime}/bin:${PATH}" \
-            PANCAKE_TEST_CONTAINER_STATUS="$1" \
+            GLOWCAP_TEST_CONTAINER_STATUS="$1" \
             bash --rcfile .devcontainer/pane/host/.bashrc -i > /dev/null 2>&1) ||
         runtime_status=$?
 }
@@ -278,25 +278,25 @@ expect_pane_ended 3
 # A column older than this pane runtime still uses this launcher's lookup,
 # with that checkout named as an argument.
 cat > "${runtime}/.devcontainer/bin/container-id.sh" <<'EOF'
-printf '%s\n' "${1-}" > "${PANCAKE_TEST_ID_LOG}"
+printf '%s\n' "${1-}" > "${GLOWCAP_TEST_ID_LOG}"
 printf 'stub-container\n'
 EOF
 mkdir -p "${scratch}/old-column"
 rm -f "${runtime}/id.log"
 (cd "${runtime}" && printf 'exit\n' |
     HOME="${runtime}" PATH="${runtime}/bin:${PATH}" \
-        PANCAKE_TEST_CONTAINER_STATUS=89 \
-        PANCAKE_TEST_ID_LOG="${runtime}/id.log" \
-        PANCAKE_TMUX_CHECKOUT="${scratch}/old-column" \
+        GLOWCAP_TEST_CONTAINER_STATUS=89 \
+        GLOWCAP_TEST_ID_LOG="${runtime}/id.log" \
+        GLOWCAP_TMUX_CHECKOUT="${scratch}/old-column" \
         bash --rcfile .devcontainer/pane/host/.bashrc -i > /dev/null 2>&1) || true
 [[ "$(cat "${runtime}/id.log")" == "${scratch}/old-column" ]]
 
 # The panes file also decides its column's row count, by textual scan.
-[[ "$(pancake_devcontainer_grid_rows "${grid}/.devcontainer/pane/panes.sh")" == 3 ]]
-[[ "$(pancake_devcontainer_grid_rows "${grid}/.devcontainer/pane/panes-review.sh")" == 1 ]]
-[[ "$(pancake_devcontainer_grid_rows "${grid}/.devcontainer/pane/absent.sh")" == 0 ]]
+[[ "$(glowcap_devcontainer_grid_rows "${grid}/.devcontainer/pane/panes.sh")" == 3 ]]
+[[ "$(glowcap_devcontainer_grid_rows "${grid}/.devcontainer/pane/panes-review.sh")" == 1 ]]
+[[ "$(glowcap_devcontainer_grid_rows "${grid}/.devcontainer/pane/absent.sh")" == 0 ]]
 printf 'function pane5() { :; }\n' > "${grid}/.devcontainer/pane/panes-tall.sh"
-[[ "$(pancake_devcontainer_grid_rows "${grid}/.devcontainer/pane/panes-tall.sh")" == 5 ]]
+[[ "$(glowcap_devcontainer_grid_rows "${grid}/.devcontainer/pane/panes-tall.sh")" == 5 ]]
 
 rm "${grid}/.devcontainer/pane/panes.sh"
 if [[ "${have_zsh}" == true && -n "$(run_grid_pane 1 panes.sh)" ]]; then
@@ -311,8 +311,8 @@ fi
 primary="${scratch}/repo #cash\$ O'Neil"
 linked="${scratch}/tree1"
 git init -q "${primary}"
-git -C "${primary}" config user.email test@pancake.invalid
-git -C "${primary}" config user.name "pancake test"
+git -C "${primary}" config user.email test@glowcap.invalid
+git -C "${primary}" config user.name "glowcap test"
 git -C "${primary}" config commit.gpgsign false
 touch "${primary}/seed"
 git -C "${primary}" add seed
@@ -320,48 +320,48 @@ git -C "${primary}" commit -qm seed
 git -C "${primary}" worktree add -q -b test-tree1 "${linked}"
 mkdir -p "${primary}/.devcontainer" "${linked}/.devcontainer"
 
-printf 'PANCAKE_WORKTREE=main\n' > "${primary}/.devcontainer/.env"
-if pancake_devcontainer_configure_env "${primary}/.devcontainer" >/dev/null 2>&1; then
+printf 'GLOWCAP_WORKTREE=main\n' > "${primary}/.devcontainer/.env"
+if glowcap_devcontainer_configure_env "${primary}/.devcontainer" >/dev/null 2>&1; then
     echo "test/host-invariants: configure accepted an incomplete existing environment" >&2
     exit 1
 fi
 rm "${primary}/.devcontainer/.env"
-pancake_devcontainer_configure_env "${primary}/.devcontainer" >/dev/null 2>&1
+glowcap_devcontainer_configure_env "${primary}/.devcontainer" >/dev/null 2>&1
 expected_common="$(git -C "${primary}" rev-parse --path-format=absolute --git-common-dir)"
-[[ "$(pancake_devcontainer_env_value "${primary}/.devcontainer" PANCAKE_WORKTREE)" == main ]]
-[[ "$(pancake_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == pancake-main-egress ]]
-[[ "$(pancake_devcontainer_env_value "${primary}/.devcontainer" PANCAKE_GIT_COMMON_DIR)" == "${expected_common}" ]]
-pancake_devcontainer_configure_env "${primary}/.devcontainer" 10000 other-network >/dev/null 2>&1
-[[ "$(pancake_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == pancake-main-egress ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_WORKTREE)" == main ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == glowcap-main-egress ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_GIT_COMMON_DIR)" == "${expected_common}" ]]
+glowcap_devcontainer_configure_env "${primary}/.devcontainer" 10000 other-network >/dev/null 2>&1
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == glowcap-main-egress ]]
 
 # An .env the port table has outgrown is completed at the offset it already
 # uses, and nothing else in it moves. This is what a checkout written before
 # a port row existed meets, and deleting the operator's file is not the
 # remedy on offer.
 outgrown_env="${primary}/.devcontainer/.env"
-docs_port_line="$(grep '^PANCAKE_DOCS_HOST_PORT=' "${outgrown_env}")"
-[[ "${docs_port_line}" == PANCAKE_DOCS_HOST_PORT=1990 ]]
-grep -v '^PANCAKE_DOCS_HOST_PORT=' "${outgrown_env}" > "${outgrown_env}.trimmed"
+docs_port_line="$(grep '^GLOWCAP_DOCS_HOST_PORT=' "${outgrown_env}")"
+[[ "${docs_port_line}" == GLOWCAP_DOCS_HOST_PORT=1990 ]]
+grep -v '^GLOWCAP_DOCS_HOST_PORT=' "${outgrown_env}" > "${outgrown_env}.trimmed"
 mv "${outgrown_env}.trimmed" "${outgrown_env}"
 printf 'OPERATOR_ADDED=kept\n' >> "${outgrown_env}"
-pancake_devcontainer_complete_env "${primary}/.devcontainer" 2>/dev/null
-[[ "$(pancake_devcontainer_env_value "${primary}/.devcontainer" PANCAKE_DOCS_HOST_PORT)" == 1990 ]]
-[[ "$(pancake_devcontainer_env_value "${primary}/.devcontainer" OPERATOR_ADDED)" == kept ]]
+glowcap_devcontainer_complete_env "${primary}/.devcontainer" 2>/dev/null
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_DOCS_HOST_PORT)" == 1990 ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" OPERATOR_ADDED)" == kept ]]
 
 # The offset comes from the rows the file carries, not from the table.
 offset_env="${scratch}/offset/.devcontainer"
 mkdir -p "${offset_env}"
 {
-    printf 'PANCAKE_WORKTREE=tree1\n'
-    printf 'PANCAKE_ROOMS_WEB_HOST_PORT=18000\n'
-    printf 'PANCAKE_ROOMS_CAPTP_HOST_PORT=19099\n'
+    printf 'GLOWCAP_WORKTREE=tree1\n'
+    printf 'GLOWCAP_ROOMS_WEB_HOST_PORT=18000\n'
+    printf 'GLOWCAP_ROOMS_CAPTP_HOST_PORT=19099\n'
 } > "${offset_env}/.env"
-pancake_devcontainer_complete_env "${offset_env}" 2>/dev/null
-[[ "$(pancake_devcontainer_env_value "${offset_env}" PANCAKE_DOCS_HOST_PORT)" == 11990 ]]
+glowcap_devcontainer_complete_env "${offset_env}" 2>/dev/null
+[[ "$(glowcap_devcontainer_env_value "${offset_env}" GLOWCAP_DOCS_HOST_PORT)" == 11990 ]]
 
 # Two offsets in one file is not something to guess about.
-printf 'PANCAKE_ROOMS_RELAY_HOST_PORT=9200\n' >> "${offset_env}/.env"
-if pancake_devcontainer_complete_env "${offset_env}" 2>/dev/null; then
+printf 'GLOWCAP_ROOMS_RELAY_HOST_PORT=9200\n' >> "${offset_env}/.env"
+if glowcap_devcontainer_complete_env "${offset_env}" 2>/dev/null; then
     echo "test/host-invariants: completion guessed at a file with two port offsets" >&2
     exit 1
 fi
@@ -370,41 +370,41 @@ fi
 # nothing and ordinary validation keeps the refusal.
 bare_env="${scratch}/bare/.devcontainer"
 mkdir -p "${bare_env}"
-printf 'PANCAKE_WORKTREE=main\n' > "${bare_env}/.env"
-pancake_devcontainer_complete_env "${bare_env}" 2>/dev/null
+printf 'GLOWCAP_WORKTREE=main\n' > "${bare_env}/.env"
+glowcap_devcontainer_complete_env "${bare_env}" 2>/dev/null
 [[ "$(wc -l < "${bare_env}/.env" | tr -d ' ')" -eq 1 ]]
-[[ "$(pancake_devcontainer_worktree_name "${primary}/.devcontainer")" == main ]]
-pancake_devcontainer_validate_worktree "${primary}/.devcontainer" main
+[[ "$(glowcap_devcontainer_worktree_name "${primary}/.devcontainer")" == main ]]
+glowcap_devcontainer_validate_worktree "${primary}/.devcontainer" main
 
-if pancake_devcontainer_worktree_name "${linked}/.devcontainer" >/dev/null 2>&1; then
+if glowcap_devcontainer_worktree_name "${linked}/.devcontainer" >/dev/null 2>&1; then
     echo "test/host-invariants: an incomplete worktree environment acquired an implicit identity" >&2
     exit 1
 fi
 
-if pancake_devcontainer_configure_env "${linked}/.devcontainer" >/dev/null 2>&1; then
+if glowcap_devcontainer_configure_env "${linked}/.devcontainer" >/dev/null 2>&1; then
     echo "test/host-invariants: linked worktree guessed its host ports" >&2
     exit 1
 fi
-pancake_devcontainer_configure_env "${linked}/.devcontainer" 10000 >/dev/null 2>&1
-[[ "$(pancake_devcontainer_worktree_name "${linked}/.devcontainer")" == tree1 ]]
-[[ "$(pancake_devcontainer_env_value "${linked}/.devcontainer" PANCAKE_ROOMS_WEB_HOST_PORT)" == 18000 ]]
-[[ "$(pancake_devcontainer_env_value "${linked}/.devcontainer" PANCAKE_DOCS_HOST_PORT)" == 11990 ]]
-[[ "$(pancake_devcontainer_env_value "${linked}/.devcontainer" EGRESS_NET)" == pancake-tree1-egress ]]
-pancake_devcontainer_validate_worktree "${linked}/.devcontainer" tree1
-[[ "$(pancake_devcontainer_primary_checkout "${linked}")" == "${primary}" ]]
+glowcap_devcontainer_configure_env "${linked}/.devcontainer" 10000 >/dev/null 2>&1
+[[ "$(glowcap_devcontainer_worktree_name "${linked}/.devcontainer")" == tree1 ]]
+[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_ROOMS_WEB_HOST_PORT)" == 18000 ]]
+[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_DOCS_HOST_PORT)" == 11990 ]]
+[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" EGRESS_NET)" == glowcap-tree1-egress ]]
+glowcap_devcontainer_validate_worktree "${linked}/.devcontainer" tree1
+[[ "$(glowcap_devcontainer_primary_checkout "${linked}")" == "${primary}" ]]
 
-if pancake_devcontainer_validate_worktree "${linked}/.devcontainer" main >/dev/null 2>&1; then
+if glowcap_devcontainer_validate_worktree "${linked}/.devcontainer" main >/dev/null 2>&1; then
     echo "test/host-invariants: linked worktree accepted the main identity" >&2
     exit 1
 fi
-if pancake_devcontainer_validate_worktree "${primary}/.devcontainer" tree1 >/dev/null 2>&1; then
+if glowcap_devcontainer_validate_worktree "${primary}/.devcontainer" tree1 >/dev/null 2>&1; then
     echo "test/host-invariants: primary checkout accepted a linked identity" >&2
     exit 1
 fi
 
-[[ "$(pancake_devcontainer_checkout_for_worktree "${primary}" tree1)" == "${linked}" ]]
-[[ "$(pancake_devcontainer_registered_worktrees "${primary}" | tr '\n' ':')" == "main:tree1:" ]]
-if pancake_devcontainer_checkout_for_worktree "${primary}" missing >/dev/null 2>&1; then
+[[ "$(glowcap_devcontainer_checkout_for_worktree "${primary}" tree1)" == "${linked}" ]]
+[[ "$(glowcap_devcontainer_registered_worktrees "${primary}" | tr '\n' ':')" == "main:tree1:" ]]
+if glowcap_devcontainer_checkout_for_worktree "${primary}" missing >/dev/null 2>&1; then
     echo "test/host-invariants: lookup invented an unregistered worktree" >&2
     exit 1
 fi
@@ -413,21 +413,21 @@ fi
 # beside compose. The launcher finds either spelling, and prefers bin/.
 printf '#!/usr/bin/env bash\n' > "${linked}/.devcontainer/up.sh"
 chmod +x "${linked}/.devcontainer/up.sh"
-[[ "$(pancake_devcontainer_checkout_entry "${linked}" up.sh)" == "${linked}/.devcontainer/up.sh" ]]
-[[ "$(pancake_devcontainer_resolve_checkout enter-grid.sh "${primary}" tree1)" == "${linked}" ]]
+[[ "$(glowcap_devcontainer_checkout_entry "${linked}" up.sh)" == "${linked}/.devcontainer/up.sh" ]]
+[[ "$(glowcap_devcontainer_resolve_checkout enter-grid.sh "${primary}" tree1)" == "${linked}" ]]
 mkdir -p "${primary}/.devcontainer/bin"
 printf '#!/usr/bin/env bash\n' > "${primary}/.devcontainer/bin/up.sh"
 printf '#!/usr/bin/env bash\n' > "${primary}/.devcontainer/up.sh"
 chmod +x "${primary}/.devcontainer/bin/up.sh" "${primary}/.devcontainer/up.sh"
-[[ "$(pancake_devcontainer_checkout_entry "${primary}" up.sh)" == "${primary}/.devcontainer/bin/up.sh" ]]
+[[ "$(glowcap_devcontainer_checkout_entry "${primary}" up.sh)" == "${primary}/.devcontainer/bin/up.sh" ]]
 noup="${scratch}/noup"
 mkdir -p "${noup}/.devcontainer"
-if pancake_devcontainer_checkout_entry "${noup}" up.sh >/dev/null 2>&1; then
+if glowcap_devcontainer_checkout_entry "${noup}" up.sh >/dev/null 2>&1; then
     echo "test/host-invariants: found up.sh on a checkout that has none" >&2
     exit 1
 fi
-pane_cmd="$(pancake_devcontainer_pane_shell_command "${linked}" tree1 panes.sh 2)"
-[[ "${pane_cmd}" == *"PANCAKE_TMUX_CHECKOUT="* ]]
+pane_cmd="$(glowcap_devcontainer_pane_shell_command "${linked}" tree1 panes.sh 2)"
+[[ "${pane_cmd}" == *"GLOWCAP_TMUX_CHECKOUT="* ]]
 [[ "${pane_cmd}" == *"${dir}/pane/host/.bashrc"* ]]
 [[ "${pane_cmd}" != *"${linked}/.devcontainer/pane/host/.bashrc"* ]]
 
@@ -439,9 +439,9 @@ fake_docker_output=abc123
 docker() {
     printf '%s\n' "${fake_docker_output}"
 }
-[[ "$(pancake_devcontainer_running_container "${primary}")" == abc123 ]]
+[[ "$(glowcap_devcontainer_running_container "${primary}")" == abc123 ]]
 fake_docker_output=$'abc123\ndef456'
-if pancake_devcontainer_running_container "${primary}" >/dev/null 2>&1; then
+if glowcap_devcontainer_running_container "${primary}" >/dev/null 2>&1; then
     echo "test/host-invariants: ambiguous container labels selected one container" >&2
     exit 1
 fi
@@ -462,26 +462,26 @@ docker() {
     fi
     return 1
 }
-pancake_devcontainer_ensure_network pancake-main-egress managed
-[[ "${network_created}" == pancake-main-egress ]]
+glowcap_devcontainer_ensure_network glowcap-main-egress managed
+[[ "${network_created}" == glowcap-main-egress ]]
 network_exists=false
-if pancake_devcontainer_ensure_network missing-external external >/dev/null 2>&1; then
+if glowcap_devcontainer_ensure_network missing-external external >/dev/null 2>&1; then
     echo "test/host-invariants: startup created an operator-owned external network" >&2
     exit 1
 fi
 unset -f docker
 
-if PANCAKE_WORKTREE=other pancake_devcontainer_validate_effective_env "${primary}/.devcontainer" >/dev/null 2>&1; then
+if GLOWCAP_WORKTREE=other glowcap_devcontainer_validate_effective_env "${primary}/.devcontainer" >/dev/null 2>&1; then
     echo "test/host-invariants: inherited Compose identity bypassed .env" >&2
     exit 1
 fi
-PANCAKE_WORKTREE=main pancake_devcontainer_validate_effective_env "${primary}/.devcontainer"
+GLOWCAP_WORKTREE=main glowcap_devcontainer_validate_effective_env "${primary}/.devcontainer"
 
 cat >> "${primary}/.devcontainer/.env" <<'EOF'
-PANCAKE_ROOMS_WEB_HOST_PORT=08000
-PANCAKE_ROOMS_CAPTP_HOST_PORT=8000
+GLOWCAP_ROOMS_WEB_HOST_PORT=08000
+GLOWCAP_ROOMS_CAPTP_HOST_PORT=8000
 EOF
-if pancake_devcontainer_validate_host_ports "${primary}/.devcontainer" >/dev/null 2>&1; then
+if glowcap_devcontainer_validate_host_ports "${primary}/.devcontainer" >/dev/null 2>&1; then
     echo "test/host-invariants: equivalent decimal ports were not treated as duplicates" >&2
     exit 1
 fi

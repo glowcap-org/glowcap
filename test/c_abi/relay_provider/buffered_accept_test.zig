@@ -3,7 +3,7 @@
 //! following data buffered while their reply owns write progress.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const c = @import("c_abi_shared");
 const relay_archive = @import("c_abi_net_transport_relay");
 const ws_relay = @import("../../support/ws_relay.zig");
@@ -91,32 +91,32 @@ test "relay C accept publishes payload buffered by the registered listener" {
     var config = harness.copiedTrustConfig(relay_url);
     config.register_url = register_url.ptr;
     config.register_url_len = register_url.len;
-    var runtime: ?*relay_archive.PancakeRelayRuntime = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, relay_archive.pancake_relay_runtime_new(&config, &runtime));
+    var runtime: ?*relay_archive.GlowcapRelayRuntime = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, relay_archive.glowcap_relay_runtime_new(&config, &runtime));
     defer {
         var diagnostic: [512]u8 = undefined;
         var diagnostic_len: usize = 0;
-        const result = relay_archive.pancake_relay_runtime_release(
+        const result = relay_archive.glowcap_relay_runtime_release(
             runtime,
             &diagnostic,
             diagnostic.len,
             &diagnostic_len,
         );
-        if (result != c.PANCAKE_OK)
+        if (result != c.GLOWCAP_OK)
             std.debug.print("relay runtime release: {s}\n", .{diagnostic[0..diagnostic_len]});
-        std.testing.expectEqual(c.PANCAKE_OK, result) catch unreachable;
+        std.testing.expectEqual(c.GLOWCAP_OK, result) catch unreachable;
     }
 
-    var provider: c.PancakeTransportProvider = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, relay_archive.pancake_relay_transport_provider(runtime, &provider));
+    var provider: c.GlowcapTransportProvider = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_OK, relay_archive.glowcap_relay_transport_provider(runtime, &provider));
     const table = harness.keyedTable(provider);
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x71)));
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x71)));
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
     const route_id: u64 = 91;
-    var result = std.mem.zeroes(c.PancakeListenResult);
+    var result = std.mem.zeroes(c.GlowcapListenResult);
     var failure = c.transport_provider.emptyProviderFailure();
-    try std.testing.expectEqual(c.PANCAKE_OK, table.listen.?(
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.listen.?(
         table.ctx,
         route_id,
         transport.ptr,
@@ -127,19 +127,19 @@ test "relay C accept publishes payload buffered by the registered listener" {
         &result,
         &failure,
     ));
-    try std.testing.expectEqual(c.PANCAKE_LISTEN_PENDING, result.state);
-    _ = try harness.waitForEvent(io, table, route_id, c.PANCAKE_MULTIPLEXED_EV_LISTEN);
+    try std.testing.expectEqual(c.GLOWCAP_LISTEN_PENDING, result.state);
+    _ = try harness.waitForEvent(io, table, route_id, c.GLOWCAP_MULTIPLEXED_EV_LISTEN);
 
     var listener: ?*anyopaque = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
+        c.GLOWCAP_OK,
         table.finish_listen.?(table.ctx, route_id, &listener, &failure),
     );
-    _ = try harness.waitForEvent(io, table, route_id, c.PANCAKE_MULTIPLEXED_EV_ACCEPT);
+    _ = try harness.waitForEvent(io, table, route_id, c.GLOWCAP_MULTIPLEXED_EV_ACCEPT);
 
     var conn: u64 = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, table.finish_accept.?(listener, &conn, &failure));
-    _ = try harness.waitForEvent(io, table, conn, c.PANCAKE_MULTIPLEXED_EV_READABLE);
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.finish_accept.?(listener, &conn, &failure));
+    _ = try harness.waitForEvent(io, table, conn, c.GLOWCAP_MULTIPLEXED_EV_READABLE);
     var payload: [11]u8 = undefined;
     try std.testing.expectEqual(
         @as(isize, payload.len),
@@ -148,9 +148,9 @@ test "relay C accept publishes payload buffered by the registered listener" {
     try std.testing.expectEqualStrings("message-one", &payload);
     connection_claimed.store(true, .release);
 
-    _ = try harness.waitForEvent(io, table, conn, c.PANCAKE_MULTIPLEXED_EV_READABLE);
+    _ = try harness.waitForEvent(io, table, conn, c.GLOWCAP_MULTIPLEXED_EV_READABLE);
     try std.testing.expectEqual(
-        c.PANCAKE_MULTIPLEXED_WOULD_BLOCK,
+        c.GLOWCAP_MULTIPLEXED_WOULD_BLOCK,
         table.try_read.?(table.ctx, conn, &payload, payload.len),
     );
 
@@ -161,10 +161,10 @@ test "relay C accept publishes payload buffered by the registered listener" {
         io,
         table,
         conn,
-        c.PANCAKE_MULTIPLEXED_EV_WRITABLE,
+        c.GLOWCAP_MULTIPLEXED_EV_WRITABLE,
     );
-    try std.testing.expect(resumed & c.PANCAKE_MULTIPLEXED_EV_READABLE != 0);
-    try std.testing.expect(resumed & c.PANCAKE_MULTIPLEXED_EV_WRITABLE != 0);
+    try std.testing.expect(resumed & c.GLOWCAP_MULTIPLEXED_EV_READABLE != 0);
+    try std.testing.expect(resumed & c.GLOWCAP_MULTIPLEXED_EV_WRITABLE != 0);
     try std.testing.expectEqual(
         @as(isize, payload.len),
         table.try_read.?(table.ctx, conn, &payload, payload.len),
@@ -172,28 +172,28 @@ test "relay C accept publishes payload buffered by the registered listener" {
     try std.testing.expectEqualStrings("message-two", &payload);
     data_drained.store(true, .release);
 
-    _ = try harness.waitForEvent(io, table, conn, c.PANCAKE_MULTIPLEXED_EV_READABLE);
+    _ = try harness.waitForEvent(io, table, conn, c.GLOWCAP_MULTIPLEXED_EV_READABLE);
     try std.testing.expectEqual(@as(isize, 0), table.try_read.?(table.ctx, conn, &payload, payload.len));
     while (!close_answered.load(.acquire))
         try std.Io.sleep(io, .fromMilliseconds(1), .real);
 
     while (!replacement_ready.load(.acquire))
         try std.Io.sleep(io, .fromMilliseconds(1), .real);
-    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, table.stop_listen.?(listener, &failure));
-    _ = try harness.waitForEvent(io, table, route_id, c.PANCAKE_MULTIPLEXED_EV_LISTEN);
-    try std.testing.expectEqual(c.PANCAKE_OK, table.stop_listen.?(listener, &failure));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, table.stop_listen.?(listener, &failure));
+    _ = try harness.waitForEvent(io, table, route_id, c.GLOWCAP_MULTIPLEXED_EV_LISTEN);
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.stop_listen.?(listener, &failure));
 
     relay.await(io) catch |err| {
         std.debug.print("relay test server: {s}\n", .{@errorName(err)});
         return err;
     };
 
-    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, table.conn_close.?(table.ctx, conn, &failure));
-    _ = try harness.waitForEvent(io, table, conn, c.PANCAKE_MULTIPLEXED_EV_CLOSED);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, table.conn_close.?(table.ctx, conn, &failure));
+    _ = try harness.waitForEvent(io, table, conn, c.GLOWCAP_MULTIPLEXED_EV_CLOSED);
     const close_result = table.conn_close.?(table.ctx, conn, &failure);
-    if (close_result != c.PANCAKE_OK) std.debug.print(
+    if (close_result != c.GLOWCAP_OK) std.debug.print(
         "connection close: {d} {s}\n",
         .{ close_result, failure.primary_name.?[0..failure.primary_name_len] },
     );
-    try std.testing.expectEqual(c.PANCAKE_OK, close_result);
+    try std.testing.expectEqual(c.GLOWCAP_OK, close_result);
 }

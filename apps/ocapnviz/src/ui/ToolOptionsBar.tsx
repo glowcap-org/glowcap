@@ -69,7 +69,7 @@ export type ToolDrafts = {
 export const EMPTY_TOOL_DRAFTS: ToolDrafts = {
 	peerId: "",
 	peerLabel: "",
-	peerProfile: "pancake",
+	peerProfile: "glowcap",
 	sessionCodec: "capnp",
 	sessionCaptpVersion: "v1_0",
 	sessionInitialState: "open",

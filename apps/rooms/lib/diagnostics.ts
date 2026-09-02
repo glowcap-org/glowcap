@@ -5,7 +5,7 @@
 // authority. Taking it is the shared operations flow in `operations.ts`; what
 // it answers — the `snapshot` rows below — is what this module owns.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { SNAPSHOT } from "./protocol.ts";
 import { ask } from "./ask.ts";

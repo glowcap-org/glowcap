@@ -21,14 +21,14 @@
 //! staticlib, so it runs as the sibling step `zig build iroh-loop`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over the iroh loop";

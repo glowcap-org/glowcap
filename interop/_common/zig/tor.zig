@@ -20,7 +20,7 @@ const bootstrap_budget_ms = 120_000;
 pub const Options = struct {
     /// Whether the control endpoint demands the cookie file's bytes.
     ///
-    /// It is a choice rather than a default because the two peers differ: pancake
+    /// It is a choice rather than a default because the two peers differ: glowcap
     /// sends a cookie or a password, and the onion netlayer upstream Goblins
     /// ships sends a bare `AUTHENTICATE`. A check with a Goblins vat in it has to
     /// take the narrower of the two.
@@ -43,7 +43,7 @@ pub const Tor = struct {
         // look like a success or the other way round.
         var seed: [8]u8 = undefined;
         try io.randomSecure(&seed);
-        const dir = try std.fmt.allocPrint(gpa, "/tmp/pancake-onion-{x}", .{&seed});
+        const dir = try std.fmt.allocPrint(gpa, "/tmp/glowcap-onion-{x}", .{&seed});
         errdefer gpa.free(dir);
         const cwd = std.Io.Dir.cwd();
         try cwd.createDirPath(io, dir);
@@ -105,7 +105,7 @@ pub const Tor = struct {
     /// Poll the log until Tor reports a finished bootstrap.
     ///
     /// The log rather than the control port, because the control port is exactly
-    /// what pancake's own client speaks and this wait must not depend on the code
+    /// what glowcap's own client speaks and this wait must not depend on the code
     /// under test.
     fn awaitBootstrap(self: *Tor) !void {
         const deadline = wait.deadlineAfter(self.io, bootstrap_budget_ms);

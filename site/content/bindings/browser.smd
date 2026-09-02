@@ -1,12 +1,12 @@
 ---
 .title = "In the browser",
-.description = "Run a full pancake peer in the browser with @pancake/web, including fetch, send, hosted objects, handoff, relays, and WebRTC.",
+.description = "Run a full glowcap peer in the browser with @glowcap/web, including fetch, send, hosted objects, handoff, relays, and WebRTC.",
 .date = .date("2026-07-22T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-The `@pancake/web` package compiles pancake's protocol core to WebAssembly. A
+The `@glowcap/web` package compiles glowcap's protocol core to WebAssembly. A
 browser uses the same `Session` operations as the native TypeScript binding;
 JavaScript supplies the byte channel and scheduling.
 
@@ -20,7 +20,7 @@ the relay, with Noise_XK sealing the CapTP stream so the relay forwards
 ciphertext. Later tabs include `keyed-tcp` and `keyed-relay`, which name a
 key but leave CapTP frames in the clear, and testing-only `tcp`.
 
-Load the wasm module to use the `@pancake/runtime` API. Install an iroh,
+Load the wasm module to use the `@glowcap/runtime` API. Install an iroh,
 Noise-relay, or WebRTC connector for those locators. The built-in runtime also
 opens `tcp` and `keyed-tcp` through WebSocket. The locator transport determines
 how the bytes travel.
@@ -31,24 +31,24 @@ how the bytes travel.
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```ts
-> import { init } from "@pancake/web";
+> import { init } from "@glowcap/web";
 >
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	relayUrl: (locator) => `wss://relay.example/?locator=${encodeURIComponent(locator)}`,
 > });
 > await using runtime = web.runtime;
-> // `@pancake/iroh` loads native FFI, so a page parses the locator on the web runtime.
+> // `@glowcap/iroh` loads native FFI, so a page parses the locator on the web runtime.
 > const partner = web.parseLocator("ocapn://<64 lowercase hex characters>.iroh");
 > ```
 > **webrtc**
 > ```ts
-> import { connector, locator, type SignalingAuthority } from "@pancake/webrtc";
-> import { init } from "@pancake/web";
+> import { connector, locator, type SignalingAuthority } from "@glowcap/webrtc";
+> import { init } from "@glowcap/web";
 >
 > declare const signaling: SignalingAuthority;
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	connectors: [connector(signaling)],
 > });
 > await using runtime = web.runtime;
@@ -56,12 +56,12 @@ how the bytes travel.
 > ```
 > **noise-relay**
 > ```ts
-> import { connector, noise } from "@pancake/relay";
-> import { init } from "@pancake/web";
+> import { connector, noise } from "@glowcap/relay";
+> import { init } from "@glowcap/web";
 >
 > const relayUrl = "wss://relay.example/relay";
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	connectors: [connector()],
 > });
 > await using runtime = web.runtime;
@@ -69,11 +69,11 @@ how the bytes travel.
 > ```
 > **keyed-tcp**
 > ```ts
-> import { keyed } from "@pancake/tcp";
-> import { init } from "@pancake/web";
+> import { keyed } from "@glowcap/tcp";
+> import { init } from "@glowcap/web";
 >
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	// A page cannot open raw TCP, so a relay carries the bytes.
 > 	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
 > });
@@ -83,12 +83,12 @@ how the bytes travel.
 > ```
 > **keyed-relay**
 > ```ts
-> import { connector, keyed } from "@pancake/relay";
-> import { init } from "@pancake/web";
+> import { connector, keyed } from "@glowcap/relay";
+> import { init } from "@glowcap/web";
 >
 > const relayUrl = "wss://relay.example/rendezvous";
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	connectors: [connector()],
 > });
 > await using runtime = web.runtime;
@@ -96,11 +96,11 @@ how the bytes travel.
 > ```
 > **tcp**
 > ```ts
-> import { locator } from "@pancake/tcp";
-> import { init } from "@pancake/web";
+> import { locator } from "@glowcap/tcp";
+> import { init } from "@glowcap/web";
 >
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	// A page cannot open raw TCP, so a relay carries the bytes.
 > 	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
 > });
@@ -121,10 +121,10 @@ console.log(reply);
 ```
 
 When you hold the key and address as separate pieces instead, import
-`@pancake/tcp` before `init` and use `tcp.keyed.locator`. The locator package
+`@glowcap/tcp` before `init` and use `tcp.keyed.locator`. The locator package
 does not load native FFI or depend on the initialized wasm adapter.
 
-`init` instantiates `pancake_host.wasm` (built by `zig build wasm-driver`) and
+`init` instantiates `glowcap_host.wasm` (built by `zig build wasm-driver`) and
 hands back the configured browser runtime. From there `connect`, `fetch`,
 `send`, `spawn`, and `publish` work exactly as on the
 [TypeScript page]($link.page('bindings/ts')). The one browser-specific part is how
@@ -154,5 +154,5 @@ The [TypeScript page]($link.page('bindings/ts')) is the full API, and the
 browser uses every verb of it except `listen`. For how those bytes get carried or
 bridged, read [the relay]($link.page('relay')) and
 [WebRTC]($link.page('transports/webrtc')). The
-[`@pancake/web` README](https://github.com/jimisaacs/pancake/blob/main/bindings/ts/web/README.md)
+[`@glowcap/web` README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/web/README.md)
 covers installing the package and serving the wasm.

@@ -1,10 +1,10 @@
 #lang racket/base
-;; Internal: the typed pancake failure and the per-thread last-error readers.
+;; Internal: the typed glowcap failure and the per-thread last-error readers.
 ;;
 ;; Every archive family reads its own thread-local last-error slot through
-;; `read-last-error`; `check`/`check-with` raise the one typed `exn:fail:pancake`
+;; `read-last-error`; `check`/`check-with` raise the one typed `exn:fail:glowcap`
 ;; from that diagnostic. The transport seam re-provides `check-with`,
-;; `read-last-error`, and `raise-pancake` so the companion modules raise the same
+;; `read-last-error`, and `raise-glowcap` so the companion modules raise the same
 ;; typed exn from their own last-error readers. Not a public API.
 
 (require "constants.rkt"
@@ -16,7 +16,7 @@
 
 ;; ── Library identity and per-thread last error ───────────────────────────────
 ;; (abi-version) -> (values major minor patch) of the linked library.
-(define (abi-version) (pancake_abi_version))
+(define (abi-version) (glowcap_abi_version))
 
 ;; Read a thread-local last-error slot into a Racket string, or #f when empty.
 ;; `raw` is an archive's two-arg C reader `(buffer cap) -> bytes-written`: query
@@ -38,40 +38,40 @@
 
 ;; (last-error) -> the calling thread's last error message as a string, or #f
 ;; when there is none.
-(define (last-error) (read-last-error pancake_last_error))
+(define (last-error) (read-last-error glowcap_last_error))
 
-;; A pancake failure carries the flat PANCAKE_ERR_* `code` that names the
+;; A glowcap failure carries the flat GLOWCAP_ERR_* `code` that names the
 ;; failure family, plus — when the failure was a refused inbound frame — an
 ;; `abort-info` naming the member (built by `abort-info<-c` below); `abort` is
 ;; #f everywhere else.
-(struct exn:fail:pancake exn:fail
+(struct exn:fail:glowcap exn:fail
   (code abort carrier-failure secondary-code secondary-name secondary-count))
 
-;; Raise a typed pancake failure for a non-OK `code`, reading the human-readable
+;; Raise a typed glowcap failure for a non-OK `code`, reading the human-readable
 ;; cause through `read-error` (a thunk that returns the message string or #f).
 ;; Each transport archive keeps its own thread-local last-error slot, so a
 ;; transport module passes its own reader here; `check` is the ocapn-family
-;; spelling that reads `pancake_last_error`. The transport seam
-;; (`private/seam.rkt`) provides `check-with` so `pancake-tcp.rkt` /
-;; `pancake-inproc.rkt` raise the same typed exn from their own diagnostics.
+;; spelling that reads `glowcap_last_error`. The transport seam
+;; (`private/seam.rkt`) provides `check-with` so `glowcap-tcp.rkt` /
+;; `glowcap-inproc.rkt` raise the same typed exn from their own diagnostics.
 (define (check-with code read-error)
   (unless (= code OK)
     (define msg (read-error))   ; capture immediately, before any later call clobbers it
-    (raise (exn:fail:pancake
+    (raise (exn:fail:glowcap
             (if msg
-                (format "pancake error ~a: ~a" code msg)
-                (format "pancake error ~a" code))
+                (format "glowcap error ~a: ~a" code msg)
+                (format "glowcap error ~a" code))
             (current-continuation-marks) code #f #f #f #f 0))))
 
 (define (check code) (check-with code last-error))
 
 ;; (host-last-error) -> the calling thread's last error message from the
-;; byte-fed host archive (libpancake_host), or #f. The host family keeps its
-;; own thread-local slot (`pancake_host_last_error`), symbol-disjoint from the
+;; byte-fed host archive (libglowcap_host), or #f. The host family keeps its
+;; own thread-local slot (`glowcap_host_last_error`), symbol-disjoint from the
 ;; ocapn family's `last-error`.
-(define (host-last-error) (read-last-error pancake_host_last_error))
+(define (host-last-error) (read-last-error glowcap_host_last_error))
 
-;; `check` for the pancake_host_* family: same typed exn, read from the host
+;; `check` for the glowcap_host_* family: same typed exn, read from the host
 ;; archive's own last-error slot.
 (define (check/host code) (check-with code host-last-error))
 
@@ -82,28 +82,28 @@
 (define (release-consumed? code)
   (not (= code ERR-INVALID-ARGUMENT)))
 
-;; Preserve the first pancake failure while attaching the first later cleanup
+;; Preserve the first glowcap failure while attaching the first later cleanup
 ;; failure and its total count. Racket exceptions are immutable values, so the
 ;; projection returns the equivalent enriched value rather than mutating it.
 (define (retain-cleanup-failure primary cleanup)
   (cond
-    [(and (exn:fail:pancake? primary) (exn:fail:pancake? cleanup))
-     (struct-copy exn:fail:pancake primary
+    [(and (exn:fail:glowcap? primary) (exn:fail:glowcap? cleanup))
+     (struct-copy exn:fail:glowcap primary
                   [secondary-code
-                   (if (zero? (exn:fail:pancake-secondary-count primary))
-                       (exn:fail:pancake-code cleanup)
-                       (exn:fail:pancake-secondary-code primary))]
+                   (if (zero? (exn:fail:glowcap-secondary-count primary))
+                       (exn:fail:glowcap-code cleanup)
+                       (exn:fail:glowcap-secondary-code primary))]
                   [secondary-name
-                   (if (zero? (exn:fail:pancake-secondary-count primary))
-                       "PancakeError"
-                       (exn:fail:pancake-secondary-name primary))]
+                   (if (zero? (exn:fail:glowcap-secondary-count primary))
+                       "GlowcapError"
+                       (exn:fail:glowcap-secondary-name primary))]
                   [secondary-count
                    (min #xffffffff
-                        (add1 (exn:fail:pancake-secondary-count primary)))])]
+                        (add1 (exn:fail:glowcap-secondary-count primary)))])]
     [else primary]))
 
 ;; Raise the first lifecycle failure after cleanup has completed, attaching a
-;; later failure when both are pancake errors. This is the common close-barrier
+;; later failure when both are glowcap errors. This is the common close-barrier
 ;; tail for native releases that consume their handle even when they report an
 ;; error.
 (define (raise-retained-failures primary cleanup)
@@ -133,10 +133,10 @@
     [(= code ERR-BROKEN) (cons 'broken reason)]
     [(= code ERR-CLOSED) (cons 'closed reason)]
     [else
-     (raise-pancake 'host-action ERR-INTERNAL
+     (raise-glowcap 'host-action ERR-INTERNAL
                     "core emitted invalid FAIL result ~a" code)]))
 
-;; Project a filled `_PancakeLastAbort` cstruct into an `abort-info`, copying
+;; Project a filled `_GlowcapLastAbort` cstruct into an `abort-info`, copying
 ;; each process-static C view into a Racket string so the result outlives any
 ;; later library call. The Host session's abort readers
 ;; (`private/pump.rkt`) build every typed refused-frame diagnostic
@@ -145,26 +145,26 @@
   (define (str ptr len)
     (and ptr (positive? len) (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)))
   (abort-info
-   (let ([domain (PancakeLastAbort-domain out)])
+   (let ([domain (GlowcapLastAbort-domain out)])
      (cond [(= domain ABORT-DOMAIN-CODEC) 'codec]
            [(= domain ABORT-DOMAIN-SESSION) 'session]
            [(= domain ABORT-DOMAIN-FOREIGN) 'foreign]
-           [else (raise-pancake 'pancake ERR-INTERNAL
+           [else (raise-glowcap 'glowcap ERR-INTERNAL
                                 "ABI returned unknown abort domain: ~a" domain)]))
-   (and (not (zero? (PancakeLastAbort-has-kind out)))
-        (str (PancakeLastAbort-kind-name out) (PancakeLastAbort-kind-name-len out)))
-   (or (str (PancakeLastAbort-message out) (PancakeLastAbort-message-len out)) "")
-   (or (str (PancakeLastAbort-error-name out) (PancakeLastAbort-error-name-len out)) "")
-   (str (PancakeLastAbort-abort-delivery-error-name out)
-        (PancakeLastAbort-abort-delivery-error-name-len out))
-   (str (PancakeLastAbort-secondary-error-name out)
-        (PancakeLastAbort-secondary-error-name-len out))
-   (PancakeLastAbort-secondary-error-count out)))
+   (and (not (zero? (GlowcapLastAbort-has-kind out)))
+        (str (GlowcapLastAbort-kind-name out) (GlowcapLastAbort-kind-name-len out)))
+   (or (str (GlowcapLastAbort-message out) (GlowcapLastAbort-message-len out)) "")
+   (or (str (GlowcapLastAbort-error-name out) (GlowcapLastAbort-error-name-len out)) "")
+   (str (GlowcapLastAbort-abort-delivery-error-name out)
+        (GlowcapLastAbort-abort-delivery-error-name-len out))
+   (str (GlowcapLastAbort-secondary-error-name out)
+        (GlowcapLastAbort-secondary-error-name-len out))
+   (GlowcapLastAbort-secondary-error-count out)))
 
 ;; A typed application-level failure (a partner break, a fetch that did not
 ;; yield a capability): same exn family, no abort detail.
-(define (raise-pancake who code fmt . args)
-  (raise (exn:fail:pancake (format "~a: ~a" who (apply format fmt args))
+(define (raise-glowcap who code fmt . args)
+  (raise (exn:fail:glowcap (format "~a: ~a" who (apply format fmt args))
                            (current-continuation-marks) code #f #f #f #f 0)))
 
 (module+ test
@@ -173,23 +173,23 @@
   (check-true (release-consumed? OK))
   (check-true (release-consumed? ERR-IO))
   (define primary
-    (exn:fail:pancake "primary" (current-continuation-marks)
+    (exn:fail:glowcap "primary" (current-continuation-marks)
                       ERR-INVALID-ARGUMENT #f #f #f #f 0))
   (define cleanup
-    (exn:fail:pancake "cleanup" (current-continuation-marks)
+    (exn:fail:glowcap "cleanup" (current-continuation-marks)
                       ERR-IO #f #f #f #f 0))
   (define retained (retain-cleanup-failure primary cleanup))
   (check-equal? (exn-message retained) "primary")
-  (check-equal? (exn:fail:pancake-code retained) ERR-INVALID-ARGUMENT)
-  (check-equal? (exn:fail:pancake-secondary-code retained) ERR-IO)
-  (check-equal? (exn:fail:pancake-secondary-count retained) 1)
+  (check-equal? (exn:fail:glowcap-code retained) ERR-INVALID-ARGUMENT)
+  (check-equal? (exn:fail:glowcap-secondary-code retained) ERR-IO)
+  (check-equal? (exn:fail:glowcap-secondary-count retained) 1)
   (define twice (retain-cleanup-failure retained primary))
-  (check-equal? (exn:fail:pancake-secondary-code twice) ERR-IO)
-  (check-equal? (exn:fail:pancake-secondary-count twice) 2)
+  (check-equal? (exn:fail:glowcap-secondary-code twice) ERR-IO)
+  (check-equal? (exn:fail:glowcap-secondary-count twice) 2)
 
   (define cleanup-order '())
   (define rolled-back
-    (with-handlers ([exn:fail:pancake? values])
+    (with-handlers ([exn:fail:glowcap? values])
       (raise-after-cleanups
        primary
        (list
@@ -201,4 +201,4 @@
           (raise cleanup))))))
   (check-equal? cleanup-order '(listener loop))
   (check-equal? (exn-message rolled-back) "primary")
-  (check-equal? (exn:fail:pancake-secondary-count rolled-back) 2))
+  (check-equal? (exn:fail:glowcap-secondary-count rolled-back) 2))

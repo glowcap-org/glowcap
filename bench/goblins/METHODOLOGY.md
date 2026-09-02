@@ -1,6 +1,6 @@
 # Benchmark methodology
 
-The Goblins, pancake, and pancake-with-time-travel series share an application
+The Goblins, glowcap, and glowcap-with-time-travel series share an application
 and conversation shape. This page records what the harness holds constant and
 what it cannot.
 
@@ -10,11 +10,11 @@ The four applications in `apps/` import neither substrate. `dispatch.rkt`
 builds their method tables. Each backend provides the same five operations:
 run a server, connect a client, fetch a capability, call it, and close.
 
-When an application returns a new capability, Goblins uses `spawn`; pancake
+When an application returns a new capability, Goblins uses `spawn`; glowcap
 uses `session-spawn` to export it. That difference is part of each substrate,
 not application code.
 
-One measured unit is one synchronous send-and-settle cycle. pancake pumps its
+One measured unit is one synchronous send-and-settle cycle. glowcap pumps its
 sans-I/O peer through `session-send`; Goblins awaits an eventual send on its
 vat. The Goblins driver reuses its settlement channel so the harness does not
 add a new per-call allocation on only one side.
@@ -52,8 +52,8 @@ suites as though they were allocations.
 
 ## Limits
 
-- The benchmark includes the Racket binding and runtime on the pancake side.
-  It does not measure pancake's native Zig actor runtime.
+- The benchmark includes the Racket binding and runtime on the glowcap side.
+  It does not measure glowcap's native Zig actor runtime.
 - Calls are sequential. It does not model concurrency or saturation.
 - The registry waits for the returned capability before calling it, so neither
   backend gets credit for promise pipelining.

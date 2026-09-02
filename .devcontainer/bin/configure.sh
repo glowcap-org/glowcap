@@ -7,7 +7,7 @@
 #
 # The primary checkout needs no arguments. A linked worktree must provide a
 # port offset; --egress-net opts into an existing host network instead of the
-# isolated pancake-<worktree>-egress network created by initialize.sh. An
+# isolated glowcap-<worktree>-egress network created by initialize.sh. An
 # existing valid .env is never overwritten.
 set -euo pipefail
 
@@ -49,6 +49,6 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-pancake_require_host "configure.sh"
+glowcap_require_host "configure.sh"
 command -v git >/dev/null || { echo "configure.sh: git is not on PATH" >&2; exit 1; }
-pancake_devcontainer_configure_env "${dir}" "${offset}" "${egress}"
+glowcap_devcontainer_configure_env "${dir}" "${offset}" "${egress}"

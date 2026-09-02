@@ -1,15 +1,15 @@
 //! Capture, front/sink, listen-refusal, dial retention, timeouts, and signal latch.
 const std = @import("std");
 const cli = @import("cli");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const Ctx = cli.ctx.Ctx;
-const tcp = pancake.net.tcp;
-const model = pancake.ocapn.model;
+const tcp = glowcap.net.tcp;
+const model = glowcap.ocapn.model;
 const ip = std.Io.net;
 
-fn testSecret() pancake.foundation.crypto.SecretKey {
-    return pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(7)));
+fn testSecret() glowcap.foundation.crypto.SecretKey {
+    return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(7)));
 }
 
 fn makeCtx(io: std.Io, gpa: std.mem.Allocator, environ: *const std.process.Environ.Map) Ctx {
@@ -104,8 +104,8 @@ test "refused one-shot remains the reachable pending owner" {
     defer threaded.deinit();
     var c = makeCtx(threaded.io(), gpa, &environ);
 
-    var primary: pancake.driver.Session = undefined;
-    var sidecar: pancake.driver.Session = undefined;
+    var primary: glowcap.driver.Session = undefined;
+    var sidecar: glowcap.driver.Session = undefined;
     c.holdSession(&primary);
     c.retainPendingSession(&sidecar);
 
@@ -127,9 +127,9 @@ test "pending sidecar admission resumes only after cleanup settles" {
     defer threaded.deinit();
     var c = makeCtx(threaded.io(), gpa, &environ);
 
-    var primary: pancake.driver.Session = undefined;
-    var first: pancake.driver.Session = undefined;
-    var second: pancake.driver.Session = undefined;
+    var primary: glowcap.driver.Session = undefined;
+    var first: glowcap.driver.Session = undefined;
+    var second: glowcap.driver.Session = undefined;
     c.holdSession(&primary);
     c.retainPendingSession(&first);
     try std.testing.expectError(error.CleanupPending, c.ensureDialAllowed());
@@ -150,7 +150,7 @@ test "a refused held-session close is not exposed as an active session" {
     defer threaded.deinit();
     var c = makeCtx(threaded.io(), gpa, &environ);
 
-    var held: pancake.driver.Session = undefined;
+    var held: glowcap.driver.Session = undefined;
     c.holdSession(&held);
     c.session_cleanup_pending = true;
 
@@ -170,8 +170,8 @@ test "signals stop latch is set by requestStop" {
 
 test "CLI session opts refuse unbounded CapTP waits" {
     const opts = cli.ocapn.sessionOpts();
-    try std.testing.expectEqual(pancake.driver.Budget{ .ms = cli.ocapn.default_handshake_timeout_ms }, opts.handshake);
-    try std.testing.expectEqual(pancake.driver.Budget{ .ms = cli.ocapn.default_settle_timeout_ms }, opts.settle);
+    try std.testing.expectEqual(glowcap.driver.Budget{ .ms = cli.ocapn.default_handshake_timeout_ms }, opts.handshake);
+    try std.testing.expectEqual(glowcap.driver.Budget{ .ms = cli.ocapn.default_settle_timeout_ms }, opts.settle);
     // Not merely non-zero: the product front must name a bound. `.unbounded`
     // is an explicit choice, not a silent default.
     try std.testing.expect(opts.handshake == .ms and opts.handshake.ms > 0);
@@ -217,7 +217,7 @@ test "state-dir lock is exclusive" {
     const io = threaded.io();
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/pancake-cli-lock-test-{d}", .{std.os.linux.getpid()});
+    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-lock-test-{d}", .{std.os.linux.getpid()});
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
 
@@ -228,15 +228,15 @@ test "state-dir lock is exclusive" {
 }
 
 test "stateDirOfIdentity strips the identity leaf" {
-    try std.testing.expectEqualStrings("/tmp/pancake", cli.state_lock.stateDirOfIdentity("/tmp/pancake/identity"));
+    try std.testing.expectEqualStrings("/tmp/glowcap", cli.state_lock.stateDirOfIdentity("/tmp/glowcap/identity"));
     try std.testing.expectEqualStrings(".", cli.state_lock.stateDirOfIdentity("identity"));
 }
 
 test "lockPathForIdentity uses state-dir lock or seed-adjacent lock" {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     try std.testing.expectEqualStrings(
-        "/tmp/pancake/lock",
-        try cli.state_lock.lockPathForIdentity(&buf, "/tmp/pancake/identity"),
+        "/tmp/glowcap/lock",
+        try cli.state_lock.lockPathForIdentity(&buf, "/tmp/glowcap/identity"),
     );
     try std.testing.expectEqualStrings(
         "/tmp/peer.seed.lock",
@@ -250,12 +250,12 @@ test "loose identity seeds do not share a /tmp state lock" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    const a_path = "/tmp/pancake-cli-seed-a.lock-test.seed";
-    const b_path = "/tmp/pancake-cli-seed-b.lock-test.seed";
+    const a_path = "/tmp/glowcap-cli-seed-a.lock-test.seed";
+    const b_path = "/tmp/glowcap-cli-seed-b.lock-test.seed";
     defer std.Io.Dir.cwd().deleteFile(io, a_path) catch {};
     defer std.Io.Dir.cwd().deleteFile(io, b_path) catch {};
-    defer std.Io.Dir.cwd().deleteFile(io, "/tmp/pancake-cli-seed-a.lock-test.seed.lock") catch {};
-    defer std.Io.Dir.cwd().deleteFile(io, "/tmp/pancake-cli-seed-b.lock-test.seed.lock") catch {};
+    defer std.Io.Dir.cwd().deleteFile(io, "/tmp/glowcap-cli-seed-a.lock-test.seed.lock") catch {};
+    defer std.Io.Dir.cwd().deleteFile(io, "/tmp/glowcap-cli-seed-b.lock-test.seed.lock") catch {};
 
     var first = try cli.state_lock.tryAcquireForIdentity(io, a_path);
     defer first.deinit();
@@ -273,7 +273,7 @@ test "info succeeds under state-dir lock with preset identity path" {
     const io = threaded.io();
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/pancake-cli-info-{d}", .{std.os.linux.getpid()});
+    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-info-{d}", .{std.os.linux.getpid()});
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     try std.Io.Dir.cwd().createDirPath(io, dir);
@@ -308,23 +308,23 @@ test "mcp lifecycle defaults are finite" {
     try std.testing.expect(cli.mcp.default_max_session_ms > cli.mcp.default_idle_ms);
 }
 
-test "rooms-peer shim reports missing pancake" {
+test "rooms-peer shim reports missing glowcap" {
     const gpa = std.testing.allocator;
     var threaded = std.Io.Threaded.init(gpa, .{});
     defer threaded.deinit();
-    // Empty PATH and no sibling guarantee → PancakeNotFound (unless a real
+    // Empty PATH and no sibling guarantee → GlowcapNotFound (unless a real
     // sibling exists next to the test binary — still ok if found).
-    const result = cli.rooms_peer_shim.resolvePancakePath(threaded.io(), gpa, "");
+    const result = cli.rooms_peer_shim.resolveGlowcapPath(threaded.io(), gpa, "");
     if (result) |path| {
         defer gpa.free(path);
         try std.testing.expect(path.len > 0);
     } else |err| {
-        try std.testing.expect(err == error.PancakeNotFound);
+        try std.testing.expect(err == error.GlowcapNotFound);
     }
 }
 
 test "an unwritable state directory is refused as an identity problem, not a dial failure" {
-    // The identity is the first thing `pancake` needs and the first thing the
+    // The identity is the first thing `glowcap` needs and the first thing the
     // quickstart tells a reader to create, so a state directory nobody can
     // write has to say so. It used to exit with a bare code and no output, and
     // `ocapn info` reported it through the dial mapper, which sends the reader
@@ -337,7 +337,7 @@ test "an unwritable state directory is refused as an identity problem, not a dia
     const io = threaded.io();
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/pancake-cli-ro-{d}", .{std.os.linux.getpid()});
+    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-ro-{d}", .{std.os.linux.getpid()});
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     defer {
         _ = std.os.linux.chmod(@ptrCast(dir.ptr), 0o700);
@@ -468,7 +468,7 @@ test "info reports a background listener that died on its own" {
 }
 
 test "close composition keeps the primary and notes cleanup as a consequence" {
-    const FailureChain = pancake.foundation.FailureChain;
+    const FailureChain = glowcap.foundation.FailureChain;
     var failure: ?FailureChain = FailureChain.init(error.ConnectionLost);
     var unused: cli.ctx.Ctx = undefined;
     unused.retainCleanup(&failure, FailureChain.init(error.CloseTimedOut));

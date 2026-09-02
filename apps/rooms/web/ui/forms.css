@@ -15,9 +15,8 @@
    different heights before this sheet existed.
 
    The rule for where an act stands: words lead the line and controls end it.
-   A switch sits at the end of its name, an entry's actions sit at the end of
-   its head, and a form's actions sit at the end of the form, trailing, with
-   the commitment last. The one exception is a card's own foot, where the
+   A switch sits at the end of its name, and a form's actions sit at the end
+   of the form, trailing, with the commitment last. The one exception is a card's own foot, where the
    commitment fills the width because the card is about that one act. */
 
 /* ── Fields ─────────────────────────────────────────────────────────────── */
@@ -243,6 +242,111 @@
 }
 
 /* ── Acts ───────────────────────────────────────────────────────────────── */
+/* A fixed mark the field always carries, drawn inside the box so the pair
+   reads as one control: a bridge's channel `#` before the part a reader types.
+   The wrapper wears the border and the focus ring; the input inside gives them
+   up, so the mark and the value share one outline. */
+.card-plane .field-prefixed {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: center;
+	height: var(--field-h);
+	border: 1px solid var(--rule);
+	border-radius: 11px;
+	background: var(--field-fill);
+	box-shadow: var(--field-lift);
+	overflow: hidden;
+}
+.card-plane .field-prefixed:focus-within {
+	border-color: var(--accent);
+	box-shadow: var(--ring);
+}
+.card-plane .field-prefixed > span {
+	padding-inline-start: 13px;
+	color: var(--ink-soft);
+	font-weight: 700;
+}
+.card-plane .field-prefixed > .field {
+	height: auto;
+	padding-inline-start: 4px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+.card-plane .field-prefixed > .field:focus {
+	outline: 0;
+	border: 0;
+	box-shadow: none;
+}
+
+/* A form drawn on a wide surface lays its leaf fields across three columns
+   rather than stacking one question per line, so a six-field connection form
+   reads as two even rows. A toggle and its revealed fields, and the acts, take
+   the whole width so the reveal and the commitment still read as their own
+   rows. It is where the form is drawn, not what it asks, so the caller sets it
+   and the bridge never does. It narrows to two columns and then one as its
+   container does, the way the fixed layout it replaced did. */
+.card-plane .bridge-form-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: var(--gap-group) var(--gap-row);
+	align-items: start;
+}
+.card-plane .bridge-form-grid > .group,
+.card-plane .bridge-form-grid > .actions,
+.card-plane .bridge-form-grid > .bridge-form-foot {
+	grid-column: 1 / -1;
+}
+/* The footer the standalone page had: the state toggle, the sentence about what
+   the act does, and the commitment, on one line. The sentence takes the slack,
+   so the toggle sits at the start and the button at the end. */
+.card-plane .bridge-form-foot {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--gap-group);
+}
+.card-plane .bridge-form-foot > .hint {
+	margin: 0;
+}
+@container (max-width: 640px) {
+	.card-plane .bridge-form-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	/* Two columns is too narrow for three footer cells, so the commitment drops
+	   to its own line under the toggle and its sentence. */
+	.card-plane .bridge-form-foot {
+		grid-template-columns: auto minmax(0, 1fr);
+	}
+	.card-plane .bridge-form-foot > .actions {
+		grid-column: 1 / -1;
+		justify-content: flex-end;
+	}
+}
+@container (max-width: 440px) {
+	.card-plane .bridge-form-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* A one-field-and-act form on a single line: the field takes the slack and the
+   commitment sits at its end, the way a lease's channel sat beside Join. */
+.card-plane .bridge-form-row {
+	display: flex;
+	align-items: center;
+	gap: var(--gap-row);
+	min-width: 0;
+}
+.card-plane .bridge-form-row > .field-prefixed,
+.card-plane .bridge-form-row > .field {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.card-plane .bridge-form-row > .actions {
+	flex: 0 0 auto;
+}
+
 /* The acts a surface offers, at the end of the line they belong to, the
    commitment last. Trailing rather than leading because every other control
    on the plane already ends its line — the switch, the entry's buttons, the
@@ -318,190 +422,6 @@
 	color: var(--ink);
 	line-height: 1.45;
 	text-wrap: pretty;
-}
-
-/* ── Entries ────────────────────────────────────────────────────────────── */
-/* A list of things the surface knows about, one entry each: a listener, a
-   publication, a grant, a member, an operation waiting to be resumed. The
-   head carries the name, whatever short fact qualifies it, and the acts at
-   the line's end; the body under it carries the longer facts, one line each.
-   Rows rather than a table because the long fact in most of these is a piece
-   of wire text, and a column beside a locator only forces it to wrap against
-   its neighbors. */
-.entries {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-	display: flex;
-	flex-direction: column;
-	gap: var(--gap-group);
-	min-width: 0;
-}
-.entry {
-	display: flex;
-	flex-direction: column;
-	gap: var(--gap-tight);
-	min-width: 0;
-}
-/* A rule tells one row from the next. A row wearing its own `well` already has
-   an edge on every side, and a rule above it is that edge drawn twice. */
-.entry + .entry:not(.well) {
-	padding-top: 12px;
-	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
-}
-.entry-head {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: var(--gap-row);
-	min-height: var(--control-h);
-}
-/* The reserved control height is there so a name sits centred against the
-   button at the end of its line. A head with nothing to press is a line of
-   text, and reserving a control's height under it opens a gap between the name
-   and the sentence that explains it, which are one unit to a reader. */
-.entry-head:not(:has(.actions, .button, .icon-button)) {
-	min-height: 0;
-}
-.entry-name {
-	flex: 1 1 10rem;
-	min-width: 0;
-	font-size: var(--type-ui);
-	font-weight: 700;
-	color: var(--ink);
-	overflow-wrap: anywhere;
-}
-/* A short fact beside the name stays on the head's line; the same voice as a
-   body line under the head carries wire text, which breaks anywhere. */
-.entry-meta {
-	margin: 0;
-	font-size: var(--type-caption);
-	color: var(--ink-soft);
-	overflow-wrap: anywhere;
-}
-.entry-head > .entry-meta {
-	white-space: nowrap;
-}
-.entry-head > .actions {
-	margin-inline-start: auto;
-}
-/* A head that tries to be one line. The name is the only part of one that can
-   be any length, and left to itself it claims a share of the line and pushes
-   the act off the end, where it stands alone with a hole beside it. Here the
-   name takes only what it needs, so what qualifies it and the act on it stay
-   where a reader looking down a column of acts expects them.
-
-   It never gives up more than its longest word: a name squeezed past that
-   breaks mid-word, which is worse than the act moving down. When even that
-   does not fit, the line wraps as any line does, and on a phone it is told
-   where to break — the name takes the line, and what qualifies it shares the
-   one below, one at each end. */
-.entry-head[data-one-line] > .entry-name {
-	flex: 0 1 auto;
-	min-width: min-content;
-}
-.entry-head[data-one-line] > .tag,
-.entry-head[data-one-line] > .actions {
-	flex: none;
-}
-@media (max-width: 520px) {
-	.entry-head[data-one-line] > .entry-name {
-		flex: 1 1 100%;
-	}
-}
-/* An entry that cannot act fades as one piece; the sentence saying why keeps
-   full ink so the reason stays readable. */
-.entry[data-idle="true"] .entry-name,
-.entry[data-idle="true"] > .hint:first-of-type {
-	opacity: .55;
-}
-/* Nothing to list says so in the well, quietly, instead of an empty grid. */
-.card-plane .empty {
-	margin: 0;
-	padding: 4px 0;
-	font-size: var(--type-ui);
-	color: var(--ink-soft);
-}
-
-/* ── The launch row ─────────────────────────────────────────────────────── */
-/* A named door: a mark, the name and one sentence, and the act that goes
-   through it at the line's end. Session setup's two choices and the Session
-   tab's managers are this row. On a phone the act drops under the copy at
-   full width, so a long name and a wide button never fight for one line. */
-.launch {
-	display: grid;
-	grid-template-columns: 38px minmax(0, 1fr) auto;
-	align-items: center;
-	gap: var(--gap-group);
-	min-width: 0;
-}
-.launch-mark {
-	width: 38px;
-	height: 38px;
-	display: grid;
-	place-items: center;
-	border: 1px solid color-mix(in srgb, var(--teal) 28%, var(--rule));
-	border-radius: 50%;
-	color: var(--teal);
-	background: color-mix(in srgb, var(--teal) 8%, transparent);
-}
-.launch-copy {
-	display: grid;
-	gap: var(--gap-line);
-	min-width: 0;
-}
-.launch-copy .group-label,
-.launch-copy .hint {
-	margin: 0;
-}
-.launch-title {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: var(--gap-tight);
-	margin: 0;
-	font-size: var(--type-body);
-	font-weight: 700;
-	color: var(--ink);
-}
-/* A launch whose act is a field and its button spans the copy's own column
-   with them, one line below the sentence. */
-.launch > .field-row,
-.launch > .field-stack {
-	grid-column: 2 / -1;
-}
-/* A launch whose door is not open carries a state where the act would be. */
-.launch > .tag {
-	justify-self: end;
-}
-/* In a modal card the row is too narrow for a name, a sentence, and a wide
-   act on one line, so the act drops under the copy, at the line's end like
-   every other act. The setup page's wider card keeps the one-line form. */
-.modal-card .launch {
-	grid-template-columns: 38px minmax(0, 1fr);
-}
-.modal-card .launch > .button {
-	grid-column: 2 / -1;
-	justify-self: end;
-}
-@media (max-width: 520px) {
-	.launch {
-		grid-template-columns: 38px minmax(0, 1fr);
-	}
-	.launch > .button,
-	.modal-card .launch > .button {
-		grid-column: 1 / -1;
-		justify-self: stretch;
-		width: 100%;
-	}
-	.launch > .field-row,
-	.launch > .field-stack {
-		grid-column: 1 / -1;
-	}
-	.launch > .tag {
-		grid-column: 2 / -1;
-		justify-self: start;
-	}
 }
 
 /* ── Small marks ────────────────────────────────────────────────────────── */

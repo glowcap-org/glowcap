@@ -3,7 +3,7 @@ id: ADR-0083
 status: accepted
 date: 2026-07-15
 tags: [captp, session, abort, c-abi]
-decision: "Outbound op:abort commits through Peer.commitAbortOutbound: encode onto outbound, then close. App-queued aborts and all projected protocol refusals, including handshake refusals, are terminal. Encode/push failure during projected refusal still closes without masking the original error. pancake_peer_send_abort is the typed C veneer. CapTP lifecycle stays negotiating | open | closed."
+decision: "Outbound op:abort commits through Peer.commitAbortOutbound: encode onto outbound, then close. App-queued aborts and all projected protocol refusals, including handshake refusals, are terminal. Encode/push failure during projected refusal still closes without masking the original error. glowcap_peer_send_abort is the typed C veneer. CapTP lifecycle stays negotiating | open | closed."
 supersedes: []
 superseded_by: []
 amends: []
@@ -50,14 +50,14 @@ swallows that secondary error (so the original dispatch error is not masked)
 and still closes: the session is already fatally refused even if the partner
 never sees an abort frame.
 
-`pancake_peer_send_abort` queues a typed abort (`AbortKind` wire label +
-message); after a successful `pancake_peer_step` the peer is no longer open.
+`glowcap_peer_send_abort` queues a typed abort (`AbortKind` wire label +
+message); after a successful `glowcap_peer_step` the peer is no longer open.
 There is no CapTP `draining` state and no second Peer `shutdown` verb,
 `AbortKind.graceful_shutdown` is enough. Host transport soft-stop
 (`condemned` + flush/close) stays above CapTP.
 
-`zig build source-check` holds EVENT/send parity: every `PANCAKE_EVENT_*` maps to
-a peer send constructor or an allowlist row. `PANCAKE_EVENT_LISTEN` is
+`zig build source-check` holds EVENT/send parity: every `GLOWCAP_EVENT_*` maps to
+a peer send constructor or an allowlist row. `GLOWCAP_EVENT_LISTEN` is
 allowlisted (engine-synthesized / inbound install); `ABORT` is not.
 
 ## Consequences

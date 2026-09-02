@@ -10,7 +10,7 @@ export const doc = TimelineDocument.parse({
 			t: 0,
 			kind: "peer-joined",
 			peerId: "a",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "e2",

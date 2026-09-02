@@ -1,5 +1,5 @@
-(require "pancake.rkt"
-         "pancake-tcp.rkt")
+(require "glowcap.rkt"
+         "glowcap-tcp.rkt")
 
 ;; Plain TCP binds the host and port you choose.
 (define server (listen "127.0.0.1" 9099))

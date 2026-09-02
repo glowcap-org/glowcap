@@ -24,10 +24,10 @@ pub fn checkRoomsWireProfile(
         ".codec = .capnp",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/shared/profile.zig", &.{
-        "PANCAKE_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec)",
-        "PANCAKE_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version)",
-        "PANCAKE_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec)",
-        "PANCAKE_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version)",
+        "GLOWCAP_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec)",
+        "GLOWCAP_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version)",
+        "GLOWCAP_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec)",
+        "GLOWCAP_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version)",
     });
     try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/profile.ts", &.{
         "? { profile: \"native\", features: \"full\" }",
@@ -42,7 +42,7 @@ pub fn checkRoomsWireProfile(
     const profile_uses = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "apps/rooms/clients/python/room_client.py", .needle = "Host(profile=\"native\")" },
         .{ .path = "apps/rooms/clients/racket/room-client.rkt", .needle = "#:profile 'native" },
-        .{ .path = "apps/rooms/clients/rust/room.rs", .needle = "HostOptions::with_profile(pancake::HostProfile::Native)" },
+        .{ .path = "apps/rooms/clients/rust/room.rs", .needle = "HostOptions::with_profile(glowcap::HostProfile::Native)" },
         .{ .path = "apps/rooms/clients/zig/client.zig", .needle = "model.Preference.native" },
         .{ .path = "cli/app/rooms_peer/peer.zig", .needle = "model.Preference.native" },
     };
@@ -68,7 +68,7 @@ const rooms_peer_dirs = [_][]const u8{
 /// than at the line that minted the host. That mistake was made four times in
 /// one afternoon across demos, tests, and the server. That is the price of
 /// a convention rather than a check. `roomsHost` and `roomsListen` are the
-/// two front doors; a peer that genuinely wants the floor (proving pancake
+/// two front doors; a peer that genuinely wants the floor (proving glowcap
 /// meets an interop partner there) says so on the line with
 /// `rooms-profile-exempt:` and a reason.
 pub fn checkRoomsPeerMinting(
@@ -112,7 +112,7 @@ pub fn checkRoomsPeerMinting(
                 }
                 // A qualified `listen` belongs to something else — `Deno.listen`
                 // opens a socket, and a socket has no CapTP profile to get
-                // wrong. Only the bare call mints a pancake peer.
+                // wrong. Only the bare call mints a glowcap peer.
                 const bare_listen = if (std.mem.indexOf(u8, line, "listen(")) |at|
                     at == 0 or line[at - 1] != '.'
                 else
@@ -154,7 +154,7 @@ pub fn checkRoomsInputParseFailures(
     };
     defer gpa.free(owner);
 
-    const translation = "if (error instanceof PancakeError && error.code === INVALID_ARGUMENT) return null;\n\tthrow error;";
+    const translation = "if (error instanceof GlowcapError && error.code === INVALID_ARGUMENT) return null;\n\tthrow error;";
     if (std.mem.count(u8, owner, translation) != 1) {
         try appendViolation(gpa, violations, "{s}: parser failures must have one typed INVALID_ARGUMENT-to-null translation that rethrows every other failure", .{owner_path});
     }

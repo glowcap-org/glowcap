@@ -1,8 +1,8 @@
 //! The native answerer for the WebRTC browser-peer proof (ADR-0089, phase 6).
 //!
-//! A real headless Chromium is the offerer (`@pancake/webrtc`'s `RtcPeer` over
+//! A real headless Chromium is the offerer (`@glowcap/webrtc`'s `RtcPeer` over
 //! `RTCPeerConnection`, driving a keyed session inside the wasm Host); this
-//! process is the answerer over the native sidecar (`pancake_webrtc_sidecar_*`),
+//! process is the answerer over the native sidecar (`glowcap_webrtc_sidecar_*`),
 //! serving a Greeter behind the keyed handshake. The harness ferries the
 //! signaling between the two out of band over this process's stdio, one JSON
 //! object per line, the phase-1 datachannel probe's wire:
@@ -28,13 +28,13 @@
 //! and run only by the `webrtc-browser-peer` harness, never a hermetic gate.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc";

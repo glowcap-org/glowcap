@@ -1,6 +1,6 @@
 # The WebRTC DataChannel netlayer sidecar (ADR-0089). Phase 1 shipped the
 # de-risk probe binary below; phase 2 adds the staticlib C ABI
-# `libpancake_webrtc_sidecar.a` that the Zig resident
+# `libglowcap_webrtc_sidecar.a` that the Zig resident
 # (`src/net/transport/webrtc.zig`) drives, the same private byte-level seam the
 # iroh sidecar ships. The probe binary stays for the phase-1 datachannel gate.
 #
@@ -10,25 +10,25 @@
 # every machine. The direct dependencies are pinned exactly below so an
 # intentional bump is visible here, not only in the lockfile.
 [package]
-name = "pancake-webrtc"
+name = "glowcap-webrtc"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-# The staticlib is named `pancake_webrtc_sidecar` so it emits
-# `libpancake_webrtc_sidecar.a`: the private byte-level seam the Zig resident
+# The staticlib is named `glowcap_webrtc_sidecar` so it emits
+# `libglowcap_webrtc_sidecar.a`: the private byte-level seam the Zig resident
 # links, distinct from the public frame-level archive
-# `libpancake_net_transport_webrtc` (ADR-0059, phase 3).
-name = "pancake_webrtc_sidecar"
+# `libglowcap_net_transport_webrtc` (ADR-0059, phase 3).
+name = "glowcap_webrtc_sidecar"
 crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
 
 [[bin]]
 # The native answerer the browser peer connects to. Named
-# `pancake-webrtc-datachannel-probe` so the build step and the harness address
+# `glowcap-webrtc-datachannel-probe` so the build step and the harness address
 # it unambiguously.
-name = "pancake-webrtc-datachannel-probe"
+name = "glowcap-webrtc-datachannel-probe"
 path = "src/probe.rs"
 
 [dependencies]

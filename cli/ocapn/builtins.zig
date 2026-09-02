@@ -4,9 +4,9 @@
 //! (`echo`). The say-verbs draw their speech balloons here so the CapTP seam
 //! file next door stays about dial, session options, and exit codes.
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const driver = pancake.driver;
+const driver = glowcap.driver;
 
 /// One row per demo verb: dispatch below and REPL Tab completion share this
 /// table, so a new verb lands in both in the same change. Say-verbs carry
@@ -20,7 +20,7 @@ pub const DemoVerb = struct {
 pub const demo_verbs = [_]DemoVerb{
     .{ .name = "greet", .blurb = "Greeter greet verb" },
     .{ .name = "cowsay", .blurb = "Greeter cowsay verb", .figure = cow_figure },
-    .{ .name = "pancakesay", .blurb = "Greeter pancakesay verb", .figure = pancake_figure },
+    .{ .name = "glowcapsay", .blurb = "Greeter glowcapsay verb", .figure = glowcap_figure },
     .{ .name = "goblinsay", .blurb = "Greeter goblinsay verb", .figure = goblin_figure },
     .{ .name = "echo", .blurb = "Echo verb" },
 };
@@ -55,7 +55,7 @@ const cow_figure =
 
 /// Stack-of-pancakes speech balloon (CLI demo — the product's own joke).
 /// Middle cake wears a little face.
-const pancake_figure =
+const glowcap_figure =
     \\
     \\       \
     \\        \    .------.

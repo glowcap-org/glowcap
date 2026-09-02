@@ -1,12 +1,12 @@
 ---
 .title = "Zig API reference",
-.description = "The generated Zig API reference for the public pancake module.",
+.description = "The generated Zig API reference for the public glowcap module.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-This route serves the generated Zig API reference for the public `pancake`
+This route serves the generated Zig API reference for the public `glowcap`
 module. If you are reading this text instead of the reference, the site was
 built without the autodoc step; the [API reference]($link.page('reference'))
 page describes the Zig and C entry points. [Start building]($link.page('start'))

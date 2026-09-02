@@ -4,12 +4,12 @@
 //! relayed promise installs a successor proxy instead of breaking.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesAllocator;
 
 const Node = engine.Node;
@@ -71,7 +71,7 @@ test "a relayed resolution carrying a capability is introduced by handoff, not b
     const listener = blk: {
         var frame = node.peer(home).?.takeOutbound().?;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         break :blk view.listen.listener.far.import_position.int();
     };
 
@@ -106,7 +106,7 @@ test "a relayed resolution carrying a capability is introduced by handoff, not b
     while (node.peer(recipient).?.takeOutbound()) |frame_const| {
         var frame = frame_const;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         if (view != .deliver) continue;
         if (try view.deliver.args.len() != 2) continue;
         const tag = try view.deliver.args.at(0);
@@ -126,7 +126,7 @@ test "a relayed resolution carrying a capability is introduced by handoff, not b
     while (node.peer(home).?.takeOutbound()) |frame_const| {
         var frame = frame_const;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         // A deposit is a bootstrap deliver, not an `op:handoff`: the gifter
         // asks the exporter's bootstrap object to hold the capability under
         // the gift id, and the exporter answers a later `withdraw-gift`.
@@ -178,7 +178,7 @@ test "two recipients of one relayed capability each get their own give" {
     const listener = blk: {
         var frame = node.peer(home).?.takeOutbound().?;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         break :blk view.listen.listener.far.import_position.int();
     };
 
@@ -265,7 +265,7 @@ test "one relayed recipient can break under pressure without rolling back its si
     try node.peer(home).?.stepToIdle();
     var listen_frame = node.peer(home).?.takeOutbound().?;
     defer listen_frame.deinit();
-    const listener = (try pancake.ocapn.codec.syrup.decodeBody(listen_frame.view()))
+    const listener = (try glowcap.ocapn.codec.syrup.decodeBody(listen_frame.view()))
         .listen.listener.far.import_position.int();
 
     try node.peer(home).?.session_state.registerImport(.from(9));
@@ -362,7 +362,7 @@ test "a relayed promise installs a successor proxy instead of breaking" {
     const listener = blk: {
         var frame = node.peer(home).?.takeOutbound().?;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         break :blk view.listen.listener.far.import_position.int();
     };
 
@@ -416,7 +416,7 @@ test "a relayed resolution carrying a sturdyref relays, because a sturdyref mean
     const listener = blk: {
         var frame = node.peer(home).?.takeOutbound().?;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         break :blk view.listen.listener.far.import_position.int();
     };
 

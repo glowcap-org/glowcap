@@ -1,14 +1,14 @@
-import { CLOSED, INTERNAL, IO } from "@pancake/abi";
-import { PancakeError, type Session } from "@pancake/runtime";
+import { CLOSED, INTERNAL, IO } from "@glowcap/abi";
+import { GlowcapError, type Session } from "@glowcap/runtime";
 import { routinePeerDisconnect } from "../../lib/session_failure.ts";
 import { RoomServer } from "../../server/room_server.ts";
 import { assertEquals } from "../assert.ts";
 
 Deno.test("member transport loss is an ordinary accepted-session end", () => {
-	assertEquals(routinePeerDisconnect(new PancakeError(IO, "session failed: ConnectionLost")), true);
-	assertEquals(routinePeerDisconnect(new PancakeError(CLOSED, "the peer closed")), true);
-	assertEquals(routinePeerDisconnect(new PancakeError(IO, "session failed: ReadFailed")), false);
-	assertEquals(routinePeerDisconnect(new PancakeError(INTERNAL, "dispatch invariant")), false);
+	assertEquals(routinePeerDisconnect(new GlowcapError(IO, "session failed: ConnectionLost")), true);
+	assertEquals(routinePeerDisconnect(new GlowcapError(CLOSED, "the peer closed")), true);
+	assertEquals(routinePeerDisconnect(new GlowcapError(IO, "session failed: ReadFailed")), false);
+	assertEquals(routinePeerDisconnect(new GlowcapError(INTERNAL, "dispatch invariant")), false);
 	assertEquals(routinePeerDisconnect(new Error("application behavior failed")), false);
 });
 

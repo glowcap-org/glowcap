@@ -63,15 +63,15 @@
       "npm:zustand@5.0.15"
     ],
     "links": {
-      "jsr:@pancake/abi@0.1.0": {},
-      "jsr:@pancake/inproc@0.1.0": {},
-      "jsr:@pancake/iroh@0.1.0": {},
-      "jsr:@pancake/onion@0.1.0": {},
-      "jsr:@pancake/relay@0.1.0": {},
-      "jsr:@pancake/runtime@0.1.0": {},
-      "jsr:@pancake/tcp@0.1.0": {},
-      "jsr:@pancake/web@0.1.0": {},
-      "jsr:@pancake/webrtc@0.1.0": {}
+      "jsr:@glowcap/abi@0.1.0": {},
+      "jsr:@glowcap/inproc@0.1.0": {},
+      "jsr:@glowcap/iroh@0.1.0": {},
+      "jsr:@glowcap/onion@0.1.0": {},
+      "jsr:@glowcap/relay@0.1.0": {},
+      "jsr:@glowcap/runtime@0.1.0": {},
+      "jsr:@glowcap/tcp@0.1.0": {},
+      "jsr:@glowcap/web@0.1.0": {},
+      "jsr:@glowcap/webrtc@0.1.0": {}
     }
   }
 }

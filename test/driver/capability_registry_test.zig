@@ -1,10 +1,10 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const core = pancake.driver.core;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const core = glowcap.driver.core;
+const actors = glowcap.actors;
 const host_pair = @import("../support/host_pair.zig");
 const CapturedRef = @import("../support/capture.zig").CapturedRef;
 const publishAndOpenAccepted = host_pair.publishAndOpenAccepted;

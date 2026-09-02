@@ -1,7 +1,7 @@
 /** Native iroh endpoint, connection, and provider-package ownership. */
 
-import { HINT_DIRECT_ADDRESSES, type Locator, PancakeError, Reachability, TRANSPORT_IROH } from "@pancake/runtime";
-import type { DriverLoop } from "@pancake/runtime/transport";
+import { GlowcapError, HINT_DIRECT_ADDRESSES, type Locator, Reachability, TRANSPORT_IROH } from "@glowcap/runtime";
+import type { DriverLoop } from "@glowcap/runtime/transport";
 import {
 	ab,
 	BUFFER_TOO_SMALL,
@@ -22,7 +22,7 @@ import {
 	readErrorSlot,
 	TRANSPORT_PROVIDER_SIZE,
 	WOULD_BLOCK,
-} from "@pancake/runtime/ffi";
+} from "@glowcap/runtime/ffi";
 import { irohS } from "./ffi.ts";
 
 export function locator(nodeId: string, directAddresses?: string): Locator {
@@ -36,17 +36,17 @@ export function locator(nodeId: string, directAddresses?: string): Locator {
 
 // The calling thread's last error from the iroh transport, or null when there
 // is none. The transport keeps its own thread-local slot, so an iroh call's
-// diagnostic is read here, never from the core's `pancake_last_error`.
+// diagnostic is read here, never from the core's `glowcap_last_error`.
 function irohLastError(): string | null {
-	return readErrorSlot(irohS().pancake_iroh_last_error);
+	return readErrorSlot(irohS().glowcap_iroh_last_error);
 }
 
 // A failed iroh-transport call: read its diagnostic from the transport's own
-// thread-local last-error and pass it explicitly, so `PancakeError` never
-// scrapes the unrelated core-family `pancake_last_error`.
+// thread-local last-error and pass it explicitly, so `GlowcapError` never
+// scrapes the unrelated core-family `glowcap_last_error`.
 function irohCheck(code: number): void {
 	if (code !== OK) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			code,
 			irohLastError() ?? `iroh transport call failed (code ${code})`,
 		);
@@ -62,7 +62,7 @@ function readUsizeView(view: DataView): number {
 }
 
 /** One iroh endpoint's configuration, field-for-field with the header's
- * `PancakeIrohConfig`, which documents what each setting means. An omitted
+ * `GlowcapIrohConfig`, which documents what each setting means. An omitted
  * timeout takes the transport's default.
  *
  * `reachability` is mandatory: enabling relays or a discovery service is always
@@ -70,7 +70,7 @@ function readUsizeView(view: DataView): number {
  * up, `idleTimeoutMs` bounds keeping one. Set `idleTimeoutMs` if you read a
  * live session as presence, because it is what ends a connection whose peer was
  * killed rather than closed. `workerThreads` sizes this endpoint's sidecar
- * runtime; omit it for pancake's default. */
+ * runtime; omit it for glowcap's default. */
 export type IrohConfig = {
 	reachability: Reachability;
 	connectTimeoutMs?: number;
@@ -112,7 +112,7 @@ export class IrohNetlayer {
 		signal?: AbortSignal,
 	): Promise<IrohNetlayer> {
 		if (signal?.aborted) {
-			throw new PancakeError(CLOSED, "host released while opening iroh endpoint");
+			throw new GlowcapError(CLOSED, "host released while opening iroh endpoint");
 		}
 		if (!ffi.offloadsBlockingCalls()) {
 			throw new Error("iroh requires a runtime that offloads blocking FFI lifecycle calls");
@@ -123,7 +123,7 @@ export class IrohNetlayer {
 		const seed = secretSeed?.slice() ?? new Uint8Array(0);
 		const out = new Uint8Array(8);
 		// The size and every offset come from the generated layout mirror rather
-		// than being counted here, so a field added to `PancakeIrohConfig`
+		// than being counted here, so a field added to `GlowcapIrohConfig`
 		// cannot leave this buffer short of what the transport reads.
 		// Zero-initialized, so an unset field stays 0 and means the built-in
 		// default, which is the header's zero-init contract.
@@ -150,7 +150,7 @@ export class IrohNetlayer {
 				config.workerThreads <= 0 ||
 				config.workerThreads > 0xffffffff
 			) {
-				throw new PancakeError(
+				throw new GlowcapError(
 					INVALID_ARGUMENT,
 					"iroh workerThreads must be an integer between 1 and 4294967295",
 				);
@@ -160,7 +160,7 @@ export class IrohNetlayer {
 		await new NativeDiagnostic("iroh").check(
 			"open endpoint",
 			(error, cap, errorLen) =>
-				irohS().pancake_iroh_netlayer_new(
+				irohS().glowcap_iroh_netlayer_new(
 					ab(seed),
 					BigInt(seed.length),
 					ab(raw),
@@ -173,7 +173,7 @@ export class IrohNetlayer {
 		const netlayer = new IrohNetlayer(outPointer(out));
 		if (signal?.aborted) {
 			await netlayer.release();
-			throw new PancakeError(CLOSED, "host released while opening iroh endpoint");
+			throw new GlowcapError(CLOSED, "host released while opening iroh endpoint");
 		}
 		return netlayer;
 	}
@@ -185,7 +185,7 @@ export class IrohNetlayer {
 		const out = new Uint8Array(cap);
 		const len = new Uint8Array(8);
 		irohCheck(
-			irohS().pancake_iroh_netlayer_node_id(this.#raw, out, BigInt(cap), len),
+			irohS().glowcap_iroh_netlayer_node_id(this.#raw, out, BigInt(cap), len),
 		);
 		return new TextDecoder().decode(out.subarray(0, readUsize(len)));
 	}
@@ -195,7 +195,7 @@ export class IrohNetlayer {
 	 * when the endpoint has no direct addresses yet. */
 	directAddresses(): string {
 		const probeLen = new Uint8Array(8);
-		const probeRc = irohS().pancake_iroh_netlayer_direct_addrs(
+		const probeRc = irohS().glowcap_iroh_netlayer_direct_addrs(
 			this.#raw,
 			null,
 			0n,
@@ -209,7 +209,7 @@ export class IrohNetlayer {
 		for (;;) {
 			const out = new Uint8Array(cap);
 			const len = new Uint8Array(8);
-			const rc = irohS().pancake_iroh_netlayer_direct_addrs(
+			const rc = irohS().glowcap_iroh_netlayer_direct_addrs(
 				this.#raw,
 				out,
 				BigInt(cap),
@@ -236,9 +236,9 @@ export class IrohNetlayer {
 	 * a dup of it) and call `drainReady` when it signals. Owned by the netlayer;
 	 * never close it. */
 	readinessFd(): number {
-		const fd = irohS().pancake_iroh_netlayer_readiness_fd(this.#raw);
+		const fd = irohS().glowcap_iroh_netlayer_readiness_fd(this.#raw);
 		if (fd < 0) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				fd,
 				irohLastError() ?? `iroh readiness_fd failed (code ${fd})`,
 			);
@@ -250,14 +250,14 @@ export class IrohNetlayer {
 	 * blocking. Returns the record count (0 when none); throws on fault. Call it
 	 * when `readinessFd` signals, then again until it returns fewer than `cap`. */
 	drainReady(buf: Uint8Array, cap: number): number {
-		const rc = irohS().pancake_iroh_netlayer_drain_ready(
+		const rc = irohS().glowcap_iroh_netlayer_drain_ready(
 			this.#raw,
 			ab(buf),
 			BigInt(cap),
 			ab(this.#countOut),
 		);
 		if (rc !== OK) {
-			throw new PancakeError(rc, irohLastError() ?? `iroh drain_ready failed (code ${rc})`);
+			throw new GlowcapError(rc, irohLastError() ?? `iroh drain_ready failed (code ${rc})`);
 		}
 		return readUsizeView(this.#countView);
 	}
@@ -265,7 +265,7 @@ export class IrohNetlayer {
 	/** Borrow this endpoint's archive-owned provider package. */
 	#transportProvider(): Uint8Array {
 		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
-		irohCheck(irohS().pancake_iroh_transport_provider(this.#raw, ab(packageBytes)));
+		irohCheck(irohS().glowcap_iroh_transport_provider(this.#raw, ab(packageBytes)));
 		return packageBytes;
 	}
 
@@ -274,14 +274,14 @@ export class IrohNetlayer {
 	 * and therefore cannot outlive the driver and dereference a retired endpoint. */
 	async #relinquishProviderReference(): Promise<void> {
 		if (this.#raw === NULL || this.#releaseRequested || this.#children.size !== 0) {
-			throw new PancakeError(INVALID_ARGUMENT, "iroh endpoint is not transferable");
+			throw new GlowcapError(INVALID_ARGUMENT, "iroh endpoint is not transferable");
 		}
 		this.#releaseRequested = true;
 		const raw = this.#raw;
 		this.#raw = NULL;
 		this.#releasePromise = this.#releaseDiagnostic.check(
 			"release endpoint",
-			(error, cap, errorLen) => irohS().pancake_iroh_netlayer_release(raw, error, cap, errorLen),
+			(error, cap, errorLen) => irohS().glowcap_iroh_netlayer_release(raw, error, cap, errorLen),
 		);
 		await this.#releasePromise;
 	}
@@ -296,7 +296,7 @@ export class IrohNetlayer {
 
 	/** Claim one accepted non-blocking connection, or null when none is pending. */
 	tryAccept(): IrohConnection | null {
-		const code = irohS().pancake_iroh_netlayer_try_accept(this.#raw, this.#connOut);
+		const code = irohS().glowcap_iroh_netlayer_try_accept(this.#raw, this.#connOut);
 		if (code === WOULD_BLOCK) return null;
 		irohCheck(code);
 		return new IrohConnection(outPointer(this.#connOut), this);
@@ -306,7 +306,7 @@ export class IrohNetlayer {
 		const id = new TextEncoder().encode(nodeId);
 		const hints = new TextEncoder().encode(addrHints);
 		irohCheck(
-			irohS().pancake_iroh_netlayer_start_connect(
+			irohS().glowcap_iroh_netlayer_start_connect(
 				this.#raw,
 				requestId,
 				ab(id),
@@ -319,13 +319,13 @@ export class IrohNetlayer {
 
 	finishConnect(requestId: bigint): IrohConnection {
 		irohCheck(
-			irohS().pancake_iroh_netlayer_finish_connect(this.#raw, requestId, this.#connOut),
+			irohS().glowcap_iroh_netlayer_finish_connect(this.#raw, requestId, this.#connOut),
 		);
 		return new IrohConnection(outPointer(this.#connOut), this);
 	}
 
 	cancelConnect(requestId: bigint): void {
-		irohCheck(irohS().pancake_iroh_netlayer_cancel_connect(this.#raw, requestId));
+		irohCheck(irohS().glowcap_iroh_netlayer_cancel_connect(this.#raw, requestId));
 	}
 
 	/** Close the endpoint without freeing the handle: later dials fail and the
@@ -337,7 +337,7 @@ export class IrohNetlayer {
 		this.#releaseRequested = true;
 		for (const child of [...this.#children]) child.release();
 		const raw = this.#raw;
-		this.#closePromise = Promise.resolve(irohS().pancake_iroh_netlayer_close(raw));
+		this.#closePromise = Promise.resolve(irohS().glowcap_iroh_netlayer_close(raw));
 		return this.#closePromise;
 	}
 
@@ -355,7 +355,7 @@ export class IrohNetlayer {
 			} finally {
 				await this.#releaseDiagnostic.check(
 					"release endpoint",
-					(error, cap, errorLen) => irohS().pancake_iroh_netlayer_release(raw, error, cap, errorLen),
+					(error, cap, errorLen) => irohS().glowcap_iroh_netlayer_release(raw, error, cap, errorLen),
 				);
 			}
 		})();
@@ -390,7 +390,7 @@ export class IrohConnection {
 		this.#raw = raw;
 		this.#netlayer = netlayer;
 		if (!netlayer[adoptIrohConnection](this)) {
-			irohS().pancake_iroh_conn_release(raw);
+			irohS().glowcap_iroh_conn_release(raw);
 			this.#raw = NULL;
 			throw new Error("iroh netlayer is released");
 		}
@@ -398,14 +398,14 @@ export class IrohConnection {
 
 	/** This connection's stable readiness identity. */
 	key(): bigint {
-		return irohS().pancake_iroh_conn_id(this.#raw);
+		return irohS().glowcap_iroh_conn_id(this.#raw);
 	}
 
 	/** The far end's node id, as QUIC proved it: this connection completed
 	 * only because the peer held the secret for this key. Null when the
 	 * connection is gone or the handshake proved nothing.
 	 *
-	 * This is the fact a session is otherwise missing. pancake cannot see it —
+	 * This is the fact a session is otherwise missing. glowcap cannot see it —
 	 * it did not open this connection — so whoever did passes it on with
 	 * `Session.bindVerifiedChannelKey`, which `_connectIroh`
 	 * below do for every session this module establishes. */
@@ -413,7 +413,7 @@ export class IrohConnection {
 		const cap = IROH_NODE_ID_BYTES;
 		const out = new Uint8Array(cap);
 		const len = new Uint8Array(8);
-		const rc = irohS().pancake_iroh_conn_remote_node_id(
+		const rc = irohS().glowcap_iroh_conn_remote_node_id(
 			this.#raw,
 			ab(out),
 			BigInt(cap),
@@ -427,7 +427,7 @@ export class IrohConnection {
 	 * `WOULD_BLOCK` when nothing is buffered yet, `CLOSED` on a clean end of
 	 * stream, or throws on a fault. The caller frames these bytes itself. */
 	tryReadInto(buf: Uint8Array): number {
-		const rc = irohS().pancake_iroh_conn_try_read(
+		const rc = irohS().glowcap_iroh_conn_try_read(
 			this.#raw,
 			ab(buf),
 			BigInt(buf.length),
@@ -435,7 +435,7 @@ export class IrohConnection {
 		);
 		if (rc === WOULD_BLOCK || rc === CLOSED) return rc;
 		if (rc !== OK) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				rc,
 				irohLastError() ?? `iroh conn try_read failed (code ${rc})`,
 			);
@@ -447,7 +447,7 @@ export class IrohConnection {
 	 * prefix), or `WOULD_BLOCK` when the outbound buffer has no room. Throws on a
 	 * fault. */
 	tryWrite(buf: Uint8Array): number {
-		const rc = irohS().pancake_iroh_conn_try_write(
+		const rc = irohS().glowcap_iroh_conn_try_write(
 			this.#raw,
 			ab(buf),
 			BigInt(buf.length),
@@ -455,7 +455,7 @@ export class IrohConnection {
 		);
 		if (rc === WOULD_BLOCK) return rc;
 		if (rc !== OK) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				rc,
 				irohLastError() ?? `iroh conn try_write failed (code ${rc})`,
 			);
@@ -468,7 +468,7 @@ export class IrohConnection {
 		const raw = this.#raw;
 		this.#raw = NULL;
 		try {
-			irohS().pancake_iroh_conn_release(raw);
+			irohS().glowcap_iroh_conn_release(raw);
 		} finally {
 			this.#netlayer[forgetIrohConnection](this);
 		}

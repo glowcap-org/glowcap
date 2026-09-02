@@ -1,6 +1,6 @@
 // Cleanup for capabilities received on a direct connection.
 
-import { type Argument, Ref, type Session } from "@pancake/runtime";
+import { type Argument, Ref, type Session } from "@glowcap/runtime";
 import type { Attachment } from "../../../lib/attachment.ts";
 import { trouble } from "./common.ts";
 import { releaseCapabilityArguments } from "../../../lib/argument_custody.ts";

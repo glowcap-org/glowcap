@@ -110,8 +110,8 @@ gate zig build wasm-import-check
 gate zig build web-peer-test
 gate zig build goblins-interop
 # The smallest outside-authority Rooms proof: a real Goblins vat and a native
-# pancake member exchange room traffic while the server records the Goblins
-# session on syrup/v1_0 and the pancake session on capnp/next. This needs no
+# glowcap member exchange room traffic while the server records the Goblins
+# session on syrup/v1_0 and the glowcap session on capnp/next. This needs no
 # browser or iroh build, so it belongs in the recurring sequence rather than
 # being hidden behind the heavyweight Rooms matrix.
 gate zig build goblins-rooms
@@ -120,16 +120,16 @@ gate zig build goblins-rooms
 # including a reply over the direct session the IRC side initiated.
 gate zig build goblins-rooms-irc
 # The same live-Goblins conversation, once per binding. Without these the
-# bindings are only ever proved against pancake's own checks, which cannot
+# bindings are only ever proved against glowcap's own checks, which cannot
 # catch a binding that drifts from the protocol. These rows cover Deno, Python,
 # Rust, and Racket against somebody else's implementation; Bun is dogfood-only.
 gate zig build bindings-goblins-interop
 gate zig build bindings-goblins-handoff
 gate zig build bindings-goblins-gift
 gate zig build goblins-handoff
-# The gifter direction: pancake mints the signed desc:handoff-give and a live
+# The gifter direction: glowcap mints the signed desc:handoff-give and a live
 # Goblins recipient must parse and redeem it. This is the only automated step
-# that catches a pancake-side change to the signed give bytes (goblins-handoff
+# that catches a glowcap-side change to the signed give bytes (goblins-handoff
 # forwards a Goblins-minted give verbatim, so it cannot).
 gate zig build goblins-gift
 # The same gifter proof with an opaque route hint in the handoff locator. This
@@ -137,15 +137,15 @@ gate zig build goblins-gift
 # the signed give.
 gate zig build goblins-gift-hints
 # The gifter direction in its harder position: the give arrives in a listener
-# fire on a promise pancake introduced, rather than in an answer the recipient
+# fire on a promise glowcap introduced, rather than in an answer the recipient
 # asked for. Only a live partner can say whether it reads one there.
 gate zig build goblins-relayed-give
-# The reciprocal foreign-promise direction: Goblins hands pancake an
+# The reciprocal foreign-promise direction: Goblins hands glowcap an
 # unresolved promise, then the owning Session installs listenTo before asking
 # Goblins to settle it with a callable capability nested in the value.
 gate zig build goblins-listen-recipient
 # The third handoff role: a live Goblins pair deposits into and withdraws from
-# a *pancake* gift registry, so pancake answering both verbs is proved against
+# a *glowcap* gift registry, so glowcap answering both verbs is proved against
 # somebody else's implementation rather than only the upstream suite.
 gate zig build goblins-exporter
 # Live inbound op:gc-exports from Goblins after echo drops a near export — the

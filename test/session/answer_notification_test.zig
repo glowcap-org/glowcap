@@ -1,10 +1,10 @@
 //! Answer-notification ownership when `op:gc-answers` frees a pipelining name.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
 
 test "gc-answers notification detachment is allocation atomic and retryable" {
     var reached_success = false;

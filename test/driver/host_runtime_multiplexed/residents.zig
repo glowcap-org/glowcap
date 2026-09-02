@@ -6,13 +6,13 @@
 //! epoll-shaped suites; `test/all_test.zig` gates the imports.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const support_actors = @import("../../support/actors.zig");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
 const driver_core = driver.core;
-const net = pancake.net;
+const net = glowcap.net;
 const tcp = net.tcp;
 const linux = std.os.linux;
 
@@ -229,7 +229,7 @@ pub const FakeResident = struct {
         return .{ .connected = conn };
     }
 
-    fn cancelConnect(ctx: *anyopaque, request_id: usize) ?pancake.foundation.FailureChain {
+    fn cancelConnect(ctx: *anyopaque, request_id: usize) ?glowcap.foundation.FailureChain {
         const self = of(ctx);
         const row = self.connecting.fetchRemove(request_id) orelse return null;
         self.ctlEpoll(linux.EPOLL.CTL_DEL, row.value, 0, 0);
@@ -280,7 +280,7 @@ pub const FakeResident = struct {
         return .complete;
     }
 
-    fn connRemoteKey(ctx: *anyopaque, conn_id: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {
+    fn connRemoteKey(ctx: *anyopaque, conn_id: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
         if (of(ctx).fail_remote_key) return error.ProviderContract;
         _ = conn_id;
         return null;
@@ -435,12 +435,12 @@ pub const AcceptOwnershipResident = struct {
         return .{ .failed = .init(error.ConnectionLost) };
     }
 
-    fn cancelConnect(ctx: *anyopaque, request_id: usize) ?pancake.foundation.FailureChain {
+    fn cancelConnect(ctx: *anyopaque, request_id: usize) ?glowcap.foundation.FailureChain {
         const self = of(ctx);
         self.cancel_connect_calls += 1;
         if (self.pending_connect == request_id) self.pending_connect = null;
         if (self.fail_cancel_connect) {
-            var failure = pancake.foundation.FailureChain.initNamed(error.ConnectionLost, "ResidentCancelFailed");
+            var failure = glowcap.foundation.FailureChain.initNamed(error.ConnectionLost, "ResidentCancelFailed");
             failure.noteNamed(error.OutOfMemory, "ResidentCancelCleanupFailed");
             return failure;
         }
@@ -481,7 +481,7 @@ pub const AcceptOwnershipResident = struct {
         return .{ .failed = .init(error.BindFailed) };
     }
 
-    fn cancelListen(ctx: *anyopaque, route_id: usize) ?pancake.foundation.FailureChain {
+    fn cancelListen(ctx: *anyopaque, route_id: usize) ?glowcap.foundation.FailureChain {
         const self = of(ctx);
         self.cancel_listen_calls += 1;
         if (self.pending_listener != route_id) return null;
@@ -551,7 +551,7 @@ pub const AcceptOwnershipResident = struct {
         return .complete;
     }
 
-    fn connRemoteKey(_: *anyopaque, _: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {
+    fn connRemoteKey(_: *anyopaque, _: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
         return null;
     }
 };

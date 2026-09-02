@@ -62,8 +62,8 @@ pub fn checkDurablePinWriters(
     // has evidence of its own to state. Either the public C header carries an
     // entry point for it, or no embedder can hold the fact and this says why.
     const Foreign = union(enum) {
-        /// The `pancake_host_*` prototype a foreign realizer speaks through,
-        /// checked present in `include/pancake_host.h` — the actual public
+        /// The `glowcap_host_*` prototype a foreign realizer speaks through,
+        /// checked present in `include/glowcap_host.h` — the actual public
         /// surface, so an export the inventory forgot to publish still fails.
         entry: []const u8,
         /// Why an absent entry point is the design rather than the gap.
@@ -102,7 +102,7 @@ pub fn checkDurablePinWriters(
                 "interop/webrtc_common.zig",
             },
             .standing = "it realized the connection, or it carries the testimony of an embedder that did",
-            .foreign = .{ .entry = "pancake_host_session_bind_verified_channel_key" },
+            .foreign = .{ .entry = "glowcap_host_session_bind_verified_channel_key" },
         },
         .{
             .call = "durable_pin",
@@ -113,7 +113,7 @@ pub fn checkDurablePinWriters(
                 "src/ocapn/engine/peer/identity.zig",
             },
             .standing = "the aggregate declares the pin and the identity module owns all its verbs, so no other reader or writer can re-derive provenance",
-            .foreign = .{ .none_because = "it is the state the verbs write, not a fact anyone states; C reads the verdict through pancake_host_session_partner_identity" },
+            .foreign = .{ .none_because = "it is the state the verbs write, not a fact anyone states; C reads the verdict through glowcap_host_session_partner_identity" },
         },
     };
     const roots = [_][]const u8{ "src", "cli", "interop", "apps", "examples", "bench", "bindings", "tools" };
@@ -125,7 +125,7 @@ pub fn checkDurablePinWriters(
     // nothing, which is the failure mode this check exists to prevent. So both
     // halves are confirmed present rather than assumed: the declaration, and
     // one call per speaker.
-    const public_header = "include/pancake_host.h";
+    const public_header = "include/glowcap_host.h";
     const header_source = root.readFileAlloc(io, public_header, gpa, .limited(4 << 20)) catch null;
     defer if (header_source) |source| gpa.free(source);
 
@@ -204,7 +204,7 @@ pub fn checkDurablePinWriters(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-            // Vendored trees carry no pancake rule; skipping by name keeps the
+            // Vendored trees carry no glowcap rule; skipping by name keeps the
             // walk from reading a dependency's sources.
             if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
             const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });

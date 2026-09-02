@@ -1,4 +1,4 @@
-import { takeRuntimeFailures } from "@pancake/runtime";
+import { takeRuntimeFailures } from "@glowcap/runtime";
 import { denoTcpChannel } from "../deno_channels.ts";
 import { assertEquals } from "../../dogfood/assert.ts";
 

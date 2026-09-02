@@ -8,7 +8,7 @@ const Ban = bans.Ban;
 pub const runtime_progress_rows: []const Ban = &.{
     .{
         .where = .{ .files = &.{
-            "bindings/python/pancake/_host/progress.py",
+            "bindings/python/glowcap/_host/progress.py",
             "bindings/racket/private/pump.rkt",
             "bindings/rust/src/host/progress.rs",
             "bindings/rust/src/driver_loop.rs",
@@ -20,7 +20,7 @@ pub const runtime_progress_rows: []const Ban = &.{
         .why = "binding progress follows scheduler/readiness events; zero-duration sleeps, timers, and unstructured yields make timing part of correctness",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host/progress.py" },
+        .where = .{ .file = "bindings/python/glowcap/_host/progress.py" },
         .kind = .require,
         .needles = &.{"loop.call_soon(resume)"},
         .check = "binding-runtime-progress",
@@ -76,7 +76,7 @@ pub const unobserved_outcome_cap_rows: []const Ban = &.{
         .why = "Rust's Host vow table must consume the generated binding-policy cap instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host/vows.py" },
+        .where = .{ .file = "bindings/python/glowcap/_host/vows.py" },
         .kind = .require,
         .needles = &.{"_MAX_UNOBSERVED_OUTCOMES = _abi.BINDING_UNOBSERVED_OUTCOME_CAP"},
         .check = "unobserved-outcome-cap",
@@ -115,7 +115,7 @@ pub const readiness_drain_cap_rows: []const Ban = &.{
         .why = "Rust's iroh readiness loop must consume the generated binding-policy cap instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_iroh_async.py" },
+        .where = .{ .file = "bindings/python/glowcap/_iroh_async.py" },
         .kind = .require,
         .needles = &.{"_DRAIN_READY_CAP = BINDING_READINESS_DRAIN_CAP"},
         .check = "readiness-drain-cap",
@@ -139,20 +139,20 @@ pub const pending_dial_hint_probe_rows: []const Ban = &.{
         .kind = .require,
         .needles = &.{"A null `hint_storage` with zero capacity probes the required"},
         .check = "pending-dial-hint-probe",
-        .why = "pancake_host_pending_dial owns the required hint count and documents the zero-capacity probe",
+        .why = "glowcap_host_pending_dial owns the required hint count and documents the zero-capacity probe",
     },
     .{
         .where = .{ .file = "bindings/rust/src/dial.rs" },
         .kind = .require,
         .needles = &.{
-            "let mut hints: Vec<sys::PancakeLocatorHintView>;",
+            "let mut hints: Vec<sys::GlowcapLocatorHintView>;",
             "core::ptr::null_mut(),\n\t\t\t\t0,\n\t\t\t\t&mut view,\n\t\t\t\t&mut hint_count",
         },
         .check = "pending-dial-hint-probe",
         .why = "Rust asks the Host for the exact pending-dial hint count before allocating hint storage and keeps it alive through cloning",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_dial.py" },
+        .where = .{ .file = "bindings/python/glowcap/_dial.py" },
         .kind = .require,
         .needles = &.{
             "hints = None",
@@ -175,8 +175,8 @@ pub const pending_dial_hint_probe_rows: []const Ban = &.{
         .where = .{ .file = "bindings/racket/private/ffi-host.rkt" },
         .kind = .require,
         .needles = &.{
-            "(pancake_host_pending_dial* host ticket #f 0 view count)",
-            "(pancake_locator_clone view)",
+            "(glowcap_host_pending_dial* host ticket #f 0 view count)",
+            "(glowcap_locator_clone view)",
         },
         .check = "pending-dial-hint-probe",
         .why = "Racket asks the Host for the exact pending-dial hint count before allocating hint storage and clones while it is live",
@@ -184,7 +184,7 @@ pub const pending_dial_hint_probe_rows: []const Ban = &.{
     .{
         .where = .{ .files = &.{
             "bindings/rust/src/dial.rs",
-            "bindings/python/pancake/_dial.py",
+            "bindings/python/glowcap/_dial.py",
             "bindings/ts/runtime/dial.ts",
             "bindings/racket/private/ffi-host.rkt",
         } },
@@ -214,7 +214,7 @@ pub const stream_read_chunk_rows: []const Ban = &.{
         .why = "Rust's byte-fed stream pump must consume the generated binding-policy chunk size instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/tcp.py" },
+        .where = .{ .file = "bindings/python/glowcap/tcp.py" },
         .kind = .require,
         .needles = &.{"BINDING_STREAM_READ_CHUNK_BYTES"},
         .check = "stream-read-chunk",
@@ -237,7 +237,7 @@ pub const stream_read_chunk_rows: []const Ban = &.{
     .{
         .where = .{ .files = &.{
             "bindings/rust/src/session_shared.rs",
-            "bindings/python/pancake/tcp.py",
+            "bindings/python/glowcap/tcp.py",
             "bindings/ts/runtime/internal/ffi/adapters/deno.ts",
             "bindings/racket/private/async.rkt",
         } },
@@ -253,7 +253,7 @@ pub const iroh_read_chunk_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/c_abi/net_transport/iroh/mod.zig" },
         .kind = .require,
-        .needles = &.{"pub const PANCAKE_IROH_READ_CHUNK_BYTES: usize = iroh.read_chunk_bytes;"},
+        .needles = &.{"pub const GLOWCAP_IROH_READ_CHUNK_BYTES: usize = iroh.read_chunk_bytes;"},
         .check = "iroh-read-chunk",
         .why = "the shared iroh read batch lives in iroh transport policy and reaches bindings through the C ABI mirror",
     },
@@ -265,7 +265,7 @@ pub const iroh_read_chunk_rows: []const Ban = &.{
         .why = "TypeScript's iroh byte channel must consume the generated binding-policy chunk size instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_iroh_async.py" },
+        .where = .{ .file = "bindings/python/glowcap/_iroh_async.py" },
         .kind = .require,
         .needles = &.{"_READ_CHUNK_BYTES = BINDING_IROH_READ_CHUNK_BYTES"},
         .check = "iroh-read-chunk",
@@ -281,7 +281,7 @@ pub const iroh_read_chunk_rows: []const Ban = &.{
     .{
         .where = .{ .files = &.{
             "bindings/ts/iroh/channel.ts",
-            "bindings/python/pancake/_iroh_async.py",
+            "bindings/python/glowcap/_iroh_async.py",
             "bindings/racket/private/iroh/runtime.rkt",
         } },
         .kind = .forbid,
@@ -318,7 +318,7 @@ pub const trace_payload_cap_rows: []const Ban = &.{
         .why = "Rust's trace producer must consume the generated binding-policy payload cap default instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_trace.py" },
+        .where = .{ .file = "bindings/python/glowcap/_trace.py" },
         .kind = .require,
         .needles = &.{"_PAYLOAD_CAP = _abi.BINDING_TRACE_PAYLOAD_CAP_BYTES"},
         .check = "trace-payload-cap",
@@ -335,7 +335,7 @@ pub const trace_payload_cap_rows: []const Ban = &.{
         .where = .{ .files = &.{
             "bindings/ts/runtime/trace.ts",
             "bindings/rust/src/trace.rs",
-            "bindings/python/pancake/_trace.py",
+            "bindings/python/glowcap/_trace.py",
             "bindings/racket/private/trace.rkt",
         } },
         .kind = .forbid,

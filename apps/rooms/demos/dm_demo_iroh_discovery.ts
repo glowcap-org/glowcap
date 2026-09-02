@@ -4,9 +4,9 @@
 // `zig build demo-rooms-dm-iroh-discovery` (needs internet). The handoff
 // choreography is shared in `runDmHandoff`.
 
-import { formatPeerUri } from "@pancake/runtime";
+import { formatPeerUri } from "@glowcap/runtime";
 import { roomsHost } from "../lib/locator.ts";
-import * as iroh from "@pancake/iroh";
+import * as iroh from "@glowcap/iroh";
 import { runDmHandoff } from "./dm_handoff.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 

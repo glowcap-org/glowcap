@@ -99,7 +99,7 @@
       (with-host-drain
        m
        (lambda ()
-         (check/host (pancake_host_vow_release
+         (check/host (glowcap_host_vow_release
                       (host-ptr m) (session-vow-id v)))
          (hash-remove! (host-vows m) (session-vow-id v))
          (drain-host-actions! m))))))
@@ -175,30 +175,30 @@
 ;; result and does not decide whether the operation leaves the process.
 (define (session-index c a-vow i)
   (project-vow (session-host c) a-vow
-               (lambda (m id) (pancake_host_vow_index (host-ptr m) id i))))
+               (lambda (m id) (glowcap_host_vow_index (host-ptr m) id i))))
 
 (define (session-untag c a-vow tag)
   (define tb (string->bytes/utf-8 tag))
   (project-vow (session-host c) a-vow
                (lambda (m id)
-                 (pancake_host_vow_untag (host-ptr m) id (pin-immobile tb) (bytes-length tb)))))
+                 (glowcap_host_vow_untag (host-ptr m) id (pin-immobile tb) (bytes-length tb)))))
 
 (define (session-get c a-vow field)
   (define fb (string->bytes/utf-8 field))
   (project-vow (session-host c) a-vow
                (lambda (m id)
-                 (pancake_host_vow_get (host-ptr m) id (pin-immobile fb) (bytes-length fb)))))
+                 (glowcap_host_vow_get (host-ptr m) id (pin-immobile fb) (bytes-length fb)))))
 
 (define (project-vow m a-vow mint)
   (unless (session-vow? a-vow)
-    (raise-pancake 'session-project ERR-INVALID-ARGUMENT
+    (raise-glowcap 'session-project ERR-INVALID-ARGUMENT
                    "projection target is not a far vow: ~a" a-vow))
   (unless (session-vow-pipeline-target? a-vow)
-    (raise-pancake 'session-project ERR-INVALID-ARGUMENT
+    (raise-glowcap 'session-project ERR-INVALID-ARGUMENT
                    "this vow is await-only and cannot be projected"))
   (define home (session-vow-session a-vow))
   (unless (and home (eq? (session-host home) m))
-    (raise-pancake 'session-project ERR-INVALID-ARGUMENT
+    (raise-glowcap 'session-project ERR-INVALID-ARGUMENT
                    "this vow belongs to another Host"))
   (define projected
     (call-with-host m
@@ -231,8 +231,8 @@
   (case (car r)
     [(ok) (cdr r)]
     [(failed) (raise (cdr r))]
-    [(closed) (raise-pancake who ERR-CLOSED "connection closed before ~a settled" label)]
-    [else (raise-pancake who ERR-BROKEN "~a broke: ~a" label (cdr r))]))
+    [(closed) (raise-glowcap who ERR-CLOSED "connection closed before ~a settled" label)]
+    [else (raise-glowcap who ERR-BROKEN "~a broke: ~a" label (cdr r))]))
 
 ;; The one blocking fetch shape `session-fetch` and `session-enliven` share:
 ;; `mint!` runs the registering FFI verb (the one thing that differs) and
@@ -263,18 +263,18 @@
         [(ok)
          (define val (cdr r))
          (unless (ref? val)
-           (raise-pancake who ERR-UNSUPPORTED-VALUE
+           (raise-glowcap who ERR-UNSUPPORTED-VALUE
                           "~a \"~a\" did not resolve to a capability: ~a" what label val))
          val]
         [(failed) (raise (cdr r))]
         [(closed)
-         (raise-pancake who ERR-CLOSED "connection closed before \"~a\" settled" label)]
+         (raise-glowcap who ERR-CLOSED "connection closed before \"~a\" settled" label)]
         [else
-         (raise-pancake who ERR-BROKEN "~a \"~a\" broke: ~a" what label (cdr r))]))
+         (raise-glowcap who ERR-BROKEN "~a \"~a\" broke: ~a" what label (cdr r))]))
     (lambda () (release-vow! v))))
 
-;; Far-send / far-tell mint: encode args, call `pancake_host_session_send` /
-;; `pancake_host_vow_send` / `pancake_host_session_tell`, and register any answer
+;; Far-send / far-tell mint: encode args, call `glowcap_host_session_send` /
+;; `glowcap_host_vow_send` / `glowcap_host_session_tell`, and register any answer
 ;; vow. Local-hosted targets stay in Session
 ;; (`session-send-local`). Outside a turn, flush after every mint so an
 ;; unobserved eventual-send still makes progress; the native Host keeps the
@@ -293,7 +293,7 @@
     (call-with-host m
       (lambda ()
         (define-values (rc id)
-          (pancake_host_session_listen (session-ptr c) (ref->c target)))
+          (glowcap_host_session_listen (session-ptr c) (ref->c target)))
         (check/host rc)
         (adopt-minted-vow! m c id (session-gc-enabled? c) #f))))
   (flush-minted-operation! c result))
@@ -317,35 +317,35 @@
           (cond
           [(session-vow? target)
            (unless (session-vow-pipeline-target? target)
-             (raise-pancake 'session-send ERR-INVALID-ARGUMENT
+             (raise-glowcap 'session-send ERR-INVALID-ARGUMENT
                             "this vow is await-only and has no remote pipeline target"))
            (define home (session-vow-session target))
            (unless (and home (eq? (session-host home) m))
-             (raise-pancake 'session-send ERR-INVALID-ARGUMENT
+             (raise-glowcap 'session-send ERR-INVALID-ARGUMENT
                             "this vow belongs to another Host"))
            (if answer?
                (let-values ([(rc id)
-                             (pancake_host_vow_send
+                             (glowcap_host_vow_send
                               (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt)])
                  (check/host rc)
                  (adopt-minted-vow! m home id (session-gc-enabled? home) #t))
                (begin
                  (check/host
-                  (pancake_host_vow_tell
+                  (glowcap_host_vow_tell
                    (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt))
                  (void)))]
           [(ref? target)
            (cond
              [answer?
               (define-values (rc id)
-                (pancake_host_session_send (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
+                (glowcap_host_session_send (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
               (check/host rc)
               (adopt-minted-vow! m c id (session-gc-enabled? c) #t)]
              [else
-              (check/host (pancake_host_session_tell (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
+              (check/host (glowcap_host_session_tell (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
               (void)])]
           [else
-           (raise-pancake 'session-send ERR-INVALID-ARGUMENT "not a sendable reference: ~a" target)]))
+           (raise-glowcap 'session-send ERR-INVALID-ARGUMENT "not a sendable reference: ~a" target)]))
         (void/reference-sink keep)
         minted)))
   (flush-minted-operation! c result))

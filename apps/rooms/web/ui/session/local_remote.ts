@@ -4,7 +4,7 @@
 // Commands, snapshots, and grants go through the same typed actor the CapTP
 // facet uses. File bytes stay on RuntimeAttachment readers, not a self-dial.
 
-import { type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { BLOB_CHUNK, MAX_ATTACHMENT_BYTES } from "../../../lib/limits.ts";
 import type {
 	RoomsOperationsSnapshot,

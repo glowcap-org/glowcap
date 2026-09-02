@@ -65,7 +65,7 @@ archive_hygiene_check_compressed() {
 		case "$violation" in
 		unrecognized\ tar\ listing\ format*)
 			printf '%s\n' "  the validator refuses a listing it cannot parse rather than guess (ADR-0077 section 5)"
-			printf '%s\n' "  install GNU tar, or set PANCAKE_LIB_DIR to a directory you extracted yourself"
+			printf '%s\n' "  install GNU tar, or set GLOWCAP_LIB_DIR to a directory you extracted yourself"
 			;;
 		esac
 		return 1

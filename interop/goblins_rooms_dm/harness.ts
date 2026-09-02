@@ -3,11 +3,11 @@
 //
 // The room introduces two members and then carries none of what they say. That
 // is OCapN's three-party handoff, and this run stands each corner of it on a
-// different implementation: a pancake room as the gifter, a Goblins vat as the
-// exporter, and a browser tab running pancake's wasm peer as the recipient. What
+// different implementation: a glowcap room as the gifter, a Goblins vat as the
+// exporter, and a browser tab running glowcap's wasm peer as the recipient. What
 // makes it worth running is that nothing in Goblins was changed to allow it. The
 // vat speaks the OCapN v1.0 baseline over Syrup, the room and the tab speak
-// pancake's own profile to each other, and the give crosses that split.
+// glowcap's own profile to each other, and the give crosses that split.
 //
 // The run proves six things and asserts all six:
 //
@@ -17,7 +17,7 @@
 //   2. The vat answers, over the connection the message arrived on. A browser
 //      opens no listener, so this is the only path back to it, and it is the
 //      half that makes a direct message a conversation rather than a drop box.
-//   3. The vat starts one of its own. A native pancake member registers, the vat
+//   3. The vat starts one of its own. A native glowcap member registers, the vat
 //      asks the room to introduce it, and Goblins redeems that give by dialing
 //      the member directly. The member observes the exact line and then refuses
 //      its call; the vat reports that refusal without printing `DM SENT`. This
@@ -37,7 +37,7 @@
 // conversation changes, which is the point. The one thing that does change is
 // deployment: a browser's relay dials iroh anywhere and cleartext TCP only where
 // an operator names it, so the TCP arm lists the vat in
-// `PANCAKE_RELAY_TCP_PEERS` and the iroh arm lists nothing.
+// `GLOWCAP_RELAY_TCP_PEERS` and the iroh arm lists nothing.
 //
 // Runs as `zig build goblins-rooms-dm` (and `goblins-rooms-dm-iroh`); needs
 // deno, racket with the `goblins` collection, a Playwright Chromium, and — for
@@ -45,7 +45,7 @@
 
 import { type Browser, chromium, type Page } from "playwright";
 
-import type { Argument, Behavior } from "@pancake/runtime";
+import type { Argument, Behavior } from "@glowcap/runtime";
 import { inboxPublisher } from "../../apps/rooms/lib/dm_inbox.ts";
 import { Directory, Room } from "../../apps/rooms/lib/room/client.ts";
 import { enterOrOpen } from "../../apps/rooms/lib/enter_room.ts";
@@ -73,7 +73,7 @@ const REPLY_PREFIX = "got your DM: ";
 const FROM_VAT = `${REPLY_PREFIX}${TO_VAT}`;
 const TO_VAT_AGAIN = "hello again on a new direct line";
 
-/** The native pancake member the vat direct-messages, and the line it sends. */
+/** The native glowcap member the vat direct-messages, and the line it sends. */
 const NATIVE_NICK = "native-bob";
 const TO_NATIVE = "hello bob, privately, from a goblins vat";
 
@@ -137,7 +137,7 @@ function expectWireProvenance(
 	}
 }
 
-/** Every line the native pancake member has been sent directly.
+/** Every line the native glowcap member has been sent directly.
  *
  * It records and then refuses. That gives the vat a completed negative delivery
  * result: the line demonstrably arrived, while `DM SENT` must remain absent. */
@@ -148,13 +148,13 @@ const recordOnlyDm: Behavior = (verb: string, args: Argument[]): never => {
 	throw new Error("the native inbox refused after observing the line");
 };
 
-/** Stand the native pancake member up where the vat can dial it, and hand back
+/** Stand the native glowcap member up where the vat can dial it, and hand back
  * the locator it registers under.
  *
  * Over TCP that locator is a loopback address. Over iroh it is the member's
  * endpoint key together with the direct addresses a dialer needs, which an iroh
  * endpoint only knows once it has learned them, so this waits for them.
- * `@pancake/iroh` is imported here rather than at the top of the file so the TCP
+ * `@glowcap/iroh` is imported here rather than at the top of the file so the TCP
  * arm never loads the sidecar it does not use. */
 async function startNativeMember() {
 	if (!IROH) {
@@ -163,7 +163,7 @@ async function startNativeMember() {
 		const port = listener.port;
 		return { host, listener, locator: loopbackTcpDesignator(port) };
 	}
-	const { listen, Reachability } = await import("@pancake/iroh");
+	const { listen, Reachability } = await import("@glowcap/iroh");
 	const seed = crypto.getRandomValues(new Uint8Array(32));
 	const host = roomsHost(seed);
 	const listener = await listen({ reachability: Reachability.Direct }, { host });
@@ -208,8 +208,8 @@ try {
 	// and the room server as its child. The TCP arm names the vat's address as a
 	// cleartext peer the relay may dial; the iroh arm names nothing, because an
 	// iroh destination has to be a peer holding a key.
-	const env: Record<string, string> = { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) };
-	if (!IROH) env.PANCAKE_RELAY_TCP_PEERS = loopbackTcpDesignator(vatPort);
+	const env: Record<string, string> = { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) };
+	if (!IROH) env.GLOWCAP_RELAY_TCP_PEERS = loopbackTcpDesignator(vatPort);
 	web = new Deno.Command("deno", {
 		args: [
 			"run",
@@ -265,7 +265,7 @@ try {
 			VAT_NICK,
 		],
 		cwd: RACKET_DIR,
-		env: { PANCAKE_ROOMS_VIZ_URL: vizUrlOf(vizRef) },
+		env: { GLOWCAP_ROOMS_VIZ_URL: vizUrlOf(vizRef) },
 		stdout: "piped",
 		stderr: "piped",
 	}).spawn();
@@ -307,7 +307,7 @@ try {
 		nativeListener = native.listener;
 		nativeRuntime = await openRoomsRuntime({
 			host: native.host,
-			iroh: IROH ? { reachability: (await import("@pancake/iroh")).Reachability.Direct } : undefined,
+			iroh: IROH ? { reachability: (await import("@glowcap/iroh")).Reachability.Direct } : undefined,
 		});
 		(async () => {
 			for await (const session of native.listener) session.serve().catch(() => {});
@@ -387,10 +387,10 @@ try {
 		{ timeout: WAIT_MS },
 	).catch(() => fail(`the tab never rendered the vat's reply "${FROM_VAT}"`));
 
-	// (3) The vat's own direct message, to a native pancake member.
+	// (3) The vat's own direct message, to a native glowcap member.
 	//
 	// This is the corner the other three do not reach. Here the give names a
-	// *pancake* exporter and a Goblins recipient redeems it, so the location the
+	// *glowcap* exporter and a Goblins recipient redeems it, so the location the
 	// room embedded has to be one the member will claim when the vat's dial lands,
 	// not merely an address that reaches it: Goblins files each open session under
 	// the location its partner claimed and looks a give's exporter location up in
@@ -400,7 +400,7 @@ try {
 	{
 		await until(
 			() => nativeInbox.includes(TO_NATIVE),
-			"the native pancake member to receive the vat's direct message",
+			"the native glowcap member to receive the vat's direct message",
 		);
 		await until(
 			() => vatSaid(new RegExp(`^! could not direct message to ${NATIVE_NICK}:`)),
@@ -414,7 +414,7 @@ try {
 	// (4) The conversation between the tab and the vat, on the live timeline.
 	//
 	// The vat reports what its netlayer can see at the wire, which is a session
-	// opening and a session ending; per-message records are pancake's own tap and
+	// opening and a session ending; per-message records are glowcap's own tap and
 	// the vat has none. That is enough for the picture, because the two ends name
 	// the session the same way: neither is ever told the name, and each derives it
 	// from the two session keys the handshake exchanged. So the claim here is that
@@ -571,7 +571,7 @@ try {
 			`introduction and reached the vat off-room; the vat answered over that same ` +
 			`connection, which is the only way back to a tab that never listens; ` +
 			`the vat started a direct message of its own, redeeming a give that named a ` +
-			`pancake member as its exporter, and reported that member's deliberate refusal without ` +
+			`glowcap member as its exporter, and reported that member's deliberate refusal without ` +
 			`claiming the line was sent; the tab's conversation reached the live timeline from ` +
 			`both ends under session id ${sharedId.slice(0, 12)}…, on a wire the room is not ` +
 			`on; closing it retired both observations; and reopening started a distinct ` +

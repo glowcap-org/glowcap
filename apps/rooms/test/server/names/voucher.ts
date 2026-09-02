@@ -22,7 +22,7 @@ import {
 	within,
 	withServer,
 } from "../../support/rooms_server.ts";
-import { Ref } from "@pancake/runtime";
+import { Ref } from "@glowcap/runtime";
 roomsTest("a name voucher seats its holder on a second connection under their own name", async () => {
 	// A registered name is held by a connection, and the capability `register`
 	// answers with is the holding, detached from it. A subscribe arriving on

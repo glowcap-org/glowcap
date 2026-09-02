@@ -1,6 +1,6 @@
 // Admission and execution of commands issued through a durable Rooms session.
 
-import { type Argument, type Behavior, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, type Session } from "@glowcap/runtime";
 import { mayInteract, type RoomsSessionAccess } from "../lib/session/client.ts";
 import { lineCost, MAX_LINE, MAX_TOPIC, nickRefusal } from "../lib/limits.ts";
 import { DurableRoomsSessionState } from "./state.ts";

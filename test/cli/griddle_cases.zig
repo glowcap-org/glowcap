@@ -1,4 +1,4 @@
-//! The griddle simulator (`pancake griddle run`): determinism in the seed,
+//! The griddle simulator (`glowcap griddle run`): determinism in the seed,
 //! invariance of the outcome.
 //!
 //! A deterministic simulator is only worth the name if both halves hold. The
@@ -9,7 +9,7 @@
 
 const std = @import("std");
 const cli = @import("cli");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const sim = cli.griddle_sim;
 

@@ -18,7 +18,7 @@ A sturdyref is a persistent locator for an object that may outlive its current
 session: the OCapN `Locators.md` describes it as a capability obtainable "with
 this information alone," and Goblins enlivens one by looking up the location,
 reusing the open session, and asking that session's bootstrap for the
-swiss-number. pancake already has the bootstrap-fetch substrate
+swiss-number. glowcap already has the bootstrap-fetch substrate
 ([ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md)); enlivenment
 is a thin orchestration over it, plus the model shape a sturdyref decodes to and
 the gate that keeps it off a session that did not ask for it.

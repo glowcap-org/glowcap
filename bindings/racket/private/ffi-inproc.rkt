@@ -1,10 +1,10 @@
 #lang racket/base
-;; Internal: the raw `ffi/unsafe` loader for libpancake_net_transport_inproc.
+;; Internal: the raw `ffi/unsafe` loader for libglowcap_net_transport_inproc.
 ;;
-;; Nothing here is public; `../pancake-inproc.rkt` is the ergonomic surface over
+;; Nothing here is public; `../glowcap-inproc.rkt` is the ergonomic surface over
 ;; it. This loader opens ONLY the in-process transport archive (ADR-0059): it
-;; carries the `pancake_inproc_*` family plus its own thread-local last-error,
-;; symbol-disjoint from libpancake_ocapn and from the TCP archive. Requiring it
+;; carries the `glowcap_inproc_*` family plus its own thread-local last-error,
+;; symbol-disjoint from libglowcap_ocapn and from the TCP archive. Requiring it
 ;; loads no other archive. The in-process netlayer is socket-free — two peers in
 ;; one process wired by pipes — so accept and the frame reads block the calling
 ;; thread; the generated `#:blocking?` marks keep the runtime GC-cooperative
@@ -18,35 +18,35 @@
          "ffi-shared.rkt"
          "ffi-inproc-gen.rkt")
 (provide (except-out (all-from-out "ffi-inproc-gen.rkt")
-                     pancake_inproc_connect*
-                     pancake_inproc_accept*
-                     pancake_inproc_conn_read_frame*
-                     pancake_inproc_conn_write_frame*
-                     pancake_inproc_listener_release*)
-         pancake_inproc_connect
-         pancake_inproc_accept
-         pancake_inproc_conn_read_frame
-         pancake_inproc_conn_write_frame
-         pancake_inproc_listener_release)
+                     glowcap_inproc_connect*
+                     glowcap_inproc_accept*
+                     glowcap_inproc_conn_read_frame*
+                     glowcap_inproc_conn_write_frame*
+                     glowcap_inproc_listener_release*)
+         glowcap_inproc_connect
+         glowcap_inproc_accept
+         glowcap_inproc_conn_read_frame
+         glowcap_inproc_conn_write_frame
+         glowcap_inproc_listener_release)
 
-(define (pancake_inproc_connect netlayer designator designator-len codec max-frame)
+(define (glowcap_inproc_connect netlayer designator designator-len codec max-frame)
   (call/out _pointer #f
             (lambda (out)
-              (call/without-diagnostic pancake_inproc_connect*
+              (call/without-diagnostic glowcap_inproc_connect*
                                        netlayer designator designator-len codec
                                        max-frame out))))
 
-(define (pancake_inproc_accept listener codec max-frame)
+(define (glowcap_inproc_accept listener codec max-frame)
   (call/out _pointer #f
             (lambda (out)
-              (call/without-diagnostic pancake_inproc_accept*
+              (call/without-diagnostic glowcap_inproc_accept*
                                        listener codec max-frame out))))
 
-(define (pancake_inproc_conn_read_frame conn frame)
-  (call/without-diagnostic pancake_inproc_conn_read_frame* conn frame))
+(define (glowcap_inproc_conn_read_frame conn frame)
+  (call/without-diagnostic glowcap_inproc_conn_read_frame* conn frame))
 
-(define (pancake_inproc_conn_write_frame conn frame)
-  (call/without-diagnostic pancake_inproc_conn_write_frame* conn frame))
+(define (glowcap_inproc_conn_write_frame conn frame)
+  (call/without-diagnostic glowcap_inproc_conn_write_frame* conn frame))
 
-(define (pancake_inproc_listener_release listener)
-  (call/without-diagnostic pancake_inproc_listener_release* listener))
+(define (glowcap_inproc_listener_release listener)
+  (call/without-diagnostic glowcap_inproc_listener_release* listener))

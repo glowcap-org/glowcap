@@ -1,5 +1,5 @@
 // Diagnostics and the typed error hierarchy: the per-archive thread-local
-// last-error reads, the `PancakeError` family every failed C ABI call raises,
+// last-error reads, the `GlowcapError` family every failed C ABI call raises,
 // and the internal guards (`check`, `checkHost`) the rest of the binding
 // shares. `mod.ts` re-exports the public error classes; the readers and
 // guards stay package-internal.
@@ -15,24 +15,24 @@ import {
 	BROKEN,
 	INTERNAL,
 	OK,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import type { CarrierFailure } from "./carrier_failure.ts";
 
-/** The calling thread's last core-archive (`pancake_*`) error message, or null
+/** The calling thread's last core-archive (`glowcap_*`) error message, or null
  * when there is none. */
 export function lastError(): string | null {
-	return readErrorSlot(s.pancake_last_error);
+	return readErrorSlot(s.glowcap_last_error);
 }
 
-/** The calling thread's last host-archive (`pancake_host_*`) error message, or
+/** The calling thread's last host-archive (`glowcap_host_*`) error message, or
  * null when there is none. The driver archive keeps its own slot, so a host
  * call's diagnostic never scrapes the core's unrelated one. */
 export function hostLastError(): string | null {
-	return readErrorSlot(hostS.pancake_host_last_error);
+	return readErrorSlot(hostS.glowcap_host_last_error);
 }
 
 /** The typed cause of a peer's most recent local dispatch failure, the
- * counterpart of the C ABI's `PancakeLastAbort`. `domain` names the layer that
+ * counterpart of the C ABI's `GlowcapLastAbort`. `domain` names the layer that
  * refused, `kind` the projected `op:abort` kind when one exists, `message` the
  * static diagnostic, `errorName` the originating error, and
  * `abortDeliveryErrorName` a failure publishing the terminal abort, and
@@ -48,17 +48,17 @@ export interface AbortDetail {
 	secondaryErrorCount: number;
 }
 
-/** Map `PancakeLastAbort.domain` to the host label the waist defines. */
+/** Map `GlowcapLastAbort.domain` to the host label the waist defines. */
 export function abortDomainLabel(
 	domainNum: number,
 ): AbortDetail["domain"] {
 	if (domainNum === ABORT_DOMAIN_CODEC) return "codec";
 	if (domainNum === ABORT_DOMAIN_SESSION) return "session";
 	if (domainNum === ABORT_DOMAIN_FOREIGN) return "foreign";
-	throw new PancakeError(INTERNAL, `pancake ABI returned unknown abort domain ${domainNum}`);
+	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown abort domain ${domainNum}`);
 }
 
-export class PancakeError extends Error {
+export class GlowcapError extends Error {
 	/** The thread-local diagnostic captured when this error was raised, if any. */
 	readonly detail: string | null;
 	/** The typed abort cause, attached when a peer refused an inbound frame. */
@@ -70,9 +70,9 @@ export class PancakeError extends Error {
 		// A client-side validation throw passes an explicit `detail` instead, so it
 		// never scrapes an unrelated thread-local left by some earlier call.
 		const d = detail ?? lastError();
-		super(d ? `pancake error ${code}: ${d}` : `pancake error ${code}`);
+		super(d ? `glowcap error ${code}: ${d}` : `glowcap error ${code}`);
 		this.detail = d;
-		this.name = "PancakeError";
+		this.name = "GlowcapError";
 	}
 }
 
@@ -108,7 +108,7 @@ export function retainSecondaryFailure(primary: unknown, secondary: unknown, obs
 		try {
 			primary.cause = state.retained.length === 1
 				? state.retained[0]
-				: new AggregateError(state.retained, "additional pancake cleanup failures");
+				: new AggregateError(state.retained, "additional glowcap cleanup failures");
 		} catch {
 			// The WeakMap remains authoritative for frozen application errors.
 		}
@@ -135,7 +135,7 @@ export async function retainCleanupFailures(
 
 /** A promise the partner broke, the typed rejection an awaited `send` (or any
  * settled vow) produces. `reason` is the partner's break message. */
-export class VowBroken extends PancakeError {
+export class VowBroken extends GlowcapError {
 	constructor(public readonly reason: string) {
 		super(BROKEN, reason);
 		this.name = "VowBroken";
@@ -154,17 +154,17 @@ export class PublicationNotFound extends VowBroken {
 }
 
 /** Project a core-issued vow failure code into the binding's typed hierarchy. */
-export function vowFailure(code: number, reason: string): PancakeError {
+export function vowFailure(code: number, reason: string): GlowcapError {
 	return code === BROKEN
 		? reason === "unknown swissnum" ? new PublicationNotFound() : new VowBroken(reason)
-		: new PancakeError(code, reason);
+		: new GlowcapError(code, reason);
 }
 
 /** A `fetch` that settled, but not with a capability, the application-level
  * outcome (the partner answered, and the answer was not a reference), distinct
  * from a marshalling failure or a broken promise. `capabilityName` is the
  * swiss-number the fetch asked for. */
-export class FetchFailed extends PancakeError {
+export class FetchFailed extends GlowcapError {
 	constructor(public readonly capabilityName: string, detail?: string) {
 		super(
 			BROKEN,
@@ -175,16 +175,16 @@ export class FetchFailed extends PancakeError {
 }
 
 export function check(code: number): void {
-	if (code !== OK) throw new PancakeError(code);
+	if (code !== OK) throw new GlowcapError(code);
 }
 
-/** A failed `pancake_host_*` call as a typed error, its diagnostic read from
+/** A failed `glowcap_host_*` call as a typed error, its diagnostic read from
  * the driver archive's own slot so it never scrapes the core's unrelated one. */
-export function hostError(code: number): PancakeError {
-	return new PancakeError(code, hostLastError() ?? `host call failed (code ${code})`);
+export function hostError(code: number): GlowcapError {
+	return new GlowcapError(code, hostLastError() ?? `host call failed (code ${code})`);
 }
 
-/** As `check`, for `pancake_host_*` calls. */
+/** As `check`, for `glowcap_host_*` calls. */
 export function checkHost(code: number): void {
 	if (code !== OK) throw hostError(code);
 }

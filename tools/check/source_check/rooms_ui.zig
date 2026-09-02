@@ -367,7 +367,7 @@ pub fn checkRoomsControlSurfaces(
 }
 
 /// `/join` of a locator seats from subscribe's listed-ness. Asking `private()`
-/// first aborted on an occupancy that has no such method (pancake error -12).
+/// first aborted on an occupancy that has no such method (glowcap error -12).
 fn checkRoomsJoinDoesNotAskPrivate(
     io: std.Io,
     gpa: std.mem.Allocator,

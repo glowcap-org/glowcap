@@ -66,11 +66,11 @@ impl Ref {
 // only with it — dead-code linting stays live instead of blanket-allowed.
 #[cfg(feature = "async")]
 impl Ref {
-	pub(crate) fn to_sys(&self) -> Result<sys::PancakeReference> {
-		Ok(sys::PancakeReference { id: self.id })
+	pub(crate) fn to_sys(&self) -> Result<sys::GlowcapReference> {
+		Ok(sys::GlowcapReference { id: self.id })
 	}
 
-	pub(crate) fn from_sys(r: &sys::PancakeReference) -> Ref {
+	pub(crate) fn from_sys(r: &sys::GlowcapReference) -> Ref {
 		Ref::bare_id(r.id)
 	}
 }
@@ -98,7 +98,7 @@ pub enum Argument {
 	Keyword(String),
 	/// An arbitrary-precision OCapN Integer outside `i64` (ADR-0049): the sign
 	/// plus the canonical decimal magnitude (ASCII digits, no leading zero).
-	/// Parse `digits` into your own bignum type; pancake transports and
+	/// Parse `digits` into your own bignum type; glowcap transports and
 	/// compares the value, it does not compute with it.
 	BigInteger {
 		negative: bool,
@@ -237,12 +237,12 @@ impl From<Vec<Argument>> for Argument {
 #[cfg(feature = "async")]
 #[derive(Default)]
 pub(crate) struct SendArena {
-	boxes: Vec<Box<[sys::PancakeArgument]>>,
+	boxes: Vec<Box<[sys::GlowcapArgument]>>,
 }
 
 #[cfg(feature = "async")]
 impl SendArena {
-	pub(crate) fn build(&mut self, args: &[Argument]) -> Result<(*const sys::PancakeArgument, usize)> {
+	pub(crate) fn build(&mut self, args: &[Argument]) -> Result<(*const sys::GlowcapArgument, usize)> {
 		if args.is_empty() {
 			return Ok((core::ptr::null(), 0));
 		}
@@ -257,8 +257,8 @@ impl SendArena {
 		Ok((ptr, len))
 	}
 
-	pub(crate) fn one(&mut self, a: &Argument) -> Result<sys::PancakeArgument> {
-		let mut c: sys::PancakeArgument = unsafe { core::mem::zeroed() };
+	pub(crate) fn one(&mut self, a: &Argument) -> Result<sys::GlowcapArgument> {
+		let mut c: sys::GlowcapArgument = unsafe { core::mem::zeroed() };
 		match a {
 			Argument::Integer(v) => {
 				c.kind = sys::ARG_INTEGER;
@@ -310,7 +310,7 @@ impl SendArena {
 				c.kind = sys::ARG_STRUCT;
 				let mut flat = Vec::with_capacity(entries.len() * 2);
 				for (key, value) in entries {
-					let mut key_arg: sys::PancakeArgument = unsafe { core::mem::zeroed() };
+					let mut key_arg: sys::GlowcapArgument = unsafe { core::mem::zeroed() };
 					set_bytes(&mut key_arg, sys::ARG_STRING, key.as_bytes());
 					flat.push(key_arg);
 					flat.push(self.one(value)?);
@@ -330,7 +330,7 @@ impl SendArena {
 // empty payload — marshals as the non-NULL `ptr + 0` the host requires, with
 // no special case here.
 #[cfg(feature = "async")]
-fn set_bytes(c: &mut sys::PancakeArgument, kind: u32, b: &[u8]) {
+fn set_bytes(c: &mut sys::GlowcapArgument, kind: u32, b: &[u8]) {
 	c.kind = kind;
 	c.bytes = b.as_ptr();
 	c.bytes_len = b.len();
@@ -339,10 +339,10 @@ fn set_bytes(c: &mut sys::PancakeArgument, kind: u32, b: &[u8]) {
 /// Project a received C argument tree into owned Rust values.
 ///
 /// # Safety
-/// `c` must point to a valid `PancakeArgument` whose borrowed views are live
+/// `c` must point to a valid `GlowcapArgument` whose borrowed views are live
 /// for the duration of the call.
 #[cfg(feature = "async")]
-pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Result<Argument> {
+pub(crate) unsafe fn arg_from_sys(c: &sys::GlowcapArgument) -> Result<Argument> {
 	Ok(match c.kind {
 		sys::ARG_INTEGER => Argument::Integer(c.integer),
 		sys::ARG_FLOAT64 => Argument::Float(c.float64),
@@ -368,18 +368,18 @@ pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Result<Argument> 
 		other => {
 			return Err(Error::with_detail(
 				sys::ERR_INTERNAL,
-				format!("pancake ABI returned unknown argument kind {other}"),
+				format!("glowcap ABI returned unknown argument kind {other}"),
 			))
 		}
 	})
 }
 
 #[cfg(feature = "async")]
-unsafe fn struct_from_sys(ptr: *const sys::PancakeArgument, len: usize) -> Result<Vec<(String, Argument)>> {
+unsafe fn struct_from_sys(ptr: *const sys::GlowcapArgument, len: usize) -> Result<Vec<(String, Argument)>> {
 	if len % 2 != 0 {
 		return Err(Error::with_detail(
 			sys::ERR_INTERNAL,
-			"pancake ABI returned an odd Struct item count".into(),
+			"glowcap ABI returned an odd Struct item count".into(),
 		));
 	}
 	if ptr.is_null() {
@@ -391,7 +391,7 @@ unsafe fn struct_from_sys(ptr: *const sys::PancakeArgument, len: usize) -> Resul
 		if key.kind != sys::ARG_STRING {
 			return Err(Error::with_detail(
 				sys::ERR_INTERNAL,
-				"pancake ABI returned a non-String Struct key".into(),
+				"glowcap ABI returned a non-String Struct key".into(),
 			));
 		}
 		entries.push((
@@ -403,7 +403,7 @@ unsafe fn struct_from_sys(ptr: *const sys::PancakeArgument, len: usize) -> Resul
 }
 
 #[cfg(feature = "async")]
-unsafe fn bytes_from_sys(c: &sys::PancakeArgument) -> Vec<u8> {
+unsafe fn bytes_from_sys(c: &sys::GlowcapArgument) -> Vec<u8> {
 	owned_from_view(c.bytes, c.bytes_len)
 }
 
@@ -427,10 +427,10 @@ pub(crate) unsafe fn owned_from_view(ptr: *const u8, len: usize) -> Vec<u8> {
 /// Project a borrowed C argument array into owned Rust values.
 ///
 /// # Safety
-/// `ptr` must point to `len` valid `PancakeArgument`s (or be null) whose
+/// `ptr` must point to `len` valid `GlowcapArgument`s (or be null) whose
 /// borrowed views are live for the duration of the call.
 #[cfg(feature = "async")]
-pub(crate) unsafe fn args_from_sys(ptr: *const sys::PancakeArgument, len: usize) -> Result<Vec<Argument>> {
+pub(crate) unsafe fn args_from_sys(ptr: *const sys::GlowcapArgument, len: usize) -> Result<Vec<Argument>> {
 	if ptr.is_null() {
 		return Ok(Vec::new());
 	}

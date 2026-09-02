@@ -1,5 +1,5 @@
 /* The session chooser: the whole page until a session is established. The
-   two doors are launch rows (forms.css) in one raised card; this sheet only
+   two doors are launch rows (entries.css) in one raised card; this sheet only
    places the page's own pieces around them. */
 .session-setup {
 	min-height: 100dvh;
@@ -22,7 +22,7 @@
    centred, the same lift — because this page is what that screen fades into
    and the mark should not appear to jump. The logotype is taken at its own
    size: its metrics are a drawing (mark.css), and a larger font-size here
-   once left the caps standing small against a bigger "pancake". */
+   once left the caps standing small against a bigger "glowcap". */
 .session-setup-brand {
 	display: flex;
 	flex-direction: column;

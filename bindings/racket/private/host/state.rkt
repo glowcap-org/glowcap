@@ -17,8 +17,8 @@
 (define (monotonic-ms)
   (inexact->exact (floor (current-inexact-monotonic-milliseconds))))
 
-;; The host. `ptr` is the PancakeHost handle; `lock`/`lock-owner` form the
-;; reentrant host lock every `pancake_host_*` verb and action drain runs under;
+;; The host. `ptr` is the GlowcapHost handle; `lock`/`lock-owner` form the
+;; reentrant host lock every `glowcap_host_*` verb and action drain runs under;
 ;; `sessions` maps a session pointer's address to its live `session` (the FLUSH
 ;; action's routing table, and what keeps redeem-dialed exporter sessions
 ;; alive); `progress` boxes the generation semaphore pumps wait on — bumped
@@ -97,7 +97,7 @@
 (define (failure-symbol vocabulary index family)
   (if (< index (vector-length vocabulary))
       (vector-ref vocabulary index)
-      (error 'pancake "ABI returned unknown failure ~a: ~a" family index)))
+      (error 'glowcap "ABI returned unknown failure ~a: ~a" family index)))
 
 (define (failure-text ptr len)
   (if (or (not ptr) (zero? len))
@@ -109,40 +109,40 @@
 
 (define (next-context-failure context)
   (define event
-    (make-PancakeFailureEvent 1
-                              (ctype-sizeof _PancakeFailureEvent)
+    (make-GlowcapFailureEvent 1
+                              (ctype-sizeof _GlowcapFailureEvent)
                               0 0 0 0 0 0 0 0 0 0
                               #f 0 #f 0 #f 0 #f 0 #f 0))
   (define-values (first required)
-    (pancake_context_next_failure context event #f 0))
+    (glowcap_context_next_failure context event #f 0))
   (cond
     [(= first WOULD-BLOCK) #f]
     [(= first ERR-BUFFER-TOO-SMALL)
      (define payload (malloc required 'atomic))
      (define-values (rc _required)
-       (pancake_context_next_failure context event payload required))
+       (glowcap_context_next_failure context event payload required))
      (check rc)
      (failure-event
-      (PancakeFailureEvent-sequence event)
-      (PancakeFailureEvent-dropped-before event)
-      (failure-symbol failure-layers (PancakeFailureEvent-layer event) 'layer)
-      (failure-symbol failure-scopes (PancakeFailureEvent-scope-kind event) 'scope)
-      (PancakeFailureEvent-scope-id event)
-      (PancakeFailureEvent-operation-id event)
-      (PancakeFailureEvent-primary-result event)
-      (PancakeFailureEvent-secondary-result event)
-      (PancakeFailureEvent-secondary-count event)
-      (PancakeFailureEvent-flags event)
-      (failure-text (PancakeFailureEvent-operation event)
-                    (PancakeFailureEvent-operation-len event))
-      (failure-text (PancakeFailureEvent-primary-name event)
-                    (PancakeFailureEvent-primary-name-len event))
-      (failure-text (PancakeFailureEvent-primary-message event)
-                    (PancakeFailureEvent-primary-message-len event))
-      (failure-text (PancakeFailureEvent-secondary-name event)
-                    (PancakeFailureEvent-secondary-name-len event))
-      (failure-text (PancakeFailureEvent-secondary-message event)
-                    (PancakeFailureEvent-secondary-message-len event)))]
+      (GlowcapFailureEvent-sequence event)
+      (GlowcapFailureEvent-dropped-before event)
+      (failure-symbol failure-layers (GlowcapFailureEvent-layer event) 'layer)
+      (failure-symbol failure-scopes (GlowcapFailureEvent-scope-kind event) 'scope)
+      (GlowcapFailureEvent-scope-id event)
+      (GlowcapFailureEvent-operation-id event)
+      (GlowcapFailureEvent-primary-result event)
+      (GlowcapFailureEvent-secondary-result event)
+      (GlowcapFailureEvent-secondary-count event)
+      (GlowcapFailureEvent-flags event)
+      (failure-text (GlowcapFailureEvent-operation event)
+                    (GlowcapFailureEvent-operation-len event))
+      (failure-text (GlowcapFailureEvent-primary-name event)
+                    (GlowcapFailureEvent-primary-name-len event))
+      (failure-text (GlowcapFailureEvent-primary-message event)
+                    (GlowcapFailureEvent-primary-message-len event))
+      (failure-text (GlowcapFailureEvent-secondary-name event)
+                    (GlowcapFailureEvent-secondary-name-len event))
+      (failure-text (GlowcapFailureEvent-secondary-message event)
+                    (GlowcapFailureEvent-secondary-message-len event)))]
     [else (check first)]))
 
 ;; Atomically claim every callerless native failure currently retained by m.
@@ -163,8 +163,8 @@
   (define name-buffer (pin-immobile name-bytes))
   (define message-buffer (pin-immobile message-bytes))
   (define report
-    (make-PancakeFailureReport
-     1 (ctype-sizeof _PancakeFailureReport)
+    (make-GlowcapFailureReport
+     1 (ctype-sizeof _GlowcapFailureReport)
      FAILURE-LAYER-APPLICATION-OBSERVER FAILURE-SCOPE-HOST
      (host-diagnostic-id m) 0 ERR-INTERNAL 0 0
      operation-buffer (bytes-length operation-bytes)
@@ -174,7 +174,7 @@
   (record-callerless-with-fallback!
    'application-observer operation error
    (lambda ()
-     (define rc (pancake_context_report_failure (host-context m) report))
+     (define rc (glowcap_context_report_failure (host-context m) report))
      ;; The report cstruct is retained as the call's argument, but it carries
      ;; only the pins' raw addresses; the sink keeps the text buffers live
      ;; for the call.
@@ -201,7 +201,7 @@
 ;; cannot resolve a module.
 ;;
 ;; The action drain's loop arm: one bracketed zero-timeout step plus the
-;; event dispatch, in place of `pancake_host_pump_drain`, which never runs
+;; event dispatch, in place of `glowcap_host_pump_drain`, which never runs
 ;; beside a loop.
 (define loop-drain-hook (box #f))
 ;; Stop stepping and join the park thread, run by the Host release worker
@@ -213,10 +213,10 @@
 ;; Forward one close request to a loop already being driven. Caller holds the
 ;; Host lock; no lifecycle policy is interpreted here.
 (define loop-begin-close-hook (box #f))
-;; Native teardown in place of `pancake_host_release`: the loop releases
+;; Native teardown in place of `glowcap_host_release`: the loop releases
 ;; itself and the wrapped host together.
 (define loop-native-release-hook (box #f))
-;; A loop-owned session's release, through `pancake_driver_session_release`.
+;; A loop-owned session's release, through `glowcap_driver_session_release`.
 (define loop-session-release-hook (box #f))
 ;; Forward one loop-owned session close request while the caller holds the Host
 ;; lock, then await a barrier whose requests were already forwarded.
@@ -239,12 +239,12 @@
 (define host-gc-retire-hook (box void))
 
 ;; Release one native session handle through its owner: the loop for a
-;; loop-adopted host, `pancake_host_session_release` for a byte-fed one.
+;; loop-adopted host, `glowcap_host_session_release` for a byte-fed one.
 (define (native-session-release! m ptr)
   (define lp (host-loop-of m))
   (if lp
       ((unbox loop-session-release-hook) lp ptr)
-      (check/host (pancake_host_session_release ptr))))
+      (check/host (glowcap_host_session_release ptr))))
 
 ;; ── The reentrant host lock ───────────────────────────────────────────────────
 ;; One thread (or one green-thread scheduler) drives one host; nothing in the C
@@ -274,7 +274,7 @@
 (define (call-with-host m thunk)
   (call-with-host*
    m
-   (lambda () (raise-pancake 'host ERR-CLOSED "host released"))
+   (lambda () (raise-glowcap 'host ERR-CLOSED "host released"))
    thunk))
 
 ;; Release is idempotent, including two callers that race for the host lock.
@@ -297,7 +297,7 @@
    m
    (lambda ()
      (define ptr (host-ptr m))
-     (when ptr (check/host (pancake_host_set_trace ptr callback ctx))))))
+     (when ptr (check/host (glowcap_host_set_trace ptr callback ctx))))))
 
 ;; ── Progress: how a parked pump notices another thread's work ─────────────────
 ;; `host-progress-evt` is an event that fires when any host progress has been
@@ -355,7 +355,7 @@
         (define lp (host-loop-of m))
         (if lp
             ((unbox loop-claim-reference-exporter-hook) lp wire)
-            (let-values ([(rc p) (pancake_host_reference_exporter (host-ptr m) wire)])
+            (let-values ([(rc p) (glowcap_host_reference_exporter (host-ptr m) wire)])
               (check/host rc)
               p)))))
   (and ptr
@@ -369,7 +369,7 @@
              (and lp ((unbox loop-wrap-session-hook) lp ptr))))))
 
 ;; Releases the C tier refused inside a behavior callback park here
-;; (`pancake_host_session_release` is refused mid-turn); the drain runs them once
+;; (`glowcap_host_session_release` is refused mid-turn); the drain runs them once
 ;; the enclosing feed unwinds, so a mid-turn `session-close!` never leaks its
 ;; C handle. Callers must invoke this only outside a turn. Mirrors Python/Rust/TS.
 (define host-parked-releases (make-hasheq))

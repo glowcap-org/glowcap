@@ -1,5 +1,5 @@
-import { noise, provider } from "@pancake/tcp";
-import { Runtime } from "@pancake/runtime";
+import { noise, provider } from "@glowcap/tcp";
+import { Runtime } from "@glowcap/runtime";
 
 // Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 const peerKey = "<64 lowercase hex characters from the server>";

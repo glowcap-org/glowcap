@@ -9,7 +9,7 @@
 The relay carries CapTP bytes over a WebSocket to a peer that can open a
 socket. A browser cannot listen or dial raw TCP or QUIC, so it uses this path.
 The session's keys stay at the two ends
-([ADR-0086](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
+([ADR-0086](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
 
 # Byte transparency
 
@@ -32,7 +32,7 @@ The browser names a target and the relay dials it. The reference relay reads
 the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
 `?locator=<ocapn-uri>` opens an iroh channel. The rooms app embeds the same
 pump behind its own `/relay?target=<locator>` route and classifies the
-locator through the same `pancake_host_plan_dial` a native dial uses; that
+locator through the same `glowcap_host_plan_dial` a native dial uses; that
 route is the app's, not the reference contract. Either way the relay then
 pipes the WebSocket to whatever it dialed.
 
@@ -50,7 +50,7 @@ the relay and leaves an inbound socket held there. A second browser, holding an
 introduction that names that key, cold-dials it, and the relay bridges the dialer to
 the held socket. The room that made the introduction carries no part of the
 session
-([ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
+([ADR-0088](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
 
 [One browser registers and waits; the other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers.]($image.siteAsset('diagram-relay-rendezvous.svg'))
 
@@ -71,7 +71,7 @@ messages, because it reads none.
 # The same contract on every runtime
 
 The relay is a small contract an embedder runs in its own runtime.
-`@pancake/relay` is the Deno reference; Python, Rust, and Racket provide the
+`@glowcap/relay` is the Deno reference; Python, Rust, and Racket provide the
 same forwarding, backpressure, and idle-reclaim behavior.
 
 # Locators
@@ -84,7 +84,7 @@ those names. It does not publish itself as a transport.
 
 A `keyed-relay` locator names the waiting peer's key. The dialing host uses its
 configured relay URL to reach that waiting peer
-([ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
+([ADR-0088](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
 `noise-relay` uses the same forwarding path and seals the CapTP stream before
 it begins. Peers dialing an ordinary netlayer never touch the relay service.
 The [Noise guide]($link.page('transports/noise')) covers the sealed path.
@@ -110,7 +110,7 @@ evidence remains on the roadmap.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
@@ -122,15 +122,15 @@ evidence remains on the roadmap.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
->     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
+>     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
->     const partner = pancake.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
+>     const partner = glowcap.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
 > ```
 > **TypeScript**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { noise, provider } from "@pancake/relay";
+> import { Runtime } from "@glowcap/runtime";
+> import { noise, provider } from "@glowcap/relay";
 >
 > // Noise_XK seals the session end to end; the relay forwards ciphertext.
 > const peerKey = "<64 lowercase hex characters from the server>";
@@ -143,12 +143,12 @@ evidence remains on the roadmap.
 > ```
 > **Browser**
 > ```ts
-> import { connector, noise } from "@pancake/relay";
-> import { init } from "@pancake/web";
+> import { connector, noise } from "@glowcap/relay";
+> import { init } from "@glowcap/web";
 >
 > const relayUrl = "wss://relay.example/relay";
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	connectors: [connector()],
 > });
 > await using runtime = web.runtime;
@@ -156,7 +156,7 @@ evidence remains on the roadmap.
 > ```
 > **Python**
 > ```python
-> from pancake import Runtime, relay
+> from glowcap import Runtime, relay
 >
 > # Noise_XK seals the CapTP stream end to end through the relay.
 > peer_key = "<64 lowercase hex characters from the server>"
@@ -167,7 +167,7 @@ evidence remains on the roadmap.
 > ```
 > **Rust**
 > ```rust
-> use pancake::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Noise_XK seals the CapTP stream end to end through the relay.
 > let peer_key = "<64 lowercase hex characters from the server>";
@@ -180,7 +180,7 @@ evidence remains on the roadmap.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt" "pancake-relay.rkt")
+> (require "glowcap.rkt" "glowcap-relay.rkt")
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -196,7 +196,7 @@ evidence remains on the roadmap.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
@@ -208,15 +208,15 @@ evidence remains on the roadmap.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.keyed).netlayer()};
->     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.keyed).netlayer()};
+>     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
->     const partner = pancake.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);
+>     const partner = glowcap.net.relay.keyed.locator(peer_key, relay_url, &hint_storage);
 > ```
 > **TypeScript**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { keyed, provider } from "@pancake/relay";
+> import { Runtime } from "@glowcap/runtime";
+> import { keyed, provider } from "@glowcap/relay";
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > const peerKey = "<64 lowercase hex characters from the server>";
@@ -229,12 +229,12 @@ evidence remains on the roadmap.
 > ```
 > **Browser**
 > ```ts
-> import { connector, keyed } from "@pancake/relay";
-> import { init } from "@pancake/web";
+> import { connector, keyed } from "@glowcap/relay";
+> import { init } from "@glowcap/web";
 >
 > const relayUrl = "wss://relay.example/rendezvous";
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	connectors: [connector()],
 > });
 > await using runtime = web.runtime;
@@ -242,7 +242,7 @@ evidence remains on the roadmap.
 > ```
 > **Python**
 > ```python
-> from pancake import Runtime, relay
+> from glowcap import Runtime, relay
 >
 > # The key names the peer; the hint names the relay that can reach it.
 > peer_key = "<64 lowercase hex characters from the server>"
@@ -253,7 +253,7 @@ evidence remains on the roadmap.
 > ```
 > **Rust**
 > ```rust
-> use pancake::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > let peer_key = "<64 lowercase hex characters from the server>";
@@ -266,7 +266,7 @@ evidence remains on the roadmap.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt" "pancake-relay.rkt")
+> (require "glowcap.rkt" "glowcap-relay.rkt")
 >
 > ;; The key names the peer; the hint names the relay that can reach it.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -285,7 +285,7 @@ A listening peer registers its durable key with the relay and keeps the
 registration alive while it accepts sessions. Persist the identity seed so
 the advertised locator survives a restart. TypeScript, Python, Rust, and
 Racket provide managed `noise-relay` listeners. Zig registers through the
-native relay provider (the `"pancake_native_relay"` build module, which
+native relay provider (the `"glowcap_native_relay"` build module, which
 builds Mbed TLS from source) and `driver.listen`, with platform trust for
 `wss://`.
 A browser never listens.
@@ -302,13 +302,13 @@ relay path is not sealed.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
+>     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
 >     var relay: native_relay.Provider = undefined;
 >     switch (relay.init(
 >         io,
@@ -321,7 +321,7 @@ relay path is not sealed.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const server = try pancake.driver.listen(
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         relay.resident(.noise).netlayer(),
 >         .{ .designator = "" },
@@ -330,7 +330,7 @@ relay path is not sealed.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise seals the relay path end to end
 >
@@ -339,8 +339,8 @@ relay path is not sealed.
 > ```
 > **TypeScript**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { noise } from "@pancake/relay";
+> import type { Argument } from "@glowcap/runtime";
+> import { noise } from "@glowcap/relay";
 >
 > // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > const seed = crypto.getRandomValues(new Uint8Array(32));
@@ -353,7 +353,7 @@ relay path is not sealed.
 > **Python**
 > ```python
 > import os
-> from pancake import Argument, relay
+> from glowcap import Argument, relay
 >
 > # Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > seed = os.urandom(32)  # load durable secret bytes in a real service
@@ -365,7 +365,7 @@ relay path is not sealed.
 > ```
 > **Rust**
 > ```rust
-> use pancake::{relay, Argument};
+> use glowcap::{relay, Argument};
 >
 > // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > let seed = [7u8; 32]; // replace with durable secret bytes across restarts
@@ -381,8 +381,8 @@ relay path is not sealed.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-relay.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-relay.rkt")
 >
 > ;; Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -409,12 +409,12 @@ deno run --allow-net --allow-ffi --allow-env --allow-read \
 ```
 
 It relays wherever a WebSocket points it, named by `?to=` or `?locator=`, and
-reclaims a silent session once its idle timeout passes (`PANCAKE_RELAY_IDLE_MS`,
+reclaims a silent session once its idle timeout passes (`GLOWCAP_RELAY_IDLE_MS`,
 one minute by default). Target allowlists and admission caps are left to the
 embedding app. The rooms relay
-([`relay.ts`](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/web/relay.ts))
+([`relay.ts`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/relay.ts))
 shows how an embedding adds target policy and admission limits. The
-[relay README](https://github.com/jimisaacs/pancake/blob/main/bindings/ts/relay/README.md)
+[relay README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/relay/README.md)
 covers the package itself, and the Python, Rust, and Racket relays take the
 same relay contract.
 

@@ -6,7 +6,7 @@ import type { RoomsSessionGrantAuthority } from "../../session/grants.ts";
 import { fixtureSturdyref } from "../support/workspace.ts";
 import { openSessionState } from "../support/session_disk.ts";
 import { DurableHandedRooms } from "../../session/handed_rooms.ts";
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 
 function syncRefused(work: () => unknown): boolean {
 	try {
@@ -99,7 +99,7 @@ Deno.test("room-link invitations are accepted or dismissed atomically and exactl
 });
 
 Deno.test("invitation admission takes its revision at serialized execution time", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-invitation-queue-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-invitation-queue-" });
 	try {
 		const state = await openSessionState(directory);
 		await state.replace("directory", 0, {
@@ -195,7 +195,7 @@ Deno.test("a cross-directory invitation carries its route through acceptance", (
 });
 
 Deno.test("a pending cross-directory invitation survives durable session restart", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-cross-directory-invite-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-cross-directory-invite-" });
 	try {
 		const invitation = {
 			kind: "room-link" as const,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import ctypes
 
-from pancake._abi_value import _arg_to_c
-from pancake._ffi_ocapn import _byte_buf
+from glowcap._abi_value import _arg_to_c
+from glowcap._ffi_ocapn import _byte_buf
 
 _PyBytes_AsString = ctypes.pythonapi.PyBytes_AsString
 _PyBytes_AsString.argtypes = [ctypes.py_object]

@@ -1,5 +1,5 @@
 #lang racket/base
-;; Internal: the CapTP `host` — binding wrapper for `PancakeHost` /
+;; Internal: the CapTP `host` — binding wrapper for `GlowcapHost` /
 ;; `driver_core.Host` (ADR-0072 / ADR-0079). The host owns an `engine.Node`
 ;; (the sans-io handoff router). Goblins `mycapn` is two roles, not one type:
 ;; the product maps to this Host; the router tables map to `engine.Node`. What lives
@@ -8,7 +8,7 @@
 ;; entropy, C-facing Host verbs, and publication. The Racket-owned handle
 ;; state, reentrant lock, diagnostics, registries, loop hooks, and iroh redeem
 ;; posture live in `private/host/state.rkt`. Action decode +
-;; execute (`drain-host-actions!` via `pancake_host_pump_drain`) live in
+;; execute (`drain-host-actions!` via `glowcap_host_pump_drain`) live in
 ;; `private/action.rkt`; the dial executor lives in `private/dial.rkt`;
 ;; the session byte path lives in `private/pump.rkt`.
 
@@ -28,7 +28,7 @@
 
 (provide (all-defined-out))
 
-;; Every session's maximum admissible frame; mirrors PANCAKE_DEFAULT_FRAME_CAP.
+;; Every session's maximum admissible frame; mirrors GLOWCAP_DEFAULT_FRAME_CAP.
 (define HOST-FRAME-CAP DEFAULT-FRAME-CAP)
 
 (define grace-unspecified (gensym 'grace-unspecified))
@@ -46,11 +46,11 @@
       [(and (exact-nonnegative-integer? grace-ms) (<= grace-ms CLOSE-MAX-GRACE-MS))
        (values CLOSE-GRACE-FINITE grace-ms)]
       [else
-       (raise-pancake who ERR-INVALID-ARGUMENT
+       (raise-glowcap who ERR-INVALID-ARGUMENT
                       (format "#:grace-ms must be #f or an integer from 0 through ~a"
                               CLOSE-MAX-GRACE-MS))]))
-  (make-PancakeCloseOptions CLOSE-OPTIONS-ABI-VERSION
-                            (ctype-sizeof _PancakeCloseOptions)
+  (make-GlowcapCloseOptions CLOSE-OPTIONS-ABI-VERSION
+                            (ctype-sizeof _GlowcapCloseOptions)
                             pending-id
                             grace-mode
                             grace-value))
@@ -71,7 +71,7 @@
                    #:features [features DEFAULT-FEATURES-SYMBOL]
                    #:local-turn-budget [local-turn-budget 0])
   (unless (and (bytes? seed) (= (bytes-length seed) 32))
-    (raise-pancake 'make-host ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
+    (raise-glowcap 'make-host ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
   (define-values (selected-codec selected-captp-version)
     (host-profile-values 'make-host profile codec captp-version))
   ;; Keep an owned copy so caller mutation cannot split the native identity from
@@ -85,21 +85,21 @@
   ;; derives from it.
   (define seed+root (bytes-append durable-seed (crypto-random-bytes 32)))
   (define sbuf (pin-immobile seed+root)) ; pin: the GC may move it mid-call
-  (define-values (context-rc context) (pancake_context_new))
+  (define-values (context-rc context) (glowcap_context_new))
   (check context-rc)
   (define-values (rc ptr)
-    (pancake_host_new_in context sbuf 64 HOST-FRAME-CAP 1 (codec-id selected-codec)
+    (glowcap_host_new_in context sbuf 64 HOST-FRAME-CAP 1 (codec-id selected-codec)
                         (captp-version-id selected-captp-version) (feature-mask features)
                         local-turn-budget))
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
-                     (pancake_context_release context)
+                     (glowcap_context_release context)
                      (raise error))])
     (check/host rc))
-  (define-values (identity-rc diagnostic-id) (pancake_host_diagnostic_id ptr))
+  (define-values (identity-rc diagnostic-id) (glowcap_host_diagnostic_id ptr))
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
-                     (define cleanup-code (pancake_host_release ptr))
+                     (define cleanup-code (glowcap_host_release ptr))
                      (define cleanup
                        (with-handlers ([(lambda (_) #t) values])
                          (check/host cleanup-code)
@@ -108,7 +108,7 @@
                      ;; this Context. Leak the pair rather than free its
                      ;; allocator policy under the still-live Host.
                      (when (release-consumed? cleanup-code)
-                       (pancake_context_release context))
+                       (glowcap_context_release context))
                      (raise (if cleanup
                                 (retain-cleanup-failure error cleanup)
                                 error)))])
@@ -195,14 +195,14 @@
               (define-values (release-code release-error)
                 (if lp
                     ((unbox loop-native-release-hook) lp)
-                    (let ([code (pancake_host_release ptr)])
+                    (let ([code (glowcap_host_release ptr)])
                       (values
                        code
                        (with-handlers ([(lambda (_) #t) values])
                          (check/host code)
                          #f)))))
               (when (release-consumed? release-code)
-                (pancake_context_release (host-context m))
+                (glowcap_context_release (host-context m))
                 (trace-detach-host! m)
                 ((unbox host-gc-retire-hook) m)
                 (set-host-ptr! m #f)
@@ -237,7 +237,7 @@
   (define lp (host-loop-of m))
   (if lp
       ((unbox loop-begin-close-hook) lp options)
-      (check/host (pancake_host_close (host-ptr m) options (monotonic-ms)))))
+      (check/host (glowcap_host_close (host-ptr m) options (monotonic-ms)))))
 
 (define (drain-pending-host-release! m)
   (call-with-host/terminal
@@ -359,9 +359,9 @@
   (answer-gift-id!
    (lambda () (crypto-random-bytes 32))
    (lambda (id)
-     (check/host (pancake_host_provide_gift_id (host-ptr m) ticket (pin-immobile id) 32)))
+     (check/host (glowcap_host_provide_gift_id (host-ptr m) ticket (pin-immobile id) 32)))
    (lambda ()
-     (check/host (pancake_host_gift_id_failed (host-ptr m) ticket)))))
+     (check/host (glowcap_host_gift_id_failed (host-ptr m) ticket)))))
 
 (module+ test
   (require rackunit)
@@ -373,7 +373,7 @@
     (host-profile-values 'test 'interop #f #f))
   (check-equal? interop-codec INTEROP-CODEC-SYMBOL)
   (check-equal? interop-version INTEROP-CAPTP-VERSION-SYMBOL)
-  (check-exn exn:fail:pancake?
+  (check-exn exn:fail:glowcap?
              (lambda () (host-profile-values 'test 'native 'syrup #f)))
   (define failed 0)
   (answer-gift-id!
@@ -395,12 +395,12 @@
 (define (host-dialed! m ticket route-index session-ptr)
   (define adopted (malloc _uint8 'atomic-interior))
   (ptr-set! adopted _uint8 0)
-  (check/host (pancake_host_dialed (host-ptr m) ticket route-index session-ptr adopted))
+  (check/host (glowcap_host_dialed (host-ptr m) ticket route-index session-ptr adopted))
   (not (zero? (ptr-ref adopted _uint8))))
 
 (define (host-dial-failed! m ticket route-index reason)
   (define bs (string->bytes/utf-8 reason))
-  (check/host (pancake_host_dial_failed (host-ptr m) ticket route-index (pin-immobile bs) (bytes-length bs))))
+  (check/host (glowcap_host_dial_failed (host-ptr m) ticket route-index (pin-immobile bs) (bytes-length bs))))
 
 ;; Retain and select this Host's complete acceptable location.
 (define (host-set-advertised-locator! m loc)
@@ -409,13 +409,13 @@
    (lambda (view)
      (call-with-host m
        (lambda ()
-         (check/host (pancake_host_set_advertised_locator (host-ptr m) view)))))))
+         (check/host (glowcap_host_set_advertised_locator (host-ptr m) view)))))))
 
 (define (host-remove-advertised-locator! m transport)
   (define bs (string->bytes/utf-8 transport))
   (call-with-host m
     (lambda ()
-      (check/host (pancake_host_remove_advertised_locator
+      (check/host (glowcap_host_remove_advertised_locator
                    (host-ptr m) (pin-immobile bs) (bytes-length bs))))))
 
 ;; Selective limits copied into peers minted after this call. Zero leaves a
@@ -431,27 +431,27 @@
         [value (in-list (list max-frame-bytes queue-cap outbound-high-water-bytes
                               max-retained-sent-answer-bytes))])
     (unless (and (exact-nonnegative-integer? value) (<= value size-max))
-      (raise-pancake 'host-set-session-limits! ERR-INVALID-ARGUMENT
+      (raise-glowcap 'host-set-session-limits! ERR-INVALID-ARGUMENT
                      (format "#:~a exceeds this target's supported range" name))))
   (when (> max-retained-sent-answer-bytes #xffffffff)
-    (raise-pancake 'host-set-session-limits! ERR-INVALID-ARGUMENT
+    (raise-glowcap 'host-set-session-limits! ERR-INVALID-ARGUMENT
                    "#:max-retained-sent-answer-bytes exceeds uint32 capacity"))
   (define options
-    (make-PancakeSessionLimitOptions
+    (make-GlowcapSessionLimitOptions
      SESSION-LIMIT-OPTIONS-ABI-VERSION
-     (ctype-sizeof _PancakeSessionLimitOptions)
+     (ctype-sizeof _GlowcapSessionLimitOptions)
      max-frame-bytes queue-cap outbound-high-water-bytes
      max-retained-sent-answer-bytes))
   (call-with-host m
     (lambda ()
-      (check/host (pancake_host_set_session_limits (host-ptr m) options)))))
+      (check/host (glowcap_host_set_session_limits (host-ptr m) options)))))
 
 ;; Derive the canonical key designator (64 lowercase hex digits) from a 32-byte
 ;; Ed25519 identity seed — the public half of the key a host signs with
 ;; (ADR-0075).
 (define (designator-from-seed seed)
   (unless (= (bytes-length seed) 32)
-    (raise-pancake 'designator-from-seed ERR-INVALID-ARGUMENT
+    (raise-glowcap 'designator-from-seed ERR-INVALID-ARGUMENT
                    "seed must be 32 bytes"))
   ;; Output buffer is mutable Racket bytes the FFI writes into — do not
   ;; `pin-immobile` it (that copies, and the write would be discarded). Plain
@@ -459,7 +459,7 @@
   ;; the collector cannot run and move the block under it; a blocking call needs
   ;; `out-immobile` instead.
   (define out (make-bytes 64))
-  (check/host (pancake_host_designator_from_seed (pin-immobile seed) 32 out 64))
+  (check/host (glowcap_host_designator_from_seed (pin-immobile seed) 32 out 64))
   (bytes->string/utf-8 out))
 
 ;; ── Host-wide giftables ───────────────────────────────────────────────────────
@@ -478,7 +478,7 @@
                    (lambda (e) (host-retire! m tramp) (raise e))])
     (call-with-host m
       (lambda ()
-        (check/host (pancake_host_publish (host-ptr m) (pin-immobile nb) (bytes-length nb)
+        (check/host (glowcap_host_publish (host-ptr m) (pin-immobile nb) (bytes-length nb)
                                           tramp #f #f))))))
 
 ;; Remove the Host-wide alias `name` (alias-only): a later fetch misses on
@@ -489,7 +489,7 @@
   (define nb (string->bytes/utf-8 name))
   (call-with-host m
     (lambda ()
-      (define rc (pancake_host_unpublish (host-ptr m) (pin-immobile nb) (bytes-length nb)))
+      (define rc (glowcap_host_unpublish (host-ptr m) (pin-immobile nb) (bytes-length nb)))
       (cond
         [(= rc ERR-NOT-FOUND) #f]
         [else (check/host rc) #t]))))
@@ -516,7 +516,7 @@
     (call-with-host m
       (lambda ()
         (define written
-          (pancake_host_publish_durable (host-ptr m)
+          (glowcap_host_publish_durable (host-ptr m)
                                         (pin-immobile entropy) (bytes-length entropy)
                                         tramp #f #f
                                         out (bytes-length out)))
@@ -530,7 +530,7 @@
   (define sb (string->bytes/utf-8 swiss))
   (call-with-host m
     (lambda ()
-      (define rc (pancake_host_remove_durable (host-ptr m) (pin-immobile sb) (bytes-length sb)))
+      (define rc (glowcap_host_remove_durable (host-ptr m) (pin-immobile sb) (bytes-length sb)))
       (cond
         [(= rc ERR-NOT-FOUND) #f]
         [else (check/host rc) #t]))))

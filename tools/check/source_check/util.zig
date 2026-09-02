@@ -338,14 +338,14 @@ test "collectCaptpWireArms reads wireString and stops before name" {
         \\    pub fn wireString(self: CaptpVersion) []const u8 {
         \\        return switch (self) {
         \\            .v1_0 => "1.0",
-        \\            .next => "pancake-next",
+        \\            .next => "glowcap-next",
         \\        };
         \\    }
         \\
         \\    pub fn name(self: CaptpVersion) []const u8 {
         \\        return switch (self) {
         \\            .v1_0 => "ocapn-v1.0",
-        \\            .next => "pancake-next",
+        \\            .next => "glowcap-next",
         \\        };
         \\    }
         \\};
@@ -359,7 +359,7 @@ test "collectCaptpWireArms reads wireString and stops before name" {
     try std.testing.expectEqualStrings("v1_0", arms.items[0].tag);
     try std.testing.expectEqualStrings("1.0", arms.items[0].wire);
     try std.testing.expectEqualStrings("next", arms.items[1].tag);
-    try std.testing.expectEqualStrings("pancake-next", arms.items[1].wire);
+    try std.testing.expectEqualStrings("glowcap-next", arms.items[1].wire);
 }
 
 test "collectCaptpWireArms gives up nothing when wireString is gone" {
@@ -439,8 +439,8 @@ pub fn extractBraceBlock(text: []const u8, marker: []const u8) ?[]const u8 {
 /// Whether `haystack` contains `needle` as a whole symbol rather than as the
 /// prefix of a longer one. The bans and presence checks above name FFI symbols
 /// and call spellings, so a plain substring match reads
-/// `pancake_host_session_published_ref` as a use of
-/// `pancake_host_session_publish` and refuses a sibling verb that never broke the
+/// `glowcap_host_session_published_ref` as a use of
+/// `glowcap_host_session_publish` and refuses a sibling verb that never broke the
 /// rule. A required needle has the same defect facing the other way: a longer
 /// sibling would satisfy it. Boundaries are only required at an end whose own
 /// character is part of an identifier, so a needle spelled with trailing

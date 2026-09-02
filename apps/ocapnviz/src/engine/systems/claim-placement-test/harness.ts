@@ -68,7 +68,7 @@ export function joinedAt(
 		t,
 		kind: "peer-joined",
 		peerId,
-		profile: "pancake",
+		profile: "glowcap",
 		...(designator !== undefined ? { designator } : {}),
 	} as TimelineEvent;
 }

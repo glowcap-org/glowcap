@@ -1,6 +1,6 @@
 //! Persisted document schemas stay at version 1.
 //!
-//! pancake ships under no compatibility promise, so a document shape that is
+//! glowcap ships under no compatibility promise, so a document shape that is
 //! replaced is not a second version of anything: nothing reads the old one and
 //! nothing ever will. The [prerelease rule](../../../.agents/rules/prerelease.md)
 //! says so directly, and `c_abi/versions.zig` already holds provider ABI
@@ -14,7 +14,7 @@
 //! had a first, second, or third shape at all.
 //!
 //! The version *field* is not what this refuses. Keeping it is what makes a
-//! real version possible later, on the day pancake intentionally supports a
+//! real version possible later, on the day glowcap intentionally supports a
 //! shape it has released. Until that day the honest value is one.
 //!
 //! Scoped by discovery rather than by a list, so a document added tomorrow is

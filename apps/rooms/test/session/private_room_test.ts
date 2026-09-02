@@ -1,6 +1,6 @@
 // Durable private-room creation, exact retry, and restart reconstruction.
 
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import { Directory, linkRoomReference, Room } from "../../lib/room/client.ts";
 import { loopbackTcpDesignator, roomsAddress, roomsHost, roomsLocator } from "../../lib/locator.ts";
 import { newManagedRoomId } from "../../lib/limits.ts";
@@ -40,7 +40,7 @@ function startPeer(directory: string, port: number, checkpoint?: string): Deno.C
 			`--allow-read=${ROOT},${directory}`,
 			`--allow-write=${directory}`,
 			"--allow-net=127.0.0.1",
-			"--allow-env=PANCAKE_LIB_DIR",
+			"--allow-env=GLOWCAP_LIB_DIR",
 			PEER,
 			`--state=${directory}`,
 			...(checkpoint == null ? [] : [`--checkpoint=${checkpoint}`]),
@@ -54,8 +54,8 @@ function startPeer(directory: string, port: number, checkpoint?: string): Deno.C
 }
 
 roomsTest("a durable Rooms session creates one private room and reconstructs it from its link", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-private-" });
-	const roomDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-private-server-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-private-" });
+	const roomDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-private-server-" });
 	const peerPort = freePort();
 	const roomPort = freePort();
 	let roomServer = startStatefulServer(roomPort, roomDirectory);

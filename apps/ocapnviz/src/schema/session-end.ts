@@ -31,7 +31,7 @@ export const SESSION_SIDES: readonly SessionSide[] = ["a", "b"];
  * loose, and the claim stays a claim.
  *
  * Two of these are facts the network produced and the host measured. The
- * first is pancake's authenticated `DurableProvenance` verdict, spelled the
+ * first is glowcap's authenticated `DurableProvenance` verdict, spelled the
  * way the trace spells it. The last is the viewer's own,
  * and it is deliberately the weakest: two producers reporting one OCapN
  * Session ID is a correlation across two self-reports, not a proof, and
@@ -47,7 +47,7 @@ export const SESSION_SIDES: readonly SessionSide[] = ["a", "b"];
  * here was signed with it and bound to this connection. That proves the end
  * is the party the gifter designated. It says nothing about the durable name
  * in the end's hello, which is a separate fact decided once before the
- * session opened — pancake's handoff path never writes `durable_pin`, so an
+ * session opened — glowcap's handoff path never writes `durable_pin`, so an
  * address-designator peer can redeem a gift and stay `unauthenticated`
  * (`src/ocapn/engine/inbound.zig`). Folding it into durable provenance would
  * claim the hello's designator was proved when nothing proved it.
@@ -113,7 +113,7 @@ export const ATTRIBUTION_STANDING: Record<
 export const UNATTRIBUTED_WORD = "nothing proved this";
 
 /**
- * What a pancake host reports having authenticated a partner's durable name
+ * What a glowcap host reports having authenticated a partner's durable name
  * with — the viewer's mirror of the Zig `engine.DurableProvenance`
  * (`src/ocapn/engine/mod.zig`), which reaches a trace consumer through the C
  * ABI and the TypeScript binding.
@@ -126,7 +126,7 @@ export const UNATTRIBUTED_WORD = "nothing proved this";
  * word whether or not this list still carries it.
  *
  * A verdict is still added here by hand, because the viewer is a separate Deno
- * scope that links no pancake package and no generated tier reaches it. What
+ * scope that links no glowcap package and no generated tier reaches it. What
  * the check removes is the silence. An unrecognized verdict maps to no
  * attribution, which would draw as "nothing proved this" and look like an
  * answer rather than a gap.
@@ -172,13 +172,13 @@ export type DurableProvenance = z.infer<typeof DurableProvenance>;
  * second copy of it, drifting quietly, while every session's own verdict
  * arrives on the trace and needs no such table to be read.
  *
- * So a pancake pair whose channel nothing authenticated attributes its far end
+ * So a glowcap pair whose channel nothing authenticated attributes its far end
  * by correlation, if a second producer speaks for it, and a Goblins peer there
  * stays loose.
  *
  * No verdict maps to `verified-handoff`, and that is the boundary rather
  * than an omission: a verified handoff is a fact about one gift redemption,
- * pancake's trace does not report it, and no producer can send it today. It
+ * glowcap's trace does not report it, and no producer can send it today. It
  * reaches a document by being authored.
  */
 export function attributionForProvenance(

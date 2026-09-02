@@ -4,8 +4,8 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}" checksums
-pancake_require_devcontainer "image/rust"
+glowcap_devcontainer_init "${dir}" checksums
+glowcap_require_devcontainer "image/rust"
 
 # Image build uses CARGO_HOME_IMAGE; container open remaps to CARGO_HOME_RUNTIME
 # (the cargo/ slice of the host bind).
@@ -15,12 +15,12 @@ export RUSTUP_HOME="${RUSTUP_HOME}"
 # The pinned rustup-init bootstrap, not `curl | sh`: the toolchain below is
 # verified by rustup against its signed manifest, and this closes the same
 # loop on the installer itself.
-triple="$(pancake_pick_by_arch rust x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu)"
+triple="$(glowcap_pick_by_arch rust x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu)"
 url="https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/${triple}/rustup-init"
-tmp="$(mktemp -d -t pancake-rust-install-XXXXXX)"
+tmp="$(mktemp -d -t glowcap-rust-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
 
-pancake_fetch_verified "${url}" "${tmp}/rustup-init" "$(rustup_init_sha256)"
+glowcap_fetch_verified "${url}" "${tmp}/rustup-init" "$(rustup_init_sha256)"
 chmod +x "${tmp}/rustup-init"
 "${tmp}/rustup-init" -y --no-modify-path --default-toolchain none --profile minimal
 

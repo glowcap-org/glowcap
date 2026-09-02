@@ -7,7 +7,7 @@
 // value here can cross either Rooms wire profile; no binding-local object shape
 // participates in the contract.
 
-import { type Argument, type Behavior, currentSession, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, Ref, type Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import { type Attachment, attachmentRefusal, type AttachmentSource, sendWithAttachments } from "../attachment.ts";
 import {

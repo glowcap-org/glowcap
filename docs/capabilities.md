@@ -2,7 +2,7 @@
 
 Start here if object-capability security is new to you and you want a short
 glossary. For the guided explanation with diagrams, read [Why
-OCapN](https://jimisaacs.github.io/pancake/why/). If the terms already feel
+OCapN](https://jimisaacs.github.io/glowcap/why/). If the terms already feel
 familiar, go to the [quick start](../README.md#quick-start).
 
 ## A capability is a reference with authority
@@ -49,7 +49,7 @@ object and wants Bob to have it, Alice introduces them. Bob redeems that
 introduction with Carol and receives a direct capability; Alice does not remain
 as a proxy.
 
-pancake handles this under its session API. The call awaiting the introduced
+glowcap handles this under its session API. The call awaiting the introduced
 object settles to the live capability after redemption. Run
 [`examples/zig/02_introduce_and_redeem.zig`](../examples/zig/02_introduce_and_redeem.zig)
 to see the whole exchange.
@@ -65,12 +65,12 @@ work is stewarded by the [Spritely Institute](https://spritely.institute/) and
 the OCapN community.
 
 [Spritely Goblins](https://spritely.institute/goblins/) is the main reference
-implementation in practice and pancake's live interop peer.
+implementation in practice and glowcap's live interop peer.
 
-pancake provides the protocol core in Zig, a C ABI, and bindings for Rust,
+glowcap provides the protocol core in Zig, a C ABI, and bindings for Rust,
 TypeScript, Python, and Racket. It speaks
 [Syrup](https://github.com/ocapn/syrup), the canonical OCapN encoding, and can
-also use Cap'n Proto between pancake peers.
+also use Cap'n Proto between glowcap peers.
 
 For the implementation, read [Architecture](architecture.md). For exact
 outside-peer coverage, read [Community review](community-review.md). The
@@ -90,7 +90,7 @@ wire.
 | reference | A name for an object: *near* in your vat, *far* across a session. |
 | export / import | The session-table positions for an object on its owning and receiving sides. |
 | promise | An OCapN passable reference representing an eventual fulfillment or break. |
-| vow | In Goblins, a passable eventual reference. pancake's `Vow` is instead a local host/actor-layer observation and send-result handle over an OCapN promise; it is not the passable reference or its wire position. |
+| vow | In Goblins, a passable eventual reference. glowcap's `Vow` is instead a local host/actor-layer observation and send-result handle over an OCapN promise; it is not the passable reference or its wire position. |
 | answer position | The sender-chosen CapTP session slot (`desc:answer`) used to pipeline sends against a promise. |
 | promise pipelining | Calling through a promise before it settles so dependent calls share a flight. |
 | bootstrap object | The one well-known capability available when a session opens. |
@@ -100,6 +100,6 @@ wire.
 | designator | The netlayer-defined part of a peer locator that, together with the transport, distinguishes the peer's location. It is conventionally self-authenticating but need not be: examples are a public key, onion service id, iroh node id, or cleartext TCP `host:port`. Hints say how to reach it but are not identity. |
 | handoff | A signed three-party introduction that moves a capability without keeping the introducer as proxy. |
 | give | The signed introduction presented to the exporting peer during handoff. |
-| netlayer | The locator-selected OCapN channel contract. pancake realizes some netlayers as per-stream `net.Connection` values and others through multiplexed residents; [known limitations](boundaries.md) says what each shipped profile proves. |
-| codec | A wire encoding for the message model. pancake ships Syrup and Cap'n Proto. |
+| netlayer | The locator-selected OCapN channel contract. glowcap realizes some netlayers as per-stream `net.Connection` values and others through multiplexed residents; [known limitations](boundaries.md) says what each shipped profile proves. |
+| codec | A wire encoding for the message model. glowcap ships Syrup and Cap'n Proto. |
 | Syrup | The S-expression-shaped binary encoding used by OCapN and Goblins. |

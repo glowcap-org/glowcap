@@ -63,7 +63,7 @@ export async function acceptInvite(page: RoomsPageContext, id: string): Promise<
 	// carries that fact on the arriving occupancy, and enterRoom moves a listed
 	// one onto its public key before committing the conversation. Asking a
 	// method first aborts against an older or Goblins-shaped room that can seat
-	// us perfectly well without implementing pancake's convenience question.
+	// us perfectly well without implementing glowcap's convenience question.
 	let roomName = invite.label || "a room";
 	try {
 		roomName = (await roomCalledAs(session.dir.session, handed.room)) || roomName;

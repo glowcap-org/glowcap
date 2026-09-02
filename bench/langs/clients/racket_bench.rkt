@@ -1,14 +1,14 @@
 #lang racket/base
 ;; The Racket-binding bench client for the per-language consumer-cost bench. It
-;; drives the taskboard unit against the fixed Zig host through pancake's Racket
+;; drives the taskboard unit against the fixed Zig host through glowcap's Racket
 ;; binding (the same `connect`/`session-fetch`/`session-send` the demos use) and prints
 ;; one NDJSON metric line in the shared schema (see bench/langs/contract.md).
 ;;
 ;;   racket racket_bench.rkt <mode> <host> <port> <n>
 (file-stream-buffer-mode (current-output-port) 'line)
 
-(require "../../../bindings/racket/pancake.rkt"
-         "../../../bindings/racket/pancake-tcp.rkt"
+(require "../../../bindings/racket/glowcap.rkt"
+         "../../../bindings/racket/glowcap-tcp.rkt"
          "../../shared/metrics.rkt")
 
 (define args (current-command-line-arguments))

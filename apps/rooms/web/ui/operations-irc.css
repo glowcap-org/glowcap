@@ -124,48 +124,27 @@
 }
 .irc-channel-add {
 	display: grid;
-	grid-template-columns: auto minmax(120px, 1fr) auto;
+	grid-template-columns: auto minmax(0, 1fr);
 	align-items: center;
 	gap: var(--gap-row);
 	margin-top: 10px;
 	padding-top: 10px;
 	border-top: 1px solid color-mix(in srgb, var(--rule) 65%, transparent);
 }
-.irc-channel-add label {
+.irc-channel-add > label {
 	font-size: var(--type-caption);
 	font-weight: 700;
 	color: var(--ink-soft);
 }
-.irc-channel-field {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr);
-	align-items: center;
-	border: 1px solid var(--rule);
-	border-radius: 11px;
-	background: var(--field-fill);
-	box-shadow: var(--field-lift);
-	overflow: hidden;
-}
-.irc-channel-field:focus-within {
-	border-color: var(--accent);
-	box-shadow: var(--ring);
-}
-.irc-channel-field > span {
-	padding-inline-start: 10px;
-	color: var(--ink-soft);
-	font-weight: 700;
-}
-.card-plane .irc-channel-field .field {
-	padding-inline-start: 4px;
-	border: 0;
-	border-radius: 0;
-	box-shadow: none;
-	background: transparent;
-}
-.card-plane .irc-channel-field .field:focus {
-	outline: 0;
-	border: 0;
-	box-shadow: none;
+@container (max-width: 460px) {
+	/* The label leads its own line when the row is too narrow to seat it beside
+	   the field and the act. */
+	.irc-channel-add {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.irc-channel-add > label {
+		grid-column: 1 / -1;
+	}
 }
 .irc-connection-actions {
 	display: flex;
@@ -176,40 +155,6 @@
 .irc-connection > .said {
 	margin-top: 10px;
 }
-.irc-new-form {
-	display: flex;
-	flex-direction: column;
-	gap: var(--gap-group);
-}
-.irc-new-grid {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: var(--gap-group);
-}
-.irc-new-foot {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) auto;
-	align-items: center;
-	gap: var(--gap-group);
-}
-.irc-new-foot .hint {
-	margin: 0;
-}
-.irc-tls-row {
-	margin: 0;
-}
-@container (max-width: 700px) {
-	.irc-new-grid {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-	.irc-new-foot {
-		grid-template-columns: auto 1fr;
-	}
-	.irc-new-foot > .button {
-		grid-column: 1 / -1;
-		justify-self: end;
-	}
-}
 @container (max-width: 460px) {
 	.irc-connection {
 		padding: 12px;
@@ -219,19 +164,5 @@
 	}
 	.irc-channel-list .actions {
 		justify-content: flex-start;
-	}
-	.irc-channel-add {
-		grid-template-columns: 1fr auto;
-	}
-	.irc-channel-add label {
-		grid-column: 1 / -1;
-	}
-	.irc-new-grid,
-	.irc-new-foot {
-		grid-template-columns: 1fr;
-	}
-	.irc-new-foot > .button {
-		grid-column: auto;
-		justify-self: stretch;
 	}
 }

@@ -2,8 +2,8 @@
 // Rooms Directory session. A sibling CapTP listener on the same Host makes the
 // registered IRC users reachable through Rooms introductions.
 
-import { listen as listenIroh, Reachability } from "@pancake/iroh";
-import * as tcp from "@pancake/tcp";
+import { listen as listenIroh, Reachability } from "@glowcap/iroh";
+import * as tcp from "@glowcap/tcp";
 import { dial, isUriLocator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { serveIrcFront } from "./serve.ts";

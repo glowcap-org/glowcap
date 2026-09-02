@@ -11,10 +11,10 @@
 //! not an upper bound.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const engine = pancake.ocapn.engine;
+const foundation = glowcap.foundation;
+const engine = glowcap.ocapn.engine;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
 /// A no-answer (`#f` answer position) `op:deliver` to local export 7 carrying one

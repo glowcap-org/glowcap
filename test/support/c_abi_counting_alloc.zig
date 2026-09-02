@@ -1,5 +1,5 @@
 //! A counting C allocator over `std.testing.allocator`, for proving a C ABI
-//! handle family returns every byte it took: build a `PancakeContext` from
+//! handle family returns every byte it took: build a `GlowcapContext` from
 //! `spec()`, drive the `*_new_in` twins through it, and assert `balanced()`
 //! after the releases. The testing allocator underneath catches
 //! use-after-free and size/alignment mismatches; the counters catch a leak
@@ -16,7 +16,7 @@ pub const CountingHost = struct {
     fail_allocations: bool = false,
     allocations_before_failure: ?usize = null,
 
-    pub fn spec(self: *CountingHost) c.PancakeAllocator {
+    pub fn spec(self: *CountingHost) c.GlowcapAllocator {
         return .{ .alloc = hostAlloc, .free = hostFree, .user_data = self };
     }
 

@@ -5,18 +5,18 @@
 //! log the trace tests read back.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const promise_capture = @import("../../support/capture.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 pub const frame_cap = 4096;
 
@@ -109,7 +109,7 @@ pub fn onionSturdyref(designator: []const u8, swissnum: []const u8) model.Sturdy
 /// the action queue's popped-view lifetime.
 pub const ParkedDial = struct {
     host: *Host,
-    ticket: pancake.ocapn.engine.Node.PendingId,
+    ticket: glowcap.ocapn.engine.Node.PendingId,
     route_index: usize,
     designator: []u8,
 };

@@ -3,7 +3,7 @@
 //! lifecycle scenarios in `keyed_relay_test.zig`.
 
 const std = @import("std");
-const keyed_relay = @import("pancake").net.relay;
+const keyed_relay = @import("glowcap").net.relay;
 
 fn headerOf(bytes: []const u8) keyed_relay.FrameError!keyed_relay.FrameHeader {
     var reader = std.Io.Reader.fixed(bytes);

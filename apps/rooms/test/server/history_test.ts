@@ -28,7 +28,7 @@ function spawnHistoryServer(state?: string): Deno.ChildProcess {
 	return spawnOwned("deno", {
 		args: [...DENO_FLAGS, "--allow-write", SERVER, "0", "--history"],
 		cwd: ROOT,
-		env: state === undefined ? undefined : { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: state },
+		env: state === undefined ? undefined : { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",
 		stderr: "piped",
 	});

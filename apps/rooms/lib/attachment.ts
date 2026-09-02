@@ -8,8 +8,8 @@
 // direct sender has the selected file, and a viewer assembles what it asks for.
 // In between, every message carries at most `BLOB_CHUNK`.
 
-import { Ref } from "@pancake/runtime";
-import type { Argument, Behavior, Session } from "@pancake/runtime";
+import { Ref } from "@glowcap/runtime";
+import type { Argument, Behavior, Session } from "@glowcap/runtime";
 import { ATTACH, DISCARD, POST_FILES, READ, WRITE } from "./protocol.ts";
 import { answerWithin } from "./deadline.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";

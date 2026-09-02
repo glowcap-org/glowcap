@@ -2,8 +2,8 @@
 //! loopback in `keyed_relay_test.zig`; these cases pin the bounded grammar.
 
 const std = @import("std");
-const pancake = @import("pancake");
-const keyed_relay = pancake.net.relay;
+const glowcap = @import("glowcap");
+const keyed_relay = glowcap.net.relay;
 const ws_relay = @import("../support/ws_relay.zig");
 
 const IdentityTls = struct {
@@ -13,17 +13,17 @@ const IdentityTls = struct {
     refuse_runtime_close_once: bool = false,
     refuse_client_close: bool = false,
 
-    fn runtime(self: *IdentityTls) pancake.net.tls.runtime.Runtime {
+    fn runtime(self: *IdentityTls) glowcap.net.tls.runtime.Runtime {
         return .{ .ctx = self, .vtable = &runtime_vtable };
     }
 
-    fn open(raw: *anyopaque, hostname: []const u8) pancake.net.tls.runtime.OpenOutcome {
+    fn open(raw: *anyopaque, hostname: []const u8) glowcap.net.tls.runtime.OpenOutcome {
         const self: *IdentityTls = @ptrCast(@alignCast(raw));
         self.hostname_ok = std.mem.eql(u8, hostname, "127.0.0.1");
         return .{ .client = .init(self, &client_vtable) };
     }
 
-    fn closeRuntime(raw: *anyopaque) ?pancake.foundation.FailureChain {
+    fn closeRuntime(raw: *anyopaque) ?glowcap.foundation.FailureChain {
         const self: *IdentityTls = @ptrCast(@alignCast(raw));
         self.runtime_closed += 1;
         if (self.refuse_runtime_close_once) {
@@ -37,7 +37,7 @@ const IdentityTls = struct {
         return left_raw == right_raw;
     }
 
-    fn step(_: *anyopaque, phase: pancake.net.tls.engine.Phase, exchange: pancake.net.tls.engine.Exchange) pancake.net.tls.engine.RawOutcome {
+    fn step(_: *anyopaque, phase: glowcap.net.tls.engine.Phase, exchange: glowcap.net.tls.engine.Exchange) glowcap.net.tls.engine.RawOutcome {
         return switch (phase) {
             .handshake => .{ .stepped = .{ .status = .established } },
             .transmit => copy(.transmit, exchange.plaintext_in, exchange.ciphertext_out),
@@ -50,13 +50,13 @@ const IdentityTls = struct {
     }
 
     fn copy(
-        phase: pancake.net.tls.engine.Phase,
+        phase: glowcap.net.tls.engine.Phase,
         input: []const u8,
         output: []u8,
-    ) pancake.net.tls.engine.RawOutcome {
+    ) glowcap.net.tls.engine.RawOutcome {
         const count = @min(input.len, output.len);
         @memcpy(output[0..count], input[0..count]);
-        var transfer = pancake.net.tls.engine.Transfer{};
+        var transfer = glowcap.net.tls.engine.Transfer{};
         if (phase == .transmit) {
             transfer.plaintext_consumed = count;
             transfer.ciphertext_produced = count;
@@ -67,19 +67,19 @@ const IdentityTls = struct {
         return .{ .stepped = .{ .transfer = transfer } };
     }
 
-    fn closeClient(raw: *anyopaque) ?pancake.foundation.FailureChain {
+    fn closeClient(raw: *anyopaque) ?glowcap.foundation.FailureChain {
         const self: *IdentityTls = @ptrCast(@alignCast(raw));
         self.clients_closed += 1;
         if (self.refuse_client_close) return .init(error.InjectedTlsClientClose);
         return null;
     }
 
-    const runtime_vtable: pancake.net.tls.runtime.Runtime.VTable = .{
+    const runtime_vtable: glowcap.net.tls.runtime.Runtime.VTable = .{
         .open = open,
         .same_configuration = sameRuntime,
         .deinit_outcome = closeRuntime,
     };
-    const client_vtable: pancake.net.tls.engine.VTable = .{
+    const client_vtable: glowcap.net.tls.engine.VTable = .{
         .step = step,
         .deinit = closeClient,
     };
@@ -187,8 +187,8 @@ test "secure routes fail closed before the clear carrier performs I/O" {
         "wss://127.0.0.1:1/relay",
     );
     defer _ = resident.deinit();
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x72)),
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x72)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -251,8 +251,8 @@ test "secure relay keeps upgrade primary ahead of TLS cleanup refusal" {
         .keyed,
         &tls_runtime,
     );
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x76)),
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x76)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -298,8 +298,8 @@ test "secure relay composes injected TLS below the one WebSocket upgrade" {
         &tls_runtime,
     );
     try std.testing.expect(provider.keyed_resident.configuration() == provider.noise_resident.configuration());
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x73)),
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x73)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -350,11 +350,11 @@ test "relay configuration equivalence covers every initializer policy fact" {
     const io = threaded.io();
     const route = "ws://relay.example/relay?blue=1&green=%32";
     const register = "ws://relay.example/register?deployment=one";
-    const first_key = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x41)),
+    const first_key = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x41)),
     ).publicKey();
-    const other_key = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x42)),
+    const other_key = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x42)),
     ).publicKey();
 
     var baseline = try keyed_relay.Resident.initRegisteredProfile(
@@ -482,8 +482,8 @@ test "resident DNS dial preserves the exact WebSocket refusal" {
     var resident = try keyed_relay.Resident.init(allocator, io, url);
     defer _ = resident.deinit();
 
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x71)),
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x71)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);

@@ -2,7 +2,7 @@
 // is read, and the only file that knows which backends exist.
 //
 // Storage is a capability the operator grants the server, off by default.
-// The destination is one value — `--storage=` or PANCAKE_ROOMS_STORAGE —
+// The destination is one value — `--storage=` or GLOWCAP_ROOMS_STORAGE —
 // and its shape picks the implementation: a `postgres://` URL is a managed
 // database, anything else is a directory for the file backend, and naming
 // nothing keeps today's posture (the state directory when one exists,

@@ -17,10 +17,10 @@ type OperatorFilter = { search: string; referenceKind: OperatorReferenceKind | n
 
 export type AttachedOperationsActions = Pick<
 	RoomsSessionController,
-	| "openIrcNetwork"
-	| "closeIrcNetwork"
-	| "joinIrcChannel"
-	| "partIrc"
+	| "openBridgeConnection"
+	| "closeBridgeConnection"
+	| "addBridgeLease"
+	| "removeBridgeLease"
 	| "revokeRoomLink"
 	| "revokeRoomAuthority"
 	| "revokeNick"
@@ -171,9 +171,7 @@ export function attachedOperations(
 			const snapshot = await controller.operationsSnapshot(scope, capability);
 			if (snapshot.capability === "listeners") store.setListeners(projection, snapshot.rows);
 			else if (snapshot.capability === "diagnostics") store.setDiagnostics(projection, snapshot.rows);
-			else if (snapshot.capability === "irc") {
-				store.setIrcGateway(projection, { networks: snapshot.networks, bridged: snapshot.bridged });
-			}
+			else if (snapshot.capability === "irc") store.setIrcGateway(projection, snapshot.gateway);
 		} catch (error) {
 			clear();
 			store.noteTrouble(projection, `shared session ${capability}`, errorText(error));
@@ -269,35 +267,35 @@ export function attachedOperations(
 	return {
 		refreshOperator,
 		actions: {
-			openIrcNetwork: async (choice) => {
+			openBridgeConnection: async (answers) => {
 				const scope = homeScope();
-				if (scope == null) return "This shared session has no home directory for IRC administration.";
+				if (scope == null) return "This shared session has no home directory for bridge administration.";
 				return await actionResult(async () => {
-					await controller.operations(scope, "irc", "openNetwork", [JSON.stringify(choice)]);
+					await controller.operations(scope, "irc", "openConnection", [JSON.stringify(answers)]);
 					await refreshCapability("irc");
 				});
 			},
-			closeIrcNetwork: async (network) => {
+			closeBridgeConnection: async (connectionId) => {
 				const scope = homeScope();
-				if (scope == null) return "This shared session has no home directory for IRC administration.";
+				if (scope == null) return "This shared session has no home directory for bridge administration.";
 				return await actionResult(async () => {
-					await controller.operations(scope, "irc", "closeNetwork", [network]);
+					await controller.operations(scope, "irc", "closeConnection", [connectionId]);
 					await refreshCapability("irc");
 				});
 			},
-			joinIrcChannel: async (network, channel) => {
+			addBridgeLease: async (connectionId, answers) => {
 				const scope = homeScope();
-				if (scope == null) return "This shared session has no home directory for IRC administration.";
+				if (scope == null) return "This shared session has no home directory for bridge administration.";
 				return await actionResult(async () => {
-					await controller.operations(scope, "irc", "joinChannel", [network, channel]);
+					await controller.operations(scope, "irc", "addLease", [connectionId, JSON.stringify(answers)]);
 					await refreshCapability("irc");
 				});
 			},
-			partIrc: async (network, channel) => {
+			removeBridgeLease: async (connectionId, leaseId) => {
 				const scope = homeScope();
-				if (scope == null) return "This shared session has no home directory for IRC administration.";
+				if (scope == null) return "This shared session has no home directory for bridge administration.";
 				return await actionResult(async () => {
-					await controller.operations(scope, "irc", "part", [network, channel]);
+					await controller.operations(scope, "irc", "removeLease", [connectionId, leaseId]);
 					await refreshCapability("irc");
 				});
 			},

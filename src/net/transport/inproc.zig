@@ -53,7 +53,7 @@ const Endpoint = stream.Endpoint;
 pub const InprocFrameStream = stream.FrameStream;
 
 /// The transport symbol this resident registers under and signs into
-/// `op:start-session`. Matches the `pancake_inproc_*` C ABI family.
+/// `op:start-session`. Matches the `glowcap_inproc_*` C ABI family.
 const known_transport = model.transport.Known.inproc;
 pub const transport_name = known_transport.metadata().symbol;
 

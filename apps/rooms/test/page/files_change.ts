@@ -186,7 +186,7 @@ export async function runChange(
 		{
 			name: "notes.txt",
 			mimeType: "text/plain",
-			buffer: Buffer.from("pancake"),
+			buffer: Buffer.from("glowcap"),
 		},
 		{
 			name: "ledger.csv",

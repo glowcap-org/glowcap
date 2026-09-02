@@ -9,14 +9,14 @@ pub(super) fn view(ptr: *const u8, len: usize, field: &str) -> crate::Result<Opt
 	if ptr.is_null() {
 		return Err(crate::Error::with_detail(
 			crate::sys::ERR_INTERNAL,
-			format!("pancake ABI returned a null trace {field} with nonzero length"),
+			format!("glowcap ABI returned a null trace {field} with nonzero length"),
 		));
 	}
 	let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
 	let text = std::str::from_utf8(bytes).map_err(|_| {
 		crate::Error::with_detail(
 			crate::sys::ERR_INTERNAL,
-			format!("pancake ABI returned invalid UTF-8 in trace {field}"),
+			format!("glowcap ABI returned invalid UTF-8 in trace {field}"),
 		)
 	})?;
 	Ok(Some(text.to_owned()))
@@ -28,18 +28,18 @@ pub(super) fn codec(code: u32) -> crate::Result<&'static str> {
 		CODEC_SYRUP => Ok("syrup"),
 		other => Err(crate::Error::with_detail(
 			crate::sys::ERR_INTERNAL,
-			format!("pancake ABI returned unknown trace codec {other}"),
+			format!("glowcap ABI returned unknown trace codec {other}"),
 		)),
 	}
 }
 
 pub(super) fn captp_version(version: u32) -> crate::Result<&'static str> {
 	match version {
-		CAPTP_NEXT => Ok("pancake-next"),
+		CAPTP_NEXT => Ok("glowcap-next"),
 		CAPTP_V1_0 => Ok("1.0"),
 		other => Err(crate::Error::with_detail(
 			crate::sys::ERR_INTERNAL,
-			format!("pancake ABI returned unknown trace CapTP version {other}"),
+			format!("glowcap ABI returned unknown trace CapTP version {other}"),
 		)),
 	}
 }

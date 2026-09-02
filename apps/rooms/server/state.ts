@@ -8,7 +8,7 @@
 // room topics follow those identities; live membership remains ephemeral and
 // retention has its own storage seam.
 
-import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES } from "@glowcap/runtime";
 import { NO_SUCH_ROOM, NOT_STEWARD, ROOM_LINKS_FULL, RoomError } from "../lib/errors.ts";
 import { isManagedRoomId, MAX_ROOM_LINKS, MAX_TOPIC } from "../lib/limits.ts";
 import { roomIsListed, roomPoliciesEqual, type RoomPolicy } from "../lib/room/policy.ts";

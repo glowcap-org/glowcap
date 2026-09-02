@@ -17,8 +17,8 @@
 // trampolines fire inside it; provider starts are nonblocking, and readiness
 // drives connect completion and CapTP handshakes through later steps.
 
-import { BUFFER_TOO_SMALL, CLOSED, IO } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { BUFFER_TOO_SMALL, CLOSED, IO } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import { checkDriver, closeDriverListener } from "../internal/driver_failure.ts";
 import { loopS } from "../internal/ffi/driver.ts";
 import { type Ptr } from "../internal/ffi/runtime.ts";
@@ -48,7 +48,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 			parsed,
 			(owned) =>
 				checkDriver(
-					loopS.pancake_driver_dial(this._h, owned.borrowView(), options, ab(out)),
+					loopS.glowcap_driver_dial(this._h, owned.borrowView(), options, ab(out)),
 				),
 		);
 		const operationId = outU64(out);
@@ -83,12 +83,12 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 	): Promise<bigint> {
 		this._guardHandle();
 		if (signal?.aborted) {
-			return Promise.reject(new PancakeError(CLOSED, "listener setup was cancelled"));
+			return Promise.reject(new GlowcapError(CLOSED, "listener setup was cancelled"));
 		}
 		const t = utf8Encoder.encode(transport);
 		const d = utf8Encoder.encode(designator);
 		const out = new Uint8Array(8);
-		checkDriver(loopS.pancake_driver_listen(
+		checkDriver(loopS.glowcap_driver_listen(
 			this._h,
 			ab(t),
 			BigInt(t.length),
@@ -108,7 +108,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 				const onAbort = (): void =>
 					this._beginListenerClose(
 						listener,
-						new PancakeError(
+						new GlowcapError(
 							CLOSED,
 							"listener setup was cancelled",
 						),
@@ -127,7 +127,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		} catch (error) {
 			this._beginListenerClose(
 				listener,
-				error instanceof PancakeError ? error : new PancakeError(IO, String(error)),
+				error instanceof GlowcapError ? error : new GlowcapError(IO, String(error)),
 			);
 		}
 		return pending;
@@ -137,7 +137,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 	listenerLocator(listener: bigint): Locator {
 		this._guardHandle();
 		const out = new Uint8Array(L.LOCATOR_VIEW_SIZE);
-		checkDriver(loopS.pancake_driver_listener_locator(this._h, listener, ab(out)));
+		checkDriver(loopS.glowcap_driver_listener_locator(this._h, listener, ab(out)));
 		const owned = OwnedLocator.cloneView(out);
 		try {
 			return owned.value();
@@ -153,7 +153,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		while (true) {
 			const out = new Uint8Array(capacity);
 			const count = new Uint8Array(L.ptrSize);
-			const code = loopS.pancake_driver_listener_restoration_state(
+			const code = loopS.glowcap_driver_listener_restoration_state(
 				this._h,
 				listener,
 				ab(out),
@@ -176,26 +176,26 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		const parsed = typeof locator === "string" ? parseLocator(locator) : locator;
 		withOwnedLocator(parsed, (owned) =>
 			checkDriver(
-				loopS.pancake_driver_listener_advertise(this._h, listener, owned.borrowView()),
+				loopS.glowcap_driver_listener_advertise(this._h, listener, owned.borrowView()),
 			));
 	}
 
 	/** Select this listener's locator as the Host's acceptable location. */
 	selectListener(listener: bigint): void {
 		this._guardHandle();
-		checkDriver(loopS.pancake_driver_listener_select(this._h, listener));
+		checkDriver(loopS.glowcap_driver_listener_select(this._h, listener));
 	}
 
 	/** Stop one listener and join the native admission barrier. Events committed
 	 * before close remain queued; after this resolves, no later accepted event
 	 * can name the listener. */
-	closeListener(listener: bigint, reason: PancakeError = loopClosedError()): Promise<void> {
+	closeListener(listener: bigint, reason: GlowcapError = loopClosedError()): Promise<void> {
 		if (this._terminalFailure != null) return Promise.reject(this._terminalFailure);
 		if (!this._listeners.has(listener)) return Promise.resolve();
 		let close = this._listenerCloses.get(listener);
 		if (close == null) {
 			let resolve!: () => void;
-			let reject!: (error: PancakeError) => void;
+			let reject!: (error: GlowcapError) => void;
 			const promise = new Promise<void>((resolvePromise, rejectPromise) => {
 				resolve = resolvePromise;
 				reject = rejectPromise;
@@ -206,9 +206,9 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		try {
 			this._beginListenerClose(listener, reason);
 		} catch (error) {
-			const failure = error instanceof PancakeError
+			const failure = error instanceof GlowcapError
 				? error
-				: new PancakeError(IO, `listener close: ${String(error)}`);
+				: new GlowcapError(IO, `listener close: ${String(error)}`);
 			this._listenerCloses.delete(listener);
 			close.reject(failure);
 		}
@@ -217,7 +217,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 
 	/** Commit listener shutdown without creating an application waiter. Used by
 	 * setup cancellation, whose listen promise already owns the outcome. */
-	protected _beginListenerClose(listener: bigint, reason: PancakeError): void {
+	protected _beginListenerClose(listener: bigint, reason: GlowcapError): void {
 		if (!this._listeners.has(listener) || this._closingListeners.has(listener)) return;
 		this._closingListeners.set(listener, reason);
 		if (this._released) {
@@ -227,7 +227,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		this._closeListener(listener, reason);
 	}
 
-	protected _closeListener(listener: bigint, reason: PancakeError): void {
+	protected _closeListener(listener: bigint, reason: GlowcapError): void {
 		try {
 			if (!this._closeListenerNative(listener)) {
 				this.scheduleStep();
@@ -246,7 +246,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		try {
 			this._finishListenerClose(
 				listener,
-				failure instanceof PancakeError ? failure : reason,
+				failure instanceof GlowcapError ? failure : reason,
 			);
 		} catch (error) {
 			failure ??= error;
@@ -278,7 +278,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		return closeDriverListener(this._h, listener);
 	}
 
-	protected _finishListenerClose(listener: bigint, reason?: PancakeError, rejectAccepts = false): void {
+	protected _finishListenerClose(listener: bigint, reason?: GlowcapError, rejectAccepts = false): void {
 		let failure: unknown = null;
 		const close = this._listenerCloses.get(listener);
 		const waiter = this._pendingListeners.get(listener);
@@ -302,8 +302,8 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		this._accepts.delete(listener);
 		this._acceptWaiters.delete(listener);
 		if (close != null) {
-			if (failure instanceof PancakeError) close.reject(failure);
-			else if (failure != null) close.reject(new PancakeError(IO, `listener close: ${String(failure)}`));
+			if (failure instanceof GlowcapError) close.reject(failure);
+			else if (failure != null) close.reject(new GlowcapError(IO, `listener close: ${String(failure)}`));
 			else if (rejectAccepts && reason != null) close.reject(reason);
 			else close.resolve();
 		}

@@ -5,10 +5,10 @@
 //! interleaves it with `shuttleAll`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -78,7 +78,7 @@ pub fn publishAndOpenAccepted(host: *Host, transport: []const u8, designator: []
 }
 
 /// The adopted-peer counterpart to `publishAndOpenAccepted`.
-pub fn publishAndOpenAcceptedOver(host: *Host, peer: *pancake.ocapn.engine.Peer, transport: []const u8, designator: []const u8, direct_addresses: []const u8) !*HostSession {
+pub fn publishAndOpenAcceptedOver(host: *Host, peer: *glowcap.ocapn.engine.Peer, transport: []const u8, designator: []const u8, direct_addresses: []const u8) !*HostSession {
     var entries: [1]model.HintEntry = undefined;
     try host.setAdvertisedLocator(.{
         .transport = transport,

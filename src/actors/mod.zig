@@ -1,4 +1,4 @@
-//! pancake's actor layer — Goblins-shaped objects on top of the engine, and the
+//! glowcap's actor layer — Goblins-shaped objects on top of the engine, and the
 //! seam where the actor architecture meets OCapN.
 //!
 //! A `Vat` is a turn loop over actors. You `spawn` local actors, near-call them

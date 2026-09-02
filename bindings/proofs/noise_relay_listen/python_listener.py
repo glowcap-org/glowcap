@@ -16,8 +16,8 @@ from helpers import insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Argument  # noqa: E402
-from pancake import relay  # noqa: E402
+from glowcap import Argument  # noqa: E402
+from glowcap import relay  # noqa: E402
 
 
 async def main() -> None:

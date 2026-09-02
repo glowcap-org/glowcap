@@ -4,64 +4,64 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libpancake_ocapn`. The hand-written sibling
+// The raw extern block of `libglowcap_ocapn`. The hand-written sibling
 // (`ocapn.rs`) owns the shared `#[repr(C)]` mirrors and their layout pins,
-// and re-exports this block, so consumers keep their `sys::pancake_*` paths.
+// and re-exports this block, so consumers keep their `sys::glowcap_*` paths.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::ocapn::{
-	PancakeAllocator, PancakeContext, PancakeFailureEvent, PancakeFailureReport, PancakeLocator,
-	PancakeLocatorHintView, PancakeLocatorView, PancakeManagedFrame, PancakeSturdyRef,
+	GlowcapAllocator, GlowcapContext, GlowcapFailureEvent, GlowcapFailureReport, GlowcapLocator,
+	GlowcapLocatorHintView, GlowcapLocatorView, GlowcapManagedFrame, GlowcapSturdyRef,
 };
 
 extern "C" {
-	pub fn pancake_ocapn_archive_fingerprint() -> u64;
-	pub fn pancake_abi_version(out_major: *mut u32, out_minor: *mut u32, out_patch: *mut u32);
-	pub fn pancake_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_context_new_with_allocator(
-		allocator: *const PancakeAllocator,
-		out_context: *mut *mut PancakeContext,
+	pub fn glowcap_ocapn_archive_fingerprint() -> u64;
+	pub fn glowcap_abi_version(out_major: *mut u32, out_minor: *mut u32, out_patch: *mut u32);
+	pub fn glowcap_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_context_new_with_allocator(
+		allocator: *const GlowcapAllocator,
+		out_context: *mut *mut GlowcapContext,
 	) -> c_int;
-	pub fn pancake_context_report_failure(context: *mut PancakeContext, report: *const PancakeFailureReport) -> c_int;
-	pub fn pancake_context_next_failure(
-		context: *mut PancakeContext,
-		out_event: *mut PancakeFailureEvent,
+	pub fn glowcap_context_report_failure(context: *mut GlowcapContext, report: *const GlowcapFailureReport) -> c_int;
+	pub fn glowcap_context_next_failure(
+		context: *mut GlowcapContext,
+		out_event: *mut GlowcapFailureEvent,
 		out_payload: *mut c_uchar,
 		payload_cap: usize,
 		out_required: *mut usize,
 	) -> c_int;
-	pub fn pancake_context_release(context: *mut PancakeContext);
-	pub fn pancake_managed_frame_release(frame: *mut PancakeManagedFrame);
-	pub fn pancake_locator_record_encode(
-		locator: *const PancakeLocatorView,
+	pub fn glowcap_context_release(context: *mut GlowcapContext);
+	pub fn glowcap_managed_frame_release(frame: *mut GlowcapManagedFrame);
+	pub fn glowcap_locator_record_encode(
+		locator: *const GlowcapLocatorView,
 		out: *mut *mut c_uchar,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_locator_record_bytes_release(bytes: *mut c_uchar, len: usize);
-	pub fn pancake_uri_parse_peer(uri: *const c_uchar, uri_len: usize, out_locator: *mut *mut PancakeLocator) -> c_int;
-	pub fn pancake_uri_parse_peer_in(
-		context: *mut PancakeContext,
+	pub fn glowcap_locator_record_bytes_release(bytes: *mut c_uchar, len: usize);
+	pub fn glowcap_uri_parse_peer(uri: *const c_uchar, uri_len: usize, out_locator: *mut *mut GlowcapLocator) -> c_int;
+	pub fn glowcap_uri_parse_peer_in(
+		context: *mut GlowcapContext,
 		uri: *const c_uchar,
 		uri_len: usize,
-		out_locator: *mut *mut PancakeLocator,
+		out_locator: *mut *mut GlowcapLocator,
 	) -> c_int;
-	pub fn pancake_uri_parse_sturdyref(
+	pub fn glowcap_uri_parse_sturdyref(
 		captp_version: c_uint,
 		uri: *const c_uchar,
 		uri_len: usize,
-		out_sturdyref: *mut *mut PancakeSturdyRef,
+		out_sturdyref: *mut *mut GlowcapSturdyRef,
 	) -> c_int;
-	pub fn pancake_uri_parse_sturdyref_in(
-		context: *mut PancakeContext,
+	pub fn glowcap_uri_parse_sturdyref_in(
+		context: *mut GlowcapContext,
 		captp_version: c_uint,
 		uri: *const c_uchar,
 		uri_len: usize,
-		out_sturdyref: *mut *mut PancakeSturdyRef,
+		out_sturdyref: *mut *mut GlowcapSturdyRef,
 	) -> c_int;
-	pub fn pancake_uri_format_peer(
+	pub fn glowcap_uri_format_peer(
 		transport: *const c_uchar,
 		transport_len: usize,
 		designator: *const c_uchar,
@@ -75,7 +75,7 @@ extern "C" {
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_uri_format_sturdyref(
+	pub fn glowcap_uri_format_sturdyref(
 		captp_version: c_uint,
 		transport: *const c_uchar,
 		transport_len: usize,
@@ -92,101 +92,101 @@ extern "C" {
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_locator_new(
+	pub fn glowcap_locator_new(
 		transport: *const c_uchar,
 		transport_len: usize,
 		designator: *const c_uchar,
 		designator_len: usize,
 		hint_wire_form: c_uint,
-		out_locator: *mut *mut PancakeLocator,
+		out_locator: *mut *mut GlowcapLocator,
 	) -> c_int;
-	pub fn pancake_locator_new_in(
-		context: *mut PancakeContext,
+	pub fn glowcap_locator_new_in(
+		context: *mut GlowcapContext,
 		transport: *const c_uchar,
 		transport_len: usize,
 		designator: *const c_uchar,
 		designator_len: usize,
 		hint_wire_form: c_uint,
-		out_locator: *mut *mut PancakeLocator,
+		out_locator: *mut *mut GlowcapLocator,
 	) -> c_int;
-	pub fn pancake_locator_clone(view: *const PancakeLocatorView, out_locator: *mut *mut PancakeLocator) -> c_int;
-	pub fn pancake_locator_clone_in(
-		context: *mut PancakeContext,
-		view: *const PancakeLocatorView,
-		out_locator: *mut *mut PancakeLocator,
+	pub fn glowcap_locator_clone(view: *const GlowcapLocatorView, out_locator: *mut *mut GlowcapLocator) -> c_int;
+	pub fn glowcap_locator_clone_in(
+		context: *mut GlowcapContext,
+		view: *const GlowcapLocatorView,
+		out_locator: *mut *mut GlowcapLocator,
 	) -> c_int;
-	pub fn pancake_locator_borrow_view(loc: *const PancakeLocator, out_view: *mut *const PancakeLocatorView) -> c_int;
-	pub fn pancake_sturdyref_borrow_locator(
-		sturdyref: *const PancakeSturdyRef,
-		out_view: *mut *const PancakeLocatorView,
+	pub fn glowcap_locator_borrow_view(loc: *const GlowcapLocator, out_view: *mut *const GlowcapLocatorView) -> c_int;
+	pub fn glowcap_sturdyref_borrow_locator(
+		sturdyref: *const GlowcapSturdyRef,
+		out_view: *mut *const GlowcapLocatorView,
 	) -> c_int;
-	pub fn pancake_sturdyref_swissnum(
-		sturdyref: *mut PancakeSturdyRef,
+	pub fn glowcap_sturdyref_swissnum(
+		sturdyref: *mut GlowcapSturdyRef,
 		out_ptr: *mut *const c_uchar,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_sturdyref_release(sturdyref: *mut PancakeSturdyRef);
-	pub fn pancake_locator_add_string(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_sturdyref_release(sturdyref: *mut GlowcapSturdyRef);
+	pub fn glowcap_locator_add_string(
+		loc: *mut GlowcapLocator,
 		name: *const c_uchar,
 		name_len: usize,
 		value: *const c_uchar,
 		value_len: usize,
 	) -> c_int;
-	pub fn pancake_locator_add_bytes(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_locator_add_bytes(
+		loc: *mut GlowcapLocator,
 		name: *const c_uchar,
 		name_len: usize,
 		value: *const c_uchar,
 		value_len: usize,
 	) -> c_int;
-	pub fn pancake_locator_add_boolean(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_locator_add_boolean(
+		loc: *mut GlowcapLocator,
 		name: *const c_uchar,
 		name_len: usize,
 		value: u8,
 	) -> c_int;
-	pub fn pancake_locator_add_integer(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_locator_add_integer(
+		loc: *mut GlowcapLocator,
 		name: *const c_uchar,
 		name_len: usize,
 		value: i64,
 	) -> c_int;
-	pub fn pancake_locator_transport(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_locator_transport(
+		loc: *mut GlowcapLocator,
 		out_ptr: *mut *const c_uchar,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_locator_designator(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_locator_designator(
+		loc: *mut GlowcapLocator,
 		out_ptr: *mut *const c_uchar,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_designator_host_port(
+	pub fn glowcap_designator_host_port(
 		designator: *const c_uchar,
 		designator_len: usize,
 		out_host: *mut *const c_uchar,
 		out_host_len: *mut usize,
 		out_port: *mut u16,
 	) -> c_int;
-	pub fn pancake_locator_hint_count(loc: *mut PancakeLocator, out_count: *mut usize) -> c_int;
-	pub fn pancake_locator_hint_at(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_locator_hint_count(loc: *mut GlowcapLocator, out_count: *mut usize) -> c_int;
+	pub fn glowcap_locator_hint_at(
+		loc: *mut GlowcapLocator,
 		idx: usize,
-		out_hint: *mut PancakeLocatorHintView,
+		out_hint: *mut GlowcapLocatorHintView,
 	) -> c_int;
-	pub fn pancake_locator_hint_wire_form(loc: *mut PancakeLocator, out_wire_form: *mut u32) -> c_int;
-	pub fn pancake_locator_release(loc: *mut PancakeLocator);
-	pub fn pancake_context_new(out_context: *mut *mut PancakeContext) -> c_int;
-	pub fn pancake_clear_last_error();
-	pub fn pancake_locator_hint(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_locator_hint_wire_form(loc: *mut GlowcapLocator, out_wire_form: *mut u32) -> c_int;
+	pub fn glowcap_locator_release(loc: *mut GlowcapLocator);
+	pub fn glowcap_context_new(out_context: *mut *mut GlowcapContext) -> c_int;
+	pub fn glowcap_clear_last_error();
+	pub fn glowcap_locator_hint(
+		loc: *mut GlowcapLocator,
 		key: *const c_uchar,
 		key_len: usize,
-		out_hint: *mut PancakeLocatorHintView,
+		out_hint: *mut GlowcapLocatorHintView,
 	) -> c_int;
-	pub fn pancake_locator_host_port(
-		loc: *mut PancakeLocator,
+	pub fn glowcap_locator_host_port(
+		loc: *mut GlowcapLocator,
 		out_host: *mut *const c_uchar,
 		out_host_len: *mut usize,
 		out_port: *mut u16,

@@ -3,7 +3,7 @@ import {
 	WEBRTC_MAX_ICE_SERVERS,
 	WEBRTC_MAX_ICE_URL_BYTES,
 	WEBRTC_MAX_ICE_URLS_PER_SERVER,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { utf8Fits } from "./limits.ts";
 
 // Which ICE servers this deployment's browser peers use.
@@ -24,7 +24,7 @@ import { utf8Fits } from "./limits.ts";
 // as a byte relay when ICE cannot find a direct path through NAT".
 //
 // The set is a deployment's to choose, because it names hosts that deployment
-// is willing to depend on and disclose an address to. `PANCAKE_ROOMS_ICE_SERVERS`
+// is willing to depend on and disclose an address to. `GLOWCAP_ROOMS_ICE_SERVERS`
 // is a comma-separated STUN list, and an empty value deliberately runs with
 // none: a private network where every member can already reach every other wants
 // no outside host in the path at all. TURN credentials are short-lived bearer
@@ -36,7 +36,7 @@ import { utf8Fits } from "./limits.ts";
  * Cloudflare's is public, free, unauthenticated, and answers the address
  * question and nothing else. It is a default, not a dependency: a deployment
  * that would rather not disclose member addresses to a third party sets
- * `PANCAKE_ROOMS_ICE_SERVERS` to its own server, and one whose members already
+ * `GLOWCAP_ROOMS_ICE_SERVERS` to its own server, and one whose members already
  * share a network sets it empty. */
 const DEFAULT_STUN = "stun:stun.cloudflare.com:3478";
 

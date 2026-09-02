@@ -5,7 +5,7 @@ import type { IrcMessage } from "../../irc/protocol.ts";
 import { ircFold } from "../../irc/protocol.ts";
 import { IRC_OUTBOUND_INTERVAL_MS, type IrcChannelRelay } from "../../irc/bridge/outbound.ts";
 import type { SaslPlainCredentials } from "../../irc/registration.ts";
-import type { IrcNetworkChoice } from "../../lib/irc_gateway_client.ts";
+import type { IrcNetworkChoice } from "./model.ts";
 
 type SendLine = (bytes: Uint8Array) => Promise<void>;
 

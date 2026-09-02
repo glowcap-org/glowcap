@@ -1,6 +1,6 @@
 //! Identity binding for ADR-0107's Noise channel.
 //!
-//! Noise authenticates X25519 static keys. Pancake names peers with Ed25519,
+//! Noise authenticates X25519 static keys. Glowcap names peers with Ed25519,
 //! so the handshake payload proves the exact Ed25519 encoding, role, initial
 //! transcript, and authenticated X25519 static together. This module owns that
 //! statement and the transport/designator prologue; `sealed.zig` owns stream
@@ -20,7 +20,7 @@ pub const proof_bytes: usize = crypto.PEER_KEY_BYTES + crypto.SIGNATURE_BYTES;
 /// Room for the longest transport symbol beside a 64-hex-digit designator.
 pub const prologue_max_bytes: usize = 96;
 
-const proof_domain = "pancake sealed identity proof v1";
+const proof_domain = "glowcap sealed identity proof v1";
 const statement_bytes = proof_domain.len + 1 + noise.KEY_BYTES +
     crypto.PEER_KEY_BYTES + noise.KEY_BYTES;
 

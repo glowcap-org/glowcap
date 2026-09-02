@@ -23,8 +23,8 @@ import {
 	INTERNAL,
 	OK,
 	WOULD_BLOCK,
-} from "@pancake/abi";
-import { PancakeError } from "./errors.ts";
+} from "@glowcap/abi";
+import { GlowcapError } from "./errors.ts";
 import { drainFinalizerRetries } from "./finalizer_retry.ts";
 import {
 	type FailureEvent,
@@ -74,7 +74,7 @@ function reportValidatedFailure(context: Context, input: FailureReport): void {
 	const state = stateFor(context);
 	// Releasing refuses new native families, but a retained Host still owns
 	// this Context and its diagnostic queue until it gives back its lease.
-	if (state.raw === NULL) throw new Error("pancake Context is released");
+	if (state.raw === NULL) throw new Error("glowcap Context is released");
 	const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 	const fields = [
 		encode(input.operation),
@@ -108,8 +108,8 @@ function reportValidatedFailure(context: Context, input: FailureReport): void {
 		L.setPtr(dv, views[i][0], ffi.pointerOf(fields[i]));
 		L.setUsize(dv, views[i][1], fields[i].byteLength);
 	}
-	const rc = s.pancake_context_report_failure(state.raw, ffi.pointerOf(report));
-	if (rc !== OK) throw new PancakeError(rc);
+	const rc = s.glowcap_context_report_failure(state.raw, ffi.pointerOf(report));
+	if (rc !== OK) throw new GlowcapError(rc);
 }
 
 export function reportFailure(context: Context, input: FailureReport): void {
@@ -166,7 +166,7 @@ const states = new WeakMap<Context, ContextState>();
 
 function releaseState(state: ContextState): void {
 	if (state.raw !== NULL) {
-		s.pancake_context_release(state.raw);
+		s.glowcap_context_release(state.raw);
 		state.raw = NULL;
 	}
 	state.allocCb?.close();
@@ -179,7 +179,7 @@ const contextFinalizer = new FinalizationRegistry<ContextState>(releaseState);
 
 function stateFor(context: Context): ContextState {
 	const state = states.get(context);
-	if (state === undefined) throw new Error("invalid pancake Context");
+	if (state === undefined) throw new Error("invalid glowcap Context");
 	return state;
 }
 
@@ -187,7 +187,7 @@ function stateFor(context: Context): ContextState {
 export function retainContext(context: Context): Ptr {
 	const state = stateFor(context);
 	if (state.releaseRequested || state.raw === NULL) {
-		throw new Error("pancake Context is released");
+		throw new Error("glowcap Context is released");
 	}
 	state.handleCount++;
 	return state.raw;
@@ -196,7 +196,7 @@ export function retainContext(context: Context): Ptr {
 /** End one native handle family's borrow. Package-internal. */
 export function releaseContext(context: Context): void {
 	const state = stateFor(context);
-	if (state.handleCount === 0) throw new Error("pancake Context ownership underflow");
+	if (state.handleCount === 0) throw new Error("glowcap Context ownership underflow");
 	state.handleCount--;
 	if (state.handleCount === 0 && state.releaseRequested) {
 		contextFinalizer.unregister(context);
@@ -227,13 +227,13 @@ export class Context {
 		});
 	}
 
-	/** A context backed by pancake's library allocator. */
+	/** A context backed by glowcap's library allocator. */
 	static create(): Context {
 		const ctx = new Context();
 		const state = stateFor(ctx);
 		const out = new Uint8Array(L.ptrSize);
-		const rc = s.pancake_context_new(out);
-		if (rc !== OK) throw new PancakeError(rc);
+		const rc = s.glowcap_context_new(out);
+		if (rc !== OK) throw new GlowcapError(rc);
 		state.raw = outPointer(out);
 		contextFinalizer.register(ctx, state, ctx);
 		return ctx;
@@ -301,7 +301,7 @@ export class Context {
 		state.allocCb = allocCb;
 		state.freeCb = freeCb;
 
-		// PancakeAllocator, laid out by the generated ABI mirror. The C side copies
+		// GlowcapAllocator, laid out by the generated ABI mirror. The C side copies
 		// its three fields out at the call (it never retains this pointer), so the
 		// struct is transient — only the callback pointers it carries must stay
 		// live, and `#allocCb`/`#freeCb` own those.
@@ -313,10 +313,10 @@ export class Context {
 		L.setPtr(dv, L.ALLOCATOR_USER_DATA_OFF, 0n);
 
 		const out = new Uint8Array(L.ptrSize);
-		const rc = s.pancake_context_new_with_allocator(allocStruct, out);
+		const rc = s.glowcap_context_new_with_allocator(allocStruct, out);
 		if (rc !== OK) {
 			releaseState(state);
-			throw new PancakeError(rc);
+			throw new GlowcapError(rc);
 		}
 		state.raw = outPointer(out);
 		contextFinalizer.register(ctx, state, ctx);
@@ -327,7 +327,7 @@ export class Context {
 	get pointer(): Ptr {
 		const state = stateFor(this);
 		if (state.releaseRequested || state.raw === NULL) {
-			throw new Error("pancake Context is released");
+			throw new Error("glowcap Context is released");
 		}
 		return state.raw;
 	}
@@ -339,13 +339,13 @@ export class Context {
 		drainFinalizerRetries();
 		const state = stateFor(this);
 		if (state.raw === NULL) {
-			throw new Error("pancake Context is released");
+			throw new Error("glowcap Context is released");
 		}
 		const event = new Uint8Array(L.FAILURE_EVENT_SIZE);
 		const requiredOut = new Uint8Array(L.ptrSize);
 		let payload: Uint8Array | null = null;
 		for (;;) {
-			const rc = s.pancake_context_next_failure(
+			const rc = s.glowcap_context_next_failure(
 				state.raw,
 				event,
 				payload,
@@ -357,7 +357,7 @@ export class Context {
 				payload = new Uint8Array(Number(outUsize(requiredOut)));
 				continue;
 			}
-			if (rc !== OK) throw new PancakeError(rc);
+			if (rc !== OK) throw new GlowcapError(rc);
 			break;
 		}
 
@@ -367,7 +367,7 @@ export class Context {
 		const layer = failureVocabularyName(failureLayers, dv.getUint32(L.FAILURE_EVENT_LAYER_OFF, true));
 		const scope = failureVocabularyName(failureScopes, dv.getUint32(L.FAILURE_EVENT_SCOPE_KIND_OFF, true));
 		if (layer === undefined || scope === undefined) {
-			throw new Error("invalid failure event vocabulary from pancake ABI");
+			throw new Error("invalid failure event vocabulary from glowcap ABI");
 		}
 		return {
 			sequence: dv.getBigUint64(L.FAILURE_EVENT_SEQUENCE_OFF, true),

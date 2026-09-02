@@ -508,8 +508,12 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.waitForSelector("#settingsTitle");
 	await tab.click("#opsBtn");
 	await tab.waitForFunction(() => location.pathname.startsWith("/ops/"));
+	// Conversation identity is the name, not the decorations beside it: a room's
+	// bridge chip populates with its other facts on subscribe, so read a room's
+	// `.rname-text` rather than the whole `.rname` to compare what a reload
+	// restored. A DM row carries no chip, so its name is the whole `.rname`.
 	const workspaceRows = await tab.evaluate(() => ({
-		rooms: [...document.querySelectorAll("#roomList li:not(.dirrow) .rname")].map((node) => node.textContent),
+		rooms: [...document.querySelectorAll("#roomList li:not(.dirrow) .rname-text")].map((node) => node.textContent),
 		dms: [...document.querySelectorAll("#dmList li .rname")].map((node) => node.textContent),
 	}));
 
@@ -522,7 +526,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.waitForSelector("#settingsBtn", { timeout: 30_000 });
 	await tab.waitForSelector("#opsPage");
 	const restoredRows = await tab.evaluate(() => ({
-		rooms: [...document.querySelectorAll("#roomList li:not(.dirrow) .rname")].map((node) => node.textContent),
+		rooms: [...document.querySelectorAll("#roomList li:not(.dirrow) .rname-text")].map((node) => node.textContent),
 		dms: [...document.querySelectorAll("#dmList li .rname")].map((node) => node.textContent),
 	}));
 	if (JSON.stringify(restoredRows) !== JSON.stringify(workspaceRows)) {

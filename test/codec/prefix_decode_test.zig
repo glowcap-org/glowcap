@@ -16,16 +16,16 @@
 //! relies on, proven against the codec directly.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
-const capnp = pancake.ocapn.codec.capnp;
-const dispatch = pancake.ocapn.codec.dispatch;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
+const capnp = glowcap.ocapn.codec.capnp;
+const dispatch = glowcap.ocapn.codec.dispatch;
 
 const big_max: usize = 1 << 20;
 
-const Verdict = pancake.ocapn.codec.framing.StreamScan.Verdict;
+const Verdict = glowcap.ocapn.codec.framing.StreamScan.Verdict;
 
 /// Every strict prefix of `bytes` is `.incomplete`; the full buffer is
 /// `.decoded` consuming exactly `bytes.len`, with the same body discriminant as
@@ -34,7 +34,7 @@ fn sweepSyrupExact(bytes: []const u8) !void {
     // The resumable scan reads the same growing buffer a stream consumer does,
     // so it is driven once across the whole sweep rather than restarted per
     // prefix — restarting it would prove nothing about resuming.
-    var scan: pancake.ocapn.codec.framing.StreamScan = .{};
+    var scan: glowcap.ocapn.codec.framing.StreamScan = .{};
     var k: usize = 0;
     while (k < bytes.len) : (k += 1) {
         const prefix = syrup.decodePrefix(bytes[0..k], big_max);
@@ -65,7 +65,7 @@ fn sweepSyrupExact(bytes: []const u8) !void {
     try std.testing.expectEqual(std.meta.activeTag(whole), std.meta.activeTag(full.decoded.body));
 }
 
-fn encodeSyrup(allocator: std.mem.Allocator, message: model.Message) !pancake.foundation.Frame {
+fn encodeSyrup(allocator: std.mem.Allocator, message: model.Message) !glowcap.foundation.Frame {
     return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
 }
 
@@ -86,7 +86,7 @@ test "syrup decodePrefix: every byte split of a valid frame is incomplete until 
         .{ .float64 = @bitCast(@as(u64, 0x3E3C_5D5B_3E3C_5D5B)) },
     };
 
-    var frames: std.ArrayList(pancake.foundation.Frame) = .empty;
+    var frames: std.ArrayList(glowcap.foundation.Frame) = .empty;
     defer {
         for (frames.items) |*f| f.deinit();
         frames.deinit(allocator);

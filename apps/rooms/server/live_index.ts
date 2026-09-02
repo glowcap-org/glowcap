@@ -5,7 +5,7 @@
 // server constructs another set of tables, and closing one cannot empty the
 // other.
 
-import { durableIdentityAuthenticated, type Ref, type Session } from "@pancake/runtime";
+import { durableIdentityAuthenticated, type Ref, type Session } from "@glowcap/runtime";
 import { ROOM_EXISTS, RoomError, TOO_MANY_PEERED_ROOMS, TOO_MANY_ROOMS } from "../lib/errors.ts";
 import {
 	MAX_PEERED_ROOMS,
@@ -116,7 +116,7 @@ export class RoomLiveIndex {
 	registerBridgeRoom(
 		name: string,
 		origin: string,
-		bridge: { roomBehavior(): import("@pancake/runtime").Behavior },
+		bridge: { roomBehavior(): import("@glowcap/runtime").Behavior },
 		id = this.#publicRoomId(),
 	): BridgeRoomEntry {
 		const key = roomKey(name);

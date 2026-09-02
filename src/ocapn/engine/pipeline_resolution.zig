@@ -206,7 +206,7 @@ pub fn projectResolution(resolution: model.Resolution, kind: session.ProjectionK
             if (!std.mem.eql(u8, value.tagged.tag, tag)) return .{ .resolved = .{ .@"break" = .{
                 .message = "op:untag tag does not match the receiver's Tagged tag",
             } } };
-            // The spec's Tagged carries a single value; pancake's model carries
+            // The spec's Tagged carries a single value; glowcap's model carries
             // the Goblins user-record payload as a slice (ADR-0021). One value
             // unwraps to that value; any other arity unwraps to the payload as
             // the List it is, so nothing is guessed and nothing is dropped.

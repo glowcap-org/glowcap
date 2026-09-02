@@ -16,8 +16,8 @@
 // therefore the peer's, and is bounded here rather than trusted.
 
 import * as store from "../store.ts";
-import { Ref, type Session } from "@pancake/runtime";
-import type { Argument } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
+import type { Argument } from "@glowcap/runtime";
 import { type Attachment, type AttachmentSource, readRefileChange } from "../../../lib/attachment.ts";
 import { trouble } from "./common.ts";
 import { DirectMessage, PostedLine } from "../../../lib/room/client.ts";

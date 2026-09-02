@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2154
-# Open a host tmux session attached to one pancake worktree's devcontainer.
+# Open a host tmux session attached to one glowcap worktree's devcontainer.
 #
 #   bash .devcontainer/bin/enter.sh                 primary checkout (`main`)
 #   bash .devcontainer/bin/enter.sh tree1           linked worktree named tree1
@@ -17,10 +17,10 @@
 #
 # The pane's shell stays on the host, in the worktree, and the container shell
 # runs inside it. So `exit` ends the pane as it always has, while
-# `pancake_devcontainer_exit` steps out of the container and leaves you on the
-# host in that same worktree, where `pancake_devcontainer_enter` goes back in.
+# `glowcap_devcontainer_exit` steps out of the container and leaves you on the
+# host in that same worktree, where `glowcap_devcontainer_enter` goes back in.
 #
-# pancake is the CapTP CLI. This host launcher does not take that name.
+# glowcap is the CapTP CLI. This host launcher does not take that name.
 set -euo pipefail
 
 # Resolve the checked-out launcher through any number of symlinks. Git's common
@@ -40,7 +40,7 @@ devcontainer_dir="$(dirname "${source_dir}")"
 # shellcheck source=../lib/launcher.sh
 source "${devcontainer_dir}/lib/launcher.sh"
 
-pancake_devcontainer_parse_launcher_args "enter.sh" "${source_path}" "$@"
+glowcap_devcontainer_parse_launcher_args "enter.sh" "${source_path}" "$@"
 if [[ ${launcher_positional_count} -gt 1 ]]; then
     echo "enter.sh: specify at most one worktree" >&2
     exit 2
@@ -49,31 +49,31 @@ worktree=main
 if [[ ${launcher_positional_count} -eq 1 ]]; then
     worktree="${launcher_positionals[0]}"
 fi
-pancake_devcontainer_validate_worktree_name "${worktree}" "worktree name"
-pancake_require_host "enter.sh"
-pancake_devcontainer_require_launcher_tools "enter.sh"
+glowcap_devcontainer_validate_worktree_name "${worktree}" "worktree name"
+glowcap_require_host "enter.sh"
+glowcap_devcontainer_require_launcher_tools "enter.sh"
 
 launcher_checkout="$(dirname "${devcontainer_dir}")"
-primary_checkout="$(pancake_devcontainer_primary_checkout "${launcher_checkout}")"
-checkout="$(pancake_devcontainer_resolve_checkout "enter.sh" "${primary_checkout}" "${worktree}")"
+primary_checkout="$(glowcap_devcontainer_primary_checkout "${launcher_checkout}")"
+checkout="$(glowcap_devcontainer_resolve_checkout "enter.sh" "${primary_checkout}" "${worktree}")"
 
-session="$(pancake_devcontainer_tmux_session_name "${worktree}" "${launcher_session}")"
+session="$(glowcap_devcontainer_tmux_session_name "${worktree}" "${launcher_session}")"
 session_target="=${session}"
 # Pane and window commands need the trailing colon to qualify the exact session
-# target. Without it, tmux may interpret `=pancake-main` as a pane name.
+# target. Without it, tmux may interpret `=glowcap-main` as a pane name.
 window_target="${session_target}:"
 
-container_id="$(pancake_devcontainer_column_container "${checkout}" "${launcher_mode}")"
+container_id="$(glowcap_devcontainer_column_container "${checkout}" "${launcher_mode}")"
 
-pancake_devcontainer_replace_dead_session "${session_target}" "${window_target}"
+glowcap_devcontainer_replace_dead_session "${session_target}" "${window_target}"
 
 if ! tmux has-session -t "${session_target}" 2>/dev/null; then
     tmux new-session -d -s "${session}" -c "${checkout}"
     # No row: a session opened on its own is a plain container shell, with
     # this worktree's pane functions defined and none of them run, so naming
     # one at the prompt is how it starts.
-    panes_name="$(pancake_devcontainer_panes_name "${checkout}" "${launcher_session}")"
-    pane_command="$(pancake_devcontainer_pane_shell_command \
+    panes_name="$(glowcap_devcontainer_panes_name "${checkout}" "${launcher_session}")"
+    pane_command="$(glowcap_devcontainer_pane_shell_command \
         "${checkout}" "${worktree}" "${panes_name}")"
     tmux send-keys -t "${window_target}" "${pane_command}" C-m
     if ! tmux has-session -t "${session_target}" 2>/dev/null; then
@@ -83,4 +83,4 @@ if ! tmux has-session -t "${session_target}" 2>/dev/null; then
     fi
 fi
 
-pancake_devcontainer_attach_session "${session_target}" "${launcher_cc_mode}"
+glowcap_devcontainer_attach_session "${session_target}" "${launcher_cc_mode}"

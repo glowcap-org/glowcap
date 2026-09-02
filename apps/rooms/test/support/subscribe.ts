@@ -1,7 +1,7 @@
 // Subscribe, watch, and wait helpers the rooms server tests share.
 
-import { Ref } from "@pancake/runtime";
-import type { Argument, Session } from "@pancake/runtime";
+import { Ref } from "@glowcap/runtime";
+import type { Argument, Session } from "@glowcap/runtime";
 import {
 	DIRECTORY,
 	ENTER,

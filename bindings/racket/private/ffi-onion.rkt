@@ -1,10 +1,10 @@
 #lang racket/base
-;; Internal: the raw `ffi/unsafe` loader for libpancake_net_transport_onion.
+;; Internal: the raw `ffi/unsafe` loader for libglowcap_net_transport_onion.
 ;;
-;; Nothing here is public; `../pancake-onion.rkt` is the ergonomic surface over
+;; Nothing here is public; `../glowcap-onion.rkt` is the ergonomic surface over
 ;; it. This loader opens ONLY the onion transport archive (ADR-0059): it carries
-;; the `pancake_onion_*` family plus its own thread-local last-error,
-;; symbol-disjoint from libpancake_ocapn and from the other transports.
+;; the `glowcap_onion_*` family plus its own thread-local last-error,
+;; symbol-disjoint from libglowcap_ocapn and from the other transports.
 ;; Requiring it loads no other archive.
 ;;
 ;; The onion netlayer reaches a Tor daemon the deployment already runs, so its
@@ -22,64 +22,64 @@
          "ffi-shared.rkt"
          "ffi-onion-gen.rkt")
 (provide (except-out (all-from-out "ffi-onion-gen.rkt")
-                     pancake_onion_netlayer_release*
-                     pancake_onion_connect*
-                     pancake_onion_listen*
-                     pancake_onion_listener_wait*
-                     pancake_onion_accept*
-                     pancake_onion_conn_read_frame*
-                     pancake_onion_conn_write_frame*
-                     pancake_onion_conn_release*
-                     pancake_onion_listener_release*)
-         pancake_onion_netlayer_release
-         pancake_onion_connect
-         pancake_onion_listen
-         pancake_onion_listener_wait
-         pancake_onion_accept
-         pancake_onion_conn_read_frame
-         pancake_onion_conn_write_frame
-         pancake_onion_conn_release
-         pancake_onion_listener_release)
+                     glowcap_onion_netlayer_release*
+                     glowcap_onion_connect*
+                     glowcap_onion_listen*
+                     glowcap_onion_listener_wait*
+                     glowcap_onion_accept*
+                     glowcap_onion_conn_read_frame*
+                     glowcap_onion_conn_write_frame*
+                     glowcap_onion_conn_release*
+                     glowcap_onion_listener_release*)
+         glowcap_onion_netlayer_release
+         glowcap_onion_connect
+         glowcap_onion_listen
+         glowcap_onion_listener_wait
+         glowcap_onion_accept
+         glowcap_onion_conn_read_frame
+         glowcap_onion_conn_write_frame
+         glowcap_onion_conn_release
+         glowcap_onion_listener_release)
 
-(define (pancake_onion_netlayer_release netlayer)
-  (call/without-diagnostic pancake_onion_netlayer_release* netlayer))
+(define (glowcap_onion_netlayer_release netlayer)
+  (call/without-diagnostic glowcap_onion_netlayer_release* netlayer))
 
-(define (pancake_onion_connect netlayer service-id service-id-len codec max-frame)
+(define (glowcap_onion_connect netlayer service-id service-id-len codec max-frame)
   (call/out _pointer #f
             (lambda (out)
-              (call/without-diagnostic pancake_onion_connect*
+              (call/without-diagnostic glowcap_onion_connect*
                                        netlayer service-id service-id-len codec
                                        max-frame out))))
 
-(define (pancake_onion_listen netlayer out-service-id out-service-id-cap
+(define (glowcap_onion_listen netlayer out-service-id out-service-id-cap
                               out-service-key out-service-key-cap)
   (call/outs (list (cons _size 0) (cons _size 0) (cons _pointer #f))
              (lambda (out-id-len out-key-len out-listener)
                (call/without-diagnostic
-                pancake_onion_listen*
+                glowcap_onion_listen*
                 netlayer out-service-id out-service-id-cap out-id-len
                 out-service-key out-service-key-cap out-key-len out-listener))))
 
-(define (pancake_onion_listener_wait listener timeout-ms)
+(define (glowcap_onion_listener_wait listener timeout-ms)
   (call/out _uint32 0
             (lambda (out)
-              (call/without-diagnostic pancake_onion_listener_wait*
+              (call/without-diagnostic glowcap_onion_listener_wait*
                                        listener timeout-ms out))))
 
-(define (pancake_onion_accept listener codec max-frame)
+(define (glowcap_onion_accept listener codec max-frame)
   (call/out _pointer #f
             (lambda (out)
-              (call/without-diagnostic pancake_onion_accept*
+              (call/without-diagnostic glowcap_onion_accept*
                                        listener codec max-frame out))))
 
-(define (pancake_onion_conn_read_frame conn frame)
-  (call/without-diagnostic pancake_onion_conn_read_frame* conn frame))
+(define (glowcap_onion_conn_read_frame conn frame)
+  (call/without-diagnostic glowcap_onion_conn_read_frame* conn frame))
 
-(define (pancake_onion_conn_write_frame conn frame)
-  (call/without-diagnostic pancake_onion_conn_write_frame* conn frame))
+(define (glowcap_onion_conn_write_frame conn frame)
+  (call/without-diagnostic glowcap_onion_conn_write_frame* conn frame))
 
-(define (pancake_onion_conn_release conn)
-  (call/without-diagnostic pancake_onion_conn_release* conn))
+(define (glowcap_onion_conn_release conn)
+  (call/without-diagnostic glowcap_onion_conn_release* conn))
 
-(define (pancake_onion_listener_release listener)
-  (call/without-diagnostic pancake_onion_listener_release* listener))
+(define (glowcap_onion_listener_release listener)
+  (call/without-diagnostic glowcap_onion_listener_release* listener))

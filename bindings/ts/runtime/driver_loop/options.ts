@@ -1,6 +1,6 @@
 import { ffi } from "../internal/ffi/runtime.ts";
 import { L } from "../internal/layout.ts";
-import { PancakeError } from "../errors.ts";
+import { GlowcapError } from "../errors.ts";
 import {
 	DRIVER_DEFAULT_HANDSHAKE_MS,
 	DRIVER_DEFAULT_LISTENER_SETUP_MS,
@@ -9,7 +9,7 @@ import {
 	DRIVER_DEFAULT_WIRE_BUFFER_BYTES,
 	DRIVER_OPTIONS_ABI_VERSION,
 	INVALID_ARGUMENT,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 
 export interface DriverLoopOptions {
 	wireBufferBytes?: number;
@@ -37,7 +37,7 @@ export function encodeDriverOptions(opts: DriverLoopOptions): Uint8Array {
 		] as const
 	) {
 		if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`${name} must be an unsigned integer representable by the C field`,
 			);

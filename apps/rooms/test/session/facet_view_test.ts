@@ -12,7 +12,7 @@ import { type FacetViewOwner, roomViewsVisibleTo, snapshotForFacet } from "../..
 import { mayInteract, parseRoomsSessionSnapshot, type RoomsSessionAccess } from "../../lib/session/client.ts";
 import type { RoomsSessionRoomView } from "../../lib/session/client.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 
 const ROOM: RoomsSessionRoomView = {
 	conversationId: "room-1",

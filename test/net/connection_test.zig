@@ -5,12 +5,12 @@
 //! right typed outcome rather than swallowed.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
-const engine = pancake.ocapn.engine;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
+const engine = glowcap.ocapn.engine;
+const net = glowcap.net;
 
 const zero_pubkey = @as([32]u8, @splat(0));
 const zero_sig = @as([64]u8, @splat(0));
@@ -25,7 +25,7 @@ fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
 
 /// Encode the stub-key `op:start-session` a negotiating peer admits. The caller
 /// owns the returned frame (it backs the inbound byte stream).
-fn startSessionFrame(allocator: std.mem.Allocator, designator: []const u8) !pancake.foundation.Frame {
+fn startSessionFrame(allocator: std.mem.Allocator, designator: []const u8) !glowcap.foundation.Frame {
     return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
@@ -386,13 +386,13 @@ test "encodeAndFlush reports a refused projected-abort write without losing its 
 
 test "a connection-owned transport failure is claimed exactly once" {
     const Fixture = struct {
-        failure: ?pancake.foundation.FailureChain,
+        failure: ?glowcap.foundation.FailureChain,
 
         fn close(_: *anyopaque) void {}
         fn socket(_: *anyopaque) ?std.Io.net.Socket.Handle {
             return null;
         }
-        fn take(ctx: *anyopaque) ?pancake.foundation.FailureChain {
+        fn take(ctx: *anyopaque) ?glowcap.foundation.FailureChain {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             const failure = self.failure;
             self.failure = null;
@@ -420,7 +420,7 @@ test "a connection-owned transport failure is claimed exactly once" {
 test "a connection close barrier retains its exact transport chain" {
     const Fixture = struct {
         advances: usize = 0,
-        failure: ?pancake.foundation.FailureChain,
+        failure: ?glowcap.foundation.FailureChain,
 
         fn close(_: *anyopaque) void {}
         fn tryClose(ctx: *anyopaque) net.ConnectionCloseProgress {
@@ -431,7 +431,7 @@ test "a connection close barrier retains its exact transport chain" {
         fn socket(_: *anyopaque) ?std.Io.net.Socket.Handle {
             return null;
         }
-        fn take(ctx: *anyopaque) ?pancake.foundation.FailureChain {
+        fn take(ctx: *anyopaque) ?glowcap.foundation.FailureChain {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             const failure = self.failure;
             self.failure = null;
@@ -439,7 +439,7 @@ test "a connection close barrier retains its exact transport chain" {
         }
     };
 
-    var failure = pancake.foundation.FailureChain.init(error.TlsCloseFailed);
+    var failure = glowcap.foundation.FailureChain.init(error.TlsCloseFailed);
     failure.note(error.SocketCloseFailed);
     var fixture = Fixture{ .failure = failure };
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});

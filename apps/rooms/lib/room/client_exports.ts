@@ -8,18 +8,15 @@ export { PostedLine } from "../posted_line.ts";
 export { RoomInvitation } from "./invitation.ts";
 export { RoomManager } from "./manager.ts";
 export { type DiagnosticRow, snapshotDiagnostics, takeDiagnostics } from "../diagnostics.ts";
+export type { BridgeGateway, GatewayConnection, GatewayLease, GatewayStatus } from "../bridge/gateway.ts";
 export {
-	closeIrcNetwork,
-	type IrcGatewayRow,
-	type IrcGatewaySnapshot,
-	type IrcNetworkChoice,
-	type IrcNetworkRow,
-	joinIrcChannel,
-	openIrcNetwork,
-	partIrcChannel,
-	snapshotIrcGateway,
-	takeIrcGateway,
-} from "../irc_gateway_client.ts";
+	addBridgeLease,
+	closeBridgeConnection,
+	openBridgeConnection,
+	removeBridgeLease,
+	snapshotBridgeGateway,
+	takeBridgeGateway,
+} from "../bridge/gateway_client.ts";
 export { listenerDown, type ListenerRow, listenerUp, listListeners, takeListeners } from "../listeners.ts";
 export {
 	clearOperatorTrouble,

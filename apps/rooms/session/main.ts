@@ -1,7 +1,7 @@
 // Standalone durable Rooms session peer.
 
-import { retainCleanupFailures, TRANSPORT_IROH } from "@pancake/runtime";
-import { Reachability } from "@pancake/iroh";
+import { retainCleanupFailures, TRANSPORT_IROH } from "@glowcap/runtime";
+import { Reachability } from "@glowcap/iroh";
 import { DirectoryCustody } from "../lib/directory_custody.ts";
 import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";
 import { optionalEnv } from "../lib/env.ts";
@@ -28,9 +28,9 @@ function option(name: string): string | undefined {
 }
 
 function stateDirectory(): string {
-	const directory = option("state") ?? optionalEnv("PANCAKE_ROOMS_SESSION_STATE");
+	const directory = option("state") ?? optionalEnv("GLOWCAP_ROOMS_SESSION_STATE");
 	if (directory == null || directory === "") {
-		throw new Error("name durable storage with --state=<directory> or PANCAKE_ROOMS_SESSION_STATE");
+		throw new Error("name durable storage with --state=<directory> or GLOWCAP_ROOMS_SESSION_STATE");
 	}
 	return directory;
 }
@@ -83,11 +83,11 @@ export async function start(): Promise<void> {
 		);
 		const peerOptions = {
 			args: Deno.args,
-			envPrefix: "PANCAKE_ROOMS_SESSION",
+			envPrefix: "GLOWCAP_ROOMS_SESSION",
 			label: "Rooms session",
 		} as const;
 		const listenerIroh = standaloneIrohConfig(peerOptions);
-		const relayUrl = option("relay-url") ?? optionalEnv("PANCAKE_ROOMS_SESSION_RELAY_URL");
+		const relayUrl = option("relay-url") ?? optionalEnv("GLOWCAP_ROOMS_SESSION_RELAY_URL");
 		const listening = await listenStandalone(host, peerOptions).catch(async (error) => {
 			throw await retainCleanupFailures(error, [() => host.close()]);
 		});

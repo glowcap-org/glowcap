@@ -61,8 +61,8 @@ pub fn run(ctx: *Ctx) !u8 {
 
     try vx.enterAltScreen(tty.writer());
     // Mouse on: wheel/click + in-app drag-select (copy on release). Shift+drag
-    // leaves selection to the terminal. PANCAKE_REPL_NO_MOUSE=1 disables all of it.
-    const no_mouse = envTruthy(ctx.environ, "PANCAKE_REPL_NO_MOUSE");
+    // leaves selection to the terminal. GLOWCAP_REPL_NO_MOUSE=1 disables all of it.
+    const no_mouse = envTruthy(ctx.environ, "GLOWCAP_REPL_NO_MOUSE");
     if (!no_mouse) {
         try vx.setMouseMode(tty.writer(), true);
     }
@@ -86,7 +86,7 @@ pub fn run(ctx: *Ctx) !u8 {
     var lab = ecs.LabWorld.init(ctx.gpa);
     defer lab.deinit();
     lab.res.no_mouse = no_mouse;
-    lab.res.reduced_motion = envTruthy(ctx.environ, "PANCAKE_REPL_REDUCED_MOTION");
+    lab.res.reduced_motion = envTruthy(ctx.environ, "GLOWCAP_REPL_REDUCED_MOTION");
     lab.transcript_e = try lab.entities.spawn();
     lab.prompt_e = try lab.entities.spawn();
     lab.jump_chip_e = try lab.entities.spawn();

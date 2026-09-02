@@ -1,6 +1,6 @@
 //! Installable CapTP CLI for humans and agents.
 //!
-//! Sources live under repo-root `cli/` and consume the public `pancake` module
+//! Sources live under repo-root `cli/` and consume the public `glowcap` module
 //! (ADR-0084). Progressive `ocapn` commands, REPL, curated MCP, and `app rooms-peer`
 //! share one command tree for parse, scoped help, and shell completion.
 const std = @import("std");

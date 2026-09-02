@@ -1,5 +1,5 @@
 // The rooms browser-peer proof in a REAL browser. A headless Chromium loads
-// a page that bundles `@pancake/web`
+// a page that bundles `@glowcap/web`
 // (`browser_peer_probe.ts`) and drives the room directory through serve.ts's
 // `/relay` byte pipe — the full path the shipped page takes: browser wasm Host,
 // the linear-memory FFI adapter, a WebSocket channel through the relay, and a
@@ -121,7 +121,7 @@ try {
 	}
 
 	console.log(
-		"PASS: a real headless Chromium ran the @pancake/web peer, dialed the room " +
+		"PASS: a real headless Chromium ran the @glowcap/web peer, dialed the room " +
 			"through /relay on the origin it was served from, and listed the directory " +
 			"as a capability call",
 	);

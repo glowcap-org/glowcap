@@ -3,7 +3,7 @@ id: ADR-0044
 status: accepted
 date: 2026-06-11
 tags: [architecture, build, modules, layering, naming]
-decision: "The four layers that are the OCapN/CapTP protocol (model, codec, session, engine) live under src/ocapn/ and are reached as pancake.ocapn.<layer>, so both the tree and the public namespace say which layers are the protocol and which are built on top of it."
+decision: "The four layers that are the OCapN/CapTP protocol (model, codec, session, engine) live under src/ocapn/ and are reached as glowcap.ocapn.<layer>, so both the tree and the public namespace say which layers are the protocol and which are built on top of it."
 supersedes: []
 superseded_by: []
 ---
@@ -27,7 +27,7 @@ block in the DAG, so they group cleanly without reordering anything.
 The four protocol layers move under `src/ocapn/`. `src/ocapn/model`,
 `src/ocapn/codec`, `src/ocapn/session`, `src/ocapn/engine`: and `src/root.zig`
 nests them under one public namespace, so a consumer reaches
-`pancake.ocapn.engine.Peer`, `pancake.ocapn.model.Message`, and so on. The tree
+`glowcap.ocapn.engine.Peer`, `glowcap.ocapn.model.Message`, and so on. The tree
 and the public API now tell the same story: these four are the protocol,
 everything else adds none.
 
@@ -42,7 +42,7 @@ core), so a grouping folder there would add a level without adding a law.
 The move is structural only. The build module _names_ stay flat
 (`@import("engine")` is unchanged), so every internal cross-layer import is
 untouched (ADR-0040); only `build.zig`'s path strings, the
-`pancake.ocapn.<layer>` access in tests and examples, the arch gate's `layerOf`
+`glowcap.ocapn.<layer>` access in tests and examples, the arch gate's `layerOf`
 (which now descends through `ocapn/` to recover the layer name), the doc/rule
 path references, and the docs change. One OCapN concept: the netlayer contract
 stays in `net` with its tcp/loop implementation, because it is the seam _to_
@@ -54,7 +54,7 @@ byte of OCapN."
 `net`, `driver`, `c_abi`, and `conformance` are not grouped under an `adapters/`
 umbrella: that boundary is already enforced and narrated, and the folder would
 not add a law. The public namespace stays flat for everything outside `ocapn/`
-(`pancake.actors`, `pancake.net`, …). No layer is renamed and no import edge
+(`glowcap.actors`, `glowcap.net`, …). No layer is renamed and no import edge
 changes.
 
 ## Alternatives Considered
@@ -69,7 +69,7 @@ changes.
 
 ## Consequences
 
-- The tree and `pancake.ocapn.*` both name the protocol explicitly; the "adds no
+- The tree and `glowcap.ocapn.*` both name the protocol explicitly; the "adds no
   protocol" claims for `actors`/`driver`/`c_abi` are now structural, not just
   documented.
 - `tools/check/arch_check.zig` `layerOf` descends through `ocapn/`, so the no-I/O-core

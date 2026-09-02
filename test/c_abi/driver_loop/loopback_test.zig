@@ -9,7 +9,7 @@ const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
 const ctcp = @import("c_abi_net_transport_tcp");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ws_relay = @import("../../support/ws_relay.zig");
 
 const harness = @import("harness.zig");
@@ -89,22 +89,22 @@ fn serverBody(shared: *ServerShared) !void {
     const loop = owned_loop.raw;
 
     const listener_id = try listenReady(loop, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(loop, listener_id));
+    try expectOk(cdrv.glowcap_driver_listener_select(loop, listener_id));
     // A duplicate transport is refused because the Host has one advertised
     // locator per transport.
     var duplicate_listener: u64 = 0;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cdrv.pancake_driver_listen(loop, "tcp", 3, "127.0.0.1:0", 11, null, &duplicate_listener),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cdrv.glowcap_driver_listen(loop, "tcp", 3, "127.0.0.1:0", 11, null, &duplicate_listener),
     );
     var readiness: i32 = -1;
-    try expectOk(cdrv.pancake_driver_readiness_fd(loop, &readiness));
+    try expectOk(cdrv.glowcap_driver_readiness_fd(loop, &readiness));
     try std.testing.expect(readiness >= 0);
 
-    try expectOk(cd.pancake_host_publish(owned_loop.host, "widget", 6, widgetBehavior, null, null));
+    try expectOk(cd.glowcap_host_publish(owned_loop.host, "widget", 6, widgetBehavior, null, null));
 
     const locator = try readListenerLocator(loop, listener_id);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
     shared.designator_len = locator.designator.len;
     @memcpy(shared.designator_buf[0..shared.designator_len], locator.designator);
     shared.ready.store(true, .release);
@@ -112,7 +112,7 @@ fn serverBody(shared: *ServerShared) !void {
     var seen = Drained{};
     var served_accept = false;
     while (!shared.stop.load(.acquire)) {
-        try expectStep(cdrv.pancake_driver_step(loop, 20));
+        try expectStep(cdrv.glowcap_driver_step(loop, 20));
         try drainEvents(loop, &seen);
         if (seen.accepted) shared.accepted.store(true, .release);
         // An accepted session's inbound is held until the embedder announces
@@ -120,18 +120,18 @@ fn serverBody(shared: *ServerShared) !void {
         // would wait forever.
         if (seen.accepted_session != null and !served_accept) {
             served_accept = true;
-            try expectOk(cdrv.pancake_driver_session_serve(loop, seen.accepted_session));
+            try expectOk(cdrv.glowcap_driver_session_serve(loop, seen.accepted_session));
         }
         if (seen.closed) {
-            try std.testing.expectEqual(c.PANCAKE_OK, seen.closed_result);
+            try std.testing.expectEqual(c.GLOWCAP_OK, seen.closed_result);
             try std.testing.expectEqual(@as(usize, 0), seen.closed_message_len);
             shared.closed.store(true, .release);
         }
     }
 
     // Drained queues report WOULD_BLOCK, so an embedder's drain loop ends.
-    var event: cdrv.PancakeDriverEvent = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cdrv.pancake_driver_next_event(loop, &event));
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cdrv.glowcap_driver_next_event(loop, &event));
 }
 
 test "two stepping loops carry listen, dial, fetch, settle, and hangup over loopback TCP (ADR-0112)" {
@@ -163,11 +163,11 @@ test "two stepping loops carry listen, dial, fetch, settle, and hangup over loop
     var held_rounds: usize = 0;
     var client_served = false;
     while (client_seen.settle_ticket == 0 and rounds < 2000) : (rounds += 1) {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
         if (client_seen.dialed_session != null and fetch_vow == 0) {
             try std.testing.expectEqual(ticket, client_seen.dialed_operation_id);
-            try expectOk(cd.pancake_host_session_fetch(client_seen.dialed_session, "widget", 6, &fetch_vow));
+            try expectOk(cd.glowcap_host_session_fetch(client_seen.dialed_session, "widget", 6, &fetch_vow));
         }
         // The settle answers over this session's inbound, which is held until
         // the embedder serves: a stretch of steps first, so a settle arriving
@@ -177,7 +177,7 @@ test "two stepping loops carry listen, dial, fetch, settle, and hangup over loop
             try std.testing.expectEqual(@as(u64, 0), client_seen.settle_ticket);
             if (held_rounds >= 20) {
                 client_served = true;
-                try expectOk(cdrv.pancake_driver_session_serve(client, client_seen.dialed_session));
+                try expectOk(cdrv.glowcap_driver_session_serve(client, client_seen.dialed_session));
             }
         }
         try std.testing.expect(!client_seen.dial_failed);
@@ -192,10 +192,10 @@ test "two stepping loops carry listen, dial, fetch, settle, and hangup over loop
 
     // Hang up from the client; the server's stepping thread observes the EOF
     // and events the closure without any blocking verb running.
-    try expectOk(cdrv.pancake_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
     var waited: usize = 0;
     while (!shared.closed.load(.acquire) and !shared.failed.load(.acquire) and waited < 2000) : (waited += 1) {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
     }
 
     shared.stop.store(true, .release);
@@ -207,8 +207,8 @@ test "two stepping loops carry listen, dial, fetch, settle, and hangup over loop
 
     // The client's queue is drained too, so the borrow contract's "next call
     // frees the last event" leaves nothing behind at release.
-    var event: cdrv.PancakeDriverEvent = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cdrv.pancake_driver_next_event(client, &event));
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cdrv.glowcap_driver_next_event(client, &event));
 }
 
 test "two loops stepped by one thread dial each other: the nonblocking handshake advances across steps (ADR-0112)" {
@@ -216,10 +216,10 @@ test "two loops stepped by one thread dial each other: the nonblocking handshake
     defer owned_server.deinit();
     const server = owned_server.raw;
     const listener_id = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener_id));
-    try expectOk(cd.pancake_host_publish(owned_server.host, "widget", 6, widgetBehavior, null, null));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener_id));
+    try expectOk(cd.glowcap_host_publish(owned_server.host, "widget", 6, widgetBehavior, null, null));
     const locator = try readListenerLocator(server, listener_id);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
     const designator = locator.designator;
 
     // A blocking dial could never complete here: the exporter's loop steps on
@@ -236,9 +236,9 @@ test "two loops stepped by one thread dial each other: the nonblocking handshake
     var fetch_vow: u64 = 0;
     var rounds: usize = 0;
     while (client_seen.settle_ticket == 0 and rounds < 2_000) : (rounds += 1) {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
         if (client_seen.dialed_session != null and
             server_seen.accepted_session != null and
@@ -248,17 +248,17 @@ test "two loops stepped by one thread dial each other: the nonblocking handshake
             // The peer ids happen to match in this two-loop setup, so checking
             // ownership after a wire lookup would close the server's session.
             try std.testing.expectEqual(
-                c.PANCAKE_ERR_INVALID_ARGUMENT,
-                cdrv.pancake_driver_session_release(server, client_seen.dialed_session),
+                c.GLOWCAP_ERR_INVALID_ARGUMENT,
+                cdrv.glowcap_driver_session_release(server, client_seen.dialed_session),
             );
             // The serve verb is scoped the same way release is.
             try std.testing.expectEqual(
-                c.PANCAKE_ERR_INVALID_ARGUMENT,
-                cdrv.pancake_driver_session_serve(server, client_seen.dialed_session),
+                c.GLOWCAP_ERR_INVALID_ARGUMENT,
+                cdrv.glowcap_driver_session_serve(server, client_seen.dialed_session),
             );
             try serveBoth(client, client_seen.dialed_session, server, server_seen.accepted_session);
             try std.testing.expectEqual(ticket, client_seen.dialed_operation_id);
-            try expectOk(cd.pancake_host_session_fetch(client_seen.dialed_session, "widget", 6, &fetch_vow));
+            try expectOk(cd.glowcap_host_session_fetch(client_seen.dialed_session, "widget", 6, &fetch_vow));
         }
         try std.testing.expect(!client_seen.dial_failed);
         try std.testing.expectEqual(@as(u64, 0), client_seen.fail_ticket);
@@ -267,20 +267,20 @@ test "two loops stepped by one thread dial each other: the nonblocking handshake
     try std.testing.expect(server_seen.accepted);
     try std.testing.expect(fetch_vow != 0);
     try std.testing.expectEqual(fetch_vow, client_seen.settle_ticket);
-    try expectOk(cdrv.pancake_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
 
     // EOF commits one SESSION_CLOSED event. While it is pending, another step
     // reports backpressure without advancing more work. Releasing the session
     // invalidates the event in O(1); the drain skips it without touching the
     // freed shell.
     try expectLoopReadable(server);
-    try expectOk(cdrv.pancake_driver_step(server, 0));
-    try expectOk(cdrv.pancake_driver_step(server, 0));
-    try expectOk(cdrv.pancake_driver_session_release(server, server_seen.accepted_session));
-    var stale_event: cdrv.PancakeDriverEvent = undefined;
+    try expectOk(cdrv.glowcap_driver_step(server, 0));
+    try expectOk(cdrv.glowcap_driver_step(server, 0));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
+    var stale_event: cdrv.GlowcapDriverEvent = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_WOULD_BLOCK,
-        cdrv.pancake_driver_next_event(server, &stale_event),
+        c.GLOWCAP_ERR_WOULD_BLOCK,
+        cdrv.glowcap_driver_next_event(server, &stale_event),
     );
 }
 
@@ -289,18 +289,18 @@ test "stream provider failure chain reaches SESSION_CLOSED exactly" {
     defer owned_server.deinit();
     const server = owned_server.raw;
 
-    var tcp_handle: ?*ctcp.PancakeTcpNetlayer = null;
-    try expectOk(ctcp.pancake_tcp_netlayer_new(&default_tcp_config, &tcp_handle));
-    defer ctcp.pancake_tcp_netlayer_release(tcp_handle);
-    var provider: cdrv.PancakeTransportProvider = undefined;
-    try expectOk(ctcp.pancake_tcp_transport_provider(tcp_handle, &provider));
+    var tcp_handle: ?*ctcp.GlowcapTcpNetlayer = null;
+    try expectOk(ctcp.glowcap_tcp_netlayer_new(&default_tcp_config, &tcp_handle));
+    defer ctcp.glowcap_tcp_netlayer_release(tcp_handle);
+    var provider: cdrv.GlowcapTransportProvider = undefined;
+    try expectOk(ctcp.glowcap_tcp_transport_provider(tcp_handle, &provider));
     try std.testing.expect(provider.entry_count <= 4);
-    var entries: [4]cdrv.PancakeTransportProviderEntry = undefined;
-    var tables: [4]cdrv.PancakeStreamTransport = undefined;
+    var entries: [4]cdrv.GlowcapTransportProviderEntry = undefined;
+    var tables: [4]cdrv.GlowcapStreamTransport = undefined;
     for (provider.entries.?[0..provider.entry_count], 0..) |entry, i| {
         entries[i] = entry;
-        try std.testing.expectEqual(cdrv.PANCAKE_TRANSPORT_EXEC_STREAM, entry.execution_model);
-        const original: *const cdrv.PancakeStreamTransport = @ptrCast(@alignCast(entry.implementation.?));
+        try std.testing.expectEqual(cdrv.GLOWCAP_TRANSPORT_EXEC_STREAM, entry.execution_model);
+        const original: *const cdrv.GlowcapStreamTransport = @ptrCast(@alignCast(entry.implementation.?));
         tables[i] = original.*;
         tables[i].conn_take_failure = injectedStreamConnectionFailure;
         entries[i].implementation = &tables[i];
@@ -309,9 +309,9 @@ test "stream provider failure chain reaches SESSION_CLOSED exactly" {
     try expectOk(harness.addProvider(server, &provider));
 
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     const owned_client = try newLoop(0x75);
     defer owned_client.deinit();
@@ -322,37 +322,37 @@ test "stream provider failure chain reaches SESSION_CLOSED exactly" {
     var server_seen = Drained{};
     var rounds: usize = 0;
     while ((client_seen.dialed_session == null or !server_seen.accepted) and rounds < 2_000) : (rounds += 1) {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
     }
     try std.testing.expect(client_seen.dialed_session != null);
     try std.testing.expect(server_seen.accepted_session != null);
     try serveBoth(client, client_seen.dialed_session, server, server_seen.accepted_session);
-    try expectOk(cdrv.pancake_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
 
     rounds = 0;
     while (!server_seen.closed and rounds < 2_000) : (rounds += 1) {
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
     }
     try std.testing.expect(server_seen.closed);
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, server_seen.closed_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, server_seen.closed_result);
     try std.testing.expectEqualStrings(
         "InjectedStreamReadFailure",
         server_seen.closed_message[0..server_seen.closed_message_len],
     );
-    try std.testing.expectEqual(c.PANCAKE_ERR_INTERNAL, server_seen.closed_secondary_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, server_seen.closed_secondary_result);
     try std.testing.expectEqual(@as(u32, 2), server_seen.closed_secondary_count);
     try std.testing.expectEqualStrings(
         "InjectedStreamCleanupFailure",
         server_seen.closed_secondary_message[0..server_seen.closed_secondary_message_len],
     );
-    try expectStep(cdrv.pancake_driver_step(server, 0));
+    try expectStep(cdrv.glowcap_driver_step(server, 0));
     try drainEvents(server, &server_seen);
     try std.testing.expectEqual(@as(usize, 1), server_seen.closed_count);
-    try expectOk(cdrv.pancake_driver_session_release(server, server_seen.accepted_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
 }
 
 test "loop-owned session release refuses callback reentry before dropping the wire" {
@@ -360,12 +360,12 @@ test "loop-owned session release refuses callback reentry before dropping the wi
     defer owned_server.deinit();
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     var release = ReentrantSessionRelease{ .loop = server, .listener = listener };
-    try expectOk(cd.pancake_host_publish(
+    try expectOk(cd.glowcap_host_publish(
         owned_server.host,
         "release-probe",
         "release-probe".len,
@@ -383,9 +383,9 @@ test "loop-owned session release refuses callback reentry before dropping the wi
     var client_seen = Drained{};
     var server_seen = Drained{};
     for (0..2_000) |_| {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
         if (client_seen.dialed_session != null and server_seen.accepted_session != null) break;
     }
@@ -395,16 +395,16 @@ test "loop-owned session release refuses callback reentry before dropping the wi
     release.session = server_seen.accepted_session;
 
     var fetch_vow: u64 = 0;
-    try expectOk(cd.pancake_host_session_fetch(
+    try expectOk(cd.glowcap_host_session_fetch(
         client_seen.dialed_session,
         "release-probe",
         "release-probe".len,
         &fetch_vow,
     ));
     for (0..2_000) |_| {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
         if (client_seen.settle_ticket == fetch_vow) break;
     }
@@ -413,7 +413,7 @@ test "loop-owned session release refuses callback reentry before dropping the wi
 
     client_seen.settle_ticket = 0;
     var call_vow: u64 = 0;
-    try expectOk(cd.pancake_host_session_send(
+    try expectOk(cd.glowcap_host_session_send(
         client_seen.dialed_session,
         &client_seen.settled_reference,
         "probe",
@@ -423,20 +423,20 @@ test "loop-owned session release refuses callback reentry before dropping the wi
         &call_vow,
     ));
     for (0..2_000) |_| {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
         if (client_seen.settle_ticket == call_vow) break;
     }
 
     try std.testing.expect(release.ran);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, release.result);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, release.readiness_result);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, release.restoration_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.readiness_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.restoration_result);
     try std.testing.expectEqual(call_vow, client_seen.settle_ticket);
-    try expectOk(cdrv.pancake_driver_session_release(client, client_seen.dialed_session));
-    try expectOk(cdrv.pancake_driver_session_release(server, server_seen.accepted_session));
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
 }
 
 test "driver retirement requested in a behavior defers listener effects until callback unwind" {
@@ -444,12 +444,12 @@ test "driver retirement requested in a behavior defers listener effects until ca
     defer owned_server.deinit();
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     var retirement = CallbackRetirement{ .loop = server };
-    try expectOk(cd.pancake_host_publish(
+    try expectOk(cd.glowcap_host_publish(
         owned_server.host,
         "retirement-probe",
         "retirement-probe".len,
@@ -467,9 +467,9 @@ test "driver retirement requested in a behavior defers listener effects until ca
     var client_seen = Drained{};
     var server_seen = Drained{};
     for (0..2_000) |_| {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
         if (client_seen.dialed_session != null and server_seen.accepted_session != null) break;
     }
@@ -478,16 +478,16 @@ test "driver retirement requested in a behavior defers listener effects until ca
     try serveBoth(client, client_seen.dialed_session, server, server_seen.accepted_session);
 
     var fetch_vow: u64 = 0;
-    try expectOk(cd.pancake_host_session_fetch(
+    try expectOk(cd.glowcap_host_session_fetch(
         client_seen.dialed_session,
         "retirement-probe",
         "retirement-probe".len,
         &fetch_vow,
     ));
     for (0..2_000) |_| {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
         if (client_seen.settle_ticket == fetch_vow) break;
     }
@@ -495,7 +495,7 @@ test "driver retirement requested in a behavior defers listener effects until ca
 
     client_seen.settle_ticket = 0;
     var call_vow: u64 = 0;
-    try expectOk(cd.pancake_host_session_send(
+    try expectOk(cd.glowcap_host_session_send(
         client_seen.dialed_session,
         &client_seen.settled_reference,
         "retire",
@@ -505,22 +505,22 @@ test "driver retirement requested in a behavior defers listener effects until ca
         &call_vow,
     ));
     for (0..2_000) |_| {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
         if (client_seen.settle_ticket == call_vow) break;
     }
 
     try std.testing.expect(retirement.ran);
-    try std.testing.expectEqual(c.PANCAKE_OK, retirement.result);
+    try std.testing.expectEqual(c.GLOWCAP_OK, retirement.result);
     try std.testing.expectEqual(call_vow, client_seen.settle_ticket);
-    var stale_locator: cdrv.PancakeLocatorView = undefined;
+    var stale_locator: cdrv.GlowcapLocatorView = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NOT_FOUND,
-        cdrv.pancake_driver_listener_locator(server, listener, &stale_locator),
+        c.GLOWCAP_ERR_NOT_FOUND,
+        cdrv.glowcap_driver_listener_locator(server, listener, &stale_locator),
     );
 
-    try expectOk(cdrv.pancake_driver_session_release(server, server_seen.accepted_session));
-    try expectOk(cdrv.pancake_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
 }

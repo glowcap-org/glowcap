@@ -5,12 +5,12 @@
 //! chains but refuses a cycle.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
-const syrup = pancake.ocapn.codec.syrup;
-const capnp = pancake.ocapn.codec.capnp;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
+const syrup = glowcap.ocapn.codec.syrup;
+const capnp = glowcap.ocapn.codec.capnp;
 
 const harness = @import("session_harness.zig");
 const startSessionMessage = harness.startSessionMessage;

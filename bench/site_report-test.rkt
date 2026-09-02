@@ -33,8 +33,8 @@
                     [p '(0.06 0.12 0.11 0.23)] [pr '(15117 8118 8205 2430)]
                     [t '(0.07 0.13 0.12 0.24)] [tr '(13900 7600 7900 2300)])
            (format (string-append "| ~a | goblins | ~a | 2.0 | 6.0 | ~a | 3.7 | 2.2 |\n"
-                                   "| ~a | pancake | ~a | 0.3 | 0.5 | ~a | 7.0 | 4.0 |\n"
-                                   "| ~a | pancake-tt | ~a | 0.3 | 0.5 | ~a | 7.0 | 5.0 |\n")
+                                   "| ~a | glowcap | ~a | 0.3 | 0.5 | ~a | 7.0 | 4.0 |\n"
+                                   "| ~a | glowcap-tt | ~a | 0.3 | 0.5 | ~a | 7.0 | 5.0 |\n")
                    s g gr s p pr s t tr))))
 
 (define snap-out
@@ -90,15 +90,15 @@
       (define g (parse-goblins-md goblins-md))
       (check-equal? (car (hash-ref (hash-ref g "echo") 'goblins)) 0.36)
       (check-equal? (cdr (hash-ref (hash-ref g "echo") 'goblins)) 2077)
-      (check-equal? (cdr (hash-ref (hash-ref g "taskboard") 'pancake)) 2430)
-      ;; The third series — pancake with time-travel on for all actors — parses
-      ;; (the longer backend name must not be swallowed by the `pancake` prefix).
-      (check-equal? (car (hash-ref (hash-ref g "echo") 'pancake-tt)) 0.07)
-      (check-equal? (cdr (hash-ref (hash-ref g "taskboard") 'pancake-tt)) 2300)
+      (check-equal? (cdr (hash-ref (hash-ref g "taskboard") 'glowcap)) 2430)
+      ;; The third series — glowcap with time-travel on for all actors — parses
+      ;; (the longer backend name must not be swallowed by the `glowcap` prefix).
+      (check-equal? (car (hash-ref (hash-ref g "echo") 'glowcap-tt)) 0.07)
+      (check-equal? (cdr (hash-ref (hash-ref g "taskboard") 'glowcap-tt)) 2300)
       (define region (goblins-region g))
       (check-true (regexp-match? #px"bench-legend" region))
-      (check-true (regexp-match? #px"pancake binding \\+ time-travel" region))
-      (check-true (regexp-match? #px"pancake \\+tt p50" region)))
+      (check-true (regexp-match? #px"glowcap binding \\+ time-travel" region))
+      (check-true (regexp-match? #px"glowcap \\+tt p50" region)))
     (test-case "snapshot"
       (define p (parse-snapshot snap-out))
       (define g (parse-goblins-snapshot gsnap-out))
@@ -111,7 +111,7 @@
       ;; lives only in the benchmark programs' own .md reports now.
       (check-true (regexp-match? #px"Snapshot \\(µs by actor count\\)" region))
       (check-true (regexp-match? #px"shared O\\(objects\\) trend" region))
-      (check-false (regexp-match? #px"Divergence|pancake mutable|pancake persistent|entries / actor" region)))
+      (check-false (regexp-match? #px"Divergence|glowcap mutable|glowcap persistent|entries / actor" region)))
     (test-case "iroh"
       (define h (parse-iroh iroh-out))
       (check-equal? (hash-ref (hash-ref h "tcp") 'p50) 43750)

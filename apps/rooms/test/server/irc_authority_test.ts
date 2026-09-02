@@ -1,11 +1,11 @@
 // Durable entry and Rooms moderation authority owned by one IRC bridge source.
 
-import type { Behavior, Session } from "@pancake/runtime";
+import type { Behavior, Session } from "@glowcap/runtime";
 import { readIrcLines } from "../../irc/protocol.ts";
 import { giveStewardship, revokeStewardship, snapshotOperator } from "../../lib/operator.ts";
 import { ROOM_RETIRED, RoomError } from "../../lib/errors.ts";
 import { DIRECTORY } from "../../lib/protocol.ts";
-import { joinIrcChannel, openIrcNetwork, partIrcChannel, snapshotIrcGateway } from "../../lib/irc_gateway_client.ts";
+import { joinIrcChannel, openIrcNetwork, partIrcChannel, snapshotIrcGateway } from "./irc_gateway/wire.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { Room } from "../../lib/room/client.ts";
 import { directoryBehavior } from "../../server/directory_behavior.ts";
@@ -143,17 +143,16 @@ roomsTest("an IRC bridge owns durable entry and Rooms moderator capabilities", a
 	let invited: Room | null = null;
 	try {
 		const gateway = await aliceSession.fetch("gw");
-		const network = await openIrcNetwork(aliceSession, gateway, {
+		await openIrcNetwork(aliceSession, gateway, {
 			network: "authority",
 			host: "127.0.0.1",
 			port: irc.port,
 			tls: false,
 			nick: "feed",
 		});
-		aliceSession.release(network);
 		await joinIrcChannel(aliceSession, gateway, "authority", "#room");
 		const snapshot = await snapshotIrcGateway(aliceSession, gateway);
-		const publicationId = snapshot.bridged[0]?.publicationId;
+		const publicationId = snapshot.connections[0]?.leases[0]?.publicationId;
 		assert(publicationId != null, "the bridge published no exact generation");
 
 		alice = await Room.subscribe(aliceSession, await enterOrOpen(aliceSession, "authority/#room"), "alice");

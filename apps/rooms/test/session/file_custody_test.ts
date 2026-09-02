@@ -1,4 +1,4 @@
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import type { Attachment, AttachmentSource } from "../../lib/attachment.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../lib/limits.ts";
 import type { PostedLine } from "../../lib/posted_line.ts";

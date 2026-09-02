@@ -12,7 +12,7 @@ const native_relay = @import("native_relay");
 const c = @import("c_abi_shared");
 const contract = @import("../contract.zig");
 
-const Config = contract.PancakeRelayConfig;
+const Config = contract.GlowcapRelayConfig;
 const Profile = contract.Profile;
 
 pub fn create(
@@ -22,17 +22,17 @@ pub fn create(
     slot: *?*Payload,
 ) i32 {
     slot.* = null;
-    const cfg = config orelse return c.PANCAKE_ERR_NULL_POINTER;
-    if (cfg.abi_version != contract.PANCAKE_RELAY_CONFIG_ABI_VERSION) {
+    const cfg = config orelse return c.GLOWCAP_ERR_NULL_POINTER;
+    if (cfg.abi_version != contract.GLOWCAP_RELAY_CONFIG_ABI_VERSION) {
         c.setLastError("relay runtime_new: unsupported config ABI version {d}", .{cfg.abi_version});
-        return c.PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     if (cfg.struct_size != @sizeOf(Config)) {
         c.setLastError("relay runtime_new: config size {d}, expected {d}", .{
             cfg.struct_size,
             @sizeOf(Config),
         });
-        return c.PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     const relay_url = c.sliceFromC(cfg.relay_url, cfg.relay_url_len) catch |err| {
         c.setLastError("relay runtime_new: invalid relay_url view: {s}", .{@errorName(err)});
@@ -44,13 +44,13 @@ pub fn create(
     };
     if (relay_url.len == 0) {
         c.setLastError("relay runtime_new: relay_url must not be empty", .{});
-        return c.PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     net.relay.validateConfigurationUrls(relay_url, register_url) catch {
         c.setLastError("relay runtime_new: invalid or mismatched relay URL", .{});
-        return c.PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     };
-    const trust = relayTrust(cfg) orelse return c.PANCAKE_ERR_INVALID_ARGUMENT;
+    const trust = relayTrust(cfg) orelse return c.GLOWCAP_ERR_INVALID_ARGUMENT;
 
     const payload = allocator.create(Payload) catch |err|
         return c.failInternal("relay runtime_new", err);
@@ -77,11 +77,11 @@ pub fn create(
         payload.threaded.deinit();
         allocator.destroy(payload);
         c.setLastErrorChain("relay runtime_new scheduler", failure);
-        return c.PANCAKE_ERR_INTERNAL;
+        return c.GLOWCAP_ERR_INTERNAL;
     };
     payload.initProvider();
     slot.* = payload;
-    return c.PANCAKE_OK;
+    return c.GLOWCAP_OK;
 }
 
 pub fn release(payload: anytype) ?foundation.FailureChain {
@@ -102,7 +102,7 @@ pub fn release(payload: anytype) ?foundation.FailureChain {
     return failure;
 }
 
-pub fn projectTrustSummary(summary: native_relay.TrustSummary) contract.PancakeRelayTrustSummary {
+pub fn projectTrustSummary(summary: native_relay.TrustSummary) contract.GlowcapRelayTrustSummary {
     return .{
         .loaded = summary.loaded,
         .skipped_by_engine = summary.skipped_by_engine,
@@ -112,13 +112,13 @@ pub fn projectTrustSummary(summary: native_relay.TrustSummary) contract.PancakeR
 
 fn relayTrust(cfg: *const Config) ?native_relay.Trust {
     return switch (cfg.trust) {
-        contract.PANCAKE_RELAY_TRUST_SYSTEM => if (cfg.trust_pem == null and cfg.trust_pem_len == 0)
+        contract.GLOWCAP_RELAY_TRUST_SYSTEM => if (cfg.trust_pem == null and cfg.trust_pem_len == 0)
             .system
         else invalid: {
             c.setLastError("relay runtime_new: system trust cannot carry PEM bytes", .{});
             break :invalid null;
         },
-        contract.PANCAKE_RELAY_TRUST_COPIED_PEM => copied: {
+        contract.GLOWCAP_RELAY_TRUST_COPIED_PEM => copied: {
             const pem = c.sliceFromC(cfg.trust_pem, cfg.trust_pem_len) catch {
                 c.setLastError("relay runtime_new: copied PEM has an invalid byte view", .{});
                 break :copied null;
@@ -139,10 +139,10 @@ fn relayTrust(cfg: *const Config) ?native_relay.Trust {
 fn failInitialization(failure: native_relay.InitFailure) i32 {
     const chain = failure.chain();
     const code = switch (chain.cause) {
-        error.InvalidTrustSnapshot => c.PANCAKE_ERR_INVALID_ARGUMENT,
-        error.SystemTrustUnavailable, error.InvalidSystemTrustStore => c.PANCAKE_ERR_IO,
-        error.InvalidRelayUrl => c.PANCAKE_ERR_INVALID_ARGUMENT,
-        else => c.PANCAKE_ERR_INTERNAL,
+        error.InvalidTrustSnapshot => c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        error.SystemTrustUnavailable, error.InvalidSystemTrustStore => c.GLOWCAP_ERR_IO,
+        error.InvalidRelayUrl => c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        else => c.GLOWCAP_ERR_INTERNAL,
     };
     switch (failure) {
         .tls => |tls| if (chain.secondaryName()) |secondary| {

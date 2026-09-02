@@ -4,19 +4,19 @@
 //! and the action-queue ceiling covers everything at once.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 const promise_capture = @import("../../support/capture.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 const frame_cap = harness.frame_cap;
@@ -515,7 +515,7 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
     try std.testing.expectEqual(@as(usize, 2), dials.items.len);
 
     for (dials.items) |d| allocator.free(d.designator);
-    const tickets = [_]pancake.ocapn.engine.Node.PendingId{ dials.items[0].ticket, dials.items[1].ticket };
+    const tickets = [_]glowcap.ocapn.engine.Node.PendingId{ dials.items[0].ticket, dials.items[1].ticket };
     dials.clearRetainingCapacity();
     // Fail both dials: the break is the same queued completion a success
     // would take, and it needs the same reserved slot.

@@ -10,20 +10,20 @@
 //! CapTP.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../support/core_host.zig");
 const host_pair = @import("../support/host_pair.zig");
 const promise_capture = @import("../support/capture.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const crypto = pancake.foundation.crypto;
-const noise = pancake.foundation.noise;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const crypto = glowcap.foundation.crypto;
+const noise = glowcap.foundation.noise;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const sealed = pancake.foundation.sealed;
+const sealed = glowcap.foundation.sealed;
 const noise_tcp = model.transport.noise_tcp;
 
 const frame_cap = 4096;
@@ -381,20 +381,20 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
         prologue,
     );
     defer malicious.deinit();
-    var responder = try pancake.foundation.sealed.SealedChannel.initResponder(
+    var responder = try glowcap.foundation.sealed.SealedChannel.initResponder(
         &responder_identity,
         @as([32]u8, @splat(0x70)),
         noise_tcp,
     );
     defer responder.deinit(allocator);
 
-    var wire: [pancake.foundation.sealed.msg3_wire_bytes]u8 = undefined;
+    var wire: [glowcap.foundation.sealed.msg3_wire_bytes]u8 = undefined;
     var payload: [crypto.PEER_KEY_BYTES + crypto.SIGNATURE_BYTES]u8 = undefined;
     const msg1 = try malicious.writeMessage(&.{}, &wire);
     const first = try responder.ingest(allocator, msg1);
     try std.testing.expectEqual(msg1.len, first.consumed);
     try std.testing.expectEqual(
-        pancake.foundation.sealed.SealedChannel.Event.handshake,
+        glowcap.foundation.sealed.SealedChannel.Event.handshake,
         first.event,
     );
     var msg2_frame = (try responder.takeWire(allocator)) orelse return error.MissingMessageTwo;
@@ -532,7 +532,7 @@ test "sealed channel: a frame larger than one record spans records intact" {
             },
         }
     }
-    const outer = pancake.foundation.stream_framing.parsePrefix(reassembled.items, big_len);
+    const outer = glowcap.foundation.stream_framing.parsePrefix(reassembled.items, big_len);
     try std.testing.expect(outer == .decoded);
     try std.testing.expectEqualSlices(u8, big, outer.decoded.body);
     try std.testing.expectEqual(reassembled.items.len, outer.decoded.consumed);
@@ -551,7 +551,7 @@ test "sealed channel: a split handshake retains only the consumed prefix" {
     const partial = [_]u8{0};
     const step = try channel.ingest(allocator, &partial);
     try std.testing.expectEqual(@as(usize, 1), step.consumed);
-    try std.testing.expectEqual(pancake.foundation.sealed.SealedChannel.Event.need_input, step.event);
+    try std.testing.expectEqual(glowcap.foundation.sealed.SealedChannel.Event.need_input, step.event);
     // Handshake staging is bounded by the fixed message currently expected;
     // arbitrary caller chunk sizes are consumed by prefix, not rejected or
     // copied wholesale.

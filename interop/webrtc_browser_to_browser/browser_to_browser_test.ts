@@ -1,5 +1,5 @@
 // The WebRTC browser-to-browser proof (ADR-0089 phase 6). Two real headless
-// Chromium contexts each run `@pancake/web` (the wasm Host) and `@pancake/webrtc`
+// Chromium contexts each run `@glowcap/web` (the wasm Host) and `@glowcap/webrtc`
 // (`RtcPeer`). They exchange signaling through this harness's WebSocket relay,
 // bring up a direct DataChannel between the two browsers, and hold a keyed OCapN
 // session over it: the answerer publishes a greeter and accepts, the offerer
@@ -23,7 +23,7 @@ import { type Browser, chromium } from "playwright";
 import { bundleProbe, fail, freePort } from "../../bindings/ts/web/test/support.ts";
 
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
-const WASM = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
+const WASM = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 // A byte-transparent signaling relay for exactly two peers: it forwards every
 // message from one role to the other, buffering for a role that has not yet
 // connected so no early identity or offer is lost. It never parses a payload.
@@ -68,7 +68,7 @@ try {
 			socket.onopen = () => relay.join(role, socket);
 			return response;
 		}
-		if (url.pathname === "/pancake_host.wasm") {
+		if (url.pathname === "/glowcap_host.wasm") {
 			return new Response(wasmBytes, { headers: { "content-type": "application/wasm" } });
 		}
 		return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });

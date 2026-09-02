@@ -1,5 +1,5 @@
 //! C-ABI frame-boundary loopback over the in-process endpoints, the socket-free
-//! sibling of `endpoint_loopback_test`. It proves the `pancake_inproc_*` handles
+//! sibling of `endpoint_loopback_test`. It proves the `glowcap_inproc_*` handles
 //! drive a real handshake + bootstrap fetch when the *host* owns the peer and
 //! shuttles frames itself, with two peers in one process wired by in-process
 //! pipes. The transport itself has no fd; the C listener adapter adds one
@@ -11,31 +11,31 @@
 //! designator instead of a host:port.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const c = @import("c_abi");
 const ci = @import("c_abi_net_transport_inproc");
-const model = pancake.ocapn.model;
-const inproc = pancake.net.inproc;
+const model = glowcap.ocapn.model;
+const inproc = glowcap.net.inproc;
 const c_abi_loopback = @import("../support/c_abi_loopback.zig");
 const handshake = @import("../support/handshake.zig");
 
 const designator = "thermostat-room";
 
-fn releaseListener(listener: *ci.PancakeInprocListener) void {
-    std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_listener_release(listener, null, 0, null)) catch unreachable;
+fn releaseListener(listener: *ci.GlowcapInprocListener) void {
+    std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_listener_release(listener, null, 0, null)) catch unreachable;
 }
 
 const Transport = struct {
-    pub const Conn = *ci.PancakeInprocConn;
-    pub const Listener = *ci.PancakeInprocListener;
+    pub const Conn = *ci.GlowcapInprocConn;
+    pub const Listener = *ci.GlowcapInprocListener;
 
-    pub fn writeFrame(conn: Conn, cf: *c.PancakeFrame) i32 {
-        return ci.pancake_inproc_conn_write_frame(conn, cf, null, 0, null);
+    pub fn writeFrame(conn: Conn, cf: *c.GlowcapFrame) i32 {
+        return ci.glowcap_inproc_conn_write_frame(conn, cf, null, 0, null);
     }
 
-    pub fn readFrame(conn: Conn, mf: *c.PancakeManagedFrame) i32 {
-        return ci.pancake_inproc_conn_read_frame(conn, mf, null, 0, null);
+    pub fn readFrame(conn: Conn, mf: *c.GlowcapManagedFrame) i32 {
+        return ci.glowcap_inproc_conn_read_frame(conn, mf, null, 0, null);
     }
 
     pub fn accept(
@@ -44,11 +44,11 @@ const Transport = struct {
         max_frame_bytes: usize,
         out_conn: *?Conn,
     ) i32 {
-        return ci.pancake_inproc_accept(listener, codec, max_frame_bytes, out_conn, null, 0, null);
+        return ci.glowcap_inproc_accept(listener, codec, max_frame_bytes, out_conn, null, 0, null);
     }
 
     pub fn releaseConn(conn: Conn) void {
-        ci.pancake_inproc_conn_release(conn);
+        ci.glowcap_inproc_conn_release(conn);
     }
 };
 
@@ -56,29 +56,29 @@ const Loopback = c_abi_loopback.Harness(Transport);
 const frame_cap = c_abi_loopback.frame_cap;
 
 const ParkedInprocAccept = struct {
-    listener: *ci.PancakeInprocListener,
+    listener: *ci.GlowcapInprocListener,
     started: std.atomic.Value(bool) = .init(false),
     result: i32 = 0,
 };
 
 fn parkedInprocAccept(args: *ParkedInprocAccept) void {
-    var conn: ?*ci.PancakeInprocConn = null;
+    var conn: ?*ci.GlowcapInprocConn = null;
     args.started.store(true, .release);
-    args.result = ci.pancake_inproc_accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null);
-    if (conn) |owned| ci.pancake_inproc_conn_release(owned);
+    args.result = ci.glowcap_inproc_accept(args.listener, c.GLOWCAP_CODEC_SYRUP, frame_cap, &conn, null, 0, null);
+    if (conn) |owned| ci.glowcap_inproc_conn_release(owned);
 }
 
 const ParkedInprocRead = struct {
-    conn: *ci.PancakeInprocConn,
+    conn: *ci.GlowcapInprocConn,
     started: std.atomic.Value(bool) = .init(false),
     result: i32 = 0,
 };
 
 fn parkedInprocRead(args: *ParkedInprocRead) void {
-    var managed: c.PancakeManagedFrame = undefined;
+    var managed: c.GlowcapManagedFrame = undefined;
     args.started.store(true, .release);
-    args.result = ci.pancake_inproc_conn_read_frame(args.conn, &managed, null, 0, null);
-    if (args.result == c.PANCAKE_OK) c.pancake_managed_frame_release(&managed);
+    args.result = ci.glowcap_inproc_conn_read_frame(args.conn, &managed, null, 0, null);
+    if (args.result == c.GLOWCAP_OK) c.glowcap_managed_frame_release(&managed);
 }
 
 fn startSession(name: []const u8) model.Message {
@@ -86,39 +86,39 @@ fn startSession(name: []const u8) model.Message {
 }
 
 test "transport status calls do not expose a stale diagnostic" {
-    var netlayer: ?*ci.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
-    defer ci.pancake_inproc_netlayer_release(netlayer);
+    var netlayer: ?*ci.GlowcapInprocNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_netlayer_new(&netlayer));
+    defer ci.glowcap_inproc_netlayer_release(netlayer);
 
-    var conn: ?*ci.PancakeInprocConn = null;
+    var conn: ?*ci.GlowcapInprocConn = null;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_IO,
-        ci.pancake_inproc_connect(netlayer, "missing".ptr, 7, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
+        c.GLOWCAP_ERR_IO,
+        ci.glowcap_inproc_connect(netlayer, "missing".ptr, 7, c.GLOWCAP_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
     );
-    try std.testing.expect(ci.pancake_inproc_last_error(null, 0) != 0);
+    try std.testing.expect(ci.glowcap_inproc_last_error(null, 0) != 0);
 
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NULL_POINTER,
-        ci.pancake_inproc_connect(null, "unused".ptr, 6, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
+        c.GLOWCAP_ERR_NULL_POINTER,
+        ci.glowcap_inproc_connect(null, "unused".ptr, 6, c.GLOWCAP_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
     );
-    try std.testing.expectEqual(@as(usize, 0), ci.pancake_inproc_last_error(null, 0));
+    try std.testing.expectEqual(@as(usize, 0), ci.glowcap_inproc_last_error(null, 0));
 }
 
 test "transport call can return the worker-thread cause with its status" {
-    var netlayer: ?*ci.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
-    defer ci.pancake_inproc_netlayer_release(netlayer);
+    var netlayer: ?*ci.GlowcapInprocNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_netlayer_new(&netlayer));
+    defer ci.glowcap_inproc_netlayer_release(netlayer);
 
-    var conn: ?*ci.PancakeInprocConn = null;
+    var conn: ?*ci.GlowcapInprocConn = null;
     var diagnostic: [257]u8 = undefined;
     var diagnostic_len: usize = 0;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_IO,
-        ci.pancake_inproc_connect(
+        c.GLOWCAP_ERR_IO,
+        ci.glowcap_inproc_connect(
             netlayer,
             "missing".ptr,
             7,
-            c.PANCAKE_CODEC_SYRUP,
+            c.GLOWCAP_CODEC_SYRUP,
             frame_cap,
             &conn,
             &diagnostic,
@@ -132,12 +132,12 @@ test "transport call can return the worker-thread cause with its status" {
 
     diagnostic_len = std.math.maxInt(usize);
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NULL_POINTER,
-        ci.pancake_inproc_connect(
+        c.GLOWCAP_ERR_NULL_POINTER,
+        ci.glowcap_inproc_connect(
             null,
             "unused".ptr,
             6,
-            c.PANCAKE_CODEC_SYRUP,
+            c.GLOWCAP_CODEC_SYRUP,
             frame_cap,
             &conn,
             &diagnostic,
@@ -150,12 +150,12 @@ test "transport call can return the worker-thread cause with its status" {
     // Refusing a partial optional diagnostic request happens before the effect
     // and clears this thread's archive-local diagnostic.
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NULL_POINTER,
-        ci.pancake_inproc_connect(
+        c.GLOWCAP_ERR_NULL_POINTER,
+        ci.glowcap_inproc_connect(
             netlayer,
             "missing".ptr,
             7,
-            c.PANCAKE_CODEC_SYRUP,
+            c.GLOWCAP_CODEC_SYRUP,
             frame_cap,
             &conn,
             &diagnostic,
@@ -163,21 +163,21 @@ test "transport call can return the worker-thread cause with its status" {
             null,
         ),
     );
-    try std.testing.expectEqual(@as(usize, 0), ci.pancake_inproc_last_error(null, 0));
+    try std.testing.expectEqual(@as(usize, 0), ci.glowcap_inproc_last_error(null, 0));
 }
 
 test "c-abi inproc loopback: handshake to open + bootstrap fetch round-trip" {
     const allocator = std.testing.allocator;
 
-    var netlayer: ?*ci.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
+    var netlayer: ?*ci.GlowcapInprocNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer ci.pancake_inproc_netlayer_release(netlayer_ptr);
+    defer ci.glowcap_inproc_netlayer_release(netlayer_ptr);
 
-    var listener: ?*ci.PancakeInprocListener = null;
+    var listener: ?*ci.GlowcapInprocListener = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        ci.pancake_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
+        c.GLOWCAP_OK,
+        ci.glowcap_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
     );
     const listener_ptr = listener.?;
     defer releaseListener(listener_ptr);
@@ -193,15 +193,15 @@ test "c-abi inproc loopback: handshake to open + bootstrap fetch round-trip" {
     };
     var server_future = try io.concurrent(Loopback.serveThread, .{&args});
 
-    var conn: ?*ci.PancakeInprocConn = null;
-    const connect_rc = ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null);
-    try std.testing.expectEqual(c.PANCAKE_OK, connect_rc);
+    var conn: ?*ci.GlowcapInprocConn = null;
+    const connect_rc = ci.glowcap_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.GLOWCAP_CODEC_SYRUP, frame_cap, &conn, null, 0, null);
+    try std.testing.expectEqual(c.GLOWCAP_OK, connect_rc);
     const conn_ptr = conn.?;
 
     const client_result = Loopback.fetchOnce(conn_ptr, allocator, startSession("client"));
 
     // Closing the client lets the server observe EOF and finish.
-    ci.pancake_inproc_conn_release(conn_ptr);
+    ci.glowcap_inproc_conn_release(conn_ptr);
     server_future.await(io);
 
     try client_result;
@@ -209,110 +209,110 @@ test "c-abi inproc loopback: handshake to open + bootstrap fetch round-trip" {
 }
 
 test "c-abi inproc connect rejects bad arguments and a missing listener distinctly" {
-    var netlayer: ?*ci.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
+    var netlayer: ?*ci.GlowcapInprocNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer ci.pancake_inproc_netlayer_release(netlayer_ptr);
+    defer ci.glowcap_inproc_netlayer_release(netlayer_ptr);
 
-    var conn: ?*ci.PancakeInprocConn = null;
+    var conn: ?*ci.GlowcapInprocConn = null;
 
     // A zero frame cap is an invalid argument, not a codec selector problem.
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, 0, &conn, null, 0, null),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        ci.glowcap_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.GLOWCAP_CODEC_SYRUP, 0, &conn, null, 0, null),
     );
     // An unknown codec selector is an invalid argument.
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_UNKNOWN, frame_cap, &conn, null, 0, null),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        ci.glowcap_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.GLOWCAP_CODEC_UNKNOWN, frame_cap, &conn, null, 0, null),
     );
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, 999, frame_cap, &conn, null, 0, null),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        ci.glowcap_inproc_connect(netlayer_ptr, designator.ptr, designator.len, 999, frame_cap, &conn, null, 0, null),
     );
-    try std.testing.expect(ci.pancake_inproc_last_error(null, 0) > 0);
+    try std.testing.expect(ci.glowcap_inproc_last_error(null, 0) > 0);
     // A null required pointer is a null-pointer error.
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NULL_POINTER,
-        ci.pancake_inproc_connect(null, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
+        c.GLOWCAP_ERR_NULL_POINTER,
+        ci.glowcap_inproc_connect(null, designator.ptr, designator.len, c.GLOWCAP_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
     );
     // Dialing a designator with no bound listener is an I/O fault, with a cause
-    // recorded for pancake_inproc_last_error, distinct from a malformed request.
-    ci.pancake_inproc_clear_last_error();
+    // recorded for glowcap_inproc_last_error, distinct from a malformed request.
+    ci.glowcap_inproc_clear_last_error();
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_IO,
-        ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
+        c.GLOWCAP_ERR_IO,
+        ci.glowcap_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.GLOWCAP_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
     );
-    try std.testing.expect(ci.pancake_inproc_last_error(null, 0) > 0);
+    try std.testing.expect(ci.glowcap_inproc_last_error(null, 0) > 0);
 }
 
 test "c-abi inproc listen rejects an empty designator" {
-    var netlayer: ?*ci.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
+    var netlayer: ?*ci.GlowcapInprocNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer ci.pancake_inproc_netlayer_release(netlayer_ptr);
+    defer ci.glowcap_inproc_netlayer_release(netlayer_ptr);
 
     const empty = "";
-    var listener: ?*ci.PancakeInprocListener = null;
+    var listener: ?*ci.GlowcapInprocListener = null;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        ci.pancake_inproc_listen(netlayer_ptr, empty.ptr, empty.len, &listener),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        ci.glowcap_inproc_listen(netlayer_ptr, empty.ptr, empty.len, &listener),
     );
 }
 
 test "c-abi inproc readiness stays armed for every queued dial" {
-    var netlayer: ?*ci.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
+    var netlayer: ?*ci.GlowcapInprocNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer ci.pancake_inproc_netlayer_release(netlayer_ptr);
+    defer ci.glowcap_inproc_netlayer_release(netlayer_ptr);
 
-    var listener: ?*ci.PancakeInprocListener = null;
+    var listener: ?*ci.GlowcapInprocListener = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        ci.pancake_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
+        c.GLOWCAP_OK,
+        ci.glowcap_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
     );
     const listener_ptr = listener.?;
     defer releaseListener(listener_ptr);
 
     var fd: i32 = -1;
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_listener_readiness_fd(listener_ptr, &fd));
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_listener_readiness_fd(listener_ptr, &fd));
     var pollfd = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
     try std.testing.expectEqual(@as(usize, 0), try std.posix.poll(&pollfd, 0));
 
-    var dialed = [_]?*ci.PancakeInprocConn{ null, null };
+    var dialed = [_]?*ci.GlowcapInprocConn{ null, null };
     for (&dialed) |*slot| {
         try std.testing.expectEqual(
-            c.PANCAKE_OK,
-            ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, slot, null, 0, null),
+            c.GLOWCAP_OK,
+            ci.glowcap_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.GLOWCAP_CODEC_SYRUP, frame_cap, slot, null, 0, null),
         );
     }
-    defer for (dialed) |conn| ci.pancake_inproc_conn_release(conn);
+    defer for (dialed) |conn| ci.glowcap_inproc_conn_release(conn);
 
     for (0..2) |_| {
         pollfd[0].revents = 0;
         try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&pollfd, 1000));
         try std.testing.expect(pollfd[0].revents & std.posix.POLL.IN != 0);
-        var accepted: ?*ci.PancakeInprocConn = null;
+        var accepted: ?*ci.GlowcapInprocConn = null;
         try std.testing.expectEqual(
-            c.PANCAKE_OK,
-            ci.pancake_inproc_accept(listener_ptr, c.PANCAKE_CODEC_SYRUP, frame_cap, &accepted, null, 0, null),
+            c.GLOWCAP_OK,
+            ci.glowcap_inproc_accept(listener_ptr, c.GLOWCAP_CODEC_SYRUP, frame_cap, &accepted, null, 0, null),
         );
-        ci.pancake_inproc_conn_release(accepted);
+        ci.glowcap_inproc_conn_release(accepted);
     }
     pollfd[0].revents = 0;
     try std.testing.expectEqual(@as(usize, 0), try std.posix.poll(&pollfd, 0));
 }
 
 test "c-abi inproc release resolves a racing native accept" {
-    var netlayer: ?*ci.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
+    var netlayer: ?*ci.GlowcapInprocNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer ci.pancake_inproc_netlayer_release(netlayer_ptr);
+    defer ci.glowcap_inproc_netlayer_release(netlayer_ptr);
 
-    var listener: ?*ci.PancakeInprocListener = null;
+    var listener: ?*ci.GlowcapInprocListener = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        ci.pancake_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
+        c.GLOWCAP_OK,
+        ci.glowcap_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
     );
     const listener_ptr = listener.?;
 
@@ -323,49 +323,49 @@ test "c-abi inproc release resolves a racing native accept" {
     var parked_accept = ParkedInprocAccept{ .listener = listener_ptr };
     var accept_future = try io.concurrent(parkedInprocAccept, .{&parked_accept});
     while (!parked_accept.started.load(.acquire)) std.Thread.yield() catch {};
-    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_listener_release(listener_ptr, null, 0, null));
+    try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_listener_release(listener_ptr, null, 0, null));
     accept_future.await(io);
     // The task may race release before acquiring the listener lease (CLOSED),
     // or release may interrupt an admitted accept (IO). Both are terminal and
     // release has joined the task before returning.
     try std.testing.expect(
-        parked_accept.result == c.PANCAKE_ERR_CLOSED or
-            parked_accept.result == c.PANCAKE_ERR_IO,
+        parked_accept.result == c.GLOWCAP_ERR_CLOSED or
+            parked_accept.result == c.GLOWCAP_ERR_IO,
     );
 
     const pair_designator = "shutdown-pair";
     listener = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        ci.pancake_inproc_listen(netlayer_ptr, pair_designator.ptr, pair_designator.len, &listener),
+        c.GLOWCAP_OK,
+        ci.glowcap_inproc_listen(netlayer_ptr, pair_designator.ptr, pair_designator.len, &listener),
     );
     const pair_listener = listener.?;
     defer releaseListener(pair_listener);
-    var dialed: ?*ci.PancakeInprocConn = null;
+    var dialed: ?*ci.GlowcapInprocConn = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        ci.pancake_inproc_connect(netlayer_ptr, pair_designator.ptr, pair_designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &dialed, null, 0, null),
+        c.GLOWCAP_OK,
+        ci.glowcap_inproc_connect(netlayer_ptr, pair_designator.ptr, pair_designator.len, c.GLOWCAP_CODEC_SYRUP, frame_cap, &dialed, null, 0, null),
     );
-    defer ci.pancake_inproc_conn_release(dialed.?);
-    var accepted: ?*ci.PancakeInprocConn = null;
+    defer ci.glowcap_inproc_conn_release(dialed.?);
+    var accepted: ?*ci.GlowcapInprocConn = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        ci.pancake_inproc_accept(pair_listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &accepted, null, 0, null),
+        c.GLOWCAP_OK,
+        ci.glowcap_inproc_accept(pair_listener, c.GLOWCAP_CODEC_SYRUP, frame_cap, &accepted, null, 0, null),
     );
     const accepted_ptr = accepted.?;
 
-    ci.pancake_inproc_listener_shutdown(pair_listener);
+    ci.glowcap_inproc_listener_shutdown(pair_listener);
     var readiness_fd: i32 = -1;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_CLOSED,
-        ci.pancake_inproc_listener_readiness_fd(pair_listener, &readiness_fd),
+        c.GLOWCAP_ERR_CLOSED,
+        ci.glowcap_inproc_listener_readiness_fd(pair_listener, &readiness_fd),
     );
 
     var parked_read = ParkedInprocRead{ .conn = accepted_ptr };
     var read_future = try io.concurrent(parkedInprocRead, .{&parked_read});
     while (!parked_read.started.load(.acquire)) std.Thread.yield() catch {};
-    ci.pancake_inproc_conn_shutdown(accepted_ptr);
+    ci.glowcap_inproc_conn_shutdown(accepted_ptr);
     read_future.await(io);
-    try std.testing.expect(parked_read.result != c.PANCAKE_OK);
-    ci.pancake_inproc_conn_release(accepted_ptr);
+    try std.testing.expect(parked_read.result != c.GLOWCAP_OK);
+    ci.glowcap_inproc_conn_release(accepted_ptr);
 }

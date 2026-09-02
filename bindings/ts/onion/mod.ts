@@ -1,4 +1,4 @@
-// Public @pancake/onion surface. Raw archive ownership lives in native.ts;
+// Public @glowcap/onion surface. Raw archive ownership lives in native.ts;
 // provider.ts composes it with the generic driver.
 //
 // A service id is an address, not an identity: Tor proves the far circuit holds
@@ -32,4 +32,4 @@ export const profiles = [
 		referenceName: "onion services",
 		takes: [],
 	},
-] as const satisfies readonly import("@pancake/runtime/transport").ProfileInfo[];
+] as const satisfies readonly import("@glowcap/runtime/transport").ProfileInfo[];

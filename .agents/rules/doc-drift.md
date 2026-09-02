@@ -1,9 +1,9 @@
 ---
-description: "Doc-drift discipline for Zig pancake: living-state claims must describe current code or be removed."
+description: "Doc-drift discipline for Zig glowcap: living-state claims must describe current code or be removed."
 globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, build.zig, .cursor/*.json, .claude/*.json, .codex/*.md, .mcp.json, .serena/*.yml
 ---
 
-# pancake — Doc Drift Prevention
+# glowcap — Doc Drift Prevention
 
 This rule keeps doc claims _true_. Its sibling, [doc-voice](doc-voice.md), keeps
 human-facing prose _readable_ (speech for a person; agent instruction stays
@@ -58,9 +58,9 @@ change as the state they describe:
 - `apps/rooms/web/deploy/README.md`
 - `apps/tasks/README.md`
 - `apps/tools/README.md`
-- `apps/accountability-on-pancake/README.md`
-- `apps/accountability-on-pancake/design.md`
-- `apps/accountability-on-pancake/http-comparison.md`
+- `apps/accountability-on-glowcap/README.md`
+- `apps/accountability-on-glowcap/design.md`
+- `apps/accountability-on-glowcap/http-comparison.md`
 - `bench/langs/README.md`
 - `bench/langs/methodology.md`
 - `bench/langs/contract.md`

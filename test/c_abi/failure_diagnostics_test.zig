@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const diagnostics = @import("c_abi_shared").failure_diagnostics;
 const shared = @import("c_abi_shared");
-const foundation = @import("pancake").foundation;
+const foundation = @import("glowcap").foundation;
 const c = @import("c_abi");
 
 fn cBytes(ptr: ?[*]const u8, len: usize) []const u8 {
@@ -11,8 +11,8 @@ fn cBytes(ptr: ?[*]const u8, len: usize) []const u8 {
 
 fn providerResult(cause: anyerror) i32 {
     return switch (cause) {
-        error.CleanupDenied => shared.PANCAKE_ERR_CLOSED,
-        else => shared.PANCAKE_ERR_IO,
+        error.CleanupDenied => shared.GLOWCAP_ERR_CLOSED,
+        else => shared.GLOWCAP_ERR_IO,
     };
 }
 
@@ -23,17 +23,17 @@ test "provider failure projection preserves one neutral chain exactly" {
 
     var report = shared.transport_provider.emptyProviderFailure();
     try testing.expectEqual(
-        shared.PANCAKE_ERR_IO,
+        shared.GLOWCAP_ERR_IO,
         shared.transport_provider.failProviderChain(
             &report,
-            shared.PANCAKE_ERR_IO,
+            shared.GLOWCAP_ERR_IO,
             failure,
             providerResult,
         ),
     );
-    try testing.expectEqual(shared.PANCAKE_ERR_IO, report.result);
+    try testing.expectEqual(shared.GLOWCAP_ERR_IO, report.result);
     try testing.expectEqualStrings("ProviderRefusedByName", cBytes(report.primary_name, report.primary_name_len));
-    try testing.expectEqual(shared.PANCAKE_ERR_CLOSED, report.secondary_result);
+    try testing.expectEqual(shared.GLOWCAP_ERR_CLOSED, report.secondary_result);
     try testing.expectEqualStrings("SocketUnlinkRefused", cBytes(report.secondary_name, report.secondary_name_len));
     try testing.expectEqual(@as(u32, 2), report.secondary_count);
 
@@ -48,17 +48,17 @@ test "provider failure projection preserves one neutral chain exactly" {
 }
 
 test "Context lifecycle identities are stable nonzero and do not wrap" {
-    var context: ?*c.PancakeContext = null;
-    try testing.expectEqual(c.PANCAKE_OK, c.pancake_context_new(&context));
-    defer c.pancake_context_release(context);
+    var context: ?*c.GlowcapContext = null;
+    try testing.expectEqual(c.GLOWCAP_OK, c.glowcap_context_new(&context));
+    defer c.glowcap_context_release(context);
 
     var first: u64 = 0;
     var second: u64 = 0;
-    try testing.expectEqual(c.PANCAKE_OK, c.pancake_context_allocate_lifecycle_id(context, &first));
-    try testing.expectEqual(c.PANCAKE_OK, c.pancake_context_allocate_lifecycle_id(context, &second));
+    try testing.expectEqual(c.GLOWCAP_OK, c.glowcap_context_allocate_lifecycle_id(context, &first));
+    try testing.expectEqual(c.GLOWCAP_OK, c.glowcap_context_allocate_lifecycle_id(context, &second));
     try testing.expectEqual(@as(u64, 1), first);
     try testing.expectEqual(@as(u64, 2), second);
-    try testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_context_allocate_lifecycle_id(context, null));
+    try testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, c.glowcap_context_allocate_lifecycle_id(context, null));
 
     var ids = shared.LifecycleIds.init();
     ids.value.store(std.math.maxInt(u64), .monotonic);
@@ -74,10 +74,10 @@ test "failure diagnostics preserve typed cause identity and claim once" {
         .scope_kind = .listener,
         .scope_id = 31,
         .operation_id = 47,
-        .primary_result = c.PANCAKE_ERR_IO,
+        .primary_result = c.GLOWCAP_ERR_IO,
         .primary_name = "CloseFailed",
         .primary_message = "socket refused shutdown",
-        .secondary_result = c.PANCAKE_ERR_INTERNAL,
+        .secondary_result = c.GLOWCAP_ERR_INTERNAL,
         .secondary_name = "ReleaseFailed",
         .secondary_message = "descriptor remained live",
         .secondary_count = 2,
@@ -94,8 +94,8 @@ test "failure diagnostics preserve typed cause identity and claim once" {
     try testing.expectEqual(diagnostics.ScopeKind.listener, event.scope_kind);
     try testing.expectEqual(@as(u64, 31), event.scope_id);
     try testing.expectEqual(@as(u64, 47), event.operation_id);
-    try testing.expectEqual(c.PANCAKE_ERR_IO, event.primary_result);
-    try testing.expectEqual(c.PANCAKE_ERR_INTERNAL, event.secondary_result);
+    try testing.expectEqual(c.GLOWCAP_ERR_IO, event.primary_result);
+    try testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, event.secondary_result);
     try testing.expectEqual(@as(u32, 2), event.secondary_count);
     try testing.expectEqualStrings("listener.close", event.operation);
     try testing.expectEqualStrings("CloseFailed", event.primary_name);
@@ -203,20 +203,20 @@ test "failure diagnostics truncate UTF-8 only at code-point boundaries" {
 }
 
 test "C Context rejects non-UTF-8 diagnostic text" {
-    var context: ?*c.PancakeContext = null;
-    try testing.expectEqual(c.PANCAKE_OK, c.pancake_context_new(&context));
-    defer c.pancake_context_release(context);
+    var context: ?*c.GlowcapContext = null;
+    try testing.expectEqual(c.GLOWCAP_OK, c.glowcap_context_new(&context));
+    defer c.glowcap_context_release(context);
 
     const invalid = [_]u8{0xff};
     const primary_name = "Cause";
-    const report = c.PancakeFailureReport{
-        .abi_version = c.PANCAKE_FAILURE_EVENT_ABI_VERSION,
-        .struct_size = @sizeOf(c.PancakeFailureReport),
-        .layer = c.PANCAKE_FAILURE_LAYER_BINDING,
-        .scope_kind = c.PANCAKE_FAILURE_SCOPE_CONTEXT,
+    const report = c.GlowcapFailureReport{
+        .abi_version = c.GLOWCAP_FAILURE_EVENT_ABI_VERSION,
+        .struct_size = @sizeOf(c.GlowcapFailureReport),
+        .layer = c.GLOWCAP_FAILURE_LAYER_BINDING,
+        .scope_kind = c.GLOWCAP_FAILURE_SCOPE_CONTEXT,
         .scope_id = 0,
         .operation_id = 0,
-        .primary_result = c.PANCAKE_ERR_INTERNAL,
+        .primary_result = c.GLOWCAP_ERR_INTERNAL,
         .secondary_result = 0,
         .secondary_count = 0,
         .operation = invalid[0..].ptr,
@@ -230,28 +230,28 @@ test "C Context rejects non-UTF-8 diagnostic text" {
         .secondary_message = null,
         .secondary_message_len = 0,
     };
-    try testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_context_report_failure(context, &report));
+    try testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_context_report_failure(context, &report));
 }
 
 test "C Context reports and atomically claims the cross-language failure vector" {
-    var context: ?*c.PancakeContext = null;
-    try testing.expectEqual(c.PANCAKE_OK, c.pancake_context_new(&context));
-    defer c.pancake_context_release(context);
+    var context: ?*c.GlowcapContext = null;
+    try testing.expectEqual(c.GLOWCAP_OK, c.glowcap_context_new(&context));
+    defer c.glowcap_context_release(context);
 
     const operation = "listener.close";
     const primary_name = "CloseFailed";
     const primary_message = "socket refused shutdown";
     const secondary_name = "ReleaseFailed";
     const secondary_message = "descriptor remained live";
-    var report = c.PancakeFailureReport{
-        .abi_version = c.PANCAKE_FAILURE_EVENT_ABI_VERSION,
-        .struct_size = @sizeOf(c.PancakeFailureReport),
-        .layer = c.PANCAKE_FAILURE_LAYER_TRANSPORT,
-        .scope_kind = c.PANCAKE_FAILURE_SCOPE_LISTENER,
+    var report = c.GlowcapFailureReport{
+        .abi_version = c.GLOWCAP_FAILURE_EVENT_ABI_VERSION,
+        .struct_size = @sizeOf(c.GlowcapFailureReport),
+        .layer = c.GLOWCAP_FAILURE_LAYER_TRANSPORT,
+        .scope_kind = c.GLOWCAP_FAILURE_SCOPE_LISTENER,
         .scope_id = 31,
         .operation_id = 47,
-        .primary_result = c.PANCAKE_ERR_IO,
-        .secondary_result = c.PANCAKE_ERR_INTERNAL,
+        .primary_result = c.GLOWCAP_ERR_IO,
+        .secondary_result = c.GLOWCAP_ERR_INTERNAL,
         .secondary_count = 2,
         .operation = operation.ptr,
         .operation_len = operation.len,
@@ -264,29 +264,29 @@ test "C Context reports and atomically claims the cross-language failure vector"
         .secondary_message = secondary_message.ptr,
         .secondary_message_len = secondary_message.len,
     };
-    try testing.expectEqual(c.PANCAKE_OK, c.pancake_context_report_failure(context, &report));
+    try testing.expectEqual(c.GLOWCAP_OK, c.glowcap_context_report_failure(context, &report));
 
-    var event: c.PancakeFailureEvent = undefined;
+    var event: c.GlowcapFailureEvent = undefined;
     var required: usize = 0;
     try testing.expectEqual(
-        c.PANCAKE_ERR_BUFFER_TOO_SMALL,
-        c.pancake_context_next_failure(context, &event, null, 0, &required),
+        c.GLOWCAP_ERR_BUFFER_TOO_SMALL,
+        c.glowcap_context_next_failure(context, &event, null, 0, &required),
     );
     try testing.expect(required > 0);
     var payload: [128]u8 = undefined;
     try testing.expect(required <= payload.len);
     try testing.expectEqual(
-        c.PANCAKE_OK,
-        c.pancake_context_next_failure(context, &event, &payload, payload.len, &required),
+        c.GLOWCAP_OK,
+        c.glowcap_context_next_failure(context, &event, &payload, payload.len, &required),
     );
-    try testing.expectEqual(c.PANCAKE_FAILURE_EVENT_ABI_VERSION, event.abi_version);
+    try testing.expectEqual(c.GLOWCAP_FAILURE_EVENT_ABI_VERSION, event.abi_version);
     try testing.expectEqual(@as(u64, 1), event.sequence);
-    try testing.expectEqual(c.PANCAKE_FAILURE_LAYER_TRANSPORT, event.layer);
-    try testing.expectEqual(c.PANCAKE_FAILURE_SCOPE_LISTENER, event.scope_kind);
+    try testing.expectEqual(c.GLOWCAP_FAILURE_LAYER_TRANSPORT, event.layer);
+    try testing.expectEqual(c.GLOWCAP_FAILURE_SCOPE_LISTENER, event.scope_kind);
     try testing.expectEqual(@as(u64, 31), event.scope_id);
     try testing.expectEqual(@as(u64, 47), event.operation_id);
-    try testing.expectEqual(c.PANCAKE_ERR_IO, event.primary_result);
-    try testing.expectEqual(c.PANCAKE_ERR_INTERNAL, event.secondary_result);
+    try testing.expectEqual(c.GLOWCAP_ERR_IO, event.primary_result);
+    try testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, event.secondary_result);
     try testing.expectEqual(@as(u32, 2), event.secondary_count);
     try testing.expectEqualStrings(operation, cBytes(event.operation, event.operation_len));
     try testing.expectEqualStrings(primary_name, cBytes(event.primary_name, event.primary_name_len));
@@ -294,32 +294,32 @@ test "C Context reports and atomically claims the cross-language failure vector"
     try testing.expectEqualStrings(secondary_name, cBytes(event.secondary_name, event.secondary_name_len));
     try testing.expectEqualStrings(secondary_message, cBytes(event.secondary_message, event.secondary_message_len));
     try testing.expectEqual(
-        c.PANCAKE_ERR_WOULD_BLOCK,
-        c.pancake_context_next_failure(context, &event, &payload, payload.len, &required),
+        c.GLOWCAP_ERR_WOULD_BLOCK,
+        c.glowcap_context_next_failure(context, &event, &payload, payload.len, &required),
     );
     try testing.expectEqual(@as(usize, 0), required);
 
     report.abi_version += 1;
-    try testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_context_report_failure(context, &report));
+    try testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_context_report_failure(context, &report));
 
     report.abi_version -= 1;
     report.primary_result = -99;
-    try testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_context_report_failure(context, &report));
+    try testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_context_report_failure(context, &report));
 
-    report.primary_result = c.PANCAKE_OK;
+    report.primary_result = c.GLOWCAP_OK;
     report.primary_name_len = 0;
-    try testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_context_report_failure(context, &report));
+    try testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_context_report_failure(context, &report));
 
-    report.primary_result = c.PANCAKE_ERR_INTERNAL;
+    report.primary_result = c.GLOWCAP_ERR_INTERNAL;
     report.primary_name_len = primary_name.len;
     report.secondary_count = 0;
-    try testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_context_report_failure(context, &report));
+    try testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_context_report_failure(context, &report));
 
-    report.secondary_result = c.PANCAKE_OK;
+    report.secondary_result = c.GLOWCAP_OK;
     report.secondary_name_len = 0;
     report.secondary_count = 1;
-    try testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_context_report_failure(context, &report));
+    try testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_context_report_failure(context, &report));
 
-    report.secondary_result = c.PANCAKE_ERR_IO;
-    try testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_context_report_failure(context, &report));
+    report.secondary_result = c.GLOWCAP_ERR_IO;
+    try testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_context_report_failure(context, &report));
 }

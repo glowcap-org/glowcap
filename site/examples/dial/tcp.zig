@@ -1,14 +1,14 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // Plain TCP uses a cleartext `host:port` locator.
-    var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
-    const partner = pancake.net.tcp.locator("127.0.0.1:9099");
+    var tcp_resident = glowcap.net.tcp.Resident{ .io = io };
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{tcp_resident.netlayer()};
+    const partner = glowcap.net.tcp.locator("127.0.0.1:9099");
 
     // From here, the CapTP workflow is transport-independent.
-    const session = try pancake.driver.connect(
+    const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
         partner,

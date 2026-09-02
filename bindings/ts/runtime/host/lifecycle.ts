@@ -1,7 +1,7 @@
 // The CapTP host — multi-session CapTP product over the byte-fed host archive
-// (libpancake_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns — never
-// a single-type equation. The `PancakeHost` owns every decision: the retained
+// a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
 // the embedder contract leaves to the binding: the host handle, the
@@ -12,8 +12,8 @@
 // `pump.ts`; the dial executor lives in `dial.ts`. `session.ts` owns the
 // `Session` they act on. `mod.ts` re-exports the public `Host`.
 
-import { OK, TIMEOUT } from "@pancake/abi";
-import { checkHost, PancakeError, retainSecondaryFailure } from "../errors.ts";
+import { OK, TIMEOUT } from "@glowcap/abi";
+import { checkHost, GlowcapError, retainSecondaryFailure } from "../errors.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL } from "../internal/ffi/runtime.ts";
 import { ab } from "../internal/seam.ts";
@@ -30,7 +30,7 @@ export abstract class HostLifecycle extends HostState {
 	protected _closeWaitMs(): number {
 		if (this._raw === NULL) return 0;
 		const out = new Uint8Array(8);
-		checkHost(hostS.pancake_host_close_wait_ms(this._raw, monotonicNowMs(), ab(out)));
+		checkHost(hostS.glowcap_host_close_wait_ms(this._raw, monotonicNowMs(), ab(out)));
 		const wait = new DataView(out.buffer).getBigInt64(0, true);
 		if (wait < 0n) return -1;
 		// setTimeout treats a delay past 2^31-1 as roughly one millisecond, so
@@ -70,7 +70,7 @@ export abstract class HostLifecycle extends HostState {
 			const activity = this.armCloseActivity();
 			await this.kickActions();
 			const state = new Uint8Array(4);
-			const rc = hostS.pancake_host_close_progress(raw, monotonicNowMs(), ab(state));
+			const rc = hostS.glowcap_host_close_progress(raw, monotonicNowMs(), ab(state));
 			if (rc !== OK && rc !== TIMEOUT) checkHost(rc);
 			timedOut ||= rc === TIMEOUT;
 			if (lifecycleClosed(new DataView(state.buffer).getUint32(0, true))) break;
@@ -87,7 +87,7 @@ export abstract class HostLifecycle extends HostState {
 		traceDrainHost(raw);
 		this.drainParkedReleases();
 		let failure: unknown | null = timedOut
-			? new PancakeError(TIMEOUT, "finish close exhausted its grace period")
+			? new GlowcapError(TIMEOUT, "finish close exhausted its grace period")
 			: null;
 		if (this._finalizerState.raw === raw) {
 			try {
@@ -155,7 +155,7 @@ export abstract class HostLifecycle extends HostState {
 		}
 		if (this._releasePromise == null && this._raw !== NULL) {
 			this._releaseStarted = true;
-			checkHost(hostS.pancake_host_close(this._raw, ab(encoded), monotonicNowMs()));
+			checkHost(hostS.glowcap_host_close(this._raw, ab(encoded), monotonicNowMs()));
 			this.signalCloseActivity();
 			const begin = () => this._doClose();
 			this._releasePromise = insideTurn() ? Promise.resolve().then(begin) : begin();
@@ -163,7 +163,7 @@ export abstract class HostLifecycle extends HostState {
 		} else if (this._raw !== NULL) {
 			// A repeated close escalates the pending-work policy while the close
 			// driver may already be parked; wake it so it re-reads progress.
-			checkHost(hostS.pancake_host_close(this._raw, ab(encoded), monotonicNowMs()));
+			checkHost(hostS.glowcap_host_close(this._raw, ab(encoded), monotonicNowMs()));
 			this.signalCloseActivity();
 			return this._releasePromise ?? Promise.resolve();
 		}

@@ -1,5 +1,5 @@
-import type { Argument } from "@pancake/runtime";
-import { noise } from "@pancake/relay";
+import type { Argument } from "@glowcap/runtime";
+import { noise } from "@glowcap/relay";
 
 // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 const seed = crypto.getRandomValues(new Uint8Array(32));

@@ -7,7 +7,7 @@ const Where = bans.Where;
 
 /// The native bindings hand complete locators to the generic driver and its
 /// registered transport packages. The byte-fed C embedder may still use
-/// PancakeDialPlan, but projecting that plan into a binding restores concrete
+/// GlowcapDialPlan, but projecting that plan into a binding restores concrete
 /// transport dispatch to generic runtime code. The rest of this table holds
 /// current lifecycle and style invariants; exact-spelling bans of retired
 /// names are pruned once the tree and its generated mirrors agree.
@@ -20,14 +20,14 @@ pub const binding_public_api_retirements: []const Ban = &.{
         } },
         .kind = .forbid,
         .needles = &.{
-            "PancakeDialPlan",
-            "PANCAKE_DIAL_PLAN",
+            "GlowcapDialPlan",
+            "GLOWCAP_DIAL_PLAN",
             "DIAL_SHAPE_",
             "DIAL_REACH_",
             "DIAL_POSTURE_",
         },
         .check = "binding-public-api-retirements",
-        .why = "native bindings pass typed locators through the generic driver; only direct byte-fed C embedders project PancakeDialPlan",
+        .why = "native bindings pass typed locators through the generic driver; only direct byte-fed C embedders project GlowcapDialPlan",
     },
     .{
         .where = .{ .files = &.{
@@ -38,8 +38,8 @@ pub const binding_public_api_retirements: []const Ban = &.{
         } },
         .kind = .forbid,
         .needles = &.{
-            "PancakeDialPlan",
-            "PANCAKE_DIAL_PLAN",
+            "GlowcapDialPlan",
+            "GLOWCAP_DIAL_PLAN",
             "DIAL_SHAPE_",
             "DIAL_REACH_",
             "DIAL_POSTURE_",
@@ -119,7 +119,7 @@ pub const binding_public_api_retirements: []const Ban = &.{
         .why = "Racket host-close! is the one Host policy barrier; the retired host-release! verb must not return",
     },
     .{
-        .where = .{ .tree = .{ .dir = "bindings/python/pancake/_host", .suffixes = &.{".py"} } },
+        .where = .{ .tree = .{ .dir = "bindings/python/glowcap/_host", .suffixes = &.{".py"} } },
         .kind = .forbid,
         .needles = &.{
             "async def release_async",
@@ -249,7 +249,7 @@ pub const test_only_surface: []const Ban = &.{
 };
 
 /// The rooms application's environment namespace: every env var it reads or
-/// documents is `PANCAKE_ROOMS_*`, so a deployment's environment sorts by
+/// documents is `GLOWCAP_ROOMS_*`, so a deployment's environment sorts by
 /// product. A bare `ROOMS_*` string is either a stale name or a new knob
 /// minted outside the namespace; the announce tokens (`ROOMS-…`) are dashes
 /// and stay untouched.
@@ -263,7 +263,7 @@ pub const rooms_env_namespace: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{ "\"ROOMS_", "'ROOMS_", "`ROOMS_" },
         .check = "rooms-env-namespace",
-        .why = "rooms env vars are namespaced PANCAKE_ROOMS_*; a bare ROOMS_* name is outside the product's namespace",
+        .why = "rooms env vars are namespaced GLOWCAP_ROOMS_*; a bare ROOMS_* name is outside the product's namespace",
     },
     .{
         .where = .{ .tree = .{
@@ -273,7 +273,7 @@ pub const rooms_env_namespace: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{ "\"ROOMS_", "'ROOMS_", "`ROOMS_" },
         .check = "rooms-env-namespace",
-        .why = "rooms env vars are namespaced PANCAKE_ROOMS_*; a bare ROOMS_* name is outside the product's namespace",
+        .why = "rooms env vars are namespaced GLOWCAP_ROOMS_*; a bare ROOMS_* name is outside the product's namespace",
     },
     .{
         .where = .{ .tree = .{
@@ -283,6 +283,6 @@ pub const rooms_env_namespace: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{ "\"ROOMS_", "'ROOMS_", "`ROOMS_" },
         .check = "rooms-env-namespace",
-        .why = "rooms env vars are namespaced PANCAKE_ROOMS_*; a bare ROOMS_* name is outside the product's namespace",
+        .why = "rooms env vars are namespaced GLOWCAP_ROOMS_*; a bare ROOMS_* name is outside the product's namespace",
     },
 };

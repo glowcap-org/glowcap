@@ -1,4 +1,4 @@
-/* pancake — shared UI core
+/* glowcap — shared UI core
    ────────────────────────────────────────────────────────────────────────────
    The one place the brand is defined. Two surfaces consume this file: the
    documentation site (site/) and the rooms app (apps/rooms/web/ui/). Neither

@@ -2,7 +2,7 @@
 //! `build.zig` composes: the native Zig clients (TCP and iroh), the hermetic
 //! Deno suite that rides `check`, the cross-language demos, the browser UI
 //! serve steps, the `rooms-web-*` proof family, and the deploy bundle. The
-//! product CLI (`pancake app rooms-peer`) is its own subject and stays in the
+//! product CLI (`glowcap app rooms-peer`) is its own subject and stays in the
 //! root beside the other CLI steps.
 //!
 //! The demos and serves are sibling steps of `check`, not members: they need
@@ -26,7 +26,7 @@ pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    /// The public `pancake` module.
+    /// The public `glowcap` module.
     lib_mod: *std.Build.Module,
     iroh_resident_mod: *std.Build.Module,
     demo_rooms_cli_mod: *std.Build.Module,
@@ -84,7 +84,7 @@ pub fn register(ctx: Context) void {
     const lib_mod = ctx.lib_mod;
     const check_step = ctx.check_step;
 
-    const rooms_client_exe = common.pancakeExecutable(b, lib_mod, target, optimize, "pancake-rooms-client", "apps/rooms/clients/zig/client.zig");
+    const rooms_client_exe = common.glowcapExecutable(b, lib_mod, target, optimize, "glowcap-rooms-client", "apps/rooms/clients/zig/client.zig");
     rooms_client_exe.root_module.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
     rooms_client_exe.root_module.addImport("demo_usage", ctx.demo_usage_mod);
     // The default rooms client is TCP-only: a build option flips the iroh dial
@@ -174,7 +174,7 @@ pub fn register(ctx: Context) void {
     // bounded line parsing, and reconnect policy. Arguments after `--` select
     // the network/channel/endpoints; the default is Libera's #ocapn over TLS.
     const rooms_irc_bridge = common.addInstalledSystemRun(b, .service, &.{
-        "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env=PANCAKE_LIB_DIR,PANCAKE_ROOMS_IRC_SASL_PASSWORD", "apps/rooms/irc/bridge/main.ts",
+        "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env=GLOWCAP_LIB_DIR,GLOWCAP_ROOMS_IRC_SASL_PASSWORD", "apps/rooms/irc/bridge/main.ts",
     });
     rooms_irc_bridge.addPassthruArgs();
     const rooms_irc_bridge_step = b.step("rooms-irc-bridge", "Serve an IRC channel as a Rooms directory (read-only by default; needs deno + network)");
@@ -186,7 +186,7 @@ pub fn register(ctx: Context) void {
     // chat authority. It is loopback-cleartext by default and requires a TLS
     // keypair before configuration will expose it on a non-loopback bind.
     const rooms_irc_front = common.addInstalledSystemRun(b, .service, &.{
-        "deno", "run", "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-env=PANCAKE_LIB_DIR", "apps/rooms/irc/front/main.ts",
+        "deno", "run", "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-env=GLOWCAP_LIB_DIR", "apps/rooms/irc/front/main.ts",
     });
     rooms_irc_front.addPassthruArgs();
     const rooms_irc_front_step = b.step("rooms-irc-front", "Serve a native Rooms directory to ordinary IRC clients (loopback by default; needs deno + network)");
@@ -199,7 +199,7 @@ pub fn register(ctx: Context) void {
     // retained records.
     const rooms_archive = common.addInstalledSystemRun(b, .service, &.{
         "deno",                                                                                                                                                                             "run",                        "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-write", "--allow-net",
-        "--allow-env=PANCAKE_LIB_DIR,PANCAKE_ARCHIVE_STATE,PANCAKE_ARCHIVE_TRANSPORT,PANCAKE_ARCHIVE_PORT,PANCAKE_ARCHIVE_BIND,PANCAKE_ARCHIVE_ANNOUNCE_HOST,PANCAKE_ARCHIVE_REACHABILITY", "apps/rooms/archive/main.ts",
+        "--allow-env=GLOWCAP_LIB_DIR,GLOWCAP_ARCHIVE_STATE,GLOWCAP_ARCHIVE_TRANSPORT,GLOWCAP_ARCHIVE_PORT,GLOWCAP_ARCHIVE_BIND,GLOWCAP_ARCHIVE_ANNOUNCE_HOST,GLOWCAP_ARCHIVE_REACHABILITY", "apps/rooms/archive/main.ts",
     });
     rooms_archive.addPassthruArgs();
     rooms_archive.step.dependOn(ctx.iroh_abi_step);
@@ -214,7 +214,7 @@ pub fn register(ctx: Context) void {
         "--allow-read",
         "--allow-write",
         "--allow-net",
-        "--allow-env=PANCAKE_LIB_DIR,PANCAKE_ROOMS_SESSION_STATE,PANCAKE_ROOMS_SESSION_TRANSPORT,PANCAKE_ROOMS_SESSION_PORT,PANCAKE_ROOMS_SESSION_BIND,PANCAKE_ROOMS_SESSION_ANNOUNCE_HOST,PANCAKE_ROOMS_SESSION_REACHABILITY",
+        "--allow-env=GLOWCAP_LIB_DIR,GLOWCAP_ROOMS_SESSION_STATE,GLOWCAP_ROOMS_SESSION_TRANSPORT,GLOWCAP_ROOMS_SESSION_PORT,GLOWCAP_ROOMS_SESSION_BIND,GLOWCAP_ROOMS_SESSION_ANNOUNCE_HOST,GLOWCAP_ROOMS_SESSION_REACHABILITY",
         "apps/rooms/session/main.ts",
     });
     rooms_session.addPassthruArgs();
@@ -277,7 +277,7 @@ pub fn register(ctx: Context) void {
     rooms_client_iroh_mod.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
     rooms_client_iroh_mod.addImport("demo_usage", ctx.demo_usage_mod);
     common.linkIrohSidecar(b, rooms_client_iroh_mod, target, ctx.iroh_sidecar_archive);
-    const rooms_client_iroh_exe = b.addExecutable(.{ .name = "pancake-rooms-client-iroh", .root_module = rooms_client_iroh_mod });
+    const rooms_client_iroh_exe = b.addExecutable(.{ .name = "glowcap-rooms-client-iroh", .root_module = rooms_client_iroh_mod });
     // The client's `dialIroh` path lives behind `iroh_enabled`, so the TCP client
     // that rides `check` (above) compiles it out. Ride a second, cargo-free
     // compile guard on `check` with the flag on — externs stay unresolved — so a
@@ -333,7 +333,7 @@ pub fn register(ctx: Context) void {
         .dependOn(&rooms_dm_iroh_discovery.step);
 
     // The rooms browser UI over cleartext TCP: a Deno process that serves a
-    // single-page chat and, for each browser tab, bridges a real pancake
+    // single-page chat and, for each browser tab, bridges a real glowcap
     // connection to the room directory. It carries public rooms and direct
     // messages by introduction, the three-party handoff a browser cannot make on
     // its own. It is a long-running server, so it runs like `docs-serve`: start
@@ -346,8 +346,8 @@ pub fn register(ctx: Context) void {
     // costs only `cargo`.
     const rooms_web = common.addRootedSystemCommand(b, .service, &.{
         "deno",        "run",                     "--allow-ffi", "--allow-read", "--allow-write", "--allow-net", "--allow-run",
-        // PANCAKE_RELAY_MAX_SESSIONS / _MAX_REGISTRATIONS override the
-        // host-derived caps; PANCAKE_RELAY_TCP_PEERS names the cleartext-TCP
+        // GLOWCAP_RELAY_MAX_SESSIONS / _MAX_REGISTRATIONS override the
+        // host-derived caps; GLOWCAP_RELAY_TCP_PEERS names the cleartext-TCP
         // peers a browser may be relayed to besides the room itself.
         "--allow-env", "apps/rooms/web/serve.ts",
     });
@@ -375,7 +375,7 @@ pub fn register(ctx: Context) void {
 
     // The same browser UI with the room directory published as a Tor onion
     // service (`--transport=onion` on serve.ts). The supervisor starts a
-    // private Tor unless PANCAKE_ONION_SOCKS / PANCAKE_ONION_CONTROL already
+    // private Tor unless GLOWCAP_ONION_SOCKS / GLOWCAP_ONION_CONTROL already
     // name one, so it wants `tor` on PATH; browser tabs still reach the room
     // through /relay, which carries an admitted onion target to the service's
     // local forward endpoint.
@@ -419,7 +419,7 @@ pub fn register(ctx: Context) void {
     // proves:
     //
     //   rooms-web-browser-peer — the relay-peer proof in a REAL headless
-    //     browser: a page bundling @pancake/web drives the room directory
+    //     browser: a page bundling @glowcap/web drives the room directory
     //     through /relay, the full shipped path (browser wasm Host, WebSocket
     //     channel, a capability call, no dlopen).
     //   rooms-web-page — the whole rooms page as a browser peer: load the
@@ -491,7 +491,7 @@ pub fn register(ctx: Context) void {
     //     direct-message history through it, closes the whole browser profile,
     //     then recovers that history through the same authority in a fresh one.
     const web_proofs = [_]WebProof{
-        .{ .step_name = "rooms-web-browser-peer", .description = "Prove a real headless Chromium runs the @pancake/web peer through serve.ts's /relay (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/browser_peer_test.ts" },
+        .{ .step_name = "rooms-web-browser-peer", .description = "Prove a real headless Chromium runs the @glowcap/web peer through serve.ts's /relay (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/browser_peer_test.ts" },
         .{ .step_name = "rooms-web-page", .description = "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/page_test.ts" },
         .{ .step_name = "rooms-web-shared-session", .description = "Prove two browser profiles attach to one durable Rooms session and mirror its member, selection, draft, lines, and capability vault (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/web/shared_session_test.ts" },
         .{ .step_name = "rooms-web-reconnect", .description = "Prove the rooms page survives losing its iroh room server: it refreshes changed routing hints without changing authority, then re-enters a listed room by name and a private room by its retained link (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/web/reconnect_test.ts", .needs_iroh = true },

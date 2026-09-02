@@ -11,13 +11,13 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const tcp = pancake.net.tcp;
-const Loop = pancake.net.TcpLoop;
-const completion = pancake.net.completion;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const tcp = glowcap.net.tcp;
+const Loop = glowcap.net.TcpLoop;
+const completion = glowcap.net.completion;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
 
@@ -147,9 +147,9 @@ test "completion backend: a wake-channel nudge completes an armed recv" {
     if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
-    var backend = try pancake.net.Backend.init(allocator, 8, 2, frame_cap);
+    var backend = try glowcap.net.Backend.init(allocator, 8, 2, frame_cap);
     defer backend.deinit();
-    const wake = try pancake.net.wake_channel.WakeChannel.open();
+    const wake = try glowcap.net.wake_channel.WakeChannel.open();
     defer wake.deinit();
     const nonblock: c_int = @bitCast(std.c.O{ .NONBLOCK = true });
     for ([_]i32{ wake.read, wake.write }) |fd| {
@@ -177,9 +177,9 @@ test "completion backend: cancel retires an exact recv without closing its fd" {
     if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
-    var backend = try pancake.net.Backend.init(allocator, 8, 2, frame_cap);
+    var backend = try glowcap.net.Backend.init(allocator, 8, 2, frame_cap);
     defer backend.deinit();
-    const wake = try pancake.net.wake_channel.WakeChannel.open();
+    const wake = try glowcap.net.wake_channel.WakeChannel.open();
     defer wake.deinit();
 
     const recv_ud = 0xc001;
@@ -283,7 +283,7 @@ test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
     if (first_err) |err| return err;
 }
 
-const actors = pancake.actors;
+const actors = glowcap.actors;
 
 /// The object hosted on the loop: answers `greet(name)` with a greeting built in
 /// the turn arena. This is an ordinary `actors` behavior — the same kind the

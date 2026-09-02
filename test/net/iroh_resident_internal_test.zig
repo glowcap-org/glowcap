@@ -138,30 +138,30 @@ test "direct-address short output is typed and retryable" {
 test "direct-address C ABI reports required length on short output" {
     resetSidecar();
     direct_required = 8;
-    const config: c_iroh.PancakeIrohConfig = .{
-        .reachability = c_iroh.PANCAKE_IROH_REACH_LOCAL_DISCOVERY,
+    const config: c_iroh.GlowcapIrohConfig = .{
+        .reachability = c_iroh.GLOWCAP_IROH_REACH_LOCAL_DISCOVERY,
         .connect_timeout_ms = 0,
         .idle_timeout_ms = 0,
         .worker_threads = 0,
     };
-    var raw: ?*c_iroh.PancakeIrohNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c_iroh.pancake_iroh_netlayer_new(null, 0, &config, &raw, null, 0, null));
+    var raw: ?*c_iroh.GlowcapIrohNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, c_iroh.glowcap_iroh_netlayer_new(null, 0, &config, &raw, null, 0, null));
     defer {
-        const release_rc = c_iroh.pancake_iroh_netlayer_release(raw, null, 0, null);
-        std.testing.expectEqual(c.PANCAKE_OK, release_rc) catch @panic("iroh netlayer release failed");
+        const release_rc = c_iroh.glowcap_iroh_netlayer_release(raw, null, 0, null);
+        std.testing.expectEqual(c.GLOWCAP_OK, release_rc) catch @panic("iroh netlayer release failed");
     }
     const netlayer = raw.?;
 
     var len: usize = 0;
-    try std.testing.expectEqual(c.PANCAKE_ERR_BUFFER_TOO_SMALL, c_iroh.pancake_iroh_netlayer_direct_addrs(netlayer, null, 0, &len));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_BUFFER_TOO_SMALL, c_iroh.glowcap_iroh_netlayer_direct_addrs(netlayer, null, 0, &len));
     try std.testing.expectEqual(@as(usize, 8), len);
 
     var short: [4]u8 = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_BUFFER_TOO_SMALL, c_iroh.pancake_iroh_netlayer_direct_addrs(netlayer, &short, short.len, &len));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_BUFFER_TOO_SMALL, c_iroh.glowcap_iroh_netlayer_direct_addrs(netlayer, &short, short.len, &len));
     try std.testing.expectEqual(@as(usize, 8), len);
 
     var exact: [8]u8 = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c_iroh.pancake_iroh_netlayer_direct_addrs(netlayer, &exact, exact.len, &len));
+    try std.testing.expectEqual(c.GLOWCAP_OK, c_iroh.glowcap_iroh_netlayer_direct_addrs(netlayer, &exact, exact.len, &len));
     try std.testing.expectEqualSlices(u8, "aaaaaaaa", exact[0..len]);
 }
 
@@ -275,91 +275,91 @@ test "accept readiness uses the endpoint reservation before later settlement" {
     try std.testing.expect(completions[0].accepted_fd != null);
 }
 
-export fn pancake_iroh_sidecar_endpoint_new(_: ?*const [32]u8, _: *const anyopaque) callconv(.c) ?*anyopaque {
+export fn glowcap_iroh_sidecar_endpoint_new(_: ?*const [32]u8, _: *const anyopaque) callconv(.c) ?*anyopaque {
     return @ptrFromInt(1);
 }
-export fn pancake_iroh_sidecar_endpoint_node_id(_: *const anyopaque, out: [*]u8, out_cap: usize) callconv(.c) isize {
+export fn glowcap_iroh_sidecar_endpoint_node_id(_: *const anyopaque, out: [*]u8, out_cap: usize) callconv(.c) isize {
     if (node_id_fails) return -1;
     if (out_cap < iroh.node_id_len) return iroh.node_id_len;
     @memset(out[0..iroh.node_id_len], '0');
     return iroh.node_id_len;
 }
-export fn pancake_iroh_sidecar_endpoint_direct_addrs(_: *const anyopaque, out: [*]u8, out_cap: usize) callconv(.c) isize {
+export fn glowcap_iroh_sidecar_endpoint_direct_addrs(_: *const anyopaque, out: [*]u8, out_cap: usize) callconv(.c) isize {
     if (out_cap < direct_required) return @intCast(direct_required);
     @memset(out[0..direct_required], 'a');
     return @intCast(direct_required);
 }
-export fn pancake_iroh_sidecar_connect_blocking(_: *anyopaque, _: [*]const u8, _: usize, _: [*]const u8, _: usize, out_code: *i32) callconv(.c) ?*anyopaque {
+export fn glowcap_iroh_sidecar_connect_blocking(_: *anyopaque, _: [*]const u8, _: usize, _: [*]const u8, _: usize, out_code: *i32) callconv(.c) ?*anyopaque {
     out_code.* = 0;
     const conn = next_connect;
     next_connect = null;
     return conn;
 }
-export fn pancake_iroh_sidecar_accept_timeout(_: *anyopaque, _: i32, out_code: *i32) callconv(.c) ?*anyopaque {
+export fn glowcap_iroh_sidecar_accept_timeout(_: *anyopaque, _: i32, out_code: *i32) callconv(.c) ?*anyopaque {
     const conn = next_accept;
     next_accept = null;
     out_code.* = if (conn != null) 0 else if (endpoint_closed) 4 else 2;
     return conn;
 }
-export fn pancake_iroh_sidecar_conn_remote_node_id(_: *const anyopaque, out: [*]u8) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_conn_remote_node_id(_: *const anyopaque, out: [*]u8) callconv(.c) i32 {
     @memcpy(out[0..remote_key.len], &remote_key);
     return 0;
 }
-export fn pancake_iroh_sidecar_conn_read(_: *anyopaque, _: [*]u8, _: usize) callconv(.c) isize {
+export fn glowcap_iroh_sidecar_conn_read(_: *anyopaque, _: [*]u8, _: usize) callconv(.c) isize {
     return -1;
 }
-export fn pancake_iroh_sidecar_conn_write(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
+export fn glowcap_iroh_sidecar_conn_write(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
     return -1;
 }
-export fn pancake_iroh_sidecar_conn_flush(_: *anyopaque) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_conn_flush(_: *anyopaque) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_iroh_sidecar_conn_close(_: *anyopaque) callconv(.c) void {}
-export fn pancake_iroh_sidecar_conn_free(_: *anyopaque) callconv(.c) void {
+export fn glowcap_iroh_sidecar_conn_close(_: *anyopaque) callconv(.c) void {}
+export fn glowcap_iroh_sidecar_conn_free(_: *anyopaque) callconv(.c) void {
     conn_free_count += 1;
 }
-export fn pancake_iroh_sidecar_endpoint_close(_: *anyopaque) callconv(.c) void {
+export fn glowcap_iroh_sidecar_endpoint_close(_: *anyopaque) callconv(.c) void {
     endpoint_closed = true;
 }
-export fn pancake_iroh_sidecar_endpoint_free(_: *anyopaque) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_endpoint_free(_: *anyopaque) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_iroh_sidecar_endpoint_readiness_fd(_: *const anyopaque) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_endpoint_readiness_fd(_: *const anyopaque) callconv(.c) i32 {
     return 100;
 }
-export fn pancake_iroh_sidecar_endpoint_drain_ready(_: *const anyopaque, out: [*]iroh.ReadyEvent, out_cap: usize) callconv(.c) isize {
+export fn glowcap_iroh_sidecar_endpoint_drain_ready(_: *const anyopaque, out: [*]iroh.ReadyEvent, out_cap: usize) callconv(.c) isize {
     if (!emit_sidecar_accept or out_cap == 0) return 0;
     emit_sidecar_accept = false;
     out[0] = .{ .subject = 0, .events = iroh.loop_ev_accept };
     return 1;
 }
-export fn pancake_iroh_sidecar_endpoint_start_connect(_: *anyopaque, _: usize, _: [*]const u8, _: usize, _: [*]const u8, _: usize) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_endpoint_start_connect(_: *anyopaque, _: usize, _: [*]const u8, _: usize, _: [*]const u8, _: usize) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_iroh_sidecar_endpoint_finish_connect(_: *anyopaque, _: usize, out_conn: *?*anyopaque) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_endpoint_finish_connect(_: *anyopaque, _: usize, out_conn: *?*anyopaque) callconv(.c) i32 {
     out_conn.* = null;
     return -1;
 }
-export fn pancake_iroh_sidecar_endpoint_cancel_connect(_: *anyopaque, _: usize) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_endpoint_cancel_connect(_: *anyopaque, _: usize) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(_: *anyopaque) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(_: *anyopaque) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_iroh_sidecar_endpoint_try_accept(_: *anyopaque) callconv(.c) ?*anyopaque {
+export fn glowcap_iroh_sidecar_endpoint_try_accept(_: *anyopaque) callconv(.c) ?*anyopaque {
     const conn = next_accept;
     next_accept = null;
     return conn;
 }
-export fn pancake_iroh_sidecar_conn_set_nonblocking(_: *anyopaque, _: *anyopaque) callconv(.c) i32 {
+export fn glowcap_iroh_sidecar_conn_set_nonblocking(_: *anyopaque, _: *anyopaque) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_iroh_sidecar_conn_id(conn: *const anyopaque) callconv(.c) usize {
+export fn glowcap_iroh_sidecar_conn_id(conn: *const anyopaque) callconv(.c) usize {
     return @intFromPtr(conn);
 }
-export fn pancake_iroh_sidecar_conn_try_read(_: *anyopaque, _: [*]u8, _: usize) callconv(.c) isize {
+export fn glowcap_iroh_sidecar_conn_try_read(_: *anyopaque, _: [*]u8, _: usize) callconv(.c) isize {
     return iroh.loop_would_block;
 }
-export fn pancake_iroh_sidecar_conn_try_write(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
+export fn glowcap_iroh_sidecar_conn_try_write(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
     return iroh.loop_would_block;
 }

@@ -117,7 +117,7 @@ impl Server {
 // default listener uses the generic driver resident and accepted-session
 // lifecycle. The iroh-touching code lives here behind the `iroh`
 // feature, so a tcp-only build references no iroh symbol — the same
-// `libpancake_ocapn` / `libpancake_net_transport_iroh` split the other bindings
+// `libglowcap_ocapn` / `libglowcap_net_transport_iroh` split the other bindings
 // mirror.
 
 impl Session {

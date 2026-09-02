@@ -4,7 +4,7 @@
 // authenticated identity and a held inbound socket at a relay; a peer that redeems an
 // introduction naming that identity is bridged onto the held socket, and the
 // keyed or Noise handshake runs end to end between them — the relay parses
-// nothing and holds no capability. The relay half is `@pancake/relay`'s
+// nothing and holds no capability. The relay half is `@glowcap/relay`'s
 // `Rendezvous`; this is the accepting side, runtime-neutral over the
 // `WebSocket` global.
 //
@@ -17,7 +17,7 @@
 //
 // The dialing side has exactly one mechanism, and it is not here: a
 // `keyed-relay` locator carries its relay route in its `rendezvous-relay`
-// hint, and the redeemer follows that hint. `@pancake/relay`'s explicit
+// hint, and the redeemer follows that hint. `@glowcap/relay`'s explicit
 // connector opens the hinted WebSocket and drives
 // `Session.establishDialedLocator` — the mirror of the `establishAccepted`
 // this module parks on — and its native provider package carries the same
@@ -32,7 +32,7 @@ import { Session } from "./session.ts";
 import { TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "./locator.ts";
 import type { Locator } from "./locator.ts";
 import { type WebSocketByteChannel, webSocketChannel } from "./websocket.ts";
-import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
+import { DESIGNATOR_SCHEME_KEY } from "@glowcap/abi";
 
 /** The two wire profiles the relay rendezvous can carry. Required at the API
  * boundary so registration, the Host's advertised locator, and accepted

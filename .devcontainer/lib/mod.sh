@@ -24,32 +24,32 @@
 # Each module is named on its own line rather than looped over, because a
 # path shellcheck cannot resolve is a module it cannot read: every consumer
 # of this library would lose sight of everything behind the loop.
-pancake_devcontainer_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+glowcap_devcontainer_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=context.sh
-source "${pancake_devcontainer_lib_dir}/context.sh"
+source "${glowcap_devcontainer_lib_dir}/context.sh"
 # shellcheck source=names.sh
-source "${pancake_devcontainer_lib_dir}/names.sh"
+source "${glowcap_devcontainer_lib_dir}/names.sh"
 # shellcheck source=settings.sh
-source "${pancake_devcontainer_lib_dir}/settings.sh"
+source "${glowcap_devcontainer_lib_dir}/settings.sh"
 # shellcheck source=checkout.sh
-source "${pancake_devcontainer_lib_dir}/checkout.sh"
+source "${glowcap_devcontainer_lib_dir}/checkout.sh"
 # shellcheck source=env.sh
-source "${pancake_devcontainer_lib_dir}/env.sh"
+source "${glowcap_devcontainer_lib_dir}/env.sh"
 # shellcheck source=docker.sh
-source "${pancake_devcontainer_lib_dir}/docker.sh"
+source "${glowcap_devcontainer_lib_dir}/docker.sh"
 # shellcheck source=fetch.sh
-source "${pancake_devcontainer_lib_dir}/fetch.sh"
-unset pancake_devcontainer_lib_dir
+source "${glowcap_devcontainer_lib_dir}/fetch.sh"
+unset glowcap_devcontainer_lib_dir
 
 # Load a checkout's pinned versions and paths. Call it after sourcing this
 # file, with the .devcontainer directory to read them from; pass `checksums`
 # as well when the caller downloads something and needs the hashes.
-pancake_devcontainer_init() {
+glowcap_devcontainer_init() {
     local root="$1"
     local with_checksums="${2:-}"
     if [[ "${with_checksums}" == checksums ]]; then
         # shellcheck disable=SC1091
         source "${root}/checksums.sh"
     fi
-    pancake_devcontainer_source_pins "${root}"
+    glowcap_devcontainer_source_pins "${root}"
 }

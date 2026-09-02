@@ -7,39 +7,39 @@
 const std = @import("std");
 const foundation = @import("foundation");
 
-pub const PANCAKE_FRAME_SHAPE_BYTE: u32 = 0;
-pub const PANCAKE_FRAME_SHAPE_WORD: u32 = 1;
+pub const GLOWCAP_FRAME_SHAPE_BYTE: u32 = 0;
+pub const GLOWCAP_FRAME_SHAPE_WORD: u32 = 1;
 
 pub fn shapeFromC(shape: u32) ?foundation.FrameShape {
     return switch (shape) {
-        PANCAKE_FRAME_SHAPE_BYTE => .byte,
-        PANCAKE_FRAME_SHAPE_WORD => .word,
+        GLOWCAP_FRAME_SHAPE_BYTE => .byte,
+        GLOWCAP_FRAME_SHAPE_WORD => .word,
         else => null,
     };
 }
 
 fn shapeToC(shape: foundation.FrameShape) u32 {
     return switch (shape) {
-        .byte => PANCAKE_FRAME_SHAPE_BYTE,
-        .word => PANCAKE_FRAME_SHAPE_WORD,
+        .byte => GLOWCAP_FRAME_SHAPE_BYTE,
+        .word => GLOWCAP_FRAME_SHAPE_WORD,
     };
 }
 
-pub const PancakeFrame = extern struct {
+pub const GlowcapFrame = extern struct {
     bytes: ?[*]const u8,
     len: usize,
     shape: u32,
 };
 
-pub const ReleaseFn = *const fn (*PancakeManagedFrame) callconv(.c) void;
+pub const ReleaseFn = *const fn (*GlowcapManagedFrame) callconv(.c) void;
 
-/// Private descriptor words reserved for pancake's owned-frame metadata. The
+/// Private descriptor words reserved for glowcap's owned-frame metadata. The
 /// count is target-independent so the public C declaration has one shape;
 /// comptime assertions below prove that the native `foundation.Frame` fits on
 /// each compiled target.
 pub const managed_frame_private_word_count = 8;
 
-pub const PancakeManagedFrame = extern struct {
+pub const GlowcapManagedFrame = extern struct {
     bytes: ?[*]u8,
     len: usize,
     shape: u32,
@@ -53,14 +53,14 @@ comptime {
     std.debug.assert(@alignOf(foundation.Frame) <= @alignOf(usize));
 }
 
-fn ownedFrame(frame: *PancakeManagedFrame) *foundation.Frame {
+fn ownedFrame(frame: *GlowcapManagedFrame) *foundation.Frame {
     return @ptrCast(@alignCast(&frame.private_words));
 }
 
 /// Move one owned frame into a self-releasing C descriptor. The caller supplies
 /// the descriptor storage; wrapping is allocation-free and infallible.
-pub fn managed(owned: foundation.Frame) PancakeManagedFrame {
-    var result = std.mem.zeroes(PancakeManagedFrame);
+pub fn managed(owned: foundation.Frame) GlowcapManagedFrame {
+    var result = std.mem.zeroes(GlowcapManagedFrame);
     const stored = ownedFrame(&result);
     stored.* = owned;
     result.bytes = @constCast(stored.bytes().ptr);
@@ -70,7 +70,7 @@ pub fn managed(owned: foundation.Frame) PancakeManagedFrame {
     return result;
 }
 
-fn releaseOwned(frame: *PancakeManagedFrame) callconv(.c) void {
+fn releaseOwned(frame: *GlowcapManagedFrame) callconv(.c) void {
     ownedFrame(frame).deinit();
-    frame.* = std.mem.zeroes(PancakeManagedFrame);
+    frame.* = std.mem.zeroes(GlowcapManagedFrame);
 }

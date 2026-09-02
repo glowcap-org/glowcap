@@ -9,7 +9,7 @@ The devcontainer joins two Docker networks:
   that exposes a host-specific agent backend.
 
 The primary checkout needs no network setup. `initialize.sh` creates
-`pancake-main-egress` on first use. A linked worktree gets its corresponding
+`glowcap-main-egress` on first use. A linked worktree gets its corresponding
 name when it is configured:
 
 ```sh
@@ -34,10 +34,12 @@ only `rooms-net` with the devcontainer.
 ## How the rooms peer connects
 
 Inside `rooms-net`, a rooms peer fetches its bootstrap locator from
-`http://pancake-rooms:8000/locator` (`rooms` is also a Docker DNS alias). It
+`http://glowcap-rooms:8000/locator` (`rooms` is also a Docker DNS alias). It
 then dials the returned `ocapn://<nodeid>.iroh` locator through iroh discovery.
 
 Port 8000 serves the browser UI and locator endpoint inside the container.
 CapTP traffic does not travel through that HTTP port. Compose publishes every
-canonical service port onto the host port selected in this worktree's
-ignored `.env`; the editor does not add a second forwarding layer.
+canonical service port onto host loopback at the host port selected in this
+worktree's ignored `.env`; the editor does not add a second forwarding layer.
+Publishing on loopback leaves the same port numbers free on the machine's
+tailnet addresses for a listener such as Tailscale Serve.

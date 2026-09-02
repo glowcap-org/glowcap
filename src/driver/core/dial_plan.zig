@@ -87,7 +87,7 @@ pub const DialPlan = union(enum) {
     rendezvous,
 };
 
-/// Tag of `DialPlan` — the C ABI's `PANCAKE_DIAL_SHAPE_*` mirror.
+/// Tag of `DialPlan` — the C ABI's `GLOWCAP_DIAL_SHAPE_*` mirror.
 pub const Shape = std.meta.Tag(DialPlan);
 
 /// The reachability policy the two dial spines differ on. A redeem (a DIAL

@@ -12,7 +12,7 @@
 // does not own is what a row says: that is the room's identity, so the room
 // supplies it.
 
-import type { Argument, Ref, Session } from "@pancake/runtime";
+import type { Argument, Ref, Session } from "@glowcap/runtime";
 import { NOTIFY } from "../../lib/protocol.ts";
 
 interface Watcher {

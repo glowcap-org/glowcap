@@ -1,11 +1,11 @@
-//! Host identity seed files for the pancake CLI.
+//! Host identity seed files for the glowcap CLI.
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const exit_codes = @import("../exit_codes.zig");
 const log = @import("log.zig");
 const path_io = @import("path_io.zig");
 
-const crypto = pancake.foundation.crypto;
+const crypto = glowcap.foundation.crypto;
 const Io = std.Io;
 
 pub const seed_bytes = 32;
@@ -24,7 +24,7 @@ pub fn load(io: Io, path: []const u8) !crypto.SecretKey {
     var seed: [seed_bytes]u8 = undefined;
     const got = Io.Dir.cwd().readFile(io, path, &seed) catch |e| switch (e) {
         error.FileNotFound => {
-            log.err(io, "identity file not found: {s} (run `pancake init`)", .{path});
+            log.err(io, "identity file not found: {s} (run `glowcap init`)", .{path});
             return error.IdentityMissing;
         },
         else => return e,

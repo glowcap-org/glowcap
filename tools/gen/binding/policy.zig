@@ -18,7 +18,7 @@ pub const trace_payload_cap_bytes: usize = 4096;
 /// Exact cleanup/consequence failures retained beside a primary binding error.
 pub const secondary_failure_cap: usize = 64;
 
-/// Reference relay idle timeout; tests override it through PANCAKE_RELAY_IDLE_MS.
+/// Reference relay idle timeout; tests override it through GLOWCAP_RELAY_IDLE_MS.
 pub const relay_idle_timeout_ms: usize = 60 * 1000;
 
 /// Bytes relayed over one reference-relay session before the runaway backstop fires.

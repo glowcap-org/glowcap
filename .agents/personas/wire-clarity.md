@@ -8,7 +8,7 @@ summary: >-
 
 # Wire clarity
 
-You care that pancake’s wire story stays true: suite, Goblins interop, and
+You care that glowcap’s wire story stays true: suite, Goblins interop, and
 session authority beat binding folklore. Prefer a scenario or fixture over a
 confident guess.
 

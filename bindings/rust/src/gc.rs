@@ -1,6 +1,6 @@
 //! Distributed GC (ADR-0063), opt-in and off by default. Owns the
 //! [`CapabilityGuard`] death rite, recursive application-value tracking, and the
-//! `pancake_host_ref_release` drain. Session holds only the opt-in flag; the
+//! `glowcap_host_ref_release` drain. Session holds only the opt-in flag; the
 //! Host owns the pending queue because a Ref may outlive its arrival session.
 
 use std::cell::Cell;
@@ -12,7 +12,7 @@ use crate::sys::host as ffi;
 use crate::Argument;
 use crate::Ref;
 
-/// Drops to one parked `pancake_host_ref_release` delta of 1 for a Host id.
+/// Drops to one parked `glowcap_host_ref_release` delta of 1 for a Host id.
 /// The drop only parks the id and schedules the Host action drain —
 /// it may run inside a behavior trampoline (a behavior dropping a `Ref`), where
 /// the host-driving verbs are refused, so the release itself always runs on the
@@ -83,8 +83,8 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 		let Some(token) = host.gc_pending.borrow().front().copied() else {
 			break;
 		};
-		let raw = crate::sys::PancakeReference { id: token };
-		crate::host::check_host(unsafe { ffi::pancake_host_ref_release(host.raw(), &raw, 1) })?;
+		let raw = crate::sys::GlowcapReference { id: token };
+		crate::host::check_host(unsafe { ffi::glowcap_host_ref_release(host.raw(), &raw, 1) })?;
 		host.gc_pending.borrow_mut().pop_front();
 	}
 	loop {
@@ -92,7 +92,7 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 			return Ok(());
 		};
 		host.abandon_vow(vow);
-		crate::host::check_host(unsafe { ffi::pancake_host_vow_release(host.raw(), vow) })?;
+		crate::host::check_host(unsafe { ffi::glowcap_host_vow_release(host.raw(), vow) })?;
 		host.vow_gc_pending.borrow_mut().pop_front();
 	}
 }
@@ -176,9 +176,9 @@ pub(crate) fn track_arguments(shared: &Rc<SessionShared>, arguments: &mut [Argum
 /// done with the capability rather than because a handle dropped.
 ///
 /// Lives here beside the finalizer path because both end in the same Host verb.
-pub(crate) fn release_ref(host_raw: *mut crate::sys::host::PancakeHost, id: u64) -> crate::Result<()> {
-	let raw = crate::sys::PancakeReference { id };
-	let rc = unsafe { crate::sys::host::pancake_host_ref_release(host_raw, &raw, 1) };
+pub(crate) fn release_ref(host_raw: *mut crate::sys::host::GlowcapHost, id: u64) -> crate::Result<()> {
+	let raw = crate::sys::GlowcapReference { id };
+	let rc = unsafe { crate::sys::host::glowcap_host_ref_release(host_raw, &raw, 1) };
 	crate::host::check_host(rc)
 }
 

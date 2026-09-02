@@ -22,7 +22,7 @@ superseded_by: []
 A browser cannot open a raw TCP socket or speak iroh's QUIC, so today a browser
 tab is not an OCapN peer at all. The rooms web demo works around this with a
 per-tab bridge (`apps/rooms/web/serve.ts`): the browser talks JSON over a
-WebSocket to a Deno process that holds the real pancake connection through the C
+WebSocket to a Deno process that holds the real glowcap connection through the C
 ABI and relays between the two. The bridge is honest about what it is, but the
 browser never holds a capability, never runs the session, and cannot be
 introduced to another browser directly. That is a gap in reach, not in the
@@ -42,8 +42,8 @@ A browser binding is the sans-io core compiled to WebAssembly, exposed through
 the **same** `Peer`/`Context`/`Node` API the other bindings present. The
 TypeScript binding is already layered for this: `bindings/ts/runtime/mod.ts` sits
 on an FFI seam (`bindings/ts/runtime/internal/ffi/runtime.ts`, today `Deno.dlopen`
-against `libpancake_ocapn`). A browser binding replaces that one seam with a
-WebAssembly instance: instantiate `pancake_ocapn.wasm`, call its exports, and
+against `libglowcap_ocapn`). A browser binding replaces that one seam with a
+WebAssembly instance: instantiate `glowcap_ocapn.wasm`, call its exports, and
 marshal frames across the WASM/JS boundary as `ptr + len` the same way the C ABI
 already does: leaving the public API shape intact.
 
@@ -65,11 +65,11 @@ What the browser still lacks is a transport, added in two milestones:
 
 Milestone 1 has landed. `zig build wasm-driver` compiles the byte-fed
 `c_abi_host` root and the shared `c_abi` vocabulary into one freestanding
-`wasm32` module, `pancake_driver.wasm`; the native `libpancake_driver` loop
+`wasm32` module, `glowcap_driver.wasm`; the native `libglowcap_driver` loop
 archive (ADR-0112) is a separate socket-owning artifact and is not in wasm.
 `zig build wasm-driver-test` drives a keyed handshake between two Hosts over an
-in-memory byte pipe; and `@pancake/web` (`bindings/ts/web`) runs the full
-`@pancake/runtime` surface over the module with a WebSocket byte channel,
+in-memory byte pipe; and `@glowcap/web` (`bindings/ts/web`) runs the full
+`@glowcap/runtime` surface over the module with a WebSocket byte channel,
 proved end to end by `zig build web-peer-test`.
 
 ADR-0089's DataChannel and signaling portions of Milestone 2 have also landed.
@@ -81,8 +81,8 @@ WebRTC locator still needs configured signaling authority, as documented in
 [`docs/boundaries.md`](../../boundaries.md).
 
 The Decision above predates the byte-fed Host consolidation (ADR-0072,
-ADR-0079): the wasm root now forces the `pancake_host_*` and `pancake_*`
-families into one module rather than exposing the `pancake_ocapn.wasm` it
+ADR-0079): the wasm root now forces the `glowcap_host_*` and `glowcap_*`
+families into one module rather than exposing the `glowcap_ocapn.wasm` it
 names, and a browser drives the `Host` / `Session` binding surface, not the
 retired `Peer` / `Node` shape. The seam it plugs into is unchanged: one
 byte-fed FFI boundary swapped for a WebAssembly instance.

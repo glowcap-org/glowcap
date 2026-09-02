@@ -3,8 +3,8 @@
 // Noise_XK-sealed sessions. Run by `harness.ts`, which appends
 // `<relayUrl> <registerUrl>` and dials the printed locator.
 
-import type { Argument } from "@pancake/runtime";
-import { noise } from "@pancake/relay";
+import type { Argument } from "@glowcap/runtime";
+import { noise } from "@glowcap/relay";
 
 if (Deno.args.length < 2) {
 	console.error("usage: deno_listener.ts <relayUrl> <registerUrl>");

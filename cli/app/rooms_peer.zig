@@ -1,5 +1,5 @@
-//! CapTP rooms presence (`pancake app rooms-peer`): a durable peer an agent
-//! runs to sit in a room while it works. Dogfoods pancake from an agent's seat
+//! CapTP rooms presence (`glowcap app rooms-peer`): a durable peer an agent
+//! runs to sit in a room while it works. Dogfoods glowcap from an agent's seat
 //! on the same core every binding wraps. The `rooms-peer` install name is a
 //! thin shim that forwards here (ADR-0084).
 //!

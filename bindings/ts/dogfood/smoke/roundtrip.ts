@@ -5,17 +5,17 @@
 // fetch, sends and vows, both codecs, disconnects on either side of the
 // race, and a dial driven by the host's own DIAL action.
 
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
 
 import {
 	type Argument,
 	Context,
 	type ContextAllocator,
+	GlowcapError,
 	Host,
 	Kw,
-	PancakeError,
 	PSet,
 	PStruct,
 	Ref,
@@ -417,7 +417,7 @@ export async function run(managed: Runtime): Promise<void> {
 			try {
 				await session.send(observation, "ping", []);
 			} catch (error) {
-				refused = error instanceof PancakeError && error.code === INVALID_ARGUMENT;
+				refused = error instanceof GlowcapError && error.code === INVALID_ARGUMENT;
 			}
 			assert(refused, "an op:listen observer became a remote pipeline target");
 			const settled = await observation;

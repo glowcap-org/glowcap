@@ -7,10 +7,10 @@
 // the opening screen is still up, and every connect path shares the same
 // memoized attempt through `readyRuntime`.
 
-import { init } from "@pancake/web";
-import type { WebRuntime } from "@pancake/web";
-import * as relay from "@pancake/relay";
-import * as webrtc from "@pancake/webrtc";
+import { init } from "@glowcap/web";
+import type { WebRuntime } from "@glowcap/web";
+import * as relay from "@glowcap/relay";
+import * as webrtc from "@glowcap/webrtc";
 import { iceServers } from "./ice.ts";
 import { directorySignalingAuthority } from "../../../lib/signaling.ts";
 import { roomsHostOptions } from "../../../lib/profile.ts";
@@ -29,7 +29,7 @@ import type { RoomsPageContext } from "../page.ts";
 export function bootRuntime(page: RoomsPageContext): Promise<WebRuntime> {
 	return readyRuntime(page, async () => {
 		return await init({
-			wasm: fetch("/pancake_host.wasm"),
+			wasm: fetch("/glowcap_host.wasm"),
 			...roomsHostOptions(),
 			wsUrl: relayWsUrl,
 			relayUrl: relayLocatorUrl,

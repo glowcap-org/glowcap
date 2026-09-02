@@ -55,10 +55,10 @@ Deno.test("a refusal that is not a native error is passed through as it stands",
 });
 
 Deno.test("a native error offers the likely mistake rather than diagnosing one", () => {
-	const said = locatorRefusal("pancake error -2: uri parse: UriParseError", "session capability link");
+	const said = locatorRefusal("glowcap error -2: uri parse: UriParseError", "session capability link");
 	// It suggests checking the paste; it does not tell the reader their link
 	// was truncated, which the code it was handed does not establish.
 	assertEquals(said.includes("Check that you pasted all of it"), true);
 	assertEquals(said.includes("is not a whole"), false);
-	assertEquals(said.includes("pancake error -2"), true);
+	assertEquals(said.includes("glowcap error -2"), true);
 });

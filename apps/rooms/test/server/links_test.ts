@@ -34,7 +34,7 @@ import {
 	withIrohServer,
 	withServer,
 } from "../support/rooms_server.ts";
-import { DURABLE_SWISS_ENTROPY_BYTES, type Session } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES, type Session } from "@glowcap/runtime";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 
 async function untilListed(room: Room): Promise<void> {
@@ -64,7 +64,7 @@ roomsTest("a public room's link is that listed room", async () => {
 			);
 			const heard = roomLines(room);
 			// Join is subscribe. Asking `private()` first is what aborted `/join`
-			// of a locator on an older occupancy: pancake error -12, "room has
+			// of a locator on an older occupancy: glowcap error -12, "room has
 			// no method private". Listed-ness arrives on the welcome.
 			const asGuest = await Room.subscribe(guest.session, guestRef, "bo");
 			await untilListed(asGuest);
@@ -87,7 +87,7 @@ roomsTest("a public room's link is that listed room", async () => {
 });
 
 roomsTest("room link state restores its identity and sealed room names", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-state-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-state-" });
 	try {
 		const bytes = (entropy: Uint8Array) => [...entropy].join(",");
 		const first = await RoomServerState.open(directory);
@@ -133,7 +133,7 @@ roomsTest("room link state restores its identity and sealed room names", async (
 });
 
 roomsTest("revoked room-link generations stay dead while the room name can issue a fresh one", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-link-revoke-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-link-revoke-" });
 	try {
 		const state = await RoomServerState.open(directory);
 		await state.remember("General");
@@ -208,7 +208,7 @@ roomsTest("room and moderator reissue mint fresh authority without reviving live
 
 roomsTest("room and moderator revocation remove their durable Host publications", async () => {
 	const exercise = async (remove: "moderator" | "room") => {
-		const directory = await Deno.makeTempDir({ prefix: `pancake-rooms-unpublish-${remove}-` });
+		const directory = await Deno.makeTempDir({ prefix: `glowcap-rooms-unpublish-${remove}-` });
 		try {
 			const state = await RoomServerState.open(directory);
 			await state.rememberSteward("General");
@@ -243,7 +243,7 @@ roomsTest("room and moderator revocation remove their durable Host publications"
 });
 
 roomsTest("room link state refuses an unbounded durable name registry", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-link-limit-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-link-limit-" });
 	try {
 		await RoomServerState.open(directory);
 		const path = `${directory}/rooms.json`;
@@ -265,7 +265,7 @@ roomsTest("room link state refuses an unbounded durable name registry", async ()
 });
 
 roomsTest("room state refuses unknown versions without rewriting them", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-state-version-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-state-version-" });
 	try {
 		await RoomServerState.open(directory);
 		const path = `${directory}/rooms.json`;
@@ -396,7 +396,7 @@ roomsTest(
 );
 
 roomsTest("a second server on one port stops rather than sharing it", async () => {
-	// A pancake listener asks for a reusable address, so two servers can hold one
+	// A glowcap listener asks for a reusable address, so two servers can hold one
 	// address with neither being told: both announce, and the kernel gives each
 	// arriving connection to whichever it likes. Two members then join the same
 	// room name at the same address and never see each other, and nothing
@@ -450,7 +450,7 @@ roomsTest("a server that cannot start says so and exits saying so", async () => 
 			// the ordinary server child is given none.
 			args: [...DENO_FLAGS, `--allow-write=${dir}`, SERVER, "0"],
 			cwd: ROOT,
-			env: { PANCAKE_ROOMS_STATE: dir },
+			env: { GLOWCAP_ROOMS_STATE: dir },
 			stdout: "piped",
 			stderr: "piped",
 		});
@@ -475,14 +475,14 @@ roomsTest("a server that cannot start says so and exits saying so", async () => 
 });
 
 roomsTest("the server creates a nested state path before publishing capabilities", async () => {
-	const parent = await Deno.makeTempDir({ prefix: "pancake-rooms-state-parent-" });
+	const parent = await Deno.makeTempDir({ prefix: "glowcap-rooms-state-parent-" });
 	const state = `${parent}/nested/rooms-state`;
 	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, `--allow-write=${state}`, SERVER, "0", "--viz"],
 		cwd: ROOT,
 		env: {
-			PANCAKE_ROOMS_STATE: state,
-			PANCAKE_ROOMS_VIZ_PORT: "0",
+			GLOWCAP_ROOMS_STATE: state,
+			GLOWCAP_ROOMS_VIZ_PORT: "0",
 		},
 		stdout: "piped",
 		stderr: "piped",
@@ -505,7 +505,7 @@ roomsTest("a torn operator capability file refuses startup instead of reminting 
 		const proc = spawnOwned("deno", {
 			args: [...DENO_FLAGS, `--allow-write=${dir}`, SERVER, "0", "--operator"],
 			cwd: ROOT,
-			env: { PANCAKE_ROOMS_STATE: dir },
+			env: { GLOWCAP_ROOMS_STATE: dir },
 			stdout: "piped",
 			stderr: "piped",
 		});

@@ -11,15 +11,15 @@
 //! the fulfilled reply round-trip entirely in process.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const inproc = net.inproc;
 
 const frame_cap = 4096;
@@ -85,7 +85,7 @@ fn callOnce(network: *inproc.Network, allocator: std.mem.Allocator) !void {
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
-    const promise = try cv.send(greeter, .{ .verb = "greet", .args = &.{.{ .string = "pancake" }} });
+    const promise = try cv.send(greeter, .{ .verb = "greet", .args = &.{.{ .string = "glowcap" }} });
     var state = ReplyState{};
     try cv.on(promise, .{ .ctx = &state, .func = onGreeting });
     while (!state.done) {

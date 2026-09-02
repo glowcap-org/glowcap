@@ -1,6 +1,6 @@
 // Attached-view file mutation admission for one durable Rooms session.
 
-import { type Argument, type Behavior, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, type Session } from "@glowcap/runtime";
 import { type Attachment, readAttachmentsExact } from "../lib/attachment.ts";
 import {
 	mayInteract,

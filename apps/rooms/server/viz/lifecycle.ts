@@ -1,4 +1,4 @@
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 
 /** Give an asynchronous close an error owner when the caller cannot await it. */
 export function observeCloseFailure(close: () => Promise<void>, report: (error: unknown) => void): void {

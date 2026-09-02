@@ -14,8 +14,8 @@ const getField = util.getField;
 const jsonStringEquals = util.jsonStringEquals;
 
 /// The ABI version triple is stated four times: `abi_version` in `build.zig`,
-/// `.version` in `build.zig.zon`, `PANCAKE_VERSION_*` in `src/c_abi/ocapn/mod.zig`,
-/// and the generated `#define PANCAKE_VERSION_*` macros in `include/pancake_ocapn.h`.
+/// `.version` in `build.zig.zon`, `GLOWCAP_VERSION_*` in `src/c_abi/ocapn/mod.zig`,
+/// and the generated `#define GLOWCAP_VERSION_*` macros in `include/glowcap_ocapn.h`.
 /// This parses all four and holds them in lockstep, so bumping one surface
 /// without the others fails the gate instead of shipping a package whose zon
 /// version disagrees with the soname it installs.
@@ -35,14 +35,14 @@ pub fn checkAbiVersionLockstep(
     }{
         .{ .path = "build.zig", .keys = .{ ".major =", ".minor =", ".patch =" }, .anchor = "const abi_version" },
         .{ .path = "src/c_abi/ocapn/mod.zig", .keys = .{
-            "PANCAKE_VERSION_MAJOR: u32 =",
-            "PANCAKE_VERSION_MINOR: u32 =",
-            "PANCAKE_VERSION_PATCH: u32 =",
+            "GLOWCAP_VERSION_MAJOR: u32 =",
+            "GLOWCAP_VERSION_MINOR: u32 =",
+            "GLOWCAP_VERSION_PATCH: u32 =",
         } },
-        .{ .path = "include/pancake_ocapn.h", .keys = .{
-            "#define PANCAKE_VERSION_MAJOR",
-            "#define PANCAKE_VERSION_MINOR",
-            "#define PANCAKE_VERSION_PATCH",
+        .{ .path = "include/glowcap_ocapn.h", .keys = .{
+            "#define GLOWCAP_VERSION_MAJOR",
+            "#define GLOWCAP_VERSION_MINOR",
+            "#define GLOWCAP_VERSION_PATCH",
         } },
     };
 
@@ -116,7 +116,7 @@ pub fn checkAbiVersionLockstep(
 
 /// Provider tables reserve version negotiation without pretending unsupported
 /// prerelease layouts remain contracts. Every replacement stays at version 1;
-/// this check is relaxed only when pancake intentionally supports an older
+/// this check is relaxed only when glowcap intentionally supports an older
 /// released table beside a new one.
 pub fn checkPrereleaseProviderAbiVersions(
     io: std.Io,
@@ -132,18 +132,18 @@ pub fn checkPrereleaseProviderAbiVersions(
         .{
             .path = "src/c_abi/shared/transport_provider.zig",
             .keys = &.{
-                "PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION: u32 =",
-                "PANCAKE_TRANSPORT_PROFILE_ABI_VERSION: u32 =",
-                "PANCAKE_STREAM_TRANSPORT_ABI_VERSION: u32 =",
+                "GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION: u32 =",
+                "GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION: u32 =",
+                "GLOWCAP_STREAM_TRANSPORT_ABI_VERSION: u32 =",
             },
         },
         .{
             .path = "src/c_abi/shared/locator.zig",
-            .keys = &.{"PANCAKE_LOCATOR_VIEW_ABI_VERSION: u32 ="},
+            .keys = &.{"GLOWCAP_LOCATOR_VIEW_ABI_VERSION: u32 ="},
         },
         .{
             .path = "src/c_abi/shared/multiplexed_transport.zig",
-            .keys = &.{"PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION: u32 ="},
+            .keys = &.{"GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION: u32 ="},
         },
     };
 

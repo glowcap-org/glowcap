@@ -156,12 +156,12 @@ async fn dial_raw(ep: Endpoint, addr: EndpointAddr, connect_timeout: std::time::
 	Ok(AcceptedRaw { conn, send, recv })
 }
 
-pub(crate) fn make_conn(ep: &PancakeIrohEndpoint, raw: AcceptedRaw) -> Option<*mut PancakeIrohConn> {
+pub(crate) fn make_conn(ep: &GlowcapIrohEndpoint, raw: AcceptedRaw) -> Option<*mut GlowcapIrohConn> {
 	let id = ep
 		.next_conn_id
 		.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| next.checked_add(1))
 		.ok()?;
-	Some(Box::into_raw(Box::new(PancakeIrohConn {
+	Some(Box::into_raw(Box::new(GlowcapIrohConn {
 		id,
 		rt: ep.rt.handle().clone(),
 		conn: raw.conn,
@@ -174,7 +174,7 @@ pub(crate) fn make_conn(ep: &PancakeIrohEndpoint, raw: AcceptedRaw) -> Option<*m
 	})))
 }
 
-pub(crate) fn endpoint_dials(ep: &PancakeIrohEndpoint) -> Option<&Arc<DialState>> {
+pub(crate) fn endpoint_dials(ep: &GlowcapIrohEndpoint) -> Option<&Arc<DialState>> {
 	if ep.dials.get().is_none() {
 		let readiness = endpoint_readiness(ep)?.clone();
 		let _ = ep.dials.set(Arc::new(DialState {
@@ -188,15 +188,15 @@ pub(crate) fn endpoint_dials(ep: &PancakeIrohEndpoint) -> Option<&Arc<DialState>
 /// Deliberately blocking convenience for the explicit blocking resident. The
 /// evented backend and public ABI use start/finish/cancel below.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_connect_blocking(
-	ep: *mut PancakeIrohEndpoint,
+pub extern "C" fn glowcap_iroh_sidecar_connect_blocking(
+	ep: *mut GlowcapIrohEndpoint,
 	node_id: *const u8,
 	node_id_len: usize,
 	addr_hints: *const u8,
 	addr_hints_len: usize,
 	out_code: *mut i32,
-) -> *mut PancakeIrohConn {
-	let result = catch_unwind(AssertUnwindSafe(|| -> Result<*mut PancakeIrohConn, i32> {
+) -> *mut GlowcapIrohConn {
+	let result = catch_unwind(AssertUnwindSafe(|| -> Result<*mut GlowcapIrohConn, i32> {
 		if ep.is_null() {
 			return Err(DIAL_INVALID);
 		}
@@ -220,8 +220,8 @@ pub extern "C" fn pancake_iroh_sidecar_connect_blocking(
 /// before return; the endpoint owns the Tokio task and terminal result. The
 /// bounded request table returns `DIAL_BUSY` without minting an event when full.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_start_connect(
-	ep: *mut PancakeIrohEndpoint,
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
+	ep: *mut GlowcapIrohEndpoint,
 	request_id: usize,
 	node_id: *const u8,
 	node_id_len: usize,
@@ -279,10 +279,10 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_start_connect(
 /// Consume one terminal dial result. Returns the dial classification and writes
 /// the owned connection on success. A pending request returns DIAL_PENDING.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_finish_connect(
-	ep: *mut PancakeIrohEndpoint,
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
+	ep: *mut GlowcapIrohEndpoint,
 	request_id: usize,
-	out_conn: *mut *mut PancakeIrohConn,
+	out_conn: *mut *mut GlowcapIrohConn,
 ) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		if ep.is_null() || out_conn.is_null() {
@@ -322,7 +322,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_finish_connect(
 /// Cancel one admitted dial. The pending-to-canceled winner emits the request's
 /// sole terminal event; canceling an already-terminal request is idempotent.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_cancel_connect(ep: *mut PancakeIrohEndpoint, request_id: usize) -> i32 {
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_cancel_connect(ep: *mut GlowcapIrohEndpoint, request_id: usize) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		if ep.is_null() || request_id == 0 {
 			return DIAL_INVALID;
@@ -336,7 +336,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_cancel_connect(ep: *mut PancakeI
 	result.unwrap_or(DIAL_LOST)
 }
 
-async fn accept_one(ep: &PancakeIrohEndpoint) -> Option<AcceptedRaw> {
+async fn accept_one(ep: &GlowcapIrohEndpoint) -> Option<AcceptedRaw> {
 	loop {
 		let incoming = ep.ep.accept().await?;
 		let Ok(accepting) = incoming.accept() else {
@@ -363,11 +363,11 @@ async fn accept_one(ep: &PancakeIrohEndpoint) -> Option<AcceptedRaw> {
 /// private bounded primitive; it never arms or drains the endpoint readiness
 /// queue.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_accept_timeout(
-	ep: *mut PancakeIrohEndpoint,
+pub extern "C" fn glowcap_iroh_sidecar_accept_timeout(
+	ep: *mut GlowcapIrohEndpoint,
 	timeout_ms: i32,
 	out_code: *mut i32,
-) -> *mut PancakeIrohConn {
+) -> *mut GlowcapIrohConn {
 	if out_code.is_null() {
 		return std::ptr::null_mut();
 	}
@@ -385,7 +385,7 @@ pub extern "C" fn pancake_iroh_sidecar_accept_timeout(
 		})
 	}));
 	let (handle, code) = match result {
-		Ok(Ok(handle)) => (handle as *mut PancakeIrohConn, DIAL_OK),
+		Ok(Ok(handle)) => (handle as *mut GlowcapIrohConn, DIAL_OK),
 		Ok(Err(code)) => (std::ptr::null_mut(), code),
 		Err(_) => (std::ptr::null_mut(), DIAL_LOST),
 	};

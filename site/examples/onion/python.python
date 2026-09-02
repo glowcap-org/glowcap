@@ -1,6 +1,6 @@
-from pancake import Argument, onion
+from glowcap import Argument, onion
 
-# pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+# glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 async with await onion.listen("/run/tor/socks", control="/run/tor/control") as server:
     service_key = server.service_key  # persist securely to restore this service
     # From here, the CapTP workflow is transport-independent.

@@ -1,6 +1,6 @@
 // Imported operations authority retained by one local browser directory.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
 import type { DirId } from "../types.ts";
 

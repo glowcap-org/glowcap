@@ -1,5 +1,5 @@
-(require "pancake.rkt"
-         "pancake-iroh.rkt")
+(require "glowcap.rkt"
+         "glowcap-iroh.rkt")
 
 ;; IROH-REACH-DISCOVERY resolves a bare iroh node ID without an address hint.
 (define node-id "<64 lowercase hex characters from the server>")

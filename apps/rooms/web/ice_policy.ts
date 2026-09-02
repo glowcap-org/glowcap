@@ -36,7 +36,7 @@ function ttlSeconds(raw: string | undefined): number {
 	const ttl = Number(raw);
 	if (!Number.isSafeInteger(ttl) || ttl < MIN_TURN_TTL_SECONDS || ttl > MAX_TURN_TTL_SECONDS) {
 		throw new Error(
-			`rooms: PANCAKE_ROOMS_TURN_TTL_SECONDS must be ${MIN_TURN_TTL_SECONDS}-${MAX_TURN_TTL_SECONDS}`,
+			`rooms: GLOWCAP_ROOMS_TURN_TTL_SECONDS must be ${MIN_TURN_TTL_SECONDS}-${MAX_TURN_TTL_SECONDS}`,
 		);
 	}
 	return ttl;
@@ -112,7 +112,7 @@ export function icePolicy(
 	const token = env.turnBearerToken?.trim() ?? "";
 	if ((endpoint === "") !== (token === "")) {
 		throw new Error(
-			"rooms: PANCAKE_ROOMS_TURN_CREDENTIALS_URL and PANCAKE_ROOMS_TURN_BEARER_TOKEN must be set together",
+			"rooms: GLOWCAP_ROOMS_TURN_CREDENTIALS_URL and GLOWCAP_ROOMS_TURN_BEARER_TOKEN must be set together",
 		);
 	}
 	if (endpoint === "") {

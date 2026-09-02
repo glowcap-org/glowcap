@@ -1,4 +1,4 @@
-//! Exit codes for the pancake CLI (ADR-0084 operability).
+//! Exit codes for the glowcap CLI (ADR-0084 operability).
 pub const ok: u8 = 0;
 pub const internal: u8 = 1;
 pub const usage: u8 = 2;

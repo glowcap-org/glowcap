@@ -41,7 +41,7 @@ function doc(): TimelineDocument {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "e-bob",
@@ -55,7 +55,7 @@ function doc(): TimelineDocument {
 				t: 1000,
 				kind: "peer-joined",
 				peerId: "carol",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "e-alice-bob",

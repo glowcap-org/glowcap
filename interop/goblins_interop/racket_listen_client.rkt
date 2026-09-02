@@ -1,10 +1,10 @@
 #lang racket/base
 ;; Racket row of the live Goblins-listener matrix.
 
-(require "../../bindings/racket/pancake.rkt"
-         "../../bindings/racket/pancake-tcp.rkt")
+(require "../../bindings/racket/glowcap.rkt"
+         "../../bindings/racket/glowcap-tcp.rkt")
 
-(define ACTOR-SWISS "pancakeActorSwissnumABCDEFGH1234")
+(define ACTOR-SWISS "glowcapActorSwissnumABCDEFGH1234")
 (define server (listen "127.0.0.1" 0))
 
 (host-publish-giftable

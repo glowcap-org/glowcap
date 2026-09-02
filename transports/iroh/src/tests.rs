@@ -6,14 +6,14 @@ use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
-pub(super) fn direct_endpoint(connect_timeout_ms: u64) -> *mut PancakeIrohEndpoint {
-	let config = PancakeIrohEndpointConfig {
+pub(super) fn direct_endpoint(connect_timeout_ms: u64) -> *mut GlowcapIrohEndpoint {
+	let config = GlowcapIrohEndpointConfig {
 		reachability: REACH_DIRECT,
 		connect_timeout_ms,
 		idle_timeout_ms: 0,
 		worker_threads: 0,
 	};
-	pancake_iroh_sidecar_endpoint_new(std::ptr::null(), &config)
+	glowcap_iroh_sidecar_endpoint_new(std::ptr::null(), &config)
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn drain_owns_wake_bytes_and_the_exported_half_is_read_only() {
 	assert!(exported.write_all(&[1]).is_err());
 
 	readiness.signal(7, EV_WRITABLE);
-	let mut events = [PancakeIrohReadyEvent { subject: 0, events: 0 }];
+	let mut events = [GlowcapIrohReadyEvent { subject: 0, events: 0 }];
 	assert_eq!(readiness.drain(&mut events), 1);
 	assert_eq!(events[0].subject, 7);
 	assert_eq!(events[0].events, EV_WRITABLE);
@@ -57,7 +57,7 @@ fn readiness_queue_coalesces_without_losing_distinct_subjects() {
 	readiness.signal(7, EV_WRITABLE);
 	assert_eq!(readiness.pending_len(), SUBJECTS);
 
-	let mut events = vec![PancakeIrohReadyEvent { subject: 0, events: 0 }; SUBJECTS];
+	let mut events = vec![GlowcapIrohReadyEvent { subject: 0, events: 0 }; SUBJECTS];
 	assert_eq!(readiness.drain(&mut events), SUBJECTS);
 	assert_eq!(events[6].subject, 7);
 	assert_eq!(events[6].events, EV_READABLE | EV_WRITABLE);
@@ -112,7 +112,7 @@ fn blocking_accept_timeout_does_not_arm_or_drain_readiness() {
 	assert!(!ep.is_null(), "endpoint_new");
 	let started = Instant::now();
 	let mut code = -1;
-	let conn = pancake_iroh_sidecar_accept_timeout(ep, 20, &mut code);
+	let conn = glowcap_iroh_sidecar_accept_timeout(ep, 20, &mut code);
 	assert!(conn.is_null());
 	assert_eq!(code, DIAL_TIMEOUT);
 	assert!(started.elapsed() >= Duration::from_millis(5));
@@ -120,19 +120,19 @@ fn blocking_accept_timeout_does_not_arm_or_drain_readiness() {
 	let endpoint = unsafe { &*ep };
 	assert!(endpoint.readiness.get().is_none());
 	assert!(endpoint.accept.get().is_none());
-	pancake_iroh_sidecar_endpoint_free(ep);
+	glowcap_iroh_sidecar_endpoint_free(ep);
 }
 
 #[test]
 fn blocking_accept_reports_endpoint_close_as_lost_not_timeout() {
 	let ep = direct_endpoint(200);
 	assert!(!ep.is_null(), "endpoint_new");
-	pancake_iroh_sidecar_endpoint_close(ep);
+	glowcap_iroh_sidecar_endpoint_close(ep);
 	let mut code = -1;
-	let conn = pancake_iroh_sidecar_accept_timeout(ep, 1000, &mut code);
+	let conn = glowcap_iroh_sidecar_accept_timeout(ep, 1000, &mut code);
 	assert!(conn.is_null());
 	assert_eq!(code, DIAL_LOST);
-	pancake_iroh_sidecar_endpoint_free(ep);
+	glowcap_iroh_sidecar_endpoint_free(ep);
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn endpoint_release_joins_writers_detached_by_connection_release() {
 	});
 	drop(writer);
 
-	assert_eq!(pancake_iroh_sidecar_endpoint_free(ep), 0);
+	assert_eq!(glowcap_iroh_sidecar_endpoint_free(ep), 0);
 	assert!(
 		finished.load(Ordering::Acquire),
 		"runtime shutdown abandoned a writer whose connection transferred ownership"
@@ -166,11 +166,11 @@ fn black_hole_target() -> (UdpSocket, String, String) {
 	(socket, endpoint_id, hint)
 }
 
-fn wait_event(ep: *mut PancakeIrohEndpoint) -> PancakeIrohReadyEvent {
+fn wait_event(ep: *mut GlowcapIrohEndpoint) -> GlowcapIrohReadyEvent {
 	let deadline = Instant::now() + Duration::from_secs(5);
-	let mut events = [PancakeIrohReadyEvent { subject: 0, events: 0 }; 4];
+	let mut events = [GlowcapIrohReadyEvent { subject: 0, events: 0 }; 4];
 	loop {
-		let n = pancake_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len());
+		let n = glowcap_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len());
 		if n > 0 {
 			return events[0];
 		}
@@ -202,7 +202,7 @@ fn evented_connect_returns_promptly_and_times_out_once() {
 	assert!(!ep.is_null(), "endpoint_new");
 
 	let started = Instant::now();
-	let code = pancake_iroh_sidecar_endpoint_start_connect(
+	let code = glowcap_iroh_sidecar_endpoint_start_connect(
 		ep,
 		1,
 		unreachable_id.as_ptr(),
@@ -222,23 +222,23 @@ fn evented_connect_returns_promptly_and_times_out_once() {
 
 	let mut conn = std::ptr::null_mut();
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn),
 		DIAL_TIMEOUT
 	);
 	assert!(conn.is_null());
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn),
 		DIAL_INVALID,
 		"terminal result is one-shot"
 	);
-	let mut events = [PancakeIrohReadyEvent { subject: 0, events: 0 }; 1];
+	let mut events = [GlowcapIrohReadyEvent { subject: 0, events: 0 }; 1];
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len()),
+		glowcap_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len()),
 		0,
 		"one admitted dial emits exactly one terminal event"
 	);
 
-	pancake_iroh_sidecar_endpoint_free(ep);
+	glowcap_iroh_sidecar_endpoint_free(ep);
 }
 
 #[test]
@@ -247,12 +247,12 @@ fn rejected_connect_owes_no_event() {
 	assert!(!ep.is_null(), "endpoint_new");
 	let invalid = b"not-an-endpoint-id";
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_start_connect(ep, 1, invalid.as_ptr(), invalid.len(), std::ptr::null(), 0,),
+		glowcap_iroh_sidecar_endpoint_start_connect(ep, 1, invalid.as_ptr(), invalid.len(), std::ptr::null(), 0,),
 		DIAL_INVALID
 	);
-	let mut event = PancakeIrohReadyEvent { subject: 0, events: 0 };
-	assert_eq!(pancake_iroh_sidecar_endpoint_drain_ready(ep, &mut event, 1), 0);
-	pancake_iroh_sidecar_endpoint_free(ep);
+	let mut event = GlowcapIrohReadyEvent { subject: 0, events: 0 };
+	assert_eq!(glowcap_iroh_sidecar_endpoint_drain_ready(ep, &mut event, 1), 0);
+	glowcap_iroh_sidecar_endpoint_free(ep);
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn evented_connect_admission_is_bounded_and_reclaimed() {
 
 	for request_id in 1..=DIAL_ADMISSION_BOUND {
 		assert_eq!(
-			pancake_iroh_sidecar_endpoint_start_connect(
+			glowcap_iroh_sidecar_endpoint_start_connect(
 				ep,
 				request_id,
 				unreachable_id.as_ptr(),
@@ -275,7 +275,7 @@ fn evented_connect_admission_is_bounded_and_reclaimed() {
 		);
 	}
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_start_connect(
+		glowcap_iroh_sidecar_endpoint_start_connect(
 			ep,
 			DIAL_ADMISSION_BOUND + 1,
 			unreachable_id.as_ptr(),
@@ -287,17 +287,17 @@ fn evented_connect_admission_is_bounded_and_reclaimed() {
 	);
 
 	for request_id in 1..=DIAL_ADMISSION_BOUND {
-		assert_eq!(pancake_iroh_sidecar_endpoint_cancel_connect(ep, request_id), DIAL_OK);
+		assert_eq!(glowcap_iroh_sidecar_endpoint_cancel_connect(ep, request_id), DIAL_OK);
 		let mut conn = std::ptr::null_mut();
 		assert_eq!(
-			pancake_iroh_sidecar_endpoint_finish_connect(ep, request_id, &mut conn),
+			glowcap_iroh_sidecar_endpoint_finish_connect(ep, request_id, &mut conn),
 			DIAL_CANCELED
 		);
 	}
 
 	let replacement_id = DIAL_ADMISSION_BOUND + 2;
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_start_connect(
+		glowcap_iroh_sidecar_endpoint_start_connect(
 			ep,
 			replacement_id,
 			unreachable_id.as_ptr(),
@@ -308,15 +308,15 @@ fn evented_connect_admission_is_bounded_and_reclaimed() {
 		DIAL_OK
 	);
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_cancel_connect(ep, replacement_id),
+		glowcap_iroh_sidecar_endpoint_cancel_connect(ep, replacement_id),
 		DIAL_OK
 	);
 	let mut conn = std::ptr::null_mut();
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_finish_connect(ep, replacement_id, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, replacement_id, &mut conn),
 		DIAL_CANCELED
 	);
-	pancake_iroh_sidecar_endpoint_free(ep);
+	glowcap_iroh_sidecar_endpoint_free(ep);
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn canceled_connect_finishes_once() {
 	let ep = direct_endpoint(5_000);
 	assert!(!ep.is_null(), "endpoint_new");
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_start_connect(
+		glowcap_iroh_sidecar_endpoint_start_connect(
 			ep,
 			23,
 			unreachable_id.as_ptr(),
@@ -335,9 +335,9 @@ fn canceled_connect_finishes_once() {
 		),
 		DIAL_OK
 	);
-	assert_eq!(pancake_iroh_sidecar_endpoint_cancel_connect(ep, 23), DIAL_OK);
+	assert_eq!(glowcap_iroh_sidecar_endpoint_cancel_connect(ep, 23), DIAL_OK);
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_cancel_connect(ep, 23),
+		glowcap_iroh_sidecar_endpoint_cancel_connect(ep, 23),
 		DIAL_OK,
 		"cancel is idempotent while the terminal row exists"
 	);
@@ -347,13 +347,13 @@ fn canceled_connect_finishes_once() {
 	assert_eq!(event.events, EV_CONNECT);
 	let mut conn = std::ptr::null_mut();
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn),
 		DIAL_CANCELED
 	);
 	assert!(conn.is_null());
 	assert_eq!(
-		pancake_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn),
 		DIAL_INVALID
 	);
-	pancake_iroh_sidecar_endpoint_free(ep);
+	glowcap_iroh_sidecar_endpoint_free(ep);
 }

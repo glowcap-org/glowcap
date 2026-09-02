@@ -16,13 +16,13 @@ pub use crate::ListenerIdentity;
 error_slot!(
 	fn check_relay;
 	fn relay_last_error;
-	ffi::pancake_relay_last_error
+	ffi::glowcap_relay_last_error
 );
 
 fn require_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"relay",
-		unsafe { ffi::pancake_relay_archive_fingerprint() },
+		unsafe { ffi::glowcap_relay_archive_fingerprint() },
 		crate::abi_constants::RELAY_ARCHIVE_FINGERPRINT,
 	)
 }
@@ -220,15 +220,15 @@ impl<'a> Config<'a> {
 		self
 	}
 
-	fn to_c(self) -> ffi::PancakeRelayConfig {
+	fn to_c(self) -> ffi::GlowcapRelayConfig {
 		let register = self.register_url.unwrap_or("");
 		let (trust, trust_pem, trust_pem_len) = match self.trust {
-			Trust::System => (ffi::PANCAKE_RELAY_TRUST_SYSTEM, core::ptr::null(), 0),
-			Trust::CopiedPem(pem) => (ffi::PANCAKE_RELAY_TRUST_COPIED_PEM, pem.as_ptr(), pem.len()),
+			Trust::System => (ffi::GLOWCAP_RELAY_TRUST_SYSTEM, core::ptr::null(), 0),
+			Trust::CopiedPem(pem) => (ffi::GLOWCAP_RELAY_TRUST_COPIED_PEM, pem.as_ptr(), pem.len()),
 		};
-		ffi::PancakeRelayConfig {
-			abi_version: ffi::PANCAKE_RELAY_CONFIG_ABI_VERSION,
-			struct_size: core::mem::size_of::<ffi::PancakeRelayConfig>(),
+		ffi::GlowcapRelayConfig {
+			abi_version: ffi::GLOWCAP_RELAY_CONFIG_ABI_VERSION,
+			struct_size: core::mem::size_of::<ffi::GlowcapRelayConfig>(),
 			relay_url: self.relay_url.as_ptr(),
 			relay_url_len: self.relay_url.len(),
 			register_url: register.as_ptr(),
@@ -251,7 +251,7 @@ pub struct TrustSummary {
 /// Owns one relay provider runtime. It has no connection children because the
 /// native driver owns all connection and listener handles after registration.
 pub struct Runtime<'ctx> {
-	raw: *mut ffi::PancakeRelayRuntime,
+	raw: *mut ffi::GlowcapRelayRuntime,
 	_ctx: PhantomData<&'ctx Context>,
 }
 
@@ -260,7 +260,7 @@ impl<'ctx> Runtime<'ctx> {
 		require_archive()?;
 		let c = config.to_c();
 		let mut raw = core::ptr::null_mut();
-		check_relay(unsafe { ffi::pancake_relay_runtime_new(&c, &mut raw) })?;
+		check_relay(unsafe { ffi::glowcap_relay_runtime_new(&c, &mut raw) })?;
 		Ok(Self { raw, _ctx: PhantomData })
 	}
 
@@ -268,13 +268,13 @@ impl<'ctx> Runtime<'ctx> {
 		require_archive()?;
 		let c = config.to_c();
 		let mut raw = core::ptr::null_mut();
-		check_relay(unsafe { ffi::pancake_relay_runtime_new_in(context.raw(), &c, &mut raw) })?;
+		check_relay(unsafe { ffi::glowcap_relay_runtime_new_in(context.raw(), &c, &mut raw) })?;
 		Ok(Self { raw, _ctx: PhantomData })
 	}
 
 	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
 		let mut package = unsafe { core::mem::zeroed() };
-		check_relay(unsafe { ffi::pancake_relay_transport_provider(self.raw, &mut package) })?;
+		check_relay(unsafe { ffi::glowcap_relay_transport_provider(self.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,
 			_owner: PhantomData,
@@ -282,8 +282,8 @@ impl<'ctx> Runtime<'ctx> {
 	}
 
 	pub fn trust_summary(&self) -> Result<TrustSummary> {
-		let mut raw = ffi::PancakeRelayTrustSummary::default();
-		check_relay(unsafe { ffi::pancake_relay_runtime_trust_summary(self.raw, &mut raw) })?;
+		let mut raw = ffi::GlowcapRelayTrustSummary::default();
+		check_relay(unsafe { ffi::glowcap_relay_runtime_trust_summary(self.raw, &mut raw) })?;
 		Ok(TrustSummary {
 			loaded: raw.loaded,
 			skipped_by_engine: raw.skipped_by_engine,
@@ -296,7 +296,7 @@ impl<'ctx> Runtime<'ctx> {
 	/// driver reports final asynchronous teardown when it closes.
 	pub fn close(mut self) -> Result<()> {
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
-		check_relay(unsafe { ffi::pancake_relay_runtime_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut()) })
+		check_relay(unsafe { ffi::glowcap_relay_runtime_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut()) })
 	}
 }
 
@@ -304,7 +304,7 @@ impl Drop for Runtime<'_> {
 	fn drop(&mut self) {
 		if !self.raw.is_null() {
 			if let Err(error) = check_relay(unsafe {
-				ffi::pancake_relay_runtime_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+				ffi::glowcap_relay_runtime_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 			}) {
 				crate::record_runtime_failure(crate::FailureLayer::Transport, "relay-runtime-drop-release", error);
 			}

@@ -1,4 +1,4 @@
-// The rooms chat server, written on pancake actors in native Deno.
+// The rooms chat server, written on glowcap actors in native Deno.
 //
 // It hosts a *directory* of chat rooms and accepts any number of OCapN clients —
 // in any language, over either transport. A client fetches the directory, then
@@ -25,28 +25,28 @@
 // as a `Ref` the room sends to. No peer, no vat, no manual flush, no hand-rolled
 // serve loop — the capability model is the whole program.
 //
-// Transport is chosen by the `PANCAKE_ROOMS_TRANSPORT` env var (or
+// Transport is chosen by the `GLOWCAP_ROOMS_TRANSPORT` env var (or
 // `--transport=…`): the default `tcp` listens on `127.0.0.1:<port>` (override
-// with `PANCAKE_ROOMS_BIND`); `iroh` binds an encrypted-QUIC endpoint; `onion`
+// with `GLOWCAP_ROOMS_BIND`); `iroh` binds an encrypted-QUIC endpoint; `onion`
 // publishes a Tor hidden service through an already-running Tor named by
-// `PANCAKE_ONION_SOCKS` and `PANCAKE_ONION_CONTROL`, forwarding it to
-// `127.0.0.1:<port>` and keeping the service key under `PANCAKE_ROOMS_STATE`
+// `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL`, forwarding it to
+// `127.0.0.1:<port>` and keeping the service key under `GLOWCAP_ROOMS_STATE`
 // so the address survives a restart.
-// `PANCAKE_ROOMS_REACHABILITY=discovery` puts the
+// `GLOWCAP_ROOMS_REACHABILITY=discovery` puts the
 // iroh endpoint on n0 relays + DNS/pkarr and announces a bare
 // `ocapn://<nodeid>.iroh` URI (dial-by-id); the default `direct` announces
 // `ocapn://…?direct-addresses=…` for hermetic same-host demos. On TCP,
-// `PANCAKE_ROOMS_ANNOUNCE_HOST` (when set) is the dialable hostname printed and
+// `GLOWCAP_ROOMS_ANNOUNCE_HOST` (when set) is the dialable hostname printed and
 // advertised. Either way the announce line is
 // `ROOMS-SERVER-LISTENING <locator>`, which the demo harness and web bridge read
 // to point clients at the right place.
 //
 // Run it:  deno run --allow-ffi --allow-net --allow-read --allow-env server.ts 9099
-//          PANCAKE_ROOMS_TRANSPORT=iroh deno run -A --unstable-ffi server.ts
-//          PANCAKE_ROOMS_TRANSPORT=iroh PANCAKE_ROOMS_REACHABILITY=discovery deno run -A --unstable-ffi server.ts
+//          GLOWCAP_ROOMS_TRANSPORT=iroh deno run -A --unstable-ffi server.ts
+//          GLOWCAP_ROOMS_TRANSPORT=iroh GLOWCAP_ROOMS_REACHABILITY=discovery deno run -A --unstable-ffi server.ts
 
-import { enableTrace, formatPeerUri, type Host, TRANSPORT_IROH } from "@pancake/runtime";
-import * as irohTransport from "@pancake/iroh";
+import { enableTrace, formatPeerUri, type Host, TRANSPORT_IROH } from "@glowcap/runtime";
+import * as irohTransport from "@glowcap/iroh";
 import { isWildcardHost } from "../lib/bind_host.ts";
 import { announceToLocator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { flagOrEnv, optionalEnv, transportChoice, vizPortChoice } from "../lib/env.ts";
@@ -110,12 +110,12 @@ function hexSwiss(bytes: Uint8Array): string {
 
 /** The unguessable swiss an operator capability is published under.
  *
- * When `PANCAKE_ROOMS_STATE` is set, the name is reused for the life of that
+ * When `GLOWCAP_ROOMS_STATE` is set, the name is reused for the life of that
  * directory (kept in `<state>/<file>`) so a supervised respawn republishes the
  * same capability the operator already copied. A new name on every child would
  * leave the printed swiss answering nothing. */
 async function persistentSwiss(file: string): Promise<string> {
-	const directory = optionalEnv("PANCAKE_ROOMS_STATE");
+	const directory = optionalEnv("GLOWCAP_ROOMS_STATE");
 	if (directory == null) return hexSwiss(crypto.getRandomValues(new Uint8Array(32)));
 	await Deno.mkdir(directory, { recursive: true, mode: 0o700 });
 	const path = `${directory}/${file}`;
@@ -205,7 +205,7 @@ async function maybePublishListeners(host: Host, registry: ListenerRegistry): Pr
 /** The boot block a person reads, on stderr so the machine-parsed stdout
  * stays one token line.
  *
- * Under a supervisor (serve.ts sets `PANCAKE_ROOMS_SUPERVISED=1`) the supervisor owns
+ * Under a supervisor (serve.ts sets `GLOWCAP_ROOMS_SUPERVISED=1`) the supervisor owns
  * the presentation and prints its own serving block, so only the flush-left
  * `ROOMS-*` token lines print here — they are the grep contract of the flags
  * that minted them, and repeating the prose around them would say everything
@@ -213,7 +213,7 @@ async function maybePublishListeners(host: Host, registry: ListenerRegistry): Pr
  * with each copyable value ending its own aligned line, the token lines, and
  * one ready line last. */
 function printBootBlock(transport: AdminTransport, locator: string, caps: readonly BootCapability[]): void {
-	if (optionalEnv("PANCAKE_ROOMS_SUPERVISED") === "1") {
+	if (optionalEnv("GLOWCAP_ROOMS_SUPERVISED") === "1") {
 		if (caps.length > 0) console.error(caps.map((cap) => `${cap.token} ${cap.swiss}`).join("\n"));
 		return;
 	}
@@ -232,18 +232,18 @@ function printBootBlock(transport: AdminTransport, locator: string, caps: readon
 }
 
 // The live timeline endpoint (ocapnviz Live mode): `--viz` (or
-// `PANCAKE_ROOMS_VIZ=1`) serves it, the same enabling shape as the other
+// `GLOWCAP_ROOMS_VIZ=1`) serves it, the same enabling shape as the other
 // operation capabilities. Without the flag nothing happens here at all — no
 // swiss is minted, persisted, or published, no endpoint binds, and the tap
 // stays cold so every emit site is one null check. The endpoint binds the
-// canonical trace port unless `PANCAKE_ROOMS_VIZ_PORT` overrides it
+// canonical trace port unless `GLOWCAP_ROOMS_VIZ_PORT` overrides it
 // (`vizPortChoice`); the override changes only the default, it enables
 // nothing. `0` takes an ephemeral port, the way the room's own positional
 // port argument does; either way the port it actually bound is the one it
 // announces.
 //
 // Enabling the endpoint is what mints the viz capability: the same
-// PANCAKE_ROOMS_STATE-persisted swiss admits every socket (producers and
+// GLOWCAP_ROOMS_STATE-persisted swiss admits every socket (producers and
 // viewers alike), names the durable trace publication inside the announced
 // sturdyref, and prints as the `ROOMS-VIZ` token line beside the other
 // operator capabilities.
@@ -295,7 +295,7 @@ function reachabilityArg():
  * One grammar for the server and its supervisor. */
 function storageDestination(): string | undefined {
 	const flag = Deno.args.find((a) => a.startsWith("--storage="));
-	return flag?.slice("--storage=".length) ?? optionalEnv("PANCAKE_ROOMS_STORAGE");
+	return flag?.slice("--storage=".length) ?? optionalEnv("GLOWCAP_ROOMS_STORAGE");
 }
 
 async function composedStorage(stateDirectory: string | null) {
@@ -331,8 +331,8 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 	// `storage.ts`; a named destination that cannot be opened is a startup
 	// refusal in the operator's own terms, never a silent fall back.
 	await roomServer.history.open(
-		await composedStorage(optionalEnv("PANCAKE_ROOMS_STATE") ?? null),
-		flagOrEnv(Deno.args, "--history", "PANCAKE_ROOMS_HISTORY") || storageDestination() !== undefined,
+		await composedStorage(optionalEnv("GLOWCAP_ROOMS_STATE") ?? null),
+		flagOrEnv(Deno.args, "--history", "GLOWCAP_ROOMS_HISTORY") || storageDestination() !== undefined,
 	);
 	let registry: ListenerRegistry | null = null;
 	let sigintInstalled = false;
@@ -439,25 +439,25 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 			await announce("iroh", iroh, token);
 		} else if (transport === "onion") {
 			// The onion arm hosts the directory as a Tor hidden service through the
-			// product-level onion listener. pancake starts no Tor: the endpoints of
+			// product-level onion listener. glowcap starts no Tor: the endpoints of
 			// an already-running daemon arrive in the environment (the web
 			// supervisor starts a private one and fills them in). The positional
 			// port becomes the local endpoint Tor forwards circuits to, which is how
 			// the web supervisor's relay reaches this room without a circuit.
-			const socks = optionalEnv("PANCAKE_ONION_SOCKS");
-			const control = optionalEnv("PANCAKE_ONION_CONTROL");
+			const socks = optionalEnv("GLOWCAP_ONION_SOCKS");
+			const control = optionalEnv("GLOWCAP_ONION_CONTROL");
 			if (socks === undefined || control === undefined) {
 				throw new Error(
-					"the onion transport needs PANCAKE_ONION_SOCKS and PANCAKE_ONION_CONTROL naming a running Tor's SOCKS and control endpoints",
+					"the onion transport needs GLOWCAP_ONION_SOCKS and GLOWCAP_ONION_CONTROL naming a running Tor's SOCKS and control endpoints",
 				);
 			}
 			const forwardPort = Number(positional[0] ?? "0");
 			if (forwardPort !== 0) refuseHeldPort("127.0.0.1", forwardPort);
 			// The service key is the onion address. Kept beside the identity seed
-			// under PANCAKE_ROOMS_STATE, so a supervised respawn answers at the address
+			// under GLOWCAP_ROOMS_STATE, so a supervised respawn answers at the address
 			// members already hold; without a state directory every run mints a
 			// fresh service.
-			const stateDir = optionalEnv("PANCAKE_ROOMS_STATE");
+			const stateDir = optionalEnv("GLOWCAP_ROOMS_STATE");
 			const keyFile = stateDir === undefined ? null : `${stateDir}/onion-key`;
 			let serviceKey: Uint8Array | undefined;
 			if (keyFile !== null) {
@@ -471,7 +471,7 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 			// Imported here rather than at the top, so the hermetic suite (which
 			// imports the server aggregate) never touches the onion
 			// archive it does not install.
-			const onion = await import("@pancake/onion");
+			const onion = await import("@glowcap/onion");
 			const server = await onion.listen({
 				socks,
 				control,
@@ -483,8 +483,8 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 			}
 			await announce("onion", server, server.uri);
 		} else {
-			const bindHost = optionalEnv("PANCAKE_ROOMS_BIND") ?? "127.0.0.1";
-			const announceHost = optionalEnv("PANCAKE_ROOMS_ANNOUNCE_HOST");
+			const bindHost = optionalEnv("GLOWCAP_ROOMS_BIND") ?? "127.0.0.1";
+			const announceHost = optionalEnv("GLOWCAP_ROOMS_ANNOUNCE_HOST");
 			const asked = Number(positional[0] ?? "0");
 			if (asked !== 0) refuseHeldPort(bindHost, asked);
 			// A wildcard bind has no address of its own to sign, so it needs the
@@ -492,7 +492,7 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 			// missing beats surfacing the core's refusal after the fact.
 			if (isWildcardHost(bindHost) && announceHost === undefined) {
 				throw new Error(
-					`PANCAKE_ROOMS_BIND=${bindHost} binds every interface, so PANCAKE_ROOMS_ANNOUNCE_HOST must name the dialable hostname to advertise`,
+					`GLOWCAP_ROOMS_BIND=${bindHost} binds every interface, so GLOWCAP_ROOMS_ANNOUNCE_HOST must name the dialable hostname to advertise`,
 				);
 			}
 			// The host is minted here rather than left to `listen`'s default,
@@ -516,7 +516,7 @@ async function runServer(stateDirectory: string | undefined): Promise<void> {
 }
 
 export async function start(): Promise<void> {
-	const stateDirectory = optionalEnv("PANCAKE_ROOMS_STATE");
+	const stateDirectory = optionalEnv("GLOWCAP_ROOMS_STATE");
 	const custody = stateDirectory == null
 		? null
 		: await DirectoryCustody.acquire(stateDirectory, "server.lock", "Rooms server");
@@ -541,12 +541,12 @@ if (import.meta.main) {
 		const code = (err as { code?: unknown }).code;
 		if (impossibleStatus(code)) {
 			console.error(
-				`rooms: ${code} is not a status this version defines. That usually means the pancake shared ` +
+				`rooms: ${code} is not a status this version defines. That usually means the glowcap shared ` +
 					"libraries were built from a different revision than this source: rebuild them with " +
 					"`zig build rooms-deploy-prep` and start again.",
 			);
 		}
-		const state = optionalEnv("PANCAKE_ROOMS_STATE");
+		const state = optionalEnv("GLOWCAP_ROOMS_STATE");
 		if (state != null && err instanceof RoomServerStateError) {
 			console.error(
 				`rooms: ${state}/rooms.json holds this server's identity and its durable room links. ` +

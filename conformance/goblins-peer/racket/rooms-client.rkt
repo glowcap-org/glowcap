@@ -1,11 +1,11 @@
 #lang racket/base
 ;; rooms-client.rkt — the rooms chat, spoken by a real Spritely Goblins vat.
 ;;
-;; The rooms fleet is written in pancake and advertises its private CapTP
-;; profile, `pancake-next` over Cap'n Proto. A Goblins vat speaks the OCapN v1.0
-;; baseline over Syrup and sends no pancake-private preference. Under ADR-0103,
+;; The rooms fleet is written in glowcap and advertises its private CapTP
+;; profile, `glowcap-next` over Cap'n Proto. A Goblins vat speaks the OCapN v1.0
+;; baseline over Syrup and sends no glowcap-private preference. Under ADR-0103,
 ;; an absent preference means baseline-only, so the pair settles on the baseline
-;; while pancake members on the same server keep the native profile among
+;; while glowcap members on the same server keep the native profile among
 ;; themselves. The vat still joins the room as an ordinary member.
 ;;
 ;; This module is the wire protocol of `apps/rooms/lib/protocol.ts` in Goblins
@@ -32,7 +32,7 @@
          goblins/actor-lib/methods
          "tcp-netlayer.rkt"
          "iroh-netlayer.rkt"
-         (only-in "../../../bindings/racket/pancake-iroh.rkt" IROH-REACH-DIRECT)
+         (only-in "../../../bindings/racket/glowcap-iroh.rkt" IROH-REACH-DIRECT)
          net/uri-codec
          net/url
          racket/list
@@ -194,7 +194,7 @@
        (and (exact-nonnegative-integer? n) (< n 65536) n))]
     [else
      (error 'rooms-client
-            "expected a local port number, got ~v (the viz endpoint is the PANCAKE_ROOMS_VIZ_URL environment variable, not an argument)"
+            "expected a local port number, got ~v (the viz endpoint is the GLOWCAP_ROOMS_VIZ_URL environment variable, not an argument)"
             raw)]))
 
 ;; The netlayer that reaches `node`, spawned. Which one it is comes from the
@@ -417,7 +417,7 @@
   ;; have to reach the same answer.
   (check-equal? (room-error-code "introduction-pending: \"bob\" has been asked")
                 "introduction-pending")
-  (check-equal? (room-error-code "pancake error -14: peer-offline: no member named \"bob\"")
+  (check-equal? (room-error-code "glowcap error -14: peer-offline: no member named \"bob\"")
                 "peer-offline")
   (check-equal? (room-error-code (make-exn:fail "not-registered: register first"
                                                 (current-continuation-marks)))

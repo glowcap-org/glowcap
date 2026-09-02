@@ -4,18 +4,18 @@
 //! a non-baseline preference.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 const SessionOpenFailingAllocator = harness.SessionOpenFailingAllocator;
@@ -51,11 +51,11 @@ const TraceLog = harness.TraceLog;
 fn helloLocatorBytes(allocator: std.mem.Allocator, session: *HostSession) ![]u8 {
     var frame = (try session.takeOutbound()) orelse return error.MissingHello;
     defer frame.deinit();
-    const body = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+    const body = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
     if (body != .start_session) return error.MissingHello;
     const locator = try body.start_session.acceptable_location.toOwned(allocator);
     defer model.freePeerLocator(allocator, locator);
-    return pancake.ocapn.codec.signed.locationBytes(allocator, locator);
+    return glowcap.ocapn.codec.signed.locationBytes(allocator, locator);
 }
 
 test "core host advertised locator: missing snapshot refuses dial and accept" {
@@ -264,7 +264,7 @@ test "core host advertised locator: a cross-transport route survives dial prepar
     const accepted = try host.openAcceptedAdvertised("tcp");
     defer host.releaseSession(accepted) catch unreachable;
 
-    const expected = try pancake.ocapn.codec.signed.locationBytes(allocator, host.acceptableLocator().?);
+    const expected = try glowcap.ocapn.codec.signed.locationBytes(allocator, host.acceptableLocator().?);
     defer allocator.free(expected);
     const dialed_location = try helloLocatorBytes(allocator, dialed);
     defer allocator.free(dialed_location);
@@ -329,7 +329,7 @@ test "core host advertised locator: dial and accept sign byte-identical snapshot
     defer allocator.free(dial_bytes);
     const accept_bytes = try helloLocatorBytes(allocator, accepted);
     defer allocator.free(accept_bytes);
-    const published_bytes = try pancake.ocapn.codec.signed.locationBytes(allocator, host.acceptableLocator().?);
+    const published_bytes = try glowcap.ocapn.codec.signed.locationBytes(allocator, host.acceptableLocator().?);
     defer allocator.free(published_bytes);
 
     try std.testing.expectEqualSlices(u8, published_bytes, dial_bytes);
@@ -393,7 +393,7 @@ test "core host onion advertisement stays hintless and an onion accept defers it
 
     // The accept sends no hello yet: on onion alone it waits for the
     // initiator's, which is the only thing that can say whether the partner
-    // is pancake and so which preference the answer may state (ADR-0118).
+    // is glowcap and so which preference the answer may state (ADR-0118).
     const accepted = try host.openAcceptedAdvertised(model.transport.onion);
     defer host.releaseSession(accepted) catch unreachable;
     try std.testing.expect((try accepted.takeOutbound()) == null);
@@ -419,7 +419,7 @@ test "core host with the default profile answers an onion accept eagerly and bar
     defer host.releaseSession(accepted) catch unreachable;
     const hello_location = try helloLocatorBytes(allocator, accepted);
     defer allocator.free(hello_location);
-    const expected = try pancake.ocapn.codec.signed.locationBytes(allocator, .{
+    const expected = try glowcap.ocapn.codec.signed.locationBytes(allocator, .{
         .transport = model.transport.onion,
         .designator = &service_id,
         .hints = model.Hints.emptyFalse(),

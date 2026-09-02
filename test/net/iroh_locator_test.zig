@@ -90,10 +90,14 @@ test "supported iroh facade and nested surfaces stay exact" {
     try std.testing.expectEqual(@as(usize, 8), @alignOf(iroh.Resident));
     // The platform backend's four listener-address bytes consume an existing
     // kqueue padding lane. io_uring needs one new aligned word. This is one
-    // fixed charge per loop, never a per-connection or wire-path cost.
+    // fixed charge per loop, never a per-connection or wire-path cost. Stated
+    // under runtime safety, where each embedded `std.ArrayList` header carries
+    // std's one-word `pointer_stability` lock: 32 of these bytes on both
+    // platforms.
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
     const expected_backend_bytes: usize = switch (builtin.os.tag) {
-        .linux => 624,
-        else => 496,
+        .linux => 656,
+        else => 528,
     };
     try std.testing.expectEqual(expected_backend_bytes, @sizeOf(iroh.Backend));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(iroh.Backend));

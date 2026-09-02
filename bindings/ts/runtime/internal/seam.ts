@@ -1,10 +1,10 @@
 // The binding-internal seam: the pointer, byte, and raw-socket plumbing the
-// core `../mod.ts` and the transport modules (`@pancake/tcp/transport`,
-// `../transport/inproc.ts`, and the `@pancake/iroh` package) share, so every
+// core `../mod.ts` and the transport modules (`@glowcap/tcp/transport`,
+// `../transport/inproc.ts`, and the `@glowcap/iroh` package) share, so every
 // module marshals frames through the same helpers. Nothing here rides the
 // public `.` entry: an in-package sibling (and the dogfood) imports this file
 // directly, and a companion package reaches the pointer and error-slot
-// helpers through `@pancake/runtime/ffi`. An application uses the core's
+// helpers through `@glowcap/runtime/ffi`. An application uses the core's
 // `connect` / `listen` and never these.
 
 import { ocapnS as s } from "./ffi/ocapn.ts";
@@ -72,7 +72,7 @@ export function readErrorSlot(
 /** Release a managed frame the core ABI filled (a transport module's blocking
  * `readFrame` returns one). */
 export function releaseManagedFrame(mf: Uint8Array): void {
-	s.pancake_managed_frame_release(ab(mf));
+	s.glowcap_managed_frame_release(ab(mf));
 }
 
 // The runtime socket seam for transports and dogfood tests that drive a raw

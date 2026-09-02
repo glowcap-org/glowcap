@@ -1,4 +1,4 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 // The TCP relay proof, parameterized over the relay program. A wasm browser peer
 // holds a keyed OCapN session when its WebSocket routes through a byte-transparent
 // relay to a native TCP host. One harness proves this for every runtime's relay
@@ -9,7 +9,7 @@ import * as tcp from "@pancake/tcp";
 // the browser peer (wasm) dialing through it. The relay never parses a frame, so
 // the keyed handshake and the greet round-trip succeed end to end.
 
-import { init } from "@pancake/web";
+import { init } from "@glowcap/web";
 import { fail, kill, parseHarnessArgs, readToken, spawnRelay, WASM } from "./relay_harness_common.ts";
 
 const inv = parseHarnessArgs(Deno.args);

@@ -23,7 +23,7 @@ class PublishedOnionNetlayer(OnionNetlayer):
     """Upstream OnionNetlayer with its advertised-location precondition met.
 
     The pinned class returns from ADD_ONION before Tor has published the new
-    descriptor, while several tests immediately hand that location to pancake
+    descriptor, while several tests immediately hand that location to glowcap
     and wait for an inbound connection. Preserve the upstream connect, accept,
     and CapTP behavior, but do not expose the instance until its own Tor can
     reach the service. The successful probe is accepted and discarded here so

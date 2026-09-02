@@ -20,8 +20,8 @@
 ;; Needs `racket` plus the iroh ABI companion library (`zig build iroh-abi`); run
 ;; via `zig build racket-iroh-loop`.
 
-(require "../../bindings/racket/pancake.rkt"
-         "../../bindings/racket/pancake-iroh.rkt"
+(require "../../bindings/racket/glowcap.rkt"
+         "../../bindings/racket/glowcap-iroh.rkt"
          "../_common/racket/helpers.rkt")
 
 ;; Concurrent connections, each served on the one server loop; calls each makes

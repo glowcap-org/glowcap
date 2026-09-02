@@ -19,7 +19,7 @@ function pinDoc(): TimelineDocument {
 		id: "pin-writes",
 		duration: 1000,
 		entities: {
-			peers: { a: { profile: "pancake" } },
+			peers: { a: { profile: "glowcap" } },
 			sessions: {
 				s1: {
 					a: { peer: "a" },
@@ -36,7 +36,7 @@ function pinDoc(): TimelineDocument {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "so",

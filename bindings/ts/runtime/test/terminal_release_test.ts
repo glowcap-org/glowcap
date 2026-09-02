@@ -1,16 +1,16 @@
-import { INTERNAL, INVALID_ARGUMENT, IO, OK } from "@pancake/abi";
-import { PancakeError, secondaryFailures } from "../errors.ts";
+import { INTERNAL, INVALID_ARGUMENT, IO, OK } from "@glowcap/abi";
+import { GlowcapError, secondaryFailures } from "../errors.ts";
 import type { DriverCallOutcome } from "../internal/driver_failure.ts";
 import { TerminalDriverRelease } from "../driver_loop/terminal_release.ts";
 import { assert } from "../../dogfood/assert.ts";
 
-function outcome(code: number, error: PancakeError | null): DriverCallOutcome {
+function outcome(code: number, error: GlowcapError | null): DriverCallOutcome {
 	return { code, failure: null, error };
 }
 
 Deno.test("an observed close refusal waits for the next safe boundary", () => {
-	const primary = new PancakeError(INTERNAL, "driver loop failed");
-	const refusal = new PancakeError(INVALID_ARGUMENT, "release refused");
+	const primary = new GlowcapError(INTERNAL, "driver loop failed");
+	const refusal = new GlowcapError(INVALID_ARGUMENT, "release refused");
 	let attempts = 0;
 	let commits = 0;
 	const attemptCount = () => attempts;
@@ -42,9 +42,9 @@ Deno.test("an observed close refusal waits for the next safe boundary", () => {
 });
 
 Deno.test("terminal release preserves primary and later cleanup consequences", async () => {
-	const primary = new PancakeError(INTERNAL, "step failed");
-	const refusal = new PancakeError(INVALID_ARGUMENT, "release refused");
-	const consumedFailure = new PancakeError(IO, "release teardown failed");
+	const primary = new GlowcapError(INTERNAL, "step failed");
+	const refusal = new GlowcapError(INVALID_ARGUMENT, "release refused");
+	const consumedFailure = new GlowcapError(IO, "release teardown failed");
 	const cleanup = new Error("wrapper cleanup failed");
 	let attempts = 0;
 	const attemptCount = () => attempts;
@@ -72,7 +72,7 @@ Deno.test("terminal release preserves primary and later cleanup consequences", a
 });
 
 Deno.test("a release call exception retains the lease for a later boundary", () => {
-	const primary = new PancakeError(INTERNAL, "step failed");
+	const primary = new GlowcapError(INTERNAL, "step failed");
 	const refusal = new Error("FFI release call refused");
 	let attempts = 0;
 	let commits = 0;

@@ -6,7 +6,7 @@
 // ordinary OCapN capability. No publication or readable swiss name is created
 // implicitly.
 
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import { spawnArchive } from "../../lib/archive/protocol.ts";
 import type { RoomsPageContext } from "./page.ts";
 

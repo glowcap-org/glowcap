@@ -5,7 +5,7 @@
 // from the session client, which is otherwise about the workspace rather than
 // about administering what it points at.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import {
 	type OperatorCategory,

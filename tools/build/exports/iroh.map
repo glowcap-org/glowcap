@@ -1,11 +1,11 @@
 {
   global:
-    pancake_iroh_archive_*;
-    pancake_iroh_clear_*;
-    pancake_iroh_conn_*;
-    pancake_iroh_last_*;
-    pancake_iroh_netlayer_*;
-    pancake_iroh_transport_*;
+    glowcap_iroh_archive_*;
+    glowcap_iroh_clear_*;
+    glowcap_iroh_conn_*;
+    glowcap_iroh_last_*;
+    glowcap_iroh_netlayer_*;
+    glowcap_iroh_transport_*;
   local:
     *;
 };

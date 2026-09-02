@@ -9,9 +9,9 @@ const net = @import("net");
 const shared = @import("c_abi_shared");
 const provider_failure = @import("provider_failure.zig");
 
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 
 /// Own the result of one provider's synchronous locator projection. The
 /// provider may keep every view on its stack: `receive` validates and clones
@@ -22,16 +22,16 @@ const Capture = struct {
     called: bool = false,
     failure: ?anyerror = null,
 
-    fn receive(raw: ?*anyopaque, view: ?*const shared.PancakeLocatorView) callconv(.c) i32 {
-        const self: *Capture = @ptrCast(@alignCast(raw orelse return PANCAKE_ERR_NULL_POINTER));
-        if (self.called) return PANCAKE_ERR_INVALID_ARGUMENT;
+    fn receive(raw: ?*anyopaque, view: ?*const shared.GlowcapLocatorView) callconv(.c) i32 {
+        const self: *Capture = @ptrCast(@alignCast(raw orelse return GLOWCAP_ERR_NULL_POINTER));
+        if (self.called) return GLOWCAP_ERR_INVALID_ARGUMENT;
         self.called = true;
-        const borrowed_view = view orelse return PANCAKE_ERR_NULL_POINTER;
+        const borrowed_view = view orelse return GLOWCAP_ERR_NULL_POINTER;
         self.locator = shared.locator_adapter.cloneView(self.allocator, borrowed_view) catch |err| {
             self.failure = if (err == error.OutOfMemory) error.OutOfMemory else error.InvalidAddress;
             return shared.locatorAdapterErrorCode(err);
         };
-        return PANCAKE_OK;
+        return GLOWCAP_OK;
     }
 
     fn take(self: *Capture, expected_transport: []const u8) net.netlayer.ListenError!model.PeerLocator {
@@ -52,14 +52,14 @@ const Capture = struct {
 pub const Listener = struct {
     ctx: ?*anyopaque,
     transport: []const u8,
-    local: shared.PancakeTransportListenerLocatorFn,
-    canonicalize: shared.PancakeTransportListenerAdvertiseFn,
+    local: shared.GlowcapTransportListenerLocatorFn,
+    canonicalize: shared.GlowcapTransportListenerAdvertiseFn,
 
     fn invoke(
         self: Listener,
-        proposed: ?*const shared.PancakeLocatorView,
+        proposed: ?*const shared.GlowcapLocatorView,
         result: *Capture,
-        report: *shared.PancakeProviderFailure,
+        report: *shared.GlowcapProviderFailure,
     ) i32 {
         return if (proposed) |view|
             self.canonicalize(self.ctx, view, result, Capture.receive, report)
@@ -74,7 +74,7 @@ pub const Listener = struct {
         allocator: std.mem.Allocator,
         proposed: ?model.PeerLocator,
     ) Outcome {
-        var hint_stack: [shared.locator_adapter.inline_hint_capacity]shared.PancakeLocatorHintView = undefined;
+        var hint_stack: [shared.locator_adapter.inline_hint_capacity]shared.GlowcapLocatorHintView = undefined;
         var projection: ?shared.locator_adapter.Projection = if (proposed) |locator|
             shared.locator_adapter.Projection.init(allocator, locator, &hint_stack) catch |err| switch (err) {
                 error.OutOfMemory => return .{ .failed = .init(error.OutOfMemory) },
@@ -88,7 +88,7 @@ pub const Listener = struct {
         defer result.deinit();
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.invoke(if (projection) |*value| &value.view else null, &result, &report);
-        if (code != PANCAKE_OK) {
+        if (code != GLOWCAP_OK) {
             if (result.failure) |failure| {
                 if (!provider_failure.isEmpty(report))
                     return .{ .failed = .init(error.ProviderContract) };

@@ -1,7 +1,7 @@
 //! CapTP lab REPL: completion, copy inventory, optional locator (line path).
 const std = @import("std");
 const cli = @import("cli");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 test "await_queue classifies CapTP session verbs" {
     try std.testing.expect(cli.repl_await_queue.isSessionVerb("call"));
@@ -209,7 +209,7 @@ test "log divert captures Ctx.logErr off stderr" {
     };
     ctx.logErr("dial needs an ocapn:// locator", .{});
     try std.testing.expect(std.mem.indexOf(u8, list.items, "dial needs an ocapn:// locator") != null);
-    try std.testing.expect(std.mem.indexOf(u8, list.items, "pancake: error:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, list.items, "glowcap: error:") != null);
     try std.testing.expect(log.hasDivert());
 }
 
@@ -319,7 +319,7 @@ test "ecs world spawns an entity and stores its screen rectangle" {
 
 test "session forEach export import answer views" {
     const allocator = std.testing.allocator;
-    const session = pancake.ocapn.session;
+    const session = glowcap.ocapn.session;
     const inspect = session.inspect;
     var s = session.Session.init(allocator);
     defer s.deinit();

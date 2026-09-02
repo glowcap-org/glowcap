@@ -1,7 +1,7 @@
 const std = @import("std");
-const pancake = @import("pancake");
-const session = pancake.ocapn.session;
-const model = pancake.ocapn.model;
+const glowcap = @import("glowcap");
+const session = glowcap.ocapn.session;
+const model = glowcap.ocapn.model;
 
 test "registerBootstrapCap maps a swissnum to a fresh export; lookup round-trips" {
     var s = session.Session.init(std.testing.allocator);

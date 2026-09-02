@@ -3,7 +3,7 @@ id: ADR-0086
 status: accepted
 date: 2026-07-19
 tags: [relay, browser, transport, websocket, bindings]
-decision: "A browser peer reaches a native CapTP server through a byte-transparent relay: an intermediary that forwards the raw session bytes without parsing them, so the keyed handshake and session authority run end to end unchanged. The relay is a first-class pancake capability, assembled in each runtime from the pieces named below and governed by the contract in this ADR. Its consistency across runtimes is enforced by a per-binding contract test, not by shared code, because one leg of the relay is always the host runtime's own WebSocket server."
+decision: "A browser peer reaches a native CapTP server through a byte-transparent relay: an intermediary that forwards the raw session bytes without parsing them, so the keyed handshake and session authority run end to end unchanged. The relay is a first-class glowcap capability, assembled in each runtime from the pieces named below and governed by the contract in this ADR. Its consistency across runtimes is enforced by a per-binding contract test, not by shared code, because one leg of the relay is always the host runtime's own WebSocket server."
 supersedes: []
 superseded_by: []
 amends: []
@@ -17,7 +17,7 @@ amended_by: [ADR-0117]
 A browser peer reaches a native CapTP server through a byte-transparent relay:
 an intermediary that forwards the raw session bytes without parsing them, so the
 keyed handshake and session authority run end to end unchanged. The relay is a
-first-class pancake capability, assembled in each runtime from the pieces named
+first-class glowcap capability, assembled in each runtime from the pieces named
 below and governed by the contract in this ADR. Its consistency across runtimes
 is enforced by a per-binding contract test, not by shared code, because one
 leg of the relay is always the host runtime's own WebSocket server.
@@ -33,7 +33,7 @@ it could use to impersonate either end.
 
 The same need recurs in every server language a rooms-style UI might talk to. A
 Deno, Python, Rust, or Zig server that hosts browser peers runs the same relay,
-so the relay's semantics belong to pancake, stated once here, rather than being
+so the relay's semantics belong to glowcap, stated once here, rather than being
 re-invented (and re-bugged) per runtime.
 
 ## The relay is byte-transparent by construction
@@ -50,11 +50,11 @@ signature: it lacks the peer's key and never sees a decoded message.
 ## The five parts each binding provides
 
 A relay in any runtime is assembled from five pieces. Only the shapes are
-pancake's; the code that fills them is each runtime's, and the cross-runtime
+glowcap's; the code that fills them is each runtime's, and the cross-runtime
 relay matrix (below) proves every runtime filled them the same way.
 
 1. **A raw byte channel** to the target, `read() -> bytes | null`,
-   `write(bytes)`, and one idempotent result-bearing close barrier. For an iroh target this is a pancake
+   `write(bytes)`, and one idempotent result-bearing close barrier. For an iroh target this is a glowcap
    C-ABI primitive (below); for a TCP target it is the runtime's own socket,
    which is already byte-level and already backpressured by the kernel.
 2. **The pump** that moves bytes between the two legs with the semantics below.
@@ -63,7 +63,7 @@ relay matrix (below) proves every runtime filled them the same way.
    touch) and the byte channel.
 3. **A WebSocket adapter** wiring an accepted WebSocket to the pump. The wiring
    is agnostic across JavaScript runtimes (any WHATWG `WebSocket`), which is why
-   `@pancake/relay` ships it; producing the accepted socket is the host's own
+   `@glowcap/relay` ships it; producing the accepted socket is the host's own
    HTTP server, and another language re-implements the wiring against its own
    WebSocket type.
 4. **A dial dispatcher** that opens the matching channel for the target. A
@@ -77,7 +77,7 @@ relay matrix (below) proves every runtime filled them the same way.
    relay, so a careless hoist to an eager import fails the gate. One relay
    classifies through the shared core instead: the rooms production relay already
    links the full stack, so it takes a single `?target=<locator>` and routes it
-   through `pancake_host_plan_dial` (the same classifier the handoff redeem-dial
+   through `glowcap_host_plan_dial` (the same classifier the handoff redeem-dial
    uses), which is where transport-symbol parsing and fail-closed-on-unknown
    live, because its SSRF allow-list must sort a target exactly as the dial it
    admits will. A dependency-light reference relay must not, because routing a
@@ -112,7 +112,7 @@ can block their producer.
 - The **target leg** blocks through the byte channel: a socket write blocks on
   the kernel, and the iroh C-ABI channel returns `WOULD_BLOCK` until writable.
   So a slow target slows the browser. This leg's backpressure is core: any
-  binding that dials through the pancake channel gets it for free.
+  binding that dials through the glowcap channel gets it for free.
 - The **browser-bound leg** must gate on the WebSocket's own send buffer. A
   `WebSocket` has no drain event, so the pump holds its next read until
   `bufferedAmount` (or the runtime's equivalent: Python `websockets`' awaited
@@ -144,12 +144,12 @@ the relay core, and it never migrates into the session or codec layer.
 
 | Concern | Owner | Layer |
 | --- | --- | --- |
-| Dial classification (shape, admission facts) | `pancake_host_plan_dial` | `driver_core` (sans-io) + `libpancake_driver` |
-| iroh target open → raw byte channel | iroh C-ABI conn + readiness, composed per binding | `libpancake_net_transport_iroh` |
+| Dial classification (shape, admission facts) | `glowcap_host_plan_dial` | `driver_core` (sans-io) + `libglowcap_driver` |
+| iroh target open → raw byte channel | iroh C-ABI conn + readiness, composed per binding | `libglowcap_net_transport_iroh` |
 | TCP target open → raw byte channel | the runtime's own socket | binding-native |
 | Pump semantics | this contract, one thin impl per runtime | per-binding, pinned by conformance |
 | WebSocket / browser leg | the runtime's HTTP/WebSocket server | per-runtime |
-| Target admission (allow-list, Origin, SSRF) | the embedding app | above pancake |
+| Target admission (allow-list, Origin, SSRF) | the embedding app | above glowcap |
 
 There is deliberately **no** single cross-transport relay-dial entry point. One
 symbol routing every transport would link every transport archive, dragging the
@@ -182,9 +182,9 @@ marker change per row.
   fd thread) poll natively; Deno's iroh loop already solved this, so a Deno relay
   reuses that strategy rather than inventing a second one.
 - **The C-ABI TCP and inproc conns are frame-level, not raw.**
-  `pancake_tcp_conn_read_frame` and `pancake_inproc_conn_read_frame` delimit
+  `glowcap_tcp_conn_read_frame` and `glowcap_inproc_conn_read_frame` delimit
   frames against a codec, which a relay cannot use. A TCP relay therefore opens
-  the runtime's own socket, which is byte-level and needs no pancake wrapper.
+  the runtime's own socket, which is byte-level and needs no glowcap wrapper.
 - **iroh is the only transport that supplies a relay byte channel.** The other
   legs a relay opens are the runtime's own socket and, for the cold-dial
   rendezvous, a held WebSocket. So the channel is a shape each binding fills in
@@ -233,9 +233,9 @@ against one runtime's relay, so this ADR names the shape and points at the gate.
   `racket-relay-idle-test`, and so on). Beyond the matrix,
   `rooms-web-relay-peer`, `rooms-web-browser-peer`, and `rooms-web-page` drive the
   room directory through the Deno relay with a real Chromium.
-- **A named `PancakeRelayChannel` C-ABI shape: rejected,** for the reasons in
+- **A named `GlowcapRelayChannel` C-ABI shape: rejected,** for the reasons in
   Alternatives below. The iroh calls a relay leg composes are named as a set in
-  `pancake_net_transport_iroh.h` instead, which is the part of that idea that was
+  `glowcap_net_transport_iroh.h` instead, which is the part of that idea that was
   true.
 - **Browser DMs through the relay (shipped over the iroh leg):** a browser
   redeems a room introduction and dials the member over the relay's iroh path,
@@ -257,13 +257,13 @@ the proxy would have to route introductions.
 
 **A single cross-transport relay-dial C-ABI symbol.** Rejected: it recouples the
 à-la-carte transport archives and drags the iroh Rust sidecar into a TCP-only
-relay. The classifier (`pancake_host_plan_dial`) is transport-neutral; the open
+relay. The classifier (`glowcap_host_plan_dial`) is transport-neutral; the open
 stays per-transport.
 
 **A C-ABI pump.** Rejected, and not for a callback reason: the byte-fed Host
 (`feed`/`takeOutbound`, ADR-0072) shows a native core can be pull-based with no
 callbacks, so a pump could be shaped the same way without inverting who owns the
-loop. It is rejected because the browser-facing leg is a WebSocket pancake cannot
+loop. It is rejected because the browser-facing leg is a WebSocket glowcap cannot
 own. Only the runtime that owns that socket can pause its reads, so the
 browser-bound backpressure has to live in the runtime however the pump is
 packaged. A native pump would export a cross-ABI high-water signal the runtime
@@ -278,18 +278,18 @@ relay and dragging the iroh sidecar into a TCP-only one, the à-la-carte split
 pinned by the relay matrix; the byte channel it pumps over is named as a set of calls
 in the iroh header, not as a C object (the alternative below).
 
-**A named `PancakeRelayChannel` C-ABI shape.** Rejected, whether as a struct of
+**A named `GlowcapRelayChannel` C-ABI shape.** Rejected, whether as a struct of
 per-transport function pointers, an opaque handle with its own verb family, or a
 typedef plus per-transport adapters. Three facts defeat all three variants.
 
 First, readiness cannot cross the ABI as a call. A channel is usable only once
 its owner can *wait* on it, and that wait is the runtime's own reactor. So every
 binding would still write the half that decides when to read, and Rust would
-still want `AsyncRead`/`AsyncWrite` over a pancake object.
+still want `AsyncRead`/`AsyncWrite` over a glowcap object.
 
 Second, the legs are not one kind. A relay opens the runtime's socket for a TCP
 target and a held WebSocket for the cold-dial rendezvous, and only the iroh leg
-comes from pancake at all. A cross-transport shape would have one member.
+comes from glowcap at all. A cross-transport shape would have one member.
 
 Third, `inproc` cannot honestly be the second member. Its resident carries no
 file descriptor by design, and its pipes are unbounded because a mock has a
@@ -298,7 +298,7 @@ above while structurally lacking it. No relay could dial one either, since the
 target would have to be a peer inside the relay's own process.
 
 What the idea got right was discoverability, so
-`pancake_net_transport_iroh.h` names the calls a relay leg composes as a set.
+`glowcap_net_transport_iroh.h` names the calls a relay leg composes as a set.
 
 **A blocking-with-thread channel.** Rejected: a thread per relay session
 contradicts the one-loop-serves-many-connections model (ADR-0057) and the
@@ -313,13 +313,13 @@ adapter; the contract is already defined over an abstract byte duplex, not over
 
 ## References
 
-- **Reference implementation:** `@pancake/relay` (`bindings/ts/relay/`):
+- **Reference implementation:** `@glowcap/relay` (`bindings/ts/relay/`):
   `relayBytes` (the pump) and `webSocketRelay` (the WebSocket adapter), with the
   `RelayChannel` shape. The rooms endpoint that adds policy is
   `apps/rooms/web/relay.ts`.
-- **Shared classifier:** `pancake_host_plan_dial` (`src/driver/core/dial_plan.zig`,
-  exported in `libpancake_driver`).
-- **iroh byte channel:** the `pancake_iroh_*` conn and readiness primitives in
-  `libpancake_net_transport_iroh`, named as a set in
-  `include/pancake_net_transport_iroh.h` and driven identically by all four
+- **Shared classifier:** `glowcap_host_plan_dial` (`src/driver/core/dial_plan.zig`,
+  exported in `libglowcap_driver`).
+- **iroh byte channel:** the `glowcap_iroh_*` conn and readiness primitives in
+  `libglowcap_net_transport_iroh`, named as a set in
+  `include/glowcap_net_transport_iroh.h` and driven identically by all four
   bindings.

@@ -7,7 +7,7 @@ import { expectKind } from "./harness.ts";
 
 Deno.test("the negotiated CapTP profile comes from the producer, not a guess", () => {
 	// The viewer used to stamp v1_0 on every session because the tap
-	// reported the codec and not the version, so a pancake-to-pancake
+	// reported the codec and not the version, so a glowcap-to-glowcap
 	// session drawn as capnp still read as CapTP 1.0.
 	const convert = makeBaseEventConverter();
 	const nextOut = convert({

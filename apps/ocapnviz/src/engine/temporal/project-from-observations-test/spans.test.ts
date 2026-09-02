@@ -20,7 +20,7 @@ Deno.test("project: peer with no events → both implicit", () => {
 		...emptyDoc(),
 		entities: {
 			peers: {
-				alice: { profile: "pancake" },
+				alice: { profile: "glowcap" },
 			},
 		},
 	};
@@ -36,7 +36,7 @@ Deno.test("project: peer with joined event → explicit start", () => {
 	const doc: TimelineDocument = withEvents({
 		...emptyDoc(),
 		entities: {
-			peers: { alice: { profile: "pancake" } },
+			peers: { alice: { profile: "glowcap" } },
 		},
 	}, [
 		{
@@ -44,7 +44,7 @@ Deno.test("project: peer with joined event → explicit start", () => {
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 	]);
 	const out = projectFromObservations(doc);
@@ -58,14 +58,14 @@ Deno.test("project: peer with joined event → explicit start", () => {
 Deno.test("project: peer with joined + left → explicit start, explicit duration", () => {
 	const doc: TimelineDocument = withEvents({
 		...emptyDoc(),
-		entities: { peers: { alice: { profile: "pancake" } } },
+		entities: { peers: { alice: { profile: "glowcap" } } },
 	}, [
 		{
 			id: "e1",
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{ id: "e2", kind: "peer-left", t: 30, peerId: "alice" },
 	]);
@@ -185,7 +185,7 @@ Deno.test("project: authored timing is preserved", () => {
 		entities: {
 			peers: {
 				alice: {
-					profile: "pancake",
+					profile: "glowcap",
 					timing: {
 						start: { value: 99, explicit: true },
 						duration: { value: 11, explicit: true },
@@ -202,7 +202,7 @@ Deno.test("project: authored timing is preserved", () => {
 Deno.test("project: unchanged observations return the same document", () => {
 	const doc: TimelineDocument = {
 		...emptyDoc(),
-		entities: { peers: { alice: { profile: "pancake" } } },
+		entities: { peers: { alice: { profile: "glowcap" } } },
 	};
 	const once = projectFromObservations(doc);
 	const twice = projectFromObservations(once);

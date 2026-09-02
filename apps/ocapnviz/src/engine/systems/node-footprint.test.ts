@@ -17,7 +17,7 @@ Deno.test("a peer is measured by the widest name the document ever gives it", ()
 		entities: {
 			peers: {
 				alice: {
-					profile: "pancake",
+					profile: "glowcap",
 					label: "al",
 					keyframes: {
 						label: [{ t: 10, value: "alice-the-exporter" }],
@@ -47,7 +47,7 @@ Deno.test("an unattributed end is keyed by its stage id", () => {
 						t: 0,
 						kind: "peer-joined",
 						peerId: "rooms",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "s1",

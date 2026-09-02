@@ -1,5 +1,5 @@
-import { Runtime } from "@pancake/runtime";
-import { noise, provider } from "@pancake/relay";
+import { Runtime } from "@glowcap/runtime";
+import { noise, provider } from "@glowcap/relay";
 
 // Noise_XK seals the session end to end; the relay forwards ciphertext.
 const peerKey = "<64 lowercase hex characters from the server>";

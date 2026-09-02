@@ -9,7 +9,7 @@
 // reference across a session — so `capabilities_test.ts` covers attenuation and
 // revocation here, and the cross-language demo proves delegation end to end.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import { NOW, READ, WRITE } from "./protocol.ts";
 
 export type Tool = (verb: string, args: Argument[]) => Argument;

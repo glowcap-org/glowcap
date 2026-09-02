@@ -1,5 +1,5 @@
-import { keyed, provider } from "@pancake/tcp";
-import { Runtime } from "@pancake/runtime";
+import { keyed, provider } from "@glowcap/tcp";
+import { Runtime } from "@glowcap/runtime";
 
 // Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 const peerKey = "<64 lowercase hex characters from the server>";

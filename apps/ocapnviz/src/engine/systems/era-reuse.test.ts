@@ -52,14 +52,14 @@ function roomEngine(): Engine {
 						t: 5,
 						kind: "peer-joined",
 						peerId: "rooms",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "p2",
 						t: 6,
 						kind: "peer-joined",
 						peerId: "alice",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "s0",
@@ -99,14 +99,14 @@ function twoEraEngine(): Engine {
 						t: 0,
 						kind: "peer-joined",
 						peerId: "a",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "p2",
 						t: 0,
 						kind: "peer-joined",
 						peerId: "b",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "s0",

@@ -1,4 +1,4 @@
-//! Pure room-wire goldens for `pancake app rooms-peer`: notification parsing
+//! Pure room-wire goldens for `glowcap app rooms-peer`: notification parsing
 //! and subscribe-settlement classification, with no iroh or CapTP wire.
 const std = @import("std");
 const cli = @import("cli");

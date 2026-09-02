@@ -1,5 +1,5 @@
 import os
-from pancake import Argument, tcp
+from glowcap import Argument, tcp
 
 # Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 # Persist the 32-byte seed to keep the same key.

@@ -7,8 +7,8 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}"
-pancake_require_devcontainer "hooks/post-create"
+glowcap_devcontainer_init "${dir}"
+glowcap_require_devcontainer "hooks/post-create"
 command -v zsh >/dev/null || {
     echo "hooks/post-create: zsh is not on PATH; the workspace user shell and the pane runtime require it" >&2
     exit 1
@@ -27,7 +27,7 @@ repo="$(cd "${dir}/.." && pwd)"
 # ~/.gitconfig sits in the container's writable layer rather than a host bind,
 # so a rebuild starts clean, and the guard keeps a rerun of this hook from
 # appending a duplicate.
-for trusted in "${repo}" "$(pancake_devcontainer_env_value "${dir}" PANCAKE_GIT_COMMON_DIR)"; do
+for trusted in "${repo}" "$(glowcap_devcontainer_env_value "${dir}" GLOWCAP_GIT_COMMON_DIR)"; do
     [[ -n "${trusted}" ]] || continue
     if ! git config --global --get-all safe.directory 2>/dev/null | grep -qxF "${trusted}"; then
         git config --global --add safe.directory "${trusted}"
@@ -44,22 +44,22 @@ mkdir -p \
     "${ZIG_CACHE_DIR}" \
     "${CACHE_ROOT}/zls" \
     "${CARGO_HOME_RUNTIME}"
-if [[ -n "${PANCAKE_WORKTREE:-}" ]]; then
+if [[ -n "${GLOWCAP_WORKTREE:-}" ]]; then
     mkdir -p \
-        "${WORK_CACHE_DIR}/${PANCAKE_WORKTREE}/zig-local" \
-        "${WORK_CACHE_DIR}/${PANCAKE_WORKTREE}/zig-pkg"
+        "${WORK_CACHE_DIR}/${GLOWCAP_WORKTREE}/zig-local" \
+        "${WORK_CACHE_DIR}/${GLOWCAP_WORKTREE}/zig-pkg"
 fi
 
-for path in "${PANCAKE_CACHE_DIR}" "${CACHE_ROOT}" "${CARGO_HOME_RUNTIME}"; do
+for path in "${GLOWCAP_CACHE_DIR}" "${CACHE_ROOT}" "${CARGO_HOME_RUNTIME}"; do
     probe="${path}/.write-test-$$"
     touch "${probe}"
     rm -f "${probe}"
 done
-if [[ -n "${PANCAKE_WORKTREE:-}" ]]; then
-    probe="${WORK_CACHE_DIR}/${PANCAKE_WORKTREE}/zig-local/.write-test-$$"
+if [[ -n "${GLOWCAP_WORKTREE:-}" ]]; then
+    probe="${WORK_CACHE_DIR}/${GLOWCAP_WORKTREE}/zig-local/.write-test-$$"
     touch "${probe}"
     rm -f "${probe}"
-    probe="${WORK_CACHE_DIR}/${PANCAKE_WORKTREE}/zig-pkg/.write-test-$$"
+    probe="${WORK_CACHE_DIR}/${GLOWCAP_WORKTREE}/zig-pkg/.write-test-$$"
     touch "${probe}"
     rm -f "${probe}"
 fi
@@ -100,7 +100,7 @@ while IFS=: read -r _ path; do
         echo "hooks/post-create: host bind is not readable and writable: ${path}" >&2
         exit 1
     fi
-done <<< "$(pancake_devcontainer_host_home_bind_rows)"
+done <<< "$(glowcap_devcontainer_host_home_bind_rows)"
 
 bash "${dir}/test/env-sync.sh"
 # Linked worktrees do not inherit submodule working trees from the clone.
@@ -108,7 +108,7 @@ bash "${dir}/test/env-sync.sh"
 # checkout is a complete environment.
 bash "${dir}/../conformance/bootstrap-submodules.sh"
 bash "${dir}/hooks/verify-ptrace.sh"
-# Lint the devcontainer's own scripts (and the repo-root pancake shim the
+# Lint the devcontainer's own scripts (and the repo-root glowcap shim the
 # image links onto PATH), so a shellcheck finding fails container open and
 # ci/gates.sh, which runs this script on every push. SCRIPTDIR resolves the
 # relative `source=` directives beside each script, whatever the caller's
@@ -122,5 +122,5 @@ mapfile -t devcontainer_shell_files < <(
     find "${dir}" -name '*.sh' | sort
 )
 shellcheck --external-sources --source-path=SCRIPTDIR \
-    "${devcontainer_shell_files[@]}" "${dir}/pane/host/.bashrc" "${dir}/../pancake"
-PANCAKE_DEVCONTAINER_DIR="${dir}" bash "${dir}/image/verify-toolchains.sh"
+    "${devcontainer_shell_files[@]}" "${dir}/pane/host/.bashrc" "${dir}/../glowcap"
+bash "${dir}/image/verify-toolchains.sh"

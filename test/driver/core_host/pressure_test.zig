@@ -4,19 +4,19 @@
 //! unapplied suffix.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 const promise_capture = @import("../../support/capture.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 const PublicationProbe = harness.PublicationProbe;
@@ -233,7 +233,7 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     try host.flushSession(pair.b);
     var release = (try pair.b.takeOutbound()) orelse return error.MissingListenerRelease;
     defer release.deinit();
-    const body = try pancake.ocapn.codec.syrup.decodeBody(release.view());
+    const body = try glowcap.ocapn.codec.syrup.decodeBody(release.view());
     try std.testing.expect(body == .gc_export);
     try std.testing.expectEqual(@as(u64, 42), try body.gc_export.positions.at(0));
     try std.testing.expectEqual(@as(u64, 1), try body.gc_export.deltas.at(0));

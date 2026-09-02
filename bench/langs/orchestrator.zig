@@ -10,7 +10,7 @@
 //! `zig-out/bench-reports/`.
 //!
 //! This is NOT a language leaderboard: each row is a whole consumer stack
-//! (runtime + binding + per-language app + GC/JIT) over one pancake host. See
+//! (runtime + binding + per-language app + GC/JIT) over one glowcap host. See
 //! `bench/langs/README.md` for the fairness model and caveats.
 //!
 //! Being native Zig, it needs no Racket. Racket joins only as two of the client
@@ -287,7 +287,7 @@ fn goblinsPresent(ctx: *Ctx) !bool {
 
 /// Precompile every present Racket client script to bytecode before the
 /// cold-start runs. Without this, each spawn of the `racket` row pays Racket
-/// recompiling the pancake binding from source (~650 ms here), which lands
+/// recompiling the glowcap binding from source (~650 ms here), which lands
 /// entirely in its cold-start number and — absurdly — makes the thin binding
 /// look slower to start than all of Spritely Goblins, whose collection ships
 /// precompiled `.zo` bytecode. Compiling the scripts puts both Racket rows on

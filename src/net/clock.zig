@@ -1,4 +1,4 @@
-//! The one monotonic elapsed-time source for pancake's adapters.
+//! The one monotonic elapsed-time source for glowcap's adapters.
 //!
 //! Deadlines and timeouts are elapsed-time questions, so they read a monotonic
 //! clock. An NTP step moves the wall clock and would make a wall-clock

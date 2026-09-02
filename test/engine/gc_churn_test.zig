@@ -18,9 +18,9 @@
 //! what makes the matching delta exact.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const session = pancake.ocapn.session;
+const session = glowcap.ocapn.session;
 const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllocator;
 
 test "finalizer-driven gc-export churn reclaims import rows and holds flat heap" {

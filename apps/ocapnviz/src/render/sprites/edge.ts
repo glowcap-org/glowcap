@@ -78,7 +78,7 @@ export function syncEdgeSprite(
 			// Tiny edge-label caption, at the size `EDGE_CHIP_LABEL` staggers
 			// lanes for. Per the typography rule's
 			// size-first default, tiny → mono. The composite shape
-			// ("capnp · pancake-next") reads cleanly in mono at
+			// ("capnp · glowcap-next") reads cleanly in mono at
 			// this size and matches the surrounding 9px mono vocabulary
 			// (tick labels, scrubber pill labels, kv values).
 			text: labelText,

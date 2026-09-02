@@ -297,11 +297,11 @@ mod tests {
 	}
 
 	// `listen` hosts the same surface `connect` dials: a server accepts a
-	// pancake dialer, publishes a capability on the accepted session, and the
+	// glowcap dialer, publishes a capability on the accepted session, and the
 	// dialer fetches and calls it, both ends riding the high-level Session,
 	// nothing stitched by hand on either side.
 	#[tokio::test]
-	async fn listen_accepts_a_pancake_dialer_end_to_end() {
+	async fn listen_accepts_a_glowcap_dialer_end_to_end() {
 		let local = LocalSet::new();
 		local
 			.run_until(async {
@@ -345,10 +345,10 @@ mod tests {
 				ready_rx.await.unwrap();
 				let cap = session.fetch("svc").await.unwrap();
 				let reply = session
-					.send(&cap, "greet", &[Argument::String("pancake".into())])
+					.send(&cap, "greet", &[Argument::String("glowcap".into())])
 					.await
 					.unwrap();
-				assert_eq!(reply, Argument::String("hello pancake".into()));
+				assert_eq!(reply, Argument::String("hello glowcap".into()));
 				session.close(crate::PendingWork::Cancel).await.unwrap();
 				host.await.unwrap();
 			})

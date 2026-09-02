@@ -4,12 +4,12 @@
 //! oracle the run must satisfy once quiescent.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const net = pancake.net;
-const engine = pancake.ocapn.engine;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const net = glowcap.net;
+const engine = glowcap.ocapn.engine;
 const completion = net.completion;
 
 const backend = @import("lifecycle_backend.zig");

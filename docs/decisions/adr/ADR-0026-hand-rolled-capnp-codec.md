@@ -28,9 +28,9 @@ readable Zig first.
 The wire format itself is small and fully specified: a message is a sequence of
 8-byte little-endian words grouped into segments, and structured data is reached
 by following struct/list pointers that pack a signed word offset plus section
-sizes. Because Cap'n Proto here is the pancake-to-pancake dialect (ADR-0003's
-pancake-forward / `next` track), the layout only has to be self-consistent
-between pancake peers: there is no third-party Cap'n Proto reader to satisfy, so
+sizes. Because Cap'n Proto here is the glowcap-to-glowcap dialect (ADR-0003's
+glowcap-forward / `next` track), the layout only has to be self-consistent
+between glowcap peers: there is no third-party Cap'n Proto reader to satisfy, so
 a schema compiler buys nothing a hand-written layout does not. Layout drift is
 pinned by golden Cap'n Proto frames under
 [`test/codec/capnp_fixtures/`](../../../test/codec/capnp_fixtures/) (regenerate
@@ -56,12 +56,12 @@ single-segment `Builder` that back-patches pointers, and a bounds-checked word
 Three commitments fix the shape:
 
 - **No schema compiler.** Struct and list layout is defined in code against
-  `wire.zig`. The layout is pancake-internal and moves with the model; there is
+  `wire.zig`. The layout is glowcap-internal and moves with the model; there is
   no generated module and no `.capnp` schema source. Golden Cap'n Proto *frames*
   under `test/codec/capnp_fixtures/` lock the bytes without introducing
   `capnpc`.
 - **Single segment.** The codec emits one segment and rejects multi-segment
-  frames (`Error.UnsupportedSegmentCount`). pancake messages are small;
+  frames (`Error.UnsupportedSegmentCount`). glowcap messages are small;
   multi-segment support is additive if a message ever needs it.
 - **View-first decode.** `decodeView` projects a borrowed `MessageView` over the
   frame's bytes, copying nothing; `decodeOwned` runs `decodeView` and then
@@ -124,7 +124,7 @@ the seam.
 
 - **Add `capnpc` + a codegen step to the build.** Rejected: a non-Zig build
   dependency and a generated-code surface, to satisfy a schema-compiler contract
-  no pancake-to-pancake peer needs. The wire format is small enough to write
+  no glowcap-to-glowcap peer needs. The wire format is small enough to write
   directly.
 - **Vendor an external Zig Cap'n Proto library.** Rejected: a maturity and
   maintenance dependency for a layer that is a few hundred lines of
@@ -147,13 +147,13 @@ the seam.
 - Cap'n Proto carries typed values Syrup projects to strings (e.g. a typed
   `AbortKind` rather than Syrup's V1.0 abort wire string): a concrete
   demonstration of codec neutrality.
-- The codec is both a standalone tested module (`pancake.codec.capnp`) and a
+- The codec is both a standalone tested module (`glowcap.codec.capnp`) and a
   live-session option negotiated per direct session; a pair offering `capnp`
   runs its entire handshake and traffic over word-shaped frames.
 - The codec-dispatch seam is the one place that names a codec. A built-in codec
   is a `model.CodecId` value, a `decodeBody` / `encodeMessageForProfile` pair,
   and a registry `Spec`; a consumer adds their own the same way by declaring
-  `pub const pancake_codecs` in their root (see the Open codec registry section
+  `pub const glowcap_codecs` in their root (see the Open codec registry section
   below).
 
 ## Open codec registry
@@ -163,11 +163,11 @@ Cap'n Proto strategy is unchanged; only the dispatch set opened up.
 
 Codecs resolve through an open comptime registry keyed by a non-exhaustive
 `model.CodecId`. The two built-ins, `syrup` and `capnp`, are the default set,
-and a Zig consumer adds their own by declaring `pub const pancake_codecs` in
+and a Zig consumer adds their own by declaring `pub const glowcap_codecs` in
 their root source file. Resolution unrolls at `comptime`, so dispatch keeps the
 zero-indirection of the former hand-written switch while the codec set is no
 longer closed. This is what makes "bring your own codec" a supported contract
-rather than a fork of pancake.
+rather than a fork of glowcap.
 
 ## Notes
 

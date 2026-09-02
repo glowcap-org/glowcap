@@ -24,9 +24,9 @@
 ;;      through Alice, Bob would only ever see Alice's connection.
 ;;
 ;; This is the Goblins-only control for OCapN three-party handoff. It pins what
-;; the reference implementation does independently of pancake. The live
+;; the reference implementation does independently of glowcap. The live
 ;; cross-implementation `goblins-handoff`, `goblins-gift`, and
-;; `goblins-exporter` rows assign pancake each protocol role in turn.
+;; `goblins-exporter` rows assign glowcap each protocol role in turn.
 
 (require goblins
          goblins/ocapn

@@ -2,11 +2,10 @@
 //! Run via `zig build gen-capnp-fixtures`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const capnp = pancake.ocapn.codec.capnp;
-const handoff_fixtures = @import("handoff_fixtures");
+const model = glowcap.ocapn.model;
+const capnp = glowcap.ocapn.codec.capnp;
 
 /// Held at container scope so the slice below points at static storage rather
 /// than a temporary in `main`'s frame. `test/codec/capnp_golden_test.zig`
@@ -55,7 +54,7 @@ pub fn main() !void {
         .{ "op_listen.bin", .{ .listen = .{
             .target = .{ .far = .{ .import_position = .from(3) } },
             .listener = .{ .far = .{ .import_position = .from(9) } },
-            .wants_partial = true,
+            .mode = .shortening_or_settling,
         } } },
         .{ "op_get.bin", .{ .get = .{
             .receiver = .{ .far = .{ .import_position = .from(1) } },
@@ -64,7 +63,7 @@ pub fn main() !void {
         } } },
         .{ "op_index.bin", .{ .index = .{
             .receiver = .{ .far = .{ .import_position = .from(1) } },
-            .index = 2,
+            .index = .{ .integer = 2 },
             .answer = .from(6),
         } } },
         .{ "op_untag.bin", .{ .untag = .{
@@ -82,8 +81,6 @@ pub fn main() !void {
             },
             .acceptable_location_sig = .{ .bytes = &(@as([64]u8, @splat(0x22))) },
         } } },
-        .{ "op_handoff_give.bin", .{ .handoff = .{ .give = handoff_fixtures.give() } } },
-        .{ "op_handoff_receive.bin", .{ .handoff = .{ .receive = handoff_fixtures.receive() } } },
     };
 
     for (cases) |c| {

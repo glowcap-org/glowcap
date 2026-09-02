@@ -30,7 +30,7 @@ layoutTest("authored mode places peers at their declared position", () => {
 						t: 0,
 						kind: "peer-joined",
 						peerId: "alice",
-						profile: "pancake",
+						profile: "glowcap",
 						position: { x: 140, y: -82 },
 					},
 					{
@@ -86,7 +86,7 @@ layoutTest(
 							t: 0,
 							kind: "peer-joined",
 							peerId: "alice",
-							profile: "pancake",
+							profile: "glowcap",
 							// position intentionally omitted
 						},
 					],
@@ -132,7 +132,7 @@ layoutTest(
 							t: 0,
 							kind: "peer-joined",
 							peerId: "alice",
-							profile: "pancake",
+							profile: "glowcap",
 							position: { x: 300, y: 200 },
 						},
 						{
@@ -147,7 +147,7 @@ layoutTest(
 							t: 0,
 							kind: "peer-joined",
 							peerId: "carol",
-							profile: "pancake",
+							profile: "glowcap",
 						},
 						{
 							id: "s1",
@@ -205,7 +205,7 @@ layoutTest(
 							t: 0,
 							kind: "peer-joined",
 							peerId: "alice",
-							profile: "pancake",
+							profile: "glowcap",
 							position: { x: -450, y: 120 },
 						},
 						{
@@ -266,7 +266,7 @@ layoutTest(
 							t: 0,
 							kind: "peer-joined",
 							peerId: "alice",
-							profile: "pancake",
+							profile: "glowcap",
 							position: { x: 140, y: -82 },
 						},
 						{
@@ -338,7 +338,7 @@ layoutTest(
 				t: 0,
 				kind: "peer-joined",
 				peerId: `p${i}`,
-				profile: "pancake",
+				profile: "glowcap",
 				position: { x: i * 40, y: (i % 5) * 40 },
 			});
 		}
@@ -399,7 +399,7 @@ layoutTest(
 				t: i * 50,
 				kind: "peer-joined",
 				peerId: `p${i}`,
-				profile: "pancake",
+				profile: "glowcap",
 			});
 		}
 		for (let i = 0; i < 7; i += 1) {

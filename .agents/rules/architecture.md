@@ -1,15 +1,15 @@
 ---
-description: "Zig pancake architecture guardrails: codec-neutral model, authoritative session, sync no-I/O core."
+description: "Zig glowcap architecture guardrails: codec-neutral model, authoritative session, sync no-I/O core."
 globs: src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, build.zig, README.md, docs/**/*.md, AGENTS.md
 ---
 
-# pancake — Architecture Guardrails
+# glowcap — Architecture Guardrails
 
 ## Authority runs one direction
 
 The `1.0` profile answers to the pinned OCapN draft. Goblins compatibility is a
 separate, explicit feature/evidence question; a missing Goblins operation must
-not silently redefine the version. `pancake-next` tracks current OCapN
+not silently redefine the version. `glowcap-next` tracks current OCapN
 direction, including recorded consensus and live proposals, not only text
 already merged into the draft. Before deleting next behavior as non-spec,
 update the conformance submodules and inspect the meeting record plus the open
@@ -18,7 +18,7 @@ until consensus selects one; do not blend them into an unsourced wire format.
 Bindings remain dogfoods, never semantic oracles.
 
 **Read the draft before writing wire behavior, not only before deleting it.**
-The trigger is any change to what pancake puts on the wire, and `conformance/
+The trigger is any change to what glowcap puts on the wire, and `conformance/
 ocapn-spec/upstream/draft-specifications/` usually answers outright. Designing
 the choreography first and checking after is how an unsourced wire format gets
 written: it compiles, it passes the tests written alongside it, and it is
@@ -94,11 +94,11 @@ The split is not obvious from the code. The human page is
 | `iroh` | QUIC remote node id, the one realizer proof in the tree | encrypted QUIC | production |
 
 **`onion` is the only symbol here the OCapN draft standardizes**, and the only
-one upstream Goblins ships, so it is where a pancake peer and a Goblins vat meet
+one upstream Goblins ships, so it is where a glowcap peer and a Goblins vat meet
 on ground neither invented. Its designator stays an address: the service id names
 the rendezvous service, not the CapTP peer, and every wire-carried onion locator
 stays bare because the pinned Goblins dial arm refuses a hinted one; a hello may
-state a profile only toward a partner known to be pancake (ADR-0108, ADR-0118).
+state a profile only toward a partner known to be glowcap (ADR-0108, ADR-0118).
 `zig build
 goblins-onion` is the meeting the symbol exists for, both directions over real
 circuits. `zig build ocapn-conformance-onion` passes all portable upstream
@@ -161,7 +161,7 @@ root to reach test support.
   not-yet-consumed bytes wait. The `Spill` lives this low because both
   stream-reading tiers need one and neither imports the other.
 - `ocapn/`: the OCapN / CapTP protocol itself, the four layers that _are_ the
-  protocol. Everything else adds none. Reached as `pancake.ocapn.<layer>`.
+  protocol. Everything else adds none. Reached as `glowcap.ocapn.<layer>`.
   - `ocapn/model`: codec-neutral semantic types.
   - `ocapn/codec`: encode and decode, plus borrowed semantic views.
   - `ocapn/session`: validation and the authoritative tables.
@@ -173,7 +173,7 @@ root to reach test support.
   which is local-only and never wire state.
 - `persistent`: a sharp leaf of persistent immutable collections, one
   refcounted-HAMT `PersistentMap` (ADR-0061) so a persistent actor's functional
-  `become` is O(log n). Pure, no-I/O, imports nothing, off the public `pancake`
+  `become` is O(log n). Pure, no-I/O, imports nothing, off the public `glowcap`
   namespace, reached only by opt-in persistent actors.
 - `diagnostics`: the vendor-neutral typed record and bounded journal for a
   failure whose last deterministic return recipient has gone (ADR-0115).
@@ -186,7 +186,7 @@ root to reach test support.
   `spawnAt`, stateless GC, and the byte-fed multi-session CapTP host core
   `Host`. It is `core = true`, so **`arch-check` bans I/O here exactly as in
   `engine`, and that ban is what keeps a socket from creeping back into the
-  serve core** (ADR-0072). A byte-fed consumer (the `libpancake_host` C ABI, a
+  serve core** (ADR-0072). A byte-fed consumer (the `libglowcap_host` C ABI, a
   browser) drives a `Served` or a `Host` directly, net-free. The `Host` is split
   across internal sibling files by responsibility, each presenting supported
   verbs as `Host`'s own through decl aliases. `host.zig` keeps the aggregate
@@ -205,14 +205,14 @@ root to reach test support.
   views onto an owning `driver.HostRuntime` (ADR-0090), so the front door redeems
   handoffs; `driver.Bridge` plus `completion.Loop` is the scale embedding of the
   same core (ADR-0068, ADR-0072, ADR-0076). Language bindings drive
-  `driver_core.Host` through `libpancake_host` rather than rebuilding a Zig Host
+  `driver_core.Host` through `libglowcap_host` rather than rebuilding a Zig Host
   type. Adds no CapTP semantics. It also owns the `drawSessionSecret` entropy
   boundary and the transport constructors, the members that must stay above the
   core's I/O ban.
 - `c_abi/`: the public C ABI family, grouped the way `src/ocapn/` groups the
   protocol core. It ships as composable archives that **share types by _layout_,
   not symbols** (ADR-0055, ADR-0059), each exporting only its own
-  `pancake_<family>_*` family. Signatures and constants are reflected from Zig
+  `glowcap_<family>_*` family. Signatures and constants are reflected from Zig
   while header prose lives in `tools/gen/header/*.zig`, so a C-contract change
   edits both and then runs the `gen-*` step.
   - `c_abi/shared` (`c_abi_shared`): archive-neutral C layouts and mechanics.
@@ -220,18 +220,18 @@ root to reach test support.
     OCapN model without turning provider archives into OCapN symbol consumers.
     **Declares no `export fn`**, so every archive reuses it without inheriting
     another's exports.
-  - `c_abi/ocapn` (`c_abi`): `libpancake_ocapn`, C-shaped only. Every handle
-    frees through exactly one `pancake_*_release`; a `*_close` is a shutdown
+  - `c_abi/ocapn` (`c_abi`): `libglowcap_ocapn`, C-shaped only. Every handle
+    frees through exactly one `glowcap_*_release`; a `*_close` is a shutdown
     lever and never frees, which `source-check` holds in the generated headers.
-  - `c_abi/host` (`c_abi_host`): `libpancake_host`, the byte-fed host tier
+  - `c_abi/host` (`c_abi_host`): `libglowcap_host`, the byte-fed host tier
     (ADR-0072). An embedder owning its own loop, sockets, and entropy drives a
     full multi-session CapTP Host with bytes, and the host's own effects surface
     as actions, so publish, fetch, send, vows, projections, and the full
     three-party handoff run from C with no socket.
-  - `c_abi/driver` (`c_abi_driver`): `libpancake_driver`, the native loop
-    archive (ADR-0112). Exports only the `pancake_driver_*` family and adopts a
-    quiescent Host from `libpancake_host` through
-    `pancake_driver_take_host`: a stepping `driver.HostRuntime` behind one
+  - `c_abi/driver` (`c_abi_driver`): `libglowcap_driver`, the native loop
+    archive (ADR-0112). Exports only the `glowcap_driver_*` family and adopts a
+    quiescent Host from `libglowcap_host` through
+    `glowcap_driver_take_host`: a stepping `driver.HostRuntime` behind one
     readiness descriptor and one event queue, with the standalone provider ABI
     as the transport seam. A new loop starts with zero transports; one thread
     drives one loop; dial and accept handshakes advance across steps
@@ -248,11 +248,11 @@ root to reach test support.
     Bindings reject only unsafe or lossy ABI marshalling; the C ABI owns
     semantic argument validity and bindings translate its diagnostic.
   - `c_abi/wasm` (`c_abi_wasm`): the browser binding's freestanding `wasm32`
-    entry root (ADR-0070). Forces the `pancake_*` and `pancake_host_*` families
+    entry root (ADR-0070). Forces the `glowcap_*` and `glowcap_host_*` families
     into one loadable module and adds the two JS-to-wasm linear-memory
     primitives. Adds no CapTP surface; sits outside the layer DAG.
   - `c_abi/net_transport/tcp` (`c_abi_net_transport_tcp`): the TCP transport
-    archive, exporting only `pancake_tcp_*`. It owns the complete `tcp`,
+    archive, exporting only `glowcap_tcp_*`. It owns the complete `tcp`,
     `keyed-tcp`, and `noise-tcp` provider package together with the low-level
     framed connection API; the provider lease is the native lifetime authority.
   - `c_abi/net_transport`: the grouping directory for transport sidecars and
@@ -260,18 +260,18 @@ root to reach test support.
     `.graph = false` layer outside the layer DAG because its artifact boundary
     is not expressible as a DAG edge.
     - `c_abi/net_transport/inproc` (`c_abi_net_transport_inproc`): the
-      in-process archive, exporting only `pancake_inproc_*`.
+      in-process archive, exporting only `glowcap_inproc_*`.
     - `c_abi/net_transport/iroh` (`c_abi_net_transport_iroh`): the iroh archive,
-      exporting only `pancake_iroh_*`. `arch-check` still claims the directory
+      exporting only `glowcap_iroh_*`. `arch-check` still claims the directory
       for file coverage and the I/O bans.
     - `c_abi/net_transport/webrtc` (`c_abi_net_transport_webrtc`): the WebRTC
-      archive (ADR-0089), exporting only `pancake_webrtc_*`. Alone among the
+      archive (ADR-0089), exporting only `glowcap_webrtc_*`. Alone among the
       transports it imports `c_abi_shared` and not `net`, because its surface is
       an endpoint readiness fd plus peer creation, signaling, non-blocking
       try-I/O, and close. **A bare locator carries no signaling authority, so
       the resident exposes no fake address `Netlayer`.**
 - `oracle`: canonical CapTP scenario drivers, the observable-trace reference the
-  Zig oracle tests compare against. Its own module off the public `pancake`
+  Zig oracle tests compare against. Its own module off the public `glowcap`
   namespace, imported by tests and consumed by no binding, because the bindings
   prove the C ABI by dogfood rather than oracle traces. Not on the runtime path.
   (The top-level `conformance/` tree is unrelated: it holds external authority.)
@@ -282,7 +282,7 @@ Kept here, not in human first-read docs.
 
 | Name | Is |
 | --- | --- |
-| `Host` / `PancakeHost` / binding `Host` | multi-session CapTP product; owns `engine.Node` |
+| `Host` / `GlowcapHost` / binding `Host` | multi-session CapTP product; owns `engine.Node` |
 | `engine.Node` | sans-io handoff router |
 | binding `Session` | one-partner app object, a view onto a `driver_core.HostSession` under a Host |
 | `driver.Session` | the same contract natively, a view onto an owning `driver.HostRuntime` (ADR-0090) |
@@ -290,5 +290,5 @@ Kept here, not in human first-read docs.
 | Goblins `mycapn` | two roles: product maps to Host; router tables map to `engine.Node` |
 
 Application-level binding `Node` and `Connection` are deleted, and `net.Connection` is the byte
-stream only. There is no multi-session "node" alias for `PancakeHost` and no
+stream only. There is no multi-session "node" alias for `GlowcapHost` and no
 `driver.Connection`.

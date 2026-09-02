@@ -42,7 +42,7 @@ export function joinedPeerDoc(): TimelineDocument {
 			kind: "peer-joined",
 			t: 5,
 			peerId: "127.0.0.1:0",
-			profile: "pancake",
+			profile: "glowcap",
 			label: "127.0.0.1:0",
 		},
 	]);

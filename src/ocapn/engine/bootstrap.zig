@@ -251,7 +251,7 @@ pub const WithdrawOutcome = union(enum) {
     /// answer once the deposit lands rather than refuse (the upstream OCapN
     /// suite pins this). The caller parks the withdraw; `Peer.step` retries
     /// parked withdraws, and one whose deposit never arrives stays parked until
-    /// session teardown — deadlines belong to the application, above pancake.
+    /// session teardown — deadlines belong to the application, above glowcap.
     awaiting_deposit: struct {
         receive: PendingReceive,
         gifter_peer_handle: PeerHandle,

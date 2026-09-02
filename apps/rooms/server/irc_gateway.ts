@@ -18,7 +18,7 @@
 // account credentials are accepted only over TLS and live only beside this
 // seat's connection.
 
-import { type Argument, type Session } from "@pancake/runtime";
+import { type Session } from "@glowcap/runtime";
 import { IrcBridgeRoom } from "../irc/bridge/room.ts";
 import { IrcChannelRelay } from "../irc/bridge/outbound.ts";
 import {
@@ -29,7 +29,7 @@ import {
 import { ircFold } from "../irc/protocol.ts";
 import { automaticIrcNick, ircNickRenameRefusal } from "../irc/bridge/identity.ts";
 import { ircIdentityForm } from "../irc/bridge/identity_form.ts";
-import type { IrcNetworkChoice } from "../lib/irc_gateway_client.ts";
+import type { IrcNetworkChoice } from "./irc_gateway/model.ts";
 import type { SeatPhase } from "../lib/protocol_irc.ts";
 import type { RoomServerContext } from "./context.ts";
 import { notifyPublicRoom } from "./discovery.ts";
@@ -43,7 +43,7 @@ import {
 } from "./irc_gateway/member_behavior.ts";
 import { ircNetworkKey, type OperatorIrcNetwork } from "./irc_gateway/networks.ts";
 import type { IrcBridgeAuthorities } from "./irc_gateway/authority.ts";
-import { projectIrcBridgeSnapshot, projectIrcGatewaySnapshot } from "./irc_gateway/snapshot.ts";
+import { projectBridgeGateway } from "./irc_gateway/gateway_projection.ts";
 
 class SeatSuperseded extends Error {}
 
@@ -594,14 +594,11 @@ export function partIrcBridge(
 	return state.forgetIrcBridge(network, channel).then(() => `${network}/${channel}`);
 }
 
-export function ircBridgeSnapshot(ctx: RoomServerContext): Argument[] {
-	return projectIrcBridgeSnapshot(ctx.irc.bridged.values());
-}
-
-/** The complete operator view: retained network capabilities first, then the
- * channel leases nested beneath them. Passwords never enter this projection. */
-export function ircGatewaySnapshot(ctx: RoomServerContext): Argument[] {
-	return projectIrcGatewaySnapshot(ctx.irc.networks, ctx.irc.bridged.values());
+/** The complete operator view as a generic bridge gateway: the connection and
+ * lease forms IRC declares, its words, and its connections with the channel
+ * leases nested beneath them. Passwords never enter this projection. */
+export function ircGatewaySnapshot(ctx: RoomServerContext): string {
+	return projectBridgeGateway(ctx.irc.networks, ctx.irc.bridged.values());
 }
 
 /** The one connection configuration a logical IRC network currently uses. */

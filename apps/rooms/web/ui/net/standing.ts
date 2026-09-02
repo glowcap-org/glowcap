@@ -10,6 +10,7 @@
 import * as store from "../store.ts";
 import { convSession } from "./live.ts";
 import { reason } from "./common.ts";
+import { NOT_ROOM_MEMBER, roomErrorOf } from "../../../lib/errors.ts";
 import { roomCalled } from "../text.ts";
 import type { RoomsPageContext } from "../page.ts";
 import type { DirId } from "../types.ts";
@@ -29,11 +30,15 @@ export function tellStanding(page: RoomsPageContext, key: string): void {
 	// The room tells everybody, this tab included, so nothing is shown from here:
 	// what a roster says is the room's word rather than this tab's intention.
 	room.away(standing).catch((error) => {
-		// A room without the verb is a room without the concept — the bridge
-		// vocabulary is the room's own — and absence is not something to scold
-		// the reader about. Told stays recorded, so a reconnect does not ask a
-		// room the same question it already declined to have.
-		if (reason(error).includes("has no method")) return;
+		// Presence is a courtesy, not a delivery. A room without the verb has no
+		// presence concept (the bridge vocabulary is the room's own), and a
+		// membership that has ended has no presence left to set — a bridge whose
+		// connection dropped, a room this reader was removed from. Neither is the
+		// reader's doing, so neither is surfaced. Told stays recorded, so a
+		// reconnect does not re-ask a settled question. The ended membership is
+		// the typed refusal its throwers mint; only the missing verb, which has
+		// no code, is still read from the wording.
+		if (reason(error).includes("has no method") || roomErrorOf(error)?.code === NOT_ROOM_MEMBER) return;
 		session.standingTold.delete(key);
 		// In the room it failed for, named: `tellStandingEverywhere` runs this
 		// once per room, and several bare "Could not say that" lines landing in

@@ -53,7 +53,7 @@ async fn cancelling_during_transport_flush_tears_the_stream() {
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
 			crate::host::check_host(unsafe {
-				ffi::pancake_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
+				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
 			.unwrap();
 
@@ -91,7 +91,7 @@ async fn closing_cancels_a_backpressured_transport_flush() {
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
 			crate::host::check_host(unsafe {
-				ffi::pancake_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
+				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
 			.unwrap();
 
@@ -132,7 +132,7 @@ async fn a_wire_failure_is_the_first_terminal_cause() {
 			let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
 			let mut ptr = core::ptr::null_mut();
 			crate::host::check_host(unsafe {
-				ffi::pancake_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
+				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
 			.unwrap();
 			let (stream, _peer) = tokio::io::duplex(64);
@@ -162,7 +162,7 @@ async fn cancelling_a_session_close_waiter_does_not_stop_the_shared_driver() {
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
 			check_host(unsafe {
-				ffi::pancake_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
+				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
 			.unwrap();
 
@@ -229,7 +229,7 @@ async fn a_mid_turn_driving_verb_breaks_its_own_answer() {
 							// A driving verb inside the turn: the latch refuses
 							// it, and the error's words become the broken answer.
 							let mut vow: u64 = 0;
-							let rc = unsafe { ffi::pancake_host_session_fetch(raw, "nested".as_ptr(), 6, &mut vow) };
+							let rc = unsafe { ffi::glowcap_host_session_fetch(raw, "nested".as_ptr(), 6, &mut vow) };
 							if rc == sys::OK {
 								return Err("a mid-turn fetch was NOT refused".to_string());
 							}

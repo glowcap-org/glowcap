@@ -1,11 +1,11 @@
 import * as tcp from "../../tcp/mod.ts";
-import { INVALID_ARGUMENT, IO, LIFECYCLE_ACTIVE, LIFECYCLE_CLOSED, OK } from "@pancake/abi";
+import { INVALID_ARGUMENT, IO, LIFECYCLE_ACTIVE, LIFECYCLE_CLOSED, OK } from "@glowcap/abi";
 import { Connector } from "../transport.ts";
 import { Host } from "../host.ts";
 import { type CloseOptions, encodeCloseOptions, lifecycleClosed, releaseConsumed } from "../lifecycle.ts";
 import { Runtime } from "../runtime.ts";
 import { Context, recordCallerlessFailure, takeRuntimeFailures } from "../context.ts";
-import { PancakeError } from "../errors.ts";
+import { GlowcapError } from "../errors.ts";
 import { designatorHostPort, parseLocator } from "../locator.ts";
 import type { Session } from "../session.ts";
 import { requireArchiveFingerprint } from "../internal/ffi/runtime.ts";
@@ -48,7 +48,7 @@ Deno.test("empty locator inputs refuse as grammar errors before FFI", () => {
 		} catch (error) {
 			refusal = error;
 		}
-		assert(refusal instanceof PancakeError, `${name} did not return a typed refusal`);
+		assert(refusal instanceof GlowcapError, `${name} did not return a typed refusal`);
 		assert(refusal.code === INVALID_ARGUMENT, `${name} empty input crossed as a non-grammar failure`);
 	}
 });
@@ -63,7 +63,7 @@ Deno.test("Host profiles use the generated coherent wire pairs", async () => {
 		try {
 			new Host(undefined, { profile: "native", codec: "syrup" });
 		} catch (error) {
-			refused = error instanceof PancakeError && error.code === INVALID_ARGUMENT;
+			refused = error instanceof GlowcapError && error.code === INVALID_ARGUMENT;
 		}
 		assert(refused, "a named Host profile accepted a conflicting codec");
 	} finally {
@@ -74,14 +74,14 @@ Deno.test("Host profiles use the generated coherent wire pairs", async () => {
 
 Deno.test("archive fingerprints refuse stale callable surfaces before use", () => {
 	requireArchiveFingerprint(
-		{ pancake_test_archive_fingerprint: () => 0x1234n },
-		{ symbol: "pancake_test_archive_fingerprint", expected: 0x1234n, archive: "test" },
+		{ glowcap_test_archive_fingerprint: () => 0x1234n },
+		{ symbol: "glowcap_test_archive_fingerprint", expected: 0x1234n, archive: "test" },
 	);
 	let refused = false;
 	try {
 		requireArchiveFingerprint(
-			{ pancake_test_archive_fingerprint: () => 0x5678n },
-			{ symbol: "pancake_test_archive_fingerprint", expected: 0x1234n, archive: "test" },
+			{ glowcap_test_archive_fingerprint: () => 0x5678n },
+			{ symbol: "glowcap_test_archive_fingerprint", expected: 0x1234n, archive: "test" },
 		);
 	} catch (error) {
 		refused = error instanceof Error && error.message.includes("callable surface does not match");

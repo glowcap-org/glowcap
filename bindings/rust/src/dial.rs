@@ -58,11 +58,11 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 
 	let mut opened: Option<Session> = None;
 	let result: Result<()> = async {
-		let mut view = unsafe { core::mem::zeroed::<sys::PancakeLocatorView>() };
+		let mut view = unsafe { core::mem::zeroed::<sys::GlowcapLocatorView>() };
 		let mut hint_count = 0usize;
-		let mut hints: Vec<sys::PancakeLocatorHintView>;
+		let mut hints: Vec<sys::GlowcapLocatorHintView>;
 		let probe_rc = unsafe {
-			ffi::pancake_host_pending_dial(
+			ffi::glowcap_host_pending_dial(
 				host.raw(),
 				ticket,
 				route_index,
@@ -73,9 +73,9 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 			)
 		};
 		if probe_rc == sys::ERR_BUFFER_TOO_SMALL {
-			hints = vec![unsafe { core::mem::zeroed::<sys::PancakeLocatorHintView>() }; hint_count];
+			hints = vec![unsafe { core::mem::zeroed::<sys::GlowcapLocatorHintView>() }; hint_count];
 			check_host(unsafe {
-				ffi::pancake_host_pending_dial(
+				ffi::glowcap_host_pending_dial(
 					host.raw(),
 					ticket,
 					route_index,
@@ -94,7 +94,7 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 		let raw_session = session.raw_session();
 		opened = Some(session);
 		// Admit the owner task before reporting the connection to the core. Once
-		// `pancake_host_dialed` commits, failure is no longer retryable as a dial;
+		// `glowcap_host_dialed` commits, failure is no longer retryable as a dial;
 		// this gate keeps task admission on the refusal side of that boundary.
 		let (serve_tx, serve_rx) = tokio::sync::oneshot::channel::<Session>();
 		if !try_spawn_local(async move {
@@ -112,7 +112,7 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 			));
 		}
 		let mut adopted = 0u8;
-		check_host(unsafe { ffi::pancake_host_dialed(host.raw(), ticket, route_index, raw_session, &mut adopted) })?;
+		check_host(unsafe { ffi::glowcap_host_dialed(host.raw(), ticket, route_index, raw_session, &mut adopted) })?;
 		if adopted == 0 {
 			let session = opened.take().expect("unadopted dial remains owned");
 			session.close(crate::PendingWork::Cancel).await?;
@@ -141,7 +141,7 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 			}
 			let reason = error.to_string();
 			check_host(unsafe {
-				ffi::pancake_host_dial_failed(host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
+				ffi::glowcap_host_dial_failed(host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
 			})
 		}
 	}

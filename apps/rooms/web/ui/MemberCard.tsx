@@ -39,6 +39,10 @@ interface MemberView {
 	mark: MemberIdentity["mark"];
 	said: string;
 	network: MemberIdentity["network"];
+	/** The bridge's own word for itself when this room is bridged, so the
+	 * reader's own identity control names the service rather than a hardcoded
+	 * "IRC". Null in a room with no bridge. */
+	bridgeBadge: string | null;
 	standing: Standing;
 	you: boolean;
 	/** The room this reading came from. Null when the foot opened the card, which
@@ -95,6 +99,7 @@ export const MemberCard = memo(function MemberCard(
 			mark: identity.mark,
 			said: identity.said,
 			network: identity.network,
+			bridgeBadge: conv?.type === "room" ? conv.bridge?.badge ?? null : null,
 			standing,
 			you,
 			room: conv === null || conv.type !== "room" ? null : conv.id,
@@ -163,7 +168,7 @@ function MemberDialog(
 								<span className="membercard-name">{view.name}</span>
 								{view.you && <span className="membercard-you">(you)</span>}
 								{view.mark !== null && (
-									<span className="irc-chip" data-network={view.network}>{view.mark}</span>
+									<span className="bridge-chip" data-network={view.network}>{view.mark}</span>
 								)}
 							</>
 						}
@@ -284,14 +289,14 @@ function MemberDialog(
 						? view.standing.seat !== undefined && (
 							<div className="actions">
 								<Button
-									id="membercardIrc"
+									id="membercardBridge"
 									variant="quiet"
 									onClick={() => {
 										browser.aboutMember(null);
-										browser.manageIrcIdentity();
+										browser.manageBridgeIdentity();
 									}}
 								>
-									Manage your IRC identity…
+									Manage your {view.bridgeBadge ?? "bridge"} identity…
 								</Button>
 							</div>
 						)

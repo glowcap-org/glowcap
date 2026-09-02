@@ -65,7 +65,7 @@ Three verbs and one carrier, each at the layer that owns it:
   out: flush the condemned connection's queued abort, close its transport,
   release the shell. Without it a byte-fed embedder cannot learn the host
   condemned a connection mid-pump. `condemned` alone only refuses future
-  verbs. Mirrored end to end as `PANCAKE_HOST_ACTION_CLOSE` and an arm in
+  verbs. Mirrored end to end as `GLOWCAP_HOST_ACTION_CLOSE` and an arm in
   every binding's action drain.
 - **`HostAction.resume_work`** is the continuation signal for a finite
   `host_work_quantum`. A quantum may end with Node actions, handoff changes, or
@@ -75,7 +75,7 @@ Three verbs and one carrier, each at the layer that owns it:
   `Options.on_loop_turn`, which forces one nonblocking backend poll between
   Host slices; async language bindings yield through their native scheduler.
   The action carries no session, ticket, bytes, or I/O operation and is
-  mirrored as `PANCAKE_HOST_ACTION_RESUME`.
+  mirrored as `GLOWCAP_HOST_ACTION_RESUME`.
 
 `driver.Bridge` (`src/driver/bridge.zig`) composes them: the loop's
 hooks adopt (`makeConnCtx`), serve (`serve`), and release (`freeConnCtx`),

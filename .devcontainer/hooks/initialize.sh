@@ -7,7 +7,7 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_require_host "hooks/initialize.sh"
+glowcap_require_host "hooks/initialize.sh"
 
 # Docker treats a missing bind source as a root-owned directory. Create each
 # host-owned store first so every worktree mounts the same writable path for
@@ -15,13 +15,13 @@ pancake_require_host "hooks/initialize.sh"
 host_home="${HOME:?initialize.sh: HOME must name the host user directory}"
 while IFS=: read -r host_relative _; do
   mkdir -p "${host_home}/${host_relative}"
-done <<< "$(pancake_devcontainer_host_home_bind_rows)"
+done <<< "$(glowcap_devcontainer_host_home_bind_rows)"
 
-cache_root="${host_home}/.cache/pancake"
+cache_root="${host_home}/.cache/glowcap"
 while IFS= read -r sub; do
   mkdir -p "${cache_root}/${sub}"
-done <<< "$(pancake_devcontainer_host_cache_layout)"
-pancake_devcontainer_host_cache_layout_text > "${cache_root}/LAYOUT"
+done <<< "$(glowcap_devcontainer_host_cache_layout)"
+glowcap_devcontainer_host_cache_layout_text > "${cache_root}/LAYOUT"
 
 # Containers read Claude Code's account file from inside the bound directory
 # (CLAUDE_CONFIG_DIR in devcontainer.json), while a host Claude Code keeps its
@@ -46,7 +46,7 @@ fi
 if [[ ! -e "${dir}/.env" ]]; then
   bash "${dir}/bin/configure.sh"
 fi
-worktree_name="$(pancake_devcontainer_validate_checkout_env "${dir}")"
+worktree_name="$(glowcap_devcontainer_validate_checkout_env "${dir}")"
 
 command -v docker >/dev/null || {
   echo "hooks/initialize.sh: docker is not on PATH" >&2
@@ -56,12 +56,12 @@ command -v docker >/dev/null || {
 # rooms-net is the fixed-name network this container shares with the rooms app
 # (apps/rooms/web/deploy) so a bot here reaches the room's internal CapTP by
 # name. Ignore a create race only when the network is observable afterward.
-pancake_devcontainer_ensure_network rooms-net managed
+glowcap_devcontainer_ensure_network rooms-net managed
 
-egress="$(pancake_devcontainer_env_value "${dir}" EGRESS_NET)"
-default_egress="$(pancake_devcontainer_default_egress_network "${worktree_name}")"
+egress="$(glowcap_devcontainer_env_value "${dir}" EGRESS_NET)"
+default_egress="$(glowcap_devcontainer_default_egress_network "${worktree_name}")"
 if [[ "${egress}" == "${default_egress}" ]]; then
-  pancake_devcontainer_ensure_network "${egress}" managed
+  glowcap_devcontainer_ensure_network "${egress}" managed
 else
-  pancake_devcontainer_ensure_network "${egress}" external
+  glowcap_devcontainer_ensure_network "${egress}" external
 fi

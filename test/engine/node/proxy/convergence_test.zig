@@ -3,12 +3,12 @@
 //! in either order.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 const LiveBytesAllocator = @import("../../../support/alloc_metrics.zig").LiveBytesAllocator;
 
 const Node = engine.Node;
@@ -63,7 +63,7 @@ test "converging next proxy subscriptions merge recipient groups behind one list
     defer target_shortening_frame.deinit();
     var target_settling_frame = home_peer.takeOutbound().?;
     defer target_settling_frame.deinit();
-    const target_settling = try pancake.ocapn.codec.syrup.decodeBodyForProfile(.next, target_settling_frame.view());
+    const target_settling = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(.next, target_settling_frame.view());
     const target_listener = target_settling.listen.listener.far.import_position.int();
     try std.testing.expect(home_peer.takeOutbound() == null);
 
@@ -71,7 +71,7 @@ test "converging next proxy subscriptions merge recipient groups behind one list
         .{ .symbol = "fulfill" },
         .{ .reference = .{ .near = model.NearRef.promise(target) } },
     };
-    var shortening = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+    var shortening = try glowcap.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(source_shortening.int()) },
         .args = &shortening_args,
     } });
@@ -173,7 +173,7 @@ fn runMixedSettlingConvergence(
         .{ .symbol = "fulfill" },
         .{ .reference = .{ .near = model.NearRef.promise(target) } },
     };
-    var shortening = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+    var shortening = try glowcap.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(source_shortening.int()) },
         .args = &shortening_args,
     } });
@@ -198,7 +198,7 @@ fn runMixedSettlingConvergence(
         .{ .symbol = "fulfill" },
         .{ .bytes = "mixed settlement" },
     };
-    var settlement = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+    var settlement = try glowcap.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(target_listener) },
         .args = &settlement_args,
     } });
@@ -214,7 +214,7 @@ fn runMixedSettlingConvergence(
     if (release_application_before_settlement) {
         try std.testing.expect(semantic == .deliver);
         try std.testing.expectEqual(
-            pancake.ocapn.session.RetiredResolverState.complete,
+            glowcap.ocapn.session.RetiredResolverState.complete,
             home_peer.session_state.retiredResolverState(.from(target_listener)).?,
         );
         try std.testing.expect(!home_peer.session_state.promiseSettlingListenerClaimed(target_incarnation));
@@ -222,7 +222,7 @@ fn runMixedSettlingConvergence(
         try std.testing.expectEqual(application_answer, semantic.resolve.answer);
         try std.testing.expectEqual(@as(usize, 0), event.resolveAliases().len);
         try std.testing.expectEqual(
-            pancake.ocapn.session.AnswerStatus.fulfilled,
+            glowcap.ocapn.session.AnswerStatus.fulfilled,
             home_peer.session_state.outboundAnswer(application_answer).?.status,
         );
     }

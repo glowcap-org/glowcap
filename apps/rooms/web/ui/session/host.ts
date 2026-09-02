@@ -7,7 +7,7 @@
 // Memory documents are enough: reload mints a new Host, so sharing cannot
 // outlive the tab.
 
-import { retainCleanupFailures, TRANSPORT_NOISE_RELAY } from "@pancake/runtime";
+import { retainCleanupFailures, TRANSPORT_NOISE_RELAY } from "@glowcap/runtime";
 import * as store from "../store.ts";
 import { homeLocator } from "../net/bootstrap.ts";
 import { iceServers } from "../net/ice.ts";

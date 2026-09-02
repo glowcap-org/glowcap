@@ -6,7 +6,7 @@ import {
 	secondaryFailureCount,
 	type Session,
 	TRANSPORT_WEBRTC,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import {
 	type RoomsOperationsSnapshot,
 	RoomsSessionClient,

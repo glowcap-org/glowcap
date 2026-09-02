@@ -1,6 +1,6 @@
 // Source-owned durable entry and moderation authority for IRC bridge rooms.
 
-import { type Behavior, currentSession, type Session } from "@pancake/runtime";
+import { type Behavior, currentSession, type Session } from "@glowcap/runtime";
 import { roomAuthorityIdentity } from "../../lib/authority_identity.ts";
 import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
 import { NOT_STEWARD, ROOM_RETIRED, RoomError } from "../../lib/errors.ts";

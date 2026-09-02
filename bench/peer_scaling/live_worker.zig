@@ -7,14 +7,14 @@
 //! and bootstrap fetch before its shard reaches the barrier.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const actors = pancake.actors;
-const driver = pancake.driver;
-const engine = pancake.ocapn.engine;
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const net = pancake.net;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const engine = glowcap.ocapn.engine;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const Host = driver.core.Host;

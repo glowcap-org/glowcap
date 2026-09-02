@@ -13,9 +13,9 @@
 # bash read: the launchers scan it on the host for its pane functions, and
 # scanning is all they do with it.
 #
-# Stepping out of the container with pancake_devcontainer_exit and back in
-# with pancake_devcontainer_enter runs this pane's function again, which is
-# how a pane restarts what it runs. pancake_devcontainer_enter --bare skips
+# Stepping out of the container with glowcap_devcontainer_exit and back in
+# with glowcap_devcontainer_enter runs this pane's function again, which is
+# how a pane restarts what it runs. glowcap_devcontainer_enter --bare skips
 # it.
 #
 # With --session NAME, a .devcontainer/pane/panes-NAME.sh file is preferred when

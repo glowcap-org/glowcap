@@ -1,5 +1,5 @@
 # The iroh netlayer sidecar (ADR-0055): a staticlib wrapping the iroh endpoint
-# behind the narrow C ABI in include/pancake_iroh_sidecar.h. libpancake stays
+# behind the narrow C ABI in include/glowcap_iroh_sidecar.h. libglowcap stays
 # pure Zig; only the `iroh-*` build steps need cargo on PATH.
 #
 # Cargo.lock is committed, unlike bindings/rust's: this crate pulls an external
@@ -8,17 +8,17 @@
 # direct dependencies are pinned exactly below as well, so an intentional bump
 # is visible here, not only in the lockfile.
 [package]
-name = "pancake-iroh"
+name = "glowcap-iroh"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-# The staticlib is named `pancake_iroh_sidecar` so it emits
-# `libpancake_iroh_sidecar.a`: the private byte-level seam, distinct from the
-# public frame-level artifact `libpancake_net_transport_iroh` that the `iroh-abi` build step
+# The staticlib is named `glowcap_iroh_sidecar` so it emits
+# `libglowcap_iroh_sidecar.a`: the private byte-level seam, distinct from the
+# public frame-level artifact `libglowcap_net_transport_iroh` that the `iroh-abi` build step
 # produces (ADR-0055).
-name = "pancake_iroh_sidecar"
+name = "glowcap_iroh_sidecar"
 crate-type = ["staticlib"]
 
 [dependencies]

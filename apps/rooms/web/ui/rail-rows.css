@@ -147,7 +147,7 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-#roomList .irc-chip {
+#roomList .bridge-chip {
 	flex: none;
 }
 /* Centred in the slot rather than pushed to its end, so the mark that replaces

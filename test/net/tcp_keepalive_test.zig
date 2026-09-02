@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
-const net = pancake.net;
+const glowcap = @import("glowcap");
+const net = glowcap.net;
 
 test "keepalive apply configures a connected stream" {
     if (builtin.os.tag != .linux and builtin.os.tag != .macos) return error.SkipZigTest;

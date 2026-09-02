@@ -1,8 +1,8 @@
-;; PLANNED: pancake has no managed WebRTC Runtime adapter yet.
+;; PLANNED: glowcap has no managed WebRTC Runtime adapter yet.
 ;; The Racket WebRTC dial API is not yet public; this shows the planned shape.
 ;; Pass the signaling capability you already hold.
 ;;
-;; (require "pancake.rkt" "pancake-webrtc.rkt")
+;; (require "glowcap.rkt" "glowcap-webrtc.rkt")
 ;;
 ;; (define partner (webrtc-locator "<64 lowercase hex characters from the peer>"))
 ;; (define runtime (open-runtime #:connectors (list (webrtc-connector signaling))))

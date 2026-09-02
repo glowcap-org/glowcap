@@ -27,7 +27,7 @@ const crypto = foundation.crypto;
 /// `Host.openAcceptedAdvertised` and freed by `Host.releaseSession`. This is
 /// not a `net.Connection` — it is the CapTP
 /// partner the host routes and serves; the ABI name stays
-/// `PancakeHostSession`. The embedder writes what `takeTransportOutbound`
+/// `GlowcapHostSession`. The embedder writes what `takeTransportOutbound`
 /// drains and feeds what it reads through `Host.feedTransportPacket` (never
 /// the `Served` directly, so the host's action pump always runs).
 pub const HostSession = struct {

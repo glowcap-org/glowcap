@@ -11,5 +11,5 @@ path = "agent.rs"
 # Keep the archive set explicit: this agent composes the tokio driver with the
 # TCP provider and pays for no unrelated transport archive.
 [dependencies]
-pancake = { path = "../../../bindings/rust", package = "pancake-rust-dogfood", default-features = false, features = ["async", "tcp"] }
+glowcap = { path = "../../../bindings/rust", package = "glowcap-rust-dogfood", default-features = false, features = ["async", "tcp"] }
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

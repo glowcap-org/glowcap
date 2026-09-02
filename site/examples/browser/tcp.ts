@@ -1,8 +1,8 @@
-import { locator } from "@pancake/tcp";
-import { init } from "@pancake/web";
+import { locator } from "@glowcap/tcp";
+import { init } from "@glowcap/web";
 
 const web = await init({
-	wasm: fetch("/pancake_host.wasm"),
+	wasm: fetch("/glowcap_host.wasm"),
 	// A page cannot open raw TCP, so a relay carries the bytes.
 	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
 });

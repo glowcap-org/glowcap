@@ -1,4 +1,4 @@
-# pancake — Agentic Infrastructure
+# glowcap — Agentic Infrastructure
 
 Canonical home for agent-facing guidance in this Zig repository.
 
@@ -41,7 +41,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | [agent-scaffolding](rules/agent-scaffolding.md)     | The scaffolding is a public API for agents: living-state discipline, the gate, the ratchet, the budget |
 | [architecture](rules/architecture.md)               | Layer ownership, sync no-I/O core, codec/session/engine boundaries                                     |
-| [cli](rules/cli.md)                                 | Zig gates, generated state, git posture, live CapTP via pancake-cli, product CapTP wait budgets        |
+| [cli](rules/cli.md)                                 | Zig gates, generated state, git posture, live CapTP via glowcap-cli, product CapTP wait budgets        |
 | [debugging](rules/debugging.md)                     | A failure is data: evidence before theory, ordered suspects, halved search, a fix that explains it     |
 | [doc-drift](rules/doc-drift.md)                     | Living-state docs must match current code or drop the state claim                                      |
 | [doc-voice](rules/doc-voice.md)                     | Human-readable prose for first-read docs and public examples                                           |
@@ -58,11 +58,11 @@ inventory; update it in the same change as any intentional scaffolding move.
 | -------------------------------- | ------------------------------------------------------------------------------------ |
 | [community-review](skills/community-review/SKILL.md) | OCapN / Goblins community-review preflight |
 | [file-budget](skills/file-budget/SKILL.md) | Canonical workflow for splitting oversize sources until the closed exception inventory is empty |
-| [pancake-cli](skills/pancake-cli/SKILL.md) | Shell CapTP (argv / REPL / listen / `--json`) |
-| [pancake-mcp](skills/pancake-mcp/SKILL.md) | In-host CapTP via project MCP |
+| [glowcap-cli](skills/glowcap-cli/SKILL.md) | Shell CapTP (argv / REPL / listen / `--json`) |
+| [glowcap-mcp](skills/glowcap-mcp/SKILL.md) | In-host CapTP via project MCP |
 | [ratchet](skills/ratchet/SKILL.md) | Land a session's lesson at the strongest layer: check, fixture, rule line, or deletion |
 | [rooms-peer](skills/rooms-peer/SKILL.md) | Single-agent durable room presence and wake loop |
-| [rooms-team](skills/rooms-team/SKILL.md) | Multi-persona durable team in a pancake room |
+| [rooms-team](skills/rooms-team/SKILL.md) | Multi-persona durable team in a glowcap room |
 | [serena](skills/serena/SKILL.md) | Serena MCP operator notes for Zig |
 | [smell-annihilation](skills/smell-annihilation/SKILL.md) | Structural smell pass (architecture + cost) |
 | [work](skills/work/SKILL.md) | Substantial work: assess, act or prove inaction |

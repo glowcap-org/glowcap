@@ -1,4 +1,4 @@
-"""A rooms chat client, written on pancake actors in native Python.
+"""A rooms chat client, written on glowcap actors in native Python.
 
 It enters the named room, waits until everyone it expects is present, posts one
 line, and collects each expected member's line as the room pushes it back. All
@@ -28,7 +28,7 @@ import asyncio
 import pathlib
 import sys
 
-from room_client import Directory, Room, RoomInfo  # the pancake-backed clients, next to this file
+from room_client import Directory, Room, RoomInfo  # the glowcap-backed clients, next to this file
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_demo"))
 from rooms_cli import enter_or_open  # noqa: E402

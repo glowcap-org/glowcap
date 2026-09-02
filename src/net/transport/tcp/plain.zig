@@ -10,7 +10,7 @@
 //! turns into syscalls.
 //!
 //! The transport is named `tcp` — the symbol the OCapN conformance TCP netlayer
-//! (Goblins' `^tcp-netlayer`) matches on, so a pancake locator addresses and is
+//! (Goblins' `^tcp-netlayer`) matches on, so a glowcap locator addresses and is
 //! addressed by a Goblins `tcp` peer. It is still cleartext, no TLS: the OCapN
 //! spec standardizes only `onion`, and `tcp` is the conformance/testing
 //! transport both sides speak. Real confidential transports (TLS, QUIC/iroh)

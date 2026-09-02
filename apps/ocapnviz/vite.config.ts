@@ -21,29 +21,29 @@ import { devListen } from "./vite-dev-listen.ts";
 //
 // `optimizeDeps.include` pre-bundles the heavy deps at server start;
 // combined with `server.warmup`, the dev server boots hot.
-const pancakeHostWasm = new URL(
-	"../../zig-out/wasm/pancake_host.wasm",
+const glowcapHostWasm = new URL(
+	"../../zig-out/wasm/glowcap_host.wasm",
 	import.meta.url,
 );
 
 /** Add the canonical wasm Host without replacing Vite's `public/` directory.
  * Development serves the build artifact directly; production emits the same
  * bytes as a root asset beside the public font, favicon, and service worker. */
-function pancakeHostWasmPlugin(): Plugin {
+function glowcapHostWasmPlugin(): Plugin {
 	return {
-		name: "pancake-host-wasm",
+		name: "glowcap-host-wasm",
 		configureServer(server) {
 			server.middlewares.use(async (req, res, next) => {
 				if (
 					new URL(req.originalUrl ?? "/", "http://localhost")
 						.pathname !==
-						"/pancake_host.wasm"
+						"/glowcap_host.wasm"
 				) {
 					next();
 					return;
 				}
 				try {
-					const bytes = await Deno.readFile(pancakeHostWasm);
+					const bytes = await Deno.readFile(glowcapHostWasm);
 					res.statusCode = 200;
 					res.setHeader("Content-Type", "application/wasm");
 					res.setHeader("Content-Length", String(bytes.byteLength));
@@ -56,18 +56,18 @@ function pancakeHostWasmPlugin(): Plugin {
 		async generateBundle() {
 			this.emitFile({
 				type: "asset",
-				fileName: "pancake_host.wasm",
-				source: await Deno.readFile(pancakeHostWasm),
+				fileName: "glowcap_host.wasm",
+				source: await Deno.readFile(glowcapHostWasm),
 			});
 		},
 	};
 }
 
 export default defineConfig({
-	plugins: [pancakeHostWasmPlugin(), deno(), react()],
+	plugins: [glowcapHostWasmPlugin(), deno(), react()],
 	resolve: {
 		alias: {
-			"virtual:pancake-web": new URL(
+			"virtual:glowcap-web": new URL(
 				"../../bindings/ts/web/mod.ts",
 				import.meta.url,
 			).pathname,

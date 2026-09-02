@@ -1,17 +1,17 @@
 .{
-    .name = .pancake,
+    .name = .glowcap,
     .version = "0.1.0",
     .dependencies = .{
         // Lazy on purpose: libvaxis backs the CapTP lab REPL in the product
-        // CLI and nothing in the `pancake` library module. A consumer that
-        // depends on pancake as a package must not fetch a terminal UI it
+        // CLI and nothing in the `glowcap` library module. A consumer that
+        // depends on glowcap as a package must not fetch a terminal UI it
         // never links, so the CLI steps resolve it and library builds do not.
         .vaxis = .{
             .path = "third_party/libvaxis",
             .lazy = true,
         },
     },
-    .fingerprint = 0x4ff9c4c7afc73bfa,
+    .fingerprint = 0x27b3442e3f8ed58d,
     .minimum_zig_version = "0.17.0-dev.1818+7051f8e73",
     .paths = .{
         "build.zig",

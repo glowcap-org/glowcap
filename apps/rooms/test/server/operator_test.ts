@@ -1,7 +1,7 @@
 // Server-wide stewardship operation: recovery and true revocation of room
 // moderation capabilities, including references already enlivened by a holder.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import { loopbackTcpDesignator } from "../../lib/locator.ts";
 import { Directory } from "../../lib/directory.ts";
 import { Room } from "../../lib/room/client.ts";
@@ -50,7 +50,7 @@ roomsTest("an operations swiss is scoped by the live directory, never retargeted
 });
 
 roomsTest("the Rooms operator recovers and revokes stewardship across live references and restart", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-operator-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-operator-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	let server = startStatefulServer(port, stateDirectory, ["--operator"]);
@@ -183,7 +183,7 @@ roomsTest("the Rooms operator recovers and revokes stewardship across live refer
 });
 
 roomsTest("the operator covers private rooms by opaque durable name, never by their label", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-private-operator-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-private-operator-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	let server = startStatefulServer(port, stateDirectory, ["--operator"]);
@@ -225,7 +225,7 @@ roomsTest("the operator covers private rooms by opaque durable name, never by th
 });
 
 roomsTest("the Rooms operator revokes one room-link generation and the room can issue another", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-operator-link-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-operator-link-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	let server = startStatefulServer(port, stateDirectory, ["--operator"]);
@@ -319,7 +319,7 @@ roomsTest("the Rooms operator revokes one room-link generation and the room can 
 });
 
 roomsTest("the Rooms operator recovers and rotates a lost room manager across restart", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-manager-recovery-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-manager-recovery-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	let server = startStatefulServer(port, stateDirectory, ["--operator"]);
@@ -381,7 +381,7 @@ roomsTest("the Rooms operator recovers and rotates a lost room manager across re
 });
 
 roomsTest("the Rooms operator can establish management for a live baseline room", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-baseline-manager-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-baseline-manager-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	const server = startStatefulServer(port, stateDirectory, ["--operator"]);
@@ -420,7 +420,7 @@ roomsTest("the Rooms operator can establish management for a live baseline room"
 });
 
 roomsTest("the Rooms operator removes exact room owners and resets all directory authority", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-operator-reset-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-operator-reset-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	const server = startStatefulServer(port, stateDirectory, ["--operator"]);
@@ -511,7 +511,7 @@ roomsTest("the Rooms operator removes exact room owners and resets all directory
 });
 
 roomsTest("the Rooms operator pages bounded inventory under one revision", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-operator-page-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-operator-page-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	const server = startStatefulServer(port, stateDirectory, ["--operator"]);
@@ -552,7 +552,7 @@ roomsTest("the Rooms operator pages bounded inventory under one revision", async
 // that says nine while the page still carries at most thirty-two, and a bulk
 // retire that takes exactly those nine and leaves the rest standing.
 roomsTest("the Rooms operator searches and retires past its page", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-operator-search-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-operator-search-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	const server = startStatefulServer(port, stateDirectory, ["--operator"]);

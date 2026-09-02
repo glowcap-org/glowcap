@@ -5,16 +5,16 @@
 //! of parking a fiber.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
-const net = pancake.net;
-const syrup = pancake.ocapn.codec.syrup;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
+const net = glowcap.net;
+const syrup = glowcap.ocapn.codec.syrup;
+const crypto = glowcap.foundation.crypto;
 
 const ip = std.Io.net;
 
@@ -43,7 +43,7 @@ const zero_sig_fault = @as([64]u8, @splat(0));
 
 /// A whole stub-key `op:start-session` frame, encoded so the caller can take a
 /// prefix of it to drive a mid-frame EOF (`TruncatedFrame`).
-fn faultStartSessionFrame(allocator: std.mem.Allocator) !pancake.foundation.Frame {
+fn faultStartSessionFrame(allocator: std.mem.Allocator) !glowcap.foundation.Frame {
     return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,

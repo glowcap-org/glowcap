@@ -31,7 +31,7 @@ function docWithPeer(
 		entities: {
 			peers: {
 				"127.0.0.1:0": {
-					profile: "pancake",
+					profile: "glowcap",
 					label: "127.0.0.1:0",
 					timing: eternal,
 					...(keyframes ? { keyframes } : {}),
@@ -93,14 +93,14 @@ Deno.test("a peer already on stage takes the profile its track says", () => {
 	const world = createWorld();
 
 	materializeWorldAt(world, doc, 10);
-	assertEquals(findPeer(world, "127.0.0.1:0")?.peer.profile, "pancake");
+	assertEquals(findPeer(world, "127.0.0.1:0")?.peer.profile, "glowcap");
 
 	materializeWorldAt(world, doc, 60);
 	assertEquals(findPeer(world, "127.0.0.1:0")?.peer.profile, "goblins");
 
 	// And scrubbing back restores what it was known as then.
 	materializeWorldAt(world, doc, 10);
-	assertEquals(findPeer(world, "127.0.0.1:0")?.peer.profile, "pancake");
+	assertEquals(findPeer(world, "127.0.0.1:0")?.peer.profile, "glowcap");
 });
 
 Deno.test("a session already on stage takes the state its track says", () => {
@@ -111,8 +111,8 @@ Deno.test("a session already on stage takes the state its track says", () => {
 		duration: 100,
 		entities: {
 			peers: {
-				alice: { profile: "pancake", timing: eternal },
-				bob: { profile: "pancake", timing: eternal },
+				alice: { profile: "glowcap", timing: eternal },
+				bob: { profile: "glowcap", timing: eternal },
 			},
 			sessions: {
 				s1: {
@@ -145,9 +145,9 @@ Deno.test("a session already on stage attaches its loose end to a peer", () => {
 		duration: 100,
 		entities: {
 			peers: {
-				bob: { profile: "pancake", timing: eternal },
+				bob: { profile: "glowcap", timing: eternal },
 				alice: {
-					profile: "pancake",
+					profile: "glowcap",
 					designator: "127.0.0.1:9002",
 					timing: eternal,
 				},
@@ -206,7 +206,7 @@ Deno.test("a peer that learns its designator carries it on stage", () => {
 		id: "materialize-designator-test",
 		duration: 100,
 		entities: {
-			peers: { alice: { profile: "pancake", timing: eternal } },
+			peers: { alice: { profile: "glowcap", timing: eternal } },
 		},
 	};
 	const world = createWorld();
@@ -218,7 +218,7 @@ Deno.test("a peer that learns its designator carries it on stage", () => {
 		entities: {
 			peers: {
 				alice: {
-					profile: "pancake",
+					profile: "glowcap",
 					designator: "127.0.0.1:9001",
 					timing: eternal,
 				},
@@ -297,8 +297,8 @@ function fullDoc(edits: {
 		duration: 100,
 		entities: {
 			peers: {
-				alice: { profile: "pancake", label: "alice", timing: eternal },
-				bob: { profile: "pancake", label: "bob", timing: eternal },
+				alice: { profile: "glowcap", label: "alice", timing: eternal },
+				bob: { profile: "glowcap", label: "bob", timing: eternal },
 			},
 			sessions: {
 				s1: {

@@ -1,5 +1,5 @@
-import { Context, Reachability } from "@pancake/runtime";
-import { INVALID_ARGUMENT, IROH_CONFIG_REACHABILITY_OFF, IROH_CONFIG_SIZE } from "@pancake/runtime/ffi";
+import { Context, Reachability } from "@glowcap/runtime";
+import { INVALID_ARGUMENT, IROH_CONFIG_REACHABILITY_OFF, IROH_CONFIG_SIZE } from "@glowcap/runtime/ffi";
 import { irohS } from "../ffi.ts";
 import { IrohNetlayer } from "../mod.ts";
 
@@ -35,7 +35,7 @@ Deno.test("allocator-aware iroh construction returns its worker diagnostic", asy
 		const out = new Uint8Array(8);
 		const error = new Uint8Array(257);
 		const errorLen = new Uint8Array(8);
-		const code = await irohS().pancake_iroh_netlayer_new_in(
+		const code = await irohS().glowcap_iroh_netlayer_new_in(
 			context.pointer,
 			seed,
 			BigInt(seed.length),

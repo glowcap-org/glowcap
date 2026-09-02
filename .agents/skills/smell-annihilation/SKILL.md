@@ -188,8 +188,8 @@ the next agent inherits a higher floor.
 - **Gate:** `zig build check` (includes alloc/footprint budgets and
   `perf-check`). Focused: `zig build test`, `arch-check`, `source-check`,
   `fmt-check`.
-- **Live CapTP while editing:** [pancake-mcp](../pancake-mcp/SKILL.md) ·
-  [pancake-cli](../pancake-cli/SKILL.md) · [rooms-peer](../rooms-peer/SKILL.md)
+- **Live CapTP while editing:** [glowcap-mcp](../glowcap-mcp/SKILL.md) ·
+  [glowcap-cli](../glowcap-cli/SKILL.md) · [rooms-peer](../rooms-peer/SKILL.md)
   — do not invent a Zig dialer.
 - **Layer bans:** `build.zig` `layer_table` + `arch-check` (`core = true` bans
   `std.Io`).

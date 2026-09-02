@@ -1,4 +1,4 @@
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import { spawnFacetPair } from "../../session/facet_pair.ts";
 import { assertEquals } from "../assert.ts";
 

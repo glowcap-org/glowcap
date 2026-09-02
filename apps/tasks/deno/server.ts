@@ -1,4 +1,4 @@
-// The tasks board server, written on pancake actors in native Deno.
+// The tasks board server, written on glowcap actors in native Deno.
 //
 // It hosts one shared task board and accepts any number of OCapN clients over
 // TCP — in any language. Each client can add tasks, mark them done, list them,
@@ -15,8 +15,8 @@
 // With port 0 it binds an ephemeral port and prints it, which the demo harness
 // reads to point clients at the right place.
 
-import { type Argument, Ref, Session } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
+import { type Argument, Ref, Session } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 import { ADD, BOARD, DONE, LIST, WATCH } from "./protocol.ts";
 import { TaskBoardState } from "./board_state.ts";
 import { serveAcceptedSession } from "./lifecycle.ts";

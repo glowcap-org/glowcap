@@ -16,7 +16,7 @@
      (if (and (zero? detail-flags) (zero? verification-flags)
               (zero? peer-alert) (zero? engine-code))
          #f
-         (raise-pancake 'driver ERR-INTERNAL "returned carrier detail without a carrier phase"))]
+         (raise-glowcap 'driver ERR-INTERNAL "returned carrier detail without a carrier phase"))]
     [else
      (define phase-name
        (cond [(= phase CARRIER-PHASE-RESOLVE) 'resolve]
@@ -27,7 +27,7 @@
              [(= phase CARRIER-PHASE-RECEIVE) 'receive]
              [(= phase CARRIER-PHASE-TRANSMIT) 'transmit]
              [(= phase CARRIER-PHASE-SHUTDOWN) 'shutdown]
-             [else (raise-pancake 'driver ERR-INTERNAL "returned unknown carrier phase ~a" phase)]))
+             [else (raise-glowcap 'driver ERR-INTERNAL "returned unknown carrier phase ~a" phase)]))
      (define has-alert? (bitwise-bit-set? detail-flags 0))
      (define has-engine? (bitwise-bit-set? detail-flags 1))
      (define known (bitwise-ior CARRIER-DETAIL-PEER-ALERT CARRIER-DETAIL-ENGINE-CODE))
@@ -35,7 +35,7 @@
                (and (not has-alert?) (not (zero? peer-alert)))
                (and has-alert? (> peer-alert #xff))
                (and (not has-engine?) (not (zero? engine-code))))
-       (raise-pancake 'driver ERR-INTERNAL "returned inconsistent carrier failure detail"))
+       (raise-glowcap 'driver ERR-INTERNAL "returned inconsistent carrier failure detail"))
      (carrier-failure phase-name verification-flags
                       (and has-alert? peer-alert)
                       (and has-engine? engine-code))]))

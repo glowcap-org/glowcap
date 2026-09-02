@@ -1,8 +1,8 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
 const inspect = session.inspect;
 
 test "session inspect walks export and import rows" {

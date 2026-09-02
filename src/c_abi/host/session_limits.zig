@@ -13,23 +13,23 @@ const common = @import("common.zig");
 /// Apply the versioned selective session-limit overrides before minting peers.
 /// Zero fields remain unchanged. Peers already open keep the limits they were
 /// minted with; later mints see the updated `Host.Options`.
-pub export fn pancake_host_set_session_limits(
-    host: ?*c.PancakeHost,
-    options: ?*const c.PancakeSessionLimitOptions,
+pub export fn glowcap_host_set_session_limits(
+    host: ?*c.GlowcapHost,
+    options: ?*const c.GlowcapSessionLimitOptions,
 ) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "set_session_limits")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
-    const opts = options orelse return shared.PANCAKE_ERR_NULL_POINTER;
-    if (opts.abi_version != c.PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION or
-        opts.struct_size < @sizeOf(c.PancakeSessionLimitOptions))
+    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "set_session_limits")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const opts = options orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (opts.abi_version != c.GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION or
+        opts.struct_size < @sizeOf(c.GlowcapSessionLimitOptions))
     {
-        shared.setLastError("host: unsupported PancakeSessionLimitOptions layout", .{});
-        return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+        shared.setLastError("host: unsupported GlowcapSessionLimitOptions layout", .{});
+        return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     if (opts.max_retained_sent_answer_bytes > std.math.maxInt(u32)) {
         shared.setLastError("host: max_retained_sent_answer_bytes exceeds uint32 capacity", .{});
-        return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+        return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     inst.core.setSessionLimits(
         if (opts.max_frame_bytes != 0) opts.max_frame_bytes else null,
@@ -40,5 +40,5 @@ pub export fn pancake_host_set_session_limits(
         else
             null,
     ) catch |err| return common.errToCode(err);
-    return shared.PANCAKE_OK;
+    return shared.GLOWCAP_OK;
 }

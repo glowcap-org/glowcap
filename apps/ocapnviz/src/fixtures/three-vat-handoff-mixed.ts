@@ -10,9 +10,9 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * never authored.
  *
  * Cast, each with the OCapN Designator it answers to on the wire:
- * - Alice (Gifter)   — pancake, `127.0.0.1:9001`
+ * - Alice (Gifter)   — glowcap, `127.0.0.1:9001`
  * - Bob   (Receiver) — Goblins, `127.0.0.1:9002`
- * - Carol (Exporter) — pancake, `127.0.0.1:9003`
+ * - Carol (Exporter) — glowcap, `127.0.0.1:9003`
  *
  * The hand-authored recording shows the per-session profile that a direct
  * connection reports rather than treating the network as one codec, and it
@@ -21,7 +21,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * narratives:
  *
  *   1. Three peers join. Two sessions exist immediately:
- *      Alice ↔ Carol (capnp / pancake-next — both pancake) and
+ *      Alice ↔ Carol (capnp / glowcap-next — both glowcap) and
  *      Alice ↔ Bob (syrup / OCapN 1.0 — the interop floor). Both
  *      start `negotiating`.
  *   2. `op:start-session` flows both ways for each session
@@ -58,7 +58,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * skip `op:gc-*` chatter because it's noise without information at
  * this layer.
  *
- * Every message here carries a real frame, taken from pancake's
+ * Every message here carries a real frame, taken from glowcap's
  * committed corpora and named on the event so the Inspector can say
  * where the bytes came from. See `wire-frames.ts` for the rule about
  * which message may carry which frame.
@@ -104,7 +104,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * That word is chosen carefully, because a handoff proves a narrower
  * thing than it looks. Carol learns that whoever dialed her holds the
  * key Alice's give named. She learns nothing about the address in the
- * hello, and pancake's own handoff path never touches the durable
+ * hello, and glowcap's own handoff path never touches the durable
  * identity a session opened with, so a peer can redeem a gift over
  * plain `tcp` and remain a peer nothing has authenticated.
  *
@@ -141,8 +141,8 @@ export const threeVatHandoffMixed = TimelineDocument.parse({
 	metadata: {
 		"dct:title": "00 · Hand off a capability across three vats",
 		"dct:description":
-			"Alice introduces Bob to Carol, and Bob then talks to Carol directly. Alice and Carol are pancake, so their session records Cap'n Proto over pancake-next; Bob is Goblins, so both sessions he is on record Syrup over OCapN 1.0. Each session carries its own codec and version, and the picture shows all three at once. Watch the Bob-to-Carol session especially: Carol takes Bob's dial before anything proves who dialed, so that end starts out claiming Bob's address with no peer attached, and only the signed handoff-receive lands the line on Bob.",
-		"dct:creator": "pancake project",
+			"Alice introduces Bob to Carol, and Bob then talks to Carol directly. Alice and Carol are glowcap, so their session records Cap'n Proto over glowcap-next; Bob is Goblins, so both sessions he is on record Syrup over OCapN 1.0. Each session carries its own codec and version, and the picture shows all three at once. Watch the Bob-to-Carol session especially: Carol takes Bob's dial before anything proves who dialed, so that end starts out claiming Bob's address with no peer attached, and only the signed handoff-receive lands the line on Bob.",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: {
@@ -157,7 +157,7 @@ export const threeVatHandoffMixed = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9001",
 			label: "Alice (gifter)",
-			profile: "pancake",
+			profile: "glowcap",
 			// The name each peer answers to on the wire, as against the
 			// name it is shown by. A claim is a wire name, so this is what
 			// a claim can match, and the one below is what Bob's claim on
@@ -179,12 +179,12 @@ export const threeVatHandoffMixed = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9003",
 			label: "Carol (exporter)",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9003",
 		},
 		{
-			// Alice and Carol are both pancake → they speak pancake's
-			// native pancake-next wire shape. The other two sessions are
+			// Alice and Carol are both glowcap → they speak glowcap's
+			// native glowcap-next wire shape. The other two sessions are
 			// forced to v1_0 (Goblins-canonical) because Bob is a
 			// Goblins-flavor peer. Per-session negotiation across both codec and
 			// CapTP-version axes in one picture.
@@ -496,7 +496,7 @@ export const threeVatHandoffMixed = TimelineDocument.parse({
 			//
 			// `verified-handoff` records that this is the party Alice designated, a
 			// different fact from the address in the hello. Nothing here
-			// proved that address, and pancake's own handoff path never
+			// proved that address, and glowcap's own handoff path never
 			// touches the durable pin, so a peer redeeming a gift over plain
 			// `tcp` stays unauthenticated however the handoff goes.
 			//

@@ -9,8 +9,8 @@
         "--project-from-cwd"
       ]
     },
-    "pancake": {
-      "command": "./pancake",
+    "glowcap": {
+      "command": "./glowcap",
       "args": ["mcp", "--tools", "default"]
     }
   }

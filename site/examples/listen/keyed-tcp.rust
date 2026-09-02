@@ -1,4 +1,4 @@
-use pancake::{tcp, Argument};
+use glowcap::{tcp, Argument};
 
 // Key designator, cleartext CapTP. Reuse a 32-byte seed to keep the same key.
 let seed = [7u8; 32]; // replace with durable secret bytes across restarts

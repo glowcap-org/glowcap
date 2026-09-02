@@ -3,8 +3,8 @@
 // binding copies borrowed names and attaches the first counted consequence,
 // but owns no transport or lifecycle policy.
 
-import { DRIVER_FAILURE_ABI_VERSION, INTERNAL, OK, WOULD_BLOCK } from "@pancake/abi";
-import { PancakeError, retainSecondaryFailure } from "../errors.ts";
+import { DRIVER_FAILURE_ABI_VERSION, INTERNAL, OK, WOULD_BLOCK } from "@glowcap/abi";
+import { GlowcapError, retainSecondaryFailure } from "../errors.ts";
 import { type CarrierFailure, decodeCarrierFailure } from "../carrier_failure.ts";
 import { loopS } from "./ffi/driver.ts";
 import { ffi, NULL, type Ptr } from "./ffi/runtime.ts";
@@ -14,11 +14,11 @@ import { ab, readBytes, readErrorSlot } from "./seam.ts";
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 export function driverLastError(): string | null {
-	return readErrorSlot(loopS.pancake_driver_last_error);
+	return readErrorSlot(loopS.glowcap_driver_last_error);
 }
 
 export function checkDriver(rc: number): void {
-	if (rc !== OK) throw new PancakeError(rc, driverLastError() ?? undefined);
+	if (rc !== OK) throw new GlowcapError(rc, driverLastError() ?? undefined);
 }
 
 export interface DriverFailure {
@@ -33,31 +33,31 @@ export interface DriverFailure {
 export interface DriverCallOutcome {
 	readonly code: number;
 	readonly failure: DriverFailure | null;
-	readonly error: PancakeError | null;
+	readonly error: GlowcapError | null;
 }
 
 function text(ptr: Ptr, len: bigint, field: string): string {
 	if (len === 0n) {
 		return "";
 	}
-	if (ptr === NULL) throw new PancakeError(INTERNAL, `driver returned null ${field} with nonzero length`);
+	if (ptr === NULL) throw new GlowcapError(INTERNAL, `driver returned null ${field} with nonzero length`);
 	try {
 		return utf8.decode(readBytes(ptr, len));
 	} catch {
-		throw new PancakeError(INTERNAL, `driver returned non-UTF-8 ${field}`);
+		throw new GlowcapError(INTERNAL, `driver returned non-UTF-8 ${field}`);
 	}
 }
 
-export function driverFailureError(failure: DriverFailure, operation: string): PancakeError {
+export function driverFailureError(failure: DriverFailure, operation: string): GlowcapError {
 	const detail = failure.primaryName.length > 0
 		? `${operation} failed: ${failure.primaryName}`
 		: `${operation} failed`;
-	const error = new PancakeError(failure.primaryResult, detail);
+	const error = new GlowcapError(failure.primaryResult, detail);
 	error.carrierFailure = failure.carrierFailure;
 	if (failure.secondaryCount > 0) {
 		retainSecondaryFailure(
 			error,
-			new PancakeError(failure.secondaryResult, failure.secondaryName),
+			new GlowcapError(failure.secondaryResult, failure.secondaryName),
 			failure.secondaryCount,
 		);
 	}
@@ -94,15 +94,15 @@ function decodeRecord(code: number, bytes: Uint8Array, operation: string): Drive
 			failure.secondaryCount === 0 && failure.primaryName === "" && failure.secondaryName === "" &&
 			failure.carrierFailure === null
 		) return { code, failure: null, error: null };
-		throw new PancakeError(INTERNAL, `${operation} returned success with failure data`);
+		throw new GlowcapError(INTERNAL, `${operation} returned success with failure data`);
 	}
 	if (failure.primaryResult !== code || failure.primaryName === "") {
-		throw new PancakeError(INTERNAL, `${operation} returned an inconsistent failure record`);
+		throw new GlowcapError(INTERNAL, `${operation} returned an inconsistent failure record`);
 	}
 	if (
 		(failure.secondaryCount === 0 && (failure.secondaryResult !== OK || failure.secondaryName !== "")) ||
 		(failure.secondaryCount > 0 && (failure.secondaryResult === OK || failure.secondaryName === ""))
-	) throw new PancakeError(INTERNAL, `${operation} returned an inconsistent secondary failure`);
+	) throw new GlowcapError(INTERNAL, `${operation} returned an inconsistent secondary failure`);
 	return { code, failure, error: driverFailureError(failure, operation) };
 }
 
@@ -122,9 +122,9 @@ export function driverCall(
 		return {
 			code,
 			failure: null,
-			error: error instanceof PancakeError
+			error: error instanceof GlowcapError
 				? error
-				: new PancakeError(INTERNAL, `${operation} failure projection: ${String(error)}`),
+				: new GlowcapError(INTERNAL, `${operation} failure projection: ${String(error)}`),
 		};
 	}
 }
@@ -143,7 +143,7 @@ export function addDriverProvider(
 export function closeDriverListener(handle: Ptr, listener: bigint): boolean {
 	const outcome = driverCall(
 		"driver listener_close",
-		(out) => loopS.pancake_driver_listener_close(handle, listener, out),
+		(out) => loopS.glowcap_driver_listener_close(handle, listener, out),
 	);
 	if (outcome.code === WOULD_BLOCK) return false;
 	if (outcome.error !== null) throw outcome.error;

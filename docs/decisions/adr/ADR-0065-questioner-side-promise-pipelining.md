@@ -3,7 +3,7 @@ id: ADR-0065
 status: accepted
 date: 2026-06-18
 tags: [pipelining, driver, c-abi, bindings, tcp, nagle, questioner]
-decision: A questioner addresses a verb at an answer it has not settled by passing the handle a prior send returned back to `send` (`Session.send`/`sendToAnswer`/`settleVow` in the Zig driver, `pancake_peer_send_deliver`'s answer target under the owning C session, and a vow-as-send-target in every binding) so a dependent chain costs one round trip; the deliver is queued at the send and the batch flushes on the first settle. The TCP transport disables Nagle on every dialed and accepted socket so the batched-then-await pattern does not eat a delayed-ACK stall.
+decision: A questioner addresses a verb at an answer it has not settled by passing the handle a prior send returned back to `send` (`Session.send`/`sendToAnswer`/`settleVow` in the Zig driver, `glowcap_peer_send_deliver`'s answer target under the owning C session, and a vow-as-send-target in every binding) so a dependent chain costs one round trip; the deliver is queued at the send and the batch flushes on the first settle. The TCP transport disables Nagle on every dialed and accepted socket so the batched-then-await pattern does not eat a delayed-ACK stall.
 supersedes: []
 superseded_by: []
 ---
@@ -47,7 +47,7 @@ batch of sends leaves the wire together; the triad delegates to
 bookkeeping over the engine's `allocateAnswer`.
 
 The retired raw C peer carried the same seam through
-`pancake_peer_send_deliver`, taking an optional answer target. ADR-0096 later
+`glowcap_peer_send_deliver`, taking an optional answer target. ADR-0096 later
 retired that mirror; the byte-fed Host now owns the binding-facing
 send/settle pair.
 
@@ -84,7 +84,7 @@ cannot be set still works, just with coalescing.
 
 ## Alternatives Considered
 
-- **Leave pipelining to the raw peer.** Rejected: `pancake_peer_send_deliver` with
+- **Leave pipelining to the raw peer.** Rejected: `glowcap_peer_send_deliver` with
   a hand-allocated answer is correct but not the easy path; consumers awaited each
   step and paid serial round trips. A vow-as-target makes the fast path the
   obvious one.

@@ -108,7 +108,7 @@ engineTest("a netlayer nobody offers is kept, shown, and editable", () => {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "p2",

@@ -21,7 +21,7 @@ amended_by: []
 ## Problem
 
 CapTP gives each session independent `u64` import, export, and answer
-namespaces. Pancake also needs local names that do not exist on the wire:
+namespaces. Glowcap also needs local names that do not exist on the wire:
 
 - a Node route for a capability whose real import belongs to one particular
   session;

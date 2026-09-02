@@ -1,7 +1,7 @@
 //! The set of codecs a build knows how to speak.
 //!
-//! pancake ships two — `syrup` and `capnp` — but the set is open. A Zig consumer
-//! brings their own by declaring `pub const pancake_codecs` in their root source
+//! glowcap ships two — `syrup` and `capnp` — but the set is open. A Zig consumer
+//! brings their own by declaring `pub const glowcap_codecs` in their root source
 //! file: a slice of `Spec` that this registry appends to the built-ins. The
 //! whole thing is resolved at `comptime`, so `dispatch` stays a jump table with
 //! no runtime indirection — a third codec costs nothing the two built-ins
@@ -47,17 +47,17 @@ pub const Spec = struct {
     module: type,
 };
 
-/// The codecs pancake ships, best-first (matching negotiation's tie-break).
+/// The codecs glowcap ships, best-first (matching negotiation's tie-break).
 pub const builtin = [_]Spec{
     .{ .id = .capnp, .frame_shape = .word, .module = capnp },
     .{ .id = .syrup, .frame_shape = .byte, .module = syrup },
 };
 
 /// Codecs the root source file adds, or empty. A consumer writes
-/// `pub const pancake_codecs = [_]pancake.ocapn.codec.registry.Spec{ .{ ... } };`.
+/// `pub const glowcap_codecs = [_]glowcap.ocapn.codec.registry.Spec{ .{ ... } };`.
 const extra: []const Spec = blk: {
     const root = @import("root");
-    if (@hasDecl(root, "pancake_codecs")) break :blk root.pancake_codecs;
+    if (@hasDecl(root, "glowcap_codecs")) break :blk root.glowcap_codecs;
     break :blk &.{};
 };
 

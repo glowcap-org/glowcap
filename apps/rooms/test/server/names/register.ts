@@ -1,6 +1,6 @@
 // Directory registration: one nick per connection, and introducing inboxes.
 
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import { inboxPublisher } from "../../../lib/dm_inbox.ts";
 import {
 	INTRODUCTION_PENDING,

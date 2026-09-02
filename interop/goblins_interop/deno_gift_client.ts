@@ -1,19 +1,19 @@
 // Live three-party handoff with the Deno binding as the GIFTER (the introducer),
-// proving pancake can mint a `desc:handoff-give` that live Goblins redeems and a
+// proving glowcap can mint a `desc:handoff-give` that live Goblins redeems and a
 // `deposit-gift` that live Goblins accepts, the exporter half of ADR-0009
 // against a real cross-implementation peer, the mirror of `deno-goblins-handoff`
-// (where pancake is the recipient).
+// (where glowcap is the recipient).
 //
 // Topology (all TCP loopback):
 //   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
-//   Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
+//   Gifter (glowcap)           lifts Bob's greeter from a vendor reply, then
 //                              publishes an "introducer" that returns it twice
 //                              in one nested Passable value, and listens.
-//   Carol  (Goblins recipient) dials the pancake introducer, asks for the
+//   Carol  (Goblins recipient) dials the glowcap introducer, asks for the
 //                              greeters, transparently redeems both gives, and
 //                              calls both directly on Bob.
 //
-// pancake is the gifter: when Carol asks for the greeters, pancake deposits both
+// glowcap is the gifter: when Carol asks for the greeters, glowcap deposits both
 // occurrences with Bob and resolves Carol's send with two signed gives. Goblins
 // must redeem both and reach Bob directly; Carol's `GIFT NESTED OK` line carries
 // both replies and the distinct names she sent.
@@ -21,22 +21,22 @@
 // Needs `deno` + `racket` + the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-gift`.
 
-import { Ref, Runtime } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
+import { Ref, Runtime } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 import { acceptLoop, awaitGreeterReady, fail, parsePort } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
 // Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on PORT+1.
-// pancake (the gifter) takes an ephemeral port, the recipient learns it at spawn
+// glowcap (the gifter) takes an ephemeral port, the recipient learns it at spawn
 // time. `--port=N` (from `zig build deno-goblins-gift -Dport=N`) moves the pair.
 const PORT = parsePort("deno-goblins-gift", 22120, 65534);
 const RACKET = "racket";
 const EXPORTER_SCRIPT = "conformance/goblins-peer/racket/gift-exporter-host.rkt";
 const RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt";
-// pancake hardcodes the same swiss the exporter host registers, the way the
+// glowcap hardcodes the same swiss the exporter host registers, the way the
 // interop clients fix the echo swiss.
-const GREETER_SWISS = "pancakeGiftGreeterSwissnum000001";
-const VENDOR_SWISS = "pancakeGiftVendorSwissnum0000001";
+const GREETER_SWISS = "glowcapGiftGreeterSwissnum000001";
+const VENDOR_SWISS = "glowcapGiftVendorSwissnum0000001";
 const INTRODUCER_SWISS = "introducer";
 
 const children: Deno.ChildProcess[] = [];
@@ -79,7 +79,7 @@ try {
 		`deno-goblins-gift: goblins-bob exporting greeter swiss=${GREETER_SWISS} on ${HOST}:${PORT}`,
 	);
 
-	// pancake (the gifter) listens for the recipient on an ephemeral port and runs
+	// glowcap (the gifter) listens for the recipient on an ephemeral port and runs
 	// its accept loop. One node identity serves both the recipient connection and
 	// the exporter connection, so the give's signature matches the deposit.
 	const gifter = await tcp.listen(HOST, 0);
@@ -88,7 +88,7 @@ try {
 	const gifterPort = gifter.port;
 
 	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. That
-	// reply ref's home is the gifter↔Bob connection, so pancake can re-gift
+	// reply ref's home is the gifter↔Bob connection, so glowcap can re-gift
 	// it across to the recipient without an enrollment verb.
 	const toBob = await runtime.connect(tcp.locator(HOST, PORT));
 	toBob.serve().catch(() => {});
@@ -105,10 +105,10 @@ try {
 		(verb) => (verb === "get-greeter" ? [greeter, [greeter]] : null),
 	);
 	console.log(
-		`deno-goblins-gift: pancake publishing introducer swiss=${INTRODUCER_SWISS} on ${HOST}:${gifterPort}`,
+		`deno-goblins-gift: glowcap publishing introducer swiss=${INTRODUCER_SWISS} on ${HOST}:${gifterPort}`,
 	);
 
-	// Spawn Carol (the Goblins recipient): she dials pancake's introducer, asks
+	// Spawn Carol (the Goblins recipient): she dials glowcap's introducer, asks
 	// for both greeters, redeems both gives, and calls Bob directly.
 	carol = new Deno.Command(RACKET, {
 		args: [

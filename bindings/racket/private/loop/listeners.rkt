@@ -37,12 +37,12 @@
     [(eq? outcome listener) listener]
     [(exn? outcome) (raise outcome)]
     [else
-     (raise-pancake 'pancake-loop ERR-INTERNAL
+     (raise-glowcap 'glowcap-loop ERR-INTERNAL
                     "listener setup event produced an invalid outcome")]))
 
 (define (require-listener-ready listener)
   (unless (eq? (unbox (loop-listener-state listener)) 'ready)
-    (raise-pancake 'pancake-loop ERR-INVALID-ARGUMENT
+    (raise-glowcap 'glowcap-loop ERR-INVALID-ARGUMENT
                    "listener setup has not settled"))
   listener)
 
@@ -55,7 +55,7 @@
   (define db (string->bytes/utf-8 designator))
   (define c-options (operation-options->c 'listen options))
   (define-values (rc listener-id)
-    (pancake_driver_listen (driver-loop-handle lp)
+    (glowcap_driver_listen (driver-loop-handle lp)
                            (pin-immobile tb) (bytes-length tb)
                            (pin-immobile db) (bytes-length db)
                            c-options))
@@ -68,14 +68,14 @@
   ;; transport state. Wake that park so LISTENER_READY/FAILED can be observed;
   ;; the initial listener is started by `driver-loop-start!` below its caller.
   (when (driver-loop-fd lp)
-    (check/driver (pancake_driver_wake (driver-loop-handle lp))))
+    (check/driver (glowcap_driver_wake (driver-loop-handle lp))))
   listener)
 
 (define (loop-listener-locator lp listener)
   (require-listener-ready listener)
-  (define view (make-PancakeLocatorView 0 0 #f 0 #f 0 #f 0 0))
+  (define view (make-GlowcapLocatorView 0 0 #f 0 #f 0 #f 0 0))
   (define rc
-    (pancake_driver_listener_locator (driver-loop-handle lp)
+    (glowcap_driver_listener_locator (driver-loop-handle lp)
                                      (loop-listener-id listener) view))
   (check/driver rc)
   (clone-locator-view view))
@@ -87,7 +87,7 @@
   (define (query cap)
     (define out (and (> cap 0) (out-immobile cap)))
     (define-values (rc needed)
-      (pancake_driver_listener_restoration_state
+      (glowcap_driver_listener_restoration_state
        (driver-loop-handle lp)
        (loop-listener-id listener)
        out
@@ -102,7 +102,7 @@
        (cond
          [(= copy-rc OK)
           (when (> copied capacity)
-            (raise-pancake 'loop-listener-restoration-state ERR-INTERNAL
+            (raise-glowcap 'loop-listener-restoration-state ERR-INTERNAL
                            "driver returned restoration state larger than its buffer"))
           (bytes<-c out copied)]
          [(= copy-rc ERR-BUFFER-TOO-SMALL)
@@ -116,18 +116,18 @@
    locator-uri
    (lambda (view)
       (check/driver
-       (pancake_driver_listener_advertise
+       (glowcap_driver_listener_advertise
         (driver-loop-handle lp) (loop-listener-id listener) view)))))
 
 (define (loop-listener-select! lp listener)
   (require-listener-ready listener)
   (check/driver
-   (pancake_driver_listener_select (driver-loop-handle lp)
+   (glowcap_driver_listener_select (driver-loop-handle lp)
                                    (loop-listener-id listener))))
 
 (define (loop-listener-close! lp listener)
   (unless (eq? (loop-listener-lp listener) lp)
-    (raise-pancake 'pancake-loop ERR-INVALID-ARGUMENT
+    (raise-glowcap 'glowcap-loop ERR-INVALID-ARGUMENT
                    "listener belongs to another driver loop"))
   (define state-box (loop-listener-state listener))
   (define prior
@@ -149,7 +149,7 @@
           (define progress (host-progress-evt m))
           (unless (close-driver-listener!
                    (driver-loop-handle lp) (loop-listener-id listener))
-            (check/driver (pancake_driver_wake (driver-loop-handle lp)))
+            (check/driver (glowcap_driver_wake (driver-loop-handle lp)))
             (sync progress)
             (define terminal (unbox state-box))
             (if (eq? terminal 'failed)
@@ -198,14 +198,14 @@
 (define (loop-server-accept s)
   (define lp (loop-server-lp s))
   (when (unbox (loop-server-closed? s))
-    (raise-pancake 'accept ERR-CLOSED "listener closed"))
+    (raise-glowcap 'accept ERR-CLOSED "listener closed"))
   (define accepts (loop-listener-accepts (loop-server-listener s)))
   (define item (async-channel-get accepts))
   (cond
     [(eq? item accepts-terminal)
      ;; Re-arm the terminal so every sibling accept ends too.
      (async-channel-put accepts accepts-terminal)
-     (raise-pancake 'accept ERR-CLOSED "listener closed")]
+     (raise-glowcap 'accept ERR-CLOSED "listener closed")]
     [(exn? item)
      (async-channel-put accepts item)
      (raise item)]
@@ -231,7 +231,7 @@
        (lambda ()
          (define effects (loop-drain! m lp))
          (define-values (rc lifecycle)
-           (pancake_driver_lifecycle_state (driver-loop-handle lp)))
+           (glowcap_driver_lifecycle_state (driver-loop-handle lp)))
          (check/driver rc)
          (set! state lifecycle)
          (unless (lifecycle-closed? lifecycle)
@@ -267,7 +267,7 @@
     (call-with-host
      (driver-loop-host lp)
      (lambda ()
-       (check/driver (pancake_driver_retire (driver-loop-handle lp)))))
+       (check/driver (glowcap_driver_retire (driver-loop-handle lp)))))
     (void (thread (lambda () (run-loop-retirement! lp))))))
 
 (define (loop-server-close! s)

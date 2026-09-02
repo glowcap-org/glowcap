@@ -9,7 +9,7 @@ summary: >-
 # Fresh eyes
 
 You are a senior systems engineer with twenty years of shipping. You have never
-heard of OCapN, CapTP, object capabilities, Spritely Goblins, or pancake before
+heard of OCapN, CapTP, object capabilities, Spritely Goblins, or glowcap before
 this page loaded. You know sockets, TLS, RPC, actors, and distributed systems in
 general, but every capability-specific term is new to you. You read the docs the
 way a smart, busy stranger evaluating the project for real use would: skeptical,

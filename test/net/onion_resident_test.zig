@@ -5,7 +5,7 @@
 //! and a fake control endpoint answers `AUTHENTICATE` and `ADD_ONION`. That is
 //! enough to prove the two things the byte-level tests cannot: that a real CapTP
 //! session runs over a dial once the handshake is done, and that a listener
-//! reports the service id Tor named rather than one pancake chose.
+//! reports the service id Tor named rather than one glowcap chose.
 //!
 //! What this cannot prove is that a real Tor accepts these bytes. The byte
 //! expectations live in `onion_socks5_test.zig` and `onion_control_test.zig`,
@@ -13,12 +13,12 @@
 //! and `zig build goblins-onion` are the opt-in live Tor proofs.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const onion = pancake.net.onion;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const onion = glowcap.net.onion;
 const socks5 = onion.socks5;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
@@ -43,7 +43,7 @@ test "onion.locator builds the Goblins-compatible borrowed locator" {
 
 /// A transport handle over a stream somebody else closes. The fake daemons in
 /// this file own their streams directly, so the connection must not close them.
-fn borrowedHandle(reader: *std.Io.net.Stream.Reader) pancake.net.Connection.Transport {
+fn borrowedHandle(reader: *std.Io.net.Stream.Reader) glowcap.net.Connection.Transport {
     return .{
         .ctx = reader,
         .close_fn = struct {
@@ -61,7 +61,7 @@ fn borrowedHandle(reader: *std.Io.net.Stream.Reader) pancake.net.Connection.Tran
 /// A real, checksum-valid version 3 id, from the pinned Goblins source.
 const service_id = "wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd";
 
-/// A second valid id, so a test can tell "the id Tor said" from "the id pancake
+/// A second valid id, so a test can tell "the id Tor said" from "the id glowcap
 /// was configured with". Derived by regenerating the checksum for a different
 /// key, so it is well-formed rather than merely different.
 const other_service_id = "p53lf57qovyuvwsc6xnrppyply3vtqm7l6pcs2sgui4gvx3nspnr3sad";
@@ -83,7 +83,7 @@ const FakeSocksResult = struct {
 /// byte left to be parsed as a frame and no session byte thrown away.
 fn fakeSocksServe(
     io: std.Io,
-    listener: *pancake.net.tcp.plain.Listener,
+    listener: *glowcap.net.tcp.plain.Listener,
     allocator: std.mem.Allocator,
     out: *FakeSocksResult,
 ) anyerror!void {
@@ -125,7 +125,7 @@ fn fakeSocksServe(
 
     // The fake peer borrows the stream its own `defer` closes, so the handle is
     // inert: a `deinit` that closed here would double-close.
-    var conn = pancake.net.Connection.init(io, &peer, r, w, borrowedHandle(&reader));
+    var conn = glowcap.net.Connection.init(io, &peer, r, w, borrowedHandle(&reader));
     defer conn.deinit();
 
     try peer.sendCopying(handshake.startSession(onion.transport_name, service_id));
@@ -146,7 +146,7 @@ test "a dial hands the session a stream positioned after the SOCKS reply" {
     const io = threaded.io();
 
     // The fake proxy stands in for Tor's SOCKS endpoint on loopback.
-    var proxy = try pancake.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var proxy = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer proxy.deinit();
     var socks_text: [64]u8 = undefined;
     const socks = try std.fmt.bufPrint(&socks_text, "{f}", .{proxy.localAddress()});
@@ -229,7 +229,7 @@ const FakeControlResult = struct {
 /// Answer `AUTHENTICATE` and one `ADD_ONION`, recording what was asked.
 fn fakeControlServe(
     io: std.Io,
-    listener: *pancake.net.tcp.plain.Listener,
+    listener: *glowcap.net.tcp.plain.Listener,
     out: *FakeControlResult,
 ) anyerror!void {
     const stream = try listener.acceptStream();
@@ -272,7 +272,7 @@ fn takeLine(allocator: std.mem.Allocator, r: *std.Io.Reader) anyerror![]u8 {
     return buf.toOwnedSlice(allocator);
 }
 
-fn fakeControlRejectAuth(io: std.Io, listener: *pancake.net.tcp.plain.Listener) anyerror!void {
+fn fakeControlRejectAuth(io: std.Io, listener: *glowcap.net.tcp.plain.Listener) anyerror!void {
     const stream = try listener.acceptStream();
     defer stream.close(io);
 
@@ -298,7 +298,7 @@ test "a refused control authentication closes the unreturned stream" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try pancake.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const endpoint_text = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -312,14 +312,14 @@ test "a refused control authentication closes the unreturned stream" {
     try server.await(io);
 }
 
-test "a listener publishes the service id Tor named, not one pancake chose" {
+test "a listener publishes the service id Tor named, not one glowcap chose" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try pancake.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -349,7 +349,7 @@ test "onion listener returns Unix-socket removal failure" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try pancake.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -415,7 +415,7 @@ test "onion listener shutdown wakes and joins a blocked accept before release" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try pancake.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -448,7 +448,7 @@ test "onion listener shutdown joins a blocked readiness wait before release" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try pancake.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -485,7 +485,7 @@ fn listenAndInspect(io: std.Io, allocator: std.mem.Allocator, ctrl: []const u8) 
     defer netlayer_test.close(listener);
 
     const locator = try listener.localLocator(allocator);
-    defer pancake.ocapn.model.freePeerLocator(allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(allocator, locator);
     // The designator is the id the reply carried, and it is not the other
     // well-formed id, so this cannot pass by accident.
     try std.testing.expectEqualStrings(service_id, locator.designator);
@@ -495,7 +495,7 @@ fn listenAndInspect(io: std.Io, allocator: std.mem.Allocator, ctrl: []const u8) 
     // hinted onion locator is undialable by the pinned Goblins (ADR-0108).
     try std.testing.expectEqual(@as(usize, 0), locator.hints.entries.len);
     try std.testing.expectEqual(
-        pancake.ocapn.model.transport.DesignatorScheme.address,
+        glowcap.ocapn.model.transport.DesignatorScheme.address,
         listener.designatorScheme(),
     );
 }

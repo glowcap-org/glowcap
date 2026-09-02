@@ -104,7 +104,7 @@ impl HostShared {
 	/// deadline" would turn a diagnosable failure into an unbounded park.
 	pub(crate) fn close_wait(&self) -> Result<Option<Duration>> {
 		let mut wait_ms: i64 = -1;
-		let rc = unsafe { ffi::pancake_host_close_wait_ms(self.raw(), monotonic_ms(), &mut wait_ms) };
+		let rc = unsafe { ffi::glowcap_host_close_wait_ms(self.raw(), monotonic_ms(), &mut wait_ms) };
 		check_host(rc)?;
 		if wait_ms >= 0 {
 			Ok(Some(Duration::from_millis(wait_ms as u64)))
@@ -179,7 +179,7 @@ impl HostShared {
 					Error::with_detail(sys::ERR_INTERNAL, format!("dial task failed: {join}"))
 				};
 				let cancellation =
-					check_host(unsafe { ffi::pancake_host_dial_cancelled(observer.raw(), ticket, route_index) });
+					check_host(unsafe { ffi::glowcap_host_dial_cancelled(observer.raw(), ticket, route_index) });
 				observer.record_background_failure(crate::retain_cleanup_failure(primary, cancellation));
 			}
 		}) else {
@@ -211,7 +211,7 @@ impl HostShared {
 		} else {
 			None
 		};
-		let cancellation = check_host(unsafe { ffi::pancake_host_dial_cancelled(self.raw(), ticket, route_index) });
+		let cancellation = check_host(unsafe { ffi::glowcap_host_dial_cancelled(self.raw(), ticket, route_index) });
 		match task_failure {
 			Some(primary) => Err(crate::retain_cleanup_failure(primary, cancellation)),
 			None => cancellation,
@@ -257,7 +257,7 @@ impl HostShared {
 	fn request_native_release(self: &Rc<HostShared>, pending: PendingWork) -> Result<()> {
 		self.drain_parked_sessions()?;
 		let options = pending.to_ffi()?;
-		let rc = unsafe { ffi::pancake_host_close(self.raw(), &options, monotonic_ms()) };
+		let rc = unsafe { ffi::glowcap_host_close(self.raw(), &options, monotonic_ms()) };
 		if rc != sys::OK {
 			return check_host(rc);
 		}
@@ -290,7 +290,7 @@ impl HostShared {
 			tokio::pin!(notified);
 			notified.as_mut().enable();
 			let mut lifecycle = 0;
-			let rc = unsafe { ffi::pancake_host_close_progress(self.raw(), monotonic_ms(), &mut lifecycle) };
+			let rc = unsafe { ffi::glowcap_host_close_progress(self.raw(), monotonic_ms(), &mut lifecycle) };
 			if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 				self.fail_close(host_refusal(rc, "advancing host close"));
 				return;
@@ -365,7 +365,7 @@ impl HostShared {
 		}
 		debug_assert!(self.sessions.borrow().is_empty());
 		debug_assert!(self.vows.only_settled());
-		let rc = unsafe { ffi::pancake_host_release(raw) };
+		let rc = unsafe { ffi::glowcap_host_release(raw) };
 		if rc != sys::OK {
 			let release = host_refusal(rc, "releasing host");
 			if crate::lifecycle::release_consumed(rc) {
@@ -384,7 +384,7 @@ impl HostShared {
 		self.release_notify.notify_waiters();
 	}
 
-	fn retire_native_host(&self, raw: *mut ffi::PancakeHost) {
+	fn retire_native_host(&self, raw: *mut ffi::GlowcapHost) {
 		crate::trace::detach_host(raw);
 		self.raw.set(core::ptr::null_mut());
 		crate::gc::retire(self);
@@ -397,8 +397,8 @@ impl HostShared {
 }
 impl Drop for HostShared {
 	fn drop(&mut self) {
-		// A loop-adopted Host's native handle dies with `pancake_driver_release`
-		// (at the loop's own drop), never through `pancake_host_release`. The
+		// A loop-adopted Host's native handle dies with `glowcap_driver_release`
+		// (at the loop's own drop), never through `glowcap_host_release`. The
 		// wrapper dropping without an explicit close still closes the loop, so
 		// the park task and the native loop cannot outlive every handle.
 		if let Some(lp) = self.driver_loop.get_mut().take() {
@@ -420,7 +420,7 @@ impl Drop for HostShared {
 			crate::finalizer::park_host(raw, self.context.take(), false);
 		} else {
 			crate::trace::detach_host(raw);
-			let rc = unsafe { ffi::pancake_host_release(raw) };
+			let rc = unsafe { ffi::glowcap_host_release(raw) };
 			if crate::lifecycle::release_consumed(rc) {
 				self.raw.set(core::ptr::null_mut());
 			}

@@ -3,7 +3,7 @@
 //! OCapN V1.0 has no native `op:resolve`: a caller advertises a resolver
 //! capability in a deliver's `resolve_me_desc`, and the answer is later settled
 //! by an inbound deliver *to that resolver* rather than by a resolve message.
-//! pancake's engine speaks one resolve-shaped semantics internally (ADR-0010),
+//! glowcap's engine speaks one resolve-shaped semantics internally (ADR-0010),
 //! so the session keeps the links that bridge the two: which of our outbound
 //! answers a local resolver export settles, and which resolver import the
 //! partner gave us for each of its inbound answers.

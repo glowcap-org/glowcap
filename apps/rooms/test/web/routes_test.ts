@@ -62,7 +62,7 @@ function railShown(tab: Page): Promise<boolean> {
 /** The room the conversation column is showing, from the title the page
  * stamps — the one place the view's own answer is readable as text. */
 async function showing(tab: Page): Promise<string> {
-	return (await tab.title()).replace(" · pancake rooms", "").replace(/^\(\d+\)\s*/, "");
+	return (await tab.title()).replace(" · glowcap rooms", "").replace(/^\(\d+\)\s*/, "");
 }
 
 const deadline = setTimeout(() => fail("web-routes scenario timed out after 180s"), 180_000);

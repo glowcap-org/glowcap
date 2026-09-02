@@ -1,14 +1,14 @@
-//! Handshake admission for pancake-next identity routes: `id/via` remains
+//! Handshake admission for glowcap-next identity routes: `id/via` remains
 //! silent without bilateral opt-in, and admitted plans are complete,
 //! unambiguous, and prove the outer identity.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
 const handshake = @import("../../support/handshake.zig");
 
 const crypto = foundation.crypto;

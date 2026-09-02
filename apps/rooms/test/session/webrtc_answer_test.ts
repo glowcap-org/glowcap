@@ -1,6 +1,6 @@
 // Hosted webrtc membership files the directory signaling inbox Attach dials.
 
-import { formatPeerUri, type Host, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { formatPeerUri, type Host, TRANSPORT_WEBRTC } from "@glowcap/runtime";
 import { NICK_TAKEN, PEER_OFFLINE, roomErrorOf } from "../../lib/errors.ts";
 import { loopbackTcpDesignator, roomsHost, roomsLocator } from "../../lib/locator.ts";
 import { Directory } from "../../lib/room/client.ts";

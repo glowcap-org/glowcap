@@ -2,12 +2,12 @@
 // modules inherit this lifecycle and add only metadata they alone understand.
 
 import { DriverListener, DriverLoop } from "../driver_loop.ts";
-import { PancakeError } from "../errors.ts";
+import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { formatLocatorUri, type Locator } from "../locator.ts";
 import { Session } from "../session.ts";
 import type { Codec } from "../value.ts";
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
 
 /** Shared lifecycle for a driver-owned CapTP server. */
 export class DriverServer {
@@ -99,8 +99,8 @@ export class DriverServer {
 
 /** The refusal every native listener surface shares when this runtime cannot
  * park the loop between steps. */
-export function listenerLoopUnavailable(): PancakeError {
-	return new PancakeError(
+export function listenerLoopUnavailable(): GlowcapError {
+	return new GlowcapError(
 		INVALID_ARGUMENT,
 		"native driver listeners require a runtime that can park the loop",
 	);
@@ -119,13 +119,13 @@ export function prepareListenerLoop(
 ): { loop: DriverLoop; ownsLoop: boolean } {
 	if (host != null) {
 		if (codec != null && codec !== host.codec) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`codec "${codec}" conflicts with the host's "${host.codec}"; mint the host with it instead`,
 			);
 		}
 		if (seed != null) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				"seed and host are alternative identity sources",
 			);

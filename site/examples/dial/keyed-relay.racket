@@ -1,4 +1,4 @@
-(require "pancake.rkt" "pancake-relay.rkt")
+(require "glowcap.rkt" "glowcap-relay.rkt")
 
 ;; The key names the peer; the hint names the relay that can reach it.
 (define peer-key "<64 lowercase hex characters from the server>")

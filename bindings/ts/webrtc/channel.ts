@@ -5,8 +5,8 @@
 // metadata that WebRTC packets carry bare codec frames; this adapter only moves
 // bounded opaque binary packets.
 
-import type { Channel } from "@pancake/runtime";
-import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@pancake/abi";
+import type { Channel } from "@glowcap/runtime";
+import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@glowcap/abi";
 
 // An RTCDataChannel exposes `bufferedAmount` and a `bufferedamountlow` event, so
 // `write` gates outbound flow without timer polling: hold the next write until

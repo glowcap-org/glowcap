@@ -37,7 +37,7 @@ hosted by an exporter the gifter already reaches. The OCapN
 `CapTP Specification.md` (§ Third-party handoffs) and Goblins's `captp.rkt` pin
 the `desc:sig-envelope` / `desc:handoff-give` / `desc:handoff-receive` records
 and the bootstrap deposit / withdraw flow precisely, so the wire half is a
-transcription. pancake's calls are where signature verification lives, where the
+transcription. glowcap's calls are where signature verification lives, where the
 gift bookkeeping lives, and how a flow that spans several sessions stays free of
 shared mutable state.
 
@@ -154,7 +154,7 @@ Implemented choreography:
 ### Signature verification and gifter-key provenance
 
 Handoff signature verification runs in the engine against the live session
-keys. pancake ships the canonical signable-bytes encoders;
+keys. glowcap ships the canonical signable-bytes encoders;
 [`codec.syrup`](../../../src/ocapn/codec/syrup/encode.zig) provides
 `canonicalHandoffGiveSignedBytes` and `canonicalHandoffReceiveSignedBytes`,
 single-sourced against the wire encoders so the signing domain can never drift
@@ -167,10 +167,10 @@ recipient key for the receive. No gift row copies a gifter key.
 certificate signed by another key.
 
 The live boundary now includes a three-party handoff against Goblins with
-pancake as the recipient: `zig build goblins-handoff` enlivens a Goblins
+glowcap as the recipient: `zig build goblins-handoff` enlivens a Goblins
 introducer, receives a Goblins-hosted cap by `desc:handoff-give`, dials the
 exporter, presents a signed `desc:handoff-receive`, withdraws the cap, and calls
-it. The cross-session gift forwarding that supports a pancake exporter lives in
+it. The cross-session gift forwarding that supports a glowcap exporter lives in
 the bootstrap handoff registry used by the OCapN conformance peer.
 
 ## Scope (what this does not decide)
@@ -178,7 +178,7 @@ the bootstrap handoff registry used by the OCapN conformance peer.
 - Cross-codec handoff re-encode and re-verify ship
   (`test/engine/cross_peer/`; see also `docs/boundaries.md`), including
   Cap'n Proto structural exporter locators (`#f` / `direct-addresses`). That
-  Cap'n Proto path is pancake-to-pancake completeness, not a Goblins parity
+  Cap'n Proto path is glowcap-to-glowcap completeness, not a Goblins parity
   claim.
 - Real cryptographic verification uses `foundation.crypto` and the live
   session keys selected by `bootstrap.resolveForWithdraw`.
@@ -234,7 +234,7 @@ the bootstrap handoff registry used by the OCapN conformance peer.
 
 ## Forward compatibility
 
-These are pancake's current `v1_0` compatibility shapes; an upstream change may
+These are glowcap's current `v1_0` compatibility shapes; an upstream change may
 revise that projection, not the model. A second codec inherits the decoded-field signing
 contract: it must canonicalize the signed object to the same bytes for
 verification, regardless of its own wire shape.

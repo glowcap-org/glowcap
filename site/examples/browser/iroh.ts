@@ -1,11 +1,11 @@
-import { init } from "@pancake/web";
+import { init } from "@glowcap/web";
 
 const web = await init({
-	wasm: fetch("/pancake_host.wasm"),
+	wasm: fetch("/glowcap_host.wasm"),
 	relayUrl: (locator) => `wss://relay.example/?locator=${encodeURIComponent(locator)}`,
 });
 await using runtime = web.runtime;
-// `@pancake/iroh` loads native FFI, so a page parses the locator on the web runtime.
+// `@glowcap/iroh` loads native FFI, so a page parses the locator on the web runtime.
 const partner = web.parseLocator("ocapn://<64 lowercase hex characters>.iroh");
 // From here, the CapTP workflow is transport-independent.
 await using session = await runtime.connect(partner);

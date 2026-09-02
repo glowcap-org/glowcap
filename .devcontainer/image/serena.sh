@@ -4,8 +4,8 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}"
-pancake_require_devcontainer "image/serena"
+glowcap_devcontainer_init "${dir}"
+glowcap_require_devcontainer "image/serena"
 
 export UV_TOOL_DIR="${UV_TOOL_DIR}"
 export UV_TOOL_BIN_DIR="${UV_TOOL_BIN_DIR}"

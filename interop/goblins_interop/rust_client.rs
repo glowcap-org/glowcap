@@ -1,4 +1,4 @@
-//! Live interop proof for the Rust binding: a peer built on pancake's C ABI
+//! Live interop proof for the Rust binding: a peer built on glowcap's C ABI
 //! holds a *keyed* OCapN conversation with a real Spritely Goblins vat over TCP —
 //! driven through the *same* `connect`/`enliven`/`send` application surface the
 //! cross-language demos use, so what is proven against a real Goblins vat is the
@@ -10,7 +10,7 @@
 //! positional call, then a repeat `enliven` of the same swiss-num. Needs
 //! `racket` plus `goblins` on PATH; `zig build rust-goblins-interop`.
 
-use pancake_rust_dogfood::{format_locator_uri, tcp, Argument, ConnectOptions, Runtime, RuntimeConfig};
+use glowcap_rust_dogfood::{format_locator_uri, tcp, Argument, ConnectOptions, Runtime, RuntimeConfig};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -84,20 +84,20 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 			other => Err(format!("echo reply is not a one-bytes list: {other:?}").into()),
 		}
 	}
-	let reply = session.send(&echo, "", &[b"pancake-ping".as_slice().into()]).await?;
-	assert_echoed(&reply, b"pancake-ping")?;
+	let reply = session.send(&echo, "", &[b"glowcap-ping".as_slice().into()]).await?;
+	assert_echoed(&reply, b"glowcap-ping")?;
 
 	let again = session.enliven(&sturdyref).await?;
 	if echo != again {
 		return Err("repeat enliven did not return the same Host identity (dedup miss)".into());
 	}
 	let reply_again = session
-		.send(&again, "", &[b"pancake-ping-again".as_slice().into()])
+		.send(&again, "", &[b"glowcap-ping-again".as_slice().into()])
 		.await?;
-	assert_echoed(&reply_again, b"pancake-ping-again")?;
+	assert_echoed(&reply_again, b"glowcap-ping-again")?;
 	println!("rust-goblins-interop: repeat enliven same Host identity (dedup), second call resolved");
 
 	println!("rust-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins");
-	session.close(pancake_rust_dogfood::PendingWork::Cancel).await?;
+	session.close(glowcap_rust_dogfood::PendingWork::Cancel).await?;
 	Ok(())
 }

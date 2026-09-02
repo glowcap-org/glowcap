@@ -1,4 +1,4 @@
-//! Structured logging for the pancake CLI.
+//! Structured logging for the glowcap CLI.
 //!
 //! Default destination is stderr. The CapTP lab TUI installs a process divert
 //! for the whole alt-screen lifetime so *every* `info`/`err` (including
@@ -98,10 +98,10 @@ pub fn renderBounded(buf: []u8, comptime fmt: []const u8, args: anytype) []const
 
 pub fn info(io: std.Io, comptime fmt: []const u8, args: anytype) void {
     var buf: [512]u8 = undefined;
-    writeMsg(io, renderBounded(&buf, "pancake: " ++ fmt ++ "\n", args));
+    writeMsg(io, renderBounded(&buf, "glowcap: " ++ fmt ++ "\n", args));
 }
 
 pub fn err(io: std.Io, comptime fmt: []const u8, args: anytype) void {
     var buf: [512]u8 = undefined;
-    writeMsg(io, renderBounded(&buf, "pancake: error: " ++ fmt ++ "\n", args));
+    writeMsg(io, renderBounded(&buf, "glowcap: error: " ++ fmt ++ "\n", args));
 }

@@ -19,8 +19,8 @@ const failureChainFromProvider = owner_mod.failureChainFromProvider;
 const dialErrorFromCode = owner_mod.dialErrorFromCode;
 const dialFailureFromProvider = owner_mod.dialFailureFromProvider;
 const providerFailureIsEmpty = owner_mod.providerFailureIsEmpty;
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 
 // ── Multiplexed-transport adapter ────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 /// adapter can realize several profiles through one readiness descriptor.
 pub const Adapter = struct {
     owner: *Owner,
-    table: shared.PancakeMultiplexedTransport,
+    table: shared.GlowcapMultiplexedTransport,
     vtable: net.MultiplexedResident.VTable,
 
     pub fn multiplexedResident(self: *Adapter) net.MultiplexedResident {
@@ -50,14 +50,14 @@ pub const Adapter = struct {
         out: []net.multiplexed_resident.ReadyEvent,
     ) net.multiplexed_resident.ContractError!usize {
         const self = of(ctx);
-        var c_buf: [32]shared.PancakeMultiplexedReadyEvent = undefined;
+        var c_buf: [32]shared.GlowcapMultiplexedReadyEvent = undefined;
         var total: usize = 0;
         while (total < out.len) {
             const cap = @min(out.len - total, c_buf.len);
             var got: usize = 0;
-            var report = std.mem.zeroes(shared.PancakeProviderFailure);
+            var report = std.mem.zeroes(shared.GlowcapProviderFailure);
             const code = self.table.drain_ready.?(self.table.ctx, &c_buf, cap, &got, &report);
-            if (code != PANCAKE_OK) {
+            if (code != GLOWCAP_OK) {
                 const failure = operationFailureFromProvider(code, report) catch {
                     self.failContract("drain_ready returned an invalid structured failure");
                     return error.ProviderContract;
@@ -137,14 +137,14 @@ pub const Adapter = struct {
         options: net.OperationOptions,
     ) net.MultiplexedDialRawStartOutcome {
         const self = of(ctx);
-        var hint_stack: [shared.locator_adapter.inline_hint_capacity]shared.PancakeLocatorHintView = undefined;
+        var hint_stack: [shared.locator_adapter.inline_hint_capacity]shared.GlowcapLocatorHintView = undefined;
         var projection = LocatorProjection.init(self.owner.allocator, locator, &hint_stack) catch |err|
             return .{ .failed = .fromChain(
                 if (err == error.OutOfMemory) error.OutOfMemory else error.InvalidAddress,
                 .init(err),
             ) };
         defer projection.deinit(self.owner.allocator);
-        var options_storage: shared.PancakeTransportOperationOptions = undefined;
+        var options_storage: shared.GlowcapTransportOperationOptions = undefined;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.start_connect.?(
             self.table.ctx,
@@ -153,7 +153,7 @@ pub const Adapter = struct {
             validation.projectOperationOptions(options, &options_storage),
             &report,
         );
-        if (code != PANCAKE_OK) {
+        if (code != GLOWCAP_OK) {
             const failure = dialFailureFromProvider(code, report) catch {
                 self.failContract("multiplexed connect start returned an invalid structured failure");
                 return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
@@ -174,7 +174,7 @@ pub const Adapter = struct {
         var conn: u64 = 0;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.finish_connect.?(self.table.ctx, @intCast(request_id), &conn, &report);
-        if (code != PANCAKE_OK) {
+        if (code != GLOWCAP_OK) {
             var failure = dialFailureFromProvider(code, report) catch blk: {
                 self.failContract("multiplexed connect finish returned an invalid structured failure");
                 break :blk net.netlayer.DialFailure.fromChain(error.InvalidOptions, .init(error.ProviderContract));
@@ -213,7 +213,7 @@ pub const Adapter = struct {
         var conn: u64 = 0;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.claim_external.?(self.table.ctx, @intCast(subject), &conn, &report);
-        if (code == PANCAKE_OK and !providerFailureIsEmpty(report)) {
+        if (code == GLOWCAP_OK and !providerFailureIsEmpty(report)) {
             self.failContract("claim_external reported failure data on success");
             const cleanup = if (conn != 0)
                 self.callSubjectTeardown(self.table.conn_close.?, conn, "claim_external rollback")
@@ -222,7 +222,7 @@ pub const Adapter = struct {
             self.owner.retainContradictoryReport(report, cleanup);
             return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
         }
-        if (code != PANCAKE_OK) {
+        if (code != GLOWCAP_OK) {
             var chain = failureChainFromProvider(code, report) catch blk: {
                 self.failContract("claim_external returned an invalid structured failure");
                 break :blk foundation.FailureChain.init(error.ProviderContract);
@@ -251,7 +251,7 @@ pub const Adapter = struct {
     ) net.multiplexed_resident.MultiplexedResident.RawListenStartOutcome {
         const self = of(ctx);
         var result = validation.emptyListenResult();
-        var options_storage: shared.PancakeTransportOperationOptions = undefined;
+        var options_storage: shared.GlowcapTransportOperationOptions = undefined;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.listen.?(
             self.table.ctx,
@@ -264,7 +264,7 @@ pub const Adapter = struct {
             &result,
             &report,
         );
-        if (code != PANCAKE_OK) {
+        if (code != GLOWCAP_OK) {
             var failure = failureChainFromProvider(code, report) catch blk: {
                 self.failContract("multiplexed listen returned an invalid structured failure");
                 break :blk net.netlayer.ListenFailure.init(error.ProviderContract);
@@ -295,7 +295,7 @@ pub const Adapter = struct {
             return .{ .failed = failure };
         }
         return switch (result.state) {
-            shared.PANCAKE_LISTEN_READY => blk: {
+            shared.GLOWCAP_LISTEN_READY => blk: {
                 const listener = result.listener orelse {
                     if (self.table.cancel_listen) |cancel| if (self.callSubjectTeardown(cancel, route_id, "cancel_listen")) |cleanup|
                         self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
@@ -309,7 +309,7 @@ pub const Adapter = struct {
                 }
                 break :blk .{ .admitted = .{ .ready = listener } };
             },
-            shared.PANCAKE_LISTEN_PENDING => blk: {
+            shared.GLOWCAP_LISTEN_PENDING => blk: {
                 if (self.table.finish_listen == null or self.table.cancel_listen == null) {
                     if (result.listener) |listener| if (self.stopListenRollback(listener)) |cleanup|
                         self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
@@ -342,7 +342,7 @@ pub const Adapter = struct {
         var listener: ?*anyopaque = null;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.finish_listen.?(self.table.ctx, @intCast(route_id), &listener, &report);
-        if (code != PANCAKE_OK) {
+        if (code != GLOWCAP_OK) {
             var failure = failureChainFromProvider(code, report) catch blk: {
                 self.failContract("multiplexed listener finish returned an invalid structured failure");
                 break :blk net.netlayer.ListenFailure.init(error.ProviderContract);
@@ -422,11 +422,11 @@ pub const Adapter = struct {
     fn finishAcceptOutcome(ctx: *anyopaque, listener_ctx: *anyopaque) net.multiplexed_resident.MultiplexedResident.RawFinishAcceptOutcome {
         const self = of(ctx);
         var conn: u64 = 0;
-        var report = std.mem.zeroes(shared.PancakeProviderFailure);
+        var report = std.mem.zeroes(shared.GlowcapProviderFailure);
         const code = self.table.finish_accept.?(listener_ctx, &conn, &report);
-        if (code == PANCAKE_OK or code == PANCAKE_ERR_WOULD_BLOCK) {
+        if (code == GLOWCAP_OK or code == GLOWCAP_ERR_WOULD_BLOCK) {
             if (!providerFailureIsEmpty(report)) {
-                self.failContract(if (code == PANCAKE_OK)
+                self.failContract(if (code == GLOWCAP_OK)
                     "finish_accept reported failure on success"
                 else
                     "finish_accept reported failure while blocked");
@@ -437,7 +437,7 @@ pub const Adapter = struct {
                 self.owner.retainContradictoryReport(report, cleanup);
                 return .{ .failed = .init(error.ConnectionLost) };
             }
-            if (code == PANCAKE_ERR_WOULD_BLOCK) {
+            if (code == GLOWCAP_ERR_WOULD_BLOCK) {
                 if (conn != 0) {
                     self.failContract("finish_accept published a connection while blocked");
                     if (self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")) |cleanup|
@@ -461,7 +461,7 @@ pub const Adapter = struct {
                 chain.noteChain(cleanup);
             self.owner.runtime.noteTerminalOperationFailure(.fromChain(chain));
         }
-        const classification: net.netlayer.AcceptError = if (code == shared.PANCAKE_ERR_INTERNAL) error.OutOfMemory else error.ConnectionLost;
+        const classification: net.netlayer.AcceptError = if (code == shared.GLOWCAP_ERR_INTERNAL) error.OutOfMemory else error.ConnectionLost;
         return .{ .failed = .fromChain(classification, chain) };
     }
 
@@ -498,7 +498,7 @@ pub const Adapter = struct {
 
     fn callSubjectTeardown(
         self: *Adapter,
-        callback: shared.multiplexed_transport.PancakeMultiplexedSubjectFn,
+        callback: shared.multiplexed_transport.GlowcapMultiplexedSubjectFn,
         subject: usize,
         operation: []const u8,
     ) ?foundation.FailureChain {
@@ -510,7 +510,7 @@ pub const Adapter = struct {
     fn teardownFailure(
         self: *Adapter,
         code: i32,
-        report: shared.PancakeProviderFailure,
+        report: shared.GlowcapProviderFailure,
         operation: []const u8,
     ) ?foundation.FailureChain {
         return teardown.failure(code, report) catch {
@@ -522,7 +522,7 @@ pub const Adapter = struct {
     pub fn teardownOutcome(
         self: *Adapter,
         code: i32,
-        report: shared.PancakeProviderFailure,
+        report: shared.GlowcapProviderFailure,
         operation: []const u8,
     ) net.multiplexed_resident.TeardownOutcome {
         return teardown.outcome(code, report) catch {
@@ -534,9 +534,9 @@ pub const Adapter = struct {
 
 pub fn prepare(
     owner: *Owner,
-    table_ptr: *const shared.PancakeMultiplexedTransport,
+    table_ptr: *const shared.GlowcapMultiplexedTransport,
 ) !*Adapter {
-    try validation.tablePrefix(shared.PancakeMultiplexedTransport, table_ptr, shared.multiplexed_transport.PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION, "multiplexed");
+    try validation.tablePrefix(shared.GlowcapMultiplexedTransport, table_ptr, shared.multiplexed_transport.GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION, "multiplexed");
     const table = table_ptr.*;
     if (table.readiness_fd == null or table.drain_ready == null or table.try_read == null or
         table.try_write == null or table.conn_close == null or table.conn_take_failure == null or table.conn_remote_key == null)

@@ -4,89 +4,89 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libpancake_net_transport_tcp`. The hand-written
+// The raw extern block of `libglowcap_net_transport_tcp`. The hand-written
 // sibling (`tcp.rs`) owns the opaque types and re-exports this block, so
-// consumers keep their `sys::tcp::pancake_tcp_*` paths.
+// consumers keep their `sys::tcp::glowcap_tcp_*` paths.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uchar, c_uint};
 
-use super::tcp::{PancakeTcpConfig, PancakeTcpConn, PancakeTcpListener, PancakeTcpNetlayer, PancakeTcpStreamOptions};
-use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame, PancakeTransportProvider};
+use super::tcp::{GlowcapTcpConfig, GlowcapTcpConn, GlowcapTcpListener, GlowcapTcpNetlayer, GlowcapTcpStreamOptions};
+use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
 
 extern "C" {
-	pub fn pancake_tcp_archive_fingerprint() -> u64;
-	pub fn pancake_tcp_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_tcp_netlayer_new(
-		config: *const PancakeTcpConfig,
-		out_netlayer: *mut *mut PancakeTcpNetlayer,
+	pub fn glowcap_tcp_archive_fingerprint() -> u64;
+	pub fn glowcap_tcp_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_tcp_netlayer_new(
+		config: *const GlowcapTcpConfig,
+		out_netlayer: *mut *mut GlowcapTcpNetlayer,
 	) -> c_int;
-	pub fn pancake_tcp_transport_provider(
-		netlayer: *mut PancakeTcpNetlayer,
-		out_provider: *mut PancakeTransportProvider,
+	pub fn glowcap_tcp_transport_provider(
+		netlayer: *mut GlowcapTcpNetlayer,
+		out_provider: *mut GlowcapTransportProvider,
 	) -> c_int;
-	pub fn pancake_tcp_netlayer_shutdown(netlayer: *mut PancakeTcpNetlayer);
-	pub fn pancake_tcp_netlayer_release(netlayer: *mut PancakeTcpNetlayer);
-	pub fn pancake_tcp_connect(
-		netlayer: *mut PancakeTcpNetlayer,
+	pub fn glowcap_tcp_netlayer_shutdown(netlayer: *mut GlowcapTcpNetlayer);
+	pub fn glowcap_tcp_netlayer_release(netlayer: *mut GlowcapTcpNetlayer);
+	pub fn glowcap_tcp_connect(
+		netlayer: *mut GlowcapTcpNetlayer,
 		host: *const c_uchar,
 		host_len: usize,
 		port: u16,
-		options: *const PancakeTcpStreamOptions,
+		options: *const GlowcapTcpStreamOptions,
 		codec: c_uint,
 		max_frame_bytes: usize,
-		out_conn: *mut *mut PancakeTcpConn,
+		out_conn: *mut *mut GlowcapTcpConn,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_tcp_listen(
-		netlayer: *mut PancakeTcpNetlayer,
+	pub fn glowcap_tcp_listen(
+		netlayer: *mut GlowcapTcpNetlayer,
 		host: *const c_uchar,
 		host_len: usize,
 		port: u16,
-		out_listener: *mut *mut PancakeTcpListener,
+		out_listener: *mut *mut GlowcapTcpListener,
 	) -> c_int;
-	pub fn pancake_tcp_listener_port(listener: *mut PancakeTcpListener, out_port: *mut u16) -> c_int;
-	pub fn pancake_tcp_listener_readiness_fd(listener: *mut PancakeTcpListener, out_fd: *mut i32) -> c_int;
-	pub fn pancake_tcp_accept(
-		listener: *mut PancakeTcpListener,
-		options: *const PancakeTcpStreamOptions,
+	pub fn glowcap_tcp_listener_port(listener: *mut GlowcapTcpListener, out_port: *mut u16) -> c_int;
+	pub fn glowcap_tcp_listener_readiness_fd(listener: *mut GlowcapTcpListener, out_fd: *mut i32) -> c_int;
+	pub fn glowcap_tcp_accept(
+		listener: *mut GlowcapTcpListener,
+		options: *const GlowcapTcpStreamOptions,
 		codec: c_uint,
 		max_frame_bytes: usize,
-		out_conn: *mut *mut PancakeTcpConn,
+		out_conn: *mut *mut GlowcapTcpConn,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_tcp_conn_read_frame(
-		conn: *mut PancakeTcpConn,
-		out_frame: *mut PancakeManagedFrame,
+	pub fn glowcap_tcp_conn_read_frame(
+		conn: *mut GlowcapTcpConn,
+		out_frame: *mut GlowcapManagedFrame,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_tcp_conn_write_frame(
-		conn: *mut PancakeTcpConn,
-		frame: *const PancakeFrame,
+	pub fn glowcap_tcp_conn_write_frame(
+		conn: *mut GlowcapTcpConn,
+		frame: *const GlowcapFrame,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_tcp_conn_shutdown(conn: *mut PancakeTcpConn) -> c_int;
-	pub fn pancake_tcp_conn_release(
-		conn: *mut PancakeTcpConn,
+	pub fn glowcap_tcp_conn_shutdown(conn: *mut GlowcapTcpConn) -> c_int;
+	pub fn glowcap_tcp_conn_release(
+		conn: *mut GlowcapTcpConn,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_tcp_listener_shutdown(listener: *mut PancakeTcpListener);
-	pub fn pancake_tcp_listener_release(listener: *mut PancakeTcpListener);
-	pub fn pancake_tcp_clear_last_error();
-	pub fn pancake_tcp_netlayer_new_in(
-		context: *mut PancakeContext,
-		config: *const PancakeTcpConfig,
-		out_netlayer: *mut *mut PancakeTcpNetlayer,
+	pub fn glowcap_tcp_listener_shutdown(listener: *mut GlowcapTcpListener);
+	pub fn glowcap_tcp_listener_release(listener: *mut GlowcapTcpListener);
+	pub fn glowcap_tcp_clear_last_error();
+	pub fn glowcap_tcp_netlayer_new_in(
+		context: *mut GlowcapContext,
+		config: *const GlowcapTcpConfig,
+		out_netlayer: *mut *mut GlowcapTcpNetlayer,
 	) -> c_int;
 }

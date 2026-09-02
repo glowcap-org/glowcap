@@ -1,5 +1,5 @@
-import type { Argument } from "@pancake/runtime";
-import { listen } from "@pancake/tcp";
+import type { Argument } from "@glowcap/runtime";
+import { listen } from "@glowcap/tcp";
 
 // Plain TCP binds the host and port you choose.
 await using server = await listen("127.0.0.1", 9099);

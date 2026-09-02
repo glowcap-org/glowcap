@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const c = @import("c_abi_shared");
-const engine = @import("pancake").ocapn.engine;
+const engine = @import("glowcap").ocapn.engine;
 
 test "last abort projection retains bounded secondary diagnostics" {
     var peer = engine.Peer.init(std.testing.allocator);

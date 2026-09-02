@@ -1,7 +1,7 @@
 // Directory mutations either return the authority they promise or leave no
 // room/name/quota state behind.
 
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import { directoryBehavior, openNewRoom } from "../../server/directory_behavior.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { DIRECTORY, LIST, OPEN_MANAGED } from "../../lib/protocol.ts";

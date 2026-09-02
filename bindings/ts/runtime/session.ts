@@ -1,4 +1,4 @@
-// The application surface over the byte-fed host (libpancake_host,
+// The application surface over the byte-fed host (libglowcap_host,
 // ADR-0072): `Session` and its verbs (`fetch`/`send`/`tell`/`spawn`/
 // `publish`/`enliven`/`serve`/`close`), plus mint/handshake
 // (`establishDialedLocator` / `establishAccepted`). The dial executor and
@@ -11,8 +11,8 @@
 // everything else: routing, redemption, gift origination, far vows. `mod.ts`
 // re-exports the public members.
 
-import { DESIGNATOR_SCHEME_ADDRESS, DESIGNATOR_SCHEME_KEY, HANDSHAKE_TIMEOUT_MS } from "@pancake/abi";
-import { checkHost, PancakeError } from "./errors.ts";
+import { DESIGNATOR_SCHEME_ADDRESS, DESIGNATOR_SCHEME_KEY, HANDSHAKE_TIMEOUT_MS } from "@glowcap/abi";
+import { checkHost, GlowcapError } from "./errors.ts";
 import { Host } from "./host.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
@@ -47,7 +47,7 @@ export { HANDSHAKE_TIMEOUT_MS };
 
 /** How transport packets move for one connection — the seam the byte-fed pump
  * reads and the FLUSH drain writes. The core supplies the TCP wrapper below
- * over the runtime's own sockets; the `@pancake/iroh` companion supplies the
+ * over the runtime's own sockets; the `@glowcap/iroh` companion supplies the
  * iroh one, so the iroh artifact stays out of this core module entirely.
  * Framing is never the channel's job: the Host transport profile owns whether
  * reads are byte-stream chunks or whole message frames. */
@@ -113,11 +113,11 @@ export interface LoopChannel extends Channel {
 	waitClosed(): Promise<void>;
 	/** Settle the loop-backed serve boundary from the native SESSION_CLOSED
 	 * event before generic transport retirement runs. */
-	finishClosed(error: PancakeError | null): void;
+	finishClosed(error: GlowcapError | null): void;
 }
 
 /** A live CapTP session with one OCapN partner, the one object an application
- * holds, over one byte-fed `PancakeHostSession` the shared `Host` minted.
+ * holds, over one byte-fed `GlowcapHostSession` the shared `Host` minted.
  *
  *   await using runtime = await Runtime.open({ providers: [tcp.provider()] });
  *   await using session = await runtime.connect(tcp.locator("127.0.0.1", 9099));
@@ -139,7 +139,7 @@ export class Session extends SessionApplication {
 	 * designator, so no locator policy lives here. The handshake is bounded by
 	 * `handshakeTimeoutMs` (`HANDSHAKE_TIMEOUT_MS` on every dial the binding
 	 * performs; `0` or `null` waits unbounded), and overrunning it rejects
-	 * with `PancakeError` carrying `TIMEOUT`. Binding-internal. */
+	 * with `GlowcapError` carrying `TIMEOUT`. Binding-internal. */
 	static async establishDialedLocator(
 		host: Host,
 		locator: Locator,
@@ -153,7 +153,7 @@ export class Session extends SessionApplication {
 			withOwnedLocator(
 				locator,
 				(owned) =>
-					checkHost(hostS.pancake_host_session_open_dialed_locator(host.raw, owned.borrowView(), ab(out))),
+					checkHost(hostS.glowcap_host_session_open_dialed_locator(host.raw, owned.borrowView(), ab(out))),
 			);
 			session = new Session(outPointer(out), host, transport);
 			// Before the first partner byte, which is the only window a realizer's
@@ -175,7 +175,7 @@ export class Session extends SessionApplication {
 	 * is bounded by `handshakeTimeoutMs` (`HANDSHAKE_TIMEOUT_MS` in every
 	 * accept loop here; `0` or `null` waits unbounded, which a caller parking
 	 * a registration rather than running an accept loop wants), and
-	 * overrunning it rejects with `PancakeError` carrying `TIMEOUT`, which an
+	 * overrunning it rejects with `GlowcapError` carrying `TIMEOUT`, which an
 	 * accept loop treats as any other bad partner. Binding-internal. */
 	static async establishAccepted(
 		host: Host,
@@ -196,7 +196,7 @@ export class Session extends SessionApplication {
 			const local = utf8Encoder.encode(acceptedLocalAddr);
 			const t = utf8Encoder.encode(transportName);
 			const out = new Uint8Array(8);
-			const openCode = hostS.pancake_host_session_open_accepted(
+			const openCode = hostS.glowcap_host_session_open_accepted(
 				host.raw,
 				ab(t),
 				BigInt(t.length),

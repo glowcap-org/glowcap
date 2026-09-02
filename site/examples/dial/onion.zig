@@ -1,15 +1,15 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // Dial through the same SOCKS endpoint the listener named.
-    var onion_resident = pancake.net.onion.Resident{ .io = io, .config = .{
+    var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
         .socks = "/run/tor/socks",
     } };
-    const netlayers = [_]pancake.net.netlayer.Netlayer{onion_resident.netlayer()};
-    const partner = pancake.net.onion.locator("<56-character onion service id>");
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{onion_resident.netlayer()};
+    const partner = glowcap.net.onion.locator("<56-character onion service id>");
     // From here, the CapTP workflow is transport-independent.
-    const session = try pancake.driver.connect(
+    const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
         partner,

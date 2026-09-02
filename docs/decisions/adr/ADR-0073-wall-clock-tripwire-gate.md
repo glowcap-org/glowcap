@@ -90,5 +90,5 @@ gates. A red `perf_gate` line names the path, the measured figure, and the
 ceiling in machine-neutral terms. An exotically slow environment (emulation)
 can trip an absolute ceiling; each is one constant, and the devcontainer is
 the canonical environment. `bench-langs` Zig rows now genuinely measure
-ReleaseFast pancake, so previously published figures may shift at the next
+ReleaseFast glowcap, so previously published figures may shift at the next
 `bench-site-report` regeneration.

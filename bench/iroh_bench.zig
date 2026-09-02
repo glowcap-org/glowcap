@@ -24,14 +24,14 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 
 fn listenReady(layer: net.netlayer.Netlayer, allocator: std.mem.Allocator, designator: []const u8) !net.netlayer.Listener {
     var result = switch (layer.listen(allocator, .{ .designator = designator })) {
@@ -189,7 +189,7 @@ fn benchTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []
 /// its node id alone through the deterministic in-process address book.
 fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []u64) !void {
     const server_seed: [32]u8 = @splat(0x61);
-    const server_secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed);
+    const server_secret = glowcap.foundation.crypto.SecretKey.fromSeed(server_seed);
     var server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
     defer server.deinit() catch |err| std.log.err("iroh server teardown failed: {s}", .{@errorName(err)});
     var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });

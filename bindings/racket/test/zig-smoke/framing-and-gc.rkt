@@ -5,11 +5,11 @@
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -169,7 +169,7 @@
 (printf "racket zig-smoke OK: a transport read exception stays exact through retirement\n")
 
 ;; ── Bounded tail: an over-cap frame is a typed refusal, not "read more" ──────
-;; The core's stream delimiter (`pancake_host_session_feed_bytes`) buffers a
+;; The core's stream delimiter (`glowcap_host_session_feed_bytes`) buffers a
 ;; partial frame in the session only while the frame stays admissible; a frame
 ;; declaring more than the frame cap must surface as the typed FRAME_TOO_LARGE
 ;; error, or a hostile partner could grow the session's tail without
@@ -183,14 +183,14 @@
                                     #:designator-scheme DESIGNATOR-SCHEME-ADDRESS))
 (drain-host! oc-host) ; the signed op:start-session leaves into the discard transport
 (define oc-failure
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (feed-bytes! oc-session #"2000000:")
     'no-error))
-(expect (and (exn:fail:pancake? oc-failure)
-             (= ERR-FRAME-TOO-LARGE (exn:fail:pancake-code oc-failure)))
+(expect (and (exn:fail:glowcap? oc-failure)
+             (= ERR-FRAME-TOO-LARGE (exn:fail:glowcap-code oc-failure)))
         "over-cap frame: typed FRAME_TOO_LARGE refusal")
 (define oc-close-failure
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-close! oc-session)
     'no-error))
 (expect (eq? oc-failure oc-close-failure)
@@ -212,11 +212,11 @@
 (drain-host! la-host) ; the signed op:start-session leaves into the discard transport
 (expect (not (session-last-abort la-session)) "last-abort: nothing recorded before a failure")
 (define la-exn
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (feed-bytes! la-session #"this is not a frame")
     'no-error))
-(expect (exn:fail:pancake? la-exn) "last-abort: a refused frame raised exn:fail:pancake")
-(define la-info (exn:fail:pancake-abort la-exn))
+(expect (exn:fail:glowcap? la-exn) "last-abort: a refused frame raised exn:fail:glowcap")
+(define la-info (exn:fail:glowcap-abort la-exn))
 (expect (abort-info? la-info) "last-abort: the exn carries the typed abort detail")
 (expect (eq? 'codec (abort-info-domain la-info)) "last-abort: domain is codec")
 (expect (equal? "MalformedFrame" (abort-info-kind la-info)) "last-abort: kind is MalformedFrame")
@@ -229,7 +229,7 @@
         "last-abort: successful cleanup has no secondary failures")
 (expect (abort-info? (session-last-abort la-session)) "last-abort: the reader reads the same recorded cause")
 (define la-close-exn
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-close! la-session)
     'no-error))
 (expect (eq? la-exn la-close-exn) "last-abort: close retained the exact refused-frame failure")

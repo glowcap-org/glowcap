@@ -39,7 +39,7 @@ import {
 	until,
 	withServer,
 } from "../support/rooms_server.ts";
-import { Session } from "@pancake/runtime";
+import { Session } from "@glowcap/runtime";
 
 roomsTest("a webrtc designator held by a live registration is not overwritable", async () => {
 	// A `signalOffer` routes by designator, so whoever the table names receives

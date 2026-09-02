@@ -1,5 +1,5 @@
-import { Runtime } from "@pancake/runtime";
-import { connector, locator, type SignalingAuthority } from "@pancake/webrtc";
+import { Runtime } from "@glowcap/runtime";
+import { connector, locator, type SignalingAuthority } from "@glowcap/webrtc";
 
 declare const signaling: SignalingAuthority;
 const peerKey = "<64 lowercase hex characters from the peer>";

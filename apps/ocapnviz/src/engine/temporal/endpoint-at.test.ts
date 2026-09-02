@@ -43,21 +43,21 @@ function captureWith(...moments: TimelineEvent[]): TimelineDocument {
 		recording: {
 			sources: [{
 				id: "live",
-				meta: { kind: "pancake-host" as const },
+				meta: { kind: "glowcap-host" as const },
 				observations: [
 					{
 						id: "e1",
 						t: 0,
 						kind: "peer-joined" as const,
 						peerId: "rooms",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "e2",
 						t: 0,
 						kind: "peer-joined" as const,
 						peerId: "bob",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "e3",
@@ -178,7 +178,7 @@ const latecomer = (t: number): TimelineEvent[] => [
 		t,
 		kind: "peer-joined",
 		peerId: "carol",
-		profile: "pancake",
+		profile: "glowcap",
 	} as TimelineEvent,
 	{
 		id: `att-carol-${t}`,

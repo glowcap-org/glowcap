@@ -3,11 +3,11 @@
 // agnostic pump (`webSocketRelay`) never dials — the caller hands it a channel —
 // so each relay used to carry its own TCP and iroh channel factory. These are
 // the one hardened copy of each: the TCP dial bounds its connect and closes
-// every partial resource, and the iroh dial loads @pancake/iroh once and lazily.
+// every partial resource, and the iroh dial loads @glowcap/iroh once and lazily.
 
 import type { RelayChannel } from "./relay.ts";
-import { recordProcessBindingFailure, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime/transport";
-import { BINDING_RELAY_TCP_DIAL_TIMEOUT_MS } from "@pancake/abi";
+import { recordProcessBindingFailure, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime/transport";
+import { BINDING_RELAY_TCP_DIAL_TIMEOUT_MS } from "@glowcap/abi";
 
 const defaultTcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS;
 
@@ -111,7 +111,7 @@ export async function denoTcpChannel(
 	};
 }
 
-// Iroh is dialed through @pancake/iroh, imported lazily so a TCP-only relay run
+// Iroh is dialed through @glowcap/iroh, imported lazily so a TCP-only relay run
 // never loads the iroh FFI. Cache the promise, not the result, so concurrent
 // dials load the module once.
 type IrohRelayModule = {
@@ -127,7 +127,7 @@ export type IrohReach = "direct" | "discovery";
 
 /** Open an iroh byte channel to `locator`, resolving it under `reach`. */
 export async function denoIrohChannel(locator: string, reach: IrohReach): Promise<RelayChannel> {
-	irohModulePromise ??= import("@pancake/iroh") as Promise<IrohRelayModule>;
+	irohModulePromise ??= import("@glowcap/iroh") as Promise<IrohRelayModule>;
 	const iroh = await irohModulePromise;
 	const reachability = reach === "discovery" ? iroh.Reachability.Discovery : iroh.Reachability.Direct;
 	return await iroh.dialLocatorForRelay(locator, reachability);

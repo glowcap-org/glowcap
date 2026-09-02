@@ -44,7 +44,7 @@ questions are [watched separately](upstream-watch.md).
 ## Beyond the library
 
 - **A2A facade.** Design sketch in [`docs/planning/`](planning/); deferred by
-  [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md).
+  [ADR-0084](decisions/adr/ADR-0084-glowcap-cli-product-boundary.md).
 - **OpenTelemetry export.** Adapter-only OTLP off the Host and session event
   spine, enabled by `OTEL_*` or a flag, off by default, never in a
   `core = true` module.

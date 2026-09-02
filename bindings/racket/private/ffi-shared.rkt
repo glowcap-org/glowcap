@@ -1,5 +1,5 @@
 #lang racket/base
-;; Internal: the shared C-ABI vocabulary the pancake archives agree on by layout.
+;; Internal: the shared C-ABI vocabulary the glowcap archives agree on by layout.
 ;;
 ;; This module is the binding's one types leaf: every C-visible cstruct and
 ;; callback type the archives' `_fun` signatures name — frame, reference,
@@ -96,18 +96,18 @@
 (define (call/without-diagnostic raw . args)
   (apply raw (append args (list #f 0 #f))))
 
-(define-cstruct _PancakeFrame ([bytes _pointer] [len _size] [shape _uint32]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeManagedFrame
+(define-cstruct _GlowcapFrame ([bytes _pointer] [len _size] [shape _uint32]) #:malloc-mode 'atomic-interior)
+(define-cstruct _GlowcapManagedFrame
   ([bytes _pointer] [len _size] [shape _uint32] [release _pointer]
    [private-words (_array/vector _size 8)]) #:malloc-mode 'atomic-interior)
 
-(define-cstruct _PancakeReference ([id _uint64]) #:malloc-mode 'atomic-interior)
+(define-cstruct _GlowcapReference ([id _uint64]) #:malloc-mode 'atomic-interior)
 
-;; Mirrors `PancakeOnionConfig`, whose Zig declaration in
+;; Mirrors `GlowcapOnionConfig`, whose Zig declaration in
 ;; `src/c_abi/net_transport/onion/contract.zig` documents every field. Every pointer is
 ;; borrowed for the constructor call only, because the netlayer copies the text it
 ;; needs; `'atomic-interior` keeps the struct itself immobile for that call.
-(define-cstruct _PancakeOnionConfig
+(define-cstruct _GlowcapOnionConfig
   ([socks _pointer] [socks_len _size]
    [control_endpoint _pointer] [control_endpoint_len _size]
    [auth_kind _uint32]
@@ -116,39 +116,39 @@
    [forward _pointer] [forward_len _size])
   #:malloc-mode 'atomic-interior)
 
-;; Mirrors `PancakeRelayConfig`: one archive-owned runtime serves both
+;; Mirrors `GlowcapRelayConfig`: one archive-owned runtime serves both
 ;; keyed-relay and noise-relay. The constructor copies both URL views before
 ;; returning, so the pinned buffers are call-local.
-(define-cstruct _PancakeRelayConfig
+(define-cstruct _GlowcapRelayConfig
   ([abi_version _uint32] [struct_size _size]
    [relay_url _pointer] [relay_url_len _size]
    [register_url _pointer] [register_url_len _size]
    [trust _uint32]
    [trust_pem _pointer] [trust_pem_len _size])
   #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeRelayTrustSummary
+(define-cstruct _GlowcapRelayTrustSummary
   ([loaded _size]
    [skipped_by_engine _size]
    [first_skipped_engine_code _int32])
   #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeArgument
+(define-cstruct _GlowcapArgument
   ([kind _uint32] [boolean _uint32] [integer _int64] [float64 _double]
-   [bytes _pointer] [bytes-len _size] [reference _PancakeReference]
+   [bytes _pointer] [bytes-len _size] [reference _GlowcapReference]
    [items _pointer] [items-len _size]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeHostAction` in pancake_host.h: one embedder effect popped
-;; from `pancake_host_next_action`. `kind` selects the live fields; a DIAL
+;; Mirrors `GlowcapHostAction` in glowcap_host.h: one embedder effect popped
+;; from `glowcap_host_next_action`. `kind` selects the live fields; a DIAL
 ;; action carries `ticket` and `route-index` (locator bytes come from
-;; `pancake_host_pending_dial`); a SETTLE's `value` sub-structure and a
+;; `glowcap_host_pending_dial`); a SETTLE's `value` sub-structure and a
 ;; FAIL's `message` are host-owned and valid until the next
-;; `pancake_host_next_action`, so the binding copies them out immediately.
-(define-cstruct _PancakeHostAction
+;; `glowcap_host_next_action`, so the binding copies them out immediately.
+(define-cstruct _GlowcapHostAction
   ([kind _uint32] [ticket _uint64] [route-index _size] [session _pointer]
-   [value _PancakeArgument] [message _pointer] [message-len _size]
+   [value _GlowcapArgument] [message _pointer] [message-len _size]
    [result _int32]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeLastAbort` in pancake_ocapn.h: two leading u32s, five
+;; Mirrors `GlowcapLastAbort` in glowcap_ocapn.h: two leading u32s, five
 ;; (pointer, length) views of process-static strings the library owns, then a
 ;; bounded secondary-failure count.
-(define-cstruct _PancakeLastAbort
+(define-cstruct _GlowcapLastAbort
   ([domain _uint32] [has-kind _uint32]
    [kind-name _pointer] [kind-name-len _size]
    [message _pointer] [message-len _size]
@@ -157,7 +157,7 @@
    [secondary-error-name _pointer] [secondary-error-name-len _size]
    [secondary-error-count _uint32]) #:malloc-mode 'atomic-interior)
 
-(define-cstruct _PancakeFailureReport
+(define-cstruct _GlowcapFailureReport
   ([abi-version _uint32] [struct-size _size]
    [layer _uint32] [scope-kind _uint32]
    [scope-id _uint64] [operation-id _uint64]
@@ -170,7 +170,7 @@
    [secondary-message _pointer] [secondary-message-len _size])
   #:malloc-mode 'atomic-interior)
 
-(define-cstruct _PancakeFailureEvent
+(define-cstruct _GlowcapFailureEvent
   ([abi-version _uint32] [struct-size _size]
    [sequence _uint64] [dropped-before _uint64]
    [layer _uint32] [scope-kind _uint32]
@@ -187,7 +187,7 @@
 ;; Caller-owned deterministic provider-install and loop-release outcome. The
 ;; pointed-to names are process-lifetime stable and copied by the runtime tier
 ;; before another native call can retire the record.
-(define-cstruct _PancakeDriverFailure
+(define-cstruct _GlowcapDriverFailure
   ([abi-version _uint32] [struct-size _size]
    [primary-result _int32] [secondary-result _int32]
    [secondary-count _uint32]
@@ -220,42 +220,42 @@
   (define got-size (ctype-sizeof ctype))
   (define got-layout (normalize-layout (ctype->layout ctype)))
   (unless (and (= got-size want-size) (equal? got-layout want-layout))
-    (error 'pancake
+    (error 'glowcap
            "FFI layout drift in ~a: size ~a layout ~a, the C ABI says size ~a layout ~a; re-mirror the cstruct"
            name got-size got-layout want-size want-layout)))
 
-(pin-layout! '_PancakeFrame _PancakeFrame PANCAKE-FRAME-SIZE PANCAKE-FRAME-LAYOUT)
-(pin-layout! '_PancakeManagedFrame _PancakeManagedFrame PANCAKE-MANAGED-FRAME-SIZE
-             PANCAKE-MANAGED-FRAME-LAYOUT)
-(pin-layout! '_PancakeReference _PancakeReference PANCAKE-REFERENCE-SIZE
-             PANCAKE-REFERENCE-LAYOUT)
-(pin-layout! '_PancakeArgument _PancakeArgument PANCAKE-ARGUMENT-SIZE
-             PANCAKE-ARGUMENT-LAYOUT)
-(pin-layout! '_PancakeHostAction _PancakeHostAction PANCAKE-HOST-ACTION-SIZE
-             PANCAKE-HOST-ACTION-LAYOUT)
-(pin-layout! '_PancakeLastAbort _PancakeLastAbort PANCAKE-LAST-ABORT-SIZE
-             PANCAKE-LAST-ABORT-LAYOUT)
-(pin-layout! '_PancakeFailureReport _PancakeFailureReport PANCAKE-FAILURE-REPORT-SIZE
-             PANCAKE-FAILURE-REPORT-LAYOUT)
-(pin-layout! '_PancakeFailureEvent _PancakeFailureEvent PANCAKE-FAILURE-EVENT-SIZE
-             PANCAKE-FAILURE-EVENT-LAYOUT)
-(pin-layout! '_PancakeDriverFailure _PancakeDriverFailure
-             PANCAKE-DRIVER-FAILURE-SIZE PANCAKE-DRIVER-FAILURE-LAYOUT)
-(pin-layout! '_PancakeRelayConfig _PancakeRelayConfig
-             PANCAKE-RELAY-CONFIG-SIZE PANCAKE-RELAY-CONFIG-LAYOUT)
-(pin-layout! '_PancakeRelayTrustSummary _PancakeRelayTrustSummary
-             PANCAKE-RELAY-TRUST-SUMMARY-SIZE PANCAKE-RELAY-TRUST-SUMMARY-LAYOUT)
-(pin-layout! '_PancakeOnionConfig _PancakeOnionConfig
-             PANCAKE-ONION-CONFIG-SIZE PANCAKE-ONION-CONFIG-LAYOUT)
+(pin-layout! '_GlowcapFrame _GlowcapFrame GLOWCAP-FRAME-SIZE GLOWCAP-FRAME-LAYOUT)
+(pin-layout! '_GlowcapManagedFrame _GlowcapManagedFrame GLOWCAP-MANAGED-FRAME-SIZE
+             GLOWCAP-MANAGED-FRAME-LAYOUT)
+(pin-layout! '_GlowcapReference _GlowcapReference GLOWCAP-REFERENCE-SIZE
+             GLOWCAP-REFERENCE-LAYOUT)
+(pin-layout! '_GlowcapArgument _GlowcapArgument GLOWCAP-ARGUMENT-SIZE
+             GLOWCAP-ARGUMENT-LAYOUT)
+(pin-layout! '_GlowcapHostAction _GlowcapHostAction GLOWCAP-HOST-ACTION-SIZE
+             GLOWCAP-HOST-ACTION-LAYOUT)
+(pin-layout! '_GlowcapLastAbort _GlowcapLastAbort GLOWCAP-LAST-ABORT-SIZE
+             GLOWCAP-LAST-ABORT-LAYOUT)
+(pin-layout! '_GlowcapFailureReport _GlowcapFailureReport GLOWCAP-FAILURE-REPORT-SIZE
+             GLOWCAP-FAILURE-REPORT-LAYOUT)
+(pin-layout! '_GlowcapFailureEvent _GlowcapFailureEvent GLOWCAP-FAILURE-EVENT-SIZE
+             GLOWCAP-FAILURE-EVENT-LAYOUT)
+(pin-layout! '_GlowcapDriverFailure _GlowcapDriverFailure
+             GLOWCAP-DRIVER-FAILURE-SIZE GLOWCAP-DRIVER-FAILURE-LAYOUT)
+(pin-layout! '_GlowcapRelayConfig _GlowcapRelayConfig
+             GLOWCAP-RELAY-CONFIG-SIZE GLOWCAP-RELAY-CONFIG-LAYOUT)
+(pin-layout! '_GlowcapRelayTrustSummary _GlowcapRelayTrustSummary
+             GLOWCAP-RELAY-TRUST-SUMMARY-SIZE GLOWCAP-RELAY-TRUST-SUMMARY-LAYOUT)
+(pin-layout! '_GlowcapOnionConfig _GlowcapOnionConfig
+             GLOWCAP-ONION-CONFIG-SIZE GLOWCAP-ONION-CONFIG-LAYOUT)
 
-;; ── Driver-archive types (pancake_host.h) ──────────────────────────────────
+;; ── Driver-archive types (glowcap_host.h) ──────────────────────────────────
 
 ;; The C behavior callback. `_fun` makes a Racket closure C-callable; the
 ;; closure must stay reachable while the host may invoke it (the host's
 ;; strong `keep` table in `private/host/state.rkt` provides that).
-;; PancakeTraceEvent — one live-trace fact (pancake_host_set_trace); the
+;; GlowcapTraceEvent — one live-trace fact (glowcap_host_set_trace); the
 ;; layout facts in layouts-gen.rkt pin the mirror.
-(define-cstruct _PancakeTraceEvent
+(define-cstruct _GlowcapTraceEvent
   ([kind _uint32]
    [session _uint64]
    [outbound _uint8]
@@ -278,35 +278,35 @@
    ;; that carried it. Zero on the non-message kinds.
    [digest (_array _uint8 TRACE-DIGEST-BYTES)]) #:malloc-mode 'atomic-interior)
 
-;; PancakeTraceCallback — void (*)(void *ctx, const PancakeTraceEvent *event).
-(define _PancakeTraceCallback
-  (_fun _pointer _PancakeTraceEvent-pointer -> _void))
-(pin-layout! '_PancakeTraceEvent _PancakeTraceEvent PANCAKE-TRACE-EVENT-SIZE
-             PANCAKE-TRACE-EVENT-LAYOUT)
+;; GlowcapTraceCallback — void (*)(void *ctx, const GlowcapTraceEvent *event).
+(define _GlowcapTraceCallback
+  (_fun _pointer _GlowcapTraceEvent-pointer -> _void))
+(pin-layout! '_GlowcapTraceEvent _GlowcapTraceEvent GLOWCAP-TRACE-EVENT-SIZE
+             GLOWCAP-TRACE-EVENT-LAYOUT)
 
-(define _PancakeHostBehavior
-  (_fun _pointer _pointer _pointer _size _pointer _size _PancakeArgument-pointer -> _int32))
+(define _GlowcapHostBehavior
+  (_fun _pointer _pointer _pointer _size _pointer _size _GlowcapArgument-pointer -> _int32))
 
-;; Sync arm for pancake_host_pump_drain. Must not await — park decoded work
+;; Sync arm for glowcap_host_pump_drain. Must not await — park decoded work
 ;; and run I/O after the C loop returns.
-(define _PancakeHostPumpArmFn
-  (_fun _pointer _pointer _PancakeHostAction-pointer _pointer -> _int32))
+(define _GlowcapHostPumpArmFn
+  (_fun _pointer _pointer _GlowcapHostAction-pointer _pointer -> _int32))
 
-;; PancakeHostPumpHooks — five arm slots + caller ctx. Fields are `_fpointer`
+;; GlowcapHostPumpHooks — five arm slots + caller ctx. Fields are `_fpointer`
 ;; so `function-ptr` callbacks install cleanly.
-(define-cstruct _PancakeHostPumpHooks
+(define-cstruct _GlowcapHostPumpHooks
   ([ctx _pointer]
    [flush _fpointer] [close _fpointer] [need-gift-id _fpointer]
    [complete _fpointer] [dial _fpointer]) #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeHostPumpHooks _PancakeHostPumpHooks PANCAKE-HOST-PUMP-HOOKS-SIZE
-             PANCAKE-HOST-PUMP-HOOKS-LAYOUT)
+(pin-layout! '_GlowcapHostPumpHooks _GlowcapHostPumpHooks GLOWCAP-HOST-PUMP-HOOKS-SIZE
+             GLOWCAP-HOST-PUMP-HOOKS-LAYOUT)
 
-;; PancakePartnerIdentity: the verified partner identity
-;; `pancake_host_session_partner_identity` borrows into, as three (pointer,
+;; GlowcapPartnerIdentity: the verified partner identity
+;; `glowcap_host_session_partner_identity` borrows into, as three (pointer,
 ;; length) views the session owns. The designator and the locator record may
 ;; each be NULL with a zero length; the session key is always present when the
 ;; call succeeded.
-(define-cstruct _PancakePartnerIdentity
+(define-cstruct _GlowcapPartnerIdentity
   ([session-key _pointer]
    [session-key-len _size]
    [designator _pointer]
@@ -316,86 +316,86 @@
    ;; How the durable identity in `designator` was authenticated, one of the
    ;; DURABLE-PROVENANCE-* constants (ADR-0097).
    [provenance _uint32]) #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakePartnerIdentity _PancakePartnerIdentity PANCAKE-PARTNER-IDENTITY-SIZE
-             PANCAKE-PARTNER-IDENTITY-LAYOUT)
+(pin-layout! '_GlowcapPartnerIdentity _GlowcapPartnerIdentity GLOWCAP-PARTNER-IDENTITY-SIZE
+             GLOWCAP-PARTNER-IDENTITY-LAYOUT)
 
-;; ── Loop-archive types (pancake_driver.h, ADR-0112) ────────────────────────
+;; ── Loop-archive types (glowcap_driver.h, ADR-0112) ────────────────────────
 
-(define-cstruct _PancakeDriverOptions
+(define-cstruct _GlowcapDriverOptions
   ([abi-version _uint32] [struct-size _size]
    [wire-buffer-bytes _size] [max-pending-opens _size]
    [handshake-ms _uint32] [listener-setup-ms _uint32] [settle-ms _uint32])
   #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeDriverOptions _PancakeDriverOptions PANCAKE-DRIVER-OPTIONS-SIZE
-             PANCAKE-DRIVER-OPTIONS-LAYOUT)
+(pin-layout! '_GlowcapDriverOptions _GlowcapDriverOptions GLOWCAP-DRIVER-OPTIONS-SIZE
+             GLOWCAP-DRIVER-OPTIONS-LAYOUT)
 
-(define-cstruct _PancakeCloseOptions
+(define-cstruct _GlowcapCloseOptions
   ([abi-version _uint32] [struct-size _size]
    [pending _uint32] [grace-mode _uint32] [grace-ms _uint32])
   #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeCloseOptions _PancakeCloseOptions
-             PANCAKE-CLOSE-OPTIONS-SIZE PANCAKE-CLOSE-OPTIONS-LAYOUT)
+(pin-layout! '_GlowcapCloseOptions _GlowcapCloseOptions
+             GLOWCAP-CLOSE-OPTIONS-SIZE GLOWCAP-CLOSE-OPTIONS-LAYOUT)
 
-(define-cstruct _PancakeSessionLimitOptions
+(define-cstruct _GlowcapSessionLimitOptions
   ([abi-version _uint32] [struct-size _size]
    [max-frame-bytes _size] [queue-cap _size]
    [outbound-high-water-bytes _size]
    [max-retained-sent-answer-bytes _size])
   #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeSessionLimitOptions _PancakeSessionLimitOptions
-             PANCAKE-SESSION-LIMIT-OPTIONS-SIZE
-             PANCAKE-SESSION-LIMIT-OPTIONS-LAYOUT)
+(pin-layout! '_GlowcapSessionLimitOptions _GlowcapSessionLimitOptions
+             GLOWCAP-SESSION-LIMIT-OPTIONS-SIZE
+             GLOWCAP-SESSION-LIMIT-OPTIONS-LAYOUT)
 
-;; PancakeDriverEvent: one drained loop event. `kind` selects the live fields;
+;; GlowcapDriverEvent: one drained loop event. `kind` selects the live fields;
 ;; OPENED/OPEN_FAILED use `operation-id`, while ACCEPTED and listener setup use
 ;; `listener-id`. A COMPLETION carries the byte-fed queue's own SETTLE/FAIL
 ;; shape in `action`. Every borrowed failure name and action view dies at the
-;; next `pancake_driver_next_event`, so the loop copies it
+;; next `glowcap_driver_next_event`, so the loop copies it
 ;; out immediately.
-(define-cstruct _PancakeDriverEvent
+(define-cstruct _GlowcapDriverEvent
   ([kind _uint32] [primary-result _int32]
    [secondary-result _int32] [secondary-count _uint32]
    [carrier-phase _uint32] [carrier-detail-flags _uint32]
    [carrier-verification-flags _uint32] [carrier-peer-alert _uint32]
    [carrier-engine-code _int32]
    [operation-id _uint64] [listener-id _uint64] [session _pointer]
-   [action _PancakeHostAction]
+   [action _GlowcapHostAction]
    [primary-name _pointer] [primary-name-len _size]
    [secondary-name _pointer] [secondary-name-len _size])
   #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeDriverEvent _PancakeDriverEvent PANCAKE-DRIVER-EVENT-SIZE
-             PANCAKE-DRIVER-EVENT-LAYOUT)
+(pin-layout! '_GlowcapDriverEvent _GlowcapDriverEvent GLOWCAP-DRIVER-EVENT-SIZE
+             GLOWCAP-DRIVER-EVENT-LAYOUT)
 
-(define-cstruct _PancakeLocatorHintView
+(define-cstruct _GlowcapLocatorHintView
   ([name _pointer] [name-len _size] [kind _uint32]
    [bytes _pointer] [bytes-len _size] [boolean-value _uint8] [integer-value _int64])
   #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeLocatorHintView _PancakeLocatorHintView
-             PANCAKE-LOCATOR-HINT-VIEW-SIZE PANCAKE-LOCATOR-HINT-VIEW-LAYOUT)
+(pin-layout! '_GlowcapLocatorHintView _GlowcapLocatorHintView
+             GLOWCAP-LOCATOR-HINT-VIEW-SIZE GLOWCAP-LOCATOR-HINT-VIEW-LAYOUT)
 
-(define-cstruct _PancakeLocatorView
+(define-cstruct _GlowcapLocatorView
   ([abi-version _uint32] [struct-size _size]
    [transport _pointer] [transport-len _size]
    [designator _pointer] [designator-len _size]
    [hints _pointer] [hint-count _size] [hint-wire-form _uint32])
   #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeLocatorView _PancakeLocatorView
-             PANCAKE-LOCATOR-VIEW-SIZE PANCAKE-LOCATOR-VIEW-LAYOUT)
+(pin-layout! '_GlowcapLocatorView _GlowcapLocatorView
+             GLOWCAP-LOCATOR-VIEW-SIZE GLOWCAP-LOCATOR-VIEW-LAYOUT)
 
 ;; The only transport shape a binding mirrors. Execution-model tables stay
 ;; private to transport archives and the driver.
-(define-cstruct _PancakeTransportOperationOptions
+(define-cstruct _GlowcapTransportOperationOptions
   ([data _pointer] [size _size])
   #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeTransportOperationOptions _PancakeTransportOperationOptions
-             PANCAKE-TRANSPORT-OPERATION-OPTIONS-SIZE
-             PANCAKE-TRANSPORT-OPERATION-OPTIONS-LAYOUT)
+(pin-layout! '_GlowcapTransportOperationOptions _GlowcapTransportOperationOptions
+             GLOWCAP-TRANSPORT-OPERATION-OPTIONS-SIZE
+             GLOWCAP-TRANSPORT-OPERATION-OPTIONS-LAYOUT)
 
-(define-cstruct _PancakeTransportProvider
+(define-cstruct _GlowcapTransportProvider
   ([abi-version _uint32] [struct-size _size]
    [entries _pointer] [entry-count _size]
    [lease-ctx _pointer] [same-configuration _pointer]
    [retain _pointer] [release _pointer])
   #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeTransportProvider _PancakeTransportProvider
-             PANCAKE-TRANSPORT-PROVIDER-SIZE PANCAKE-TRANSPORT-PROVIDER-LAYOUT)
+(pin-layout! '_GlowcapTransportProvider _GlowcapTransportProvider
+             GLOWCAP-TRANSPORT-PROVIDER-SIZE GLOWCAP-TRANSPORT-PROVIDER-LAYOUT)

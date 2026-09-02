@@ -6,7 +6,7 @@
 .draft = false,
 ---
 
-pancake has one protocol implementation and several APIs. Choose the one that
+glowcap has one protocol implementation and several APIs. Choose the one that
 matches your language and runtime.
 
 [One core under every API, so the entry point you choose does not change what a session puts on the wire.]($image.siteAsset('diagram-surfaces.svg'))
@@ -14,7 +14,7 @@ matches your language and runtime.
 | API | You write | Reach for it when |
 | --- | --- | --- |
 | [Zig package]($link.page('start')) | Zig | You own allocators and I/O, and you want the engine types in the same language. |
-| [C ABI](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md) | C / any FFI | You are wrapping a language with no binding, or you already own the event loop and sockets. |
+| [C ABI](https://github.com/jimisaacs/glowcap/blob/main/docs/consuming-from-c.md) | C / any FFI | You are wrapping a language with no binding, or you already own the event loop and sockets. |
 | [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | You want `async`/`await` (or Racket threads) and do not want to pump bytes. |
 | [CapTP CLI]($link.page('cli')) | shell or MCP | You want to call or host from a terminal, or expose CapTP tools to an editor assistant via MCP. |
 

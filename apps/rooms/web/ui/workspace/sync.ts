@@ -3,7 +3,7 @@
 import { reloadNow } from "../boot.ts";
 
 const source = crypto.randomUUID();
-const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("pancake-rooms-state");
+const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("glowcap-rooms-state");
 
 channel?.addEventListener("message", (event) => {
 	const message: unknown = event.data;

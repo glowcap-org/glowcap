@@ -35,7 +35,7 @@
 //! step `zig build webrtc-signaling-captp`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
@@ -44,12 +44,12 @@ const webrtc_common = @import("webrtc_common");
 /// failure.
 const handshake_budget: driver.Budget = .{ .ms = 15_000 };
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
 const ip = std.Io.net;
 
 // The signaling inbox actor, the channel-bring-up client, and the SDP frame cap
@@ -187,7 +187,7 @@ fn recipientHalf(
     const greeter = try webrtc_common.fetchRef(resident, offerer, &pump, &host, session, "greeter", 10_000);
     try webrtc_common.sendAndExpectString(resident, offerer, &pump, &host, session, greeter, .{
         .verb = "greet",
-        .args = &.{.{ .string = "pancake" }},
+        .args = &.{.{ .string = "glowcap" }},
     }, greeting, 10_000);
     _ = try pump.drive(&host, session, offerer);
     offerer.close();

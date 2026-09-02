@@ -13,7 +13,7 @@ engineTest("duplicate peer mints a -copy id and registers undo", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const peerId = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	const baseline = JSON.stringify({
@@ -157,7 +157,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		e.dispatch({
@@ -179,7 +179,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		e.dispatch({
@@ -210,7 +210,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		e.dispatch({
@@ -242,12 +242,12 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const a = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		const b = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 10, y: 0 },
 		})!;
 		const sessionId = e.dispatch({
@@ -321,7 +321,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		e.dispatch({

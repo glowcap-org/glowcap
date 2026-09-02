@@ -305,7 +305,7 @@ pub fn check(
         banned: []const []const u8,
     }{
         .{
-            .path = "bindings/python/pancake/_dial.py",
+            .path = "bindings/python/glowcap/_dial.py",
             .banned = &.{ "re.match(", "rsplit(\":\"", ".rsplit(\":\"" },
         },
         .{
@@ -449,14 +449,14 @@ pub fn check(
         banned: []const []const u8,
     }{
         .{
-            .path = "bindings/python/pancake/_session/",
+            .path = "bindings/python/glowcap/_session/",
             .banned = &.{
                 "establish_dialed(node, tcp_locator",
                 "establish_dialed(cls, tcp_locator",
                 "await cls.establish_dialed(node, tcp_locator",
                 "def _mint_dialed(",
                 "def _open_dialed(",
-                "pancake_host_session_open_dialed(",
+                "glowcap_host_session_open_dialed(",
             },
         },
         .{
@@ -532,7 +532,7 @@ pub fn check(
             },
         },
         .{
-            .path = "bindings/python/pancake/_session/",
+            .path = "bindings/python/glowcap/_session/",
             .banned = &.{
                 "async def connect(cls, host",
                 "Connection.connect(",
@@ -576,18 +576,18 @@ pub fn check(
             .banned = &.{
                 "(establish-dialed-connection m (tcp-locator",
                 "(define (establish-dialed-connection ",
-                "pancake_host_session_open_dialed ",
+                "glowcap_host_session_open_dialed ",
                 "(define (dial-tcp ",
                 "(define (connect-tcp ",
             },
         },
         .{
             .path = "bindings/racket/private/ffi-host.rkt",
-            .banned = &.{"(define-driver pancake_host_session_open_dialed\n"},
+            .banned = &.{"(define-driver glowcap_host_session_open_dialed\n"},
         },
         .{
             .path = "src/c_abi/host/mod.zig",
-            .banned = &.{"pub export fn pancake_host_session_open_dialed("},
+            .banned = &.{"pub export fn glowcap_host_session_open_dialed("},
         },
     };
     for (dial_uri_mint) |entry| {

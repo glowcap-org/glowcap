@@ -9,7 +9,7 @@
 // place the proofs connect, so the contract has one consumer shape to drift
 // against.
 
-import { designatorHostPort, Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
+import { designatorHostPort, Host, parseSturdyRef, Session, webSocketChannel } from "@glowcap/runtime";
 import { originVizUrl, vizCapUrl } from "../../lib/viz_publish.ts";
 import {
 	DEFAULT_ROOMS_VIEW_STATE,

@@ -45,7 +45,7 @@ Deno.test("the compose file declares each key and service exactly once", async (
 	assertEquals(volumes.includes("rooms-state"), true, "the directory has durable custody");
 	assertEquals(volumes.includes("rooms-session-state"), true, "the user session has separate durable custody");
 	assertEquals(
-		compose.includes("PANCAKE_ROOMS_SESSION_STATE: /session-state") &&
+		compose.includes("GLOWCAP_ROOMS_SESSION_STATE: /session-state") &&
 			compose.includes("\n      - --allow-ffi\n") &&
 			!compose.includes("--allow-ffi=/libs") &&
 			compose.includes("--readiness-file=/run/rooms-session/admin.sturdyref") &&

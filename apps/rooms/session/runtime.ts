@@ -1,5 +1,5 @@
 // Live directory connections and room memberships owned by a durable Rooms session.
-import type { Runtime } from "@pancake/runtime";
+import type { Runtime } from "@glowcap/runtime";
 import type { Message } from "../lib/room/client.ts";
 import { DurableRoomsArchive } from "./archive.ts";
 import type { AttachmentSource } from "../lib/attachment.ts";

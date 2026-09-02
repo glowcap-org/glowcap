@@ -33,8 +33,8 @@
 // and this runner drives the identical handoff and assertions over it.
 
 import process from "node:process";
-import { Ref } from "@pancake/runtime";
-import type { Behavior, Host, Session } from "@pancake/runtime";
+import { Ref } from "@glowcap/runtime";
+import type { Behavior, Host, Session } from "@glowcap/runtime";
 import { RoomServer } from "../server/room_server.ts";
 import { dial } from "../lib/locator.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "../lib/protocol.ts";

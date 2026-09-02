@@ -8,7 +8,7 @@ const appendViolation = util.appendViolation;
 const sectionBody = util.sectionBody;
 const collectBulletSpans = util.collectBulletSpans;
 
-/// Each `@pancake/*` workspace member under `bindings/ts/` is a publishable
+/// Each `@glowcap/*` workspace member under `bindings/ts/` is a publishable
 /// package. Its directory is the ship surface; tests, harnesses, smokes,
 /// benches, and probes live under that package's `test/` (or the workspace
 /// `dogfood/`). A co-located `*_test.ts` next to `mod.ts` makes a broad

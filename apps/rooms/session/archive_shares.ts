@@ -7,7 +7,7 @@ import {
 	retainSecondaryFailure,
 	type Runtime,
 	type Session,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import { DirectMessage } from "../lib/direct_message.ts";
 import { parseRoomsSturdyref } from "../lib/locator.ts";
 import {

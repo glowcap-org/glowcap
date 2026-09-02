@@ -8,9 +8,9 @@
 			"releases_published": false,
 			"env": {},
 			"want_fetch": false,
-			"url": "https://github.com/jimisaacs/pancake/releases/download/v0.1.0/pancake-c-v0.1.0-x86_64-linux.tar.gz",
+			"url": "https://github.com/jimisaacs/glowcap/releases/download/v0.1.0/glowcap-c-v0.1.0-x86_64-linux.tar.gz",
 			"cache_lib": "/fixture/cache/0.1.0/x86_64-linux/lib",
-			"sums_url": "https://github.com/jimisaacs/pancake/releases/download/v0.1.0/SHA256SUMS"
+			"sums_url": "https://github.com/jimisaacs/glowcap/releases/download/v0.1.0/SHA256SUMS"
 		},
 		{
 			"id": "prerelease-force-download",
@@ -19,12 +19,12 @@
 			"cache_base": "/fixture/cache",
 			"releases_published": false,
 			"env": {
-				"PANCAKE_DOWNLOAD": "1"
+				"GLOWCAP_DOWNLOAD": "1"
 			},
 			"want_fetch": true,
-			"url": "https://github.com/jimisaacs/pancake/releases/download/v0.1.0/pancake-c-v0.1.0-aarch64-macos.tar.gz",
+			"url": "https://github.com/jimisaacs/glowcap/releases/download/v0.1.0/glowcap-c-v0.1.0-aarch64-macos.tar.gz",
 			"cache_lib": "/fixture/cache/0.1.0/aarch64-macos/lib",
-			"sums_url": "https://github.com/jimisaacs/pancake/releases/download/v0.1.0/SHA256SUMS"
+			"sums_url": "https://github.com/jimisaacs/glowcap/releases/download/v0.1.0/SHA256SUMS"
 		},
 		{
 			"id": "published-default-fetch",
@@ -34,9 +34,9 @@
 			"releases_published": true,
 			"env": {},
 			"want_fetch": true,
-			"url": "https://github.com/jimisaacs/pancake/releases/download/v0.1.0/pancake-c-v0.1.0-x86_64-linux.tar.gz",
+			"url": "https://github.com/jimisaacs/glowcap/releases/download/v0.1.0/glowcap-c-v0.1.0-x86_64-linux.tar.gz",
 			"cache_lib": "/fixture/cache/0.1.0/x86_64-linux/lib",
-			"sums_url": "https://github.com/jimisaacs/pancake/releases/download/v0.1.0/SHA256SUMS"
+			"sums_url": "https://github.com/jimisaacs/glowcap/releases/download/v0.1.0/SHA256SUMS"
 		},
 		{
 			"id": "published-skip-download",
@@ -45,12 +45,12 @@
 			"cache_base": "/fixture/cache",
 			"releases_published": true,
 			"env": {
-				"PANCAKE_SKIP_DOWNLOAD": "1"
+				"GLOWCAP_SKIP_DOWNLOAD": "1"
 			},
 			"want_fetch": false,
-			"url": "https://github.com/jimisaacs/pancake/releases/download/v0.1.0/pancake-c-v0.1.0-x86_64-linux.tar.gz",
+			"url": "https://github.com/jimisaacs/glowcap/releases/download/v0.1.0/glowcap-c-v0.1.0-x86_64-linux.tar.gz",
 			"cache_lib": "/fixture/cache/0.1.0/x86_64-linux/lib",
-			"sums_url": "https://github.com/jimisaacs/pancake/releases/download/v0.1.0/SHA256SUMS"
+			"sums_url": "https://github.com/jimisaacs/glowcap/releases/download/v0.1.0/SHA256SUMS"
 		},
 		{
 			"id": "override-base-url",
@@ -59,11 +59,11 @@
 			"cache_base": "/fixture/cache",
 			"releases_published": false,
 			"env": {
-				"PANCAKE_DOWNLOAD": "1",
-				"PANCAKE_RELEASE_BASE_URL": "https://example.test/releases/download"
+				"GLOWCAP_DOWNLOAD": "1",
+				"GLOWCAP_RELEASE_BASE_URL": "https://example.test/releases/download"
 			},
 			"want_fetch": true,
-			"url": "https://example.test/releases/download/v0.1.0/pancake-c-v0.1.0-x86_64-linux.tar.gz",
+			"url": "https://example.test/releases/download/v0.1.0/glowcap-c-v0.1.0-x86_64-linux.tar.gz",
 			"cache_lib": "/fixture/cache/0.1.0/x86_64-linux/lib",
 			"sums_url": "https://example.test/releases/download/v0.1.0/SHA256SUMS"
 		}

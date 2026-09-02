@@ -3,10 +3,10 @@
 //! argument it must refuse.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
 

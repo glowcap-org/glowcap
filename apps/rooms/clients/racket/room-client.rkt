@@ -1,5 +1,5 @@
 #lang racket/base
-;; A small, friendly client for the rooms chat, built on pancake actors.
+;; A small, friendly client for the rooms chat, built on glowcap actors.
 ;;
 ;; On the connection API this is barely a layer: connect, fetch the directory by
 ;; name, ask it to open or enter a room (which hands back a live reference to
@@ -21,8 +21,8 @@
 ;; room itself is the capability the directory returns.
 
 (require "../../../_demo/bindings.rkt"
-         "../../../../bindings/racket/pancake-tcp.rkt"
-         "../../../../bindings/racket/pancake-iroh.rkt" ; IROH-REACH-* postures
+         "../../../../bindings/racket/glowcap-tcp.rkt"
+         "../../../../bindings/racket/glowcap-iroh.rkt" ; IROH-REACH-* postures
          racket/list
          racket/match
          racket/string)

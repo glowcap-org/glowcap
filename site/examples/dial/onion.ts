@@ -1,7 +1,7 @@
-import { locator, provider } from "@pancake/onion";
-import { Runtime } from "@pancake/runtime";
+import { locator, provider } from "@glowcap/onion";
+import { Runtime } from "@glowcap/runtime";
 
-// pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+// glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 const partner = locator("<56-character onion service id>");
 
 await using runtime = await Runtime.open({

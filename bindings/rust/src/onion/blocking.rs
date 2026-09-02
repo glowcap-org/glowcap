@@ -14,8 +14,8 @@ impl<'ctx> Netlayer<'ctx> {
 	pub fn new(config: &Config<'_>) -> Result<Netlayer<'ctx>> {
 		require_archive()?;
 		let c = config.to_c();
-		let mut raw: *mut ffi::PancakeOnionNetlayer = core::ptr::null_mut();
-		check_onion(unsafe { ffi::pancake_onion_netlayer_new(&c, &mut raw) })?;
+		let mut raw: *mut ffi::GlowcapOnionNetlayer = core::ptr::null_mut();
+		check_onion(unsafe { ffi::glowcap_onion_netlayer_new(&c, &mut raw) })?;
 		Ok(Netlayer {
 			raw,
 			listener_close_failure: Arc::new(Mutex::new(None)),
@@ -28,8 +28,8 @@ impl<'ctx> Netlayer<'ctx> {
 	pub fn new_in(context: &'ctx Context, config: &Config<'_>) -> Result<Netlayer<'ctx>> {
 		require_archive()?;
 		let c = config.to_c();
-		let mut raw: *mut ffi::PancakeOnionNetlayer = core::ptr::null_mut();
-		check_onion(unsafe { ffi::pancake_onion_netlayer_new_in(context.raw(), &c, &mut raw) })?;
+		let mut raw: *mut ffi::GlowcapOnionNetlayer = core::ptr::null_mut();
+		check_onion(unsafe { ffi::glowcap_onion_netlayer_new_in(context.raw(), &c, &mut raw) })?;
 		Ok(Netlayer {
 			raw,
 			listener_close_failure: Arc::new(Mutex::new(None)),
@@ -39,8 +39,8 @@ impl<'ctx> Netlayer<'ctx> {
 
 	#[cfg(feature = "async")]
 	pub(super) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
-		let mut package: crate::sys::PancakeTransportProvider = unsafe { core::mem::zeroed() };
-		check_onion(unsafe { ffi::pancake_onion_transport_provider(self.raw, &mut package) })?;
+		let mut package: crate::sys::GlowcapTransportProvider = unsafe { core::mem::zeroed() };
+		check_onion(unsafe { ffi::glowcap_onion_transport_provider(self.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,
 			_owner: PhantomData,
@@ -57,9 +57,9 @@ impl<'ctx> Netlayer<'ctx> {
 		let mut id_len: usize = 0;
 		let mut key = [0u8; ffi::ONION_SERVICE_KEY_CAP];
 		let mut key_len: usize = 0;
-		let mut raw: *mut ffi::PancakeOnionListener = core::ptr::null_mut();
+		let mut raw: *mut ffi::GlowcapOnionListener = core::ptr::null_mut();
 		check_onion(unsafe {
-			ffi::pancake_onion_listen(
+			ffi::glowcap_onion_listen(
 				self.raw,
 				id.as_mut_ptr(),
 				id.len(),
@@ -92,9 +92,9 @@ impl<'ctx> Netlayer<'ctx> {
 	/// not a well-formed v3 address is refused before any socket opens. Blocking:
 	/// a Tor circuit takes seconds.
 	pub fn connect(&self, service_id: &str, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
-		let mut raw: *mut ffi::PancakeOnionConn = core::ptr::null_mut();
+		let mut raw: *mut ffi::GlowcapOnionConn = core::ptr::null_mut();
 		check_onion(unsafe {
-			ffi::pancake_onion_connect(
+			ffi::glowcap_onion_connect(
 				self.raw,
 				service_id.as_ptr(),
 				service_id.len(),
@@ -121,7 +121,7 @@ impl<'ctx> Netlayer<'ctx> {
 		let listener_failure = self.take_listener_close_failure();
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
 		let release = check_onion(unsafe {
-			ffi::pancake_onion_netlayer_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			ffi::glowcap_onion_netlayer_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		});
 		if let Some(error) = listener_failure {
 			return match release {
@@ -137,7 +137,7 @@ impl Drop for Netlayer<'_> {
 	fn drop(&mut self) {
 		if !self.raw.is_null() {
 			if let Err(error) = check_onion(unsafe {
-				ffi::pancake_onion_netlayer_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+				ffi::glowcap_onion_netlayer_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 			}) {
 				let listener_failure = lock_failure(&self.listener_close_failure).take();
 				crate::record_runtime_failure(
@@ -174,9 +174,9 @@ impl Listener<'_> {
 	/// The partner's claimed location is unverified here: Tor tells a hidden
 	/// service nothing about who dialed it.
 	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
-		let mut raw: *mut ffi::PancakeOnionConn = core::ptr::null_mut();
+		let mut raw: *mut ffi::GlowcapOnionConn = core::ptr::null_mut();
 		check_onion(unsafe {
-			ffi::pancake_onion_accept(
+			ffi::glowcap_onion_accept(
 				self.raw,
 				codec.to_c(),
 				max_frame_bytes,
@@ -201,7 +201,7 @@ impl Listener<'_> {
 	/// drops.
 	pub fn readiness_fd(&self) -> Result<i32> {
 		let mut fd: i32 = -1;
-		check_onion(unsafe { ffi::pancake_onion_listener_readiness_fd(self.raw, &mut fd) })?;
+		check_onion(unsafe { ffi::glowcap_onion_listener_readiness_fd(self.raw, &mut fd) })?;
 		Ok(fd)
 	}
 
@@ -213,7 +213,7 @@ impl Listener<'_> {
 	pub fn wait(&self, timeout_ms: i32) -> Result<bool> {
 		let mut ready: core::ffi::c_uint = 0;
 		check_onion(unsafe {
-			ffi::pancake_onion_listener_wait(
+			ffi::glowcap_onion_listener_wait(
 				self.raw,
 				timeout_ms,
 				&mut ready,
@@ -231,7 +231,7 @@ impl Listener<'_> {
 		}
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
 		check_onion(unsafe {
-			ffi::pancake_onion_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			ffi::glowcap_onion_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
 	}
 
@@ -265,7 +265,7 @@ impl Connection<'_> {
 	/// Seal this connection and interrupt blocking frame operations. Drop then
 	/// releases its storage after callers have joined their operation threads.
 	pub fn shutdown(&self) -> Result<()> {
-		check_onion(unsafe { ffi::pancake_onion_conn_shutdown(self.raw) })
+		check_onion(unsafe { ffi::glowcap_onion_conn_shutdown(self.raw) })
 	}
 
 	/// Close explicitly, reporting a shutdown failure to the caller. Native
@@ -278,12 +278,12 @@ impl Connection<'_> {
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
-		let mut frame: crate::sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
+		let mut frame: crate::sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
 		check_onion(unsafe {
-			ffi::pancake_onion_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			ffi::glowcap_onion_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})?;
 		let out = unsafe { crate::owned_from_view(frame.bytes, frame.len) };
-		unsafe { crate::sys::pancake_managed_frame_release(&mut frame) };
+		unsafe { crate::sys::glowcap_managed_frame_release(&mut frame) };
 		Ok(out)
 	}
 
@@ -291,19 +291,19 @@ impl Connection<'_> {
 	/// rather than blocks. Same contract as [`Listener::readiness_fd`].
 	pub fn readiness_fd(&self) -> Result<i32> {
 		let mut fd: i32 = -1;
-		check_onion(unsafe { ffi::pancake_onion_conn_readiness_fd(self.raw, &mut fd) })?;
+		check_onion(unsafe { ffi::glowcap_onion_conn_readiness_fd(self.raw, &mut fd) })?;
 		Ok(fd)
 	}
 
 	/// Write one frame's bytes to the partner.
 	pub fn write_frame(&mut self, bytes: &[u8]) -> Result<()> {
-		let f = crate::sys::PancakeFrame {
+		let f = crate::sys::GlowcapFrame {
 			bytes: bytes.as_ptr(),
 			len: bytes.len(),
 			shape: crate::sys::FRAME_SHAPE_BYTE,
 		};
 		check_onion(unsafe {
-			ffi::pancake_onion_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			ffi::glowcap_onion_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
 	}
 }
@@ -316,7 +316,7 @@ unsafe impl Send for Connection<'_> {}
 impl Drop for Connection<'_> {
 	fn drop(&mut self) {
 		if let Err(error) = check_onion(unsafe {
-			ffi::pancake_onion_conn_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			ffi::glowcap_onion_conn_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		}) {
 			crate::record_runtime_failure(crate::FailureLayer::Transport, "onion-connection-drop-release", error);
 		}

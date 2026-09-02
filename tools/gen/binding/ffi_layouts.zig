@@ -1,6 +1,6 @@
 //! Generates the expected struct sizes and field offsets every language
 //! binding's hand-mirrored FFI struct pins against — Rust's `#[repr(C)]`
-//! `const` assert blocks, Python's `pancake._pin.pin_struct`, and Racket's
+//! `const` assert blocks, Python's `glowcap._pin.pin_struct`, and Racket's
 //! `pin-layout!` `want-size` argument.
 //!
 //! Every binding hand-declares its own struct *shape* (`#[repr(C)]`,
@@ -19,7 +19,7 @@
 //! from `ctype->layout`, so what it needs is a kind list rather than an
 //! offset list, and that list is generated here too. Hand-authoring it was
 //! the last hand-copy in this family, and it drifted: a cstruct swept
-//! correctly to a changed `PancakeTraceEvent` failed against an expectation
+//! correctly to a changed `GlowcapTraceEvent` failed against an expectation
 //! nobody had swept, and the message blamed the mirror. An expectation
 //! reflected off the Zig type cannot disagree with the Zig type.
 //!
@@ -46,7 +46,7 @@ pub const step_name = "gen-binding-ffi-layouts";
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/layouts_gen.rs", .generate = generateRust },
-    .{ .path = "bindings/python/pancake/_layouts_gen.py", .generate = generatePython },
+    .{ .path = "bindings/python/glowcap/_layouts_gen.py", .generate = generatePython },
     .{ .path = "bindings/racket/private/layouts-gen.rkt", .generate = generateRacket },
 };
 
@@ -207,7 +207,7 @@ fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\# _ffi_webrtc declare: struct size, then one row per field carrying
         \\# its name, its offset, and its own width. Values come from
         \\# @sizeOf/@offsetOf on the real Zig C ABI types, so a Zig-side field
-        \\# change moves a row here and `pancake._pin.pin_struct` fails loudly
+        \\# change moves a row here and `glowcap._pin.pin_struct` fails loudly
         \\# at import time instead of silently misparsing a frame, an action,
         \\# or a trace fact.
         \\
@@ -270,7 +270,7 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
     return out.toOwnedSlice(gpa);
 }
 
-/// Racket names read kebab, not SCREAMING_SNAKE: `PANCAKE-REFERENCE-SIZE`.
+/// Racket names read kebab, not SCREAMING_SNAKE: `GLOWCAP-REFERENCE-SIZE`.
 fn writeConstName(
     out: *std.ArrayList(u8),
     gpa: std.mem.Allocator,

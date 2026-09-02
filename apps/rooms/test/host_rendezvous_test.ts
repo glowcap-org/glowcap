@@ -27,7 +27,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const { formatLocatorUri, formatPeerUri, TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } = await import(
-	"@pancake/runtime"
+	"@glowcap/runtime"
 );
 const { RoomsPage } = await import("../web/ui/page.ts");
 const { selfLocator, sessionHostLocator } = await import("../web/ui/net/reachable.ts");
@@ -38,7 +38,7 @@ const DESIGNATOR = "aabbccddeeff00112233445566778899";
 function pageWithInboxAndRendezvous() {
 	const page = new RoomsPage();
 	page.reachable.inboxOwner = {
-		host: { designator: () => DESIGNATOR } as import("@pancake/runtime").Host,
+		host: { designator: () => DESIGNATOR } as import("@glowcap/runtime").Host,
 		publisher: {} as import("../lib/dm_inbox.ts").InboxPublisher,
 		iceServers: () => Promise.resolve([]),
 	};

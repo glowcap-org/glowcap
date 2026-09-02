@@ -5,10 +5,10 @@ bindings. Application authors should start with the
 [binding overview](README.md).
 
 The Host and driver are separate, symbol-disjoint archives. Every native
-binding loads `libpancake_host` for the `pancake_host_*` family and
-`libpancake_driver` for the `pancake_driver_*` family. The driver adopts a
+binding loads `libglowcap_host` for the `glowcap_host_*` family and
+`libglowcap_driver` for the `glowcap_driver_*` family. The driver adopts a
 quiescent Host; it neither re-exports nor duplicates Host state. Transport
-archives contribute packages through `pancake_driver_add_provider`: the TCP
+archives contribute packages through `glowcap_driver_add_provider`: the TCP
 archive's one package owns `noise-tcp`, `keyed-tcp`, and testing `tcp`, while the iroh
 package owns both dial and listener execution. Bindings load and register a
 package; they do not mirror its profiles, implementation tables, socket
@@ -26,12 +26,12 @@ verbs against the park thread.
 
 ## The host loop
 
-After a top-level `pancake_host_*` call succeeds, drain the work it created.
-On the byte-fed path, Rust, Python, and Racket use `pancake_host_pump_drain`
+After a top-level `glowcap_host_*` call succeeds, drain the work it created.
+On the byte-fed path, Rust, Python, and Racket use `glowcap_host_pump_drain`
 with synchronous park-only hooks. TypeScript uses the normative
-`pancake_host_next_action` pull queue because browser Wasm has no general
-C-callback seam. On a loop-owned host, `pancake_host_pump_drain` never runs:
-`pancake_driver_step` executes transport-shaped actions itself and forwards
+`glowcap_host_next_action` pull queue because browser Wasm has no general
+C-callback seam. On a loop-owned host, `glowcap_host_pump_drain` never runs:
+`glowcap_driver_step` executes transport-shaped actions itself and forwards
 the application-visible ones as loop events, so the binding's drain there is
 one step plus the event queue. The byte-fed drain can request:
 
@@ -53,25 +53,25 @@ loop from drifting across runtimes.
 
 The same commit discipline governs work created by a language finalizer or a
 detached progress task. Capability-GC finalizers only park opaque Host ref IDs;
-they never call the C ABI. The pumping thread calls `pancake_host_ref_release`,
-removes a token only after `PANCAKE_OK`, and leaves the refused token and
+they never call the C ABI. The pumping thread calls `glowcap_host_ref_release`,
+removes a token only after `GLOWCAP_OK`, and leaves the refused token and
 unattempted tail owned for retry. A scheduled drain has no immediate caller, so
 the Host wrapper retains its exact typed failure and surfaces it at the next
 verb head. Bindings do not classify capability-release failures or invent
 release semantics: the C ABI guarantees that a non-OK ref release committed no
 release, and the core remains the authority for what the release means.
 
-Inbound byte streams go through `pancake_host_session_feed_bytes`. The host
+Inbound byte streams go through `glowcap_host_session_feed_bytes`. The host
 unwraps canonical Syrup byte strings, retains a split prefix or body, and
 applies the declared-body limit. A binding should not add another scanner or
-tail buffer. `PANCAKE_ERR_WOULD_BLOCK` from `feed_bytes` is outbound
+tail buffer. `GLOWCAP_ERR_WOULD_BLOCK` from `feed_bytes` is outbound
 backpressure, not a protocol refusal: drain actions / outbound frames and retry
 the same byte chunk. On output, prefix each bare `take_outbound` frame with its
 decimal byte length and `:`; write the prefix and frame separately.
 
 When a feed fails, read the typed abort, drain again so the abort is written,
 then surface the error. On EOF, call
-`pancake_host_session_break_far_vows` before releasing the session so pending
+`glowcap_host_session_break_far_vows` before releasing the session so pending
 calls fail instead of hanging.
 
 ## Shared module structure
@@ -99,7 +99,7 @@ binding that bypasses the generated action decoder.
 
 ### TypeScript package surface
 
-Each `@pancake/*` directory under `bindings/ts/` is a publishable package.
+Each `@glowcap/*` directory under `bindings/ts/` is a publishable package.
 Its root is the ship surface: source that a consumer imports. Tests, harnesses,
 smokes, benches, and probes live under that package's `test/` directory (or
 under the workspace-level `dogfood/`), never beside `mod.ts`. Every package
@@ -121,7 +121,7 @@ the current session.
 
 A behavior that closes its own session must park the release until the callback
 returns. A reachable Host stays on its owning thread. Once a language finalizer
-has exclusive terminal ownership, `pancake_host_release` may run on that
+has exclusive terminal ownership, `glowcap_host_release` may run on that
 finalizer thread; it cannot race a Host call or leave a live verb to migrate.
 Terminal Host and driver release use a different result contract from
 capability-GC release. Only a pre-consumption refusal keeps the native handle
@@ -148,8 +148,8 @@ A C layout change must update every hand-written mirror in the same change.
 
 ## iroh
 
-iroh is a separate optional library, `libpancake_net_transport_iroh`. On the
-loop tier a binding loads `libpancake_driver`, registers the archive-owned
+iroh is a separate optional library, `libglowcap_net_transport_iroh`. On the
+loop tier a binding loads `libglowcap_driver`, registers the archive-owned
 provider package, and parks on the loop's one aggregate readiness descriptor;
 the native archive drains the sidecar. On the byte-fed
 path that still serves iroh listen and the named loop exceptions, the library

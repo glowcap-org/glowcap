@@ -4,7 +4,7 @@
 // These are the two verbs that answer for work the session cannot finish by
 // itself, so they read the same way and are kept together.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import { sessionRevision } from "./revision.ts";
 import { ROOMS_SESSION_RESOLVE_EFFECT, ROOMS_SESSION_RESUME_EFFECT } from "./verbs.ts";

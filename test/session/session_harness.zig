@@ -1,8 +1,8 @@
 //! The start-session hello both halves of every lifecycle scenario send.
 
 const std = @import("std");
-const pancake = @import("pancake");
-const model = pancake.ocapn.model;
+const glowcap = @import("glowcap");
+const model = glowcap.ocapn.model;
 
 pub fn startSessionMessage(version: model.CaptpVersion) model.Message {
     return startSessionMessageWithKey(version, &.{ 0xaa, 0xbb });

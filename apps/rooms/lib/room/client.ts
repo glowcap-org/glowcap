@@ -1,4 +1,4 @@
-// A small, friendly client for the rooms chat, built on pancake actors.
+// A small, friendly client for the rooms chat, built on glowcap actors.
 //
 // This is the layer that knows about OCapN, and on the connection API it is
 // barely a layer at all: connect, fetch the directory by name, ask it to open or
@@ -20,10 +20,10 @@
 // name is the directory's lookup key; the room itself is the capability the
 // directory returns.
 
-import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
+import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime";
 import type { BridgeAnswers, BridgeForm } from "../bridge/form.ts";
 import { answerBridgeForm, askBridgeForm } from "../bridge/wire.ts";
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import {
 	type Attachment,
 	type AttachmentSource,

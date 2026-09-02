@@ -9,30 +9,30 @@ from contextvars import ContextVar
 import gc
 
 import ctypes
-import pancake
-import pancake._driver.finalizer as _driver_finalizer
-import pancake._host as _host_module
-from pancake._action import _answer_gift_id
-from pancake._archive_contract import require_archive_fingerprint
-from pancake._errors import _retain_cleanup_failure
-from pancake._failure import _RuntimeFailureQueue
-from pancake._ffi_driver import _DriverFailure
-from pancake._driver_failure import _decode as _decode_driver_failure
-from pancake._constants import (
+import glowcap
+import glowcap._driver.finalizer as _driver_finalizer
+import glowcap._host as _host_module
+from glowcap._action import _answer_gift_id
+from glowcap._archive_contract import require_archive_fingerprint
+from glowcap._errors import _retain_cleanup_failure
+from glowcap._failure import _RuntimeFailureQueue
+from glowcap._ffi_driver import _DriverFailure
+from glowcap._driver_failure import _decode as _decode_driver_failure
+from glowcap._constants import (
     CARRIER_DETAIL_ENGINE_CODE,
     CARRIER_DETAIL_PEER_ALERT,
     CARRIER_PHASE_SECURE_HANDSHAKE,
 )
 
-from pancake import (
+from glowcap import (
     FailureLayer,
     Host,
-    PancakeError,
+    GlowcapError,
     Runtime,
 )
-from pancake._native import NativeHandle
-from pancake._ws import _WebSocketTransport
-from pancake._constants import (
+from glowcap._native import NativeHandle
+from glowcap._ws import _WebSocketTransport
+from glowcap._constants import (
     DEFAULT_FAILURE_PAYLOAD_CAP,
     ERR_INVALID_ARGUMENT,
     ERR_INTERNAL,
@@ -91,11 +91,11 @@ def _stale_archive_is_refused_before_use() -> None:
             return self.value
 
     class _Archive:
-        pancake_test_archive_fingerprint = _ReadFingerprint(0x5678)
+        glowcap_test_archive_fingerprint = _ReadFingerprint(0x5678)
 
     try:
         require_archive_fingerprint(
-            lambda: _Archive.pancake_test_archive_fingerprint,
+            lambda: _Archive.glowcap_test_archive_fingerprint,
             "test",
             0x1234,
         )
@@ -110,7 +110,7 @@ def _stale_archive_is_refused_before_use() -> None:
 
     try:
         require_archive_fingerprint(
-            lambda: _MissingArchive.pancake_test_archive_fingerprint,
+            lambda: _MissingArchive.glowcap_test_archive_fingerprint,
             "test",
             0x1234,
         )
@@ -228,7 +228,7 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
     else:
         raise AssertionError("Host shutdown lost its ordered terminal failures")
 
-    from pancake._transport import _rollback_failed_provider, _rollback_failed_transport
+    from glowcap._transport import _rollback_failed_provider, _rollback_failed_transport
 
     rollback_failure = RuntimeError("connector rollback failed")
 
@@ -242,7 +242,7 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
             raise rollback_failure
 
     transport = FailedTransport()
-    connector_primary = PancakeError(ERR_INTERNAL, "connector establishment failed")
+    connector_primary = GlowcapError(ERR_INTERNAL, "connector establishment failed")
     await _rollback_failed_transport(connector_primary, transport)
     assert transport.closed, "connector rollback did not start transport close"
     assert connector_primary.secondary == (rollback_failure,)
@@ -254,7 +254,7 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
     ), host.terminal_failures
 
     provider_failure = RuntimeError("provider rollback failed")
-    provider_primary = PancakeError(ERR_INTERNAL, "provider install failed")
+    provider_primary = GlowcapError(ERR_INTERNAL, "provider install failed")
 
     def fail_provider_rollback() -> None:
         raise provider_failure
@@ -270,7 +270,7 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
 
 
 async def _iroh_readiness_failure_settles_waiters_exactly() -> None:
-    from pancake.iroh import _IrohLoop
+    from glowcap.iroh import _IrohLoop
 
     failure = RuntimeError("iroh readiness drain failed")
 
@@ -316,7 +316,7 @@ async def _iroh_readiness_failure_settles_waiters_exactly() -> None:
 
 
 async def _local_tell_failure_belongs_to_host() -> None:
-    from pancake._trampoline import _BehaviorEntry, _tell_local
+    from glowcap._trampoline import _BehaviorEntry, _tell_local
 
     failure = RuntimeError("local tell behavior failed")
 
@@ -363,15 +363,15 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     assert "�" not in unicode_truncated.operation, unicode_truncated
 
     typed_queue = _RuntimeFailureQueue(1)
-    typed_primary = PancakeError(ERR_IO, "primary")
-    typed_secondary = PancakeError(ERR_INTERNAL, "cleanup")
+    typed_primary = GlowcapError(ERR_IO, "primary")
+    typed_secondary = GlowcapError(ERR_INTERNAL, "cleanup")
     _retain_cleanup_failure(typed_primary, typed_secondary)
     typed_queue.record(FailureLayer.TRANSPORT, "listener.close", typed_primary)
     typed = typed_queue.claim()[0]
     assert typed.primary_result == ERR_IO, typed
     assert typed.secondary_result == ERR_INTERNAL, typed
     assert typed.secondary_count == 1, typed
-    assert typed.secondary_name == "PancakeError", typed
+    assert typed.secondary_name == "GlowcapError", typed
     assert typed.secondary_message == str(typed_secondary), typed
 
     malformed_queue = _RuntimeFailureQueue(1)
@@ -387,7 +387,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     assert normalized.secondary_result == 0, normalized
     assert normalized.secondary_name == "", normalized
 
-    pancake.take_runtime_failures()
+    glowcap.take_runtime_failures()
     explicit_failure = RuntimeError("explicit native release failed")
     release_failure = RuntimeError("explicit native release cleanup failed")
 
@@ -416,7 +416,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         assert observed is explicit_failure, "repeated close replaced its first failure"
     else:
         raise AssertionError("repeated explicit close forgot its failure")
-    assert not pancake.take_runtime_failures(), (
+    assert not glowcap.take_runtime_failures(), (
         "explicit close leaked into finalizer diagnostics"
     )
 
@@ -428,7 +428,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     abandoned = NativeHandle(object(), fail_finalizer, label="finalizer-test")
     del abandoned
     gc.collect()
-    diagnostics = pancake.take_runtime_failures()
+    diagnostics = glowcap.take_runtime_failures()
     assert len(diagnostics) == 1, diagnostics
     assert diagnostics[0].operation == "finalizer-test.finalize", diagnostics
     assert diagnostics[0].primary_name == "RuntimeError", diagnostics
@@ -444,7 +444,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
             pass
 
     refused_state = _driver_finalizer._DriverFinalizerState(123, FinalizerContext())
-    original_release = _driver_finalizer._driver.pancake_driver_release
+    original_release = _driver_finalizer._driver.glowcap_driver_release
     attempts = 0
     refused_name = ctypes.create_string_buffer(b"RefusedDriverRelease")
     cleanup_name = ctypes.create_string_buffer(b"ReleaseRollbackFailed")
@@ -464,7 +464,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         failure.secondary_name_len = len(cleanup_name.value)
         return ERR_INVALID_ARGUMENT
 
-    _driver_finalizer._driver.pancake_driver_release = refuse_once
+    _driver_finalizer._driver.glowcap_driver_release = refuse_once
     try:
         _driver_finalizer._release_driver_finalizer_state(refused_state)
         assert refused_state.handle is not None, (
@@ -485,7 +485,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         )
         assert len(reports) == 1, "release retry duplicated its diagnostic"
     finally:
-        _driver_finalizer._driver.pancake_driver_release = original_release
+        _driver_finalizer._driver.glowcap_driver_release = original_release
         with _driver_finalizer._deferred_driver_finalizers_lock:
             if refused_state in _driver_finalizer._deferred_driver_finalizers:
                 _driver_finalizer._deferred_driver_finalizers.remove(refused_state)
@@ -500,7 +500,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         failure.primary_name_len = len(consumed_name.value)
         return ERR_IO
 
-    _driver_finalizer._driver.pancake_driver_release = consumed_failure
+    _driver_finalizer._driver.glowcap_driver_release = consumed_failure
     try:
         _driver_finalizer._release_driver_finalizer_state(consumed_state)
         assert consumed_state.handle is None, (
@@ -511,9 +511,9 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         with _driver_finalizer._deferred_driver_finalizers_lock:
             assert consumed_state not in _driver_finalizer._deferred_driver_finalizers
     finally:
-        _driver_finalizer._driver.pancake_driver_release = original_release
+        _driver_finalizer._driver.glowcap_driver_release = original_release
 
-    pancake.take_runtime_failures()
+    glowcap.take_runtime_failures()
     original = RuntimeError("observer failed")
     recorder = RuntimeError("Context recorder failed")
 
@@ -527,7 +527,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         {"_context": BrokenContext(), "_diagnostic_id": 17},
     )()
     _host_module.Host._record_callerless_failure(owner, "trace.sink", original)
-    fallback = pancake.take_runtime_failures()
+    fallback = glowcap.take_runtime_failures()
     assert len(fallback) == 2, fallback
     assert fallback[0].operation == "trace.sink", fallback
     assert fallback[0].layer is FailureLayer.APPLICATION_OBSERVER, fallback

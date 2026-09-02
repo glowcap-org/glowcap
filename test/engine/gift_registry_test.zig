@@ -7,12 +7,12 @@
 //! never through the unauthenticated generic recv path.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
 
 const GiftRegistry = engine.bootstrap.gifts.GiftRegistry;
 

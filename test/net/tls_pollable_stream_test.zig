@@ -1,20 +1,20 @@
 //! Deterministic socket-driver evidence for the generic TLS transform.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const tls = pancake.net.tls.engine;
-const PollableStream = pancake.net.tls.pollable_stream.Stream;
+const tls = glowcap.net.tls.engine;
+const PollableStream = glowcap.net.tls.pollable_stream.Stream;
 const record_bytes = 18 * 1024;
 
 fn writeAllNonblocking(io: std.Io, fd: std.c.fd_t, bytes: []const u8) !void {
-    const deadline = pancake.net.clock.nowMs(io) + 1_000;
+    const deadline = glowcap.net.clock.nowMs(io) + 1_000;
     var offset: usize = 0;
     while (offset < bytes.len) {
         const rc = std.c.send(fd, bytes[offset..].ptr, bytes.len - offset, 0);
         if (rc < 0) switch (std.c.errno(rc)) {
             .AGAIN => {
-                if (pancake.net.clock.nowMs(io) >= deadline) return error.WriteTimedOut;
+                if (glowcap.net.clock.nowMs(io) >= deadline) return error.WriteTimedOut;
                 try std.Io.sleep(io, .fromMilliseconds(1), .real);
                 continue;
             },
@@ -36,7 +36,7 @@ fn setSocketBuffer(fd: std.c.fd_t, opt: u32, bytes: c_int) !void {
 test "pollable TLS connection state has a measured footprint" {
     try std.testing.expectEqual(
         @as(usize, 45_616),
-        pancake.net.tls.pollable_stream.connection_state_bytes,
+        glowcap.net.tls.pollable_stream.connection_state_bytes,
     );
 }
 
@@ -72,7 +72,7 @@ const IdentityEngine = struct {
         };
     }
 
-    fn deinit(raw: *anyopaque) ?pancake.foundation.FailureChain {
+    fn deinit(raw: *anyopaque) ?glowcap.foundation.FailureChain {
         const self: *IdentityEngine = @ptrCast(@alignCast(raw));
         self.deinit_count += 1;
         return null;
@@ -115,7 +115,7 @@ const FragmentedRecordEngine = struct {
         };
     }
 
-    fn deinit(_: *anyopaque) ?pancake.foundation.FailureChain {
+    fn deinit(_: *anyopaque) ?glowcap.foundation.FailureChain {
         return null;
     }
 
@@ -136,7 +136,7 @@ const WaitingHandshakeEngine = struct {
         };
     }
 
-    fn deinit(raw: *anyopaque) ?pancake.foundation.FailureChain {
+    fn deinit(raw: *anyopaque) ?glowcap.foundation.FailureChain {
         const self: *WaitingHandshakeEngine = @ptrCast(@alignCast(raw));
         self.deinit_count += 1;
         return null;
@@ -149,7 +149,7 @@ fn waitingStream(fake: *WaitingHandshakeEngine) !struct {
     stream: *PollableStream,
     peer: std.Io.net.Stream,
 } {
-    const pair = try pancake.net.wake_channel.WakeChannel.open();
+    const pair = try glowcap.net.wake_channel.WakeChannel.open();
     const raw: std.Io.net.Stream = .{ .socket = .{
         .handle = pair.read,
         .address = undefined,
@@ -176,7 +176,7 @@ test "pollable TLS cancellation stops a pending handshake without inventing a TL
 
     try std.testing.expectError(
         error.Cancelled,
-        pair.stream.establish(pancake.net.clock.nowMs(std.testing.io) + 1_000, &stop),
+        pair.stream.establish(glowcap.net.clock.nowMs(std.testing.io) + 1_000, &stop),
     );
     try std.testing.expectEqual(@as(?tls.Failure, null), pair.stream.takeFailure());
     try std.testing.expectEqual(@as(?tls.Failure, null), pair.stream.deinitOutcome());
@@ -190,7 +190,7 @@ test "pollable TLS timeout stops a pending handshake without consuming the chann
 
     try std.testing.expectError(
         error.TimedOut,
-        pair.stream.establish(pancake.net.clock.nowMs(std.testing.io), null),
+        pair.stream.establish(glowcap.net.clock.nowMs(std.testing.io), null),
     );
     try std.testing.expectEqual(@as(?tls.Failure, null), pair.stream.takeFailure());
     try std.testing.expectEqual(@as(?tls.Failure, null), pair.stream.deinitOutcome());
@@ -200,7 +200,7 @@ test "pollable TLS timeout stops a pending handshake without consuming the chann
 test "pollable TLS owns bidirectional bytes and reports truncation once" {
     const io = std.testing.io;
     const allocator = std.testing.allocator;
-    const pair = try pancake.net.wake_channel.WakeChannel.open();
+    const pair = try glowcap.net.wake_channel.WakeChannel.open();
     const raw: std.Io.net.Stream = .{ .socket = .{
         .handle = pair.read,
         .address = undefined,
@@ -215,7 +215,7 @@ test "pollable TLS owns bidirectional bytes and reports truncation once" {
 
     var fake = IdentityEngine{};
     const stream = try PollableStream.create(allocator, io, raw, fake.client());
-    try stream.establish(pancake.net.clock.nowMs(io) + 1_000, null);
+    try stream.establish(glowcap.net.clock.nowMs(io) + 1_000, null);
 
     try stream.writer.interface.writeAll("outbound");
     try stream.writer.interface.flush();
@@ -225,7 +225,7 @@ test "pollable TLS owns bidirectional bytes and reports truncation once" {
 
     try writeAllNonblocking(io, pair.write, "inbound");
     try std.testing.expectEqual(
-        pancake.net.tls.pollable_stream.TryProgress.progress,
+        glowcap.net.tls.pollable_stream.TryProgress.progress,
         try stream.tryFill(),
     );
     var plaintext: [7]u8 = undefined;
@@ -244,7 +244,7 @@ test "pollable TLS owns bidirectional bytes and reports truncation once" {
 test "pollable TLS blocking read advances on one available ciphertext prefix" {
     const io = std.testing.io;
     const allocator = std.testing.allocator;
-    const pair = try pancake.net.wake_channel.WakeChannel.open();
+    const pair = try glowcap.net.wake_channel.WakeChannel.open();
     const raw: std.Io.net.Stream = .{ .socket = .{
         .handle = pair.read,
         .address = undefined,
@@ -256,7 +256,7 @@ test "pollable TLS blocking read advances on one available ciphertext prefix" {
     defer peer.close(io);
     var fake = IdentityEngine{};
     const stream = try PollableStream.create(allocator, io, raw, fake.client());
-    try stream.establish(pancake.net.clock.nowMs(io) + 1_000, null);
+    try stream.establish(glowcap.net.clock.nowMs(io) + 1_000, null);
 
     // WakeChannel descriptors are nonblocking. A one-read implementation
     // returns this prefix immediately; readSliceShort would issue another raw
@@ -272,7 +272,7 @@ test "pollable TLS blocking read advances on one available ciphertext prefix" {
 test "pollable TLS reclaims consumed prefix before a fragmented record grows" {
     const io = std.testing.io;
     const allocator = std.testing.allocator;
-    const pair = try pancake.net.wake_channel.WakeChannel.open();
+    const pair = try glowcap.net.wake_channel.WakeChannel.open();
     const raw: std.Io.net.Stream = .{ .socket = .{
         .handle = pair.read,
         .address = undefined,
@@ -286,12 +286,12 @@ test "pollable TLS reclaims consumed prefix before a fragmented record grows" {
     try setSocketBuffer(pair.write, std.c.SO.SNDBUF, 4 * record_bytes);
     var fake = FragmentedRecordEngine{};
     const stream = try PollableStream.create(allocator, io, raw, fake.client());
-    try stream.establish(pancake.net.clock.nowMs(io) + 1_000, null);
+    try stream.establish(glowcap.net.clock.nowMs(io) + 1_000, null);
 
     const ciphertext = @as([record_bytes + 1]u8, @splat('x'));
     try writeAllNonblocking(io, pair.write, &ciphertext);
     try std.testing.expectEqual(
-        pancake.net.tls.pollable_stream.TryProgress.progress,
+        glowcap.net.tls.pollable_stream.TryProgress.progress,
         try stream.tryFill(),
     );
     try std.testing.expectEqual(@as(u8, 'x'), try stream.reader.interface.takeByte());

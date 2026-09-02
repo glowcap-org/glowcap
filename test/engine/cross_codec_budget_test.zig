@@ -17,12 +17,12 @@
 //! both-directions contract, not an upper bound.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
 /// Syrup wire frame for a no-answer (`#f` answer position) `op:deliver` to
@@ -93,7 +93,7 @@ test "steady-state deliver holds the same allocation budget through both codecs"
     var counter_capnp = CountingAllocator{ .backing = allocator };
     var peer_capnp = engine.Peer.initWithSession(
         counter_capnp.allocator(),
-        pancake.ocapn.session.Session.initWith(counter_capnp.allocator(), .{
+        glowcap.ocapn.session.Session.initWith(counter_capnp.allocator(), .{
             .codec = .capnp,
         }),
     );

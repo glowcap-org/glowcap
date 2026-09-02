@@ -1,5 +1,5 @@
-// A real Spritely Goblins vat enters a room through a pancake directory's
-// foreign publication. The source and destination are separate pancake peers:
+// A real Spritely Goblins vat enters a room through a glowcap directory's
+// foreign publication. The source and destination are separate glowcap peers:
 // the destination hands the room through ordinary three-party handoff, lowers
 // its source-authored route to Goblins' v1.0/Syrup floor, and leaves the two
 // members talking directly. Revoking discovery afterwards must not revoke the
@@ -15,7 +15,7 @@ const ROOT = new URL("../../", import.meta.url).pathname;
 const MEMBER = new URL("../../conformance/goblins-peer/racket/rooms-member.rkt", import.meta.url).pathname;
 const ROOM = "goblins-peering";
 const LISTED_AS = "through-peering";
-const OWNER = "pancake-owner";
+const OWNER = "glowcap-owner";
 const GOBLINS = "goblins-visitor";
 const FROM_GOBLINS = "reached through the foreign listing";
 const AFTER_REVOKE = "the handed room still works after revoke";

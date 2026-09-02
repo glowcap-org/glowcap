@@ -10,17 +10,17 @@ import re
 
 import ctypes
 
-from pancake import (
+from glowcap import (
     tcp,
     Context,
     Keyword,
     Locator,
     Host,
-    PancakeError,
+    GlowcapError,
     VowBroken,
     Runtime,
 )
-from pancake._constants import (
+from glowcap._constants import (
     DESIGNATOR_SCHEME_ADDRESS,
     ERR_FRAME_TOO_LARGE,
     TRANSPORT_TCP,
@@ -34,7 +34,7 @@ _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runt
 
 async def _start_relay(target_port: int, rewrite=None, observe=None):
     """A byte-level TCP relay between a client and a server that are both real
-    pancake connections: it shuttles raw bytes both ways, optionally rewriting
+    glowcap connections: it shuttles raw bytes both ways, optionally rewriting
     the client->server stream and observing the traffic. This is how the smoke
     watches the wire (a gc release frame) or doctors it (a retargeted fetch)
     without either endpoint dropping out of the application surface."""
@@ -83,7 +83,7 @@ async def _live_trace_produces_timeline() -> None:
     the handshake actually negotiated, the same verb outbound at the client
     and inbound at the server, and session-closed. Endpoint labeling belongs
     to the consumer, so the records carry only the session and direction."""
-    from pancake import annotate_session, enable_trace
+    from glowcap import annotate_session, enable_trace
 
     events: list = []
     host = Host()
@@ -135,10 +135,10 @@ async def _live_trace_produces_timeline() -> None:
     opened = [ev for ev in events if ev["kind"] == "ocapn.session-opened"]
     assert len(opened) >= 2, f"both hosts' opens reached the one sink: {events}"
     assert all(ev["codec"] == "syrup" and ev["a_label"] == "smoke" for ev in opened)
-    # And what this producer RUNS, because this schema is not pancake's alone:
+    # And what this producer RUNS, because this schema is not glowcap's alone:
     # a consumer must not read an implementation off the fact that a record
-    # arrived, so a pancake host says so in words.
-    assert all(ev["a_profile"] == "pancake" for ev in opened)
+    # arrived, so a glowcap host says so in words.
+    assert all(ev["a_profile"] == "glowcap" for ev in opened)
     # Identity and label are two facts. ``a`` is the host's own key designator
     # -- the name a partner knows it by, and so the only name two producers can
     # agree on -- and the label never stands in for it.
@@ -317,7 +317,7 @@ async def _allocator_context_round_trip() -> None:
             # the live session, removal makes a later fetch miss, and the
             # capability issued before removal still answers.
             swiss = host.publish_durable(counter)
-            assert swiss.startswith("pancake-durable-1-") and len(swiss) == 50, swiss
+            assert swiss.startswith("glowcap-durable-1-") and len(swiss) == 50, swiss
             durable_ref = await client.fetch(swiss)
             assert await client.send(durable_ref, "get", []) == 15
             assert host.remove_durable(swiss) is True
@@ -420,7 +420,7 @@ class _InjectTransport:
 
 
 def _dial_injected(host: Host):
-    from pancake._session import Session as _Session
+    from glowcap._session import Session as _Session
 
     return _Session._open_dialed_locator(
         host,
@@ -433,9 +433,9 @@ async def _feed_refusals_are_typed() -> None:
     """Bounded inbox and typed abort causes over the byte-fed host. A frame
     declaring more than the frame cap is a typed refusal the moment that is
     knowable, never "read more" (ADR-0041); a refused frame names its typed
-    cause (the flat PancakeError code says the failure family, the attached
+    cause (the flat GlowcapError code says the failure family, the attached
     AbortDetail says the member)."""
-    from pancake import _pump
+    from glowcap import _pump
 
     # Over-cap: the length prefix declares past the cap, refused during the scan.
     # Bytes ride the named pump module (`_pump._feed`), not a Session verb.
@@ -443,7 +443,7 @@ async def _feed_refusals_are_typed() -> None:
     try:
         await _pump._feed(session, b"2000000:")
         raise AssertionError("an over-cap frame must refuse typed instead of buffering")
-    except PancakeError as exc:
+    except GlowcapError as exc:
         assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
     finally:
         session.close_transport()
@@ -455,7 +455,7 @@ async def _feed_refusals_are_typed() -> None:
         try:
             await _pump._feed(session, b"this is not a frame")
             raise AssertionError("feeding garbage must raise")
-        except PancakeError as exc:
+        except GlowcapError as exc:
             assert exc.abort is not None, "the refused frame carries its typed cause"
             assert exc.abort.domain == "codec", exc.abort
             assert exc.abort.kind == "MalformedFrame", exc.abort
@@ -472,7 +472,7 @@ async def _tightened_admission_cap_refuses() -> None:
     after it are held to (ADR-0082). One frame decides it: at the default cap a
     4000-byte declaration is simply incomplete, and at a tightened 1024 the same
     prefix is a typed over-cap refusal."""
-    from pancake import _pump
+    from glowcap import _pump
 
     prefix = b"4000:"
 
@@ -491,7 +491,7 @@ async def _tightened_admission_cap_refuses() -> None:
     try:
         await _pump._feed(session, prefix)
         raise AssertionError("a tightened admission cap must refuse an over-cap frame")
-    except PancakeError as exc:
+    except GlowcapError as exc:
         assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
     finally:
         session.close_transport()
@@ -539,7 +539,7 @@ async def _disconnect_rejects_pending_send() -> None:
         rejected = False
         try:
             await pending
-        except (PancakeError, VowBroken):
+        except (GlowcapError, VowBroken):
             rejected = True
         assert rejected, "an outstanding send rejects when the connection drops"
         await session.close()

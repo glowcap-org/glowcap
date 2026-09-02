@@ -12,13 +12,13 @@ const carrier_phase = @import("carrier_phase.zig");
 
 pub const abi_version: u32 = 2;
 
-pub const PancakeDriverFailure = extern struct {
+pub const GlowcapDriverFailure = extern struct {
     abi_version: u32,
     struct_size: usize,
     primary_result: i32,
     secondary_result: i32,
     secondary_count: u32,
-    /// PANCAKE_CARRIER_PHASE_* or NONE when the failure is not carrier-owned.
+    /// GLOWCAP_CARRIER_PHASE_* or NONE when the failure is not carrier-owned.
     carrier_phase: u32,
     carrier_detail_flags: u32,
     carrier_verification_flags: u32,
@@ -29,14 +29,14 @@ pub const PancakeDriverFailure = extern struct {
     secondary_name: ?[*]const u8,
     secondary_name_len: usize,
 
-    pub fn init() PancakeDriverFailure {
+    pub fn init() GlowcapDriverFailure {
         return .{
             .abi_version = abi_version,
-            .struct_size = @sizeOf(PancakeDriverFailure),
-            .primary_result = shared.PANCAKE_OK,
-            .secondary_result = shared.PANCAKE_OK,
+            .struct_size = @sizeOf(GlowcapDriverFailure),
+            .primary_result = shared.GLOWCAP_OK,
+            .secondary_result = shared.GLOWCAP_OK,
             .secondary_count = 0,
-            .carrier_phase = shared.transport_provider.PANCAKE_CARRIER_PHASE_NONE,
+            .carrier_phase = shared.transport_provider.GLOWCAP_CARRIER_PHASE_NONE,
             .carrier_detail_flags = 0,
             .carrier_verification_flags = 0,
             .carrier_peer_alert = 0,
@@ -50,30 +50,30 @@ pub const PancakeDriverFailure = extern struct {
 };
 
 pub const SlotError = error{ NullPointer, InvalidLayout };
-pub const Claim = union(enum) { slot: *PancakeDriverFailure, refused: i32 };
+pub const Claim = union(enum) { slot: *GlowcapDriverFailure, refused: i32 };
 
 /// Validate before a consuming operation changes ownership. A valid slot is
 /// cleared immediately, so success and every refusal have one deterministic
 /// output shape.
-pub fn begin(out: ?*PancakeDriverFailure) SlotError!*PancakeDriverFailure {
+pub fn begin(out: ?*GlowcapDriverFailure) SlotError!*GlowcapDriverFailure {
     const slot = out orelse return error.NullPointer;
     if (slot.abi_version != abi_version or
-        slot.struct_size < @sizeOf(PancakeDriverFailure)) return error.InvalidLayout;
+        slot.struct_size < @sizeOf(GlowcapDriverFailure)) return error.InvalidLayout;
     slot.* = .init();
     return slot;
 }
 
-pub fn claim(out: ?*PancakeDriverFailure, operation: []const u8) Claim {
+pub fn claim(out: ?*GlowcapDriverFailure, operation: []const u8) Claim {
     return .{ .slot = begin(out) catch |err| {
         shared.setLastError("{s}: invalid failure output: {s}", .{ operation, @errorName(err) });
         return .{ .refused = if (err == error.NullPointer)
-            shared.PANCAKE_ERR_NULL_POINTER
+            shared.GLOWCAP_ERR_NULL_POINTER
         else
-            shared.PANCAKE_ERR_INVALID_ARGUMENT };
+            shared.GLOWCAP_ERR_INVALID_ARGUMENT };
     } };
 }
 
-pub fn refuse(slot: *PancakeDriverFailure, result: i32, cause: anyerror) i32 {
+pub fn refuse(slot: *GlowcapDriverFailure, result: i32, cause: anyerror) i32 {
     project(slot, result, .fromError(cause));
     return result;
 }
@@ -86,7 +86,7 @@ pub fn operationCode(runtime: anytype, err: anyerror) i32 {
 }
 
 pub fn project(
-    slot: *PancakeDriverFailure,
+    slot: *GlowcapDriverFailure,
     primary_result: i32,
     failure: driver.OperationFailure,
 ) void {

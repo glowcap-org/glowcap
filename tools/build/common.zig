@@ -1,8 +1,8 @@
 const std = @import("std");
 const execution = @import("execution.zig");
 
-/// Build one executable over the public `pancake` module.
-pub fn pancakeExecutable(
+/// Build one executable over the public `glowcap` module.
+pub fn glowcapExecutable(
     b: *std.Build,
     lib_mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
@@ -15,12 +15,12 @@ pub fn pancakeExecutable(
         .target = target,
         .optimize = optimize,
     });
-    module.addImport("pancake", lib_mod);
+    module.addImport("glowcap", lib_mod);
     return b.addExecutable(.{ .name = name, .root_module = module });
 }
 
-/// Run a pancake executable from the repository root with side effects.
-pub fn addPancakeRun(
+/// Run a glowcap executable from the repository root with side effects.
+pub fn addGlowcapRun(
     b: *std.Build,
     posture: execution.Posture,
     lib_mod: *std.Build.Module,
@@ -29,7 +29,7 @@ pub fn addPancakeRun(
     name: []const u8,
     root_source: []const u8,
 ) *std.Build.Step.Run {
-    const run = execution.addArtifact(b, posture, pancakeExecutable(
+    const run = execution.addArtifact(b, posture, glowcapExecutable(
         b,
         lib_mod,
         target,
@@ -68,7 +68,7 @@ pub const AbiImport = struct { name: []const u8, module: *std.Build.Module };
 /// lands in two modules of one compilation). `imports` supplies the layer
 /// instances the transport draws on, always the shared vocabulary leaf
 /// (`c_abi_shared`), never the `c_abi` ocapn root, so the artifact stays
-/// symbol-disjoint from `libpancake_ocapn`. These are the `.graph = false`
+/// symbol-disjoint from `libglowcap_ocapn`. These are the `.graph = false`
 /// `c_abi_*` rows' only materialization: they sit outside the layer DAG because
 /// a transport's injected sidecar resident is not a DAG edge.
 pub fn transportAbiModule(
@@ -129,7 +129,7 @@ pub fn linkRustSidecar(
 /// Compile one `site/examples/` Zig snippet as a checked claim. The snippet
 /// becomes a module rooted by `tools/check/site_example_root.zig`, whose
 /// header says why compiling the snippet file alone would read nothing.
-/// `imports` are the modules the snippet names, `pancake` included.
+/// `imports` are the modules the snippet names, `glowcap` included.
 pub fn addSiteZigExampleCompile(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -169,7 +169,7 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
 }
 
 /// The iroh sidecar (ADR-0055): the drivers and bench, the public C ABI
-/// companion, the iroh-enabled rooms client, and the published `pancake_iroh`
+/// companion, the iroh-enabled rooms client, and the published `glowcap_iroh`
 /// module all link it through the shared `linkRustSidecar` recipe.
 /// `archive` is the staticlib the iroh family's cargo step emits.
 pub fn linkIrohSidecar(
@@ -181,7 +181,7 @@ pub fn linkIrohSidecar(
     linkRustSidecar(b, mod, target, archive);
 }
 
-/// A fresh module over an iroh driver root with the `pancake` and injected
+/// A fresh module over an iroh driver root with the `glowcap` and injected
 /// `iroh` resident imports, the shape the iroh drivers, the iroh bench, and the
 /// iroh-enabled rooms client share. Minted per call so the hermetic
 /// compile-only object and the sidecar-linked executable can each root their
@@ -201,7 +201,7 @@ pub fn irohDriverModule(
         .target = t,
         .optimize = o,
     });
-    mod.addImport("pancake", lib_mod);
+    mod.addImport("glowcap", lib_mod);
     mod.addImport("iroh", resident);
     return mod;
 }
@@ -261,7 +261,7 @@ pub fn interopHarnessModule(
         .target = t,
         .optimize = o,
     });
-    mod.addImport("pancake", lib_mod);
+    mod.addImport("glowcap", lib_mod);
     mod.addImport("support_wait", wait_mod);
     return mod;
 }

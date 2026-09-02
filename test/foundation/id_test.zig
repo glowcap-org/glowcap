@@ -1,7 +1,7 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
+const foundation = glowcap.foundation;
 
 test "peer ids are fixed 32-byte values" {
     const bytes = @as([32]u8, @splat(0x01));

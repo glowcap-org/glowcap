@@ -371,7 +371,7 @@ export function App() {
 				recording: {
 					sources: [{
 						id: "live",
-						meta: { kind: "pancake-host" },
+						meta: { kind: "glowcap-host" },
 						observations: [],
 					}],
 				},

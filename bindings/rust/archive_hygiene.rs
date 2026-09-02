@@ -66,7 +66,7 @@ pub fn listing_violation(listing: &str, prefix: &str) -> Option<String> {
 		let Some((kind, raw)) = member(line) else {
 			return Some(format!(
 				"unrecognized tar listing format (need GNU or BSD tar; got: {line})\n  \
-				 install GNU tar, or set PANCAKE_LIB_DIR to a directory you extracted yourself"
+				 install GNU tar, or set GLOWCAP_LIB_DIR to a directory you extracted yourself"
 			));
 		};
 		// `tar -czf x .` stores every member as `./lib/…`. Without this the

@@ -29,10 +29,10 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
 
 /// One inbound `op:deliver` to live local export 7 — the steady-state turn the
 /// alloc-budget test pins and `bench-codec`'s dispatch drives, so the N=1 row

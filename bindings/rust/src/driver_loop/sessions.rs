@@ -140,7 +140,7 @@ impl LoopShared {
 
 	/// Transfer one event-delivered handle into a binding Session, preserving a
 	/// terminal event that committed before the wrapper existed.
-	fn claim_session(&self, session: *mut ffi_host::PancakeHostSession) -> UnclaimedSession {
+	fn claim_session(&self, session: *mut ffi_host::GlowcapHostSession) -> UnclaimedSession {
 		self.unclaimed_sessions
 			.borrow_mut()
 			.remove(&(session as usize))
@@ -150,7 +150,7 @@ impl LoopShared {
 	/// Release a handle the binding never transferred to an application. The
 	/// loop remains its owner on refusal, so tracking is removed only after the
 	/// native release commits.
-	pub(super) fn release_unclaimed_session(&self, session: *mut ffi_host::PancakeHostSession) {
+	pub(super) fn release_unclaimed_session(&self, session: *mut ffi_host::GlowcapHostSession) {
 		if self.native_session_release(session).is_ok() {
 			self.unclaimed_sessions.borrow_mut().remove(&(session as usize));
 		}
@@ -158,15 +158,15 @@ impl LoopShared {
 
 	pub(crate) fn claim_reference_exporter(
 		&self,
-		reference: &sys::PancakeReference,
-	) -> Result<Option<*mut ffi_host::PancakeHostSession>> {
+		reference: &sys::GlowcapReference,
+	) -> Result<Option<*mut ffi_host::GlowcapHostSession>> {
 		self.driver.claim_reference_exporter(reference)
 	}
 
 	/// Release one loop-owned session through the loop's own verb, which also
 	/// drops queued events naming it. A no-op once the loop is released: the
 	/// loop's release freed its sessions itself.
-	pub(crate) fn native_session_release(&self, session: *mut ffi_host::PancakeHostSession) -> Result<()> {
+	pub(crate) fn native_session_release(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
 		if self.released.get() {
 			return Ok(());
 		}
@@ -176,7 +176,7 @@ impl LoopShared {
 /// Wrap a loop-minted session handle as the public [`Session`], over the
 /// adopted wrapper Host: every session verb, promise, and trampoline works on
 /// it, with the native loop as the transport and the drain.
-pub(crate) fn loop_session(lp: &Rc<LoopShared>, session: *mut ffi_host::PancakeHostSession) -> Result<Session> {
+pub(crate) fn loop_session(lp: &Rc<LoopShared>, session: *mut ffi_host::GlowcapHostSession) -> Result<Session> {
 	let host = lp.wrapper_host()?;
 	let shared = SessionShared::new_loop(session, host, Rc::clone(lp));
 	shared.spawn_serve();

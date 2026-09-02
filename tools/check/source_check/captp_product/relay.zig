@@ -24,8 +24,8 @@ pub fn checkReferenceRelayIrohLazy(
 ) !void {
     const why = "load the iroh binding lazily on the `?locator=` dial path so a TCP-only relay links no iroh FFI (ADR-0086)";
 
-    // Deno: the `@pancake/iroh` specifier may appear only inside a dynamic
-    // `import(...)`; a static `from "@pancake/iroh"` would load iroh eagerly.
+    // Deno: the `@glowcap/iroh` specifier may appear only inside a dynamic
+    // `import(...)`; a static `from "@glowcap/iroh"` would load iroh eagerly.
     const deno_paths = [_][]const u8{ "bindings/ts/relay/serve.ts", "bindings/ts/relay/deno_channels.ts" };
     for (deno_paths) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
@@ -35,15 +35,15 @@ pub fn checkReferenceRelayIrohLazy(
         defer gpa.free(contents);
         var lines = std.mem.splitScalar(u8, contents, '\n');
         while (lines.next()) |line| {
-            if (std.mem.indexOf(u8, line, "\"@pancake/iroh\"") != null and
+            if (std.mem.indexOf(u8, line, "\"@glowcap/iroh\"") != null and
                 std.mem.indexOf(u8, line, "import(") == null)
             {
-                try appendViolation(gpa, violations, "{s}: static import of `@pancake/iroh` — {s}", .{ path, why });
+                try appendViolation(gpa, violations, "{s}: static import of `@glowcap/iroh` — {s}", .{ path, why });
             }
         }
     }
 
-    // Python: the `pancake.iroh` import must be indented (inside the dial
+    // Python: the `glowcap.iroh` import must be indented (inside the dial
     // function), never at module scope (column 0).
     py: {
         const path = "bindings/python/relay.py";
@@ -55,10 +55,10 @@ pub fn checkReferenceRelayIrohLazy(
         var lines = std.mem.splitScalar(u8, contents, '\n');
         while (lines.next()) |line| {
             const trimmed = std.mem.trimStart(u8, line, " \t");
-            const is_import = std.mem.startsWith(u8, trimmed, "from pancake.iroh") or
-                std.mem.startsWith(u8, trimmed, "import pancake.iroh");
+            const is_import = std.mem.startsWith(u8, trimmed, "from glowcap.iroh") or
+                std.mem.startsWith(u8, trimmed, "import glowcap.iroh");
             if (is_import and trimmed.len == line.len) {
-                try appendViolation(gpa, violations, "{s}: module-scope `pancake.iroh` import — {s}", .{ path, why });
+                try appendViolation(gpa, violations, "{s}: module-scope `glowcap.iroh` import — {s}", .{ path, why });
             }
         }
     }
@@ -76,17 +76,17 @@ pub fn checkReferenceRelayIrohLazy(
         defer gpa.free(contents);
         var lines = std.mem.splitScalar(u8, contents, '\n');
         while (lines.next()) |line| {
-            if (std.mem.indexOf(u8, line, "pancake-iroh") != null and
+            if (std.mem.indexOf(u8, line, "glowcap-iroh") != null and
                 std.mem.indexOf(u8, line, "define-runtime-path") == null)
             {
-                try appendViolation(gpa, violations, "{s}: static reference to the `pancake-iroh` companion — {s}", .{ path, why });
+                try appendViolation(gpa, violations, "{s}: static reference to the `glowcap-iroh` companion — {s}", .{ path, why });
             }
         }
     }
 }
 
 /// The rooms production relay funnels every dial through the shared
-/// `classifyRelayTarget` (over `pancake_host_plan_dial`), so its SSRF allow-list
+/// `classifyRelayTarget` (over `glowcap_host_plan_dial`), so its SSRF allow-list
 /// sorts a target exactly as the dial that follows: one classified value gates
 /// admission (`relayAllowed`) and drives the dial (`relayToTarget`). The
 /// reference relays' local `?to=` / `?locator=` parameter dispatch must not leak

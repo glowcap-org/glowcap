@@ -1,4 +1,4 @@
-import { Ref, retainSecondaryFailure, type Session } from "@pancake/runtime";
+import { Ref, retainSecondaryFailure, type Session } from "@glowcap/runtime";
 import { ask } from "./ask.ts";
 import { Unanswered } from "./deadline.ts";
 import type { Directory } from "./directory.ts";

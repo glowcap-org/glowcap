@@ -52,7 +52,7 @@ function makeWorld(
 			peer: {
 				id: p.id,
 				label: p.id,
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			position: { x: p.x, y: p.y },
 		});
@@ -338,7 +338,7 @@ Deno.test("computeMessageTimeBundles: ignores non-message events", () => {
 			t: 0,
 			kind: "peer-joined",
 			peerId: "p-1",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		msg("m-a", "s-1", 0, 1000),
 	]);
@@ -360,7 +360,7 @@ Deno.test("a claim shares the fan of the peer it names", () => {
 		] as const
 	) {
 		world.add({
-			peer: { id, label: id, profile: "pancake", designator },
+			peer: { id, label: id, profile: "glowcap", designator },
 			position: { x: 0, y: 0 },
 		});
 	}
@@ -418,7 +418,7 @@ Deno.test("a claim nobody answers to keeps a fan of its own", () => {
 		peer: {
 			id: "carol",
 			label: "carol",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "10.0.0.2",
 		},
 		position: { x: 0, y: 0 },

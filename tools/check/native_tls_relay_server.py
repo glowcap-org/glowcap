@@ -65,7 +65,7 @@ def clean_close(conn: ssl.SSLSocket) -> None:
         raw = conn.unwrap()
     except BrokenPipeError:
         # `unwrap` only reaches its reply write after accepting the peer's
-        # close-notify. Pancake owns a one-way TLS shutdown barrier and may
+        # close-notify. Glowcap owns a one-way TLS shutdown barrier and may
         # retire the TCP leg immediately after that record is delivered.
         # Keep SSLEOFError fatal: an unnotified/truncated peer must not pass.
         conn.close()

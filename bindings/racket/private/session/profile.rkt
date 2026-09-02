@@ -17,11 +17,11 @@
   (call-with-host (session-host c)
     (lambda ()
       (define-values (rc captp-version codec features)
-        (pancake_host_session_profile (session-ptr c)))
+        (glowcap_host_session_profile (session-ptr c)))
       (check/host rc)
       (unless (zero? (bitwise-and features (bitwise-not FEATURE-FULL)))
-        (raise-pancake 'session-profile ERR-INTERNAL
-                       "pancake ABI returned unknown session feature mask ~a"
+        (raise-glowcap 'session-profile ERR-INTERNAL
+                       "glowcap ABI returned unknown session feature mask ~a"
                        features))
       (settled-profile
        (captp-version<-id captp-version 'session-profile)
@@ -33,11 +33,11 @@
   (call-with-host (session-host c)
     (lambda ()
       (define-values (rc ptr len)
-        (pancake_host_session_transport_name (session-ptr c)))
+        (glowcap_host_session_transport_name (session-ptr c)))
       (check/host rc)
       (define bytes (bytes<-c ptr len))
       (with-handlers ([exn:fail?
                        (lambda (_)
-                         (raise-pancake 'session-transport-name ERR-INTERNAL
-                                        "pancake ABI returned a non-UTF-8 session transport name"))])
+                         (raise-glowcap 'session-transport-name ERR-INTERNAL
+                                        "glowcap ABI returned a non-UTF-8 session transport name"))])
         (bytes->string/utf-8 bytes #f)))))

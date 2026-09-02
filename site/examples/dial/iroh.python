@@ -1,5 +1,5 @@
-from pancake import Runtime
-from pancake.iroh import IrohConfig, Reachability, locator, provider
+from glowcap import Runtime
+from glowcap.iroh import IrohConfig, Reachability, locator, provider
 
 # DISCOVERY resolves a bare iroh node ID without an address hint.
 node_id = "<64 lowercase hex characters from the server>"

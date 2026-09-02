@@ -29,8 +29,8 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use pancake_rust_dogfood::iroh::Reachability;
-use pancake_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::iroh::Reachability;
+use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -62,7 +62,7 @@ async fn run() -> Result<(), Fail> {
 	// Wait for the gifter endpoint's direct addresses so its `uri()` is dialable
 	// under the relay-less Direct posture.
 	let (gifter_id, _) = dialable(&gifter).await?;
-	let exporter_locator = pancake_rust_dogfood::iroh::locator(&exporter_id, Some(&exporter_addrs));
+	let exporter_locator = glowcap_rust_dogfood::iroh::locator(&exporter_id, Some(&exporter_addrs));
 	let gifter_runtime = Runtime::open(
 		RuntimeConfig::providers([iroh::provider(iroh::Config::new(Reachability::Direct))]).adopt_host(&gifter_host),
 	)
@@ -140,7 +140,7 @@ async fn run() -> Result<(), Fail> {
 // Serve every connection a server accepts for the life of the run: the loop
 // holds its own `Rc` to the server and parks on `accept().await`, so it is
 // cancelled with the enclosing `LocalSet` rather than awaited.
-fn accept_loop(server: Rc<pancake_rust_dogfood::iroh::Server>) {
+fn accept_loop(server: Rc<glowcap_rust_dogfood::iroh::Server>) {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
 		while let Ok(session) = server.accept().await {
@@ -170,7 +170,7 @@ fn greeter() -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
 // An iroh endpoint reports its direct addresses asynchronously after bind, so
 // wait for at least one before reading the dialable id+addresses, a give with no
 // direct-addresses hint is not dialable under the relay-less Direct posture.
-async fn dialable(server: &pancake_rust_dogfood::iroh::Server) -> Result<(String, String), Fail> {
+async fn dialable(server: &glowcap_rust_dogfood::iroh::Server) -> Result<(String, String), Fail> {
 	for _ in 0..1000 {
 		let addrs = server.direct_addresses()?;
 		if !addrs.is_empty() {

@@ -7,12 +7,12 @@
 //! window these units open by applying after session mutation.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const codec = pancake.ocapn.codec;
-const foundation = pancake.foundation;
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const foundation = glowcap.foundation;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
 const peer_fixture = @import("../support/peer_fixture.zig");
 
 fn applyRelayed(peer: *engine.Peer, import_pos: u64, resolution: model.Resolution) !void {

@@ -22,7 +22,7 @@ deno task typecheck
 deno task fmt:check
 deno lint
 deno task build
-test -f dist/pancake_host.wasm || {
-	echo "ocapnviz-build-check: production bundle omitted pancake_host.wasm" >&2
+test -f dist/glowcap_host.wasm || {
+	echo "ocapnviz-build-check: production bundle omitted glowcap_host.wasm" >&2
 	exit 1
 }

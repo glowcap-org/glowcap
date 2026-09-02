@@ -1,4 +1,4 @@
-//! Root `pancake` command tree — argv parse, help, and completion.
+//! Root `glowcap` command tree — argv parse, help, and completion.
 //! CapTP leaves project from `cli/registry.zig` (sole verb table).
 const std = @import("std");
 const types = @import("types.zig");
@@ -173,7 +173,7 @@ fn runIdentity(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
 fn runVersion(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
     _ = parsed;
     var buf: [256]u8 = undefined;
-    const msg = try std.fmt.bufPrint(&buf, "pancake {d}.{d}.{d}\ncaptp-profile {s}\n", .{
+    const msg = try std.fmt.bufPrint(&buf, "glowcap {d}.{d}.{d}\ncaptp-profile {s}\n", .{
         build_options.version_major,
         build_options.version_minor,
         build_options.version_patch,
@@ -250,7 +250,7 @@ const root_children = [_]Command{
     },
     .{
         .name = "version",
-        .short_help = "Print pancake version",
+        .short_help = "Print glowcap version",
         .aliases = &[_][]const u8{ "--version", "-V" },
         .run = runVersion,
     },
@@ -263,7 +263,7 @@ const root_children = [_]Command{
 };
 
 pub const root: Command = .{
-    .name = "pancake",
+    .name = "glowcap",
     .short_help = "CapTP for humans and agents",
     .flags = &root_flags,
     .children = &root_children,

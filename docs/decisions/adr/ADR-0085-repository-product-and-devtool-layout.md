@@ -14,17 +14,17 @@ superseded_by: []
 
 `tools/` had become a flat dump of gates, generators, and operator scripts, and
 the name invited dumping first-party product apps (for example ocapnviz) beside
-maintainer codegen. `cli/` already owns the installable `pancake` binary
-([ADR-0084](ADR-0084-pancake-cli-product-boundary.md)); `apps/` owns
+maintainer codegen. `cli/` already owns the installable `glowcap` binary
+([ADR-0084](ADR-0084-glowcap-cli-product-boundary.md)); `apps/` owns
 demos. There was no honest home for a major in-tree product that is neither the
 CLI nor a showcase. The usual maintainer verbs (`test`, `check`, `gen`) were
 not visible as peer families.
 
 ## Decision
 
-1. **Product binaries** live under `cli/` (the `pancake` binary) and top-level
+1. **Product binaries** live under `cli/` (the `glowcap` binary) and top-level
    `apps/` (first-party apps with their own binaries, such as ocapnviz). They
-   consume the public `pancake` module and are not part of `libpancake_*`.
+   consume the public `glowcap` module and are not part of `libglowcap_*`.
 2. **Demos and product apps share `apps/`.** As first decided, the demo
    apps lived under `examples/apps/` with `apps/` reserved for product
    binaries; amended 2026-07-19 to fold the demo apps into `apps/` — one

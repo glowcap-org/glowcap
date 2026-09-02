@@ -6,7 +6,7 @@
 // verb dispatch, where the same rows are read by the inventory, by a search,
 // and by the answer a give or a revoke returns.
 
-import type { Argument, Session } from "@pancake/runtime";
+import type { Argument, Session } from "@glowcap/runtime";
 import { isManagedRoomId } from "../../lib/limits.ts";
 import type { RoomServerContext } from "../context.ts";
 import { roomKey, type RoomState } from "../registry.ts";

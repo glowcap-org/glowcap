@@ -25,7 +25,7 @@ import type { TimelineEvent } from "../engine/timeline.ts";
  *  designator (ADR-0075). */
 const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 
-/** Every netlayer pancake ships, with how it spells a designator. A claim that
+/** Every netlayer glowcap ships, with how it spells a designator. A claim that
  *  does not match its netlayer's spelling is a recording nothing could have
  *  produced, and a netlayer missing from this table fails the transport check
  *  below as unknown rather than being checked at all.

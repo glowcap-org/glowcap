@@ -33,7 +33,7 @@
 (define MAX-RENDEZVOUS-RELAY-HINT-BYTES RELAY-MAX-RENDEZVOUS-RELAY-HINT-BYTES)
 
 (define (raise-invalid message)
-  (raise-pancake 'relay-route ERR-INVALID-ARGUMENT message))
+  (raise-glowcap 'relay-route ERR-INVALID-ARGUMENT message))
 
 (define (validate-designator designator)
   (unless (regexp-match? #px"^[0-9a-f]{64}$" designator)
@@ -132,42 +132,42 @@
                          (positive? (bytes-length trust-pem))
                          (pin-immobile trust-pem)))
   (define config
-    (make-PancakeRelayConfig
-     RELAY-CONFIG-ABI-VERSION (ctype-sizeof _PancakeRelayConfig)
+    (make-GlowcapRelayConfig
+     RELAY-CONFIG-ABI-VERSION (ctype-sizeof _GlowcapRelayConfig)
      relay-ptr (bytes-length relay-bs)
      register-ptr (bytes-length register-bs)
      (if trust-pem RELAY-TRUST-COPIED-PEM RELAY-TRUST-SYSTEM)
      trust-ptr (if trust-pem (bytes-length trust-pem) 0)))
-  (define-values (rc raw) (pancake_relay_runtime_new config))
+  (define-values (rc raw) (glowcap_relay_runtime_new config))
   ;; The config cstruct is retained as the call's argument, but it carries
   ;; only the pins' raw addresses; the sink keeps the URL and PEM buffers
   ;; live for the whole constructor.
   (void/reference-sink relay-ptr register-ptr trust-ptr)
-  (check-with rc (lambda () (read-last-error pancake_relay_last_error)))
-  (define summary (make-PancakeRelayTrustSummary 0 0 0))
-  (check-with (pancake_relay_runtime_trust_summary raw summary)
-              (lambda () (read-last-error pancake_relay_last_error)))
-  (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f #f))
+  (check-with rc (lambda () (read-last-error glowcap_relay_last_error)))
+  (define summary (make-GlowcapRelayTrustSummary 0 0 0))
+  (check-with (glowcap_relay_runtime_trust_summary raw summary)
+              (lambda () (read-last-error glowcap_relay_last_error)))
+  (define package (make-GlowcapTransportProvider 0 0 #f 0 #f #f #f #f))
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (define cleanup
                        (with-handlers ([(lambda (_) #t) values])
-                         (check-with (pancake_relay_runtime_release raw)
-                                     (lambda () (read-last-error pancake_relay_last_error)))
+                         (check-with (glowcap_relay_runtime_release raw)
+                                     (lambda () (read-last-error glowcap_relay_last_error)))
                          #f))
                      (raise (if cleanup
                                 (retain-cleanup-failure e cleanup)
                                 e)))])
-    (check-with (pancake_relay_transport_provider raw package)
-                (lambda () (read-last-error pancake_relay_last_error)))
+    (check-with (glowcap_relay_transport_provider raw package)
+                (lambda () (read-last-error glowcap_relay_last_error)))
     (driver-loop-add-provider! lp package)
     ;; Registration retained the package; release the constructor lease.
-    (check-with (pancake_relay_runtime_release raw)
-                (lambda () (read-last-error pancake_relay_last_error)))
+    (check-with (glowcap_relay_runtime_release raw)
+                (lambda () (read-last-error glowcap_relay_last_error)))
     (relay-trust-summary
-     (PancakeRelayTrustSummary-loaded summary)
-     (PancakeRelayTrustSummary-skipped_by_engine summary)
-     (let ([code (PancakeRelayTrustSummary-first_skipped_engine_code summary)])
+     (GlowcapRelayTrustSummary-loaded summary)
+     (GlowcapRelayTrustSummary-skipped_by_engine summary)
+     (let ([code (GlowcapRelayTrustSummary-first_skipped_engine_code summary)])
        (and (not (zero? code)) code)))))
 
 (define (relay-provider #:relay-url relay-url
@@ -185,7 +185,7 @@
    (lambda (m loc handshake-timeout-ms)
      (define route (locator-relay-route loc))
      (unless route
-       (raise-pancake 'relay-connector ERR-INVALID-ARGUMENT
+       (raise-glowcap 'relay-connector ERR-INVALID-ARGUMENT
                       "relay connector requires a rendezvous-relay hint"))
      (establish-dialed-locator-session
       m loc

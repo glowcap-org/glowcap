@@ -1,9 +1,9 @@
 ---
-description: "Serena MCP vs host tools for Zig pancake symbol work."
+description: "Serena MCP vs host tools for Zig glowcap symbol work."
 globs: src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, build.zig
 ---
 
-# pancake — Serena MCP Discipline
+# glowcap — Serena MCP Discipline
 
 Serena is the first-class code-symbol tool for this Zig repository. Config:
 [`.serena/project.yml`](../../.serena/project.yml),

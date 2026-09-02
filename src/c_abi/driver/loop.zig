@@ -1,14 +1,14 @@
-//! The `pancake_driver_*` loop family (ADR-0112): a stepping projection of
+//! The `glowcap_driver_*` loop family (ADR-0112): a stepping projection of
 //! `driver.HostRuntime` over the byte-fed Host implementation. The embedder's
 //! whole transport role is: create the loop, register provider packages, dial
 //! and listen, park on one readiness
 //! descriptor, step, and drain one event queue; every application verb stays
-//! `pancake_host_*` on the Host handle moved into `pancake_driver_take_host`. Those
-//! symbols belong to `libpancake_host`; this archive emits only
-//! `pancake_driver_*`.
+//! `glowcap_host_*` on the Host handle moved into `glowcap_driver_take_host`. Those
+//! symbols belong to `libglowcap_host`; this archive emits only
+//! `glowcap_driver_*`.
 //!
 //! Threading: one thread drives one loop, and every verb here except
-//! `pancake_driver_wake` must run on it. Callbacks fire on the stepping
+//! `glowcap_driver_wake` must run on it. Callbacks fire on the stepping
 //! thread.
 //!
 //! Dial starts are nonblocking by provider contract and run in the dial call;
@@ -36,11 +36,11 @@ const c = @import("mod.zig");
 const crypto = foundation.crypto;
 const FailureProjection = c.FailureProjection;
 
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
-const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
-const PANCAKE_ERR_BUFFER_TOO_SMALL = shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
+const GLOWCAP_ERR_BUFFER_TOO_SMALL = shared.GLOWCAP_ERR_BUFFER_TOO_SMALL;
 
 const loop_events = @import("loop/events.zig");
 const loop_listeners = @import("loop/listeners.zig");
@@ -49,14 +49,14 @@ const ListenerId = loop_listeners.ListenerId;
 const ListenerState = listener_state.State;
 const OwnedEvent = loop_events.OwnedEvent;
 
-/// One loop: the wrapped host handle (a real `PancakeHost`, so every
-/// `pancake_host_*` verb works on it), the HostRuntime that pumps for it, the
+/// One loop: the wrapped host handle (a real `GlowcapHost`, so every
+/// `glowcap_host_*` verb works on it), the HostRuntime that pumps for it, the
 /// transports and listeners it owns, and the in-flight opens and event queue
 /// between the C caller and the pump.
 const Instance = struct {
     allocator: std.mem.Allocator,
     threaded: std.Io.Threaded,
-    host_handle: *ch.PancakeHost,
+    host_handle: *ch.GlowcapHost,
     runtime: driver.HostRuntime,
     providers: provider_registry.Registry,
     /// One listener per transport, keyed by stable loop-minted ids. The Host
@@ -74,7 +74,7 @@ const Instance = struct {
     /// allocation; the admitting or preflight boundary owns capacity failure.
     event_reservations: usize = 0,
     /// The completion view handed out by the last
-    /// `pancake_driver_next_event`, freed by the next one — the byte-fed
+    /// `glowcap_driver_next_event`, freed by the next one — the byte-fed
     /// queue's borrow contract, one tier up. Error names are static.
     handed_completion: ?driver_core.HostAction = null,
     stepping: bool = false,
@@ -84,7 +84,7 @@ const Instance = struct {
     }
 };
 
-fn instanceFrom(raw: ?*c.PancakeDriverLoop) ?*Instance {
+fn instanceFrom(raw: ?*c.GlowcapDriverLoop) ?*Instance {
     return @ptrCast(@alignCast(raw orelse return null));
 }
 
@@ -96,7 +96,7 @@ fn errToCode(err: anyerror) i32 {
     return driver_error.fromError(err);
 }
 
-fn claimHost(host: *ch.PancakeHost) !ch.embedding.DriverClaim {
+fn claimHost(host: *ch.GlowcapHost) !ch.embedding.DriverClaim {
     return (ch.embedding.claimForDriver(host) catch |err| {
         switch (err) {
             error.HostAlreadyOwned => shared.setLastError("driver: host already has a drive owner", .{}),
@@ -118,7 +118,7 @@ fn adoptionErrorCode(err: anyerror) i32 {
     return driver_error.fromError(err);
 }
 
-fn adoptionOptions(options: c.PancakeDriverOptions) driver.HostRuntime.AdoptionOptions {
+fn adoptionOptions(options: c.GlowcapDriverOptions) driver.HostRuntime.AdoptionOptions {
     return .{
         .wire_buffer_bytes = options.wire_buffer_bytes,
         .max_pending_opens = options.max_pending_opens,
@@ -132,7 +132,7 @@ fn waitBudget(milliseconds: u32) driver.Budget {
     return if (milliseconds == 0) .unbounded else .{ .ms = @intCast(milliseconds) };
 }
 
-fn operationOptions(raw: ?*const shared.PancakeTransportOperationOptions) !net.OperationOptions {
+fn operationOptions(raw: ?*const shared.GlowcapTransportOperationOptions) !net.OperationOptions {
     const options = raw orelse return .inherit;
     const data = options.data orelse {
         if (options.size != 0) return error.InvalidArgument;
@@ -142,7 +142,7 @@ fn operationOptions(raw: ?*const shared.PancakeTransportOperationOptions) !net.O
     return .{ .data = data, .size = options.size };
 }
 
-fn operationOptionsCode(raw: ?*const shared.PancakeTransportOperationOptions) !net.OperationOptions {
+fn operationOptionsCode(raw: ?*const shared.GlowcapTransportOperationOptions) !net.OperationOptions {
     return operationOptions(raw) catch |err| {
         shared.setLastError("driver: invalid transport operation options: {s}", .{@errorName(err)});
         return err;
@@ -175,11 +175,11 @@ pub const Internal = struct {
 
 /// Read this archive's per-thread last-error message into `out_buf`
 /// (truncating), returning the full message length. Zero means no message.
-pub export fn pancake_driver_last_error(out_buf: ?[*]u8, cap: usize) usize {
+pub export fn glowcap_driver_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return shared.lastErrorRead(out_buf, cap);
 }
 
 /// Clear this archive's per-thread last-error message.
-pub export fn pancake_driver_clear_last_error() void {
+pub export fn glowcap_driver_clear_last_error() void {
     shared.lastErrorClear();
 }

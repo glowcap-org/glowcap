@@ -1,5 +1,5 @@
-import { HINT_DIRECT_ADDRESSES, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@pancake/abi";
-import type { Locator } from "@pancake/runtime";
+import { HINT_DIRECT_ADDRESSES, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@glowcap/abi";
+import type { Locator } from "@glowcap/runtime";
 
 /** Spell a TCP `host:port` designator, including IPv6 brackets. */
 export function addressDesignator(hostname: string, port: number): string {

@@ -1,5 +1,5 @@
 //! The Rust bench client for the per-language consumer-cost bench. It drives the
-//! taskboard unit against the fixed Zig host through pancake's Rust binding (the
+//! taskboard unit against the fixed Zig host through glowcap's Rust binding (the
 //! same connect/fetch/send the demos use) and prints one NDJSON metric line in
 //! the shared schema (see bench/langs/contract.md). Being ahead-of-time compiled,
 //! it needs no warmup and reports `warmup_n` of 0.
@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use pancake::{tcp, Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session};
+use glowcap::{tcp, Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session};
 
 const CLIENT: &str = "rust";
 const RUNTIME: &str = "rust";

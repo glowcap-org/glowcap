@@ -1,13 +1,13 @@
 #lang racket
-;; gift-exporter-host.rkt — Goblins Bob, the exporter in the pancake-as-gifter
+;; gift-exporter-host.rkt — Goblins Bob, the exporter in the glowcap-as-gifter
 ;; three-party handoff proof. Hosts a `^greeter` cap behind a fixed swiss-num,
 ;; emits an NDJSON readiness line (listen address + greeter swiss), then sleeps.
 ;;
-;; In this scenario pancake is the *gifter*: it fetches this greeter, deposits it
+;; In this scenario glowcap is the *gifter*: it fetches this greeter, deposits it
 ;; back here as a gift over its own connection, and mints a `desc:handoff-give`.
 ;; A Goblins recipient then withdraws the gift directly from this vat. So this
 ;; host proves two cross-implementation directions at once — Goblins accepting
-;; pancake's `deposit-gift`, and Goblins serving the recipient's `withdraw-gift`.
+;; glowcap's `deposit-gift`, and Goblins serving the recipient's `withdraw-gift`.
 ;;
 ;; Usage:
 ;;   racket gift-exporter-host.rkt <bind-host> <bind-port> [hint-name hint-hex]
@@ -30,12 +30,12 @@
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
 
-;; Fixed swiss-num pancake fetches by (it hardcodes the same ASCII constant, the
+;; Fixed swiss-num glowcap fetches by (it hardcodes the same ASCII constant, the
 ;; way the interop clients fix the echo swiss). 32 ASCII bytes, like the echo cap.
 (define GREETER-SWISS
-  (string->bytes/latin-1 "pancakeGiftGreeterSwissnum000001"))
+  (string->bytes/latin-1 "glowcapGiftGreeterSwissnum000001"))
 (define VENDOR-SWISS
-  (string->bytes/latin-1 "pancakeGiftVendorSwissnum0000001"))
+  (string->bytes/latin-1 "glowcapGiftVendorSwissnum0000001"))
 
 ;; Greeter behavior, replies with the caller's name embedded, so the recipient
 ;; proves the handoff carried real data end to end, not just a live reference.

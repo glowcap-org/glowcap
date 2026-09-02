@@ -15,7 +15,7 @@ amended_by: []
 > **Superseded by ADR-0096.** `session.release(ref)` remains, but the two C
 > release families and their position/token classification do not. Every
 > application capability is one opaque Host identity released through
-> `pancake_host_ref_release`.
+> `glowcap_host_ref_release`.
 
 ## Problem
 
@@ -35,7 +35,7 @@ this is exactly that shape. A rooms direct-message line that only sends rides
 the directory's session and holds an import it did not fetch, so no amount of
 opting in would release it.
 
-**The existing verb is for the other kind of id.** `pancake_host_gc_release`
+**The existing verb is for the other kind of id.** `glowcap_host_gc_release`
 takes a node-minted token, routes it through the node to whichever connection
 hosts it, and refuses a plain wire position. A capability from a delivered
 argument carries a wire position. So the C ABI had no entry point for this at
@@ -51,7 +51,7 @@ performs.
 
 ## Decision
 
-Add `pancake_host_session_release_import(session, position, delta)`, and expose
+Add `glowcap_host_session_release_import(session, position, delta)`, and expose
 it in every binding as `session.release(ref)`.
 
 **Session-scoped, because an import position is.** The position means something
@@ -63,7 +63,7 @@ paper over for the ids that travel.
 
 **Two verbs, because there are two kinds of id.** A `fetch` result or a redeemed
 capability carries a node-unique token; anything else carries a wire position.
-`pancake_host_gc_release` keeps the first and refuses the second with
+`glowcap_host_gc_release` keeps the first and refuses the second with
 `NotAToken`; the new verb takes the second and refuses the first with
 `NotAWirePosition`. Each binding's `release` branches once on the id and calls
 the right one, so an application never chooses. Collapsing them into one verb
@@ -114,6 +114,6 @@ covers the clones the type system cannot, and `Ref::released` reports it.
   wrong.
 - `source-check` holds two things that bit during implementation: an ABI symbol
   reflected into the generated FFI must be wired in every binding or declared
-  deferred with a reason, and `pancake_host_gc_release` belongs to each
+  deferred with a reason, and `glowcap_host_gc_release` belongs to each
   binding's `gc` module rather than its session. Both are why this landed in
   four bindings at once and with the machinery beside the finalizer path.

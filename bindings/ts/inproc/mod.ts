@@ -1,11 +1,11 @@
-// Idiomatic JavaScript/TypeScript API for `libpancake_net_transport_inproc` —
-// pancake's in-process transport, a composable companion to the core `./mod.ts`
+// Idiomatic JavaScript/TypeScript API for `libglowcap_net_transport_inproc` —
+// glowcap's in-process transport, a composable companion to the core `./mod.ts`
 // module (ADR-0059).
 //
 // This is the socket-free sibling of `./tcp.ts`: two peers in one process wired
 // by in-process pipes and no kernel transport. The C listener adds a wake
 // descriptor for reactor integration; no application bytes flow through it. It rides its
-// own archive (`libpancake_net_transport_inproc`), symbol-disjoint from the core
+// own archive (`libglowcap_net_transport_inproc`), symbol-disjoint from the core
 // and from the other transports, sharing the frame/context types by layout. The
 // lifecycle matches TCP — make the netlayer, bind a listener or dial a
 // connection, release the connections, then release the netlayer — but a listener
@@ -20,8 +20,8 @@
 //   const got = await server.readFrame();
 //
 // The in-process family keeps its own thread-local last-error, read through
-// `pancake_inproc_last_error`, so a failed call's diagnostic never scrapes the
-// core's unrelated `pancake_last_error`.
+// `glowcap_inproc_last_error`, so a failed call's diagnostic never scrapes the
+// core's unrelated `glowcap_last_error`.
 
 import {
 	AsyncFfiWriteQueue,
@@ -29,6 +29,7 @@ import {
 	checkedMaxFrameBytes,
 	codecId,
 	consumedReleaseFailure,
+	GlowcapError,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
@@ -36,16 +37,15 @@ import {
 	NativeHandle,
 	NativeParent,
 	outPointer,
-	PancakeError,
 	readBytes,
 	readErrorSlot,
 	releaseManagedFrame,
 	requireOffThreadFfi,
 	SingleFlight,
-} from "@pancake/runtime/transport";
-import type { Codec, Locator, Ptr } from "@pancake/runtime/transport";
+} from "@glowcap/runtime/transport";
+import type { Codec, Locator, Ptr } from "@glowcap/runtime/transport";
 import { inprocS } from "./ffi.ts";
-import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC } from "@pancake/abi";
+import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC } from "@glowcap/abi";
 
 const OK = 0;
 
@@ -61,17 +61,17 @@ export function locator(designator: string): Locator {
 
 // The calling thread's last error from the in-process transport, or null when
 // there is none. The transport keeps its own thread-local slot, so a call's
-// diagnostic is read here, never from the core's `pancake_last_error`.
+// diagnostic is read here, never from the core's `glowcap_last_error`.
 function inprocLastError(): string | null {
-	return readErrorSlot(inprocS.pancake_inproc_last_error);
+	return readErrorSlot(inprocS.glowcap_inproc_last_error);
 }
 
 // A failed in-process-transport call: read its diagnostic from the transport's
-// own thread-local last-error and pass it explicitly, so `PancakeError` never
-// scrapes the unrelated core-family `pancake_last_error`.
+// own thread-local last-error and pass it explicitly, so `GlowcapError` never
+// scrapes the unrelated core-family `glowcap_last_error`.
 function checkInproc(code: number): void {
 	if (code !== OK) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			code,
 			inprocLastError() ?? `inproc transport call failed (code ${code})`,
 		);
@@ -92,8 +92,8 @@ export class Connection {
 		this.#native = new NativeHandle(
 			"inproc connection",
 			raw,
-			(p) => inprocS.pancake_inproc_conn_shutdown(p),
-			(p) => inprocS.pancake_inproc_conn_release(p),
+			(p) => inprocS.glowcap_inproc_conn_shutdown(p),
+			(p) => inprocS.glowcap_inproc_conn_release(p),
 			(retirement) => this.#parent.retire(this, retirement),
 		);
 		if (!parent.adopt(this)) throw new Error("inproc netlayer is released");
@@ -104,7 +104,7 @@ export class Connection {
 	[Symbol.dispose](): void {
 		this.close();
 	}
-	/** Wait for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF. */
+	/** Wait for one whole frame. Throws GLOWCAP_ERR_CLOSED on clean EOF. */
 	readFrame(): Promise<Uint8Array> {
 		requireOffThreadFfi("inproc", "readFrame");
 		return this.#reads.run(() =>
@@ -112,7 +112,7 @@ export class Connection {
 				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 				try {
 					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
-						inprocS.pancake_inproc_conn_read_frame(
+						inprocS.glowcap_inproc_conn_read_frame(
 							raw,
 							mf,
 							error,
@@ -135,7 +135,7 @@ export class Connection {
 		return this.#writes.run(frame, (owned) =>
 			this.#native.use(async (raw) => {
 				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
-					inprocS.pancake_inproc_conn_write_frame(
+					inprocS.glowcap_inproc_conn_write_frame(
 						raw,
 						owned.argument(),
 						error,
@@ -159,12 +159,12 @@ export class Listener {
 		this.#native = new NativeHandle(
 			"inproc listener",
 			raw,
-			(p) => inprocS.pancake_inproc_listener_shutdown(p),
+			(p) => inprocS.glowcap_inproc_listener_shutdown(p),
 			async (p) => {
 				try {
 					await this.#releaseDiagnostic.check(
 						"listener release",
-						(error, cap, errorLen) => inprocS.pancake_inproc_listener_release(p, error, cap, errorLen),
+						(error, cap, errorLen) => inprocS.glowcap_inproc_listener_release(p, error, cap, errorLen),
 					);
 				} catch (error) {
 					consumedReleaseFailure(error);
@@ -184,7 +184,7 @@ export class Listener {
 	 * listener owns it; do not close it or retain it after `close`. */
 	readinessFd(): number {
 		const out = new Uint8Array(4);
-		checkInproc(inprocS.pancake_inproc_listener_readiness_fd(this.#native.borrow(), out));
+		checkInproc(inprocS.glowcap_inproc_listener_readiness_fd(this.#native.borrow(), out));
 		return new DataView(out.buffer).getInt32(0, true);
 	}
 	/** Block until a dialer connects, returning the in-process connection framing
@@ -196,7 +196,7 @@ export class Listener {
 			this.#native.use(async (raw) => {
 				const out = new Uint8Array(8);
 				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
-					inprocS.pancake_inproc_accept(
+					inprocS.glowcap_inproc_accept(
 						raw,
 						codecId(codec),
 						BigInt(frameLimit),
@@ -220,14 +220,14 @@ export class Netlayer {
 		let native = raw;
 		if (native == null) {
 			const out = new Uint8Array(8);
-			checkInproc(inprocS.pancake_inproc_netlayer_new(out));
+			checkInproc(inprocS.glowcap_inproc_netlayer_new(out));
 			native = outPointer(out);
 		}
 		this.#native = new NativeParent(
 			"inproc netlayer",
 			native,
 			undefined,
-			(p) => inprocS.pancake_inproc_netlayer_release(p),
+			(p) => inprocS.glowcap_inproc_netlayer_release(p),
 		);
 	}
 
@@ -246,7 +246,7 @@ export class Netlayer {
 		const d = new TextEncoder().encode(designator);
 		const out = new Uint8Array(8);
 		checkInproc(
-			inprocS.pancake_inproc_listen(this.#native.borrow(), d, BigInt(d.length), out),
+			inprocS.glowcap_inproc_listen(this.#native.borrow(), d, BigInt(d.length), out),
 		);
 		return new Listener(outPointer(out), this.#native);
 	}
@@ -266,7 +266,7 @@ export class Netlayer {
 				"inproc",
 				"connect",
 				(error, cap, errorLen) =>
-					inprocS.pancake_inproc_connect(
+					inprocS.glowcap_inproc_connect(
 						raw,
 						d,
 						BigInt(d.length),

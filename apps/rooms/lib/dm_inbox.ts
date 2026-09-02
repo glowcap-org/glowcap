@@ -12,7 +12,7 @@
 //
 // Shared by the browser UI and the direct-message demos.
 
-import type { Behavior, Host, Ref } from "@pancake/runtime";
+import type { Behavior, Host, Ref } from "@glowcap/runtime";
 import { MAX_DM_INBOXES, nickRefusal } from "./limits.ts";
 import { isRegistrationId } from "./directory_publications.ts";
 import type { Directory } from "./room/client.ts";

@@ -1,4 +1,4 @@
-//! An agent, written on pancake actors in native Rust. It connects to the tools
+//! An agent, written on glowcap actors in native Rust. It connects to the tools
 //! coordinator (which may be written in any language) and proves the three
 //! capability properties — delegation, attenuation, revocation — over the wire.
 //!
@@ -9,7 +9,7 @@ mod demo_run;
 #[path = "../../_demo/rust/tools_check.rs"]
 mod tools_check;
 
-use pancake::{tcp, Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig};
+use glowcap::{tcp, Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig};
 
 fn cap(arg: &Argument) -> Result<Ref, String> {
 	Ref::try_from(arg).map_err(|_| "grant did not return a capability".to_string())

@@ -1,13 +1,13 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    // pancake starts no Tor. Name an already-running daemon's SOCKS and control endpoints.
-    var onion_resident = pancake.net.onion.Resident{ .io = io, .config = .{
+    // glowcap starts no Tor. Name an already-running daemon's SOCKS and control endpoints.
+    var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
         .socks = "/run/tor/socks",
         .control_endpoint = "/run/tor/control",
     } };
-    const server = try pancake.driver.listen(
+    const server = try glowcap.driver.listen(
         allocator,
         onion_resident.netlayer(),
         .{ .designator = "" },
@@ -16,7 +16,7 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     );
     defer server.deinit();
 
-    const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+    const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
     defer allocator.free(uri);
     std.debug.print("{s}\n", .{uri}); // hand this locator to partners
 
@@ -31,14 +31,14 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 
 // From here, the CapTP workflow is transport-independent.
 const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *pancake.driver.HostTurn, verb: []const u8, args: []const pancake.driver.Value) !pancake.driver.Value {
+    pub fn handle(_: *Greeter, ht: *glowcap.driver.HostTurn, verb: []const u8, args: []const glowcap.driver.Value) !glowcap.driver.Value {
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         if (args.len != 1 or args[0] != .string) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{args[0].string}) };
     }
 };
 
-fn serve(server: *pancake.driver.Server) !void {
+fn serve(server: *glowcap.driver.Server) !void {
     try server.publishGiftable("greeter", Greeter, .{});
     while (true) {
         var session = try server.accept();

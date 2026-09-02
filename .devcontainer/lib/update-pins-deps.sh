@@ -3,29 +3,29 @@
 # table, the release channel behind every row, and the procedure for the two
 # rows a script must not bump on its own.
 #
-# Adding a dependency is four edits here: a name in PANCAKE_PINS_DEPS, its
-# pins.sh variable in pancake_pins_dep_var, how a bump is proven in
-# pancake_pins_dep_class and pancake_pins_dep_gate, and the query in
-# pancake_pins_latest_version. A file that also restates the pin belongs in
+# Adding a dependency is four edits here: a name in GLOWCAP_PINS_DEPS, its
+# pins.sh variable in glowcap_pins_dep_var, how a bump is proven in
+# glowcap_pins_dep_class and glowcap_pins_dep_gate, and the query in
+# glowcap_pins_latest_version. A file that also restates the pin belongs in
 # update-pins-companions.sh instead.
 
-pancake_pins_fetch() {
+glowcap_pins_fetch() {
     curl --fail --location --silent --show-error "$@"
 }
 
-pancake_pins_npm_latest() {
-    pancake_pins_fetch "https://registry.npmjs.org/$1/latest" | jq -r .version
+glowcap_pins_npm_latest() {
+    glowcap_pins_fetch "https://registry.npmjs.org/$1/latest" | jq -r .version
 }
 
-pancake_pins_github_latest_tag() {
-    pancake_pins_fetch "https://api.github.com/repos/$1/releases/latest" | jq -r .tag_name
+glowcap_pins_github_latest_tag() {
+    glowcap_pins_fetch "https://api.github.com/repos/$1/releases/latest" | jq -r .tag_name
 }
 
 # SHA-256 of a GitHub release asset: the API digest when published, else the
 # asset itself, downloaded and hashed.
-pancake_pins_github_asset_sha256() {
+glowcap_pins_github_asset_sha256() {
     local repo="$1" tag="$2" asset="$3" digest tmp
-    digest="$(pancake_pins_fetch "https://api.github.com/repos/${repo}/releases/tags/${tag}" \
+    digest="$(glowcap_pins_fetch "https://api.github.com/repos/${repo}/releases/tags/${tag}" \
         | jq -r --arg n "${asset}" '.assets[] | select(.name == $n) | .digest')"
     case "${digest}" in
         sha256:*)
@@ -33,8 +33,8 @@ pancake_pins_github_asset_sha256() {
             return 0
             ;;
     esac
-    tmp="$(mktemp -t pancake-update-pins-XXXXXX)"
-    pancake_pins_fetch --output "${tmp}" "https://github.com/${repo}/releases/download/${tag}/${asset}"
+    tmp="$(mktemp -t glowcap-update-pins-XXXXXX)"
+    glowcap_pins_fetch --output "${tmp}" "https://github.com/${repo}/releases/download/${tag}/${asset}"
     sha256sum "${tmp}" | cut -d' ' -f1
     rm -f "${tmp}"
 }
@@ -43,10 +43,10 @@ pancake_pins_github_asset_sha256() {
 # Dockerfile FROM line pins. Asking for exactly one media type is what makes the
 # answer reproducible: offer the registry several and it picks, and a
 # single-architecture manifest digest would pin the image to one machine.
-pancake_pins_docker_hub_index_digest() {
+glowcap_pins_docker_hub_index_digest() {
     local repository="$1" tag="$2" token
-    token="$(pancake_pins_fetch "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repository}:pull" | jq -r .token)"
-    pancake_pins_fetch --output /dev/null --dump-header - \
+    token="$(glowcap_pins_fetch "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repository}:pull" | jq -r .token)"
+    glowcap_pins_fetch --output /dev/null --dump-header - \
         --header "Authorization: Bearer ${token}" \
         --header "Accept: application/vnd.oci.image.index.v1+json" \
         "https://registry-1.docker.io/v2/${repository}/manifests/${tag}" \
@@ -56,15 +56,15 @@ pancake_pins_docker_hub_index_digest() {
 
 # SHA-256 of a download that publishes no hash of its own: fetch it and hash
 # what arrived.
-pancake_pins_url_sha256() {
+glowcap_pins_url_sha256() {
     local url="$1" tmp
-    tmp="$(mktemp -t pancake-update-pins-XXXXXX)"
-    pancake_pins_fetch --output "${tmp}" "${url}"
+    tmp="$(mktemp -t glowcap-update-pins-XXXXXX)"
+    glowcap_pins_fetch --output "${tmp}" "${url}"
     sha256sum "${tmp}" | cut -d' ' -f1
     rm -f "${tmp}"
 }
 
-pancake_pins_require_hex64() {
+glowcap_pins_require_hex64() {
     if ! [[ "$2" =~ ^[0-9a-f]{64}$ ]]; then
         echo "update-pins: $1: not a SHA-256: '$2'" >&2
         return 1
@@ -79,9 +79,9 @@ pancake_pins_require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-PANCAKE_PINS_DEPS="debian zig zls rust rustup-init deno node bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
+GLOWCAP_PINS_DEPS="debian zig zls rust rustup-init deno node bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
-pancake_pins_dep_var() {
+glowcap_pins_dep_var() {
     case "$1" in
         debian) echo DEBIAN_BASE_DIGEST ;;
         zig) echo ZIG_VERSION ;;
@@ -103,13 +103,13 @@ pancake_pins_dep_var() {
         racket) echo RACKET_VERSION ;;
         goblins) echo GOBLINS_REVISION ;;
         *)
-            echo "update-pins: unknown dep '$1' (deps: ${PANCAKE_PINS_DEPS})" >&2
+            echo "update-pins: unknown dep '$1' (deps: ${GLOWCAP_PINS_DEPS})" >&2
             return 1
             ;;
     esac
 }
 
-pancake_pins_dep_class() {
+glowcap_pins_dep_class() {
     case "$1" in
         zls | uv | serena | claude | codex | cursor-agent | opencode | devcontainer-cli) echo safe ;;
         racket | goblins) echo manual ;;
@@ -117,7 +117,7 @@ pancake_pins_dep_class() {
     esac
 }
 
-pancake_pins_dep_gate() {
+glowcap_pins_dep_gate() {
     case "$1" in
         debian) echo "zig build check" ;;
         zig) echo "zig build check with the new toolchain" ;;
@@ -134,41 +134,41 @@ pancake_pins_dep_gate() {
 # Every consumer below reads its whole input: under `set -o pipefail`, an
 # early-exiting head / grep -m1 / awk-exit closes the pipe and turns curl's
 # EPIPE into a query failure.
-pancake_pins_latest_version() {
+glowcap_pins_latest_version() {
     case "$1" in
-        debian) pancake_pins_docker_hub_index_digest library/debian "${DEBIAN_BASE_TAG}" ;;
-        zig) pancake_pins_fetch https://ziglang.org/download/index.json | jq -r .master.version ;;
-        zls) pancake_pins_fetch https://api.github.com/repos/zigtools/zls/commits/master | jq -r .sha ;;
+        debian) glowcap_pins_docker_hub_index_digest library/debian "${DEBIAN_BASE_TAG}" ;;
+        zig) glowcap_pins_fetch https://ziglang.org/download/index.json | jq -r .master.version ;;
+        zls) glowcap_pins_fetch https://api.github.com/repos/zigtools/zls/commits/master | jq -r .sha ;;
         # Several packages in the channel file carry a version line; only
         # [pkg.rust]'s is the toolchain version.
-        rust) pancake_pins_fetch https://static.rust-lang.org/dist/channel-rust-stable.toml \
+        rust) glowcap_pins_fetch https://static.rust-lang.org/dist/channel-rust-stable.toml \
             | awk '/^\[pkg\.rust\]$/ { in_rust = 1; next }
                    in_rust && /^version = / { gsub(/[^0-9.]/, "", $3); print $3; in_rust = 0 }' ;;
-        rustup-init) pancake_pins_fetch https://static.rust-lang.org/rustup/release-stable.toml \
+        rustup-init) glowcap_pins_fetch https://static.rust-lang.org/rustup/release-stable.toml \
             | awk -F"'" '/^version = / && !done { print $2; done = 1 }' ;;
-        deno) pancake_pins_github_latest_tag denoland/deno | sed 's/^v//' ;;
+        deno) glowcap_pins_github_latest_tag denoland/deno | sed 's/^v//' ;;
         # Newest release of the pinned major; a newer major is a deliberate move.
-        node) pancake_pins_fetch https://nodejs.org/dist/index.json \
+        node) glowcap_pins_fetch https://nodejs.org/dist/index.json \
             | jq -r --arg p "v${NODE_VERSION%%.*}." \
                 '[.[] | select(.version | startswith($p))][0].version' | sed 's/^v//' ;;
-        bun) pancake_pins_github_latest_tag oven-sh/bun | sed 's/^bun-v//' ;;
-        playwright) pancake_pins_npm_latest playwright ;;
-        uv) pancake_pins_github_latest_tag astral-sh/uv ;;
+        bun) glowcap_pins_github_latest_tag oven-sh/bun | sed 's/^bun-v//' ;;
+        playwright) glowcap_pins_npm_latest playwright ;;
+        uv) glowcap_pins_github_latest_tag astral-sh/uv ;;
         # Newest patch of the pinned minor that the pinned uv can install.
         python) uv python list --all-versions 2>/dev/null \
             | grep -oE "cpython-${OCAPN_CONFORMANCE_PYTHON%.*}\.[0-9]+" \
             | sed 's/^cpython-//' | sort -uV | tail -1 ;;
-        serena) pancake_pins_fetch https://pypi.org/pypi/serena-agent/json | jq -r .info.version ;;
-        claude) pancake_pins_npm_latest @anthropic-ai/claude-code ;;
-        codex) pancake_pins_npm_latest @openai/codex ;;
+        serena) glowcap_pins_fetch https://pypi.org/pypi/serena-agent/json | jq -r .info.version ;;
+        claude) glowcap_pins_npm_latest @anthropic-ai/claude-code ;;
+        codex) glowcap_pins_npm_latest @openai/codex ;;
         # Cursor publishes no version index for the agent CLI. Its own install
         # script is the release channel: it hardcodes the current build into
         # the download URL, so read the build out of the URL.
-        cursor-agent) pancake_pins_fetch https://cursor.com/install \
+        cursor-agent) glowcap_pins_fetch https://cursor.com/install \
             | sed -n 's|^.*downloads\.cursor\.com/lab/\([^/]*\)/.*$|\1|p' | sort -u ;;
-        opencode) pancake_pins_github_latest_tag sst/opencode | sed 's/^v//' ;;
-        devcontainer-cli) pancake_pins_npm_latest @devcontainers/cli ;;
-        racket) pancake_pins_fetch https://download.racket-lang.org/all-versions.html \
+        opencode) glowcap_pins_github_latest_tag sst/opencode | sed 's/^v//' ;;
+        devcontainer-cli) glowcap_pins_npm_latest @devcontainers/cli ;;
+        racket) glowcap_pins_fetch https://download.racket-lang.org/all-versions.html \
             | awk 'match($0, /v[0-9]+\.[0-9]+/) && !done {
                        print substr($0, RSTART + 1, RLENGTH - 1); done = 1
                    }' ;;
@@ -176,7 +176,7 @@ pancake_pins_latest_version() {
     esac
 }
 
-pancake_pins_manual_procedure() {
+glowcap_pins_manual_procedure() {
     case "$1" in
         racket)
             cat <<'EOF'

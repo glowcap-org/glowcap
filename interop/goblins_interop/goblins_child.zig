@@ -4,12 +4,12 @@
 //! the keyed `op:start-session` bracket, and the bootstrap-fetch pump loop.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const net = pancake.net;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const net = glowcap.net;
+const crypto = glowcap.foundation.crypto;
 
 /// Resolved through PATH so the live interop runs on any host with a working
 /// Racket, not only the devcontainer's install location. The spawned child

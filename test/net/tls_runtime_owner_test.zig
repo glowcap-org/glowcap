@@ -1,11 +1,11 @@
 //! Deterministic TLS runtime owner/child lifetime evidence.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const runtime = pancake.net.tls.runtime;
-const runtime_owner = pancake.net.tls.runtime_owner;
+const foundation = glowcap.foundation;
+const runtime = glowcap.net.tls.runtime;
+const runtime_owner = glowcap.net.tls.runtime_owner;
 
 const Fake = struct {
     opens: usize = 0,

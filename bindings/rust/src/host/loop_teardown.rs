@@ -5,7 +5,7 @@ use super::*;
 impl HostShared {
 	/// Finish the wrapper half after the native loop has reached its close
 	/// barrier and projected every committed event. The native Host itself dies
-	/// with `pancake_driver_release`, never through `pancake_host_release`.
+	/// with `glowcap_driver_release`, never through `glowcap_host_release`.
 	pub(crate) fn finish_loop_teardown(self: &Rc<HostShared>, close_code: i32) {
 		self.finish_loop_teardown_with(CloseBarrierState::Complete(close_code), None);
 	}

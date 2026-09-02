@@ -1,5 +1,5 @@
-import { TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "@pancake/abi";
-import type { Host, Locator } from "@pancake/runtime";
+import { TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "@glowcap/abi";
+import type { Host, Locator } from "@glowcap/runtime";
 import routeCorpusJson from "../../../../test/net/fixtures/relay_routes.json" with { type: "json" };
 import { connector } from "../transport.ts";
 import { dialUrl, keyed, noise, routeFromLocator } from "../route.ts";

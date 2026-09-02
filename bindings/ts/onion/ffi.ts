@@ -3,17 +3,17 @@
 // reflected signature) — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// Internal: the FFI mirror of `libpancake_net_transport_onion`'s C ABI.
+// Internal: the FFI mirror of `libglowcap_net_transport_onion`'s C ABI.
 //
 // Nothing here is public; `transport/onion.ts` is the ergonomic surface over
 // it. This loader opens *only* the onion archive, so importing that module
 // never pulls in the TCP, inproc, or iroh archives. The onion family is
 // symbol-disjoint from the core and shares the frame/context types by layout;
 // it carries its own thread-local last-error read through
-// `pancake_onion_last_error`.
+// `glowcap_onion_last_error`.
 
-import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-import { ONION_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+import { ONION_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 
 const P = "pointer",
 	B = "buffer",
@@ -22,47 +22,47 @@ const P = "pointer",
 	V = "void",
 	U64 = "u64";
 
-export const onionS = lazySymbols(() => libPath("pancake_net_transport_onion"), {
-	pancake_onion_archive_fingerprint: { parameters: [], result: U64 },
-	pancake_onion_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_onion_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_onion_netlayer_new: { parameters: [B, B], result: I, outBuffers: [1] },
-	pancake_onion_netlayer_shutdown: { parameters: [P], result: V },
-	pancake_onion_netlayer_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
-	pancake_onion_connect: {
+export const onionS = lazySymbols(() => libPath("glowcap_net_transport_onion"), {
+	glowcap_onion_archive_fingerprint: { parameters: [], result: U64 },
+	glowcap_onion_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
+	glowcap_onion_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_onion_netlayer_new: { parameters: [B, B], result: I, outBuffers: [1] },
+	glowcap_onion_netlayer_shutdown: { parameters: [P], result: V },
+	glowcap_onion_netlayer_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+	glowcap_onion_connect: {
 		parameters: [P, B, U, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [5, 6, 8],
 		nonblocking: true,
 	},
-	pancake_onion_listen: {
+	glowcap_onion_listen: {
 		parameters: [P, B, U, B, B, U, B, B, B, U, B],
 		result: I,
 		outBuffers: [1, 3, 4, 6, 7, 8, 10],
 		nonblocking: true,
 	},
-	pancake_onion_listener_wait: {
+	glowcap_onion_listener_wait: {
 		parameters: [P, I, B, B, U, B],
 		result: I,
 		outBuffers: [2, 3, 5],
 		nonblocking: true,
 	},
-	pancake_onion_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_onion_conn_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_onion_accept: {
+	glowcap_onion_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_onion_conn_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_onion_accept: {
 		parameters: [P, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [3, 4, 6],
 		nonblocking: true,
 	},
-	pancake_onion_conn_read_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4], nonblocking: true },
-	pancake_onion_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
-	pancake_onion_conn_shutdown: { parameters: [P], result: I },
-	pancake_onion_conn_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
-	pancake_onion_listener_shutdown: { parameters: [P], result: V },
-	pancake_onion_listener_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+	glowcap_onion_conn_read_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4], nonblocking: true },
+	glowcap_onion_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
+	glowcap_onion_conn_shutdown: { parameters: [P], result: I },
+	glowcap_onion_conn_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+	glowcap_onion_listener_shutdown: { parameters: [P], result: V },
+	glowcap_onion_listener_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
 }, {
-	symbol: "pancake_onion_archive_fingerprint",
+	symbol: "glowcap_onion_archive_fingerprint",
 	expected: ONION_ARCHIVE_FINGERPRINT,
-	archive: "pancake_net_transport_onion",
+	archive: "glowcap_net_transport_onion",
 });

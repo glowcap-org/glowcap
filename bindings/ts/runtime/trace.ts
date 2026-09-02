@@ -9,8 +9,8 @@
  * consumer (ocapnviz resolves src/dst from the session-opened it already saw),
  * so nothing here keeps per-session state.
  *
- * The facts arrive through the drained seam, `pancake_host_set_trace_queue`
- * plus `pancake_host_next_trace`: the host captures each one into a fixed ring
+ * The facts arrive through the drained seam, `glowcap_host_set_trace_queue`
+ * plus `glowcap_host_next_trace`: the host captures each one into a fixed ring
  * and this veneer pops the ring on the same unwind that drains the action
  * queue. That is the seam a browser can reach — the wasm module admits only
  * its fixed behavior and hosted-retirement callbacks, so the trace callback
@@ -29,7 +29,7 @@ import { hostS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64, readBytes } from "./internal/seam.ts";
 import { type Context, recordCallerlessFailure } from "./context.ts";
-import { PancakeError } from "./errors.ts";
+import { GlowcapError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
 import {
 	BINDING_TRACE_PAYLOAD_CAP_BYTES,
@@ -42,11 +42,11 @@ import {
 	TRACE_MESSAGE,
 	TRACE_SESSION_CLOSE,
 	TRACE_SESSION_OPEN,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { type DurableProvenance, provenanceFromAbi } from "./session/identity.ts";
 
 export type TraceCodec = "syrup" | "capnp";
-export type TraceCaptpVersion = "1.0" | "pancake-next";
+export type TraceCaptpVersion = "1.0" | "glowcap-next";
 
 /** One wire event in the versioned timeline schema. */
 export type TraceEvent = {
@@ -75,12 +75,12 @@ export type TraceEvent = {
 	 * merges on, and this text does not reach that decision. */
 	a_label?: string;
 	/** `ocapn.session-opened`: the implementation this producer runs, always
-	 * `"pancake"` here. A statement about the producer, beside the designator
+	 * `"glowcap"` here. A statement about the producer, beside the designator
 	 * it calls itself by and the label it would like to be shown under, and on
 	 * the same footing as the `provenance` verdict beside it: a conclusion the
 	 * producer states, not a raw wire fact.
 	 *
-	 * It is stated because this schema is not pancake's alone — the Goblins
+	 * It is stated because this schema is not glowcap's alone — the Goblins
 	 * conformance peer publishes the same records — so a consumer cannot read
 	 * an implementation off the fact that a record arrived, and a host that
 	 * says nothing is honestly unknown to it. */
@@ -144,17 +144,17 @@ export type TraceEvent = {
  * The viewer keeps a second table (`CAPTP_VERSION_WIRE` in
  * `apps/ocapnviz/src/schema/topology.ts`) and that is deliberate: it reads a
  * schema several implementations publish, it is a separate Deno scope that
- * links no pancake package, and its copy doubles as the text a person reads on
+ * links no glowcap package, and its copy doubles as the text a person reads on
  * screen. Neither table may drift from the Zig authority or from the other, so
  * `zig build source-check` holds both: `checkTraceVocabulary` for the producers
  * and `checkTraceViewerVocabulary` for the viewer. */
 export const CAPTP_VERSION_WIRE = {
 	v1_0: "1.0",
-	next: "pancake-next",
+	next: "glowcap-next",
 } as const;
 
 /** What this producer answers when a record asks what it runs. A constant and
- * not an option: the host behind this binding is a pancake host, and letting
+ * not an option: the host behind this binding is a glowcap host, and letting
  * an application name itself something else would put a claim on the wire that
  * nothing here could stand behind.
  *
@@ -164,7 +164,7 @@ export const CAPTP_VERSION_WIRE = {
  * (`checkTraceViewerVocabulary`) holds all four against each other, against the
  * viewer that reads them, and against the Goblins conformance publisher, which
  * states a different word and must keep stating it. */
-const SELF_PROFILE = "pancake";
+const SELF_PROFILE = "glowcap";
 
 export type TraceSink = (ev: TraceEvent) => void;
 
@@ -222,13 +222,13 @@ function now_ns(): number {
 function codecFromAbi(codec: number): TraceCodec {
 	if (codec === CODEC_CAPNP) return "capnp";
 	if (codec === CODEC_SYRUP) return "syrup";
-	throw new PancakeError(INTERNAL, `pancake ABI returned unknown trace codec ${codec}`);
+	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown trace codec ${codec}`);
 }
 
 function captpVersionFromAbi(version: number): TraceCaptpVersion {
 	if (version === CAPTP_NEXT) return CAPTP_VERSION_WIRE.next;
 	if (version === CAPTP_V1_0) return CAPTP_VERSION_WIRE.v1_0;
-	throw new PancakeError(INTERNAL, `pancake ABI returned unknown trace CapTP version ${version}`);
+	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown trace CapTP version ${version}`);
 }
 
 /** Base64 of a small buffer (bounded by the payload cap), chunked so
@@ -257,7 +257,7 @@ function view(dv: DataView, ptrOff: number, lenOff: number): string | undefined 
 	return utf8.decode(readBytes(ptr, len));
 }
 
-/** Turn one popped `PancakeTraceEvent` into its schema record. */
+/** Turn one popped `GlowcapTraceEvent` into its schema record. */
 function decode(host: TracedHost, out: Uint8Array): TraceEvent {
 	const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
 	const kind = dv.getUint32(L.TRACE_EVENT_KIND_OFF, true);
@@ -318,7 +318,7 @@ function decode(host: TracedHost, out: Uint8Array): TraceEvent {
 	if (kind === TRACE_SESSION_CLOSE) {
 		return { v: 1, sim_t_ns: now_ns(), kind: "ocapn.session-closed", session, ...gap };
 	}
-	throw new PancakeError(INTERNAL, `pancake ABI returned unknown trace event kind ${kind}`);
+	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown trace event kind ${kind}`);
 }
 
 /** Scratch for one pop; the pop overwrites it and the string views it names
@@ -344,7 +344,7 @@ export function traceDrainHost(raw: Ptr): void {
 		while (hosts.has(raw)) {
 			const currentSink = sink;
 			if (currentSink == null) return;
-			if (hostS.pancake_host_next_trace(raw, ab(out)) !== 0) return;
+			if (hostS.glowcap_host_next_trace(raw, ab(out)) !== 0) return;
 			const host = hosts.get(raw);
 			if (host == null) return;
 			let ev: TraceEvent;
@@ -390,7 +390,7 @@ export function enableTrace(
 		if (sink !== next) return;
 		for (const raw of hosts.keys()) {
 			traceDrainHost(raw);
-			hostS.pancake_host_set_trace_queue(raw, 0n, 0n);
+			hostS.glowcap_host_set_trace_queue(raw, 0n, 0n);
 		}
 		sink = null;
 	};
@@ -404,7 +404,7 @@ function windowBytes(): number {
 }
 
 function installQueue(raw: Ptr): void {
-	hostS.pancake_host_set_trace_queue(raw, BigInt(queueDepth), BigInt(windowBytes()));
+	hostS.glowcap_host_set_trace_queue(raw, BigInt(queueDepth), BigInt(windowBytes()));
 }
 
 /** Annotate a session with application metadata — the SET half of the
@@ -425,7 +425,7 @@ export function annotateSession(
 	const host = hosts.get(hostRaw);
 	if (host === undefined) return;
 	const out = new Uint8Array(8);
-	const code = hostS.pancake_host_session_trace_id(session.raw, ab(out));
+	const code = hostS.glowcap_host_session_trace_id(session.raw, ab(out));
 	if (code !== 0) return;
 	// The session's own open may still be sitting in the capture ring; drain
 	// first so an annotation never reaches a consumer ahead of the session it

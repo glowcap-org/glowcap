@@ -13,7 +13,7 @@ address or a server in the middle. A session's bytes ride
 key rather than a `host:port`. Above the wire it is the same CapTP session.
 Switching to iroh changes how a peer is addressed and how it is reached:
 discovery, relays, and NAT traversal come with the channel.
-For a direct TCP route between pancake peers that only needs encryption, prefer
+For a direct TCP route between glowcap peers that only needs encryption, prefer
 [Noise]($link.page('transports/noise')) (`noise-tcp`) instead.
 
 Goblins ships no iroh netlayer. Live Goblins-over-iroh
@@ -34,21 +34,21 @@ the locator and any per-connect options.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const iroh = @import("iroh");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Discovery resolves a bare iroh node ID without an address hint.
 >     var iroh_resident = try iroh.Resident.init(io, null, .{ .reachability = .discovery });
 >     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
->     const netlayers = [_]pancake.net.netlayer.Netlayer{iroh_resident.netlayer()};
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{iroh_resident.netlayer()};
 >     const node_id = "<64 lowercase hex characters from the server>";
 >     const partner = iroh.locator(node_id);
 > ```
 > **TypeScript**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { locator, provider, Reachability } from "@pancake/iroh";
+> import { Runtime } from "@glowcap/runtime";
+> import { locator, provider, Reachability } from "@glowcap/iroh";
 >
 > // Discovery resolves a bare iroh node ID without an address hint.
 > const nodeId = "<64 lowercase hex characters from the server>";
@@ -60,20 +60,20 @@ the locator and any per-connect options.
 > ```
 > **Browser**
 > ```ts
-> import { init } from "@pancake/web";
+> import { init } from "@glowcap/web";
 >
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	relayUrl: (locator) => `wss://relay.example/?locator=${encodeURIComponent(locator)}`,
 > });
 > await using runtime = web.runtime;
-> // `@pancake/iroh` loads native FFI, so a page parses the locator on the web runtime.
+> // `@glowcap/iroh` loads native FFI, so a page parses the locator on the web runtime.
 > const partner = web.parseLocator("ocapn://<64 lowercase hex characters>.iroh");
 > ```
 > **Python**
 > ```python
-> from pancake import Runtime
-> from pancake.iroh import IrohConfig, Reachability, locator, provider
+> from glowcap import Runtime
+> from glowcap.iroh import IrohConfig, Reachability, locator, provider
 >
 > # DISCOVERY resolves a bare iroh node ID without an address hint.
 > node_id = "<64 lowercase hex characters from the server>"
@@ -85,11 +85,11 @@ the locator and any per-connect options.
 > ```
 > **Rust**
 > ```rust
-> use pancake::iroh::{self, Reachability};
-> use pancake::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::iroh::{self, Reachability};
+> use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Discovery resolves a bare iroh node ID without an address hint.
-> // Cargo.toml: pancake = { …, features = ["iroh"] }
+> // Cargo.toml: glowcap = { …, features = ["iroh"] }
 > let node_id = "<64 lowercase hex characters from the server>";
 > let partner = iroh::locator(node_id, None);
 >
@@ -100,8 +100,8 @@ the locator and any per-connect options.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-iroh.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-iroh.rkt")
 >
 > ;; IROH-REACH-DISCOVERY resolves a bare iroh node ID without an address hint.
 > (define node-id "<64 lowercase hex characters from the server>")
@@ -128,15 +128,15 @@ snippet is not yet published.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const iroh = @import("iroh");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     const seed = @as([32]u8, @splat(7)); // keep this seed to preserve the node id
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
+>     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
 >     var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
 >     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
->     const server = try pancake.driver.listen(
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         iroh_resident.netlayer(),
 >         .{ .designator = "" },
@@ -145,7 +145,7 @@ snippet is not yet published.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // hand this discovery-reachable node id to partners
 >
@@ -154,8 +154,8 @@ snippet is not yet published.
 > ```
 > **TypeScript**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { type IrohConfig, listen, Reachability } from "@pancake/iroh";
+> import type { Argument } from "@glowcap/runtime";
+> import { type IrohConfig, listen, Reachability } from "@glowcap/iroh";
 >
 > // This listener is named by its node id. Partners can dial it from anywhere.
 > const config: IrohConfig = { reachability: Reachability.Discovery };
@@ -163,19 +163,19 @@ snippet is not yet published.
 > ```
 > **Python**
 > ```python
-> from pancake import Argument
-> from pancake.iroh import IrohConfig, Reachability, listen
+> from glowcap import Argument
+> from glowcap.iroh import IrohConfig, Reachability, listen
 >
 > # This listener is named by its node id. Partners can dial it from anywhere.
 > async with await listen(IrohConfig(Reachability.DISCOVERY)) as server:
 > ```
 > **Rust**
 > ```rust
-> use pancake::iroh::{self, Reachability};
-> use pancake::Argument;
+> use glowcap::iroh::{self, Reachability};
+> use glowcap::Argument;
 >
 > // This listener is named by its node id. Partners can dial it from anywhere.
-> // Cargo.toml: pancake = { …, features = ["iroh"] }
+> // Cargo.toml: glowcap = { …, features = ["iroh"] }
 > let server = iroh::listen(
 >     iroh::Config::new(Reachability::Discovery),
 >     iroh::ListenOptions::default(),
@@ -184,8 +184,8 @@ snippet is not yet published.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-iroh.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-iroh.rkt")
 >
 > ;; This listener is named by its node id. Partners can dial it from anywhere.
 > (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))
@@ -211,7 +211,7 @@ signature proves control of that session key and binds it to the locator the
 partner claims. The signature alone does not prove control of the durable node
 id.
 
-The iroh channel authenticates the far endpoint's node id, and pancake requires
+The iroh channel authenticates the far endpoint's node id, and glowcap requires
 the hello's claimed designator to match that authenticated id. The durable node
 id and fresh session key remain distinct even though the channel binds them to
 one connection.
@@ -223,7 +223,7 @@ restores the named object under the same swiss number.
 # Reaching a peer
 
 A peer hands you its node id; how that id turns into a route is a reachability
-mode you choose when you bind the endpoint. pancake exposes four:
+mode you choose when you bind the endpoint. glowcap exposes four:
 
 | Mode | How a dial resolves |
 | --- | --- |
@@ -238,17 +238,17 @@ no-relay form needs a publicly reachable direct address.
 
 # Optional sidecar archive
 
-iroh's QUIC stack is Rust, so it rides a sidecar staticlib that pancake keeps in
-its own compiled artifact, `libpancake_net_transport_iroh`
-([ADR-0055](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
+iroh's QUIC stack is Rust, so it rides a sidecar staticlib that glowcap keeps in
+its own compiled artifact, `libglowcap_net_transport_iroh`
+([ADR-0055](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
 The base archives stay pure Zig and dependency-free; a program links iroh only
 when it wants it. Building the companion archive requires `cargo`.
 
 The same split shows up in every language. A Zig build imports
-`pancake.module("pancake_iroh")`, which carries the sidecar link, so a program
+`glowcap.module("glowcap_iroh")`, which carries the sidecar link, so a program
 that never names it never starts cargo. Each binding keeps iroh in a
-per-transport module: the `@pancake/iroh` package, `pancake.iroh`,
-`pancake-iroh.rkt`, and Rust's opt-in `iroh` feature. `connect` loads that module lazily the first time it sees an
+per-transport module: the `@glowcap/iroh` package, `glowcap.iroh`,
+`glowcap-iroh.rkt`, and Rust's opt-in `iroh` feature. `connect` loads that module lazily the first time it sees an
 `iroh` locator (Rust compiles it in behind the feature instead), so a program that
 only ever speaks TCP never loads it. Hosting over iroh is the same plain
 `listen`, called on that per-transport module. Dialing a peer over iroh goes
@@ -260,9 +260,9 @@ address.
 The blocking path uses one OS thread per connection. To serve many, a driver loop
 drives every connection from one
 readiness descriptor
-([ADR-0057](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)):
+([ADR-0057](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)):
 [Performance]($link.page('performance')) measures the serial and readiness-loop
-paths. The sidecar heap is separate from pancake's core session state.
+paths. The sidecar heap is separate from glowcap's core session state.
 
 # Three-party handoff over iroh
 

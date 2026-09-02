@@ -1,4 +1,4 @@
-//! The Cap'n Proto decode path, hand-rolled for the pancake-to-pancake wire.
+//! The Cap'n Proto decode path, hand-rolled for the glowcap-to-glowcap wire.
 //!
 //! Cap'n Proto is the word-aligned alternative to Syrup. It carries the same
 //! `model.Message` tree, just laid out as a run of 8-byte words instead of

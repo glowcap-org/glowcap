@@ -150,7 +150,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             try accept_stash.ensureTotalCapacity(allocator, max_accept_stash);
             errdefer accept_stash.deinit(allocator);
             std.debug.assert(accept_stash.capacity * @sizeOf(*CConn) >= accept_stash_bytes);
-            const readiness_source = sidecar.pancake_iroh_sidecar_endpoint_readiness_fd(resident.endpoint);
+            const readiness_source = sidecar.glowcap_iroh_sidecar_endpoint_readiness_fd(resident.endpoint);
             if (readiness_source < 0) return error.ListenFailed;
 
             return .{
@@ -176,11 +176,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
             var it = self.conns.iterator();
             while (it.next()) |entry| {
-                sidecar.pancake_iroh_sidecar_conn_free(entry.value_ptr.cconn);
+                sidecar.glowcap_iroh_sidecar_conn_free(entry.value_ptr.cconn);
             }
             self.conns.deinit();
             self.by_id.deinit();
-            for (self.accept_stash.items) |cconn| sidecar.pancake_iroh_sidecar_conn_free(cconn);
+            for (self.accept_stash.items) |cconn| sidecar.glowcap_iroh_sidecar_conn_free(cconn);
             self.accept_stash.deinit(self.allocator);
             self.platform.deinit();
             self.wake_channel.deinit();
@@ -202,7 +202,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         pub fn openListener(self: *Self, port: u16) !Fd {
             _ = port;
-            if (sidecar.pancake_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) != 0)
+            if (sidecar.glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) != 0)
                 return error.ListenFailed;
             self.accept_enabled = true;
             return listen_fd;
@@ -254,7 +254,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
             const entry = self.conns.fetchRemove(fd) orelse return;
             std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.value.cconn)));
-            sidecar.pancake_iroh_sidecar_conn_free(entry.value.cconn);
+            sidecar.glowcap_iroh_sidecar_conn_free(entry.value.cconn);
         }
 
         pub fn shutdownFd(self: *Self, fd: Fd) void {
@@ -328,7 +328,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (self.accept_stash.items.len == 0) return;
             const cconn = self.accept_stash.orderedRemove(0);
             const fd = self.allocFd(cconn) catch |err| {
-                sidecar.pancake_iroh_sidecar_conn_free(cconn);
+                sidecar.glowcap_iroh_sidecar_conn_free(cconn);
                 self.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
                 self.accept_ud = null;
                 return;
@@ -338,20 +338,20 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         fn stashAccepts(self: *Self) void {
-            while (sidecar.pancake_iroh_sidecar_endpoint_try_accept(self.endpoint)) |cconn| {
+            while (sidecar.glowcap_iroh_sidecar_endpoint_try_accept(self.endpoint)) |cconn| {
                 if (!self.accept_enabled) {
-                    sidecar.pancake_iroh_sidecar_conn_free(cconn);
+                    sidecar.glowcap_iroh_sidecar_conn_free(cconn);
                     continue;
                 }
                 if (self.accept_stash.items.len >= max_accept_stash) {
                     // Overload policy: the Zig-side stash is the admission boundary
                     // for accepted loop connections. Drop excess accepts and keep
                     // the backend live; sidecar producer queues are bounded too.
-                    sidecar.pancake_iroh_sidecar_conn_free(cconn);
+                    sidecar.glowcap_iroh_sidecar_conn_free(cconn);
                     continue;
                 }
-                if (sidecar.pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, cconn) != 0) {
-                    sidecar.pancake_iroh_sidecar_conn_free(cconn);
+                if (sidecar.glowcap_iroh_sidecar_conn_set_nonblocking(self.endpoint, cconn) != 0) {
+                    sidecar.glowcap_iroh_sidecar_conn_free(cconn);
                     continue;
                 }
                 self.accept_stash.appendAssumeCapacity(cconn);
@@ -391,7 +391,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
             if (self.buffer_pool.acquire()) |idx| {
                 const buf = self.buffer_pool.buffer(idx);
-                const n = sidecar.pancake_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
+                const n = sidecar.glowcap_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
                 if (n == would_block) {
                     // Edge spent without bytes: keep the pending recv; a later
                     // readable (or a left-over hint) will retry.
@@ -424,7 +424,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         fn completeSend(self: *Self, entry: *ConnEntry) void {
             const ud = entry.pending.write_ud orelse return;
             const bytes = entry.pending.write_bytes orelse return;
-            const n = sidecar.pancake_iroh_sidecar_conn_try_write(entry.cconn, bytes.ptr, bytes.len);
+            const n = sidecar.glowcap_iroh_sidecar_conn_try_write(entry.cconn, bytes.ptr, bytes.len);
             var result: i32 = -1;
             if (n == would_block) {
                 entry.pending.writable_hint = false;
@@ -504,7 +504,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                     self.appendReserved(.{ .user_data = ud, .result = -1 });
                     self.accept_ud = null;
                 }
-                for (self.accept_stash.items) |cconn| sidecar.pancake_iroh_sidecar_conn_free(cconn);
+                for (self.accept_stash.items) |cconn| sidecar.glowcap_iroh_sidecar_conn_free(cconn);
                 self.accept_stash.clearRetainingCapacity();
                 self.stashAccepts();
                 self.appendReserved(.{ .user_data = user_data, .result = 0 });
@@ -521,7 +521,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 if (entry.pending.write_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
                 entry.pending = .{};
                 std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.cconn)));
-                sidecar.pancake_iroh_sidecar_conn_free(entry.cconn);
+                sidecar.glowcap_iroh_sidecar_conn_free(entry.cconn);
                 std.debug.assert(self.conns.remove(fd));
             }
             self.appendReserved(.{ .user_data = user_data, .result = 0 });
@@ -545,7 +545,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 };
                 const cconn: *CConn = @ptrCast(opaque_conn);
                 self.bindFd(fd, cconn) catch |err| {
-                    sidecar.pancake_iroh_sidecar_conn_free(cconn);
+                    sidecar.glowcap_iroh_sidecar_conn_free(cconn);
                     self.appendReserved(.{ .user_data = done.value, .result = -1, .failure = err });
                     return;
                 };

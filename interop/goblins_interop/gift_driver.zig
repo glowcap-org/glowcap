@@ -1,14 +1,14 @@
-//! Live three-party handoff, with pancake as the GIFTER (the introducer),
+//! Live three-party handoff, with glowcap as the GIFTER (the introducer),
 //! driven through `driver.core.Host` + `driver.Bridge` + `net.TcpLoop`
-//! (ADR-0068, ADR-0076). The mirror of `handoff_driver.zig` (pancake as
+//! (ADR-0068, ADR-0076). The mirror of `handoff_driver.zig` (glowcap as
 //! recipient).
 //!
 //! Topology (TCP loopback):
 //!   Bob    (Goblins exporter)  hosts a greeter behind a fixed swiss.
-//!   Gifter (pancake)           fetches Bob's greeter, publishes an introducer
+//!   Gifter (glowcap)           fetches Bob's greeter, publishes an introducer
 //!                              that returns it, and listens for the recipient.
-//!   Carol  (Goblins recipient) dials the pancake introducer, asks for the
-//!                              greeter, redeems pancake's give, and calls Bob
+//!   Carol  (Goblins recipient) dials the glowcap introducer, asks for the
+//!                              greeter, redeems glowcap's give, and calls Bob
 //!                              directly.
 //!
 //! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
@@ -16,7 +16,7 @@
 //!
 //! With `--hinted-exporter` (the sibling step `zig build goblins-gift-hints`),
 //! Bob's advertised location carries an opaque `route-token` entry in a hints
-//! mapping. The pancake gifter embeds that hinted
+//! mapping. The glowcap gifter embeds that hinted
 //! location verbatim in its signed give; Carol decodes the mapping-shaped
 //! hints through the upstream unmarshaller, dials the hinted node, and
 //! re-encodes the give inside her signed `desc:handoff-receive`; Bob then
@@ -31,16 +31,16 @@
 //! breaks redemption — the pinned finding beside the hints-type one.)
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const crypto = pancake.foundation.crypto;
-const driver = pancake.driver;
-const net = pancake.net;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const crypto = glowcap.foundation.crypto;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const tcp = glowcap.net.tcp;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -52,7 +52,7 @@ const default_bob_port: u16 = 22120;
 const frame_cap: usize = 1 << 16;
 const exporter_script = "conformance/goblins-peer/racket/gift-exporter-host.rkt";
 const recipient_script = "conformance/goblins-peer/racket/gift-recipient.rkt";
-const greeter_swiss = "pancakeGiftGreeterSwissnum000001";
+const greeter_swiss = "glowcapGiftGreeterSwissnum000001";
 const introducer_swiss = "introducer";
 const deadline_ms: u64 = 60_000;
 
@@ -112,7 +112,7 @@ fn gifterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) any
     if (conn.leg != .app_dial or conn.session.role != .dialed) return;
     if (state.bob_conn != null) return;
     state.bob_conn = conn.session;
-    std.debug.print("goblins-gift: session open (pancake as gifter -> bob)\n", .{});
+    std.debug.print("goblins-gift: session open (glowcap as gifter -> bob)\n", .{});
     const vow = try state.host.fetch(conn.session, greeter_swiss);
     try state.host.vowOn(vow, .{ .ctx = state, .func = GifterState.onFetched });
     try bridge.drainActions();
@@ -196,7 +196,7 @@ pub fn main(init: std.process.Init) !void {
         );
     } else {
         std.debug.print(
-            "goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly\n",
+            "goblins-gift OK: glowcap minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly\n",
             .{},
         );
     }
@@ -268,7 +268,7 @@ fn gifterStep(
 
     var gifter_designator_buf: [64]u8 = undefined;
     const gifter_designator = try std.fmt.bufPrint(&gifter_designator_buf, "{s}:{d}", .{ host_addr, gifter_port });
-    std.debug.print("goblins-gift: pancake publishing introducer swiss={s} on {s}\n", .{ introducer_swiss, gifter_designator });
+    std.debug.print("goblins-gift: glowcap publishing introducer swiss={s} on {s}\n", .{ introducer_swiss, gifter_designator });
 
     const carol_argv_hinted = [_][]const u8{
         goblins_child.racket_path,

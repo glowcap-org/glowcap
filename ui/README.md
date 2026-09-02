@@ -15,7 +15,7 @@ Each surface keeps its own layout and component styles. The site is static
 HTML; rooms is React. Similar-looking controls are not shared CSS. A theme
 button or a tab strip does a different job on each surface (a code listing's
 folder tabs versus a settings mode switch), and a shared class would make one
-of them wrong. If a third pancake surface needs the same control, extract then. The mark lockup is the
+of them wrong. If a third glowcap surface needs the same control, extract then. The mark lockup is the
 extraction that already earned it: rooms' rail and the site header are the
 same drawing. Shared *names* still name separate widgets: `--accent-ink` is
 one word for readable accent text on both surfaces.
@@ -74,7 +74,7 @@ local stylesheet.
 
 ## The mark
 
-The full-color pancake image belongs to the site homepage. `--mark-stack` is
+The full-color glowcap image belongs to the site homepage. `--mark-stack` is
 the one-color silhouette. The header lockup on both surfaces is four masked
 pieces in `.icon-mark`, so hovering the mark replays the stack falling into
 place. Ornaments that cannot host children still paint `--mark-stack` as one

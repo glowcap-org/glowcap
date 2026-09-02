@@ -45,7 +45,7 @@ pub const human_doc_voice: []const Ban = voice_rows: {
         .{ .needle = "worth stating", .why = "throat-clearing; just state it (doc-voice)" },
         .{ .needle = "deliberately not", .why = "intent-adverb hedge; state the reason or drop the adverb (doc-voice)" },
         .{ .needle = "tcp tab is the copy-paste first call", .why = "testing-only tcp does not occupy a first-call lead (doc-voice first-impression)" },
-        .{ .needle = "only the `pancake-next` profile speaks it", .why = "op:untag is accepted on 1.0; pancake sends it only when the partner advertises the feature (shipped.md)" },
+        .{ .needle = "only the `glowcap-next` profile speaks it", .why = "op:untag is accepted on 1.0; glowcap sends it only when the partner advertises the feature (shipped.md)" },
         .{ .needle = "takes no part", .why = "theatrical restatement; say who does what (doc-voice)" },
         .{ .needle = "visible boundary", .why = "scaffold leftover; name the fact in speech (doc-voice)" },
         .{ .needle = "listen-oriented", .why = "scaffold leftover; write the ordinary path (doc-voice)" },

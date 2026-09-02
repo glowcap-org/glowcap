@@ -1,4 +1,4 @@
-//! Agent-facing flags for `pancake app rooms-peer` verbs.
+//! Agent-facing flags for `glowcap app rooms-peer` verbs.
 pub const Flags = struct {
     dir: []const u8 = "",
     nick: []const u8 = "",

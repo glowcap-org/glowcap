@@ -104,17 +104,13 @@ export interface RoomsWorkspaceController {
 
 export interface RoomsOperationsController {
 	watchOpsBundle(changed: () => void | Promise<void>): () => void;
-	openIrcNetwork(choice: {
-		network: string;
-		host: string;
-		port: number;
-		tls: boolean;
-		nick: string;
-		sasl?: { account: string; password: string };
-	}): Promise<string>;
-	closeIrcNetwork(network: string): Promise<string>;
-	joinIrcChannel(network: string, channel: string): Promise<string>;
-	partIrc(network: string, channel: string): Promise<string>;
+	/** Open a bridge-gateway connection from the answers a reader filled into
+	 * the gateway's own connection form. */
+	openBridgeConnection(answers: Record<string, string>): Promise<string>;
+	closeBridgeConnection(connectionId: string): Promise<string>;
+	/** Add a lease under a connection from the gateway's lease-form answers. */
+	addBridgeLease(connectionId: string, answers: Record<string, string>): Promise<string>;
+	removeBridgeLease(connectionId: string, leaseId: string): Promise<string>;
 	readOpsBundle(): Promise<string>;
 	replaceOpsBundle(pasted: string): Promise<{
 		bundle: string;

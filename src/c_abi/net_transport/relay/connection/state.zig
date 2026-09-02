@@ -15,9 +15,9 @@ fn pollEvents(revents: c_short) u32 {
     const hung_up = revents & std.posix.POLL.HUP != 0;
     var published: u32 = 0;
     if (revents & std.posix.POLL.IN != 0 or hung_up)
-        published |= events.PANCAKE_MULTIPLEXED_EV_READABLE;
+        published |= events.GLOWCAP_MULTIPLEXED_EV_READABLE;
     if (fatal or hung_up)
-        published |= events.PANCAKE_MULTIPLEXED_EV_CLOSED;
+        published |= events.GLOWCAP_MULTIPLEXED_EV_CLOSED;
     return published;
 }
 
@@ -40,7 +40,7 @@ pub const State = struct {
             .id = 0,
             .raw = raw,
             .events = .init(if (raw.hasBufferedReadWork())
-                events.PANCAKE_MULTIPLEXED_EV_READABLE
+                events.GLOWCAP_MULTIPLEXED_EV_READABLE
             else
                 0),
         };
@@ -74,7 +74,7 @@ pub const State = struct {
             return .{ .count = -1 };
         const pending_before = self.raw.hasPendingWrite();
         const count = self.raw.tryRead(dest);
-        if (count < 0 and count != events.PANCAKE_MULTIPLEXED_WOULD_BLOCK) self.noteFailure(
+        if (count < 0 and count != events.GLOWCAP_MULTIPLEXED_WOULD_BLOCK) self.noteFailure(
             self.raw.takeFailure() orelse foundation.FailureChain.init(error.ConnectionLost),
         );
         const pending_after = self.raw.hasPendingWrite();
@@ -89,7 +89,7 @@ pub const State = struct {
             // after the consumer claims the current event.
             .signal_ready = count > 0 and !pending_after and
                 self.raw.hasBufferedReadWork() and
-                self.latchEvents(events.PANCAKE_MULTIPLEXED_EV_READABLE),
+                self.latchEvents(events.GLOWCAP_MULTIPLEXED_EV_READABLE),
         };
     }
 
@@ -110,14 +110,14 @@ pub const State = struct {
             if (flushed == -1) {
                 self.noteFailure(self.raw.takeFailure() orelse .init(error.ConnectionLost));
                 self.closed.store(true, .release);
-                return self.latchEvents(events.PANCAKE_MULTIPLEXED_EV_CLOSED);
+                return self.latchEvents(events.GLOWCAP_MULTIPLEXED_EV_CLOSED);
             }
             if (!self.raw.hasPendingWrite()) {
-                var flushed_events = events.PANCAKE_MULTIPLEXED_EV_WRITABLE;
+                var flushed_events = events.GLOWCAP_MULTIPLEXED_EV_WRITABLE;
                 // Control handling may already have consumed the kernel edge
                 // and left the following data frame in the bounded reader.
                 if (self.raw.hasBufferedReadWork())
-                    flushed_events |= events.PANCAKE_MULTIPLEXED_EV_READABLE;
+                    flushed_events |= events.GLOWCAP_MULTIPLEXED_EV_READABLE;
                 newly_latched = self.latchEvents(flushed_events);
             }
         }

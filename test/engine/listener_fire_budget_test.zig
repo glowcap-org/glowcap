@@ -19,11 +19,11 @@
 //! contract, not an upper bound.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 const peer_fixture = @import("../support/peer_fixture.zig");
 
@@ -131,7 +131,7 @@ test "a bootstrap listener fires without import accounting or wire release" {
 
     var callback = peer.takeOutbound() orelse return error.MissingListenerCallback;
     defer callback.deinit();
-    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+    const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
         peer.session_state.captp_version,
         callback.view(),
     );
@@ -188,7 +188,7 @@ test "answer listener preparation restores after OOM and retries from the settle
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     var callback = peer.takeOutbound().?;
     defer callback.deinit();
-    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+    const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
         peer.session_state.captp_version,
         callback.view(),
     );
@@ -228,7 +228,7 @@ test "listener promise chains borrow the terminal answer store" {
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     var callback = peer.takeOutbound().?;
     defer callback.deinit();
-    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+    const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
         peer.session_state.captp_version,
         callback.view(),
     );
@@ -275,7 +275,7 @@ test "a late listener on a stored promise cycle receives one terminal break" {
 
     var callback = peer.takeOutbound().?;
     defer callback.deinit();
-    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+    const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
         peer.session_state.captp_version,
         callback.view(),
     );
@@ -325,7 +325,7 @@ test "a late listener cannot follow a stored promise into a reused answer positi
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     var callback = peer.takeOutbound().?;
     defer callback.deinit();
-    const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+    const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
         peer.session_state.captp_version,
         callback.view(),
     );
@@ -475,7 +475,7 @@ test "answer-position reuse neither cancels nor redirects an accepted listener f
         var frame = frame_in;
         defer frame.deinit();
         frames += 1;
-        const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+        const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
             peer.session_state.captp_version,
             frame.view(),
         );

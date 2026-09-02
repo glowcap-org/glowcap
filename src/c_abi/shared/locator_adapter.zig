@@ -20,7 +20,7 @@ pub const BorrowedLocator = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
-        view: *const locator.PancakeLocatorView,
+        view: *const locator.GlowcapLocatorView,
         stack: []model.HintEntry,
     ) CloneViewError!BorrowedLocator {
         try validateViewHeader(view);
@@ -46,17 +46,17 @@ pub const BorrowedLocator = struct {
 /// The locator bytes remain borrowed from `value`; caller-provided storage
 /// avoids allocation for small, callback-scoped projections.
 pub const Projection = struct {
-    view: locator.PancakeLocatorView,
-    heap_hints: ?[]locator.PancakeLocatorHintView,
+    view: locator.GlowcapLocatorView,
+    heap_hints: ?[]locator.GlowcapLocatorHintView,
 
     pub fn init(
         allocator: std.mem.Allocator,
         value: model.PeerLocator,
-        stack: []locator.PancakeLocatorHintView,
+        stack: []locator.GlowcapLocatorHintView,
     ) CloneViewError!Projection {
         model.validatePeerLocator(value) catch return error.InvalidLocatorView;
         const heap_hints = if (value.hints.entries.len > stack.len)
-            try allocator.alloc(locator.PancakeLocatorHintView, value.hints.entries.len)
+            try allocator.alloc(locator.GlowcapLocatorHintView, value.hints.entries.len)
         else
             null;
         errdefer if (heap_hints) |owned| allocator.free(owned);
@@ -74,7 +74,7 @@ pub const Projection = struct {
 };
 
 pub fn fromView(
-    view: *const locator.PancakeLocatorView,
+    view: *const locator.GlowcapLocatorView,
     hint_storage: []model.HintEntry,
 ) ViewError!model.PeerLocator {
     try validateViewHeader(view);
@@ -82,7 +82,7 @@ pub fn fromView(
 }
 
 fn fromValidatedView(
-    view: *const locator.PancakeLocatorView,
+    view: *const locator.GlowcapLocatorView,
     hint_storage: []model.HintEntry,
 ) ViewError!model.PeerLocator {
     if (hint_storage.len != view.hint_count) return error.InvalidLocatorView;
@@ -95,20 +95,20 @@ fn fromValidatedView(
     for (c_hints, hint_storage) |hint, *out| {
         out.name = try requiredSlice(hint.name, hint.name_len);
         out.value = switch (hint.kind) {
-            locator.PANCAKE_HINT_STRING => .{ .string = try optionalSlice(hint.bytes, hint.bytes_len) },
-            locator.PANCAKE_HINT_BYTES => .{ .bytes = try optionalSlice(hint.bytes, hint.bytes_len) },
-            locator.PANCAKE_HINT_BOOLEAN => .{ .boolean = switch (hint.boolean_value) {
+            locator.GLOWCAP_HINT_STRING => .{ .string = try optionalSlice(hint.bytes, hint.bytes_len) },
+            locator.GLOWCAP_HINT_BYTES => .{ .bytes = try optionalSlice(hint.bytes, hint.bytes_len) },
+            locator.GLOWCAP_HINT_BOOLEAN => .{ .boolean = switch (hint.boolean_value) {
                 0 => false,
                 1 => true,
                 else => return error.InvalidLocatorView,
             } },
-            locator.PANCAKE_HINT_INTEGER => .{ .integer = hint.integer_value },
+            locator.GLOWCAP_HINT_INTEGER => .{ .integer = hint.integer_value },
             else => return error.InvalidLocatorView,
         };
     }
     const wire_form: model.Hints.WireForm = switch (view.hint_wire_form) {
-        locator.PANCAKE_HINTS_MAP => .map,
-        locator.PANCAKE_HINTS_BOOLEAN_FALSE => .boolean_false,
+        locator.GLOWCAP_HINTS_MAP => .map,
+        locator.GLOWCAP_HINTS_BOOLEAN_FALSE => .boolean_false,
         else => return error.InvalidLocatorView,
     };
     const value: model.PeerLocator = .{
@@ -122,7 +122,7 @@ fn fromValidatedView(
 
 pub fn cloneView(
     allocator: std.mem.Allocator,
-    view: *const locator.PancakeLocatorView,
+    view: *const locator.GlowcapLocatorView,
 ) CloneViewError!model.PeerLocator {
     var hint_stack: [inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = try BorrowedLocator.init(allocator, view, &hint_stack);
@@ -132,16 +132,16 @@ pub fn cloneView(
 
 pub fn project(
     value: model.PeerLocator,
-    hint_storage: []locator.PancakeLocatorHintView,
-) ViewError!locator.PancakeLocatorView {
+    hint_storage: []locator.GlowcapLocatorHintView,
+) ViewError!locator.GlowcapLocatorView {
     model.validatePeerLocator(value) catch return error.InvalidLocatorView;
     return projectValidated(value, hint_storage);
 }
 
 fn projectValidated(
     value: model.PeerLocator,
-    hint_storage: []locator.PancakeLocatorHintView,
-) ViewError!locator.PancakeLocatorView {
+    hint_storage: []locator.GlowcapLocatorHintView,
+) ViewError!locator.GlowcapLocatorView {
     if (hint_storage.len != value.hints.entries.len) return error.InvalidLocatorView;
     for (value.hints.entries, hint_storage) |entry, *out| {
         out.* = .{
@@ -155,28 +155,28 @@ fn projectValidated(
         };
         switch (entry.value) {
             .string => |bytes| {
-                out.kind = locator.PANCAKE_HINT_STRING;
+                out.kind = locator.GLOWCAP_HINT_STRING;
                 out.bytes = if (bytes.len == 0) null else bytes.ptr;
                 out.bytes_len = bytes.len;
             },
             .bytes => |bytes| {
-                out.kind = locator.PANCAKE_HINT_BYTES;
+                out.kind = locator.GLOWCAP_HINT_BYTES;
                 out.bytes = if (bytes.len == 0) null else bytes.ptr;
                 out.bytes_len = bytes.len;
             },
             .boolean => |boolean| {
-                out.kind = locator.PANCAKE_HINT_BOOLEAN;
+                out.kind = locator.GLOWCAP_HINT_BOOLEAN;
                 out.boolean_value = @intFromBool(boolean);
             },
             .integer => |integer| {
-                out.kind = locator.PANCAKE_HINT_INTEGER;
+                out.kind = locator.GLOWCAP_HINT_INTEGER;
                 out.integer_value = integer;
             },
         }
     }
     return .{
-        .abi_version = locator.PANCAKE_LOCATOR_VIEW_ABI_VERSION,
-        .struct_size = @sizeOf(locator.PancakeLocatorView),
+        .abi_version = locator.GLOWCAP_LOCATOR_VIEW_ABI_VERSION,
+        .struct_size = @sizeOf(locator.GlowcapLocatorView),
         .transport = value.transport.ptr,
         .transport_len = value.transport.len,
         .designator = value.designator.ptr,
@@ -184,8 +184,8 @@ fn projectValidated(
         .hints = if (hint_storage.len == 0) null else hint_storage.ptr,
         .hint_count = hint_storage.len,
         .hint_wire_form = switch (value.hints.wire_form) {
-            .map => locator.PANCAKE_HINTS_MAP,
-            .boolean_false => locator.PANCAKE_HINTS_BOOLEAN_FALSE,
+            .map => locator.GLOWCAP_HINTS_MAP,
+            .boolean_false => locator.GLOWCAP_HINTS_BOOLEAN_FALSE,
         },
     };
 }
@@ -200,9 +200,9 @@ fn optionalSlice(ptr: ?[*]const u8, len: usize) ViewError![]const u8 {
     return (ptr orelse return error.InvalidLocatorView)[0..len];
 }
 
-fn validateViewHeader(view: *const locator.PancakeLocatorView) ViewError!void {
-    if (view.abi_version != locator.PANCAKE_LOCATOR_VIEW_ABI_VERSION or
-        view.struct_size < @sizeOf(locator.PancakeLocatorView) or
+fn validateViewHeader(view: *const locator.GlowcapLocatorView) ViewError!void {
+    if (view.abi_version != locator.GLOWCAP_LOCATOR_VIEW_ABI_VERSION or
+        view.struct_size < @sizeOf(locator.GlowcapLocatorView) or
         view.hint_count > model.max_locator_hint_count)
         return error.InvalidLocatorView;
 }

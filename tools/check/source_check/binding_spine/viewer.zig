@@ -20,7 +20,7 @@ const extractBraceBlock = util.extractBraceBlock;
 /// **The viewer.** `apps/ocapnviz` declares its own `CAPTP_VERSION_WIRE`, and
 /// that is the right shape rather than a copy to collapse: the viewer is a
 /// consumer of a wire schema the producers do not own between them, it is a
-/// separate Deno scope that links no pancake package, and its table doubles as
+/// separate Deno scope that links no glowcap package, and its table doubles as
 /// the display text a person reads. What it may not do is fall out of step with
 /// the words a producer sends, so the same `wireString` arms are required here
 /// too. The producers' rule that a quoted enum tag is forbidden deliberately
@@ -28,12 +28,12 @@ const extractBraceBlock = util.extractBraceBlock;
 /// identifiers, and its table is keyed by them.
 ///
 /// **The profile.** `a_profile` says which implementation a producer runs. It
-/// has no Zig origin to derive from, because "a host behind a pancake binding
-/// is a pancake host" is a claim about the binding tier rather than a fact the
+/// has no Zig origin to derive from, because "a host behind a glowcap binding
+/// is a glowcap host" is a claim about the binding tier rather than a fact the
 /// core states, and the C ABI carries nothing like it. So the word is written
 /// out at each of the four producers and again at the viewer that reads them,
 /// and this check is where that vocabulary is written down once. `"goblins"` is
-/// pinned beside `"pancake"` because the schema is not pancake's alone: the
+/// pinned beside `"glowcap"` because the schema is not glowcap's alone: the
 /// conformance publisher is a different producer stating a different fact, and
 /// requiring each site's own declaration rather than the bare word is what
 /// stops the two being collapsed into one.
@@ -73,12 +73,12 @@ pub fn checkTraceViewerVocabulary(
     // The whole declaration, not the bare word, so a changed value fails as
     // loudly as a deleted constant.
     const profile_declarations = [_]struct { path: []const u8, needle: []const u8 }{
-        .{ .path = "bindings/python/pancake/_trace.py", .needle = "_SELF_PROFILE = \"pancake\"" },
-        .{ .path = "bindings/racket/private/trace.rkt", .needle = "(define self-profile \"pancake\")" },
-        .{ .path = "bindings/rust/src/trace.rs", .needle = "const SELF_PROFILE: &str = \"pancake\";" },
-        .{ .path = "bindings/ts/runtime/trace.ts", .needle = "const SELF_PROFILE = \"pancake\";" },
+        .{ .path = "bindings/python/glowcap/_trace.py", .needle = "_SELF_PROFILE = \"glowcap\"" },
+        .{ .path = "bindings/racket/private/trace.rkt", .needle = "(define self-profile \"glowcap\")" },
+        .{ .path = "bindings/rust/src/trace.rs", .needle = "const SELF_PROFILE: &str = \"glowcap\";" },
+        .{ .path = "bindings/ts/runtime/trace.ts", .needle = "const SELF_PROFILE = \"glowcap\";" },
         // The viewer reads what producers state, so it carries both words.
-        .{ .path = viewer, .needle = "export const PANCAKE_PROFILE = \"pancake\";" },
+        .{ .path = viewer, .needle = "export const GLOWCAP_PROFILE = \"glowcap\";" },
         .{ .path = viewer, .needle = "export const GOBLINS_PROFILE = \"goblins\";" },
         // A different producer stating a different fact. It stays different.
         .{ .path = "conformance/goblins-peer/racket/trace-publish.rkt", .needle = "(define self-profile \"goblins\")" },
@@ -113,7 +113,7 @@ pub fn checkTraceViewerVocabulary(
 /// The Zig side is the authority: `engine.DurableProvenance` derives one
 /// session's verdict, and `driver_core.vocab` aliases it so the byte-fed tier,
 /// the trace, and the C ABI all read the same one. The viewer is the far end of
-/// that chain and links no pancake package, so a copy is the only shape
+/// that chain and links no glowcap package, so a copy is the only shape
 /// available; what this refuses is the copy going quiet.
 fn checkViewerProvenanceMirror(
     io: std.Io,

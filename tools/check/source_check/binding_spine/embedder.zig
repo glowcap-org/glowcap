@@ -16,12 +16,12 @@ const readSourceSubject = util.readSourceSubject;
 /// Handwritten binding contexts that discuss, inspect, or raise an ABI error.
 /// A negative integer on one of these lines restates generated ABI vocabulary.
 const binding_error_context_patterns = [_][]const u8{
-    "PANCAKE_ERR_",
+    "GLOWCAP_ERR_",
     "code()", // Rust Error::code()
     ".code", // Python and TypeScript error properties
-    "exn:fail:pancake-code",
+    "exn:fail:glowcap-code",
     "from_code(-", // Rust: Error::from_code(sys::ERR_…)
-    "PancakeError(-", // Python / Deno: PancakeError(_ERR_… / ERR-less mirror name)
+    "GlowcapError(-", // Python / Deno: GlowcapError(_ERR_… / ERR-less mirror name)
     "(check -", // Racket: (check ERR-…)
 };
 
@@ -37,7 +37,7 @@ pub fn checkBindingEmbedderPump(
 ) !void {
     const pump_paths = [_][]const u8{
         "bindings/ts/runtime/pump.ts",
-        "bindings/python/pancake/_pump.py",
+        "bindings/python/glowcap/_pump.py",
         "bindings/rust/src/pump.rs",
         "bindings/racket/private/pump.rkt",
     };
@@ -53,11 +53,11 @@ pub fn checkBindingEmbedderPump(
         defer gpa.free(contents);
         const ts_pump = std.mem.eql(u8, path, "bindings/ts/runtime/pump.ts");
         const markers = if (ts_pump) &[_][]const u8{
-            "pancake_host_session_feed_packet",
+            "glowcap_host_session_feed_packet",
             "take_packet",
             "transport_closed",
         } else &[_][]const u8{
-            "pancake_host_session_feed_bytes",
+            "glowcap_host_session_feed_bytes",
             "take_outbound",
             "transport_closed",
         };
@@ -67,7 +67,7 @@ pub fn checkBindingEmbedderPump(
             }
         }
         // Feed-refusal / last_abort: the FFI reader lives in pump (Pass 1b).
-        if (std.mem.indexOf(u8, contents, "pancake_host_session_last_abort") == null and
+        if (std.mem.indexOf(u8, contents, "glowcap_host_session_last_abort") == null and
             std.mem.indexOf(u8, contents, "last_abort") == null and
             std.mem.indexOf(u8, contents, "last-abort") == null)
         {
@@ -96,7 +96,7 @@ pub fn checkBindingEmbedderPump(
         // the FFI *call* (`…transport_closed(`) so module-doc mentions do not fire.
         // Kick may appear just before (Racket `with-session-drain`) or after.
         var search_from: usize = 0;
-        while (std.mem.indexOfPos(u8, contents, search_from, "pancake_host_session_transport_closed(")) |closed_at| {
+        while (std.mem.indexOfPos(u8, contents, search_from, "glowcap_host_session_transport_closed(")) |closed_at| {
             const lo = if (closed_at > 400) closed_at - 400 else 0;
             const hi = @min(contents.len, closed_at + 800);
             const window = contents[lo..hi];
@@ -106,7 +106,7 @@ pub fn checkBindingEmbedderPump(
                 std.mem.indexOf(u8, window, "drain-host-actions!") != null or
                 std.mem.indexOf(u8, window, "with-session-drain") != null;
             if (!kick_near) {
-                try appendViolation(gpa, violations, "{s}: pancake_host_session_transport_closed without nearby action kick/drain — EOF must settle FAIL completions", .{path});
+                try appendViolation(gpa, violations, "{s}: glowcap_host_session_transport_closed without nearby action kick/drain — EOF must settle FAIL completions", .{path});
             }
             search_from = closed_at + 1;
         }
@@ -150,7 +150,7 @@ pub fn checkBindingEmbedderPump(
     const handshake_msg = "connection closed during the OCapN handshake";
     const session_paths = [_][]const u8{
         "bindings/ts/runtime/session.ts",
-        "bindings/python/pancake/_session/",
+        "bindings/python/glowcap/_session/",
         "bindings/rust/src/session.rs",
         "bindings/racket/private/session.rkt",
     };
@@ -164,23 +164,23 @@ pub fn checkBindingEmbedderPump(
             try appendViolation(gpa, violations, "{s}: handshake closed-message belongs in pump, not session", .{path});
         }
         // last_abort FFI reader lives in pump (Pass 1b); Session may wrap.
-        if (std.mem.indexOf(u8, contents, "pancake_host_session_last_abort") != null) {
-            try appendViolation(gpa, violations, "{s}: pancake_host_session_last_abort belongs in pump, not session", .{path});
+        if (std.mem.indexOf(u8, contents, "glowcap_host_session_last_abort") != null) {
+            try appendViolation(gpa, violations, "{s}: glowcap_host_session_last_abort belongs in pump, not session", .{path});
         }
         // transport_closed FFI lives in pump; Session may wrap the drain window.
-        if (std.mem.indexOf(u8, contents, "pancake_host_session_transport_closed") != null) {
-            try appendViolation(gpa, violations, "{s}: pancake_host_session_transport_closed belongs in pump, not session", .{path});
+        if (std.mem.indexOf(u8, contents, "glowcap_host_session_transport_closed") != null) {
+            try appendViolation(gpa, violations, "{s}: glowcap_host_session_transport_closed belongs in pump, not session", .{path});
         }
     }
 
     const park = [_]struct { path: []const u8, inside: []const u8, park: []const u8, release_path: []const u8, release: []const u8 }{
-        .{ .path = "bindings/ts/runtime/session/lifecycle.ts", .inside = "insideTurn", .park = "parkRelease", .release_path = "bindings/ts/runtime/session/lifecycle.ts", .release = "pancake_host_session_release" },
-        .{ .path = "bindings/python/pancake/_session/lifecycle.py", .inside = "_inside_turn", .park = "park_release", .release_path = "bindings/python/pancake/_session/lifecycle.py", .release = "pancake_host_session_release" },
-        .{ .path = "bindings/rust/src/session_shared.rs", .inside = "inside_turn", .park = "finalizer::park_session", .release_path = "bindings/rust/src/host.rs", .release = "pancake_host_session_release" },
+        .{ .path = "bindings/ts/runtime/session/lifecycle.ts", .inside = "insideTurn", .park = "parkRelease", .release_path = "bindings/ts/runtime/session/lifecycle.ts", .release = "glowcap_host_session_release" },
+        .{ .path = "bindings/python/glowcap/_session/lifecycle.py", .inside = "_inside_turn", .park = "park_release", .release_path = "bindings/python/glowcap/_session/lifecycle.py", .release = "glowcap_host_session_release" },
+        .{ .path = "bindings/rust/src/session_shared.rs", .inside = "inside_turn", .park = "finalizer::park_session", .release_path = "bindings/rust/src/host.rs", .release = "glowcap_host_session_release" },
         // Racket's close path releases through host/state.rkt's
         // `native-session-release!`, the one owner of the loop-vs-byte-fed
-        // branch (`pancake_driver_session_release` beside
-        // `pancake_host_session_release`, ADR-0112); host/state.rkt is held to
+        // branch (`glowcap_driver_session_release` beside
+        // `glowcap_host_session_release`, ADR-0112); host/state.rkt is held to
         // both spellings below.
         .{ .path = "bindings/racket/private/session.rkt", .inside = "inside-turn?", .park = "host-park-release!", .release_path = "bindings/racket/private/session.rkt", .release = "native-session-release!" },
     };
@@ -209,8 +209,8 @@ pub fn checkBindingEmbedderPump(
     // and the byte-fed spelling, loop/core.rkt owns the loop spelling, so a
     // rename cannot quietly point `native-session-release!` at nothing.
     const release_branch = [_]struct { path: []const u8, needles: []const []const u8 }{
-        .{ .path = "bindings/racket/private/host/state.rkt", .needles = &.{ "native-session-release!", "pancake_host_session_release" } },
-        .{ .path = "bindings/racket/private/loop/core.rkt", .needles = &.{"pancake_driver_session_release"} },
+        .{ .path = "bindings/racket/private/host/state.rkt", .needles = &.{ "native-session-release!", "glowcap_host_session_release" } },
+        .{ .path = "bindings/racket/private/loop/core.rkt", .needles = &.{"glowcap_driver_session_release"} },
     };
     for (release_branch) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(2 << 20)) catch |err| {
@@ -236,11 +236,11 @@ pub fn checkBindingEmbedderPump(
     };
     defer gpa.free(cref_contents);
     for ([_][]const u8{
-        "pancake_host_session_feed_bytes",
-        "pancake_host_next_action",
-        "pancake_host_session_take_outbound",
-        "pancake_host_session_last_abort",
-        "pancake_host_session_transport_closed",
+        "glowcap_host_session_feed_bytes",
+        "glowcap_host_next_action",
+        "glowcap_host_session_take_outbound",
+        "glowcap_host_session_last_abort",
+        "glowcap_host_session_transport_closed",
     }) |needle| {
         if (std.mem.indexOf(u8, cref_contents, needle) == null) {
             try appendViolation(gpa, violations, "{s}: missing `{s}` — normative embedder choreography", .{ cref, needle });
@@ -259,18 +259,18 @@ pub fn checkBindingEmbedderPump(
         return;
     };
     defer gpa.free(zig_pump_contents);
-    for ([_][]const u8{ "drainHost", "drainHosts", "pancake_host_next_action" }) |needle| {
+    for ([_][]const u8{ "drainHost", "drainHosts", "glowcap_host_next_action" }) |needle| {
         if (std.mem.indexOf(u8, zig_pump_contents, needle) == null) {
             try appendViolation(gpa, violations, "{s}: missing `{s}` — shared C-ABI drain helper", .{ zig_pump, needle });
         }
     }
 
-    // The dlopen binding action modules drain via pancake_host_pump_drain
-    // (ADR-0072 sixth). Ban hand-rolled pancake_host_next_action pop loops in
+    // The dlopen binding action modules drain via glowcap_host_pump_drain
+    // (ADR-0072 sixth). Ban hand-rolled glowcap_host_next_action pop loops in
     // those modules — the C symbol may still appear in FFI loaders and
     // comments outside action/.
     const action_mods = [_][]const u8{
-        "bindings/python/pancake/_action.py",
+        "bindings/python/glowcap/_action.py",
         "bindings/rust/src/action.rs",
         "bindings/racket/private/action.rkt",
     };
@@ -280,18 +280,18 @@ pub fn checkBindingEmbedderPump(
             continue;
         };
         defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, "pancake_host_pump_drain") == null) {
-            try appendViolation(gpa, violations, "{s}: missing pancake_host_pump_drain — action module must use the shared C drain", .{path});
+        if (std.mem.indexOf(u8, contents, "glowcap_host_pump_drain") == null) {
+            try appendViolation(gpa, violations, "{s}: missing glowcap_host_pump_drain — action module must use the shared C drain", .{path});
         }
-        if (std.mem.indexOf(u8, contents, "pancake_host_next_action") != null) {
-            try appendViolation(gpa, violations, "{s}: pancake_host_next_action in action module — use pancake_host_pump_drain (no hand-rolled pop loop)", .{path});
+        if (std.mem.indexOf(u8, contents, "glowcap_host_next_action") != null) {
+            try appendViolation(gpa, violations, "{s}: glowcap_host_next_action in action module — use glowcap_host_pump_drain (no hand-rolled pop loop)", .{path});
         }
     }
 
     // The TypeScript action module is the exception, by contract: it also runs
     // under the wasm adapter (ADR-0070), whose single callback seam is the
     // behavior trampoline, so a hooks-buffer drain cannot exist there. It
-    // drains through the canonical pancake_host_next_action pop instead (one
+    // drains through the canonical glowcap_host_next_action pop instead (one
     // spine for dlopen and wasm) and must not mint a per-drain callback.
     {
         const path = "bindings/ts/runtime/action.ts";
@@ -300,11 +300,11 @@ pub fn checkBindingEmbedderPump(
             return;
         };
         defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, "pancake_host_next_action") == null) {
-            try appendViolation(gpa, violations, "{s}: missing pancake_host_next_action; the TS action module drains by pop (wasm has no hooks seam)", .{path});
+        if (std.mem.indexOf(u8, contents, "glowcap_host_next_action") == null) {
+            try appendViolation(gpa, violations, "{s}: missing glowcap_host_next_action; the TS action module drains by pop (wasm has no hooks seam)", .{path});
         }
-        if (std.mem.indexOf(u8, contents, "pancake_host_pump_drain") != null) {
-            try appendViolation(gpa, violations, "{s}: pancake_host_pump_drain in the TS action module; hooks buffers cannot run under the wasm adapter", .{path});
+        if (std.mem.indexOf(u8, contents, "glowcap_host_pump_drain") != null) {
+            try appendViolation(gpa, violations, "{s}: glowcap_host_pump_drain in the TS action module; hooks buffers cannot run under the wasm adapter", .{path});
         }
         if (std.mem.indexOf(u8, contents, "makeCallback") != null) {
             try appendViolation(gpa, violations, "{s}: makeCallback in the TS action module; the drain must not mint per-drain native callbacks", .{path});
@@ -314,7 +314,7 @@ pub fn checkBindingEmbedderPump(
 
 /// Behavior trampoline spine (Pass 5): each binding keeps a named trampoline
 /// module, mid-turn latch, reply keep, and turn verbs; hop cap lives in the
-/// constant homes (mirrored against PANCAKE_MAX_LOCAL_FORWARD_HOPS).
+/// constant homes (mirrored against GLOWCAP_MAX_LOCAL_FORWARD_HOPS).
 pub fn checkBindingEmbedderTrampoline(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -324,19 +324,19 @@ pub fn checkBindingEmbedderTrampoline(
     const mods = [_]struct { path: []const u8, markers: []const []const u8 }{
         .{
             .path = "bindings/ts/runtime/trampoline.ts",
-            .markers = &.{ "chaseLocalForwards", "runHosted", "sendLocal", "tellLocal", "tellFar", "dispatchSend", "dispatchTell", "caretakerProxy", "attenuateProxy", "spawnHosted", "publishHosted", "function registerActor", "currentTurn", "lastReplyKeep", "pancake_host_turn_break", "pancake_host_turn_forward", "pancake_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
+            .markers = &.{ "chaseLocalForwards", "runHosted", "sendLocal", "tellLocal", "tellFar", "dispatchSend", "dispatchTell", "caretakerProxy", "attenuateProxy", "spawnHosted", "publishHosted", "function registerActor", "currentTurn", "lastReplyKeep", "glowcap_host_turn_break", "glowcap_host_turn_forward", "glowcap_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
         },
         .{
-            .path = "bindings/python/pancake/_trampoline.py",
-            .markers = &.{ "_chase_local_forwards", "_run_hosted", "_send_local", "_tell_local", "_tell_far", "_dispatch_send", "_dispatch_tell", "_caretaker_proxy", "_attenuate_proxy", "_spawn_hosted", "_publish_hosted", "def _register_actor", "_current_turn", "_reply_state", "threading.local()", "last_reply_keep", "pancake_host_turn_break", "pancake_host_turn_forward", "pancake_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
+            .path = "bindings/python/glowcap/_trampoline.py",
+            .markers = &.{ "_chase_local_forwards", "_run_hosted", "_send_local", "_tell_local", "_tell_far", "_dispatch_send", "_dispatch_tell", "_caretaker_proxy", "_attenuate_proxy", "_spawn_hosted", "_publish_hosted", "def _register_actor", "_current_turn", "_reply_state", "threading.local()", "last_reply_keep", "glowcap_host_turn_break", "glowcap_host_turn_forward", "glowcap_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
         },
         .{
             .path = "bindings/rust/src/trampoline.rs",
-            .markers = &.{ "chase_local_forwards", "run_hosted", "run_local_send", "caretaker_proxy", "attenuate_proxy", "CURRENT_TURN", "LAST_REPLY_KEEP", "pancake_host_turn_break", "pancake_host_turn_forward", "pancake_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
+            .markers = &.{ "chase_local_forwards", "run_hosted", "run_local_send", "caretaker_proxy", "attenuate_proxy", "CURRENT_TURN", "LAST_REPLY_KEEP", "glowcap_host_turn_break", "glowcap_host_turn_forward", "glowcap_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
         },
         .{
             .path = "bindings/racket/private/trampoline.rkt",
-            .markers = &.{ "settle-turn-reply", "chase-local-actor-forwards", "session-send-local", "await-local-vow", "dispatch-send", "dispatch-send-promise", "dispatch-tell", "caretaker-behavior", "attenuate-behavior", "caretaker-proxy", "attenuate-proxy", "revoke-caretaker!", "register-hosted-actor!", "pancake_host_session_spawn", "pancake_host_session_publish", "current-turn", "last-reply-keep", "pancake_host_turn_break", "pancake_host_turn_forward", "pancake_host_turn_spawn", "FORWARD-CYCLE-MESSAGE" },
+            .markers = &.{ "settle-turn-reply", "chase-local-actor-forwards", "session-send-local", "await-local-vow", "dispatch-send", "dispatch-send-promise", "dispatch-tell", "caretaker-behavior", "attenuate-behavior", "caretaker-proxy", "attenuate-proxy", "revoke-caretaker!", "register-hosted-actor!", "glowcap_host_session_spawn", "glowcap_host_session_publish", "current-turn", "last-reply-keep", "glowcap_host_turn_break", "glowcap_host_turn_forward", "glowcap_host_turn_spawn", "FORWARD-CYCLE-MESSAGE" },
         },
     };
     // Racket's chase lives in vat.rkt (shared by $, drive, and the trampoline).
@@ -383,9 +383,9 @@ pub fn checkBindingEmbedderTrampoline(
         .{ .path = "bindings/ts/runtime/session/", .needle = "#sendLocal" },
         .{ .path = "bindings/ts/runtime/session/", .needle = "throw new Error(\"Revoked\")" },
         .{ .path = "bindings/ts/runtime/session/", .needle = "throw new Error(\"Attenuated\")" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "def _send_local" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "raise ValueError(\"Revoked\")" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "raise ValueError(\"Attenuated\")" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "def _send_local" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "raise ValueError(\"Revoked\")" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "raise ValueError(\"Attenuated\")" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "async fn run_local_send" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "fn run_hosted(" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "Break(\"Revoked\"" },
@@ -397,31 +397,31 @@ pub fn checkBindingEmbedderTrampoline(
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(spawn (caretaker-behavior" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(spawn (attenuate-behavior" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(hash-set! (vat-revocables" },
-        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_session_send" },
-        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_vow_send" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_session_send" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_vow_send" },
-        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_session_spawn" },
-        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_session_publish" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_session_spawn" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_session_publish" },
-        .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_session_spawn" },
-        .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_session_publish" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "glowcap_host_session_send" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "glowcap_host_vow_send" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "glowcap_host_session_send" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "glowcap_host_vow_send" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "glowcap_host_session_spawn" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "glowcap_host_session_publish" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "glowcap_host_session_spawn" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "glowcap_host_session_publish" },
+        .{ .path = "bindings/racket/private/session.rkt", .needle = "glowcap_host_session_spawn" },
+        .{ .path = "bindings/racket/private/session.rkt", .needle = "glowcap_host_session_publish" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (register-hosted-actor!" },
         .{ .path = "bindings/ts/runtime/session/", .needle = "#registerActor" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "def _register_actor" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "class _SessionGcHandle" },
-        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_session_tell" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_session_tell" },
-        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_vow_index" },
-        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_vow_untag" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "def _register_actor" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "class _SessionGcHandle" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "glowcap_host_session_tell" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "glowcap_host_session_tell" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "glowcap_host_vow_index" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "glowcap_host_vow_untag" },
         .{ .path = "bindings/ts/runtime/session/", .needle = "return sendLocal(" },
         .{ .path = "bindings/ts/runtime/session/", .needle = "await tellLocal(" },
         .{ .path = "bindings/ts/runtime/session/", .needle = "return sendFar(" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "return _send_local(" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "await _tell_local(" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "return _send_far(" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "await _tell_far(" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "return _send_local(" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "await _tell_local(" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "return _send_far(" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "await _tell_far(" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "tell_local(" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "tell_wire(" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(session-send-local c" },
@@ -444,7 +444,7 @@ pub fn checkBindingEmbedderTrampoline(
     // re-exported through the hand-kept home; the presence check names the
     // generated module that reflects it.
     const const_homes = [_]struct { path: []const u8, needle: []const u8 }{
-        .{ .path = "bindings/python/pancake/_constants_gen.py", .needle = "MAX_LOCAL_FORWARD_HOPS" },
+        .{ .path = "bindings/python/glowcap/_constants_gen.py", .needle = "MAX_LOCAL_FORWARD_HOPS" },
         .{ .path = "bindings/rust/src/abi_constants_gen.rs", .needle = "MAX_LOCAL_FORWARD_HOPS" },
         .{ .path = "bindings/racket/private/constants-gen.rkt", .needle = "MAX-LOCAL-FORWARD-HOPS" },
         .{ .path = "bindings/ts/abi/constants.ts", .needle = "MAX_LOCAL_FORWARD_HOPS" },
@@ -467,8 +467,8 @@ pub fn checkBindingEmbedderTrampoline(
         return;
     };
     defer gpa.free(cref_contents);
-    if (std.mem.indexOf(u8, cref_contents, "pancake_host_pump_drain") == null) {
-        try appendViolation(gpa, violations, "{s}: missing pancake_host_pump_drain — C checklist must use the opt-in wrapper", .{cref});
+    if (std.mem.indexOf(u8, cref_contents, "glowcap_host_pump_drain") == null) {
+        try appendViolation(gpa, violations, "{s}: missing glowcap_host_pump_drain — C checklist must use the opt-in wrapper", .{cref});
     }
 }
 
@@ -501,7 +501,7 @@ pub fn checkBindingEmbedderSpineDocs(
                 "spawn/publish",
                 "`session_shared`",
                 "embedder_pump",
-                "pancake_host_pump_drain",
+                "glowcap_host_pump_drain",
                 "handshake",
             },
         },

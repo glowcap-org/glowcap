@@ -35,13 +35,13 @@ fn load_contract() -> Contract {
 
 fn main() {
 	let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-	println!("cargo:rerun-if-env-changed=PANCAKE_LIB_DIR");
-	println!("cargo:rerun-if-env-changed=PANCAKE_DOWNLOAD");
-	println!("cargo:rerun-if-env-changed=PANCAKE_SKIP_DOWNLOAD");
-	println!("cargo:rerun-if-env-changed=PANCAKE_RELEASE_BASE_URL");
-	println!("cargo:rerun-if-env-changed=PANCAKE_CACHE_DIR");
-	println!("cargo:rerun-if-env-changed=PANCAKE_STRICT");
-	println!("cargo:rerun-if-env-changed=PANCAKE_ALLOW_INSECURE");
+	println!("cargo:rerun-if-env-changed=GLOWCAP_LIB_DIR");
+	println!("cargo:rerun-if-env-changed=GLOWCAP_DOWNLOAD");
+	println!("cargo:rerun-if-env-changed=GLOWCAP_SKIP_DOWNLOAD");
+	println!("cargo:rerun-if-env-changed=GLOWCAP_RELEASE_BASE_URL");
+	println!("cargo:rerun-if-env-changed=GLOWCAP_CACHE_DIR");
+	println!("cargo:rerun-if-env-changed=GLOWCAP_STRICT");
+	println!("cargo:rerun-if-env-changed=GLOWCAP_ALLOW_INSECURE");
 	println!(
 		"cargo:rerun-if-changed={}",
 		manifest_dir.join("c-abi-resolve.json").display()
@@ -52,80 +52,80 @@ fn main() {
 
 	// Relink when the native archives change, not only when Rust sources do.
 	for archive in [
-		"libpancake_ocapn.a",
-		"libpancake_host.a",
-		"libpancake_driver.a",
-		"libpancake_net_transport_tcp.a",
-		"libpancake_net_transport_inproc.a",
-		"libpancake_net_transport_onion.a",
-		"libpancake_net_transport_relay.a",
+		"libglowcap_ocapn.a",
+		"libglowcap_host.a",
+		"libglowcap_driver.a",
+		"libglowcap_net_transport_tcp.a",
+		"libglowcap_net_transport_inproc.a",
+		"libglowcap_net_transport_onion.a",
+		"libglowcap_net_transport_relay.a",
 	] {
 		println!("cargo:rerun-if-changed={}", lib_dir.join(archive).display());
 	}
 
 	// Host semantics and transport execution are separate symbol families and
-	// archives. The driver adopts a Host created through libpancake_host.
-	println!("cargo:rustc-link-lib=static=pancake_driver");
-	println!("cargo:rustc-link-lib=static=pancake_host");
-	println!("cargo:rustc-link-lib=static=pancake_ocapn");
+	// archives. The driver adopts a Host created through libglowcap_host.
+	println!("cargo:rustc-link-lib=static=glowcap_driver");
+	println!("cargo:rustc-link-lib=static=glowcap_host");
+	println!("cargo:rustc-link-lib=static=glowcap_ocapn");
 
 	if cfg!(feature = "tcp") {
-		println!("cargo:rustc-link-lib=static=pancake_net_transport_tcp");
+		println!("cargo:rustc-link-lib=static=glowcap_net_transport_tcp");
 	}
 	if cfg!(feature = "inproc") {
-		println!("cargo:rustc-link-lib=static=pancake_net_transport_inproc");
+		println!("cargo:rustc-link-lib=static=glowcap_net_transport_inproc");
 	}
 	if cfg!(feature = "onion") {
-		println!("cargo:rustc-link-lib=static=pancake_net_transport_onion");
+		println!("cargo:rustc-link-lib=static=glowcap_net_transport_onion");
 	}
 	if cfg!(feature = "relay") {
-		println!("cargo:rustc-link-lib=static=pancake_net_transport_relay");
+		println!("cargo:rustc-link-lib=static=glowcap_net_transport_relay");
 	}
 
 	if cfg!(feature = "iroh") {
-		println!("cargo:rustc-link-lib=dylib=pancake_net_transport_iroh");
+		println!("cargo:rustc-link-lib=dylib=glowcap_net_transport_iroh");
 		println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
 		#[cfg(target_os = "macos")]
 		println!(
 			"cargo:rerun-if-changed={}",
-			lib_dir.join("libpancake_net_transport_iroh.dylib").display()
+			lib_dir.join("libglowcap_net_transport_iroh.dylib").display()
 		);
 		#[cfg(target_os = "linux")]
 		println!(
 			"cargo:rerun-if-changed={}",
-			lib_dir.join("libpancake_net_transport_iroh.so").display()
+			lib_dir.join("libglowcap_net_transport_iroh.so").display()
 		);
 		#[cfg(target_os = "windows")]
 		println!(
 			"cargo:rerun-if-changed={}",
-			lib_dir.join("pancake_net_transport_iroh.dll").display()
+			lib_dir.join("glowcap_net_transport_iroh.dll").display()
 		);
 	}
 
 	if cfg!(feature = "webrtc") {
-		println!("cargo:rustc-link-lib=dylib=pancake_net_transport_webrtc");
+		println!("cargo:rustc-link-lib=dylib=glowcap_net_transport_webrtc");
 		println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
 		#[cfg(target_os = "macos")]
 		println!(
 			"cargo:rerun-if-changed={}",
-			lib_dir.join("libpancake_net_transport_webrtc.dylib").display()
+			lib_dir.join("libglowcap_net_transport_webrtc.dylib").display()
 		);
 		#[cfg(target_os = "linux")]
 		println!(
 			"cargo:rerun-if-changed={}",
-			lib_dir.join("libpancake_net_transport_webrtc.so").display()
+			lib_dir.join("libglowcap_net_transport_webrtc.so").display()
 		);
 		#[cfg(target_os = "windows")]
 		println!(
 			"cargo:rerun-if-changed={}",
-			lib_dir.join("pancake_net_transport_webrtc.dll").display()
+			lib_dir.join("glowcap_net_transport_webrtc.dll").display()
 		);
 	}
 }
-/// Cascade (ADR-0077): `PANCAKE_LIB_DIR` → abi-versioned download cache →
+/// Cascade (ADR-0077): `GLOWCAP_LIB_DIR` → abi-versioned download cache →
 /// optional in-tree `zig-out/lib` → (caller falls through to link failure).
 fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
-	if let Some(dir) = std::env::var_os("PANCAKE_LIB_DIR") {
+	if let Some(dir) = std::env::var_os("GLOWCAP_LIB_DIR") {
 		return PathBuf::from(dir);
 	}
 
@@ -142,9 +142,9 @@ fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
 
 	if let Some(ref zig) = zig_out {
 		if zig.join(&contract.marker_static).is_file() {
-			// PANCAKE_DOWNLOAD refreshes the cache even when zig-out exists,
+			// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists,
 			// including when releases_published is false.
-			if env_truthy("PANCAKE_DOWNLOAD") {
+			if env_truthy("GLOWCAP_DOWNLOAD") {
 				let _ = fetch_into_cache(&contract, &version, &target, &cache_lib);
 				if cache_lib.join(&contract.marker_static).is_file() {
 					return cache_lib;
@@ -183,12 +183,12 @@ fn env_truthy(name: &str) -> bool {
 }
 
 /// Cold-cache network gate: when `releases_published` is true, fetch unless
-/// `PANCAKE_SKIP_DOWNLOAD`; when false, fetch only if `PANCAKE_DOWNLOAD`.
+/// `GLOWCAP_SKIP_DOWNLOAD`; when false, fetch only if `GLOWCAP_DOWNLOAD`.
 fn want_release_fetch(contract: &Contract) -> bool {
 	if contract.releases_published {
-		!env_truthy("PANCAKE_SKIP_DOWNLOAD")
+		!env_truthy("GLOWCAP_SKIP_DOWNLOAD")
 	} else {
-		env_truthy("PANCAKE_DOWNLOAD")
+		env_truthy("GLOWCAP_DOWNLOAD")
 	}
 }
 
@@ -202,9 +202,9 @@ fn abi_version(dev_root: Option<&Path>, contract: &Contract) -> String {
 	if let Some(root) = dev_root {
 		let header = root.join(&contract.version_header);
 		if let Ok(text) = fs::read_to_string(&header) {
-			let major = macro_u32(&text, "PANCAKE_VERSION_MAJOR").unwrap_or(0);
-			let minor = macro_u32(&text, "PANCAKE_VERSION_MINOR").unwrap_or(1);
-			let patch = macro_u32(&text, "PANCAKE_VERSION_PATCH").unwrap_or(0);
+			let major = macro_u32(&text, "GLOWCAP_VERSION_MAJOR").unwrap_or(0);
+			let minor = macro_u32(&text, "GLOWCAP_VERSION_MINOR").unwrap_or(1);
+			let patch = macro_u32(&text, "GLOWCAP_VERSION_PATCH").unwrap_or(0);
 			return format!("{major}.{minor}.{patch}");
 		}
 	}
@@ -234,7 +234,7 @@ fn host_target_triple() -> String {
 fn find_dev_root(start: &Path) -> Option<PathBuf> {
 	let mut cur = Some(start);
 	while let Some(dir) = cur {
-		if dir.join("build.zig").is_file() && dir.join("include/pancake_ocapn.h").is_file() {
+		if dir.join("build.zig").is_file() && dir.join("include/glowcap_ocapn.h").is_file() {
 			return Some(dir.to_path_buf());
 		}
 		cur = dir.parent();
@@ -243,14 +243,14 @@ fn find_dev_root(start: &Path) -> Option<PathBuf> {
 }
 
 fn cache_base(contract: &Contract) -> PathBuf {
-	if let Some(dir) = std::env::var_os("PANCAKE_CACHE_DIR") {
+	if let Some(dir) = std::env::var_os("GLOWCAP_CACHE_DIR") {
 		return PathBuf::from(dir);
 	}
 	if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
-		return PathBuf::from(xdg).join("pancake/c-abi");
+		return PathBuf::from(xdg).join("glowcap/c-abi");
 	}
 	if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-		return PathBuf::from(home).join(".cache/pancake/c-abi");
+		return PathBuf::from(home).join(".cache/glowcap/c-abi");
 	}
 	std::env::temp_dir().join(&contract.fallback_cache_name)
 }
@@ -266,34 +266,34 @@ fn cache_lib_dir(contract: &Contract, version: &str, target: &str) -> PathBuf {
 }
 
 fn soft_fail(msg: &str) -> Result<(), String> {
-	eprintln!("pancake build.rs: {msg} (soft-fail)");
-	if env_truthy("PANCAKE_STRICT") {
-		panic!("pancake build.rs: {msg}");
+	eprintln!("glowcap build.rs: {msg} (soft-fail)");
+	if env_truthy("GLOWCAP_STRICT") {
+		panic!("glowcap build.rs: {msg}");
 	}
 	Err(msg.to_string())
 }
 
 /// Hygiene/security failures always fail closed (never gated on STRICT).
 fn hard_fail(msg: &str) -> ! {
-	panic!("pancake build.rs: {msg}");
+	panic!("glowcap build.rs: {msg}");
 }
 
 fn require_https(base: &str) {
-	if base.starts_with("https://") || env_truthy("PANCAKE_ALLOW_INSECURE") {
+	if base.starts_with("https://") || env_truthy("GLOWCAP_ALLOW_INSECURE") {
 		return;
 	}
 	hard_fail(&format!("refusing non-HTTPS release base URL: {base}"));
 }
 
 fn curl_tls_args(url: &str) -> Vec<&'static str> {
-	if env_truthy("PANCAKE_ALLOW_INSECURE") && !url.starts_with("https://") {
+	if env_truthy("GLOWCAP_ALLOW_INSECURE") && !url.starts_with("https://") {
 		return Vec::new();
 	}
 	vec!["--proto", "=https", "--tlsv1.2"]
 }
 
 fn fetch_into_cache(contract: &Contract, version: &str, target: &str, cache_lib: &Path) -> Result<(), String> {
-	let base = std::env::var("PANCAKE_RELEASE_BASE_URL").unwrap_or_else(|_| contract.default_release_base_url.clone());
+	let base = std::env::var("GLOWCAP_RELEASE_BASE_URL").unwrap_or_else(|_| contract.default_release_base_url.clone());
 	require_https(&base);
 	let tag = apply_contract_template(&contract.release_tag_template, version, target, "");
 	let tarball = apply_contract_template(&contract.tarball_template, version, target, "");
@@ -323,7 +323,7 @@ fn fetch_into_cache(contract: &Contract, version: &str, target: &str, cache_lib:
 	}
 
 	let tarball_path = cache_root.join(&tarball);
-	eprintln!("pancake build.rs: downloading {url}");
+	eprintln!("glowcap build.rs: downloading {url}");
 	let max_s = contract.max_tarball_bytes.to_string();
 	let mut curl_args: Vec<&str> = vec!["-fsSL"];
 	curl_args.extend(curl_tls_args(&url));

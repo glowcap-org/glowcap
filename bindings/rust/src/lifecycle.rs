@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::sys;
-use crate::sys::host::PancakeCloseOptions;
+use crate::sys::host::GlowcapCloseOptions;
 use crate::{Error, Result};
 
 /// Whether a final native release crossed its ownership boundary. Host and
@@ -22,7 +22,7 @@ pub enum PendingWork {
 }
 
 impl PendingWork {
-	pub(crate) fn to_ffi(self) -> Result<PancakeCloseOptions> {
+	pub(crate) fn to_ffi(self) -> Result<GlowcapCloseOptions> {
 		let (pending, grace_mode, grace_ms) = match self {
 			Self::Cancel => (sys::PENDING_CANCEL, sys::CLOSE_GRACE_UNSPECIFIED, 0),
 			Self::Finish { grace: None } => (sys::PENDING_FINISH, sys::CLOSE_GRACE_UNBOUNDED, 0),
@@ -41,9 +41,9 @@ impl PendingWork {
 				(sys::PENDING_FINISH, sys::CLOSE_GRACE_FINITE, grace_ms)
 			}
 		};
-		Ok(PancakeCloseOptions {
+		Ok(GlowcapCloseOptions {
 			abi_version: sys::CLOSE_OPTIONS_ABI_VERSION,
-			struct_size: std::mem::size_of::<PancakeCloseOptions>(),
+			struct_size: std::mem::size_of::<GlowcapCloseOptions>(),
 			pending,
 			grace_mode,
 			grace_ms,

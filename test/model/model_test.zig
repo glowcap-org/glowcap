@@ -1,7 +1,7 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
+const model = glowcap.ocapn.model;
 
 fn exporterUriWithAlternatives(
     allocator: std.mem.Allocator,
@@ -125,17 +125,17 @@ test "owned message measurement counts a big integer index payload" {
 
 test "CapTP versions parse and render wire strings" {
     try std.testing.expectEqualStrings("1.0", model.CaptpVersion.v1_0.wireString());
-    try std.testing.expectEqualStrings("pancake-next", model.CaptpVersion.next.wireString());
+    try std.testing.expectEqualStrings("glowcap-next", model.CaptpVersion.next.wireString());
 
     try std.testing.expectEqual(model.CaptpVersion.v1_0, model.CaptpVersion.fromWireString("1.0").?);
-    try std.testing.expectEqual(model.CaptpVersion.next, model.CaptpVersion.fromWireString("pancake-next").?);
+    try std.testing.expectEqual(model.CaptpVersion.next, model.CaptpVersion.fromWireString("glowcap-next").?);
     try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromWireString("ocapn-1.0"));
     try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromWireString("2.0"));
 }
 
 test "CaptpVersion diagnostic names" {
     try std.testing.expectEqualStrings("ocapn-v1.0", model.CaptpVersion.v1_0.name());
-    try std.testing.expectEqualStrings("pancake-next", model.CaptpVersion.next.name());
+    try std.testing.expectEqualStrings("glowcap-next", model.CaptpVersion.next.name());
 }
 
 test "abort kinds round-trip every variant through their wire names" {

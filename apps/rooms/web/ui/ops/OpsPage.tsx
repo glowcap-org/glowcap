@@ -29,7 +29,7 @@ import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
 
 const ListenersPane = lazy(() => loadListenersPane());
-const IrcPane = lazy(() => loadIrcPane());
+const GatewayPane = lazy(() => loadIrcPane());
 const PeeringPane = lazy(() => loadPeeringPane());
 const VizPane = lazy(() => loadVizPane());
 
@@ -238,7 +238,7 @@ export function OpsMain({ segment }: { segment: string | null }) {
 				)}
 				{open && pane?.id === "irc" && (
 					<HeldPane id="irc" what="IRC bridges" panelId="ircOpsPanel" ready={s.irc !== null}>
-						<IrcPane state={s.irc} />
+						<GatewayPane state={s.irc} />
 					</HeldPane>
 				)}
 				{open && pane?.id === "peering" && (

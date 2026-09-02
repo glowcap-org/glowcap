@@ -1,5 +1,5 @@
-import * as tcp from "@pancake/tcp";
-// A small, friendly client for the tasks board, built on pancake actors.
+import * as tcp from "@glowcap/tcp";
+// A small, friendly client for the tasks board, built on glowcap actors.
 //
 // On the connection API this is barely a layer: connect, fetch the board by
 // name, publish a watcher the board can call back, and surface its updates as a
@@ -11,7 +11,7 @@ import * as tcp from "@pancake/tcp";
 //   for await (const tasks of board.updates) console.log(tasks);
 //   await board.leave();
 
-import { type Argument, type Ref, Runtime, type Session } from "@pancake/runtime";
+import { type Argument, type Ref, Runtime, type Session } from "@glowcap/runtime";
 import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
 import { type Task } from "./board_state.ts";
 import { closeFailedJoin } from "./lifecycle.ts";

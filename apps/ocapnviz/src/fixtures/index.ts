@@ -15,9 +15,9 @@ import { threeVatHandoffMixed } from "./three-vat-handoff-mixed.ts";
  *
  * Scenario 00 sorts first because it is the headline: three vats, two
  * implementations, and one codec and CapTP version settled per session, so
- * both profiles pancake actually speaks appear in one picture. The eight that
- * follow each teach one idea, and every one of them is a pancake pair on
- * Cap'n Proto over pancake-next, except 07, which meets a Goblins vat and so
+ * both profiles glowcap actually speaks appear in one picture. The eight that
+ * follow each teach one idea, and every one of them is a glowcap pair on
+ * Cap'n Proto over glowcap-next, except 07, which meets a Goblins vat and so
  * settles back to Syrup over OCapN 1.0.
  *
  * Two titling rules hold across the set: a title is an imperative verb phrase

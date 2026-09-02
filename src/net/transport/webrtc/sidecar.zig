@@ -36,24 +36,24 @@ const CEndpointConfig = extern struct {
     worker_threads: u32,
 };
 
-extern fn pancake_webrtc_sidecar_endpoint_new(config: *const CEndpointConfig) ?*CEndpoint;
-extern fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const CEndpoint) i32;
-extern fn pancake_webrtc_sidecar_endpoint_drain_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
-extern fn pancake_webrtc_sidecar_endpoint_driver_readiness_fd(endpoint: *const CEndpoint) i32;
-extern fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
-extern fn pancake_webrtc_sidecar_endpoint_free(endpoint: *CEndpoint) i32;
-extern fn pancake_webrtc_sidecar_peer_new(endpoint: *CEndpoint, is_offerer: i32) ?*CPeer;
-extern fn pancake_webrtc_sidecar_peer_create_offer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
-extern fn pancake_webrtc_sidecar_peer_create_answer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
-extern fn pancake_webrtc_sidecar_peer_set_remote(peer: *CPeer, sdp: [*]const u8, sdp_len: usize, is_offer: i32) i32;
-extern fn pancake_webrtc_sidecar_peer_add_remote_candidate(peer: *CPeer, cand: [*]const u8, cand_len: usize) i32;
-extern fn pancake_webrtc_sidecar_peer_next_local_candidate(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
-extern fn pancake_webrtc_sidecar_peer_id(peer: *const CPeer) usize;
-extern fn pancake_webrtc_sidecar_peer_is_open(peer: *const CPeer) i32;
-extern fn pancake_webrtc_sidecar_conn_try_receive_packet(peer: *CPeer, buf: [*]u8, len: usize) isize;
-extern fn pancake_webrtc_sidecar_conn_try_send_packet(peer: *CPeer, buf: [*]const u8, len: usize) isize;
-extern fn pancake_webrtc_sidecar_conn_close(peer: *CPeer) void;
-extern fn pancake_webrtc_sidecar_peer_free(peer: *CPeer) void;
+extern fn glowcap_webrtc_sidecar_endpoint_new(config: *const CEndpointConfig) ?*CEndpoint;
+extern fn glowcap_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const CEndpoint) i32;
+extern fn glowcap_webrtc_sidecar_endpoint_drain_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
+extern fn glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(endpoint: *const CEndpoint) i32;
+extern fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
+extern fn glowcap_webrtc_sidecar_endpoint_free(endpoint: *CEndpoint) i32;
+extern fn glowcap_webrtc_sidecar_peer_new(endpoint: *CEndpoint, is_offerer: i32) ?*CPeer;
+extern fn glowcap_webrtc_sidecar_peer_create_offer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
+extern fn glowcap_webrtc_sidecar_peer_create_answer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
+extern fn glowcap_webrtc_sidecar_peer_set_remote(peer: *CPeer, sdp: [*]const u8, sdp_len: usize, is_offer: i32) i32;
+extern fn glowcap_webrtc_sidecar_peer_add_remote_candidate(peer: *CPeer, cand: [*]const u8, cand_len: usize) i32;
+extern fn glowcap_webrtc_sidecar_peer_next_local_candidate(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
+extern fn glowcap_webrtc_sidecar_peer_id(peer: *const CPeer) usize;
+extern fn glowcap_webrtc_sidecar_peer_is_open(peer: *const CPeer) i32;
+extern fn glowcap_webrtc_sidecar_conn_try_receive_packet(peer: *CPeer, buf: [*]u8, len: usize) isize;
+extern fn glowcap_webrtc_sidecar_conn_try_send_packet(peer: *CPeer, buf: [*]const u8, len: usize) isize;
+extern fn glowcap_webrtc_sidecar_conn_close(peer: *CPeer) void;
+extern fn glowcap_webrtc_sidecar_peer_free(peer: *CPeer) void;
 
 /// Sidecar return codes, kept in lockstep with the constants in
 /// `transports/webrtc/src/lib.rs`.
@@ -180,13 +180,13 @@ pub const Peer = struct {
     /// channel and produces the answer. The readiness path reads and writes
     /// session packets with `tryReceivePacket` / `trySendPacket`.
     fn init(resident: *Resident, is_offerer: bool) InitError!Peer {
-        const peer = pancake_webrtc_sidecar_peer_new(resident.endpoint, @intFromBool(is_offerer)) orelse return error.PeerCreateFailed;
+        const peer = glowcap_webrtc_sidecar_peer_new(resident.endpoint, @intFromBool(is_offerer)) orelse return error.PeerCreateFailed;
         return .{ .peer = peer };
     }
 
     /// Stable resident-scoped identity carried by `ReadyEvent.subject`.
     pub fn id(self: *const Peer) PeerId {
-        const raw = pancake_webrtc_sidecar_peer_id(self.peer);
+        const raw = glowcap_webrtc_sidecar_peer_id(self.peer);
         std.debug.assert(raw != 0);
         return @fromBackingInt(@intCast(raw));
     }
@@ -210,13 +210,13 @@ pub const Peer = struct {
     /// waking any parked reader with end of stream. Idempotent; the shutdown
     /// lever for a host whose read parks on another thread. `deinit` still frees.
     pub fn close(self: *Peer) void {
-        pancake_webrtc_sidecar_conn_close(self.peer);
+        glowcap_webrtc_sidecar_conn_close(self.peer);
     }
 
     /// Free the sidecar peer and release its reference to the resident's shared
     /// runtime.
     pub fn deinit(self: *Peer) void {
-        pancake_webrtc_sidecar_peer_free(self.peer);
+        glowcap_webrtc_sidecar_peer_free(self.peer);
         self.* = undefined;
     }
 
@@ -227,7 +227,7 @@ pub const Peer = struct {
     /// Offerer only.
     pub fn createOffer(self: *Peer, out: []u8, out_len: *usize) SignalError![]const u8 {
         const capped = out[0..@min(out.len, max_signal_bytes)];
-        return switch (pancake_webrtc_sidecar_peer_create_offer(self.peer, capped.ptr, capped.len, out_len)) {
+        return switch (glowcap_webrtc_sidecar_peer_create_offer(self.peer, capped.ptr, capped.len, out_len)) {
             rc_ok => out[0..out_len.*],
             rc_signal_too_large => error.SignalTooLarge,
             rc_buffer_too_small => if (out_len.* > max_signal_bytes) error.SignalTooLarge else error.BufferTooSmall,
@@ -240,7 +240,7 @@ pub const Peer = struct {
     /// `setRemoteOffer`. `error.BufferTooSmall` still writes the required length.
     pub fn createAnswer(self: *Peer, out: []u8, out_len: *usize) SignalError![]const u8 {
         const capped = out[0..@min(out.len, max_signal_bytes)];
-        return switch (pancake_webrtc_sidecar_peer_create_answer(self.peer, capped.ptr, capped.len, out_len)) {
+        return switch (glowcap_webrtc_sidecar_peer_create_answer(self.peer, capped.ptr, capped.len, out_len)) {
             rc_ok => out[0..out_len.*],
             rc_signal_too_large => error.SignalTooLarge,
             rc_buffer_too_small => if (out_len.* > max_signal_bytes) error.SignalTooLarge else error.BufferTooSmall,
@@ -251,20 +251,20 @@ pub const Peer = struct {
     /// Set the far offerer's SDP offer as the remote description. Answerer side.
     pub fn setRemoteOffer(self: *Peer, sdp: []const u8) SignalError!void {
         if (sdp.len > max_signal_bytes) return error.SignalTooLarge;
-        if (pancake_webrtc_sidecar_peer_set_remote(self.peer, sdp.ptr, sdp.len, 1) != rc_ok) return error.SignalFailed;
+        if (glowcap_webrtc_sidecar_peer_set_remote(self.peer, sdp.ptr, sdp.len, 1) != rc_ok) return error.SignalFailed;
     }
 
     /// Set the far answerer's SDP answer as the remote description. Offerer side.
     pub fn setRemoteAnswer(self: *Peer, sdp: []const u8) SignalError!void {
         if (sdp.len > max_signal_bytes) return error.SignalTooLarge;
-        if (pancake_webrtc_sidecar_peer_set_remote(self.peer, sdp.ptr, sdp.len, 0) != rc_ok) return error.SignalFailed;
+        if (glowcap_webrtc_sidecar_peer_set_remote(self.peer, sdp.ptr, sdp.len, 0) != rc_ok) return error.SignalFailed;
     }
 
     /// Add one ICE candidate the far peer gathered, as the JSON its
     /// `nextLocalCandidate` produced.
     pub fn addRemoteCandidate(self: *Peer, candidate: []const u8) SignalError!void {
         if (candidate.len > max_ice_candidate_bytes) return error.SignalTooLarge;
-        if (pancake_webrtc_sidecar_peer_add_remote_candidate(self.peer, candidate.ptr, candidate.len) != rc_ok) return error.SignalFailed;
+        if (glowcap_webrtc_sidecar_peer_add_remote_candidate(self.peer, candidate.ptr, candidate.len) != rc_ok) return error.SignalFailed;
     }
 
     /// Drain the next locally gathered ICE candidate into `out` as JSON, writing
@@ -273,7 +273,7 @@ pub const Peer = struct {
     /// required length to `out_len`.
     pub fn nextLocalCandidate(self: *Peer, out: []u8, out_len: *usize) SignalError!?[]const u8 {
         const capped = out[0..@min(out.len, max_ice_candidate_bytes)];
-        return switch (pancake_webrtc_sidecar_peer_next_local_candidate(self.peer, capped.ptr, capped.len, out_len)) {
+        return switch (glowcap_webrtc_sidecar_peer_next_local_candidate(self.peer, capped.ptr, capped.len, out_len)) {
             rc_ok => out[0..out_len.*],
             rc_would_block => null,
             rc_signal_too_large => error.SignalTooLarge,
@@ -288,7 +288,7 @@ pub const Peer = struct {
     pub const OpenError = error{ WouldBlock, Closed, Failed };
 
     pub fn checkOpen(self: *const Peer) OpenError!void {
-        return switch (pancake_webrtc_sidecar_peer_is_open(self.peer)) {
+        return switch (glowcap_webrtc_sidecar_peer_is_open(self.peer)) {
             rc_ok => {},
             rc_would_block => error.WouldBlock,
             rc_closed => error.Closed,
@@ -301,7 +301,7 @@ pub const Peer = struct {
     /// Non-blocking packet receive for readiness owners. `WouldBlock` means
     /// re-arm on `ev_readable`; `Closed` is clean end of stream.
     pub fn tryReceivePacket(self: *Peer, buf: []u8) TryPacketError!usize {
-        const n = pancake_webrtc_sidecar_conn_try_receive_packet(self.peer, buf.ptr, buf.len);
+        const n = glowcap_webrtc_sidecar_conn_try_receive_packet(self.peer, buf.ptr, buf.len);
         if (n == 0) return error.Closed;
         if (n == rc_would_block) return error.WouldBlock;
         if (n == rc_buffer_too_small) return error.BufferTooSmall;
@@ -313,7 +313,7 @@ pub const Peer = struct {
     /// immediately. `WouldBlock` means re-arm on `ev_writable` and retry the
     /// same packet.
     pub fn trySendPacket(self: *Peer, bytes: []const u8) TryPacketError!usize {
-        const n = pancake_webrtc_sidecar_conn_try_send_packet(self.peer, bytes.ptr, bytes.len);
+        const n = glowcap_webrtc_sidecar_conn_try_send_packet(self.peer, bytes.ptr, bytes.len);
         if (n == rc_would_block) return error.WouldBlock;
         if (n == rc_buffer_too_small) return error.BufferTooSmall;
         if (n < 0) return error.Failed;
@@ -331,7 +331,7 @@ pub const Resident = struct {
 
     pub const InitError = IceConfigError || error{EndpointCreateFailed};
 
-    /// One endpoint's configuration; the C ABI's `PancakeWebrtcConfig` is the
+    /// One endpoint's configuration; the C ABI's `GlowcapWebrtcConfig` is the
     /// authority on what each setting means. A single config so a future
     /// endpoint setting rides it without growing the constructor's arity.
     ///
@@ -354,12 +354,12 @@ pub const Resident = struct {
             .worker_threads = config.worker_threads,
         };
         return .{
-            .endpoint = pancake_webrtc_sidecar_endpoint_new(&c_config) orelse return error.EndpointCreateFailed,
+            .endpoint = glowcap_webrtc_sidecar_endpoint_new(&c_config) orelse return error.EndpointCreateFailed,
         };
     }
 
     pub fn deinit(self: *Resident) error{SidecarTeardownFailed}!void {
-        if (pancake_webrtc_sidecar_endpoint_free(self.endpoint) != 0) return error.SidecarTeardownFailed;
+        if (glowcap_webrtc_sidecar_endpoint_free(self.endpoint) != 0) return error.SidecarTeardownFailed;
         self.* = undefined;
     }
 
@@ -370,7 +370,7 @@ pub const Resident = struct {
     /// Borrowed, read-only OS readiness fd. Register it once and call
     /// `drainReady` whenever it wakes; the resident owns it until `deinit`.
     pub fn readinessFd(self: *const Resident) i32 {
-        return pancake_webrtc_sidecar_endpoint_readiness_fd(self.endpoint);
+        return glowcap_webrtc_sidecar_endpoint_readiness_fd(self.endpoint);
     }
 
     /// Clear the fd's coalesced wake bytes, then drain stable peer-id records.
@@ -378,7 +378,7 @@ pub const Resident = struct {
     /// callers. A concurrent signal either joins this drain or leaves its wake
     /// byte for the next poll.
     pub fn drainReady(self: *const Resident, out: []ReadyEvent) error{ReadinessFailed}!usize {
-        const count = pancake_webrtc_sidecar_endpoint_drain_ready(self.endpoint, out.ptr, out.len);
+        const count = glowcap_webrtc_sidecar_endpoint_drain_ready(self.endpoint, out.ptr, out.len);
         if (count < 0) return error.ReadinessFailed;
         return @intCast(count);
     }
@@ -387,11 +387,11 @@ pub const Resident = struct {
     /// lazily creates the second sidecar queue; raw signaling continues to use
     /// `readinessFd`/`drainReady` and cannot lose events to the driver.
     pub fn driverReadinessFd(self: *const Resident) i32 {
-        return pancake_webrtc_sidecar_endpoint_driver_readiness_fd(self.endpoint);
+        return glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(self.endpoint);
     }
 
     pub fn drainDriverReady(self: *const Resident, out: []ReadyEvent) error{ReadinessFailed}!usize {
-        const count = pancake_webrtc_sidecar_endpoint_drain_driver_ready(self.endpoint, out.ptr, out.len);
+        const count = glowcap_webrtc_sidecar_endpoint_drain_driver_ready(self.endpoint, out.ptr, out.len);
         if (count < 0) return error.ReadinessFailed;
         return @intCast(count);
     }

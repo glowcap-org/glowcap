@@ -1,4 +1,4 @@
-import { type Argument, type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { ROOMS_SESSION_ARCHIVE_SHARE_READ, ROOMS_SESSION_EVENT, RoomsSessionClient } from "../../lib/session/client.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import { assertEquals } from "../assert.ts";

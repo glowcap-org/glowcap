@@ -1,13 +1,13 @@
 #lang racket/base
 ;; Internal: the public value vocabulary — the reference and event structs the
 ;; marshalling, the vat, and the session surface exchange as native Racket
-;; values. Pure data; imports nothing. `pancake.rkt` re-provides the public
+;; values. Pure data; imports nothing. `glowcap.rkt` re-provides the public
 ;; subset.
 
 (provide (all-defined-out))
 
 ;; One Host-scoped capability identity. Near/far and object/promise are wire
-;; projection details owned by PancakeHost; a binding must not mirror them.
+;; projection details owned by GlowcapHost; a binding must not mirror them.
 ;; `released?` prevents an application from reusing a handle after returning
 ;; its retain to the Host.
 (struct ref (id [released? #:auto #:mutable])
@@ -29,7 +29,7 @@
 (struct struct-arg (entries) #:transparent)     ; unique String key/value pairs
 
 ;; The typed cause of a connection's most recent refused frame, carried on the
-;; `abort` field of the `exn:fail:pancake` the feeding path raises. `domain` is
+;; `abort` field of the `exn:fail:glowcap` the feeding path raises. `domain` is
 ;; 'codec, 'session, or 'foreign; `kind` is the wire name of the projected
 ;; op:abort kind, or #f when none was projected; `message` is the static
 ;; diagnostic, `error-name` the originating error, and

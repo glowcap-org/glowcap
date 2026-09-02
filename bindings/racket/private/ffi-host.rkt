@@ -1,6 +1,6 @@
 #lang racket/base
-;; Internal: the raw `ffi/unsafe` loader for the `pancake_host_*` byte-fed
-;; host family (ADR-0072), loaded from its own libpancake_host archive.
+;; Internal: the raw `ffi/unsafe` loader for the `glowcap_host_*` byte-fed
+;; host family (ADR-0072), loaded from its own libglowcap_host archive.
 ;;
 ;; Nothing here is public. The shared frame, argument, reference, and
 ;; last-abort layouts stay in `ffi-shared.rkt`. The host surface
@@ -9,7 +9,7 @@
 ;; turn-to-session projection.
 ;;
 ;; Callback discipline: the behavior callback fires synchronously on the
-;; Racket thread executing the enclosing `pancake_host_*` call, so a plain
+;; Racket thread executing the enclosing `glowcap_host_*` call, so a plain
 ;; `_fun` callback type is correct — no `#:async-apply`. A trampoline stays
 ;; alive only while its Racket closure does, so every behavior closure
 ;; registered with the host is retained in the host's strong `keep` table
@@ -28,40 +28,40 @@
 (require ffi/unsafe
          "constants.rkt"
          "lib-resolve.rkt"
-         (only-in "ffi-ocapn.rkt" pancake_locator_clone)
+         (only-in "ffi-ocapn.rkt" glowcap_locator_clone)
          "ffi-host-gen.rkt"
          "ffi-shared.rkt")
 (require-archive-fingerprint!
- 'host pancake_host_archive_fingerprint HOST-ARCHIVE-FINGERPRINT)
+ 'host glowcap_host_archive_fingerprint HOST-ARCHIVE-FINGERPRINT)
 (provide (except-out (all-from-out "ffi-host-gen.rkt")
-                     pancake_host_pending_dial*)
+                     glowcap_host_pending_dial*)
          (all-from-out "ffi-shared.rkt")
-         pancake_host_pending_dial)
+         glowcap_host_pending_dial)
 
 ;; Clone the complete pending locator for `ticket`. The C call projects its hint
 ;; array into caller-owned storage, so this bespoke wrapper probes for the exact
-;; required count and performs `pancake_locator_clone` before that storage can go
+;; required count and performs `glowcap_locator_clone` before that storage can go
 ;; out of scope. Bespoke rather than generated because one output's capacity
 ;; controls the other output's nested pointer.
-(define (pancake_host_pending_dial host ticket route-index)
+(define (glowcap_host_pending_dial host ticket route-index)
   (define (clone-pending rc view)
     (if (= rc OK)
-        (pancake_locator_clone view)
+        (glowcap_locator_clone view)
         (values rc #f)))
-  (define view (make-PancakeLocatorView 0 0 #f 0 #f 0 #f 0 0))
+  (define view (make-GlowcapLocatorView 0 0 #f 0 #f 0 #f 0 0))
   (define count (malloc _size 'atomic-interior))
   (ptr-set! count _size 0)
   (define probe-rc
-    (pancake_host_pending_dial* host ticket route-index #f 0 view count))
+    (glowcap_host_pending_dial* host ticket route-index #f 0 view count))
   (cond
     [(= probe-rc ERR-BUFFER-TOO-SMALL)
      (define required (ptr-ref count _size))
-     (define hints (malloc _PancakeLocatorHintView required 'atomic-interior))
-     (define copy-view (make-PancakeLocatorView 0 0 #f 0 #f 0 #f 0 0))
+     (define hints (malloc _GlowcapLocatorHintView required 'atomic-interior))
+     (define copy-view (make-GlowcapLocatorView 0 0 #f 0 #f 0 #f 0 0))
      (define copy-count (malloc _size 'atomic-interior))
      (ptr-set! copy-count _size 0)
      (define copy-rc
-       (pancake_host_pending_dial* host ticket route-index hints required copy-view copy-count))
+       (glowcap_host_pending_dial* host ticket route-index hints required copy-view copy-count))
      (clone-pending copy-rc copy-view)]
     [else
      (clone-pending probe-rc view)]))

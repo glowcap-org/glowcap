@@ -1,7 +1,7 @@
 // Gate: the browser binding's wasm32 layout descriptor decodes cleanly.
 //
 // The freestanding wasm32 Host (`zig build wasm-driver`, ADR-0070) reports its
-// own struct layout through the single export `pancake_wasm_abi_layout`, because
+// own struct layout through the single export `glowcap_wasm_abi_layout`, because
 // the wasm32 field offsets differ from the 64-bit host mirror `abi.ts` carries
 // and cannot be reached from it. This check instantiates the module, reads the
 // descriptor, and proves it is well formed — the JS marshaller depends on that
@@ -16,7 +16,7 @@
 //
 // The canonical struct order and the field count of each struct are the
 // contract with the marshaller, and both live in the generated
-// `WASM_LAYOUT_STRUCTS` manifest (`@pancake/abi`, `zig build gen-ts-abi`).
+// `WASM_LAYOUT_STRUCTS` manifest (`@glowcap/abi`, `zig build gen-ts-abi`).
 // This check holds the wasm module's descriptor against that manifest (same
 // struct count, same per-struct field count) and cross-checks each struct's
 // field count against the 64-bit `abi.ts` mirror's offset-constant group, so
@@ -45,13 +45,13 @@ function mirrorFieldCount(prefix: string): number {
 	return n;
 }
 
-const wasmPath = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
+const wasmPath = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 
 type Exports = {
 	memory: WebAssembly.Memory;
-	pancake_wasm_alloc: (len: number) => number;
-	pancake_wasm_free: (ptr: number, len: number) => void;
-	pancake_wasm_abi_layout: (out: number, cap: number) => number;
+	glowcap_wasm_alloc: (len: number) => number;
+	glowcap_wasm_free: (ptr: number, len: number) => void;
+	glowcap_wasm_abi_layout: (out: number, cap: number) => number;
 };
 
 function fail(msg: string): never {
@@ -64,8 +64,8 @@ const wasmBytes = await Deno.readFile(wasmPath);
 // no-op stubs so instantiation succeeds. This check triggers neither callback.
 const { instance } = await WebAssembly.instantiate(wasmBytes, {
 	env: {
-		pancake_behavior_trampoline: () => 0,
-		pancake_hosted_free_trampoline: () => {},
+		glowcap_behavior_trampoline: () => 0,
+		glowcap_hosted_free_trampoline: () => {},
 	},
 });
 const ex = instance.exports as unknown as Exports;
@@ -73,22 +73,22 @@ const mem = ex.memory;
 
 // Probe the size with a zero capacity: the descriptor must write nothing and
 // return the full word count. A null `out` (offset 0) is safe on this path.
-const needed = ex.pancake_wasm_abi_layout(0, 0);
+const needed = ex.glowcap_wasm_abi_layout(0, 0);
 if (!Number.isInteger(needed) || needed <= 0) {
 	fail(`descriptor probe returned a non-positive word count (${needed})`);
 }
 
 const byteLen = needed * 4;
-const ptr = ex.pancake_wasm_alloc(byteLen);
-if (ptr === 0) fail("pancake_wasm_alloc failed for the descriptor buffer");
+const ptr = ex.glowcap_wasm_alloc(byteLen);
+if (ptr === 0) fail("glowcap_wasm_alloc failed for the descriptor buffer");
 
-const wrote = ex.pancake_wasm_abi_layout(ptr, needed);
+const wrote = ex.glowcap_wasm_abi_layout(ptr, needed);
 if (wrote !== needed) {
 	fail(`descriptor wrote a different word count than it probed (${wrote} vs ${needed})`);
 }
 
 const words = new Uint32Array(mem.buffer.slice(ptr, ptr + byteLen));
-ex.pancake_wasm_free(ptr, byteLen);
+ex.glowcap_wasm_free(ptr, byteLen);
 
 // Decode struct by struct, in canonical order, validating structural invariants
 // and consuming exactly `needed` words.

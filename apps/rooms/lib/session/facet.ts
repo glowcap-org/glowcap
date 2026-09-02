@@ -4,7 +4,7 @@
 // asked for it: there is no ledger row and no sturdyref, so nothing survives a
 // restart and nothing has to be revoked afterwards to be safe.
 
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import { ROOMS_SESSION_FACET, ROOMS_SESSION_REVOKE } from "./verbs.ts";
 import type { RoomsSessionFacet } from "./grants.ts";

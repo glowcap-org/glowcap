@@ -10,7 +10,7 @@ Every program below uses the same CapTP API. Rooms is a complete program over
 encrypted [iroh]($link.page('transports/iroh')). For a first call in code, use
 [Start building]($link.page('start')).
 
-# Rooms: pancake as a chat
+# Rooms: glowcap as a chat
 
 The rooms app is the fullest demonstration: several language bindings, a
 browser UI, live chat, and direct messages created by a three-party handoff.
@@ -38,7 +38,7 @@ ordinary IRC clients from a native directory;
 # Learn the Zig API
 
 Start the walk at
-[01_connect_and_serve.zig](https://github.com/jimisaacs/pancake/blob/main/examples/zig/01_connect_and_serve.zig).
+[01_connect_and_serve.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/01_connect_and_serve.zig).
 It shows both ends of one session: listen, publish, connect, fetch,
 and call, over a local TCP socket so the API is unobscured.
 
@@ -48,13 +48,13 @@ zig build examples
 
 Two later chapters isolate the capability moves that are easiest to miss:
 
-- [02_introduce_and_redeem.zig](https://github.com/jimisaacs/pancake/blob/main/examples/zig/02_introduce_and_redeem.zig)
+- [02_introduce_and_redeem.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig)
   hands a capability to a third peer and leaves the introducer behind.
-- [06_pipeline_and_attenuate.zig](https://github.com/jimisaacs/pancake/blob/main/examples/zig/06_pipeline_and_attenuate.zig)
+- [06_pipeline_and_attenuate.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/06_pipeline_and_attenuate.zig)
   calls through an unresolved promise and wraps a capability with a smaller
   interface.
 
-The [complete example guide](https://github.com/jimisaacs/pancake/blob/main/examples/README.md)
+The [complete example guide](https://github.com/jimisaacs/glowcap/blob/main/examples/README.md)
 continues down through actors, bootstrap lookup, the raw engine, and the
 buffer-explicit and many-session helpers.
 [Concepts]($link.page('concepts')) explains the handoff and pipelining behavior
@@ -67,19 +67,19 @@ The same `Session` API on every transport is on
 
 # Embed from C
 
-[host_embedder_pump.c](https://github.com/jimisaacs/pancake/blob/main/examples/c/host_embedder_pump.c)
-is the first C program to read. It drives two byte-fed `PancakeHost` instances
+[host_embedder_pump.c](https://github.com/jimisaacs/glowcap/blob/main/examples/c/host_embedder_pump.c)
+is the first C program to read. It drives two byte-fed `GlowcapHost` instances
 through the C CapTP application API. Continue with
-[the C guide](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md)
+[the C guide](https://github.com/jimisaacs/glowcap/blob/main/docs/consuming-from-c.md)
 for linking, ownership, the host allocator, and transport composition.
 
 # Try another application
 
 | App | What it shows | Run |
 | --- | --- | --- |
-| [tasks](https://github.com/jimisaacs/pancake/blob/main/apps/tasks/) | Shared task state across peers | `zig build demo-tasks` |
-| [tools](https://github.com/jimisaacs/pancake/blob/main/apps/tools/) | Delegation, attenuation, and revocation | `zig build demo-tools` |
-| [accountability](https://github.com/jimisaacs/pancake/blob/main/apps/accountability-on-pancake/) | Signed calls above an OCapN session | `zig build demo-accountability` |
+| [tasks](https://github.com/jimisaacs/glowcap/blob/main/apps/tasks/) | Shared task state across peers | `zig build demo-tasks` |
+| [tools](https://github.com/jimisaacs/glowcap/blob/main/apps/tools/) | Delegation, attenuation, and revocation | `zig build demo-tools` |
+| [accountability](https://github.com/jimisaacs/glowcap/blob/main/apps/accountability-on-glowcap/) | Signed calls above an OCapN session | `zig build demo-accountability` |
 
 Tasks and tools need Deno. Accountability runs a Zig host with Deno and Python
 callers. The same applications also serve as binding examples; the

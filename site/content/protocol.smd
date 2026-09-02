@@ -1,15 +1,15 @@
 ---
 .title = "Protocol vocabulary",
-.description = "Reference for the CapTP messages, reference descriptors, and peer locators pancake implements.",
+.description = "Reference for the CapTP messages, reference descriptors, and peer locators glowcap implements.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Every pancake session uses a small vocabulary from the
+Every glowcap session uses a small vocabulary from the
 [OCapN specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications).
 [Concepts]($link.page('concepts')) explains how the parts work together, and the
-[protocol diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/README.md)
+[protocol diagrams](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/README.md)
 draw the flows.
 
 The operation and descriptor names below are checked against the Syrup codec,
@@ -29,7 +29,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
 | `op:get` | Projects a named field off an answer without waiting for the whole result to settle. |
 | `op:index` | Projects a positional element off an answer. |
-| `op:untag` | Unwraps a tagged value projected off an answer. pancake accepts it on every 1.0 session and sends it only when the partner advertises the `untag` feature, so a silent Goblins peer never sees one. |
+| `op:untag` | Unwraps a tagged value projected off an answer. glowcap accepts it on every 1.0 session and sends it only when the partner advertises the `untag` feature, so a silent Goblins peer never sees one. |
 | `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
 | `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
 

@@ -14,17 +14,17 @@ pub(crate) fn mint_peer_id(endpoint: &EndpointInner) -> Option<usize> {
 
 /// Create a peer. `is_offerer` chooses the role: an offerer creates the `ocapn`
 /// data channel now; an answerer installs it when `on_data_channel` fires.
-/// Returns a heap `PancakeWebrtcPeer` the caller frees with `peer_free`, or null
+/// Returns a heap `GlowcapWebrtcPeer` the caller frees with `peer_free`, or null
 /// on failure.
 ///
 /// # Safety
 /// The returned pointer is owned by the caller and must be freed exactly once
-/// with `pancake_webrtc_sidecar_peer_free`.
+/// with `glowcap_webrtc_sidecar_peer_free`.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
-	endpoint: *mut PancakeWebrtcEndpoint,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_new(
+	endpoint: *mut GlowcapWebrtcEndpoint,
 	is_offerer: i32,
-) -> *mut PancakeWebrtcPeer {
+) -> *mut GlowcapWebrtcPeer {
 	catch_unwind(AssertUnwindSafe(|| {
 		let endpoint = match endpoint.as_ref() {
 			Some(endpoint) => endpoint.inner.clone(),
@@ -99,7 +99,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 			wire_channel(dc, shared.clone());
 		}
 
-		let peer = Box::new(PancakeWebrtcPeer { shared, pc });
+		let peer = Box::new(GlowcapWebrtcPeer { shared, pc });
 		Box::into_raw(peer)
 	}))
 	.unwrap_or(std::ptr::null_mut())
@@ -175,8 +175,8 @@ pub(crate) unsafe fn write_local_candidate(
 /// # Safety
 /// `peer` must be a live pointer from `peer_new`; `out`/`out_len` per `write_out`.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_offer(
-	peer: *mut PancakeWebrtcPeer,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_offer(
+	peer: *mut GlowcapWebrtcPeer,
 	out: *mut u8,
 	cap: usize,
 	out_len: *mut usize,
@@ -214,8 +214,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_offer(
 /// # Safety
 /// `peer` must be a live pointer from `peer_new`; `out`/`out_len` per `write_out`.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_answer(
-	peer: *mut PancakeWebrtcPeer,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_answer(
+	peer: *mut GlowcapWebrtcPeer,
 	out: *mut u8,
 	cap: usize,
 	out_len: *mut usize,
@@ -254,8 +254,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_answer(
 /// `peer` live; `sdp` points to `sdp_len` readable bytes of UTF-8, with
 /// `sdp_len <= MAX_SIGNAL_BYTES`.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_set_remote(
-	peer: *mut PancakeWebrtcPeer,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
+	peer: *mut GlowcapWebrtcPeer,
 	sdp: *const u8,
 	sdp_len: usize,
 	is_offer: i32,
@@ -299,8 +299,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_set_remote(
 /// `peer` live; `cand` points to `cand_len` readable bytes of UTF-8 JSON, with
 /// `cand_len <= MAX_ICE_CANDIDATE_BYTES`.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_add_remote_candidate(
-	peer: *mut PancakeWebrtcPeer,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_add_remote_candidate(
+	peer: *mut GlowcapWebrtcPeer,
 	cand: *const u8,
 	cand_len: usize,
 ) -> i32 {
@@ -338,8 +338,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_add_remote_candidate(
 /// # Safety
 /// `peer` live; `out`/`out_len` per `write_out`.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_next_local_candidate(
-	peer: *mut PancakeWebrtcPeer,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_next_local_candidate(
+	peer: *mut GlowcapWebrtcPeer,
 	out: *mut u8,
 	cap: usize,
 	out_len: *mut usize,

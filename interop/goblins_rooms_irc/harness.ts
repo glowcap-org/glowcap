@@ -1,7 +1,7 @@
 // Outside-authority proof for both IRC product fronts. One phase puts a real
 // Goblins vat inside the shipped IRC-to-Rooms bridge; the other drives the
 // shipped Rooms-to-IRC front and proves channel plus introduced DM traffic with
-// a real Goblins vat. No browser and no substitute pancake peer stands in for
+// a real Goblins vat. No browser and no substitute glowcap peer stands in for
 // Goblins here.
 
 import { runChild } from "../../apps/_demo/orchestrator.ts";
@@ -194,7 +194,7 @@ async function bridgePhase(): Promise<void> {
 		"--mode=two-way",
 		"--sasl-account=bridge-account",
 		"--tls=true",
-	], { env: { PANCAKE_ROOMS_IRC_SASL_PASSWORD: "bridge-password" } });
+	], { env: { GLOWCAP_ROOMS_IRC_SASL_PASSWORD: "bridge-password" } });
 	try {
 		const announced = await bridge.waitFor(
 			/ROOMS-IRC-BRIDGE-LISTENING (\d+) (\S+)/,

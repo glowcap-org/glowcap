@@ -7,7 +7,7 @@
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -17,7 +17,7 @@ pub fn main() !void {
     storage[1] = 0xfe;
     storage[2] = 0x00;
 
-    var frame = try pancake.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
+    var frame = try glowcap.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
     defer frame.deinit();
 
     const view = frame.view();

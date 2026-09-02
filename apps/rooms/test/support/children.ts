@@ -49,12 +49,12 @@ let doorsOpen = false;
  *
  * Deno overlays `options.env` onto the parent (`clearEnv` defaults false), so
  * deleting a key from a copied map does not hide it. The pane that launches
- * `check` sets `PANCAKE_ROOMS_STATE` for a live server; hermetic proofs must
+ * `check` sets `GLOWCAP_ROOMS_STATE` for a live server; hermetic proofs must
  * not inherit that directory. A caller that names the variable in
  * `options.env` is asking for a specific directory and keeps it. */
 function childEnv(extra?: Record<string, string>): Record<string, string> {
 	const env = { ...Deno.env.toObject(), ...extra };
-	if (extra?.PANCAKE_ROOMS_STATE === undefined) delete env.PANCAKE_ROOMS_STATE;
+	if (extra?.GLOWCAP_ROOMS_STATE === undefined) delete env.GLOWCAP_ROOMS_STATE;
 	return env;
 }
 

@@ -1,6 +1,6 @@
-//! The per-archive error-slot pair (ADR-0059): every pancake archive keeps its
-//! own thread-local last-error (`pancake_last_error` for the ocapn core,
-//! `pancake_host_last_error` for the driver, `pancake_<t>_last_error` per
+//! The per-archive error-slot pair (ADR-0059): every glowcap archive keeps its
+//! own thread-local last-error (`glowcap_last_error` for the ocapn core,
+//! `glowcap_host_last_error` for the driver, `glowcap_<t>_last_error` per
 //! transport), so each consumer module mints its checker/reader pair from its
 //! archive's extern reader here instead of pasting the two-pass read.
 

@@ -14,65 +14,65 @@ const provider = @import("provider/mod.zig");
 const framed = @import("framed/mod.zig");
 const failure_projection = @import("failure.zig");
 
-pub const PancakeOnionNetlayer = contract.PancakeOnionNetlayer;
-pub const PancakeOnionConn = contract.PancakeOnionConn;
-pub const PancakeOnionListener = contract.PancakeOnionListener;
-pub const PancakeOnionConfig = contract.PancakeOnionConfig;
+pub const GlowcapOnionNetlayer = contract.GlowcapOnionNetlayer;
+pub const GlowcapOnionConn = contract.GlowcapOnionConn;
+pub const GlowcapOnionListener = contract.GlowcapOnionListener;
+pub const GlowcapOnionConfig = contract.GlowcapOnionConfig;
 pub const contract_layouts = [_]c.archive_contract.Layout{
-    c.archive_contract.layout("PANCAKE_ONION_CONFIG", PancakeOnionConfig),
+    c.archive_contract.layout("GLOWCAP_ONION_CONFIG", GlowcapOnionConfig),
 };
-pub const PANCAKE_ONION_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+pub const GLOWCAP_ONION_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
     "onion",
     @This(),
     .{ c.contract_layouts, contract_layouts },
 );
-pub const PANCAKE_ONION_AUTH_NONE = contract.PANCAKE_ONION_AUTH_NONE;
-pub const PANCAKE_ONION_AUTH_COOKIE = contract.PANCAKE_ONION_AUTH_COOKIE;
-pub const PANCAKE_ONION_AUTH_PASSWORD = contract.PANCAKE_ONION_AUTH_PASSWORD;
-pub const PANCAKE_ONION_SERVICE_ID_LEN = contract.PANCAKE_ONION_SERVICE_ID_LEN;
-pub const PANCAKE_ONION_SERVICE_KEY_CAP = contract.PANCAKE_ONION_SERVICE_KEY_CAP;
+pub const GLOWCAP_ONION_AUTH_NONE = contract.GLOWCAP_ONION_AUTH_NONE;
+pub const GLOWCAP_ONION_AUTH_COOKIE = contract.GLOWCAP_ONION_AUTH_COOKIE;
+pub const GLOWCAP_ONION_AUTH_PASSWORD = contract.GLOWCAP_ONION_AUTH_PASSWORD;
+pub const GLOWCAP_ONION_SERVICE_ID_LEN = contract.GLOWCAP_ONION_SERVICE_ID_LEN;
+pub const GLOWCAP_ONION_SERVICE_KEY_CAP = contract.GLOWCAP_ONION_SERVICE_KEY_CAP;
 
-const PancakeContext = c.PancakeContext;
+const GlowcapContext = c.GlowcapContext;
 pub const symbols = @import("symbols.zig");
 
-pub export fn pancake_onion_archive_fingerprint() u64 {
-    return PANCAKE_ONION_ARCHIVE_FINGERPRINT;
+pub export fn glowcap_onion_archive_fingerprint() u64 {
+    return GLOWCAP_ONION_ARCHIVE_FINGERPRINT;
 }
 
-pub export fn pancake_onion_last_error(out_buf: ?[*]u8, cap: usize) usize {
+pub export fn glowcap_onion_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return c.lastErrorRead(out_buf, cap);
 }
 
-pub export fn pancake_onion_clear_last_error() void {
+pub export fn glowcap_onion_clear_last_error() void {
     c.lastErrorClear();
 }
 
-pub export fn pancake_onion_netlayer_new(
-    config: ?*const PancakeOnionConfig,
-    out_netlayer: ?*?*PancakeOnionNetlayer,
+pub export fn glowcap_onion_netlayer_new(
+    config: ?*const GlowcapOnionConfig,
+    out_netlayer: ?*?*GlowcapOnionNetlayer,
 ) i32 {
     c.lastErrorClear();
-    const slot = out_netlayer orelse return c.PANCAKE_ERR_NULL_POINTER;
-    const value = config orelse return c.PANCAKE_ERR_NULL_POINTER;
+    const slot = out_netlayer orelse return c.GLOWCAP_ERR_NULL_POINTER;
+    const value = config orelse return c.GLOWCAP_ERR_NULL_POINTER;
     return netlayerNewIn(c.library_allocator, value, slot);
 }
 
-pub export fn pancake_onion_netlayer_new_in(
-    context: ?*PancakeContext,
-    config: ?*const PancakeOnionConfig,
-    out_netlayer: ?*?*PancakeOnionNetlayer,
+pub export fn glowcap_onion_netlayer_new_in(
+    context: ?*GlowcapContext,
+    config: ?*const GlowcapOnionConfig,
+    out_netlayer: ?*?*GlowcapOnionNetlayer,
 ) i32 {
     c.lastErrorClear();
-    const c_context = c.ctxFromOpaque(context) orelse return c.PANCAKE_ERR_NULL_POINTER;
-    const slot = out_netlayer orelse return c.PANCAKE_ERR_NULL_POINTER;
-    const value = config orelse return c.PANCAKE_ERR_NULL_POINTER;
+    const c_context = c.ctxFromOpaque(context) orelse return c.GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_netlayer orelse return c.GLOWCAP_ERR_NULL_POINTER;
+    const value = config orelse return c.GLOWCAP_ERR_NULL_POINTER;
     return netlayerNewIn(c_context.allocator(), value, slot);
 }
 
 fn netlayerNewIn(
     allocator: std.mem.Allocator,
-    config: *const PancakeOnionConfig,
-    out: *?*PancakeOnionNetlayer,
+    config: *const GlowcapOnionConfig,
+    out: *?*GlowcapOnionNetlayer,
 ) i32 {
     var payload: ?*runtime.Netlayer = null;
     const result = create_runtime.create(allocator, config, &payload);
@@ -80,40 +80,40 @@ fn netlayerNewIn(
     return result;
 }
 
-pub export fn pancake_onion_transport_provider(
-    netlayer: ?*PancakeOnionNetlayer,
-    out_provider: ?*c.PancakeTransportProvider,
+pub export fn glowcap_onion_transport_provider(
+    netlayer: ?*GlowcapOnionNetlayer,
+    out_provider: ?*c.GlowcapTransportProvider,
 ) i32 {
     c.lastErrorClear();
-    const payload = netlayerFromOpaque(netlayer) orelse return c.PANCAKE_ERR_NULL_POINTER;
-    const slot = out_provider orelse return c.PANCAKE_ERR_NULL_POINTER;
+    const payload = netlayerFromOpaque(netlayer) orelse return c.GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_provider orelse return c.GLOWCAP_ERR_NULL_POINTER;
     slot.* = provider.package(payload);
-    return c.PANCAKE_OK;
+    return c.GLOWCAP_OK;
 }
 
-pub export fn pancake_onion_netlayer_shutdown(netlayer: ?*PancakeOnionNetlayer) void {
+pub export fn glowcap_onion_netlayer_shutdown(netlayer: ?*GlowcapOnionNetlayer) void {
     const payload = netlayerFromOpaque(netlayer) orelse return;
     payload.shutdown();
 }
 
-fn releaseNetlayer(netlayer: ?*PancakeOnionNetlayer) i32 {
-    const payload = netlayerFromOpaque(netlayer) orelse return c.PANCAKE_OK;
+fn releaseNetlayer(netlayer: ?*GlowcapOnionNetlayer) i32 {
+    const payload = netlayerFromOpaque(netlayer) orelse return c.GLOWCAP_OK;
     if (payload.release()) |failure| {
         c.setLastErrorChain("onion netlayer release", failure);
         return failure_projection.providerListen(failure.cause);
     }
-    return c.PANCAKE_OK;
+    return c.GLOWCAP_OK;
 }
 
-pub export fn pancake_onion_netlayer_release(
-    netlayer: ?*PancakeOnionNetlayer,
+pub export fn glowcap_onion_netlayer_release(
+    netlayer: ?*GlowcapOnionNetlayer,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
     c.lastErrorClear();
     if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len))
-        return c.PANCAKE_ERR_NULL_POINTER;
+        return c.GLOWCAP_ERR_NULL_POINTER;
     return c.captureCallError(
         releaseNetlayer(netlayer),
         out_error,
@@ -124,13 +124,13 @@ pub export fn pancake_onion_netlayer_release(
 
 // The façade exports the symbols; the framed owner supplies their complete
 // implementation. These are deliberately mechanical projections.
-pub export fn pancake_onion_connect(
-    netlayer: ?*PancakeOnionNetlayer,
+pub export fn glowcap_onion_connect(
+    netlayer: ?*GlowcapOnionNetlayer,
     service_id: ?[*]const u8,
     service_id_len: usize,
     codec: u32,
     max_frame_bytes: usize,
-    out_conn: ?*?*PancakeOnionConn,
+    out_conn: ?*?*GlowcapOnionConn,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
@@ -149,15 +149,15 @@ pub export fn pancake_onion_connect(
     );
 }
 
-pub export fn pancake_onion_listen(
-    netlayer: ?*PancakeOnionNetlayer,
+pub export fn glowcap_onion_listen(
+    netlayer: ?*GlowcapOnionNetlayer,
     out_service_id: ?[*]u8,
     service_id_cap: usize,
     out_service_id_len: ?*usize,
     out_service_key: ?[*]u8,
     service_key_cap: usize,
     out_service_key_len: ?*usize,
-    out_listener: ?*?*PancakeOnionListener,
+    out_listener: ?*?*GlowcapOnionListener,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
@@ -178,11 +178,11 @@ pub export fn pancake_onion_listen(
     );
 }
 
-pub export fn pancake_onion_accept(
-    listener: ?*PancakeOnionListener,
+pub export fn glowcap_onion_accept(
+    listener: ?*GlowcapOnionListener,
     codec: u32,
     max_frame_bytes: usize,
-    out_conn: ?*?*PancakeOnionConn,
+    out_conn: ?*?*GlowcapOnionConn,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
@@ -199,8 +199,8 @@ pub export fn pancake_onion_accept(
     );
 }
 
-pub export fn pancake_onion_listener_wait(
-    listener: ?*PancakeOnionListener,
+pub export fn glowcap_onion_listener_wait(
+    listener: ?*GlowcapOnionListener,
     timeout_ms: i32,
     out_ready: ?*u32,
     out_error: ?[*]u8,
@@ -218,25 +218,25 @@ pub export fn pancake_onion_listener_wait(
     );
 }
 
-pub export fn pancake_onion_listener_readiness_fd(
-    listener: ?*PancakeOnionListener,
+pub export fn glowcap_onion_listener_readiness_fd(
+    listener: ?*GlowcapOnionListener,
     out_fd: ?*i32,
 ) i32 {
     c.lastErrorClear();
     return framed.listenerReadinessFd(listener, out_fd);
 }
 
-pub export fn pancake_onion_conn_readiness_fd(
-    conn: ?*PancakeOnionConn,
+pub export fn glowcap_onion_conn_readiness_fd(
+    conn: ?*GlowcapOnionConn,
     out_fd: ?*i32,
 ) i32 {
     c.lastErrorClear();
     return framed.connReadinessFd(conn, out_fd);
 }
 
-pub export fn pancake_onion_conn_read_frame(
-    conn: ?*PancakeOnionConn,
-    out_frame: ?*c.PancakeManagedFrame,
+pub export fn glowcap_onion_conn_read_frame(
+    conn: ?*GlowcapOnionConn,
+    out_frame: ?*c.GlowcapManagedFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
@@ -251,9 +251,9 @@ pub export fn pancake_onion_conn_read_frame(
     );
 }
 
-pub export fn pancake_onion_conn_write_frame(
-    conn: ?*PancakeOnionConn,
-    frame: ?*const c.PancakeFrame,
+pub export fn glowcap_onion_conn_write_frame(
+    conn: ?*GlowcapOnionConn,
+    frame: ?*const c.GlowcapFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
@@ -268,13 +268,13 @@ pub export fn pancake_onion_conn_write_frame(
     );
 }
 
-pub export fn pancake_onion_conn_shutdown(conn: ?*PancakeOnionConn) i32 {
+pub export fn glowcap_onion_conn_shutdown(conn: ?*GlowcapOnionConn) i32 {
     c.lastErrorClear();
     return framed.connShutdown(conn);
 }
 
-pub export fn pancake_onion_conn_release(
-    conn: ?*PancakeOnionConn,
+pub export fn glowcap_onion_conn_release(
+    conn: ?*GlowcapOnionConn,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
@@ -283,12 +283,12 @@ pub export fn pancake_onion_conn_release(
     return framed.connRelease(conn, out_error, error_cap, out_error_len);
 }
 
-pub export fn pancake_onion_listener_shutdown(listener: ?*PancakeOnionListener) void {
+pub export fn glowcap_onion_listener_shutdown(listener: ?*GlowcapOnionListener) void {
     framed.listenerShutdown(listener);
 }
 
-pub export fn pancake_onion_listener_release(
-    listener: ?*PancakeOnionListener,
+pub export fn glowcap_onion_listener_release(
+    listener: ?*GlowcapOnionListener,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
@@ -302,6 +302,6 @@ pub export fn pancake_onion_listener_release(
     );
 }
 
-fn netlayerFromOpaque(netlayer: ?*PancakeOnionNetlayer) ?*runtime.Netlayer {
+fn netlayerFromOpaque(netlayer: ?*GlowcapOnionNetlayer) ?*runtime.Netlayer {
     return @ptrCast(@alignCast(netlayer orelse return null));
 }

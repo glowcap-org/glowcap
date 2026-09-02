@@ -5,12 +5,12 @@
 //! `test/net/onion_socks5_test.zig` and `test/net/onion_control_test.zig`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const c = @import("c_abi");
 const co = @import("c_abi_net_transport_onion");
-const model = pancake.ocapn.model;
-const onion = pancake.net.onion;
+const model = glowcap.ocapn.model;
+const onion = glowcap.net.onion;
 const c_abi_loopback = @import("../../support/c_abi_loopback.zig");
 const handshake = @import("../../support/handshake.zig");
 const fake = @import("../../support/onion_fake_daemon.zig");
@@ -19,24 +19,24 @@ const wait = @import("../../support/wait.zig");
 
 pub const frame_cap = c_abi_loopback.frame_cap;
 
-pub fn releaseOnionListener(listener: *co.PancakeOnionListener) void {
-    std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listener_release(listener, null, 0, null)) catch unreachable;
+pub fn releaseOnionListener(listener: *co.GlowcapOnionListener) void {
+    std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_listener_release(listener, null, 0, null)) catch unreachable;
 }
 
-pub fn releaseOnionNetlayer(netlayer: ?*co.PancakeOnionNetlayer) void {
-    std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_release(netlayer, null, 0, null)) catch unreachable;
+pub fn releaseOnionNetlayer(netlayer: ?*co.GlowcapOnionNetlayer) void {
+    std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_netlayer_release(netlayer, null, 0, null)) catch unreachable;
 }
 
 pub const Transport = struct {
-    pub const Conn = *co.PancakeOnionConn;
-    pub const Listener = *co.PancakeOnionListener;
+    pub const Conn = *co.GlowcapOnionConn;
+    pub const Listener = *co.GlowcapOnionListener;
 
-    pub fn writeFrame(conn: Conn, cf: *c.PancakeFrame) i32 {
-        return co.pancake_onion_conn_write_frame(conn, cf, null, 0, null);
+    pub fn writeFrame(conn: Conn, cf: *c.GlowcapFrame) i32 {
+        return co.glowcap_onion_conn_write_frame(conn, cf, null, 0, null);
     }
 
-    pub fn readFrame(conn: Conn, mf: *c.PancakeManagedFrame) i32 {
-        return co.pancake_onion_conn_read_frame(conn, mf, null, 0, null);
+    pub fn readFrame(conn: Conn, mf: *c.GlowcapManagedFrame) i32 {
+        return co.glowcap_onion_conn_read_frame(conn, mf, null, 0, null);
     }
 
     pub fn accept(
@@ -45,11 +45,11 @@ pub const Transport = struct {
         max_frame_bytes: usize,
         out_conn: *?Conn,
     ) i32 {
-        return co.pancake_onion_accept(listener, codec, max_frame_bytes, out_conn, null, 0, null);
+        return co.glowcap_onion_accept(listener, codec, max_frame_bytes, out_conn, null, 0, null);
     }
 
     pub fn releaseConn(conn: Conn) void {
-        _ = co.pancake_onion_conn_release(conn, null, 0, null);
+        _ = co.glowcap_onion_conn_release(conn, null, 0, null);
     }
 };
 
@@ -60,16 +60,16 @@ pub fn startSession(name: []const u8) model.Message {
 }
 
 /// Build a netlayer against `daemon`, both endpoints.
-pub fn netlayerFor(daemon: *fake.Daemon) !*co.PancakeOnionNetlayer {
-    var netlayer: ?*co.PancakeOnionNetlayer = null;
-    var config: co.PancakeOnionConfig = .{};
+pub fn netlayerFor(daemon: *fake.Daemon) !*co.GlowcapOnionNetlayer {
+    var netlayer: ?*co.GlowcapOnionNetlayer = null;
+    var config: co.GlowcapOnionConfig = .{};
     config.socks = daemon.socksText().ptr;
     config.socks_len = daemon.socksText().len;
     config.control_endpoint = daemon.controlText().ptr;
     config.control_endpoint_len = daemon.controlText().len;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        co.pancake_onion_netlayer_new(&config, &netlayer),
+        c.GLOWCAP_OK,
+        co.glowcap_onion_netlayer_new(&config, &netlayer),
     );
     return netlayer.?;
 }

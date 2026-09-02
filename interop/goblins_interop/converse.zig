@@ -1,4 +1,4 @@
-//! Dial-direction Goblins conversation: pancake is the client.
+//! Dial-direction Goblins conversation: glowcap is the client.
 //!
 //! `driver.zig` owns spawning the vat and the listener scenarios. This
 //! module dials that vat, verifies Goblins' signed start-session, fetches
@@ -6,15 +6,15 @@
 //! against live Goblins bytes.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const codec = pancake.ocapn.codec;
-const crypto = pancake.foundation.crypto;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const codec = glowcap.ocapn.codec;
+const crypto = glowcap.foundation.crypto;
+const tcp = glowcap.net.tcp;
 
 const host = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
@@ -23,11 +23,11 @@ const frame_cap: usize = 1 << 16;
 // returns a string-keyed hash (an OCapN Struct). Fixed in the host script —
 // like the listener scenarios' actor swiss-num — so the echo readiness line
 // stays the first `swiss` line every interop client parses.
-const record_swiss = "pancakeRecordSwissnumABCDEF12345";
+const record_swiss = "glowcapRecordSwissnumABCDEF12345";
 /// The stateful cap the one-way-deliver leg drives (`goblins-host.rkt`'s
 /// `^tally`). A `tell` carries no answer, so proving it arrived means
 /// changing something and reading it back.
-const tally_swiss = "pancakeTallySwissnumABCDEF123456";
+const tally_swiss = "glowcapTallySwissnumABCDEF123456";
 
 pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u16) !void {
     var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
@@ -53,7 +53,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     defer model.freeReference(allocator, echo);
     std.debug.print("goblins-interop: fetched goblins echo cap, calling it\n", .{});
 
-    // 3. Call echo("pancake-ping") and assert Goblins resolves it fulfilled. On
+    // 3. Call echo("glowcap-ping") and assert Goblins resolves it fulfilled. On
     //    V1.0 the runtime attaches a resolver to the answer; Goblins replies by
     //    delivering the resolution to it (it has no op:resolve), which
     //    Event.view() re-projects as a Resolve.
@@ -65,7 +65,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     try peer.sendCopying(.{ .deliver = .{
         .target = echo,
         .args = &.{
-            .{ .bytes = "pancake-ping" },
+            .{ .bytes = "glowcap-ping" },
             .{ .big_integer = .{ .negative = true, .digits = big_digits } },
         },
         .answer = model.AnswerPosition.from(echo_answer),
@@ -90,7 +90,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
                             .bytes, .string => |t| t,
                             else => return error.EchoWrongPayload,
                         };
-                        if (!std.mem.eql(u8, text, "pancake-ping")) {
+                        if (!std.mem.eql(u8, text, "glowcap-ping")) {
                             return error.EchoWrongPayload;
                         }
                         const big = switch (try payload.list.at(1)) {
@@ -115,7 +115,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     std.debug.print("goblins-interop: echo call resolved fulfilled by goblins\n", .{});
 
     // 4. Pipeline an op:index against the settled echo answer (ADR-0050,
-    //    pancake as the asker): Goblins exports a promise at the new answer
+    //    glowcap as the asker): Goblins exports a promise at the new answer
     //    position and resolves it to element 0 of the echoed list. V1.0 has no
     //    op:resolve push, so the engine auto-installs a listener on the
     //    projected answer (`engine.v1_0.installListenerForOutboundProjection`);
@@ -142,7 +142,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
                             .bytes, .string => |t| t,
                             else => return error.ProjectionWrongPayload,
                         };
-                        if (!std.mem.eql(u8, text, "pancake-ping")) return error.ProjectionWrongPayload;
+                        if (!std.mem.eql(u8, text, "glowcap-ping")) return error.ProjectionWrongPayload;
                         projected = true;
                     },
                     .@"break" => return error.ProjectionBroke,
@@ -154,7 +154,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     if (!projected) return error.ProjectionNeverResolved;
     std.debug.print("goblins-interop: op:index pipelined against the echo answer; goblins resolved the projected element\n", .{});
 
-    // 5. Pipeline an op:get (ADR-0050, pancake as the asker), the same way:
+    // 5. Pipeline an op:get (ADR-0050, glowcap as the asker), the same way:
     //    fetch the record cap — calling it returns a string-keyed hash, the
     //    OCapN Struct — and project the "name" field out of the call's answer.
     //    The op:get is sent *before* the call settles, so Goblins anchors its
@@ -167,7 +167,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     const record_answer: u64 = 4444;
     try peer.sendCopying(.{ .deliver = .{
         .target = record,
-        .args = &.{.{ .string = "pancake-get" }},
+        .args = &.{.{ .string = "glowcap-get" }},
         .answer = model.AnswerPosition.from(record_answer),
     } });
     const get_answer: u64 = 4545;
@@ -191,7 +191,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
                             .bytes, .string => |t| t,
                             else => return error.GetProjectionWrongPayload,
                         };
-                        if (!std.mem.eql(u8, text, "pancake-get")) return error.GetProjectionWrongPayload;
+                        if (!std.mem.eql(u8, text, "glowcap-get")) return error.GetProjectionWrongPayload;
                         got = true;
                     },
                     .@"break" => return error.GetProjectionBroke,
@@ -203,7 +203,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     if (!got) return error.GetProjectionNeverResolved;
     std.debug.print("goblins-interop: op:get pipelined against the pending record answer; goblins resolved the projected field\n", .{});
 
-    // 6. One-way deliver (`tell`): the frame pancake sends for a
+    // 6. One-way deliver (`tell`): the frame glowcap sends for a
     //    fire-and-forget send is an `op:deliver` with no answer and no
     //    resolver, the shape the pinned draft folds one-way delivery
     //    into. Nothing comes back by construction, so the proof is a state
@@ -280,7 +280,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     const enliven_answer: u64 = 4646;
     try peer.sendCopying(.{ .deliver = .{
         .target = enlivened,
-        .args = &.{.{ .bytes = "pancake-enliven" }},
+        .args = &.{.{ .bytes = "glowcap-enliven" }},
         .answer = model.AnswerPosition.from(enliven_answer),
     } });
     var enliven_echoed = false;
@@ -298,7 +298,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
                             .bytes, .string => |t| t,
                             else => return error.EnlivenWrongPayload,
                         };
-                        if (!std.mem.eql(u8, text, "pancake-enliven")) return error.EnlivenWrongPayload;
+                        if (!std.mem.eql(u8, text, "glowcap-enliven")) return error.EnlivenWrongPayload;
                         enliven_echoed = true;
                     },
                     .@"break" => return error.EnlivenBroke,

@@ -399,7 +399,7 @@ fn neutralStructEntry(reader: Reader, elem: StructLoc) Error!model.view.StructEn
 
 /// Build the lazy struct backing, enforcing the OCapN Struct key rule at the
 /// codec boundary (ADR-0046 / Model.md § Struct): keys must be pairwise
-/// non-Equal, and pancake's own capnp encoder emits them sorted ascending by
+/// non-Equal, and glowcap's own capnp encoder emits them sorted ascending by
 /// raw key bytes (`canonicalStructOrder`). Decode therefore requires strictly
 /// ascending keys — one comparison of each key against its predecessor, the
 /// same O(n) refusal the Syrup decoder applies (`sliceStructNeutral`). A

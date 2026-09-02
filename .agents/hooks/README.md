@@ -1,4 +1,4 @@
-# pancake — Agent Hooks
+# glowcap — Agent Hooks
 
 Canonical home for hook scripts that fire around agent file edits.
 

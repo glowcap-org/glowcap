@@ -1,7 +1,7 @@
 import { FRAME_BYTES_OFF, FRAME_LEN_OFF } from "../internal/constants.ts";
 import { ffi, NULL } from "../internal/ffi/runtime.ts";
 import { HostGc } from "../gc.ts";
-import { PancakeError } from "../errors.ts";
+import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { AsyncFfiFrame, AsyncFfiWriteQueue, checkedMaxFrameBytes } from "../transport/native_frame.ts";
 import { deferred } from "../../dogfood/assert.ts";
@@ -57,7 +57,7 @@ Deno.test("AsyncFfiWriteQueue bounds retained payload bytes", async () => {
 	const first = queue.run(new Uint8Array(3), async () => await held.promise);
 	await assertRejectsWith(
 		queue.run(new Uint8Array(2), () => Promise.resolve()),
-		"pancake test outbound queue exceeded",
+		"glowcap test outbound queue exceeded",
 	);
 	const filling = queue.run(new Uint8Array(1), () => Promise.resolve());
 	held.resolve();
@@ -69,7 +69,7 @@ Deno.test("AsyncFfiWriteQueue refuses one frame larger than its byte budget", as
 	const queue = new AsyncFfiWriteQueue("test", 4);
 	await assertRejectsWith(
 		queue.run(new Uint8Array(5), () => Promise.resolve()),
-		"pancake test outbound queue exceeded",
+		"glowcap test outbound queue exceeded",
 	);
 });
 
@@ -82,7 +82,7 @@ Deno.test("AsyncFfiWriteQueue bounds zero-length write closures", async () => {
 	);
 	await assertRejectsWith(
 		queue.run(new Uint8Array(0), () => Promise.resolve()),
-		"pancake test outbound queue exceeded",
+		"glowcap test outbound queue exceeded",
 	);
 	held.resolve();
 	await Promise.all(admitted);
@@ -132,7 +132,7 @@ Deno.test("HostGc retains a release token until the native release commits", () 
 	} catch (failure) {
 		first = failure;
 	}
-	if (!(first instanceof PancakeError)) {
+	if (!(first instanceof GlowcapError)) {
 		throw new Error(`expected exact null-host refusal, got ${String(first)}`);
 	}
 	if (gc.pending.length !== 1 || gc.pending[0] !== 17n) {

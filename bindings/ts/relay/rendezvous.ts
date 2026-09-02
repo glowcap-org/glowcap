@@ -14,7 +14,7 @@
 
 import type { RelayChannel } from "./relay.ts";
 import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "./ws_relay.ts";
-import { recordProcessBindingFailure, retainSecondaryFailure } from "@pancake/runtime/transport";
+import { recordProcessBindingFailure, retainSecondaryFailure } from "@glowcap/runtime/transport";
 
 const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 

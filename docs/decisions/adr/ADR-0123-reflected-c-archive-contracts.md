@@ -31,7 +31,7 @@ Each archive has an annotated symbol inventory and one or more canonical
 layout manifests. The fingerprint hashes in canonical order:
 
 - the archive family name;
-- every public `PANCAKE_*` value, sorted by name (except the fingerprint itself);
+- every public `GLOWCAP_*` value, sorted by name (except the fingerprint itself);
 - every symbol name and its reflected Zig function type;
 - the out-buffer, opaque-pointer, blocking, and language-omission facts that
   control generated FFI crossing behavior; and
@@ -50,8 +50,8 @@ enters archive identity. Rows that language bindings hand-mirror additionally
 enter their layout generator; `cOnlyLayout` marks public C structs that package
 APIs consume opaquely and must not reopen a retired binding surface.
 
-`libpancake_ocapn`, `libpancake_host`, and `libpancake_driver` now join every
-transport archive in exporting `pancake_<family>_archive_fingerprint`. Rust,
+`libglowcap_ocapn`, `libglowcap_host`, and `libglowcap_driver` now join every
+transport archive in exporting `glowcap_<family>_archive_fingerprint`. Rust,
 TypeScript, Python, and Racket receive expected values from the ordinary
 constant generators and compare each archive before its first operational
 call. A missing fingerprint is stale just as a mismatched one is stale.

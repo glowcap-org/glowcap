@@ -121,7 +121,7 @@ pub const rows: []const Ban = &.{
         .why = "the shared TypeScript WebSocket byte channel must consume generated binding-policy defaults",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_ws.py" },
+        .where = .{ .file = "bindings/python/glowcap/_ws.py" },
         .kind = .require,
         .needles = &.{"_WS_MESSAGE_HIGH_WATER = _abi.BINDING_WEBSOCKET_MESSAGE_CAP_BYTES"},
         .check = "relay-websocket-policy",
@@ -153,7 +153,7 @@ pub const rows: []const Ban = &.{
             "bindings/ts/relay/deno_channels.ts",
             "bindings/ts/relay/ws_relay.ts",
             "bindings/ts/runtime/websocket.ts",
-            "bindings/python/pancake/_ws.py",
+            "bindings/python/glowcap/_ws.py",
             "bindings/racket/private/ws-transport.rkt",
             "apps/rooms/web/relay.ts",
         } },

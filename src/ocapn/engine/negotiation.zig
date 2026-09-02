@@ -2,7 +2,7 @@
 //! actually do.
 //!
 //! It is not a wire back-and-forth. `op:start-session` carries the baseline
-//! message shape; pancake does not add fields to OCapN's messages. A peer's
+//! message shape; glowcap does not add fields to OCapN's messages. A peer's
 //! preference rides in locator hints, so this is a pure symmetric function of
 //! the two peers' offers and both ends compute the same answer from the same
 //! two inputs.
@@ -53,7 +53,7 @@ pub const Offer = struct {
         };
     }
 
-    /// Pancake-forward job: prefer `next` and Cap'n Proto, fall back to
+    /// Glowcap-forward job: prefer `next` and Cap'n Proto, fall back to
     /// `"1.0"` / Syrup when the partner only offers those.
     pub fn native(features: model.FeatureSet) Offer {
         return .{
@@ -95,7 +95,7 @@ pub fn offerFor(preference: model.Preference, storage: *Storage) Offer {
 /// Settle two preferences into the profile the session runs on. Symmetric, so
 /// both sides reach it without a further round trip. An axis the two cannot
 /// agree on falls back to the baseline rather than failing the session: every
-/// pancake peer speaks it, so there is always an answer.
+/// glowcap peer speaks it, so there is always an answer.
 pub fn settle(local: model.Preference, remote: model.Preference) Negotiated {
     var local_storage: Storage = .{};
     var remote_storage: Storage = .{};

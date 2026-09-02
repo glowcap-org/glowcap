@@ -1,9 +1,9 @@
 ---
-description: "Documentation voice for Zig pancake: first-read docs, doc comments, and example narration read as speech, not notation."
+description: "Documentation voice for Zig glowcap: first-read docs, doc comments, and example narration read as speech, not notation."
 globs: **/*.md, src/**/*.zig, apps/**/*.ts, apps/**/*.tsx, examples/**, test/**/*.zig, interop/**/*.zig, bench/**/*.zig, conformance/**/*.zig
 ---
 
-# pancake — Documentation Voice
+# glowcap — Documentation Voice
 
 ## Audience Split
 
@@ -55,7 +55,7 @@ A first-read page answers one question for one reader, then points to the next u
 - Name a heading after its subject. Contrast (`X, not Y`) is a tool, not the default title: if the distinction is
   load-bearing, put it in the paragraph after the subject has a name. `zig build source-check` refuses the title form on
   first-read pages.
-- A landing discloses AI assistance and who is answerable for the work. It does not describe pancake as an AI-written
+- A landing discloses AI assistance and who is answerable for the work. It does not describe glowcap as an AI-written
   project, claim a personal audit of every line, or announce the destination as a slogan. `PROVENANCE.md` owns the
   policy detail.
 - Move maintainer mechanics and release procedure out of consumer landing pages.
@@ -66,8 +66,8 @@ Every paragraph should earn the next. A correct detail in the wrong place is sti
 
 ## Neighbors And Citations
 
-- The projects pancake stands on — Spritely Goblins, OCapN, E, iroh, Zig, Syrup, Cap'n Proto — are spoken of only with
-  respect. State pancake's own measurements plainly and let a chart carry any ordering; prose never ranks a neighbor
+- The projects glowcap stands on — Spritely Goblins, OCapN, E, iroh, Zig, Syrup, Cap'n Proto — are spoken of only with
+  respect. State glowcap's own measurements plainly and let a chart carry any ordering; prose never ranks a neighbor
   downward.
 - Cite an external project with a link at its first or most appropriate mention on a page, and leave later mentions on
   that page as plain text.

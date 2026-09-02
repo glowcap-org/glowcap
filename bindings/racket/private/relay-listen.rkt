@@ -34,9 +34,9 @@
   (define seed*
     (or seed (and shared-host (host-seed shared-host)) (crypto-random-bytes 32)))
   (unless (= (bytes-length seed*) 32)
-    (raise-pancake who ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
+    (raise-glowcap who ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
   (when (and shared-host seed (not (bytes=? seed (host-seed shared-host))))
-    (raise-pancake who ERR-INVALID-ARGUMENT
+    (raise-glowcap who ERR-INVALID-ARGUMENT
                    "the seed conflicts with the supplied Host"))
   (define-values (lp owns-loop?)
     (if (and shared-host (host-loop-of shared-host))

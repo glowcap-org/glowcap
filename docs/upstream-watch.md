@@ -1,10 +1,10 @@
 # Waiting on upstream
 
-These are open questions in OCapN and Spritely Goblins. pancake cannot settle
+These are open questions in OCapN and Spritely Goblins. glowcap cannot settle
 any of them alone, so they are not on [the roadmap](roadmap.md). A few already
-have an answer pancake meets; those say so, and say what holds it.
+have an answer glowcap meets; those say so, and say what holds it.
 
-Each section names the proposal that is deciding the question, because `pancake-next`
+Each section names the proposal that is deciding the question, because `glowcap-next`
 follows current direction rather than only merged text. Every number below was
 open at the last review.
 
@@ -16,12 +16,12 @@ fails if an observation stops matching its source. The
 ## OCapN Null
 
 Goblins does not marshal Null and the upstream encoding is unsettled, so
-pancake keeps unknown Syrup records as tagged values. Converging would mean a
+glowcap keeps unknown Syrup records as tagged values. Converging would mean a
 model arm, codec round trips, and a live Goblins check.
 
 ## Live `op:untag`
 
-The 1.0 responder, initiator, fixtures, C Host, and bindings ship. Pancake
+The 1.0 responder, initiator, fixtures, C Host, and bindings ship. Glowcap
 accepts the operation from every 1.0 peer and sends it only after the partner
 advertises the `untag` feature. Goblins has no live marshaller for the
 operation, so there is no outside implementation path to exercise yet.
@@ -31,7 +31,7 @@ operation, so there is no outside implementation path to exercise yet.
 The settled draft shows two operands, while Goblins and the upstream test suite
 use a third Boolean, `wants_partial`. OCapN PR 282 instead proposes integer
 listen modes, removes the inline resolver from next-profile delivers, and makes
-shortening listens mandatory. V1.0 follows Goblins. `pancake-next` follows the
+shortening listens mandatory. V1.0 follows Goblins. `glowcap-next` follows the
 proposal while it is under review. The reviewed proposal revision is
 `9ee6bb20e25fdd358b2c408fe76d38e4dd151d34`.
 
@@ -43,16 +43,16 @@ raw constructor, so a mapping-shaped hints field does decode in practice, which
 `zig build goblins-gift-hints` observes live.
 
 `zig build goblins-gift-hints` keeps this pinned with opaque route metadata; no
-pancake authentication mechanism depends on the extension point.
+glowcap authentication mechanism depends on the extension point.
 
 ## Handoff withdrawal lookup
 
 Goblins resolves a give's session by the full node value including hints, while
-its own node equality deliberately ignores hints. pancake embeds the peer-owned
+its own node equality deliberately ignores hints. glowcap embeds the peer-owned
 acceptable-location claim verbatim. That selected route may differ from the
 transport carrying the session. Onion uses the stable hint-less locator; an
 iroh direct-address refresh applies to subsequent sessions and gifts. This is
-pinned interop behavior, not a pancake architecture boundary.
+pinned interop behavior, not a glowcap architecture boundary.
 
 ## Handoff count across independent receiver sessions
 
@@ -64,7 +64,7 @@ receiver's count retained on their shared Gifter-Exporter session and rejects
 the valid certificate. The same mismatch appears when one receiver closes and
 reconnects with a fresh session-local counter.
 
-pancake's automatic V1 redeem path issues from one Node-lifetime monotonic
+glowcap's automatic V1 redeem path issues from one Node-lifetime monotonic
 cursor, which keeps replacement sessions from moving backward against Goblins.
 `zig build goblins-rooms-dm-iroh` closes the first browser DM, opens a distinct
 replacement, and requires its first message and reply to cross the live Goblins
@@ -78,22 +78,22 @@ reproduces the live rejection before running its clean four-peer matrix.
 
 Goblins CapTP 1.0 uses resolver-callback fulfill and break. OCapN PR 282 also
 uses resolver callbacks, but obtains them through a following `op:listen`.
-`pancake-next` follows that proposal and sends no wire `op:resolve`. Revisit the
+`glowcap-next` follows that proposal and sends no wire `op:resolve`. Revisit the
 next profile when the proposal changes or settles.
 
 ## Message ordering
 
 OCapN PR 281 would write down an end-to-end reference FIFO order: messages one
 peer sends to a particular object or promise arrive in the order they were sent,
-and that order survives promise shortening. pancake's local invariant matches
+and that order survives promise shortening. glowcap's local invariant matches
 that shape: every shortening edge names an import on the same session, so a
 retargeted deliver leaves on the same wire its predecessors left on. A test in
 `test/engine/peer/shortening_test.zig` pins the retargeting and same-wire emission.
 
 The receiver's half of that claim has no in-tree scenario, and it cannot get one
-between two pancake peers. Shortening starts from a promise this peer imported,
+between two glowcap peers. Shortening starts from a promise this peer imported,
 and `src/ocapn/engine/pipeline.zig` refuses a listen on a bare promise export,
-because pancake mints no free-standing resolvable promise for a partner to
+because glowcap mints no free-standing resolvable promise for a partner to
 listen on. The peer that shortens is therefore always some other implementation,
 so watching the arrival order is an interop question for a live Goblins vat
 rather than a scenario the oracle can drive. Watch the proposal, too, for a
@@ -103,25 +103,25 @@ express.
 ## Goblins Error interop
 
 The pinned OCapN Model defines Error as Passable data. OCapN PR 248 and issue
-142 track its still-open invariants. pancake carries that value through the
+142 track its still-open invariants. glowcap carries that value through the
 neutral model, both codecs, the owning Host, the C ABI, and every binding; a
 broken promise remains a different result shape. The pinned Goblins
-unmarshaller refuses an `<error>` record, so pancake's Goblins-compatible
+unmarshaller refuses an `<error>` record, so glowcap's Goblins-compatible
 resolver callback keeps its established bare-Symbol break reason. Watch for a
 shared live-peer form before changing that profile.
 
 ## Sets, keywords, and one concrete encoding
 
-The draft model lists neither Set nor Keyword. Goblins marshals both, so pancake
+The draft model lists neither Set nor Keyword. Goblins marshals both, so glowcap
 follows the Goblins wire, including canonical set order and duplicate refusal.
 Issue 283 asks whether the model should carry maps and sets, and issue 275 asks
-the wider question of a single concrete encoding. Either could move pancake's
+the wider question of a single concrete encoding. Either could move glowcap's
 Syrup surface, and neither is settled.
 
 ## Sturdyrefs and tagged values in the model
 
 PR 227 would add sturdy references to the model document, and PR 247 proposes a
-Syrup representation for Tagged. pancake ships both today, following Goblins.
+Syrup representation for Tagged. glowcap ships both today, following Goblins.
 What to watch for is a chosen representation that differs from the one on the
 wire now.
 
@@ -129,7 +129,7 @@ wire now.
 
 The CapTP text's `deposit-gift` example shows the gifted reference as a
 `desc:import-object`. PR 244 reports that it should be a `desc:export`, because
-the gifter is naming an object the exporter itself exported. pancake sends the
+the gifter is naming an object the exporter itself exported. glowcap sends the
 exported form, the one the live Goblins gift checks redeem, and accepts
 either shape on receive.
 
@@ -143,7 +143,7 @@ locator value and hint names are what have to agree.
 
 ## Native Zig QUIC
 
-pancake uses iroh rather than implementing QUIC. The decision reopens when
+glowcap uses iroh rather than implementing QUIC. The decision reopens when
 iroh's protocols stabilize and a production Zig QUIC stack exists
 ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
 
@@ -151,9 +151,9 @@ iroh's protocols stabilize and a production Zig QUIC stack exists
 
 OCapN issue 208 proposes a Noise-based identity layer that would run inside any
 byte transport, and an NLnet grant funds a standardized end-to-end encrypted
-relay netlayer at Spritely. Neither has spec text yet. pancake's own sealed
+relay netlayer at Spritely. Neither has spec text yet. glowcap's own sealed
 channel is [ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)
-(`Noise_XK` under two pancake-only symbols, `noise-tcp` and `noise-relay`);
+(`Noise_XK` under two glowcap-only symbols, `noise-tcp` and `noise-relay`);
 if upstream lands a Noise netlayer, the handshake pattern, prologue, and
 locator shape are what have to agree before the symbols can converge.
 
@@ -167,7 +167,7 @@ paths. Declared `via` order ranks a bounded two-attempt strong-route race;
 `alt-locators` remain ordered and serial after every strong route fails, with no
 transport-name weighting presented as upstream behavior. Session validation
 keeps route vocabulary out of a first hello until the remote side has offered
-`pancake-next` with the feature bit, and
+`glowcap-next` with the feature bit, and
 settled-session payloads require the negotiated bit. Host-level `id` sturdyrefs
 use the same opted-in feature gate and
 resolve through the Node pending-dial waist rather than through a physical

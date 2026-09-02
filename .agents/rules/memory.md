@@ -1,9 +1,9 @@
 ---
-description: "Zig pancake memory and frame ownership: owned transfer, bounded borrow, explicit test-only copies."
+description: "Zig glowcap memory and frame ownership: owned transfer, bounded borrow, explicit test-only copies."
 globs: src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
 ---
 
-# pancake — Memory and Frame Ownership
+# glowcap — Memory and Frame Ownership
 
 ## A copy is a design event
 
@@ -95,14 +95,18 @@ wrong.
 The 500k-connection destination is gated by the build (ADR-0045), so **a field
 added to session state is a withdrawal from it**. When a gate below trips, weigh
 the bytes and raise the budget deliberately, in the constant and in
-`docs/ladder.md` step 2 together. Never route around the check.
+`docs/ladder.md` step 2 together. Never route around the check. Every number
+below is a runtime-safety measurement (Debug and ReleaseSafe): each embedded
+std list or map header carries a one-word `pointer_stability` lock there that
+ReleaseFast and ReleaseSmall drop, so a fast build measures a word less per
+container and the ceilings absorb it.
 
 | Gate | Holds |
 | --- | --- |
-| `@sizeOf(Peer)` comptime (`peer_session_struct_budget_bytes`, 1136) | one session's struct |
+| `@sizeOf(Peer)` comptime (`peer_session_struct_budget_bytes`, 1176) | one session's struct |
 | `test/engine/footprint_budget_test.zig` | a warmed session's core state at or under 2 KiB |
-| `@sizeOf(Conn) - @sizeOf(engine.Peer)` comptime in `src/net/completion/loop/state.zig` | the loop wrapper's own bookkeeping at exactly `conn_slot_overhead_bytes` (128). An equality, so a field added to `Conn` fails the build rather than spending headroom nobody is watching |
-| `CompletionBackend.connection_state_bytes` / `secure_connection_state_bytes` in `test/net/keyed_relay_completion*_test.zig` | the completion-backed keyed-relay adapter state at exactly 248 bytes for a clear leg; WSS alone adds a sparse 37,216-byte TLS state including its two fixed 18 KiB record windows. Clear legs pay none of it. Mask entropy belongs to the single-owner backend RNG, not a 520-byte CSPRNG copied into every connection |
+| `@sizeOf(Conn) - @sizeOf(engine.Peer)` comptime in `src/net/completion/loop/state.zig` | the loop wrapper's own bookkeeping at exactly `conn_slot_overhead_bytes` (144). An equality, so a field added to `Conn` fails the build rather than spending headroom nobody is watching |
+| `CompletionBackend.connection_state_bytes` / `secure_connection_state_bytes` in `test/net/keyed_relay_completion*_test.zig` | the completion-backed keyed-relay adapter state at exactly 272 bytes for a clear leg; WSS alone adds a sparse 37,216-byte TLS state including its two fixed 18 KiB record windows. Clear legs pay none of it. Mask entropy belongs to the single-owner backend RNG, not a 520-byte CSPRNG copied into every connection |
 | `@sizeOf(HostSession)` comptime in `src/driver/core/host/session.zig` | the byte-fed host shell. The Host session ceiling is 528 bytes (ADR-0107's sealed-channel pointer is the last eight); narrower targets may be smaller. The Host owns one shared Vat, so the 448-byte Vat is charged once per Host rather than per session, and a `Peer` lives behind a pointer |
 | `test/actors/vat_footprint_budget_test.zig` | a burst-then-quiescent Vat back under the arena and one-spare bounds |
 | `test/engine/deliver_set_scratch_budget_test.zig` | a big-set frame's recv scratch under its bound |
@@ -180,7 +184,7 @@ pointing it at nothing.
   `peekResolution`, which is what makes a move safe where a borrow would dangle.
   Before mutation, `ResolutionStorePlan` admits replacement delta against an
   independent durable byte cap; GC, promise retirement, and teardown release
-  it. `PancakeSessionLimitOptions` and every binding's named counterpart expose
+  it. `GlowcapSessionLimitOptions` and every binding's named counterpart expose
   that cap independently from transient outbound pressure. Zero copies and no
   added Peer footprint, pinned by
   `test/engine/resolve_alloc_budget_test.zig` and
@@ -267,7 +271,7 @@ pointing it at nothing.
   encoded bytes: the builder reserves the segment-table word ahead of the
   segment and `Builder.initial_words` ahead of the growth cliff, so `finishOwned`
   hands its one allocation to the frame. The trim `finishOwned` ends on is
-  in-place on the allocators pancake ships against; one that cannot shrink there
+  in-place on the allocators glowcap ships against; one that cannot shrink there
   falls back to `std`'s copy, the cost this replaced.
 - **Boxed handoff argument** — the handoff arm of `view.zig`'s
   `Argument.toOwned`. Boxed so the largest arm does not set the size of _every_
@@ -278,7 +282,7 @@ pointing it at nothing.
   allocator pattern; the wire has slices.
 - **Give-location dialable form** — `handoff_gifter.exporterLocationForRecipient`.
   One decode-and-re-encode per give whose *onion* exporter hello carried
-  `pancake/*` profile hints and whose recipient is not known to be pancake
+  `glowcap/*` profile hints and whose recipient is not known to be glowcap
   (ADR-0118); every other give — every non-onion transport, every Goblins
   exporter — takes the null path allocation-free and embeds the verbatim
   hello bytes its receiver's withdrawal keying matches. The derivation lives
@@ -544,8 +548,8 @@ pointing it at nothing.
 - **Settle mailbox** — `driver.SettleMailbox` (ADR-0102). Fixed slots at init, so
   a worker's `post` allocates nothing; one boundary clone into the slot's arena,
   refusing `ValueTooLarge` and `MailboxFull`. Backpressure, never growth.
-- **Loop-archive dial and events** — `pancake_driver_dial`,
-  `pancake_driver_next_event` (ADR-0112). A dial projects the borrowed locator
+- **Loop-archive dial and events** — `glowcap_driver_dial`,
+  `glowcap_driver_next_event` (ADR-0112). A dial projects the borrowed locator
   only for its call and starts the provider immediately; the nonblocking
   provider contract lets the loop retain no locator copy. Admission reserves
   one event slot per externally observed open, so OPENED, OPEN_FAILED, and
@@ -594,7 +598,7 @@ name stays here.
   retains only the resolved target. Redeem stays ticket-only and re-borrows
   `pendingDial`; it must not take this cost.
 - **Binding dial OS-connect string** — each binding decodes `host` and
-  `addresses` once after `pancake_host_plan_dial`, because the OS connect API
+  `addresses` once after `glowcap_host_plan_dial`, because the OS connect API
   needs a language string. A second rematerialize of the same view through
   `readMemory` / `string_at` / `bytes<-c` is forbidden.
 - **Binding outbound flush copy** — TypeScript, Python, and Racket copy

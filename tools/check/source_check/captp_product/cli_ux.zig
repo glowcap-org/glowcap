@@ -22,7 +22,7 @@ pub fn checkCaptpLabUxHonesty(
         .{ .path = "cli/repl/panes.zig", .needle = "dial or listen", .why = "empty-session chrome must invite dial only (listen is argv-only)" },
         .{ .path = "cli/repl/panes.zig", .needle = "F1 / ?", .why = "help modal must not claim prompt ? opens it (F1 does; ? is tip at prompt)" },
         .{ .path = "docs/cli.md", .needle = "dial` / `listen` inside", .why = "lab starts with dial inside; listen stays argv-only" },
-        .{ .path = ".agents/skills/pancake-cli/SKILL.md", .needle = "dial/listen inside", .why = "skill session table: dial inside; listen argv-only" },
+        .{ .path = ".agents/skills/glowcap-cli/SKILL.md", .needle = "dial/listen inside", .why = "skill session table: dial inside; listen argv-only" },
         .{ .path = "cli/mcp/mod.zig", .needle = "\"version\":\"0.1.0\"", .why = "MCP serverInfo.version must come from build_options, not a hard-coded literal" },
         .{ .path = "cli/mcp/mod.zig", .needle = "Content-Length", .why = "MCP stdio is NDJSON per the MCP transport spec; LSP Content-Length framing breaks Cursor/Claude" },
         .{ .path = "cli/registry.zig", .needle = "if (std.mem.eql(u8, cmd.name, \"listen\")) continue", .why = "use leafVisible; no ad-hoc listen skip lists" },
@@ -92,7 +92,7 @@ test "captpVerbTableIsPartial catches incomplete inventory tables" {
         "| Front | Shape |\n| --- | --- |\n| argv | `call` / `tell` / `fetch` / `probe` |\n",
         &names,
     ));
-    try std.testing.expect(!skills.captpVerbTableIsPartial("defer to `pancake help`", &names));
+    try std.testing.expect(!skills.captpVerbTableIsPartial("defer to `glowcap help`", &names));
 }
 
 test "mentionsVerbInCode matches bare, call, and receiver-method phrasings" {
@@ -219,7 +219,7 @@ test "initializedPositive accepts only a bounded budget that closes its own init
     try std.testing.expect(deadlines.initializedPositive("", ".{ .handshake = .{ .ms = 10_000 } }", "handshake"));
     try std.testing.expect(deadlines.initializedPositive("", ".{\n    .settle = .{ .ms = 5000 },\n}", "settle"));
     try std.testing.expect(deadlines.initializedPositive("", ".{ .handshake = driver.default_handshake_budget }", "handshake"));
-    try std.testing.expect(deadlines.initializedPositive("", ".{ .settle = pancake.driver.default_settle_budget }", "settle"));
+    try std.testing.expect(deadlines.initializedPositive("", ".{ .settle = glowcap.driver.default_settle_budget }", "settle"));
 
     // The unbounded spelling, and the expired zero, however spelled.
     try std.testing.expect(!deadlines.initializedPositive("", ".{ .handshake = .unbounded }", "handshake"));

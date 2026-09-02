@@ -5,7 +5,7 @@
 //! bootstrap-fetch, an inbound dispatch mode) and returns the resulting wire
 //! bytes. Those byte traces are the conformance evidence: the Zig oracle tests
 //! (`test/oracle`) compare them for identical observable behavior. The drivers
-//! live in their own `oracle` module, off the public `pancake` namespace: the
+//! live in their own `oracle` module, off the public `glowcap` namespace: the
 //! tests import it directly, and no binding consumes it — the bindings prove
 //! the C ABI by dogfood, not by oracle traces.
 //!

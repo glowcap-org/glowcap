@@ -14,7 +14,7 @@
 // keeps its rule there — an attachment's is in `attachment.ts` beside the
 // record it describes.
 
-import { WEBRTC_MAX_SIGNAL_BYTES } from "@pancake/abi";
+import { WEBRTC_MAX_SIGNAL_BYTES } from "@glowcap/abi";
 
 /** Hard length caps a room enforces, so an oversize name or line is refused at
  * the edge instead of silently truncated (a lying path that delivered half a
@@ -221,6 +221,15 @@ export const MAX_FORM_ACTIONS = 3;
  * actions, which is a few kilobytes with its punctuation. This is that with room
  * to spare, and it is still a ceiling rather than a wish. */
 export const MAX_FORM_JSON = 16 * 1024;
+
+/** The JSON one whole gateway description may cross as.
+ *
+ * A gateway carries its two forms plus every connection with its leases, so
+ * `MAX_FORM_JSON` is far too small for a loaded one, and the schema's
+ * theoretical product (a thousand connections of a thousand leases) is not a
+ * deployment, it is an attack. A quarter mebibyte holds hundreds of fully
+ * loaded connections and is checked before the description is parsed. */
+export const MAX_GATEWAY_JSON = 256 * 1024;
 
 /** What a bridge may name as the reach of one form's answers. Sized like a
  * room or a network name, because on every bridge so far it is one of those. */

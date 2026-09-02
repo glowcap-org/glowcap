@@ -4,7 +4,7 @@ import { DirectoryPeering, type DurableRoom } from "../lib/peering.ts";
 import type { Directory } from "../lib/directory.ts";
 import type { RoomsSessionState, WorkspacePeeringIntent } from "../lib/rooms_state.ts";
 import type { LiveDirectory } from "./live.ts";
-import { retainSecondaryFailure } from "@pancake/runtime";
+import { retainSecondaryFailure } from "@glowcap/runtime";
 
 const RETRY_FLOOR_MS = 1_000;
 

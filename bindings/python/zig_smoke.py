@@ -1,7 +1,7 @@
-"""Python dogfood of the Zig pancake C ABI archives, through the idiomatic
-``pancake`` module: drive OCapN with native Python values, no FFI in sight.
+"""Python dogfood of the Zig glowcap C ABI archives, through the idiomatic
+``glowcap`` module: drive OCapN with native Python values, no FFI in sight.
 The public ``connect`` / ``listen`` scenarios run over the native loop
-archive (``libpancake_driver``, ADR-0112); the keyed-relay byte seam is tested
+archive (``libglowcap_driver``, ADR-0112); the keyed-relay byte seam is tested
 only through its explicit low-level adapter. This is the consumer ``zig build
 bindings`` runs."""
 
@@ -14,21 +14,21 @@ import sys
 import socket
 import threading
 
-from pancake._lifecycle import _lifecycle_closed
+from glowcap._lifecycle import _lifecycle_closed
 
-from pancake import (
+from glowcap import (
     tcp,
     Context,
     FailureLayer,
     FailureScope,
-    PancakeError,
+    GlowcapError,
     Ref,
     abi_version,
     Runtime,
     format_sturdyref,
     parse_sturdyref,
 )
-from pancake._constants import (
+from glowcap._constants import (
     ERR_INTERNAL,
     ERR_IO,
     FAILURE_LAYER_TRANSPORT,
@@ -36,9 +36,9 @@ from pancake._constants import (
     LIFECYCLE_ACTIVE,
     LIFECYCLE_CLOSED,
 )
-from pancake._constants import _provenance_from_abi
-from pancake.inproc import InprocNetlayer
-from pancake.tcp import TcpNetlayer
+from glowcap._constants import _provenance_from_abi
+from glowcap.inproc import InprocNetlayer
+from glowcap.tcp import TcpNetlayer
 
 
 from smoke import (
@@ -67,7 +67,7 @@ def main() -> int:
     for decode in (_lifecycle_closed, _provenance_from_abi):
         try:
             decode(0xFFFF_FFFF)
-        except (PancakeError, ValueError):
+        except (GlowcapError, ValueError):
             pass
         else:
             raise AssertionError("unknown native discriminant was normalized")
@@ -172,7 +172,7 @@ def main() -> int:
 
     host_lifecycle.run()
     # Run a real frame over a TCP socket: one frame, loopback. The blocking TCP
-    # shuttle is its own à-la-carte archive, composed from `pancake.tcp`.
+    # shuttle is its own à-la-carte archive, composed from `glowcap.tcp`.
     with TcpNetlayer() as nl:
         listener = nl.listen("127.0.0.1", 0)
         port = listener.port()
@@ -270,7 +270,7 @@ def main() -> int:
     assert accept_errors, "TCP listener shutdown did not interrupt a blocked accept"
 
     # The socket-free in-process transport is its own archive too, surfaced as
-    # `pancake.inproc`: a listener binds an opaque designator and a dialer names
+    # `glowcap.inproc`: a listener binds an opaque designator and a dialer names
     # it, the same frame shuttle as TCP, no kernel socket touched.
     with InprocNetlayer() as nl:
         listener = nl.listen("smoke")
@@ -299,7 +299,7 @@ def main() -> int:
         gc.collect()
         try:
             nl.connect("orphan-smoke")
-        except PancakeError:
+        except GlowcapError:
             pass
         else:
             raise AssertionError("a collected inproc listener kept native authority")
@@ -483,7 +483,7 @@ def main() -> int:
 
     runtime.run_managed(lifecycle._silent_loop_dial_reaches_native_handshake_deadline())
     print(
-        "python zig-smoke OK: a silent loop dial reaches pancake's native handshake deadline"
+        "python zig-smoke OK: a silent loop dial reaches glowcap's native handshake deadline"
     )
 
     runtime.run_managed(lifecycle._host_close_shuts_a_still_open_listener())

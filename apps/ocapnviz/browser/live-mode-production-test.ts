@@ -17,7 +17,7 @@ const vizHostScript = new URL(
 );
 const requiredAssets = [
 	"index.html",
-	"pancake_host.wasm",
+	"glowcap_host.wasm",
 	"favicon.svg",
 	"fonts/DepartureMono-Regular.woff2",
 	"sw.js",
@@ -393,14 +393,14 @@ try {
 
 	const wasmInitialized = await page.evaluate(() =>
 		(globalThis as Record<symbol, unknown>)[
-			Symbol.for("pancake.runtime.adapter")
+			Symbol.for("glowcap.runtime.adapter")
 		] !== undefined
 	);
 	if (!wasmInitialized) {
 		fail("the production tab never installed the wasm runtime adapter");
 	}
-	if ((served.get("/pancake_host.wasm") ?? 0) < 1) {
-		fail("the production tab never requested pancake_host.wasm");
+	if ((served.get("/glowcap_host.wasm") ?? 0) < 1) {
+		fail("the production tab never requested glowcap_host.wasm");
 	}
 	if (browserFailures.length > 0) {
 		fail(`browser failures:\n${browserFailures.join("\n")}`);
@@ -408,7 +408,7 @@ try {
 
 	console.log(JSON.stringify({
 		sturdyref,
-		wasmRequests: served.get("/pancake_host.wasm") ?? 0,
+		wasmRequests: served.get("/glowcap_host.wasm") ?? 0,
 		replay,
 		live,
 		observerSessionAbsent: replay.sessions.length === 1 &&

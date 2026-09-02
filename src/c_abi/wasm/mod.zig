@@ -1,14 +1,14 @@
 //! The browser binding's WebAssembly entry surface (ADR-0070).
 //!
 //! A freestanding `wasm32` module that exposes the byte-fed CapTP Host
-//! (`libpancake_host`, ADR-0072) and the shared `libpancake_ocapn` vocabulary
+//! (`libglowcap_host`, ADR-0072) and the shared `libglowcap_ocapn` vocabulary
 //! to a JavaScript host that instantiates it in a browser. The Host is sans-io
 //! and draws no entropy, so the browser drives it exactly as a C embedder does:
 //! feed inbound frames, drain outbound frames, honor the action queue, and
-//! answer the two entropy seams — the `pancake_host_new` seed and the
+//! answer the two entropy seams — the `glowcap_host_new` seed and the
 //! NEED_GIFT_ID action — from `crypto.getRandomValues`.
 //!
-//! This root exists only to force the `pancake_*` (ocapn) and `pancake_host_*`
+//! This root exists only to force the `glowcap_*` (ocapn) and `glowcap_host_*`
 //! export families into the wasm module and to add the two JS<->wasm linear-
 //! memory primitives below, so the host can place `ptr + len` inputs into wasm
 //! memory and reclaim them. It declares no CapTP surface of its own: every
@@ -22,8 +22,8 @@ comptime {
     // Pull both export families into the wasm module: the shared ocapn
     // vocabulary/uri/frame/peer surface and the byte-fed host family. The
     // library allocator resolves to the single-threaded wasm allocator on this
-    // target (see `c_abi_shared.library_allocator`), so `pancake_host_new`
-    // works here without a caller-supplied `PancakeContext`.
+    // target (see `c_abi_shared.library_allocator`), so `glowcap_host_new`
+    // works here without a caller-supplied `GlowcapContext`.
     const ocapn = @import("c_abi");
     for (ocapn.symbols.symbols) |symbol| _ = @field(ocapn, symbol.name);
     for (driver.symbols.symbols) |symbol| _ = @field(driver, symbol.name);
@@ -32,21 +32,21 @@ comptime {
 /// Allocate `len` bytes in wasm linear memory and return the offset (0 on
 /// failure or an empty request), from the same heap the library allocates its
 /// handles on. The JS host writes an input here, passes `ptr + len` to a
-/// `pancake_*` call, then frees it with `pancake_wasm_free` once the call
+/// `glowcap_*` call, then frees it with `glowcap_wasm_free` once the call
 /// returns. The caller tracks `len`; free must pass the same value.
 ///
 /// The returned offset is byte-aligned only. A caller that stores a wider type
-/// here — an out-parameter struct such as `PancakeManagedFrame` — relies on
+/// here — an out-parameter struct such as `GlowcapManagedFrame` — relies on
 /// wasm's unaligned linear-memory access, which is well defined on this target.
-export fn pancake_wasm_alloc(len: usize) usize {
+export fn glowcap_wasm_alloc(len: usize) usize {
     if (len == 0) return 0;
     const buf = shared.library_allocator.alloc(u8, len) catch return 0;
     return @intFromPtr(buf.ptr);
 }
 
-/// Free a block from `pancake_wasm_alloc`. `ptr`/`len` must match the values the
+/// Free a block from `glowcap_wasm_alloc`. `ptr`/`len` must match the values the
 /// allocation returned and requested; a zero pointer or length is a no-op.
-export fn pancake_wasm_free(ptr: usize, len: usize) void {
+export fn glowcap_wasm_free(ptr: usize, len: usize) void {
     if (ptr == 0 or len == 0) return;
     const p: [*]u8 = @ptrFromInt(ptr);
     shared.library_allocator.free(p[0..len]);
@@ -73,7 +73,7 @@ fn nameHash(comptime name: []const u8) u32 {
     return hash;
 }
 
-/// The structs `pancake_wasm_abi_layout` reports, in canonical order. The
+/// The structs `glowcap_wasm_abi_layout` reports, in canonical order. The
 /// descriptor's blob is these structs concatenated in this exact order, and the
 /// JS marshaller keys on this index.
 ///
@@ -102,7 +102,7 @@ const layout_word_count: u32 = blk: {
 /// word count; when `cap` is smaller than that the descriptor writes nothing,
 /// so a caller probes the size with `cap == 0` (a null `out` is fine then),
 /// allocates `count * 4` bytes, and calls again.
-export fn pancake_wasm_abi_layout(out: [*]u32, cap: u32) u32 {
+export fn glowcap_wasm_abi_layout(out: [*]u32, cap: u32) u32 {
     if (cap < layout_word_count) return layout_word_count;
     var i: usize = 0;
     inline for (layout_specs) |spec| {
@@ -122,7 +122,7 @@ export fn pancake_wasm_abi_layout(out: [*]u32, cap: u32) u32 {
 }
 
 // ── Hosted-object callback seams ────────────────────────────────────────────
-// A hosted object's behavior is a C function pointer (`PancakeHostBehavior`)
+// A hosted object's behavior is a C function pointer (`GlowcapHostBehavior`)
 // the vat calls on every deliver. A browser cannot hand wasm a distinct C
 // function pointer per object, so every wasm-hosted object registers this one
 // shared imported trampoline as its behavior and tells objects apart by the
@@ -134,39 +134,39 @@ export fn pancake_wasm_abi_layout(out: [*]u32, cap: u32) u32 {
 // ctx→object ownership stays in the browser adapter (ADR-0070 Milestone 1).
 
 /// The one behavior trampoline the browser adapter implements. Its signature
-/// mirrors `PancakeHostBehavior` exactly — on wasm32 every pointer and `usize`
+/// mirrors `GlowcapHostBehavior` exactly — on wasm32 every pointer and `usize`
 /// is an `i32`, so the seven parameters and the `i32` result are all `i32` on
 /// the wire — so the vat calls it through the same fn-pointer path a native host
 /// uses. The vat borrows `verb`/`args` for the call and copies `out_reply`'s
 /// payload the instant the trampoline returns, so the adapter keeps those bytes
 /// valid across the return; any non-OK return settles the answer broken.
-extern "env" fn pancake_behavior_trampoline(
+extern "env" fn glowcap_behavior_trampoline(
     ctx: ?*anyopaque,
-    turn: ?*driver.PancakeHostTurn,
+    turn: ?*driver.GlowcapHostTurn,
     verb: [*]const u8,
     verb_len: usize,
-    args: ?[*]const shared.PancakeArgument,
+    args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
-    out_reply: *shared.PancakeArgument,
+    out_reply: *shared.GlowcapArgument,
 ) callconv(.c) i32;
 
 /// Notify the JavaScript adapter that native ownership of a hosted behavior
-/// ended. Its signature mirrors `PancakeHostFree` exactly.
-extern "env" fn pancake_hosted_free_trampoline(ctx: ?*anyopaque) callconv(.c) void;
+/// ended. Its signature mirrors `GlowcapHostFree` exactly.
+extern "env" fn glowcap_hosted_free_trampoline(ctx: ?*anyopaque) callconv(.c) void;
 
 /// Return the behavior function pointer the browser adapter registers when it
 /// publishes or spawns a wasm-hosted object: the `__indirect_function_table`
-/// index of `pancake_behavior_trampoline`, passed as the `behavior` argument to
-/// `pancake_host_session_publish` / `pancake_host_session_spawn` /
-/// `pancake_host_turn_spawn`. Taking the trampoline's address also references
+/// index of `glowcap_behavior_trampoline`, passed as the `behavior` argument to
+/// `glowcap_host_session_publish` / `glowcap_host_session_spawn` /
+/// `glowcap_host_turn_spawn`. Taking the trampoline's address also references
 /// the import so `wasm-ld` cannot dead-strip an as-yet-uncalled seam.
-export fn pancake_wasm_behavior_trampoline_addr() usize {
-    return @intFromPtr(&pancake_behavior_trampoline);
+export fn glowcap_wasm_behavior_trampoline_addr() usize {
+    return @intFromPtr(&glowcap_behavior_trampoline);
 }
 
 /// Return the function-table index registered as a hosted actor's `free`
 /// callback. Keeping this distinct from behavior dispatch preserves both C
 /// signatures and makes a mismatched adapter fail at instantiation.
-export fn pancake_wasm_hosted_free_trampoline_addr() usize {
-    return @intFromPtr(&pancake_hosted_free_trampoline);
+export fn glowcap_wasm_hosted_free_trampoline_addr() usize {
+    return @intFromPtr(&glowcap_hosted_free_trampoline);
 }

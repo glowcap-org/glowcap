@@ -6,7 +6,7 @@ bot cap**, and posts status on the right surface.
 
 ## Roster capacity (call-in / dismiss)
 
-Default **`PANCAKE_ROOMS_TEAM_MAX_BOTS=4`**, **including the lead** → at most 3 member
+Default **`GLOWCAP_ROOMS_TEAM_MAX_BOTS=4`**, **including the lead** → at most 3 member
 Tasks+peers concurrent. Override via env or human ask; announce non-default caps
 in the room.
 
@@ -32,7 +32,7 @@ Two coordination surfaces exist:
 
 | Surface | What it is | Who may move work here |
 | ------- | ---------- | ---------------------- |
-| **Room** | pancake chat (this team’s room / DMs) | Human only (to/from harness) |
+| **Room** | glowcap chat (this team’s room / DMs) | Human only (to/from harness) |
 | **Harness** | Cursor/Claude/Codex session outside the room | Human only (to/from room) |
 
 **Rule:** wherever a thread of work is already happening, **keep it there**.
@@ -86,9 +86,9 @@ scratch note: nick → last class + time) — the script does not store history.
 
 ```sh
 # answer a pending line (marks it done)
-pancake app rooms-peer reply --dir DIR --id ID --text '…'
+glowcap app rooms-peer reply --dir DIR --id ID --text '…'
 # unsolicited room line (no --id) — strategy announce, kick notice, soft ping
-pancake app rooms-peer reply --dir DIR --text '@nick still on X?'
+glowcap app rooms-peer reply --dir DIR --text '@nick still on X?'
 ```
 
 Both append `outbox.jsonl`; the peer drains them (`outbox.offset` cursor;

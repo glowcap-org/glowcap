@@ -25,8 +25,8 @@
 import { Directory, Room } from "../../lib/room/client.ts";
 import type { RoomInfo } from "../../lib/directory_publications.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
-import type { Ref } from "@pancake/runtime";
-import { Reachability } from "@pancake/iroh";
+import type { Ref } from "@glowcap/runtime";
+import { Reachability } from "@glowcap/iroh";
 import { dialDirectory, isUriLocator } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 

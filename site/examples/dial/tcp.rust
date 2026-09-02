@@ -1,4 +1,4 @@
-use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 // Plain TCP uses a cleartext host and port.
 let partner = tcp::locator("127.0.0.1", 9099);

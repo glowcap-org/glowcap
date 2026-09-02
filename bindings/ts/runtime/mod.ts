@@ -1,8 +1,8 @@
-// Idiomatic JavaScript/TypeScript API for pancake — a full OCapN/CapTP host
-// over the symbol-disjoint `libpancake_host` and `libpancake_driver`
-// archives (ADR-0112), with `libpancake_ocapn` owning their shared value and
-// locator vocabulary (ADR-0059). Host owns `pancake_host_*`; driver exports
-// only `pancake_driver_*` and adopts a quiescent Host. One module
+// Idiomatic JavaScript/TypeScript API for glowcap — a full OCapN/CapTP host
+// over the symbol-disjoint `libglowcap_host` and `libglowcap_driver`
+// archives (ADR-0112), with `libglowcap_ocapn` owning their shared value and
+// locator vocabulary (ADR-0059). Host owns `glowcap_host_*`; driver exports
+// only `glowcap_driver_*` and adopts a quiescent Host. One module
 // runs on Deno and Bun; the runtime-specific FFI and sockets are isolated
 // behind `./internal/ffi/runtime.ts`.
 //
@@ -13,13 +13,13 @@
 // packets itself: each `Session`'s serve loop feeds the Host transport seam
 // and honors the host's action queue (dial, flush, entropy,
 // settle). A transport
-// that links its own pancake archive lives in its own module beside this one —
-// `@pancake/tcp`, `@pancake/inproc`, `@pancake/onion`, and the optional
-// `@pancake/iroh` package — exactly as a C consumer links archives à la carte.
+// that links its own glowcap archive lives in its own module beside this one —
+// `@glowcap/tcp`, `@glowcap/inproc`, `@glowcap/onion`, and the optional
+// `@glowcap/iroh` package — exactly as a C consumer links archives à la carte.
 //
 // The implementation is split by responsibility into sibling modules; this
-// file is the barrel that re-exports the public surface, so `@pancake/runtime`'s
-// import path is one place. The layers: `errors` (the `PancakeError` family),
+// file is the barrel that re-exports the public surface, so `@glowcap/runtime`'s
+// import path is one place. The layers: `errors` (the `GlowcapError` family),
 // `value` (the value vocabulary plus the `Ref`/`Argument` application layer),
 // `codec`/`context` (marshalling and allocation scopes), `trampoline` (the one
 // native behavior callback), `host` (the `Host`), `action` (host-action
@@ -39,7 +39,7 @@ import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 
 export {
 	FetchFailed,
-	PancakeError,
+	GlowcapError,
 	PublicationNotFound,
 	retainCleanupFailures,
 	retainSecondaryFailure,
@@ -123,7 +123,7 @@ export { Connector, type ConnectorRequest, type DriverProvider, type TransportOp
 // (ADR-0088). Runtime-neutral: the `WebSocket` global is a web standard every
 // supported runtime ships. The dialing half is not exported here: a
 // `keyed-relay` locator names its relay route in its `rendezvous-relay` hint,
-// and `@pancake/relay` supplies the connector and native provider that
+// and `@glowcap/relay` supplies the connector and native provider that
 // follow it.
 export {
 	type RendezvousHandle,
@@ -172,7 +172,7 @@ export function abiVersion(): [number, number, number] {
 	const major = new Uint8Array(4),
 		minor = new Uint8Array(4),
 		patch = new Uint8Array(4);
-	s.pancake_abi_version(major, minor, patch);
+	s.glowcap_abi_version(major, minor, patch);
 	return [
 		new DataView(major.buffer).getUint32(0, true),
 		new DataView(minor.buffer).getUint32(0, true),

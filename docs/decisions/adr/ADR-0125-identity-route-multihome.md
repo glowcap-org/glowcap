@@ -2,8 +2,8 @@
 id: ADR-0125
 status: accepted
 date: 2026-08-24
-tags: [locators, netlayer, negotiation, handoff, pancake-next, upstream]
-decision: "pancake multi-homing has one product shape: an id locator names a durable public key, ordered via routes form a bounded key-proving race, alt-locators carries serial handoff-only weak fallbacks, and the comparison-only pancake/locations vocabulary is removed."
+tags: [locators, netlayer, negotiation, handoff, glowcap-next, upstream]
+decision: "glowcap multi-homing has one product shape: an id locator names a durable public key, ordered via routes form a bounded key-proving race, alt-locators carries serial handoff-only weak fallbacks, and the comparison-only glowcap/locations vocabulary is removed."
 supersedes: [ADR-0119]
 superseded_by: []
 amends: []
@@ -18,7 +18,7 @@ ADR-0119 required two candidate shapes to produce the same measurement. The
 completed comparison, recorded under [Measurement](#measurement) below, found
 that only the identity-route shape could answer the capability-semantic question:
 which fact makes several routes one peer? Its outer durable key is that fact,
-and authenticated channels can prove it. The `pancake/locations` candidate
+and authenticated channels can prove it. The `glowcap/locations` candidate
 carried a list but supplied no same-peer proof, drove no dial, supported no
 sturdyref, and had no product consumer.
 
@@ -29,7 +29,7 @@ private shape is presented as upstream behavior.
 
 ## Decision
 
-Ship one `pancake-next` multi-home shape. An `id` locator's designator is the
+Ship one `glowcap-next` multi-home shape. An `id` locator's designator is the
 peer's durable public key. Its required `via` hint contains bounded carrier
 locators whose channels must prove that same key. Optional `alt-locators` are
 weak fallbacks authorized only for the handoff that carried them. The existing
@@ -49,9 +49,9 @@ delay from a single path while bounding physical attempts, cancellation state,
 and binding tasks per logical dial. Route indices stay stable across DIAL,
 CANCEL_DIAL, and completion calls; they are attempt identity as well as rank.
 
-Remove all special meaning for `pancake/locations`. It is not a reserved
+Remove all special meaning for `glowcap/locations`. It is not a reserved
 tombstone: unknown hints retain the ordinary OCapN hint behavior, while no
-pancake layer parses that name, strips it, treats it as route vocabulary, or
+glowcap layer parses that name, strips it, treats it as route vocabulary, or
 claims it reaches the same peer.
 
 ## Measurement
@@ -60,7 +60,7 @@ Both shapes were built on one shared core and measured against the same
 question: can one durable peer remain reachable through several changing
 transports without weakening identity or the OCapN 1.0 compatibility floor?
 
-| Surface | `id/via` identity route | `pancake/locations` locator list |
+| Surface | `id/via` identity route | `glowcap/locations` locator list |
 | --- | --- | --- |
 | Peer identity | Outer designator is the durable key; every strong route must prove it | Primary locator remains the identity; no rule proves the listed locators name it |
 | Dial behavior | Materializes bounded routes and drives Node pending dials | Added no dial paths; deliberately ignored by the dial planner |
@@ -86,7 +86,7 @@ every reader a second vocabulary whose security semantics could not be stated.
 
 ## Scope (what this does not decide)
 
-- The `id` and `via` names remain a pancake-private extension until OCapN
+- The `id` and `via` names remain a glowcap-private extension until OCapN
   specifies a compatible shape.
 - The generic physical-session dial planner continues to reject `id`; Node's
   pending-dial owner expands the bundle before any transport is selected.

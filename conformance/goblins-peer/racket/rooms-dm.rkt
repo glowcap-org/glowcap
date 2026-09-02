@@ -1,5 +1,5 @@
 #lang racket/base
-;; rooms-dm.rkt — direct messages in a pancake rooms chat, held by a real
+;; rooms-dm.rkt — direct messages in a glowcap rooms chat, held by a real
 ;; Spritely Goblins vat.
 ;;
 ;; A room introduces two members and then gets out of the way: the message
@@ -7,7 +7,7 @@
 ;; none of it. That is OCapN's three-party handoff (ADR-0009), and it is the same
 ;; conversation whichever implementation is standing at each corner. This module
 ;; is the Goblins member's whole half of it, so a vat is as reachable by direct
-;; message as any pancake peer in the same room.
+;; message as any glowcap peer in the same room.
 ;;
 ;; Three roles meet at one message, and this vat plays two of them:
 ;;
@@ -24,7 +24,7 @@
 ;;                     that member directly. Whether the dial lands is the
 ;;                     member's transport: an address or an endpoint key this
 ;;                     vat's netlayer speaks is reachable, and a member reachable
-;;                     only through pancake's own relay is not. A member reached
+;;                     only through glowcap's own relay is not. A member reached
 ;;                     over a keyed transport is a further limit that
 ;;                     `docs/boundaries.md` states. Whatever this direction can
 ;;                     reach, a member that messaged us first is always

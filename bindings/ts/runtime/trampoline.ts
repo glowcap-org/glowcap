@@ -1,7 +1,7 @@
 // The behavior trampoline: the ONE native callback in the whole binding. Every
 // hosted object — a `Session.spawn`/`publish` actor, a caretaker or
 // attenuator proxy, a host-wide giftable — registers here and shares a single
-// process-lifetime `PancakeHostBehavior` whose ctx is the entry's registry id
+// process-lifetime `GlowcapHostBehavior` whose ctx is the entry's registry id
 // packed as a pointer-sized integer. Host-wide publications also pass the one
 // shared context-free callback, so the native Vat retires their JS ownership
 // with their last actor root. Settlements never cross
@@ -11,9 +11,9 @@
 // trampoline returns, so the encoded reply's buffers are retained in the
 // module's one keep slot across the return (overwritten by the next reply —
 // the previous one has long been copied). A thrown error crosses the boundary
-// through `pancake_host_turn_break`, which settles the answer broken with the
+// through `glowcap_host_turn_break`, which settles the answer broken with the
 // actor's own words — a bare non-OK return would flatten "Revoked" into a
-// generic reason. A `Forward` return maps onto `pancake_host_turn_forward`
+// generic reason. A `Forward` return maps onto `glowcap_host_turn_forward`
 // (the caretaker/attenuator primitive): a target hosted by the same Host
 // composes in process, a far target defers the answer onto the forwarded
 // send's vow.
@@ -21,9 +21,9 @@
 import { hostS } from "./internal/ffi/host.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer, outU64, readBytes } from "./internal/seam.ts";
-import { MAX_LOCAL_FORWARD_HOPS, OK } from "@pancake/abi";
+import { MAX_LOCAL_FORWARD_HOPS, OK } from "@glowcap/abi";
 import { FORWARD_CYCLE_MESSAGE } from "./internal/constants.ts";
-import { checkHost, hostLastError, PancakeError, VowBroken } from "./errors.ts";
+import { checkHost, GlowcapError, hostLastError, VowBroken } from "./errors.ts";
 import { type Argument, type Behavior, Forward, Ref, refFromId } from "./value.ts";
 import { encodeArgs, readArgArray, refStruct } from "./abi_value.ts";
 import { type PromiseFactoryHandle, RemotePromise, sendFar } from "./promise.ts";
@@ -104,7 +104,7 @@ export function runHosted(
 	// delivered this call. The turn itself is the authority for that Port; the
 	// binding only maps its borrowed session handle to the public wrapper.
 	const outSession = new Uint8Array(8);
-	checkHost(hostS.pancake_host_turn_session(turn, ab(outSession)));
+	checkHost(hostS.glowcap_host_turn_session(turn, ab(outSession)));
 	const session = activeDeliver?.turnSession(outPointer(outSession)) ?? null;
 	activeDeliver?.trackTurnArguments(session, args);
 	const prev = currentTurn;
@@ -155,7 +155,7 @@ export function sendLocal(
 			}
 			return result === undefined ? null : result;
 		} catch (err) {
-			if (err instanceof PancakeError) throw err;
+			if (err instanceof GlowcapError) throw err;
 			throw new VowBroken(err instanceof Error ? err.message : String(err));
 		}
 	};
@@ -190,7 +190,7 @@ export async function tellLocal(
 	}
 }
 
-/** Far tell mint: encode args, call `pancake_host_session_tell`, kick the drain. Local
+/** Far tell mint: encode args, call `glowcap_host_session_tell`, kick the drain. Local
  * targets stay behind `dispatchTell` / `tellLocal`. */
 export async function tellFar(
 	h: PromiseFactoryHandle,
@@ -202,7 +202,7 @@ export async function tellFar(
 	const keep: Uint8Array[] = [];
 	const argsBuf = encodeArgs(args, keep);
 	if (target instanceof RemotePromise) {
-		checkHost(hostS.pancake_host_vow_tell(
+		checkHost(hostS.glowcap_host_vow_tell(
 			h.hostRaw,
 			target.farVow(h.hostOwner),
 			ab(verbBytes),
@@ -211,7 +211,7 @@ export async function tellFar(
 			BigInt(args.length),
 		));
 	} else {
-		checkHost(hostS.pancake_host_session_tell(
+		checkHost(hostS.glowcap_host_session_tell(
 			h.ptr,
 			ab(refStruct(target)),
 			ab(verbBytes),
@@ -269,7 +269,7 @@ export async function dispatchTell(
 }
 
 // The turn context while a hosted object's trampoline runs: the opaque
-// `PancakeHostTurn*` and the Session whose Port delivered it, or null outside
+// `GlowcapHostTurn*` and the Session whose Port delivered it, or null outside
 // any turn. `Session.spawn` reads it to pick the turn-time spawn over the
 // top-level one (which the host refuses inside a callback); `Host.kickActions`
 // reads it to defer action drains to the enclosing verb's unwind.
@@ -330,7 +330,7 @@ void lastReplyKeep; // held for its liveness, never read
 // the trampoline hands back (OK: the break already settled the answer).
 function turnBreak(turn: Ptr, message: string): number {
 	const msg = utf8Encoder.encode(message);
-	const rc = hostS.pancake_host_turn_break(turn, ab(msg), BigInt(msg.length));
+	const rc = hostS.glowcap_host_turn_break(turn, ab(msg), BigInt(msg.length));
 	return rc === OK ? OK : rc;
 }
 
@@ -368,7 +368,7 @@ function settleReply(
 		const keep: Uint8Array[] = [];
 		const verbBytes = utf8Encoder.encode(result.verb);
 		const argsBuf = encodeArgs(result.args, keep);
-		const rc = hostS.pancake_host_turn_forward(
+		const rc = hostS.glowcap_host_turn_forward(
 			turn,
 			ab(refStruct(result.target)),
 			ab(verbBytes),
@@ -526,7 +526,7 @@ export function spawnHosted(h: HostingHandle, behavior: Behavior): Ref {
 			refId = turnSpawn(turn, ctx);
 		} else {
 			const out = new Uint8Array(8);
-			checkHost(hostS.pancake_host_session_spawn(
+			checkHost(hostS.glowcap_host_session_spawn(
 				h.ptr,
 				trampolinePointer(),
 				ctx,
@@ -556,7 +556,7 @@ export function publishHosted(
 	// free = NULL: the host never owns the row, so a refused publish must
 	// unregister it here or it pins the behavior for the process's life.
 	try {
-		checkHost(hostS.pancake_host_session_publish(
+		checkHost(hostS.glowcap_host_session_publish(
 			h.ptr,
 			ab(swiss),
 			BigInt(swiss.length),
@@ -578,6 +578,6 @@ export function publishHosted(
  * allows where the top-level spawn is refused. Returns its opaque Host id. */
 export function turnSpawn(turn: Ptr, ctxId: bigint): bigint {
 	const out = new Uint8Array(8);
-	checkHost(hostS.pancake_host_turn_spawn(turn, trampolinePointer(), ctxId, NULL, ab(out)));
+	checkHost(hostS.glowcap_host_turn_spawn(turn, trampolinePointer(), ctxId, NULL, ab(out)));
 	return outU64(out);
 }

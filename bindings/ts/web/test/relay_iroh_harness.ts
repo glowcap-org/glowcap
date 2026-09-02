@@ -9,7 +9,7 @@
 //   the relay            the program under test, dialing `?locator=<uri>` over
 //                        iroh and piping bytes both ways without parsing them.
 //   the probe            `iroh_relay_probe.ts` bundled through
-//                        `browser-bundle.json`, so `@pancake/iroh` resolves to
+//                        `browser-bundle.json`, so `@glowcap/iroh` resolves to
 //                        the browser arm exactly as a page's bundle does.
 //
 // The assertion is a fetch-and-call round trip through the whole chain.

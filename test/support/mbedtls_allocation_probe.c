@@ -26,7 +26,7 @@ static void retain_peak(size_t candidate)
     }
 }
 
-void *pancake_mbedtls_probe_calloc(size_t count, size_t size)
+void *glowcap_mbedtls_probe_calloc(size_t count, size_t size)
 {
     if (size != 0 && count > (SIZE_MAX - sizeof(AllocationHeader)) / size)
         return NULL;
@@ -42,7 +42,7 @@ void *pancake_mbedtls_probe_calloc(size_t count, size_t size)
     return header + 1;
 }
 
-void pancake_mbedtls_probe_free(void *ptr)
+void glowcap_mbedtls_probe_free(void *ptr)
 {
     if (ptr == NULL)
         return;
@@ -52,7 +52,7 @@ void pancake_mbedtls_probe_free(void *ptr)
     free(header);
 }
 
-void pancake_mbedtls_probe_reset_window(void)
+void glowcap_mbedtls_probe_reset_window(void)
 {
     atomic_store_explicit(
         &peak_bytes,
@@ -61,17 +61,17 @@ void pancake_mbedtls_probe_reset_window(void)
     atomic_store_explicit(&allocation_count, 0, memory_order_relaxed);
 }
 
-size_t pancake_mbedtls_probe_current_bytes(void)
+size_t glowcap_mbedtls_probe_current_bytes(void)
 {
     return atomic_load_explicit(&current_bytes, memory_order_relaxed);
 }
 
-size_t pancake_mbedtls_probe_peak_bytes(void)
+size_t glowcap_mbedtls_probe_peak_bytes(void)
 {
     return atomic_load_explicit(&peak_bytes, memory_order_relaxed);
 }
 
-size_t pancake_mbedtls_probe_allocation_count(void)
+size_t glowcap_mbedtls_probe_allocation_count(void)
 {
     return atomic_load_explicit(&allocation_count, memory_order_relaxed);
 }

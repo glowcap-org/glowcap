@@ -3,10 +3,10 @@
 // and registers its Noise locator through the same public web/runtime surface
 // an application uses.
 
-import { init } from "@pancake/web";
+import { init } from "@glowcap/web";
 
 declare global {
-	var pancakeNoiseReady: {
+	var glowcapNoiseReady: {
 		locator: string;
 		finish(): Promise<string[]>;
 	} | undefined;
@@ -17,7 +17,7 @@ if (relayUrl.protocol !== "ws:" && relayUrl.protocol !== "wss:") {
 	throw new Error("browser Noise probe needs a WebSocket relay URL");
 }
 
-const web = await init({ wasm: fetch("/pancake_host.wasm") });
+const web = await init({ wasm: fetch("/glowcap_host.wasm") });
 web.host.publishGiftable("noise-greeter", (verb, args) => {
 	if (verb !== "greet") throw new Error(`noise greeter has no method ${verb}`);
 	return `hello ${typeof args[0] === "string" ? args[0] : "?"} from Chromium Noise`;
@@ -35,7 +35,7 @@ const rendezvous = web.serveRendezvous(
 	},
 );
 await rendezvous.ready();
-globalThis.pancakeNoiseReady = {
+globalThis.glowcapNoiseReady = {
 	locator: web.formatLocatorUri(rendezvous.locator),
 	async finish(): Promise<string[]> {
 		await rendezvous.drain();

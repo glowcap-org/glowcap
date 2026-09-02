@@ -91,10 +91,10 @@ export function createLocalRoomsSession(
 		directoryLocator: () => net.directoryLocator(page),
 		dirAddress: (dir) => net.dirAddress(page, dir),
 		directoryId: net.directoryId,
-		openIrcNetwork: (choice) => net.openIrcConnection(page, choice),
-		closeIrcNetwork: (network) => net.closeIrcConnection(page, network),
-		joinIrcChannel: (network, channel) => net.joinIrcBridge(page, network, channel),
-		partIrc: (network, channel) => net.partIrcBridge(page, network, channel),
+		openBridgeConnection: (answers) => net.openBridgeConnection(page, JSON.stringify(answers)),
+		closeBridgeConnection: (connectionId) => net.closeBridgeConnection(page, connectionId),
+		addBridgeLease: (connectionId, answers) => net.addBridgeLease(page, connectionId, JSON.stringify(answers)),
+		removeBridgeLease: (connectionId, leaseId) => net.removeBridgeLease(page, connectionId, leaseId),
 		setKeepHistory: async (keep) => {
 			await setHistoryKept(page, keep);
 			store.setKeepHistory(page.projection, keep);

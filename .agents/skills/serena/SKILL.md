@@ -3,7 +3,7 @@ name: serena
 description: "Use when calling Serena MCP tools for Zig symbols, diagnosing Serena responses, handling cold start, or using Serena memories."
 ---
 
-# Serena MCP — Zig pancake operator notes
+# Serena MCP — Zig glowcap operator notes
 
 Use this after the [`serena-mcp`](../../rules/serena-mcp.md) rule says Serena is
 the right tool.
@@ -13,8 +13,8 @@ the right tool.
 - Non-Zig symbol work, or host file/search tools already suffice → skip Serena
 - The [`serena-mcp`](../../rules/serena-mcp.md) rule says not to use Serena for
   this task → obey the rule
-- CapTP / rooms presence → [pancake-mcp](../pancake-mcp/SKILL.md) /
-  [pancake-cli](../pancake-cli/SKILL.md) / [rooms-peer](../rooms-peer/SKILL.md)
+- CapTP / rooms presence → [glowcap-mcp](../glowcap-mcp/SKILL.md) /
+  [glowcap-cli](../glowcap-cli/SKILL.md) / [rooms-peer](../rooms-peer/SKILL.md)
 
 ## Project State
 
@@ -61,7 +61,7 @@ need to map a directory, list files first then call per-file.
 | session     | `src/ocapn/session/mod.zig`     | `Session` (validate/apply, all tables)                                                                                                 |
 | engine      | `src/ocapn/engine/mod.zig`      | `Peer`, `StepOutcome`, `Event`, `EventKind`                                                                                            |
 | engine      | `src/ocapn/engine/pipeline.zig` | `borrowedListenerFire`, `classifyListenerDrain`, `drainAnswerConsequencesTarget`                                                      |
-| c_abi       | `src/c_abi/ocapn/mod.zig`       | all `pancake_*` exported C functions                                                                                                   |
+| c_abi       | `src/c_abi/ocapn/mod.zig`       | all `glowcap_*` exported C functions                                                                                                   |
 | oracle      | `src/oracle/mod.zig`            | scenario trace runners                                                                                                                 |
 
 ## Common Calls

@@ -5,14 +5,14 @@
 //! introduction's refcount until teardown.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const session = pancake.ocapn.session;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const session = glowcap.ocapn.session;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 test "stateless GC releases a far introduced inside a nested argument" {
     const allocator = std.testing.allocator;
@@ -186,7 +186,7 @@ test "stateless GC releases every answer sharing a resolve callback" {
 
     const storage = try allocator.dupe(u8, "resolve");
     var event: engine.Event = .{
-        .frame = try pancake.foundation.Frame.initOwned(
+        .frame = try glowcap.foundation.Frame.initOwned(
             allocator,
             storage,
             .byte,
@@ -229,7 +229,7 @@ test "stateless GC reports an enqueue allocation failure" {
 
     const storage = try std.testing.allocator.dupe(u8, "resolve");
     var event: engine.Event = .{
-        .frame = try pancake.foundation.Frame.initOwned(
+        .frame = try glowcap.foundation.Frame.initOwned(
             std.testing.allocator,
             storage,
             .byte,

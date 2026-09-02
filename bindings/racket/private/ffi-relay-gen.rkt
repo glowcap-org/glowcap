@@ -4,7 +4,7 @@
 ;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
 ;; (part of `check`) fails when this is stale.
 ;;
-;; The raw `ffi/unsafe` table of libpancake_net_transport_relay. The
+;; The raw `ffi/unsafe` table of libglowcap_net_transport_relay. The
 ;; hand-written sibling (`ffi-relay.rkt`) owns the config mirror and
 ;; re-provides this module. One package owns both keyed-relay and
 ;; noise-relay; profile policy remains in the native driver.
@@ -13,25 +13,25 @@
          "ffi-shared.rkt"
          "constants-gen.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
-                     pancake_relay_runtime_new*))
+                     glowcap_relay_runtime_new*))
 
-(define relay-lib (open-pancake-archive "pancake_net_transport_relay"))
+(define relay-lib (open-glowcap-archive "glowcap_net_transport_relay"))
 
-(define-ffi-definer define-pancake-relay relay-lib)
+(define-ffi-definer define-glowcap-relay relay-lib)
 
-(define-pancake-relay pancake_relay_archive_fingerprint (_fun -> _uint64))
-(define-pancake-relay pancake_relay_last_error (_fun _pointer _size -> _size))
-(define-pancake-relay pancake_relay_clear_last_error (_fun -> _void))
-(define-pancake-relay pancake_relay_runtime_new*
-  (_fun (_or-null _PancakeRelayConfig-pointer) _pointer -> _int32)
-  #:c-id pancake_relay_runtime_new)
-(define pancake_relay_runtime_new (wrap-out1 pancake_relay_runtime_new* _pointer #f))
-(define-pancake-relay pancake_relay_runtime_trust_summary
-  (_fun _pointer (_or-null _PancakeRelayTrustSummary-pointer) -> _int32))
-(define-pancake-relay pancake_relay_transport_provider
-  (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))
-(define-pancake-relay pancake_relay_runtime_release*
+(define-glowcap-relay glowcap_relay_archive_fingerprint (_fun -> _uint64))
+(define-glowcap-relay glowcap_relay_last_error (_fun _pointer _size -> _size))
+(define-glowcap-relay glowcap_relay_clear_last_error (_fun -> _void))
+(define-glowcap-relay glowcap_relay_runtime_new*
+  (_fun (_or-null _GlowcapRelayConfig-pointer) _pointer -> _int32)
+  #:c-id glowcap_relay_runtime_new)
+(define glowcap_relay_runtime_new (wrap-out1 glowcap_relay_runtime_new* _pointer #f))
+(define-glowcap-relay glowcap_relay_runtime_trust_summary
+  (_fun _pointer (_or-null _GlowcapRelayTrustSummary-pointer) -> _int32))
+(define-glowcap-relay glowcap_relay_transport_provider
+  (_fun _pointer (_or-null _GlowcapTransportProvider-pointer) -> _int32))
+(define-glowcap-relay glowcap_relay_runtime_release*
   (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_relay_runtime_release)
+  #:c-id glowcap_relay_runtime_release)
 
-(require-archive-fingerprint! 'relay pancake_relay_archive_fingerprint RELAY-ARCHIVE-FINGERPRINT)
+(require-archive-fingerprint! 'relay glowcap_relay_archive_fingerprint RELAY-ARCHIVE-FINGERPRINT)

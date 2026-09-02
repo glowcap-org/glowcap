@@ -14,8 +14,6 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Peer));
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(webrtc.Resident));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Resident));
-    try std.testing.expectEqual(@as(usize, 712), @sizeOf(webrtc.Backend));
-    try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Backend));
     try std.testing.expectEqual(@as(usize, 16 * 1024), webrtc.max_signal_bytes);
     try std.testing.expectEqual(webrtc.max_signal_bytes, webrtc.max_ice_candidate_bytes);
     try std.testing.expectEqual(@as(usize, 16), webrtc.max_ice_servers);
@@ -47,6 +45,13 @@ test "supported WebRTC type surfaces and footprints stay exact" {
         expectSignature(@TypeOf(webrtc.Backend.provideRemoteCandidate), &.{ *webrtc.Backend, webrtc.Backend.Fd, []const u8 }, void);
         expectSignature(@TypeOf(webrtc.Backend.poll), &.{ *webrtc.Backend, []net.completion.Completion, i32 }, usize);
     }
+
+    // The `Backend` footprint is stated under runtime safety, where each
+    // embedded `std.ArrayList` header carries std's one-word
+    // `pointer_stability` lock: 48 of these bytes, one fixed charge per loop.
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    try std.testing.expectEqual(@as(usize, 760), @sizeOf(webrtc.Backend));
+    try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Backend));
 }
 
 fn expectSignature(comptime Function: type, comptime Params: []const type, comptime Payload: type) void {
@@ -76,47 +81,47 @@ var open_result: i32 = -2;
 var open_checks: usize = 0;
 var receive_result: isize = -2;
 
-export fn pancake_webrtc_sidecar_endpoint_new(_: *const anyopaque) callconv(.c) ?*anyopaque {
+export fn glowcap_webrtc_sidecar_endpoint_new(_: *const anyopaque) callconv(.c) ?*anyopaque {
     return @ptrFromInt(1);
 }
-export fn pancake_webrtc_sidecar_endpoint_readiness_fd(_: *const anyopaque) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_endpoint_readiness_fd(_: *const anyopaque) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_webrtc_sidecar_endpoint_drain_ready(_: *const anyopaque, _: [*]webrtc.ReadyEvent, _: usize) callconv(.c) isize {
+export fn glowcap_webrtc_sidecar_endpoint_drain_ready(_: *const anyopaque, _: [*]webrtc.ReadyEvent, _: usize) callconv(.c) isize {
     return 0;
 }
-export fn pancake_webrtc_sidecar_endpoint_driver_readiness_fd(_: *const anyopaque) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(_: *const anyopaque) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(_: *const anyopaque, _: [*]webrtc.ReadyEvent, _: usize) callconv(.c) isize {
+export fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(_: *const anyopaque, _: [*]webrtc.ReadyEvent, _: usize) callconv(.c) isize {
     return 0;
 }
-export fn pancake_webrtc_sidecar_endpoint_free(_: *anyopaque) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_endpoint_free(_: *anyopaque) callconv(.c) i32 {
     return 0;
 }
-export fn pancake_webrtc_sidecar_peer_new(_: *anyopaque, _: i32) callconv(.c) ?*anyopaque {
+export fn glowcap_webrtc_sidecar_peer_new(_: *anyopaque, _: i32) callconv(.c) ?*anyopaque {
     return @ptrFromInt(2);
 }
-export fn pancake_webrtc_sidecar_peer_id(peer: *const anyopaque) callconv(.c) usize {
+export fn glowcap_webrtc_sidecar_peer_id(peer: *const anyopaque) callconv(.c) usize {
     return @intFromPtr(peer);
 }
-export fn pancake_webrtc_sidecar_peer_create_offer(_: *anyopaque, _: [*]u8, _: usize, out_len: *usize) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_peer_create_offer(_: *anyopaque, _: [*]u8, _: usize, out_len: *usize) callconv(.c) i32 {
     out_len.* = create_signal_len;
     return create_offer_result;
 }
-export fn pancake_webrtc_sidecar_peer_create_answer(_: *anyopaque, _: [*]u8, _: usize, out_len: *usize) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_peer_create_answer(_: *anyopaque, _: [*]u8, _: usize, out_len: *usize) callconv(.c) i32 {
     out_len.* = create_signal_len;
     return create_answer_result;
 }
-export fn pancake_webrtc_sidecar_peer_add_remote_candidate(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_peer_add_remote_candidate(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) i32 {
     add_remote_candidate_calls += 1;
     return -1;
 }
-export fn pancake_webrtc_sidecar_peer_set_remote(_: *anyopaque, _: [*]const u8, _: usize, _: i32) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_peer_set_remote(_: *anyopaque, _: [*]const u8, _: usize, _: i32) callconv(.c) i32 {
     set_remote_calls += 1;
     return -1;
 }
-export fn pancake_webrtc_sidecar_peer_next_local_candidate(_: *anyopaque, out: [*]u8, cap: usize, out_len: *usize) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_peer_next_local_candidate(_: *anyopaque, out: [*]u8, cap: usize, out_len: *usize) callconv(.c) i32 {
     candidate_reads += 1;
     if (candidate_bytes_to_emit != 0) {
         out_len.* = candidate_bytes_to_emit;
@@ -127,18 +132,18 @@ export fn pancake_webrtc_sidecar_peer_next_local_candidate(_: *anyopaque, out: [
     }
     return -2;
 }
-export fn pancake_webrtc_sidecar_peer_is_open(_: *const anyopaque) callconv(.c) i32 {
+export fn glowcap_webrtc_sidecar_peer_is_open(_: *const anyopaque) callconv(.c) i32 {
     open_checks += 1;
     return open_result;
 }
-export fn pancake_webrtc_sidecar_conn_try_receive_packet(_: *anyopaque, _: [*]u8, _: usize) callconv(.c) isize {
+export fn glowcap_webrtc_sidecar_conn_try_receive_packet(_: *anyopaque, _: [*]u8, _: usize) callconv(.c) isize {
     return receive_result;
 }
-export fn pancake_webrtc_sidecar_conn_try_send_packet(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
+export fn glowcap_webrtc_sidecar_conn_try_send_packet(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
     return -2;
 }
-export fn pancake_webrtc_sidecar_conn_close(_: *anyopaque) callconv(.c) void {}
-export fn pancake_webrtc_sidecar_peer_free(_: *anyopaque) callconv(.c) void {
+export fn glowcap_webrtc_sidecar_conn_close(_: *anyopaque) callconv(.c) void {}
+export fn glowcap_webrtc_sidecar_peer_free(_: *anyopaque) callconv(.c) void {
     freed_peers += 1;
 }
 
@@ -148,7 +153,7 @@ fn observeCandidate(_: *anyopaque, _: i32, candidate: []const u8) anyerror!void 
     candidate_sent_bytes = candidate.len;
 }
 
-fn webrtcProviderTable(provider: c.PancakeTransportProvider) *const c.PancakeMultiplexedTransport {
+fn webrtcProviderTable(provider: c.GlowcapTransportProvider) *const c.GlowcapMultiplexedTransport {
     for (provider.entries.?[0..provider.entry_count]) |entry| {
         const profile = entry.profile.?;
         const name = profile.transport_name.?[0..profile.transport_name_len];
@@ -174,18 +179,18 @@ test "public webrtc signaling inputs are bounded before entering the sidecar" {
     add_remote_candidate_calls = 0;
     var oversized: [webrtc.max_signal_bytes + 1]u8 = undefined;
 
-    var config: webrtc_archive.PancakeWebrtcConfig = std.mem.zeroes(webrtc_archive.PancakeWebrtcConfig);
-    var netlayer: ?*webrtc_archive.PancakeWebrtcNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_netlayer_new(&config, &netlayer));
-    defer _ = webrtc_archive.pancake_webrtc_netlayer_release(netlayer);
+    var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
+    var netlayer: ?*webrtc_archive.GlowcapWebrtcNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_new(&config, &netlayer));
+    defer _ = webrtc_archive.glowcap_webrtc_netlayer_release(netlayer);
 
-    var peer: ?*webrtc_archive.PancakeWebrtcPeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_peer_new(netlayer, 1, &peer));
-    defer _ = webrtc_archive.pancake_webrtc_peer_release(peer);
+    var peer: ?*webrtc_archive.GlowcapWebrtcPeer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_new(netlayer, 1, &peer));
+    defer _ = webrtc_archive.glowcap_webrtc_peer_release(peer);
 
-    try expectWebrtcSignalTooLarge(webrtc_archive.pancake_webrtc_peer_set_remote_offer(peer, &oversized, oversized.len));
-    try expectWebrtcSignalTooLarge(webrtc_archive.pancake_webrtc_peer_set_remote_answer(peer, &oversized, oversized.len));
-    try expectWebrtcCandidateTooLarge(webrtc_archive.pancake_webrtc_peer_add_remote_candidate(peer, &oversized, oversized.len));
+    try expectWebrtcSignalTooLarge(webrtc_archive.glowcap_webrtc_peer_set_remote_offer(peer, &oversized, oversized.len));
+    try expectWebrtcSignalTooLarge(webrtc_archive.glowcap_webrtc_peer_set_remote_answer(peer, &oversized, oversized.len));
+    try expectWebrtcCandidateTooLarge(webrtc_archive.glowcap_webrtc_peer_add_remote_candidate(peer, &oversized, oversized.len));
     try std.testing.expectEqual(@as(usize, 0), set_remote_calls);
     try std.testing.expectEqual(@as(usize, 0), add_remote_candidate_calls);
 }
@@ -202,22 +207,22 @@ test "public webrtc generated signaling too large is not a retryable output buff
         candidate_bytes_to_emit = 0;
     }
 
-    var config: webrtc_archive.PancakeWebrtcConfig = std.mem.zeroes(webrtc_archive.PancakeWebrtcConfig);
-    var netlayer: ?*webrtc_archive.PancakeWebrtcNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_netlayer_new(&config, &netlayer));
-    defer _ = webrtc_archive.pancake_webrtc_netlayer_release(netlayer);
+    var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
+    var netlayer: ?*webrtc_archive.GlowcapWebrtcNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_new(&config, &netlayer));
+    defer _ = webrtc_archive.glowcap_webrtc_netlayer_release(netlayer);
 
-    var peer: ?*webrtc_archive.PancakeWebrtcPeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_peer_new(netlayer, 1, &peer));
-    defer _ = webrtc_archive.pancake_webrtc_peer_release(peer);
+    var peer: ?*webrtc_archive.GlowcapWebrtcPeer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_new(netlayer, 1, &peer));
+    defer _ = webrtc_archive.glowcap_webrtc_peer_release(peer);
 
     var out: [1]u8 = undefined;
     var out_len: usize = 0;
-    try expectWebrtcSignalTooLarge(webrtc_archive.pancake_webrtc_peer_create_offer(peer, &out, out.len, &out_len));
+    try expectWebrtcSignalTooLarge(webrtc_archive.glowcap_webrtc_peer_create_offer(peer, &out, out.len, &out_len));
     try std.testing.expectEqual(webrtc.max_signal_bytes + 1, out_len);
-    try expectWebrtcSignalTooLarge(webrtc_archive.pancake_webrtc_peer_create_answer(peer, &out, out.len, &out_len));
+    try expectWebrtcSignalTooLarge(webrtc_archive.glowcap_webrtc_peer_create_answer(peer, &out, out.len, &out_len));
     try std.testing.expectEqual(webrtc.max_signal_bytes + 1, out_len);
-    try expectWebrtcCandidateTooLarge(webrtc_archive.pancake_webrtc_peer_next_local_candidate(peer, &out, out.len, &out_len));
+    try expectWebrtcCandidateTooLarge(webrtc_archive.glowcap_webrtc_peer_next_local_candidate(peer, &out, out.len, &out_len));
     try std.testing.expectEqual(webrtc.max_signal_bytes + 1, out_len);
 }
 
@@ -229,21 +234,21 @@ test "public webrtc remote authorization validates key designator before sidecar
         open_checks = 0;
     }
 
-    var config: webrtc_archive.PancakeWebrtcConfig = std.mem.zeroes(webrtc_archive.PancakeWebrtcConfig);
-    var netlayer: ?*webrtc_archive.PancakeWebrtcNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_netlayer_new(&config, &netlayer));
-    defer _ = webrtc_archive.pancake_webrtc_netlayer_release(netlayer);
+    var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
+    var netlayer: ?*webrtc_archive.GlowcapWebrtcNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_new(&config, &netlayer));
+    defer _ = webrtc_archive.glowcap_webrtc_netlayer_release(netlayer);
 
-    var peer: ?*webrtc_archive.PancakeWebrtcPeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_peer_new(netlayer, 1, &peer));
-    defer _ = webrtc_archive.pancake_webrtc_peer_release(peer);
+    var peer: ?*webrtc_archive.GlowcapWebrtcPeer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_new(netlayer, 1, &peer));
+    defer _ = webrtc_archive.glowcap_webrtc_peer_release(peer);
 
     const short = "not-a-key";
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, webrtc_archive.pancake_webrtc_peer_authorize_remote(peer, short.ptr, short.len));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, webrtc_archive.glowcap_webrtc_peer_authorize_remote(peer, short.ptr, short.len));
     try expectWebrtcLastErrorContains("lowercase hex designator");
     try std.testing.expectEqual(@as(usize, 0), open_checks);
 
-    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, webrtc_archive.pancake_webrtc_peer_authorize_remote(peer, null, foundation.crypto.PeerKey.designator_len));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, webrtc_archive.glowcap_webrtc_peer_authorize_remote(peer, null, foundation.crypto.PeerKey.designator_len));
     try std.testing.expectEqual(@as(usize, 0), open_checks);
 }
 
@@ -263,92 +268,92 @@ test "webrtc open failure stays distinct from clean close" {
         open_checks = 0;
     }
 
-    var config: webrtc_archive.PancakeWebrtcConfig = std.mem.zeroes(webrtc_archive.PancakeWebrtcConfig);
-    var netlayer: ?*webrtc_archive.PancakeWebrtcNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_netlayer_new(&config, &netlayer));
-    defer _ = webrtc_archive.pancake_webrtc_netlayer_release(netlayer);
+    var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
+    var netlayer: ?*webrtc_archive.GlowcapWebrtcNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_new(&config, &netlayer));
+    defer _ = webrtc_archive.glowcap_webrtc_netlayer_release(netlayer);
 
-    var public_peer: ?*webrtc_archive.PancakeWebrtcPeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_peer_new(netlayer, 1, &public_peer));
-    defer _ = webrtc_archive.pancake_webrtc_peer_release(public_peer);
+    var public_peer: ?*webrtc_archive.GlowcapWebrtcPeer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_new(netlayer, 1, &public_peer));
+    defer _ = webrtc_archive.glowcap_webrtc_peer_release(public_peer);
 
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, webrtc_archive.pancake_webrtc_peer_is_open(public_peer));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, webrtc_archive.glowcap_webrtc_peer_is_open(public_peer));
     try expectWebrtcLastErrorContains("channel faulted");
 
     open_result = -5;
-    try std.testing.expectEqual(c.PANCAKE_ERR_CLOSED, webrtc_archive.pancake_webrtc_peer_is_open(public_peer));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, webrtc_archive.glowcap_webrtc_peer_is_open(public_peer));
 }
 
 fn expectWebrtcSignalTooLarge(code: i32) !void {
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, code);
-    try expectWebrtcLastErrorContains("PANCAKE_WEBRTC_MAX_SIGNAL_BYTES");
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, code);
+    try expectWebrtcLastErrorContains("GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES");
 }
 
 fn expectWebrtcCandidateTooLarge(code: i32) !void {
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, code);
-    try expectWebrtcLastErrorContains("PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES");
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, code);
+    try expectWebrtcLastErrorContains("GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES");
 }
 
 fn expectWebrtcLastErrorContains(message_part: []const u8) !void {
     var message: [256]u8 = undefined;
-    const len = @min(webrtc_archive.pancake_webrtc_last_error(&message, message.len), message.len);
+    const len = @min(webrtc_archive.glowcap_webrtc_last_error(&message, message.len), message.len);
     try std.testing.expect(std.mem.indexOf(u8, message[0..len], message_part) != null);
 }
 
 test "public webrtc config validates nested ICE views before endpoint creation" {
-    const empty_text: webrtc_archive.PancakeWebrtcStringView = .{ .ptr = null, .len = 0 };
-    var missing_urls = [_]webrtc_archive.PancakeWebrtcIceServer{.{
+    const empty_text: webrtc_archive.GlowcapWebrtcStringView = .{ .ptr = null, .len = 0 };
+    var missing_urls = [_]webrtc_archive.GlowcapWebrtcIceServer{.{
         .urls = null,
         .url_count = 1,
         .username = empty_text,
         .credential = empty_text,
     }};
-    var cfg: webrtc_archive.PancakeWebrtcConfig = std.mem.zeroes(webrtc_archive.PancakeWebrtcConfig);
+    var cfg: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
     cfg.ice_servers = missing_urls[0..].ptr;
     cfg.ice_server_count = missing_urls.len;
-    try expectWebrtcConfigRefusal(&cfg, c.PANCAKE_ERR_NULL_POINTER, "null view");
+    try expectWebrtcConfigRefusal(&cfg, c.GLOWCAP_ERR_NULL_POINTER, "null view");
 
     const stun = "stun:stun.example:3478";
-    var urls = [_]webrtc_archive.PancakeWebrtcStringView{.{ .ptr = stun.ptr, .len = stun.len }};
+    var urls = [_]webrtc_archive.GlowcapWebrtcStringView{.{ .ptr = stun.ptr, .len = stun.len }};
     missing_urls[0].urls = urls[0..].ptr;
     missing_urls[0].url_count = 0;
-    try expectWebrtcConfigRefusal(&cfg, c.PANCAKE_ERR_INVALID_ARGUMENT, "at least one URL");
+    try expectWebrtcConfigRefusal(&cfg, c.GLOWCAP_ERR_INVALID_ARGUMENT, "at least one URL");
 
     urls[0] = .{ .ptr = null, .len = 0 };
     missing_urls[0].url_count = 1;
-    try expectWebrtcConfigRefusal(&cfg, c.PANCAKE_ERR_INVALID_ARGUMENT, "must not be empty");
+    try expectWebrtcConfigRefusal(&cfg, c.GLOWCAP_ERR_INVALID_ARGUMENT, "must not be empty");
 
     const bad_scheme = "https://issuer.example/ice";
     urls[0] = .{ .ptr = bad_scheme.ptr, .len = bad_scheme.len };
-    try expectWebrtcConfigRefusal(&cfg, c.PANCAKE_ERR_INVALID_ARGUMENT, "must use stun:");
+    try expectWebrtcConfigRefusal(&cfg, c.GLOWCAP_ERR_INVALID_ARGUMENT, "must use stun:");
 
     const user = "short-lived-user";
     missing_urls[0].username = .{ .ptr = user.ptr, .len = user.len };
     urls[0] = .{ .ptr = stun.ptr, .len = stun.len };
-    try expectWebrtcConfigRefusal(&cfg, c.PANCAKE_ERR_INVALID_ARGUMENT, "STUN-only");
+    try expectWebrtcConfigRefusal(&cfg, c.GLOWCAP_ERR_INVALID_ARGUMENT, "STUN-only");
 
     const turn = "turn:turn.example:3478";
     urls[0] = .{ .ptr = turn.ptr, .len = turn.len };
-    try expectWebrtcConfigRefusal(&cfg, c.PANCAKE_ERR_INVALID_ARGUMENT, "both username and credential");
+    try expectWebrtcConfigRefusal(&cfg, c.GLOWCAP_ERR_INVALID_ARGUMENT, "both username and credential");
 
     const credential = "short-lived-secret";
     missing_urls[0].credential = .{ .ptr = credential.ptr, .len = credential.len };
-    var netlayer: ?*webrtc_archive.PancakeWebrtcNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_netlayer_new(&cfg, &netlayer));
-    defer _ = webrtc_archive.pancake_webrtc_netlayer_release(netlayer);
+    var netlayer: ?*webrtc_archive.GlowcapWebrtcNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_new(&cfg, &netlayer));
+    defer _ = webrtc_archive.glowcap_webrtc_netlayer_release(netlayer);
     try std.testing.expect(netlayer != null);
 }
 
 fn expectWebrtcConfigRefusal(
-    cfg: *webrtc_archive.PancakeWebrtcConfig,
+    cfg: *webrtc_archive.GlowcapWebrtcConfig,
     code: i32,
     message_part: []const u8,
 ) !void {
-    var netlayer: ?*webrtc_archive.PancakeWebrtcNetlayer = @ptrFromInt(1);
-    try std.testing.expectEqual(code, webrtc_archive.pancake_webrtc_netlayer_new(cfg, &netlayer));
-    try std.testing.expectEqual(@as(?*webrtc_archive.PancakeWebrtcNetlayer, null), netlayer);
+    var netlayer: ?*webrtc_archive.GlowcapWebrtcNetlayer = @ptrFromInt(1);
+    try std.testing.expectEqual(code, webrtc_archive.glowcap_webrtc_netlayer_new(cfg, &netlayer));
+    try std.testing.expectEqual(@as(?*webrtc_archive.GlowcapWebrtcNetlayer, null), netlayer);
     var message: [256]u8 = undefined;
-    const len = @min(webrtc_archive.pancake_webrtc_last_error(&message, message.len), message.len);
+    const len = @min(webrtc_archive.glowcap_webrtc_last_error(&message, message.len), message.len);
     try std.testing.expect(std.mem.indexOf(u8, message[0..len], message_part) != null);
 }
 
@@ -360,28 +365,28 @@ test "provider maps a clean WebRTC close to EOF" {
         receive_result = -2;
     }
 
-    var config: webrtc_archive.PancakeWebrtcConfig = std.mem.zeroes(webrtc_archive.PancakeWebrtcConfig);
-    var netlayer: ?*webrtc_archive.PancakeWebrtcNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_netlayer_new(&config, &netlayer));
-    defer _ = webrtc_archive.pancake_webrtc_netlayer_release(netlayer);
+    var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
+    var netlayer: ?*webrtc_archive.GlowcapWebrtcNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_new(&config, &netlayer));
+    defer _ = webrtc_archive.glowcap_webrtc_netlayer_release(netlayer);
 
-    var peer: ?*webrtc_archive.PancakeWebrtcPeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_peer_new(netlayer, 1, &peer));
-    defer _ = webrtc_archive.pancake_webrtc_peer_release(peer);
+    var peer: ?*webrtc_archive.GlowcapWebrtcPeer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_new(netlayer, 1, &peer));
+    defer _ = webrtc_archive.glowcap_webrtc_peer_release(peer);
 
     const key = foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x95))).publicKey();
     const designator = key.toDesignator();
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_peer_authorize_remote(peer, &designator, designator.len));
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_authorize_remote(peer, &designator, designator.len));
 
     open_result = 0;
-    const subject = webrtc_archive.pancake_webrtc_peer_id(peer);
-    var package: c.PancakeTransportProvider = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_transport_provider(netlayer, &package));
+    const subject = webrtc_archive.glowcap_webrtc_peer_id(peer);
+    var package: c.GlowcapTransportProvider = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_transport_provider(netlayer, &package));
     const transport = webrtcProviderTable(package);
 
     var failure = c.transport_provider.emptyProviderFailure();
     var conn: u64 = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, transport.claim_external.?(transport.ctx, subject, &conn, &failure));
+    try std.testing.expectEqual(c.GLOWCAP_OK, transport.claim_external.?(transport.ctx, subject, &conn, &failure));
     defer _ = transport.conn_close.?(transport.ctx, conn, &failure);
 
     var buf: [1]u8 = undefined;
@@ -396,29 +401,29 @@ test "provider maps failed WebRTC open to transport failure" {
         open_result = -2;
     }
 
-    var config: webrtc_archive.PancakeWebrtcConfig = std.mem.zeroes(webrtc_archive.PancakeWebrtcConfig);
-    var netlayer: ?*webrtc_archive.PancakeWebrtcNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_netlayer_new(&config, &netlayer));
-    defer _ = webrtc_archive.pancake_webrtc_netlayer_release(netlayer);
+    var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
+    var netlayer: ?*webrtc_archive.GlowcapWebrtcNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_new(&config, &netlayer));
+    defer _ = webrtc_archive.glowcap_webrtc_netlayer_release(netlayer);
 
-    var peer: ?*webrtc_archive.PancakeWebrtcPeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_peer_new(netlayer, 1, &peer));
-    defer _ = webrtc_archive.pancake_webrtc_peer_release(peer);
+    var peer: ?*webrtc_archive.GlowcapWebrtcPeer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_new(netlayer, 1, &peer));
+    defer _ = webrtc_archive.glowcap_webrtc_peer_release(peer);
 
     const key = foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x31))).publicKey();
     const designator = key.toDesignator();
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_peer_authorize_remote(peer, &designator, designator.len));
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_authorize_remote(peer, &designator, designator.len));
 
-    const subject = webrtc_archive.pancake_webrtc_peer_id(peer);
-    var package: c.PancakeTransportProvider = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, webrtc_archive.pancake_webrtc_transport_provider(netlayer, &package));
+    const subject = webrtc_archive.glowcap_webrtc_peer_id(peer);
+    var package: c.GlowcapTransportProvider = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_transport_provider(netlayer, &package));
     const transport = webrtcProviderTable(package);
 
     open_result = -1;
     var failure = c.transport_provider.emptyProviderFailure();
     var conn: u64 = 0;
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, transport.claim_external.?(transport.ctx, subject, &conn, &failure));
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, failure.result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, transport.claim_external.?(transport.ctx, subject, &conn, &failure));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, failure.result);
 }
 
 test "candidate pump carries one candidate above the former 4 KiB bound" {

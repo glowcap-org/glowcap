@@ -5,11 +5,11 @@
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -96,18 +96,18 @@
 (define mb-ro (session-send mb-session mb-root 'make-readonly mb-tool))
 (expect (= 7 (session-send mb-session mb-ro 'get)) "proxy: attenuator forwards an allowed verb")
 (define mb-denied
-  (with-handlers ([exn:fail:pancake? (lambda (e) e)])
+  (with-handlers ([exn:fail:glowcap? (lambda (e) e)])
     (session-send mb-session mb-ro 'add 1) #f))
-(expect (and (exn:fail:pancake? mb-denied)
+(expect (and (exn:fail:glowcap? mb-denied)
              (regexp-match? #rx"Attenuated" (exn-message mb-denied)))
         "proxy: an out-of-list verb breaks Attenuated")
 
 ;; Revoke: every later call through the proxy breaks.
 (void (session-send mb-session mb-root 'revoke))
 (define mb-severed
-  (with-handlers ([exn:fail:pancake? (lambda (e) e)])
+  (with-handlers ([exn:fail:glowcap? (lambda (e) e)])
     (session-send mb-session mb-proxy 'add 1) #f))
-(expect (and (exn:fail:pancake? mb-severed)
+(expect (and (exn:fail:glowcap? mb-severed)
              (regexp-match? #rx"Revoked" (exn-message mb-severed)))
         "proxy: a revoked proxy breaks Revoked")
 
@@ -160,9 +160,9 @@
 ;; Revoke severs the local call exactly as it severs a partner's.
 (session-revoke! lc-session lc-care)
 (define lc-severed
-  (with-handlers ([exn:fail:pancake? (lambda (e) e)])
+  (with-handlers ([exn:fail:glowcap? (lambda (e) e)])
     (session-send lc-session lc-care 'double 1) #f))
-(expect (and (exn:fail:pancake? lc-severed)
+(expect (and (exn:fail:glowcap? lc-severed)
              (regexp-match? #rx"Revoked" (exn-message lc-severed)))
         "local-call: revoke breaks a local call too")
 
@@ -201,9 +201,9 @@
 (semaphore-wait rt-ready)
 (define rt-cap (session-fetch rt-session "svc"))
 (define rt-broken
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (session-send rt-session rt-cap 'reenter) #f))
-(expect (exn:fail:pancake? rt-broken)
+(expect (exn:fail:glowcap? rt-broken)
         "reentry: a mid-turn driving verb breaks the answer")
 ;; The turn unwound cleanly: the same session still answers.
 (expect (equal? (sym "pong") (session-send rt-session rt-cap 'ping))

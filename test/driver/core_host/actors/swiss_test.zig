@@ -3,18 +3,18 @@
 //! does not retarget the old sturdyref.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("../harness.zig");
 const SessionOpenFailingAllocator = harness.SessionOpenFailingAllocator;
@@ -66,19 +66,19 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     var decoy_row = TaggedRow{ .tag = "decoy", .freed = &decoy_freed };
     try std.testing.expectError(
         error.ReservedDurableNamespace,
-        server.publishGiftable("pancake-durable-1-not-actually-minted", Tagged, .{ .row = &decoy_row }),
+        server.publishGiftable("glowcap-durable-1-not-actually-minted", Tagged, .{ .row = &decoy_row }),
     );
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7071", &dials);
     try std.testing.expectError(
         error.ReservedDurableNamespace,
-        pair.b.served.publish(&pair.b.host.vat, "pancake-durable-1-still-not-minted", Tagged, .{ .row = &decoy_row }),
+        pair.b.served.publish(&pair.b.host.vat, "glowcap-durable-1-still-not-minted", Tagged, .{ .row = &decoy_row }),
     );
 
     // Mint a durable name and reach it over the wire like any published name.
     var kept_freed = false;
     var kept_row = TaggedRow{ .tag = "durable", .freed = &kept_freed };
     const minted = try server.publishDurable(@as([16]u8, @splat(0xab)), Tagged, .{ .row = &kept_row });
-    try std.testing.expect(pancake.ocapn.session.Session.isDurableSwiss(minted.slice()));
+    try std.testing.expect(glowcap.ocapn.session.Session.isDurableSwiss(minted.slice()));
     var fetched = CapturedRef{};
     try client.vowOn(try client.fetch(pair.a, minted.slice()), .{ .ctx = &fetched, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);

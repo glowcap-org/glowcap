@@ -5,11 +5,11 @@
 //! listener, all through the actor API, no hand-built wire messages.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
@@ -94,7 +94,7 @@ test "near-call to a far ref is rejected, only send reaches a far object" {
 
 /// Replay one captured deliver frame into the host peer and serve every
 /// surfaced event through the vat, exactly as a driver pumps inbound traffic.
-fn replayAndServe(host: *engine.Peer, vat: *actors.Vat, port: *actors.Port, frame: *const pancake.foundation.Frame) !void {
+fn replayAndServe(host: *engine.Peer, vat: *actors.Vat, port: *actors.Port, frame: *const glowcap.foundation.Frame) !void {
     try host.recvBorrowed(frame.view());
     while (host.pollEvent()) |event_in| {
         var event = event_in;
@@ -203,7 +203,7 @@ const GiveCapture = struct {
 };
 
 test "a resolve carrying a handoff give fires the listener typed: verbatim envelope, dialable locator, recipient key" {
-    const crypto = pancake.foundation.crypto;
+    const crypto = glowcap.foundation.crypto;
     const allocator = std.testing.allocator;
     const recipient_seed = @as([crypto.SEED_BYTES]u8, @splat(9));
     const partner_seed = @as([crypto.SEED_BYTES]u8, @splat(10));

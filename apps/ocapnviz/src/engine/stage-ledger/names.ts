@@ -127,23 +127,23 @@ export class LedgerNames {
 	 * - **What the producer states.** A producer says what it runs beside the
 	 *   designator it calls itself by (`a_profile` on the record), and that
 	 *   statement is the whole of what names its own end. The `ocapn.*` kinds
-	 *   are a schema, not a pancake credential: the Goblins conformance peer
+	 *   are a schema, not a glowcap credential: the Goblins conformance peer
 	 *   publishes the very same records, so a record ARRIVING says that
 	 *   something is reporting and nothing whatever about what that something
 	 *   is. A producer that states nothing leaves its own end unknown, and
-	 *   that holds for pancake's own producers too — to be named here, you
+	 *   that holds for glowcap's own producers too — to be named here, you
 	 *   have to speak.
-	 * - **The far end of a `next` session.** `pancake-next` is a
-	 *   pancake-private CapTP profile (ADR-0003), so a session that
-	 *   negotiated it has a pancake host at each end. This is the one fact
+	 * - **The far end of a `next` session.** `glowcap-next` is a
+	 *   glowcap-private CapTP profile (ADR-0003), so a session that
+	 *   negotiated it has a glowcap host at each end. This is the one fact
 	 *   the viewer reads without being told it. The converse proves nothing
-	 *   and is deliberately not read: two pancake peers meeting on the OCapN
+	 *   and is deliberately not read: two glowcap peers meeting on the OCapN
 	 *   v1.0 interop floor speak `v1_0`, exactly as a Goblins vat does, so a
 	 *   `v1_0` session leaves its far end where it was.
 	 *
 	 * Nothing else is inferred, from a record's existence or from anything
 	 * else. `goblins` in particular is only ever STATED: no observation here
-	 * concludes it, and concluding it from the ABSENCE of a pancake marker is
+	 * concludes it, and concluding it from the ABSENCE of a glowcap marker is
 	 * the overreach this whole property exists to refuse.
 	 *
 	 * The move is one-way, from unknown to named, and the guard below holds

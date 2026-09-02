@@ -1,4 +1,4 @@
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import { dispatchRoomsSessionCommand } from "../../session/command_dispatch.ts";
 import type { DurableRoomsRuntime } from "../../session/runtime.ts";
@@ -45,7 +45,7 @@ Deno.test("a staged secret is given back only to the command that staged it", ()
 });
 
 Deno.test("IRC identity commands answer from durable intent without waiting on network realization", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-irc-command-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-irc-command-" });
 	try {
 		const state = await openSessionState(directory);
 		const room = {
@@ -141,7 +141,7 @@ Deno.test("IRC identity commands answer from durable intent without waiting on n
 });
 
 Deno.test("a send to a parted IRC room is abandoned as definitively unsent", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-parted-send-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-parted-send-" });
 	try {
 		const state = await openSessionState(directory);
 		const room = {

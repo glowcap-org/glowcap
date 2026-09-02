@@ -7,14 +7,14 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const Host = driver.core.Host;
@@ -283,7 +283,7 @@ test "Bridge reports a keyed-relay dial to a TCP-only loop as unsupported" {
 
     try bridge.attach(model.transport.Known.tcp.metadata(), "127.0.0.1:1", &.{});
 
-    const key = pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0xab))).publicKey().toDesignator();
+    const key = glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0xab))).publicKey().toDesignator();
     try std.testing.expectError(
         error.UnknownTransport,
         bridge.dialOutbound(.{

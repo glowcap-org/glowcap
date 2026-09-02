@@ -1,7 +1,7 @@
 // Monotonic revision and bounded OCapN observers for the Rooms operator's
 // cross-owner inventory. One instance belongs to one RoomServer.
 
-import { type Ref, type Session } from "@pancake/runtime";
+import { type Ref, type Session } from "@glowcap/runtime";
 import { OPERATOR_CHANGED } from "../../lib/protocol_operator.ts";
 import { settleCapabilityCleanup } from "../../lib/capability_cleanup.ts";
 

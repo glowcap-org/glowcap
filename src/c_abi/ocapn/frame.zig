@@ -10,15 +10,15 @@ const std = @import("std");
 const c = @import("mod.zig");
 const abi = @import("c_abi_shared");
 
-const PancakeManagedFrame = c.PancakeManagedFrame;
+const GlowcapManagedFrame = c.GlowcapManagedFrame;
 
 /// Wrap an owned `foundation.Frame` as a self-releasing managed frame. Lives in
 /// the shared leaf; re-exported for the peer/endpoint families.
 pub const managedFrame = abi.managedFrame;
-/// Decode a `PANCAKE_FRAME_SHAPE_*` value. Lives in the shared leaf.
+/// Decode a `GLOWCAP_FRAME_SHAPE_*` value. Lives in the shared leaf.
 pub const frameShapeFromC = abi.frameShapeFromC;
 
-pub export fn pancake_managed_frame_release(frame: ?*PancakeManagedFrame) void {
+pub export fn glowcap_managed_frame_release(frame: ?*GlowcapManagedFrame) void {
     const managed = frame orelse return;
     const release = managed.release orelse return;
 

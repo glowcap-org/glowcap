@@ -1,10 +1,10 @@
 // Deno row of the live Goblins listener matrix. The shared harness supplies
 // the outside peer; this process owns one TCP listener and one accepted session.
 
-import type { Argument } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
+import type { Argument } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 
-const ACTOR_SWISS = "pancakeActorSwissnumABCDEFGH1234";
+const ACTOR_SWISS = "glowcapActorSwissnumABCDEFGH1234";
 
 function greeter(_verb: string, args: Argument[]): string {
 	const value = args[0];

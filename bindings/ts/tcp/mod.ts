@@ -1,9 +1,9 @@
 // The TCP provider package owns locator construction and native listening for
 // all three profiles it advertises. Importing the package remains safe before a
 // browser installs its wasm runtime adapter: native code loads only when a
-// listener or `@pancake/tcp/transport` operation is used.
+// listener or `@glowcap/tcp/transport` operation is used.
 
-import { TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@pancake/abi";
+import { TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@glowcap/abi";
 import { keyedLocator, noiseLocator } from "./address.ts";
 import type { KeyedListenOptions, ListenOptions, Server } from "./listen.ts";
 
@@ -84,4 +84,4 @@ export const profiles = [
 			{ name: "advertise", kind: "host", hint: "the bound address" },
 		],
 	},
-] as const satisfies readonly import("@pancake/runtime/transport").ProfileInfo[];
+] as const satisfies readonly import("@glowcap/runtime/transport").ProfileInfo[];

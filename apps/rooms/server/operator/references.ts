@@ -1,7 +1,7 @@
 // The Rooms process's retained capability occurrences, and their owner-aware
 // release paths. This is deliberately not a generic Host reference table.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { MAX_OPERATOR_PAGE } from "../../lib/limits.ts";
 import type { RoomServerContext } from "../context.ts";
 import { type Introduction, type Member, type PendingUpload, type RoomState } from "../registry.ts";

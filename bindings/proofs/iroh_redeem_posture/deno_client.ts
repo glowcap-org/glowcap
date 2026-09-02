@@ -31,8 +31,8 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`); run
 // via `zig build deno-iroh-redeem-posture`.
 
-import { Ref, Runtime } from "@pancake/runtime";
-import { listen, locator, provider, Reachability } from "@pancake/iroh";
+import { Ref, Runtime } from "@glowcap/runtime";
+import { listen, locator, provider, Reachability } from "@glowcap/iroh";
 import { acceptLoop, fail, parseOptionalPortArg } from "../../../interop/_common/deno/helpers.ts";
 
 const NAME = "deno-redeem-posture-carol";

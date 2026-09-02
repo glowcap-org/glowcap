@@ -1,6 +1,6 @@
 // The CapTP face of one IRC-bridged room's member citizenship.
 
-import { type Argument, type Behavior, currentSession, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, type Session } from "@glowcap/runtime";
 import type { IrcChannelMembership } from "../../irc/bridge/reader_connection.ts";
 import type { IrcBridgeRoom } from "../../irc/bridge/room.ts";
 import { type BridgeForm, readBridgeAnswers } from "../../lib/bridge/form.ts";
@@ -29,7 +29,7 @@ export interface IrcSeatIdentity {
 export interface MemberBridge {
 	readonly room: IrcBridgeRoom;
 	stopped: boolean;
-	readonly invitations: Set<{ session: Session; ref: import("@pancake/runtime").Ref | null; active: boolean }>;
+	readonly invitations: Set<{ session: Session; ref: import("@glowcap/runtime").Ref | null; active: boolean }>;
 }
 
 export interface MemberBridgeOperations<Bridge extends MemberBridge, Seat> {
@@ -82,7 +82,7 @@ function bridgeMembershipBehavior<Bridge extends MemberBridge, Seat>(
 			if (held.invitations.size >= MAX_ROOM_INVITATIONS) {
 				throw new Error(`this IRC bridge already holds ${MAX_ROOM_INVITATIONS} live invitations`);
 			}
-			const holding = { session: caller, ref: null as import("@pancake/runtime").Ref | null, active: true };
+			const holding = { session: caller, ref: null as import("@glowcap/runtime").Ref | null, active: true };
 			const behavior = oneShotInvitationBehavior(
 				(claimant, admission) =>
 					claimant.spawn(held.room.roomBehavior({

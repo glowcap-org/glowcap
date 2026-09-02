@@ -1,6 +1,6 @@
 """The Python bench client for the per-language consumer-cost bench.
 
-It drives the taskboard unit against the fixed Zig host through pancake's Python
+It drives the taskboard unit against the fixed Zig host through glowcap's Python
 binding (the same connect/fetch/send the demos use) and prints one NDJSON metric
 line in the shared schema (see bench/langs/contract.md).
 
@@ -20,7 +20,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "bindings" / "python"))
 
-from pancake import Ref, Runtime, Session, tcp  # noqa: E402
+from glowcap import Ref, Runtime, Session, tcp  # noqa: E402
 CLIENT = "python"
 RUNTIME = f"cpython/{platform.python_version()}"
 

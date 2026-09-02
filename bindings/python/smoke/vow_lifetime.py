@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import threading
 
-from pancake import PancakeError
-from pancake._constants import ERR_CLOSED, ERR_NULL_POINTER
-from pancake._gc import HostGc
-from pancake._host.vows import VowTable
-from pancake._promise import _promise_for
+from glowcap import GlowcapError
+from glowcap._constants import ERR_CLOSED, ERR_NULL_POINTER
+from glowcap._gc import HostGc
+from glowcap._host.vows import VowTable
+from glowcap._promise import _promise_for
 
 
 async def abandoned_vow_drops_pending_completion() -> None:
@@ -17,7 +17,7 @@ async def abandoned_vow_drops_pending_completion() -> None:
     table.abandon(11)
     try:
         await table.await_vow(11)
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == ERR_CLOSED, error
     else:
         raise AssertionError("abandoned vow retained a pending completion row")
@@ -92,12 +92,12 @@ def gc_release_refusal_stays_owned() -> None:
     host_gc.pending.append(17)
     host_gc._drain_scheduled()
     background_failure = host_gc._background_failure
-    assert isinstance(background_failure, PancakeError), background_failure
+    assert isinstance(background_failure, GlowcapError), background_failure
     assert background_failure.code == ERR_NULL_POINTER, background_failure
     assert host_gc.pending == [17], host_gc.pending
     try:
         host_gc.drain_gc()
-    except PancakeError as surfaced:
+    except GlowcapError as surfaced:
         assert surfaced is background_failure
     else:
         raise AssertionError("scheduled GC refusal did not reach the next drain")

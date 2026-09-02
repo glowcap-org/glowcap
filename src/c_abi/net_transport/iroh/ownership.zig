@@ -12,9 +12,9 @@ const iroh = @import("iroh");
 const c = @import("c_abi_shared");
 
 /// Public opaque handle for one iroh endpoint.
-pub const PancakeIrohNetlayer = opaque {};
+pub const GlowcapIrohNetlayer = opaque {};
 /// Public opaque handle for one raw nonblocking iroh connection.
-pub const PancakeIrohConn = opaque {};
+pub const GlowcapIrohConn = opaque {};
 
 /// The netlayer handle owns the one iroh endpoint (and, through it, the
 /// sidecar's runtime) plus the `std.Io.Threaded` the resident captures. Every
@@ -77,9 +77,9 @@ pub const ConnPayload = struct {
 /// one id-to-handle mapping and listener-state owner.
 pub const MultiplexedAdapter = struct {
     payload: *NetlayerPayload,
-    profile: c.PancakeTransportProfile,
-    multiplexed_transport: c.PancakeMultiplexedTransport,
-    entry: c.PancakeTransportProviderEntry,
+    profile: c.GlowcapTransportProfile,
+    multiplexed_transport: c.GlowcapMultiplexedTransport,
+    entry: c.GlowcapTransportProviderEntry,
     conns: std.AutoHashMapUnmanaged(u64, *anyopaque) = .empty,
     listening: bool = false,
     listener_route: ?u64 = null,
@@ -116,12 +116,12 @@ pub fn destroyConn(payload: *ConnPayload) void {
     alloc.destroy(payload);
 }
 
-pub fn netlayerFromOpaque(netlayer: ?*PancakeIrohNetlayer) ?*NetlayerPayload {
+pub fn netlayerFromOpaque(netlayer: ?*GlowcapIrohNetlayer) ?*NetlayerPayload {
     const ptr = netlayer orelse return null;
     return @ptrCast(@alignCast(ptr));
 }
 
-pub fn connFromOpaque(conn: ?*PancakeIrohConn) ?*ConnPayload {
+pub fn connFromOpaque(conn: ?*GlowcapIrohConn) ?*ConnPayload {
     const ptr = conn orelse return null;
     return @ptrCast(@alignCast(ptr));
 }

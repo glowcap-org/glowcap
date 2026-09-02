@@ -7,7 +7,7 @@ const std = @import("std");
 const common = @import("common.zig");
 const execution = @import("execution.zig");
 
-const pancakeExecutable = common.pancakeExecutable;
+const glowcapExecutable = common.glowcapExecutable;
 
 pub fn register(
     b: *std.Build,
@@ -31,19 +31,19 @@ pub fn register(
     // `many_sessions_one_loop` are the lower-level library-mechanics
     // walkthroughs.
     const zig_examples = [_]struct { name: []const u8, path: []const u8 }{
-        .{ .name = "pancake-ex-01-connect-and-serve", .path = "examples/zig/01_connect_and_serve.zig" },
-        .{ .name = "pancake-ex-02-introduce-and-redeem", .path = "examples/zig/02_introduce_and_redeem.zig" },
-        .{ .name = "pancake-ex-03-actor-far-send", .path = "examples/zig/03_actor_far_send.zig" },
-        .{ .name = "pancake-ex-04-look-up-by-name", .path = "examples/zig/04_look_up_by_name.zig" },
-        .{ .name = "pancake-ex-05-call-a-remote-method", .path = "examples/zig/05_call_a_remote_method.zig" },
-        .{ .name = "pancake-ex-06-pipeline-and-attenuate", .path = "examples/zig/06_pipeline_and_attenuate.zig" },
-        .{ .name = "pancake-readme-quick-start", .path = "examples/zig/readme_quick_start.zig" },
-        .{ .name = "pancake-dev-frame-view", .path = "examples/zig/frame_view.zig" },
-        .{ .name = "pancake-dev-connect-explicit-buffers", .path = "examples/zig/connect_explicit_buffers.zig" },
-        .{ .name = "pancake-dev-many-sessions-one-loop", .path = "examples/zig/many_sessions_one_loop.zig" },
+        .{ .name = "glowcap-ex-01-connect-and-serve", .path = "examples/zig/01_connect_and_serve.zig" },
+        .{ .name = "glowcap-ex-02-introduce-and-redeem", .path = "examples/zig/02_introduce_and_redeem.zig" },
+        .{ .name = "glowcap-ex-03-actor-far-send", .path = "examples/zig/03_actor_far_send.zig" },
+        .{ .name = "glowcap-ex-04-look-up-by-name", .path = "examples/zig/04_look_up_by_name.zig" },
+        .{ .name = "glowcap-ex-05-call-a-remote-method", .path = "examples/zig/05_call_a_remote_method.zig" },
+        .{ .name = "glowcap-ex-06-pipeline-and-attenuate", .path = "examples/zig/06_pipeline_and_attenuate.zig" },
+        .{ .name = "glowcap-readme-quick-start", .path = "examples/zig/readme_quick_start.zig" },
+        .{ .name = "glowcap-dev-frame-view", .path = "examples/zig/frame_view.zig" },
+        .{ .name = "glowcap-dev-connect-explicit-buffers", .path = "examples/zig/connect_explicit_buffers.zig" },
+        .{ .name = "glowcap-dev-many-sessions-one-loop", .path = "examples/zig/many_sessions_one_loop.zig" },
     };
     for (zig_examples) |ex| {
-        const run = execution.addArtifact(b, .{ .deterministic = 30 }, pancakeExecutable(b, lib_mod, target, optimize, ex.name, ex.path));
+        const run = execution.addArtifact(b, .{ .deterministic = 30 }, glowcapExecutable(b, lib_mod, target, optimize, ex.name, ex.path));
         examples_step.dependOn(&run.step);
     }
 
@@ -51,8 +51,8 @@ pub fn register(
     // composed archive set it includes, the same à-la-carte link the documented
     // recipe gives a C consumer (ADR-0059).
     const c_examples = [_]struct { name: []const u8, path: []const u8, libs: []const *std.Build.Step.Compile }{
-        .{ .name = "pancake-c-frame-view", .path = "examples/c/frame_view.c", .libs = &.{ocapn_static} },
-        .{ .name = "pancake-c-host-embedder-pump", .path = "examples/c/host_embedder_pump.c", .libs = &.{ ocapn_static, host_static } },
+        .{ .name = "glowcap-c-frame-view", .path = "examples/c/frame_view.c", .libs = &.{ocapn_static} },
+        .{ .name = "glowcap-c-host-embedder-pump", .path = "examples/c/host_embedder_pump.c", .libs = &.{ ocapn_static, host_static } },
     };
     for (c_examples) |ex| {
         const c_mod = b.createModule(.{

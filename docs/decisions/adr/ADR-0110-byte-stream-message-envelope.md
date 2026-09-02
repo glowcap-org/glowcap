@@ -19,7 +19,7 @@ Current Goblins byte-stream netlayers encode each complete message to bytes,
 then write those bytes as a Syrup ByteArray. On the wire this is a canonical
 decimal byte length, `:`, and that many body bytes. There is no netstring comma.
 
-pancake instead concatenated bare Syrup or Cap'n Proto frames and asked the
+glowcap instead concatenated bare Syrup or Cap'n Proto frames and asked the
 inner codec to find each boundary. That was internally self-consistent, but it
 did not match the production Goblins transport.
 

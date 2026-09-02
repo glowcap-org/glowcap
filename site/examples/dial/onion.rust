@@ -1,7 +1,7 @@
-use pancake::onion::{self, Config};
-use pancake::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+use glowcap::onion::{self, Config};
+use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
-// pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+// glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 let partner = onion::locator("<56-character onion service id>");
 let runtime = Runtime::open(RuntimeConfig::providers([onion::provider(
 	Config::dial_only("/run/tor/socks"),

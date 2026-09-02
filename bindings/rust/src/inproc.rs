@@ -1,6 +1,6 @@
 //! The blocking in-process transport (the `inproc` feature).
 //!
-//! This module wraps `libpancake_net_transport_inproc` — the `pancake_inproc_*`
+//! This module wraps `libglowcap_net_transport_inproc` — the `glowcap_inproc_*`
 //! archive that the `inproc` Cargo feature links (ADR-0059). It is the
 //! socket-free sibling of [`tcp`](crate::tcp): two peers in one process are
 //! wired by in-process pipes, with no kernel transport. The C listener adds a
@@ -10,9 +10,9 @@
 //! is identical — a [`Connection`] reads and writes one whole CapTP frame at a
 //! time, and the frame methods block.
 //!
-//! Errors from a `pancake_inproc_*` call route through the transport archive's
+//! Errors from a `glowcap_inproc_*` call route through the transport archive's
 //! own thread-local last-error
-//! (`pancake_inproc_last_error`),
+//! (`glowcap_inproc_last_error`),
 //! never the ocapn family's [`last_error`](crate::last_error).
 
 use core::marker::PhantomData;
@@ -37,17 +37,17 @@ pub fn locator(designator: &str) -> Locator {
 }
 
 error_slot!(
-	// Like the core `check`, but for `pancake_inproc_*` calls: snapshot the
+	// Like the core `check`, but for `glowcap_inproc_*` calls: snapshot the
 	// in-process transport's own thread-local last-error.
 	fn check_inproc;
 	fn inproc_last_error;
-	ffi::pancake_inproc_last_error
+	ffi::glowcap_inproc_last_error
 );
 
 fn require_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"inproc",
-		unsafe { ffi::pancake_inproc_archive_fingerprint() },
+		unsafe { ffi::glowcap_inproc_archive_fingerprint() },
 		crate::abi_constants::INPROC_ARCHIVE_FINGERPRINT,
 	)
 }
@@ -58,7 +58,7 @@ fn require_archive() -> Result<()> {
 /// `'ctx` lifetime additionally ties a context-backed netlayer to its
 /// [`Context`]; a netlayer on the library-owned allocator is `Netlayer<'static>`.
 pub struct Netlayer<'ctx> {
-	raw: *mut ffi::PancakeInprocNetlayer,
+	raw: *mut ffi::GlowcapInprocNetlayer,
 	listener_close_failure: Arc<Mutex<Option<Error>>>,
 	_ctx: PhantomData<&'ctx Context>,
 }
@@ -66,8 +66,8 @@ pub struct Netlayer<'ctx> {
 impl<'ctx> Netlayer<'ctx> {
 	pub fn new() -> Result<Netlayer<'ctx>> {
 		require_archive()?;
-		let mut raw: *mut ffi::PancakeInprocNetlayer = core::ptr::null_mut();
-		check_inproc(unsafe { ffi::pancake_inproc_netlayer_new(&mut raw) })?;
+		let mut raw: *mut ffi::GlowcapInprocNetlayer = core::ptr::null_mut();
+		check_inproc(unsafe { ffi::glowcap_inproc_netlayer_new(&mut raw) })?;
 		Ok(Netlayer {
 			raw,
 			listener_close_failure: Arc::new(Mutex::new(None)),
@@ -80,8 +80,8 @@ impl<'ctx> Netlayer<'ctx> {
 	/// `'ctx` enforces.
 	pub fn new_in(context: &'ctx Context) -> Result<Netlayer<'ctx>> {
 		require_archive()?;
-		let mut raw: *mut ffi::PancakeInprocNetlayer = core::ptr::null_mut();
-		check_inproc(unsafe { ffi::pancake_inproc_netlayer_new_in(context.raw(), &mut raw) })?;
+		let mut raw: *mut ffi::GlowcapInprocNetlayer = core::ptr::null_mut();
+		check_inproc(unsafe { ffi::glowcap_inproc_netlayer_new_in(context.raw(), &mut raw) })?;
 		Ok(Netlayer {
 			raw,
 			listener_close_failure: Arc::new(Mutex::new(None)),
@@ -92,8 +92,8 @@ impl<'ctx> Netlayer<'ctx> {
 	/// Bind an in-process listener on `designator` (any opaque token). The
 	/// returned listener borrows this netlayer and cannot outlive it.
 	pub fn listen(&self, designator: &str) -> Result<Listener<'_>> {
-		let mut raw: *mut ffi::PancakeInprocListener = core::ptr::null_mut();
-		check_inproc(unsafe { ffi::pancake_inproc_listen(self.raw, designator.as_ptr(), designator.len(), &mut raw) })?;
+		let mut raw: *mut ffi::GlowcapInprocListener = core::ptr::null_mut();
+		check_inproc(unsafe { ffi::glowcap_inproc_listen(self.raw, designator.as_ptr(), designator.len(), &mut raw) })?;
 		Ok(Listener {
 			raw,
 			close_failure: Arc::clone(&self.listener_close_failure),
@@ -105,9 +105,9 @@ impl<'ctx> Netlayer<'ctx> {
 	/// inbound cap of `max_frame_bytes`. The returned connection borrows this
 	/// netlayer and cannot outlive it.
 	pub fn connect(&self, designator: &str, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
-		let mut raw: *mut ffi::PancakeInprocConn = core::ptr::null_mut();
+		let mut raw: *mut ffi::GlowcapInprocConn = core::ptr::null_mut();
 		check_inproc(unsafe {
-			ffi::pancake_inproc_connect(
+			ffi::glowcap_inproc_connect(
 				self.raw,
 				designator.as_ptr(),
 				designator.len(),
@@ -140,14 +140,14 @@ impl<'ctx> Netlayer<'ctx> {
 
 impl Drop for Netlayer<'_> {
 	fn drop(&mut self) {
-		unsafe { ffi::pancake_inproc_netlayer_release(self.raw) };
+		unsafe { ffi::glowcap_inproc_netlayer_release(self.raw) };
 	}
 }
 
 /// A bound in-process listener. Released on drop. Borrows the [`Netlayer`] it
 /// came from, so the netlayer outlives every accepted connection.
 pub struct Listener<'a> {
-	raw: *mut ffi::PancakeInprocListener,
+	raw: *mut ffi::GlowcapInprocListener,
 	close_failure: Arc<Mutex<Option<Error>>>,
 	_nl: PhantomData<&'a ()>,
 }
@@ -157,16 +157,16 @@ impl Listener<'_> {
 	/// listener owns it; callers must not close it or retain it after drop.
 	pub fn readiness_fd(&self) -> Result<i32> {
 		let mut fd: i32 = -1;
-		check_inproc(unsafe { ffi::pancake_inproc_listener_readiness_fd(self.raw, &mut fd) })?;
+		check_inproc(unsafe { ffi::glowcap_inproc_listener_readiness_fd(self.raw, &mut fd) })?;
 		Ok(fd)
 	}
 
 	/// Block until a dialer connects. The returned connection borrows this
 	/// listener (and thus the netlayer) and cannot outlive it.
 	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
-		let mut raw: *mut ffi::PancakeInprocConn = core::ptr::null_mut();
+		let mut raw: *mut ffi::GlowcapInprocConn = core::ptr::null_mut();
 		check_inproc(unsafe {
-			ffi::pancake_inproc_accept(
+			ffi::glowcap_inproc_accept(
 				self.raw,
 				codec.to_c(),
 				max_frame_bytes,
@@ -185,7 +185,7 @@ impl Listener<'_> {
 		}
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
 		check_inproc(unsafe {
-			ffi::pancake_inproc_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			ffi::glowcap_inproc_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
 	}
 
@@ -218,11 +218,11 @@ impl Drop for Listener<'_> {
 	}
 }
 
-/// A blocking in-process connection, the `pancake_inproc_*` frame shuttle.
+/// A blocking in-process connection, the `glowcap_inproc_*` frame shuttle.
 /// Closed on drop. The frame methods block. Borrows the [`Netlayer`] (or
 /// [`Listener`]) it came from, so that backend outlives it.
 pub struct Connection<'a> {
-	raw: *mut ffi::PancakeInprocConn,
+	raw: *mut ffi::GlowcapInprocConn,
 	_nl: PhantomData<&'a ()>,
 }
 
@@ -230,24 +230,24 @@ impl Connection<'_> {
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
-		let mut frame: crate::sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
+		let mut frame: crate::sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
 		check_inproc(unsafe {
-			ffi::pancake_inproc_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			ffi::glowcap_inproc_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})?;
 		let out = unsafe { crate::owned_from_view(frame.bytes, frame.len) };
-		unsafe { crate::sys::pancake_managed_frame_release(&mut frame) };
+		unsafe { crate::sys::glowcap_managed_frame_release(&mut frame) };
 		Ok(out)
 	}
 
 	/// Write one frame's bytes into the partner's pipe.
 	pub fn write_frame(&mut self, bytes: &[u8]) -> Result<()> {
-		let f = crate::sys::PancakeFrame {
+		let f = crate::sys::GlowcapFrame {
 			bytes: bytes.as_ptr(),
 			len: bytes.len(),
 			shape: crate::sys::FRAME_SHAPE_BYTE,
 		};
 		check_inproc(unsafe {
-			ffi::pancake_inproc_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			ffi::glowcap_inproc_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
 	}
 }
@@ -263,7 +263,7 @@ unsafe impl Send for Connection<'_> {}
 
 impl Drop for Connection<'_> {
 	fn drop(&mut self) {
-		unsafe { ffi::pancake_inproc_conn_release(self.raw) };
+		unsafe { ffi::glowcap_inproc_conn_release(self.raw) };
 	}
 }
 
@@ -295,7 +295,7 @@ mod tests {
 	}
 
 	// A dial to a designator with no bound listener fails with the transport's
-	// own diagnostic, read from `pancake_inproc_last_error` rather than the
+	// own diagnostic, read from `glowcap_inproc_last_error` rather than the
 	// ocapn family's slot.
 	#[test]
 	fn dialing_an_unbound_designator_reports_the_inproc_error() {

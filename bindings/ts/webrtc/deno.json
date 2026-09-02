@@ -1,5 +1,5 @@
 {
-	"name": "@pancake/webrtc",
+	"name": "@glowcap/webrtc",
 	"version": "0.1.0",
 	"exports": {
 		".": "./mod.ts",

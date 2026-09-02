@@ -1,4 +1,4 @@
-// A rooms chat client, written on pancake actors in native Deno.
+// A rooms chat client, written on glowcap actors in native Deno.
 //
 // It connects to the directory, enters the named room (opening it if it does not
 // exist yet), publishes a local `inbox` actor, and hands the room a capability to
@@ -30,7 +30,7 @@ import { enterOrOpen } from "../../lib/enter_room.ts";
 import { NOTIFY, POST, SUBSCRIBE } from "../../lib/protocol.ts";
 import { dialDirectory, isUriLocator, type RoomsDirectoryDial } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
-import { Reachability } from "@pancake/iroh";
+import { Reachability } from "@glowcap/iroh";
 
 export interface RunClientOptions {
 	readonly dial: RoomsDirectoryDial;

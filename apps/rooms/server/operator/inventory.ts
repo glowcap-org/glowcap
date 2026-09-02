@@ -11,7 +11,7 @@
 // and a stewardship row has one only while it has an issued capability to
 // revoke.
 
-import type { Argument, Session } from "@pancake/runtime";
+import type { Argument, Session } from "@glowcap/runtime";
 import { roomIsListed } from "../../lib/room/policy.ts";
 import type { OperatorCategory, OperatorReferenceKind } from "../../lib/operator_vocabulary.ts";
 import type { RoomServerContext } from "../context.ts";

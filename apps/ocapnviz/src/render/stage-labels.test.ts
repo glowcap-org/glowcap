@@ -145,13 +145,13 @@ Deno.test("a long peer caption is shortened before it is drawn", () => {
 	// A peer with no stated name wears its id, and a wire-derived id runs as
 	// long as a designator does. Drawn whole it is the same pill several times
 	// wider than the graph, so it takes the same shortening.
-	const peerId = `pancake-${"7c".repeat(30)}`;
+	const peerId = `glowcap-${"7c".repeat(30)}`;
 	const drawn = peerLabelText(peerId);
 	assert(drawn.length < peerId.length, "the peer caption was drawn whole");
 	assert(drawn.length <= IDENTIFIER_ELIDE_ABOVE + 1);
 	// The middle is what goes, so both ends survive: two peers whose ids share
 	// a prefix still draw as two different nodes.
-	const sibling = peerLabelText(`pancake-${"7c".repeat(29)}9a9a`);
+	const sibling = peerLabelText(`glowcap-${"7c".repeat(29)}9a9a`);
 	assert(
 		drawn !== sibling,
 		"two ids sharing a long prefix drew the same caption",

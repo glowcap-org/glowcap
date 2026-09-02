@@ -29,21 +29,21 @@
 ;; for one runtime operation without exposing the generic driver's C envelope.
 (define (make-tcp-options #:stream [stream (make-tcp-stream-options)])
   (define payload
-    (make-PancakeTcpOperationOptions (tcp-stream-options->c stream)))
+    (make-GlowcapTcpOperationOptions (tcp-stream-options->c stream)))
   (make-transport-operation-options payload
-                                    PANCAKE-TCP-OPERATION-OPTIONS-SIZE))
+                                    GLOWCAP-TCP-OPERATION-OPTIONS-SIZE))
 
 (define (tcp-stream-options->c options)
   (define keepalive (tcp-stream-options-keepalive options))
   (if keepalive
-      (make-PancakeTcpStreamOptions
+      (make-GlowcapTcpStreamOptions
        (tcp-keepalive-idle-seconds keepalive)
        (tcp-keepalive-interval-seconds keepalive)
        (tcp-keepalive-count keepalive))
-      (make-PancakeTcpStreamOptions 0 0 0)))
+      (make-GlowcapTcpStreamOptions 0 0 0)))
 
 (define (tcp-config->c config)
-  (make-PancakeTcpConfig (tcp-stream-options->c (tcp-config-stream config))))
+  (make-GlowcapTcpConfig (tcp-stream-options->c (tcp-config-stream config))))
 
 (define (optional-tcp-stream-options->c options)
   (and options (tcp-stream-options->c options)))

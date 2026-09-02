@@ -15,7 +15,7 @@ amended_by: [ADR-0106, ADR-0120]
 ## Status
 
 Accepted and implemented. The wire name is `driver_core.trace.wireName`, the
-drained seam is `pancake_host_set_trace_queue` plus `pancake_host_next_trace`,
+drained seam is `glowcap_host_set_trace_queue` plus `glowcap_host_next_trace`,
 and the endpoint is `apps/rooms/server/viz.ts` with its producer half in
 `apps/rooms/lib/viz_publish.ts`.
 
@@ -58,7 +58,7 @@ twice, with every message doubled.
 
 **A browser cannot take a trace callback.** The wasm module declares exactly
 the behavior-dispatch and hosted-retirement imports, and `zig build
-wasm-import-check` holds that fixed set. `pancake_host_set_trace` wants a third,
+wasm-import-check` holds that fixed set. `glowcap_host_set_trace` wants a third,
 arbitrary C function pointer, which has no wasm form. The browser peers are the
 very peers whose DMs are invisible.
 
@@ -93,7 +93,7 @@ the producer says it runs. It is stated rather than deduced because these
 records are a schema and not one implementation's mark, and the conformance
 Goblins peer publishes them too. A consumer that read an implementation off the
 fact that a record arrived would draw every producer as whatever it expected;
-a producer that says nothing is honestly unknown instead, including a pancake
+a producer that says nothing is honestly unknown instead, including a glowcap
 one. It is the same class of thing as the `provenance` verdict beside it, a
 conclusion the producer states rather than a raw wire fact.
 
@@ -142,9 +142,9 @@ socket dropping is not a conversation ending.
 
 ### An embedder that cannot take a callback drains a ring
 
-`pancake_host_set_trace_queue(host, capacity, payload_cap)` captures each fact
-into a fixed ring the embedder pops with `pancake_host_next_trace`, borrowed
-until the next pop — the lifetime `pancake_host_next_action` already carries.
+`glowcap_host_set_trace_queue(host, capacity, payload_cap)` captures each fact
+into a fixed ring the embedder pops with `glowcap_host_next_trace`, borrowed
+until the next pop — the lifetime `glowcap_host_next_action` already carries.
 It is a separate queue from the action queue on purpose. An action is a promise
 the host must keep, so the action FIFO reserves capacity ahead of every push and
 can never refuse one. A trace record is an observation, and must never make the
@@ -246,10 +246,10 @@ a member's whole life in a room — join, direct message, leave, close, reopen,
 go away — and after every step counts the peers and sessions through ocapnviz's
 own converter, so the picture rather than the feed is what is held.
 
-`PancakeTraceEvent` grows five fields — `wire`, `wire_len`, `frame_total_len`,
+`GlowcapTraceEvent` grows five fields — `wire`, `wire_len`, `frame_total_len`,
 `dropped`, and the fixed-width `digest` — so the generated header, the
 TypeScript ABI mirror, and the three bindings' struct mirrors move with it.
-pancake ships under no compatibility promise, so this is a regeneration, not a
+glowcap ships under no compatibility promise, so this is a regeneration, not a
 migration. The header generator learned to emit a fixed array field, which C
 splits across the type and the declarator.
 

@@ -1,4 +1,4 @@
-//! Live Goblins interop: a native pancake peer holds a real OCapN conversation
+//! Live Goblins interop: a native glowcap peer holds a real OCapN conversation
 //! with a Spritely Goblins vat over TCP, in *both* directions. The vat build
 //! pin is `.devcontainer/pins.sh` `GOBLINS_VERSION` (not runtime-enforced).
 //!
@@ -17,36 +17,36 @@
 //! rides), calls the enlivened cap, and asserts a repeat enliven hits the cache
 //! with no wire traffic, which proves enliven against a real Goblins-published cap.
 //!
-//! The listener bracket: pancake then binds its own TCP listener on an
+//! The listener bracket: glowcap then binds its own TCP listener on an
 //! ephemeral port and a real Goblins client dials in. Five scenarios share
 //! that bracket: a settled call to a published Greeter actor
-//! (`pancake-actor-call.rkt`), a pipelined enliven-and-call in one breath
-//! (`goblins-tap-dialer.rkt`), the break path (`pancake-break-call.rkt`),
-//! where the client fetches a swiss-num pancake never registered and asserts
-//! its vow breaks with pancake's reason, an export-side `op:listen`
-//! (`pancake-export-listen.rkt`), where Goblins subscribes on a live pancake
+//! (`glowcap-actor-call.rkt`), a pipelined enliven-and-call in one breath
+//! (`goblins-tap-dialer.rkt`), the break path (`glowcap-break-call.rkt`),
+//! where the client fetches a swiss-num glowcap never registered and asserts
+//! its vow breaks with glowcap's reason, an export-side `op:listen`
+//! (`glowcap-export-listen.rkt`), where Goblins subscribes on a live glowcap
 //! object export and hears the settlement, and a projection asker
-//! (`pancake-projection-asker.rkt`), where Goblins writes canonical `op:get`
-//! and `op:index` at pancake's responders, then observes pancake's
+//! (`glowcap-projection-asker.rkt`), where Goblins writes canonical `op:get`
+//! and `op:index` at glowcap's responders, then observes glowcap's
 //! resolver-callback fulfillments for those projected answers. Together the
 //! brackets prove the
-//! bidirectional capability: pancake drives Goblins, and Goblins drives a
-//! pancake actor.
+//! bidirectional capability: glowcap drives Goblins, and Goblins drives a
+//! glowcap actor.
 //!
 //! This is not part of the hermetic `zig build check`: it needs `racket` + the
 //! `goblins` collection on PATH, so it runs as the sibling step
 //! `zig build goblins-interop`, the way the binding dogfoods need their runtimes.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const converse = @import("converse.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const tcp = glowcap.net.tcp;
 
 const host = "127.0.0.1";
 /// The Goblins host's listening port in the dial direction. `--port=N` (from
@@ -64,30 +64,30 @@ const frame_cap: usize = 1 << 16;
 const deadline_ms: u64 = 60_000;
 
 const host_script = "conformance/goblins-peer/racket/goblins-host.rkt";
-const dialer_script = "conformance/goblins-peer/racket/pancake-actor-call.rkt";
+const dialer_script = "conformance/goblins-peer/racket/glowcap-actor-call.rkt";
 // The pipelining client: it enlivens and calls in one breath (`<-` to the
 // unresolved enliven vow), so the call arrives as an inbound pipelined deliver.
 const pipelined_dialer_script = "conformance/goblins-peer/racket/goblins-tap-dialer.rkt";
-// The break-path client: it enlivens a swiss-num pancake never registered and
-// asserts its vow breaks with pancake's reason, proving Goblins unmarshals
-// pancake's V1.0 `['break, reason-symbol]` resolver callback.
-const break_dialer_script = "conformance/goblins-peer/racket/pancake-break-call.rkt";
+// The break-path client: it enlivens a swiss-num glowcap never registered and
+// asserts its vow breaks with glowcap's reason, proving Goblins unmarshals
+// glowcap's V1.0 `['break, reason-symbol]` resolver callback.
+const break_dialer_script = "conformance/goblins-peer/racket/glowcap-break-call.rkt";
 // Goblins-as-asker projection: sends canonical `op:get` / `op:index` against
-// pancake's ADR-0050 responders (Goblins 0.18.0 has no app-level send yet).
-const projection_asker_script = "conformance/goblins-peer/racket/pancake-projection-asker.rkt";
+// glowcap's ADR-0050 responders (Goblins 0.18.0 has no app-level send yet).
+const projection_asker_script = "conformance/goblins-peer/racket/glowcap-projection-asker.rkt";
 // Export-side `op:listen`: Goblins `listen` on a settled remote object export.
-const export_listen_dialer_script = "conformance/goblins-peer/racket/pancake-export-listen.rkt";
+const export_listen_dialer_script = "conformance/goblins-peer/racket/glowcap-export-listen.rkt";
 
-// The swiss-num the pancake actor is published behind in the listener scenarios.
-const actor_swiss = "pancakeActorSwissnumABCDEFGH1234";
+// The swiss-num the glowcap actor is published behind in the listener scenarios.
+const actor_swiss = "glowcapActorSwissnumABCDEFGH1234";
 // Swiss-num for the projection-responder actor (Struct + List replies).
-const projection_swiss = "pancakeProjectionSwissnumABCDEF1234";
-// Deliberately never registered on the pancake side: fetching it makes the
+const projection_swiss = "glowcapProjectionSwissnumABCDEF1234";
+// Deliberately never registered on the glowcap side: fetching it makes the
 // bootstrap auto-serve break the answer with "unknown swissnum".
-const unregistered_swiss = "pancakeUnknownSwissnumZZZZZZ9999";
+const unregistered_swiss = "glowcapUnknownSwissnumZZZZZZ9999";
 
 /// The actor the listener scenarios publish for a live Goblins peer to call.
-const Greeter = harness.PositionalReplyActor("Hello {s}, from a pancake actor!");
+const Greeter = harness.PositionalReplyActor("Hello {s}, from a glowcap actor!");
 
 /// Returns an OCapN Struct or List so inbound `op:get` / `op:index` can project
 /// (ADR-0050).
@@ -111,7 +111,7 @@ const ProjectionResponder = struct {
             };
             // A Struct-shaped reply, built on the turn arena (the reply's
             // documented lifetime): Goblins unmarshals it as a hash, so this
-            // bracket also proves the pancake-to-Goblins Struct reply live.
+            // bracket also proves the glowcap-to-Goblins Struct reply live.
             const entries = try turn.arena.alloc(model.StructEntry, 1);
             entries[0] = .{
                 .key = try turn.arena.dupe(u8, "name"),
@@ -165,13 +165,13 @@ pub fn main(init: std.process.Init) !void {
         return err;
     };
 
-    std.debug.print("goblins-interop: OK (pancake as client), handshake + bootstrap fetch + echo deliver/resolve with live Goblins\n", .{});
+    std.debug.print("goblins-interop: OK (glowcap as client), handshake + bootstrap fetch + echo deliver/resolve with live Goblins\n", .{});
 
     // Tear the client-scenario vat down before opening the reverse direction.
     child.kill(io);
     reaped = true;
 
-    // Second bracket: Goblins dials *us* and calls a pancake actor over the wire.
+    // Second bracket: Goblins dials *us* and calls a glowcap actor over the wire.
     // The Goblins client resolves the cap before calling, so the call is a settled
     // (non-pipelined) deliver.
     try runListenerScenario(init, .{
@@ -182,10 +182,10 @@ pub fn main(init: std.process.Init) !void {
         .serves_actor = true,
         .kind = "settled call",
     });
-    std.debug.print("goblins-interop: OK, bidirectional: pancake called Goblins, and Goblins called a pancake actor\n", .{});
+    std.debug.print("goblins-interop: OK, bidirectional: glowcap called Goblins, and Goblins called a glowcap actor\n", .{});
 
     // Third bracket: Goblins enlivens and calls in one breath, so the call arrives
-    // as an inbound pipelined deliver against the enliven answer. pancake auto-serves
+    // as an inbound pipelined deliver against the enliven answer. glowcap auto-serves
     // the fetch synchronously, so the answer is already resolved when the pipelined
     // deliver arrives; the engine redirects it to the resolved local export.
     try runListenerScenario(init, .{
@@ -196,12 +196,12 @@ pub fn main(init: std.process.Init) !void {
         .serves_actor = true,
         .kind = "pipelined call",
     });
-    std.debug.print("goblins-interop: OK, inbound promise pipelining: goblins enlivened and called a pancake actor in one breath\n", .{});
+    std.debug.print("goblins-interop: OK, inbound promise pipelining: goblins enlivened and called a glowcap actor in one breath\n", .{});
 
-    // Fourth bracket: the break path. Goblins enlivens a swiss-num pancake never
-    // registered; pancake breaks the fetch answer, which on the V1.0 wire is a
+    // Fourth bracket: the break path. Goblins enlivens a swiss-num glowcap never
+    // registered; glowcap breaks the fetch answer, which on the V1.0 wire is a
     // resolver-callback deliver carrying `['break, reason-symbol]`. The client
-    // asserts its vow broke *with pancake's reason* — an `<error …>` record here
+    // asserts its vow broke *with glowcap's reason* — an `<error …>` record here
     // would instead die in Goblins' unmarshaller (`captp-unknown-record-rag`)
     // and surface as a timeout or severed-session error. The fetch is auto-served
     // by the engine with no vat turn, so the bracket publishes nothing.
@@ -212,10 +212,10 @@ pub fn main(init: std.process.Init) !void {
         .serves_actor = false,
         .kind = "break path",
     });
-    std.debug.print("goblins-interop: OK — break path: goblins observed pancake's broken vow with its reason\n", .{});
+    std.debug.print("goblins-interop: OK — break path: goblins observed glowcap's broken vow with its reason\n", .{});
 
     // Fifth bracket: export-side `op:listen` — Goblins listens on a live
-    // pancake object export and receives immediate fulfill.
+    // glowcap object export and receives immediate fulfill.
     try runListenerScenario(init, .{
         .dialer = export_listen_dialer_script,
         .swiss = actor_swiss,
@@ -224,13 +224,13 @@ pub fn main(init: std.process.Init) !void {
         .kind = "export listen",
         .actor = .greeter,
     });
-    std.debug.print("goblins-interop: OK — export-side op:listen: goblins listened on a live pancake export\n", .{});
+    std.debug.print("goblins-interop: OK — export-side op:listen: goblins listened on a live glowcap export\n", .{});
 
     // Sixth bracket: Goblins-as-asker sends canonical `op:get` / `op:index`
-    // frames through its own netlayer against pancake's ADR-0050 responders.
+    // frames through its own netlayer against glowcap's ADR-0050 responders.
     // The pinned Goblins release has inbound projection support but no public
     // outbound app API for those ops, so the Racket asker uses Goblins'
-    // canonical records and test-only netlayer writer, then observes pancake's
+    // canonical records and test-only netlayer writer, then observes glowcap's
     // V1.0 resolver-callback settlements on the live Goblins TCP netlayer.
     try runListenerScenario(init, .{
         .dialer = projection_asker_script,
@@ -242,13 +242,13 @@ pub fn main(init: std.process.Init) !void {
         // `PROJECTION OK` now means the Goblins-side probe observed fulfill
         // resolver callbacks for both projection answer positions, with the
         // expected payloads. The kind latches stay as a guard that the
-        // canonical projection frames themselves reached pancake.
+        // canonical projection frames themselves reached glowcap.
         .expect_inbound_ops = &.{ .get, .index },
     });
-    std.debug.print("goblins-interop: OK, pancake accepted canonical op:get/op:index frames a Goblins netlayer wrote\n", .{});
+    std.debug.print("goblins-interop: OK, glowcap accepted canonical op:get/op:index frames a Goblins netlayer wrote\n", .{});
 }
 
-/// One Goblins-dials-pancake scenario over the shared listener bracket.
+/// One Goblins-dials-glowcap scenario over the shared listener bracket.
 const ListenerScenario = struct {
     /// The Racket client script that dials our listener.
     dialer: []const u8,
@@ -259,7 +259,7 @@ const ListenerScenario = struct {
     call_arg: ?[]const u8 = null,
     /// The stdout line that proves the scenario from the Goblins side.
     success_needle: []const u8,
-    /// Whether pancake publishes and serves an actor behind `swiss`. The break
+    /// Whether glowcap publishes and serves an actor behind `swiss`. The break
     /// scenario leaves this false: the client fetches an unregistered swiss-num,
     /// and the engine auto-breaks the fetch with no vat turn involved.
     serves_actor: bool,
@@ -280,7 +280,7 @@ const ListenerScenario = struct {
     expect_inbound_ops: []const engine.EventKind = &.{},
 };
 
-/// The reverse direction: a pancake peer listens on an ephemeral port, and a
+/// The reverse direction: a glowcap peer listens on an ephemeral port, and a
 /// real Goblins client (`scenario.dialer`) dials in and drives the scenario.
 /// We assert the client printed `scenario.success_needle` — Goblins' own
 /// confirmation that it received the actor's reply, or observed the broken vow.
@@ -365,7 +365,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     const designator_addr = try tcp.parseHostPort(host, port_num);
     const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     _ = try goblins_child.openKeyedSession(io, peer, &conn, designator);
-    std.debug.print("goblins-interop: session open (pancake as listener, {s})\n", .{scenario.kind});
+    std.debug.print("goblins-interop: session open (glowcap as listener, {s})\n", .{scenario.kind});
 
     // 6. Drive until Goblins has what it came for and hangs up. Some scenarios
     //    exit before the TCP session closes; a wall-clock cap prevents wedging.
@@ -441,5 +441,5 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     std.debug.print("goblins-interop: {s}", .{stdout_text});
     child.kill(io);
     reaped = true;
-    std.debug.print("goblins-interop: goblins drove the pancake listener ({s}) and printed `{s}`\n", .{ scenario.kind, scenario.success_needle });
+    std.debug.print("goblins-interop: goblins drove the glowcap listener ({s}) and printed `{s}`\n", .{ scenario.kind, scenario.success_needle });
 }

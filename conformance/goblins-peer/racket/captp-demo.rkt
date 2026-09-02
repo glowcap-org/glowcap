@@ -8,7 +8,7 @@
 ;; `fake-intarwebs` netlayer (in-process, but real CapTP semantics).
 ;;
 ;; This is the Goblins-only, in-process control: it pins CapTP semantics above
-;; a fake netlayer without making a claim about pancake. `tcp-demo.rkt` holds
+;; a fake netlayer without making a claim about glowcap. `tcp-demo.rkt` holds
 ;; the corresponding real-socket control; `goblins-interop` and the live
 ;; handoff/gift/exporter rows cover the cross-implementation seams.
 ;;

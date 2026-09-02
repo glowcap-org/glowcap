@@ -26,14 +26,14 @@ pub fn checkDriverEventFailureProjection(
         "bindings/rust/src/driver_loop/progress.rs",
         "bindings/rust/src/driver_loop/provider.rs",
         "bindings/rust/src/driver_loop/sessions.rs",
-        "bindings/python/pancake/_loop/__init__.py",
-        "bindings/python/pancake/_loop/configuration.py",
-        "bindings/python/pancake/_loop/dialing.py",
-        "bindings/python/pancake/_loop/errors.py",
-        "bindings/python/pancake/_loop/lifecycle.py",
-        "bindings/python/pancake/_loop/listeners.py",
-        "bindings/python/pancake/_loop/progress.py",
-        "bindings/python/pancake/_loop/sessions.py",
+        "bindings/python/glowcap/_loop/__init__.py",
+        "bindings/python/glowcap/_loop/configuration.py",
+        "bindings/python/glowcap/_loop/dialing.py",
+        "bindings/python/glowcap/_loop/errors.py",
+        "bindings/python/glowcap/_loop/lifecycle.py",
+        "bindings/python/glowcap/_loop/listeners.py",
+        "bindings/python/glowcap/_loop/progress.py",
+        "bindings/python/glowcap/_loop/sessions.py",
         "bindings/ts/runtime/driver_loop/state.ts",
         "bindings/ts/runtime/driver_loop/lifecycle.ts",
         "bindings/ts/runtime/driver_loop/drive.ts",
@@ -58,7 +58,7 @@ pub fn checkDriverEventFailureProjection(
         defer gpa.free(contents);
         for (error_names) |name| {
             if (std.mem.indexOf(u8, contents, name) != null) {
-                try appendViolation(gpa, violations, "{s}: forbidden driver error-name classification `{s}` — project PancakeDriverEvent.primary_result instead", .{ path, name });
+                try appendViolation(gpa, violations, "{s}: forbidden driver error-name classification `{s}` — project GlowcapDriverEvent.primary_result instead", .{ path, name });
             }
         }
     }
@@ -74,7 +74,7 @@ pub fn checkDriverRetirementAuthority(
 ) !void {
     const forbidden = [_]struct { path: []const u8, needles: []const []const u8 }{
         .{ .path = "bindings/ts/runtime/driver_loop/state.ts", .needles = &.{"_openSessions"} },
-        .{ .path = "bindings/python/pancake/_loop/__init__.py", .needles = &.{ "_open_sessions", "_close_requested" } },
+        .{ .path = "bindings/python/glowcap/_loop/__init__.py", .needles = &.{ "_open_sessions", "_close_requested" } },
         .{ .path = "bindings/racket/private/loop/listeners.rkt", .needles = &.{ "driver-loop-retire-when-idle!", "retirement-scheduled" } },
     };
     for (forbidden) |entry| {
@@ -85,7 +85,7 @@ pub fn checkDriverRetirementAuthority(
         defer gpa.free(contents);
         for (entry.needles) |needle| {
             if (std.mem.indexOf(u8, contents, needle) != null) {
-                try appendViolation(gpa, violations, "{s}: forbidden binding retirement policy `{s}` — request and drive pancake_driver_retire instead", .{ entry.path, needle });
+                try appendViolation(gpa, violations, "{s}: forbidden binding retirement policy `{s}` — request and drive glowcap_driver_retire instead", .{ entry.path, needle });
             }
         }
     }
@@ -109,8 +109,8 @@ pub fn checkBindingCloseProjectionAuthority(
         "bindings/ts/runtime/host/lifecycle.ts",
         "bindings/ts/runtime/host/application.ts",
         "bindings/ts/runtime/host/drive.ts",
-        "bindings/python/pancake/_host/lifecycle.py",
-        "bindings/python/pancake/_loop/lifecycle.py",
+        "bindings/python/glowcap/_host/lifecycle.py",
+        "bindings/python/glowcap/_loop/lifecycle.py",
         "bindings/racket/private/host.rkt",
         "bindings/racket/private/loop/lifecycle.rkt",
     };
@@ -164,7 +164,7 @@ pub fn checkBindingCloseProjectionAuthority(
         .{ .path = "bindings/ts/runtime/host/lifecycle.ts", .needle = "_doClose(options:" },
         .{ .path = "bindings/ts/runtime/session/lifecycle.ts", .needle = "#driveClose(options:" },
         .{ .path = "bindings/ts/runtime/driver_loop/lifecycle.ts", .needle = "_doClose(options:" },
-        .{ .path = "bindings/python/pancake/_host/lifecycle.py", .needle = "_drive_release(self, options)" },
+        .{ .path = "bindings/python/glowcap/_host/lifecycle.py", .needle = "_drive_release(self, options)" },
     };
     for (retained_policy) |entry| {
         if (try fileContains(io, gpa, root, entry.path, entry.needle)) {
@@ -184,7 +184,7 @@ pub fn checkBindingClosePolicyAuthority(
 ) !void {
     const abi_range_checks = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/ts/runtime/lifecycle.ts", .needle = "graceMs > CLOSE_MAX_GRACE_MS" },
-        .{ .path = "bindings/python/pancake/_lifecycle.py", .needle = "grace > _abi.CLOSE_MAX_GRACE_MS / 1_000" },
+        .{ .path = "bindings/python/glowcap/_lifecycle.py", .needle = "grace > _abi.CLOSE_MAX_GRACE_MS / 1_000" },
         .{ .path = "bindings/rust/src/lifecycle.rs", .needle = "millis > u128::from(sys::CLOSE_MAX_GRACE_MS)" },
         .{ .path = "bindings/racket/private/host.rkt", .needle = "(<= grace-ms CLOSE-MAX-GRACE-MS)" },
     };
@@ -207,11 +207,11 @@ pub fn checkBindingClosePolicyAuthority(
         "const outcome = driverCall(",
         "\"driver-loop.finalizer.release\"",
     });
-    try expectFileContains(io, gpa, root, violations, "bindings/python/pancake/_driver/release.py", &.{
+    try expectFileContains(io, gpa, root, violations, "bindings/python/glowcap/_driver/release.py", &.{
         "weakref.finalize(",
         "wrapper, _release_driver_finalizer_state",
     });
-    try expectFileContains(io, gpa, root, violations, "bindings/python/pancake/_driver/finalizer.py", &.{
+    try expectFileContains(io, gpa, root, violations, "bindings/python/glowcap/_driver/finalizer.py", &.{
         "self.operation = \"driver-loop.finalize.release\"",
         "outcome = _release(_driver, handle, state.operation)",
     });

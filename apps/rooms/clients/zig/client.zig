@@ -1,6 +1,6 @@
-//! A rooms chat client, written on pancake actors in native Zig. Zig is the home
+//! A rooms chat client, written on glowcap actors in native Zig. Zig is the home
 //! language; this runs on the same core every binding wraps, and it drives the
-//! real netlayers pancake ships.
+//! real netlayers glowcap ships.
 //!
 //! On the driver surface this reads like the other languages: one borrowing
 //! `driver.connectVia`, `fetch` the directory by name, `call` it to enter or open
@@ -9,7 +9,7 @@
 //! capability, `tell` it the post, and `step` the connection with one explicit pump
 //! per step, with the loop still owned by the caller the Zig way.
 //!
-//!   pancake-rooms-client <locator> <room> <nick> <line> [roster]
+//!   glowcap-rooms-client <locator> <room> <nick> <line> [roster]
 //!
 //! The locator is transport-neutral: a `host:port` reaches a TCP room, and an
 //! `ocapn://<nodeid>.iroh?direct-addresses=…` URI reaches an iroh room (when
@@ -26,18 +26,18 @@
 //! counted, so a busy room cannot fake or break the assertion.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const build_options = @import("rooms_client_build_options");
 
 const demo_rooms = @import("demo_rooms_cli");
 const demo_usage = @import("demo_usage");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const tcp = glowcap.net.tcp;
 
 const frame_cap: usize = 1 << 16;
 /// The whole roster wait is bounded, like the Deno/Python/Racket clients'
@@ -285,7 +285,7 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-/// Dial a `host:port` designator over the TCP netlayer pancake ships.
+/// Dial a `host:port` designator over the TCP netlayer glowcap ships.
 fn runTcpRoom(io: std.Io, allocator: std.mem.Allocator, locator: []const u8, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     try dialVia(
@@ -463,5 +463,5 @@ fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allo
 }
 
 fn fail(message: []const u8) error{Usage} {
-    return demo_usage.usage("usage: pancake-rooms-client <locator> <room> <nick> <line> [roster]\n  (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)", message);
+    return demo_usage.usage("usage: glowcap-rooms-client <locator> <room> <nick> <line> [roster]\n  (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)", message);
 }

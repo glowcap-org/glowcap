@@ -15,7 +15,7 @@ const TLS_KEY = new URL("../../../test/net/fixtures/tls_server.key", import.meta
 const TLS_ROOT = new URL("../../../test/net/fixtures/tls_root.pem", import.meta.url).pathname;
 const LIB_DIR = new URL("../../../zig-out/lib/", import.meta.url).pathname;
 const installedArchiveEnv = {
-	PANCAKE_LIB_DIR: LIB_DIR,
+	GLOWCAP_LIB_DIR: LIB_DIR,
 	...(Deno.build.os === "darwin" ? { DYLD_LIBRARY_PATH: LIB_DIR } : { LD_LIBRARY_PATH: LIB_DIR }),
 };
 
@@ -47,8 +47,8 @@ const relay = new Deno.Command("deno", {
 	env: nativeWss
 		? {
 			...installedArchiveEnv,
-			PANCAKE_RELAY_TLS_CERT: TLS_CERT,
-			PANCAKE_RELAY_TLS_KEY: TLS_KEY,
+			GLOWCAP_RELAY_TLS_CERT: TLS_CERT,
+			GLOWCAP_RELAY_TLS_KEY: TLS_KEY,
 		}
 		: installedArchiveEnv,
 	stdout: "piped",
@@ -85,8 +85,8 @@ try {
 		env: nativeWss
 			? {
 				...installedArchiveEnv,
-				PANCAKE_PROOF_NATIVE_RELAY_URL: relayUrl,
-				PANCAKE_PROOF_NATIVE_RELAY_CA_FILE: TLS_ROOT,
+				GLOWCAP_PROOF_NATIVE_RELAY_URL: relayUrl,
+				GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE: TLS_ROOT,
 			}
 			: installedArchiveEnv,
 		stdout: "inherit",

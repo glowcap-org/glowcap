@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 
-use crate::PancakeIrohReadyEvent;
+use crate::GlowcapIrohReadyEvent;
 
 /// One endpoint's readiness channel: the self-pipe the loop polls plus the
 /// authoritative queue of pending records. Wake bytes are coalescing hints;
@@ -44,10 +44,10 @@ impl ReadyQueue {
 		self.events.insert(subject, events);
 	}
 
-	fn pop_front(&mut self) -> Option<PancakeIrohReadyEvent> {
+	fn pop_front(&mut self) -> Option<GlowcapIrohReadyEvent> {
 		let subject = self.order.pop_front()?;
 		let events = self.events.remove(&subject)?;
-		Some(PancakeIrohReadyEvent { subject, events })
+		Some(GlowcapIrohReadyEvent { subject, events })
 	}
 }
 
@@ -94,7 +94,7 @@ impl Readiness {
 	/// Clear coalesced wake bytes before draining authoritative records. A signal
 	/// racing this operation either joins this drain or leaves a byte for the next
 	/// poll. A short record drain re-nudges the fd for its remaining backlog.
-	pub(crate) fn drain(&self, dest: &mut [PancakeIrohReadyEvent]) -> usize {
+	pub(crate) fn drain(&self, dest: &mut [GlowcapIrohReadyEvent]) -> usize {
 		let mut wake = [0u8; 256];
 		let mut reader = &self.reader;
 		loop {

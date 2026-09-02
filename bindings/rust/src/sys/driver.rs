@@ -1,4 +1,4 @@
-//! Raw FFI for the `pancake_driver_*` native loop family.
+//! Raw FFI for the `glowcap_driver_*` native loop family.
 //!
 //! Transport archives expose a small provider package header. The driver
 //! copies the package's private implementation tables, so this binding does
@@ -6,16 +6,16 @@
 
 use core::ffi::{c_int, c_uchar, c_uint, c_void};
 
-use super::host::{PancakeHostAction, PancakeHostSession};
+use super::host::{GlowcapHostAction, GlowcapHostSession};
 use super::layouts_gen::*;
 
 #[repr(C)]
-pub struct PancakeDriverLoop {
+pub struct GlowcapDriverLoop {
 	_private: [u8; 0],
 }
 
 #[repr(C)]
-pub struct PancakeDriverOptions {
+pub struct GlowcapDriverOptions {
 	pub abi_version: c_uint,
 	pub struct_size: usize,
 	pub wire_buffer_bytes: usize,
@@ -27,7 +27,7 @@ pub struct PancakeDriverOptions {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PancakeDriverFailure {
+pub struct GlowcapDriverFailure {
 	pub abi_version: u32,
 	pub struct_size: usize,
 	pub primary_result: c_int,
@@ -46,40 +46,40 @@ pub struct PancakeDriverFailure {
 
 const _: () = {
 	use core::mem::{offset_of, size_of};
-	assert!(size_of::<PancakeDriverOptions>() == PANCAKE_DRIVER_OPTIONS_SIZE);
-	assert!(offset_of!(PancakeDriverOptions, abi_version) == PANCAKE_DRIVER_OPTIONS_ABI_VERSION_OFF);
-	assert!(offset_of!(PancakeDriverOptions, struct_size) == PANCAKE_DRIVER_OPTIONS_STRUCT_SIZE_OFF);
-	assert!(offset_of!(PancakeDriverOptions, wire_buffer_bytes) == PANCAKE_DRIVER_OPTIONS_WIRE_BUFFER_BYTES_OFF);
-	assert!(offset_of!(PancakeDriverOptions, max_pending_opens) == PANCAKE_DRIVER_OPTIONS_MAX_PENDING_OPENS_OFF);
-	assert!(offset_of!(PancakeDriverOptions, handshake_ms) == PANCAKE_DRIVER_OPTIONS_HANDSHAKE_MS_OFF);
-	assert!(offset_of!(PancakeDriverOptions, listener_setup_ms) == PANCAKE_DRIVER_OPTIONS_LISTENER_SETUP_MS_OFF);
-	assert!(offset_of!(PancakeDriverOptions, settle_ms) == PANCAKE_DRIVER_OPTIONS_SETTLE_MS_OFF);
+	assert!(size_of::<GlowcapDriverOptions>() == GLOWCAP_DRIVER_OPTIONS_SIZE);
+	assert!(offset_of!(GlowcapDriverOptions, abi_version) == GLOWCAP_DRIVER_OPTIONS_ABI_VERSION_OFF);
+	assert!(offset_of!(GlowcapDriverOptions, struct_size) == GLOWCAP_DRIVER_OPTIONS_STRUCT_SIZE_OFF);
+	assert!(offset_of!(GlowcapDriverOptions, wire_buffer_bytes) == GLOWCAP_DRIVER_OPTIONS_WIRE_BUFFER_BYTES_OFF);
+	assert!(offset_of!(GlowcapDriverOptions, max_pending_opens) == GLOWCAP_DRIVER_OPTIONS_MAX_PENDING_OPENS_OFF);
+	assert!(offset_of!(GlowcapDriverOptions, handshake_ms) == GLOWCAP_DRIVER_OPTIONS_HANDSHAKE_MS_OFF);
+	assert!(offset_of!(GlowcapDriverOptions, listener_setup_ms) == GLOWCAP_DRIVER_OPTIONS_LISTENER_SETUP_MS_OFF);
+	assert!(offset_of!(GlowcapDriverOptions, settle_ms) == GLOWCAP_DRIVER_OPTIONS_SETTLE_MS_OFF);
 };
 
 const _: () = {
 	use core::mem::{offset_of, size_of};
-	assert!(size_of::<PancakeDriverFailure>() == PANCAKE_DRIVER_FAILURE_SIZE);
-	assert!(offset_of!(PancakeDriverFailure, abi_version) == PANCAKE_DRIVER_FAILURE_ABI_VERSION_OFF);
-	assert!(offset_of!(PancakeDriverFailure, struct_size) == PANCAKE_DRIVER_FAILURE_STRUCT_SIZE_OFF);
-	assert!(offset_of!(PancakeDriverFailure, primary_result) == PANCAKE_DRIVER_FAILURE_PRIMARY_RESULT_OFF);
-	assert!(offset_of!(PancakeDriverFailure, secondary_result) == PANCAKE_DRIVER_FAILURE_SECONDARY_RESULT_OFF);
-	assert!(offset_of!(PancakeDriverFailure, secondary_count) == PANCAKE_DRIVER_FAILURE_SECONDARY_COUNT_OFF);
-	assert!(offset_of!(PancakeDriverFailure, carrier_phase) == PANCAKE_DRIVER_FAILURE_CARRIER_PHASE_OFF);
-	assert!(offset_of!(PancakeDriverFailure, carrier_detail_flags) == PANCAKE_DRIVER_FAILURE_CARRIER_DETAIL_FLAGS_OFF);
+	assert!(size_of::<GlowcapDriverFailure>() == GLOWCAP_DRIVER_FAILURE_SIZE);
+	assert!(offset_of!(GlowcapDriverFailure, abi_version) == GLOWCAP_DRIVER_FAILURE_ABI_VERSION_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, struct_size) == GLOWCAP_DRIVER_FAILURE_STRUCT_SIZE_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, primary_result) == GLOWCAP_DRIVER_FAILURE_PRIMARY_RESULT_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, secondary_result) == GLOWCAP_DRIVER_FAILURE_SECONDARY_RESULT_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, secondary_count) == GLOWCAP_DRIVER_FAILURE_SECONDARY_COUNT_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, carrier_phase) == GLOWCAP_DRIVER_FAILURE_CARRIER_PHASE_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, carrier_detail_flags) == GLOWCAP_DRIVER_FAILURE_CARRIER_DETAIL_FLAGS_OFF);
 	assert!(
-		offset_of!(PancakeDriverFailure, carrier_verification_flags)
-			== PANCAKE_DRIVER_FAILURE_CARRIER_VERIFICATION_FLAGS_OFF
+		offset_of!(GlowcapDriverFailure, carrier_verification_flags)
+			== GLOWCAP_DRIVER_FAILURE_CARRIER_VERIFICATION_FLAGS_OFF
 	);
-	assert!(offset_of!(PancakeDriverFailure, carrier_peer_alert) == PANCAKE_DRIVER_FAILURE_CARRIER_PEER_ALERT_OFF);
-	assert!(offset_of!(PancakeDriverFailure, carrier_engine_code) == PANCAKE_DRIVER_FAILURE_CARRIER_ENGINE_CODE_OFF);
-	assert!(offset_of!(PancakeDriverFailure, primary_name) == PANCAKE_DRIVER_FAILURE_PRIMARY_NAME_OFF);
-	assert!(offset_of!(PancakeDriverFailure, primary_name_len) == PANCAKE_DRIVER_FAILURE_PRIMARY_NAME_LEN_OFF);
-	assert!(offset_of!(PancakeDriverFailure, secondary_name) == PANCAKE_DRIVER_FAILURE_SECONDARY_NAME_OFF);
-	assert!(offset_of!(PancakeDriverFailure, secondary_name_len) == PANCAKE_DRIVER_FAILURE_SECONDARY_NAME_LEN_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, carrier_peer_alert) == GLOWCAP_DRIVER_FAILURE_CARRIER_PEER_ALERT_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, carrier_engine_code) == GLOWCAP_DRIVER_FAILURE_CARRIER_ENGINE_CODE_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, primary_name) == GLOWCAP_DRIVER_FAILURE_PRIMARY_NAME_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, primary_name_len) == GLOWCAP_DRIVER_FAILURE_PRIMARY_NAME_LEN_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, secondary_name) == GLOWCAP_DRIVER_FAILURE_SECONDARY_NAME_OFF);
+	assert!(offset_of!(GlowcapDriverFailure, secondary_name_len) == GLOWCAP_DRIVER_FAILURE_SECONDARY_NAME_LEN_OFF);
 };
 
 #[repr(C)]
-pub struct PancakeDriverEvent {
+pub struct GlowcapDriverEvent {
 	pub kind: c_uint,
 	pub primary_result: c_int,
 	pub secondary_result: c_int,
@@ -91,8 +91,8 @@ pub struct PancakeDriverEvent {
 	pub carrier_engine_code: c_int,
 	pub operation_id: u64,
 	pub listener_id: u64,
-	pub session: *mut PancakeHostSession,
-	pub action: PancakeHostAction,
+	pub session: *mut GlowcapHostSession,
+	pub action: GlowcapHostAction,
 	pub primary_name: *const c_uchar,
 	pub primary_name_len: usize,
 	pub secondary_name: *const c_uchar,
@@ -101,40 +101,40 @@ pub struct PancakeDriverEvent {
 
 const _: () = {
 	use core::mem::{offset_of, size_of};
-	assert!(size_of::<PancakeDriverEvent>() == PANCAKE_DRIVER_EVENT_SIZE);
-	assert!(offset_of!(PancakeDriverEvent, kind) == PANCAKE_DRIVER_EVENT_KIND_OFF);
-	assert!(offset_of!(PancakeDriverEvent, primary_result) == PANCAKE_DRIVER_EVENT_PRIMARY_RESULT_OFF);
-	assert!(offset_of!(PancakeDriverEvent, secondary_result) == PANCAKE_DRIVER_EVENT_SECONDARY_RESULT_OFF);
-	assert!(offset_of!(PancakeDriverEvent, secondary_count) == PANCAKE_DRIVER_EVENT_SECONDARY_COUNT_OFF);
-	assert!(offset_of!(PancakeDriverEvent, carrier_phase) == PANCAKE_DRIVER_EVENT_CARRIER_PHASE_OFF);
-	assert!(offset_of!(PancakeDriverEvent, carrier_detail_flags) == PANCAKE_DRIVER_EVENT_CARRIER_DETAIL_FLAGS_OFF);
+	assert!(size_of::<GlowcapDriverEvent>() == GLOWCAP_DRIVER_EVENT_SIZE);
+	assert!(offset_of!(GlowcapDriverEvent, kind) == GLOWCAP_DRIVER_EVENT_KIND_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, primary_result) == GLOWCAP_DRIVER_EVENT_PRIMARY_RESULT_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, secondary_result) == GLOWCAP_DRIVER_EVENT_SECONDARY_RESULT_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, secondary_count) == GLOWCAP_DRIVER_EVENT_SECONDARY_COUNT_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, carrier_phase) == GLOWCAP_DRIVER_EVENT_CARRIER_PHASE_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, carrier_detail_flags) == GLOWCAP_DRIVER_EVENT_CARRIER_DETAIL_FLAGS_OFF);
 	assert!(
-		offset_of!(PancakeDriverEvent, carrier_verification_flags)
-			== PANCAKE_DRIVER_EVENT_CARRIER_VERIFICATION_FLAGS_OFF
+		offset_of!(GlowcapDriverEvent, carrier_verification_flags)
+			== GLOWCAP_DRIVER_EVENT_CARRIER_VERIFICATION_FLAGS_OFF
 	);
-	assert!(offset_of!(PancakeDriverEvent, carrier_peer_alert) == PANCAKE_DRIVER_EVENT_CARRIER_PEER_ALERT_OFF);
-	assert!(offset_of!(PancakeDriverEvent, carrier_engine_code) == PANCAKE_DRIVER_EVENT_CARRIER_ENGINE_CODE_OFF);
-	assert!(offset_of!(PancakeDriverEvent, operation_id) == PANCAKE_DRIVER_EVENT_OPERATION_ID_OFF);
-	assert!(offset_of!(PancakeDriverEvent, listener_id) == PANCAKE_DRIVER_EVENT_LISTENER_ID_OFF);
-	assert!(offset_of!(PancakeDriverEvent, session) == PANCAKE_DRIVER_EVENT_SESSION_OFF);
-	assert!(offset_of!(PancakeDriverEvent, action) == PANCAKE_DRIVER_EVENT_ACTION_OFF);
-	assert!(offset_of!(PancakeDriverEvent, primary_name) == PANCAKE_DRIVER_EVENT_PRIMARY_NAME_OFF);
-	assert!(offset_of!(PancakeDriverEvent, primary_name_len) == PANCAKE_DRIVER_EVENT_PRIMARY_NAME_LEN_OFF);
-	assert!(offset_of!(PancakeDriverEvent, secondary_name) == PANCAKE_DRIVER_EVENT_SECONDARY_NAME_OFF);
-	assert!(offset_of!(PancakeDriverEvent, secondary_name_len) == PANCAKE_DRIVER_EVENT_SECONDARY_NAME_LEN_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, carrier_peer_alert) == GLOWCAP_DRIVER_EVENT_CARRIER_PEER_ALERT_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, carrier_engine_code) == GLOWCAP_DRIVER_EVENT_CARRIER_ENGINE_CODE_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, operation_id) == GLOWCAP_DRIVER_EVENT_OPERATION_ID_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, listener_id) == GLOWCAP_DRIVER_EVENT_LISTENER_ID_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, session) == GLOWCAP_DRIVER_EVENT_SESSION_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, action) == GLOWCAP_DRIVER_EVENT_ACTION_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, primary_name) == GLOWCAP_DRIVER_EVENT_PRIMARY_NAME_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, primary_name_len) == GLOWCAP_DRIVER_EVENT_PRIMARY_NAME_LEN_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, secondary_name) == GLOWCAP_DRIVER_EVENT_SECONDARY_NAME_OFF);
+	assert!(offset_of!(GlowcapDriverEvent, secondary_name_len) == GLOWCAP_DRIVER_EVENT_SECONDARY_NAME_LEN_OFF);
 };
 
 #[repr(C)]
-pub struct PancakeTransportOperationOptions {
+pub struct GlowcapTransportOperationOptions {
 	pub data: *const c_void,
 	pub size: usize,
 }
 
 const _: () = {
 	use core::mem::{offset_of, size_of};
-	assert!(size_of::<PancakeTransportOperationOptions>() == PANCAKE_TRANSPORT_OPERATION_OPTIONS_SIZE);
-	assert!(offset_of!(PancakeTransportOperationOptions, data) == PANCAKE_TRANSPORT_OPERATION_OPTIONS_DATA_OFF);
-	assert!(offset_of!(PancakeTransportOperationOptions, size) == PANCAKE_TRANSPORT_OPERATION_OPTIONS_SIZE_OFF);
+	assert!(size_of::<GlowcapTransportOperationOptions>() == GLOWCAP_TRANSPORT_OPERATION_OPTIONS_SIZE);
+	assert!(offset_of!(GlowcapTransportOperationOptions, data) == GLOWCAP_TRANSPORT_OPERATION_OPTIONS_DATA_OFF);
+	assert!(offset_of!(GlowcapTransportOperationOptions, size) == GLOWCAP_TRANSPORT_OPERATION_OPTIONS_SIZE_OFF);
 };
 
 pub use super::driver_fns_gen::*;

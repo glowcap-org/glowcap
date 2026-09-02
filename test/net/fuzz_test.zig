@@ -22,11 +22,11 @@
 //! and nothing says so.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const net = glowcap.net;
 
 /// Every shape in the checked-in corpus, so the search starts from bytes that
 /// decode instead of rediscovering what a frame looks like.
@@ -174,7 +174,7 @@ test "fuzz: arbitrary stream bytes never crash or leak a blocking frame read" {
 // the one empty input returns early. Every count above is `zig build fuzz`.
 
 const completion = net.completion;
-const engine = pancake.ocapn.engine;
+const engine = glowcap.ocapn.engine;
 
 /// Completion schedules the fuzzer found here, replayed by the ordinary suite
 /// so a lifecycle bug it caught cannot come back quietly. Separate from the

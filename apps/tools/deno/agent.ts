@@ -1,5 +1,5 @@
-import * as tcp from "@pancake/tcp";
-// An agent, written on pancake actors in native Deno. It connects to the tools
+import * as tcp from "@glowcap/tcp";
+// An agent, written on glowcap actors in native Deno. It connects to the tools
 // coordinator and proves the three capability properties — delegation,
 // attenuation, revocation — over the wire:
 //
@@ -14,7 +14,7 @@ import * as tcp from "@pancake/tcp";
 //
 //   deno run --allow-ffi --allow-read --allow-net agent.ts 127.0.0.1 9099 deno-agent
 
-import { type Ref, Runtime } from "@pancake/runtime";
+import { type Ref, Runtime } from "@glowcap/runtime";
 import { GRANT, GRANT_REVOCABLE, NOW, READ, REVOKE_LAST, TOOLS, WRITE } from "./protocol.ts";
 
 const [host, portStr, nick] = Deno.args;

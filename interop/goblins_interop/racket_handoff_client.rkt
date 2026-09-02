@@ -14,7 +14,7 @@
 ;;      dials Bob directly (keyed with the *same* identity Alice saw), withdraws
 ;;      the gift, and resolves the send to an ordinary capability — the
 ;;      application never sees the give or the second connection.
-;;   3. `(session-send session greeter (string->symbol "") "pancake-carol")`. The empty
+;;   3. `(session-send session greeter (string->symbol "") "glowcap-carol")`. The empty
 ;;      method is a positional (methodless) deliver, which the greeter lambda
 ;;      expects; the call routes straight to Bob and the reply carries the name
 ;;      back, proving data integrity end to end.
@@ -22,8 +22,8 @@
 ;; Needs `racket` plus the `goblins` collection on PATH; run via
 ;; `zig build racket-goblins-handoff`.
 
-(require "../../bindings/racket/pancake.rkt"
-         "../../bindings/racket/pancake-tcp.rkt"
+(require "../../bindings/racket/glowcap.rkt"
+         "../../bindings/racket/glowcap-tcp.rkt"
          "../_common/racket/helpers.rkt")
 
 (define HOST "127.0.0.1")
@@ -58,8 +58,8 @@
 
   ;; Call the greeter positionally (empty method). The send routes straight to Bob
   ;; (the exporter); the reply must echo the name we sent.
-  (define reply (session-send session greeter (string->symbol "") "pancake-carol"))
-  (unless (and (string? reply) (regexp-match? #rx"pancake-carol" reply))
+  (define reply (session-send session greeter (string->symbol "") "glowcap-carol"))
+  (unless (and (string? reply) (regexp-match? #rx"glowcap-carol" reply))
     (fail (format "greeter reply did not carry the name back: ~a" reply)))
   (printf "racket-goblins-handoff: greeter replied: ~a\n" reply)
 

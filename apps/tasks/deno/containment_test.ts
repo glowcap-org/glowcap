@@ -1,4 +1,4 @@
-import { type Ref, type Session } from "@pancake/runtime";
+import { type Ref, type Session } from "@glowcap/runtime";
 import { TaskBoardState } from "./board_state.ts";
 import { closeFailedJoin, serveAcceptedSession } from "./lifecycle.ts";
 import { MAX_SNAPSHOT_TEXT_BYTES, MAX_TASK_TEXT_BYTES, MAX_TASKS, MAX_WATCHERS } from "./limits.ts";

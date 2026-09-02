@@ -4,7 +4,7 @@
 // operator surface. Only an admin facet reaches any of them, and the facet
 // behavior refuses everything else before this dispatcher is asked.
 
-import type { Argument, Behavior } from "@pancake/runtime";
+import type { Argument, Behavior } from "@glowcap/runtime";
 import {
 	ROOMS_SESSION_OPERATIONS_SNAPSHOT,
 	ROOMS_SESSION_OPERATOR_PAGE,

@@ -74,7 +74,7 @@ pub const SignedReceive = struct {
 /// a self-contained `SignedReceive` the caller keeps alive while it encodes the
 /// withdraw, then releases with `SignedReceive.deinit`. `give_bytes` is the
 /// Syrup-encoded `<desc:sig-envelope …>` a gifter returned (or a binding's
-/// `pancake_build_handoff_give` built); it is parsed once here into a typed,
+/// `glowcap_build_handoff_give` built); it is parsed once here into a typed,
 /// codec-neutral give. `secret` is the recipient's session key — the one the
 /// gifter named as the give's recipient key — so the exporter verifies the
 /// receive against it. `handoff_count` is supplied by the owner of issuance.

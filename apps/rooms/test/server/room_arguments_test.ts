@@ -1,4 +1,4 @@
-import { type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { loopbackTcpDesignator } from "../../lib/locator.ts";
 import {
 	ATTACH,

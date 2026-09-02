@@ -2,10 +2,10 @@
 //! get, index, listen, and resolve bodies without copying message bytes.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
 const protocol_oracle = @import("../../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../../support/handoff_fixtures.zig");
 
@@ -15,7 +15,7 @@ const repeatedByte = harness.repeatedByte;
 const hexToOwned = harness.hexToOwned;
 
 test "op:abort fixture decodes as a borrowed view" {
-    const frame = pancake.foundation.FrameView{
+    const frame = glowcap.foundation.FrameView{
         .bytes = "<8'op:abort13\"shutting down>",
         .shape = .byte,
     };
@@ -29,7 +29,7 @@ test "op:abort fixture decodes as a borrowed view" {
 
 test "typed op:abort fixture decodes without copying message bytes" {
     const fixture = protocol_oracle.fixtureByName("op_abort_typed.bin").?;
-    const frame = pancake.foundation.FrameView{
+    const frame = glowcap.foundation.FrameView{
         .bytes = fixture.bytes(),
         .shape = .byte,
     };
@@ -44,7 +44,7 @@ test "op:abort with an unrecognized label prefix stays other, message verbatim" 
     // The decoder recovers a kind only from labels the model names; a peer's
     // free-form "<Word>: ..." message must not lose its prefix to a label that
     // matches nothing.
-    const frame = pancake.foundation.FrameView{
+    const frame = glowcap.foundation.FrameView{
         .bytes = "<8'op:abort14\"Bogus: message>",
         .shape = .byte,
     };

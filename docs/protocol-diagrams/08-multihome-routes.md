@@ -1,10 +1,10 @@
-# Multi-home routes `[pancake-next]`
+# Multi-home routes `[glowcap-next]`
 
 Anchors: [ADR-0125](../decisions/adr/ADR-0125-identity-route-multihome.md);
 OCapN Locators and Netlayers specifications (which define the single-location
 baseline these diagrams extend); [upstream watch](../upstream-watch.md) for the
 extension's standing. Nothing on this page is pinned-draft behavior: every
-flow is gated behind `pancake-next` negotiation, and a baseline or Goblins
+flow is gated behind `glowcap-next` negotiation, and a baseline or Goblins
 session never sees this vocabulary.
 
 ## MH-1: The `id` locator
@@ -38,7 +38,7 @@ its key is only a dial target.
 
 ## MH-2: Negotiating the vocabulary
 
-Route vocabulary is a named `pancake-next` feature. A first hello carries
+Route vocabulary is a named `glowcap-next` feature. A first hello carries
 none of it, because the sender does not yet know what the partner accepts.
 Only after both signed hellos advertise the feature does the settled session
 admit it; a hello that carries an `id` route outside such an offer is malformed.
@@ -47,8 +47,8 @@ admit it; a hello that carries an `id` route outside such an offer is malformed.
 sequenceDiagram
     participant A as Peer A
     participant B as Peer B
-    A->>B: op:start-session (signed hello offering pancake-next + multi_location, no route vocabulary)
-    B->>A: op:start-session (signed hello offering pancake-next + multi_location)
+    A->>B: op:start-session (signed hello offering glowcap-next + multi_location, no route vocabulary)
+    B->>A: op:start-session (signed hello offering glowcap-next + multi_location)
     Note over A,B: both advertised the feature, so the settled session admits route vocabulary
     A->>B: op:deliver carrying route vocabulary (an id exporter location inside a signed give)
     Note over A,B: had either hello omitted the feature, the session settles<br/>on the baseline profile and this payload is refused before send
@@ -111,7 +111,7 @@ MH-4.
 
 ```mermaid
 flowchart TD
-    EN["enliven ocapn://key.id/s/swiss"] --> OPT{"Host opted into pancake-next multi_location?"}
+    EN["enliven ocapn://key.id/s/swiss"] --> OPT{"Host opted into glowcap-next multi_location?"}
     OPT -->|no| RF1["refuse"]
     OPT -->|yes| AS{"an authenticated session already proves this key?"}
     AS -->|yes| RE["fetch over that session"]

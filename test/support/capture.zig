@@ -4,10 +4,10 @@
 //! serves) stays local to its test.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const actors = pancake.actors;
-const model = pancake.ocapn.model;
+const actors = glowcap.actors;
+const model = glowcap.ocapn.model;
 
 pub fn captureInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const slot: *i64 = @ptrCast(@alignCast(ctx.?));

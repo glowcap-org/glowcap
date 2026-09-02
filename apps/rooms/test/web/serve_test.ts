@@ -7,11 +7,11 @@
 // left to test here; reachability is checked the way the page reaches the
 // room: a keyed OCapN session established over `/relay`.
 
-import { bareLocator, Session } from "@pancake/runtime";
+import { bareLocator, Session } from "@glowcap/runtime";
 import { classifyRelayTarget } from "../../web/relay_target.ts";
 import { nextRestartWait, RESTART_FIRST_WAIT_MS, RESTART_MAX_WAIT_MS, RESTART_STEADY_MS } from "../../web/restart.ts";
 import { roomsHost } from "../../lib/locator.ts";
-import { webSocketChannel } from "@pancake/runtime";
+import { webSocketChannel } from "@glowcap/runtime";
 import { DIRECTORY, LIST } from "../../lib/protocol.ts";
 import {
 	parseTcpPeers,
@@ -80,11 +80,11 @@ async function withWeb(
 Deno.test("the web supervisor prints one pasteable capability bundle", async () => {
 	const httpPort = freePort();
 	const roomPort = freePort();
-	const state = await Deno.makeTempDir({ prefix: "pancake-rooms-web-output-" });
+	const state = await Deno.makeTempDir({ prefix: "glowcap-rooms-web-output-" });
 	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, WEB, String(httpPort), String(roomPort), "--operator"],
 		cwd: ROOT,
-		env: { PANCAKE_ROOMS_STATE: state },
+		env: { GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -170,7 +170,7 @@ async function reachRoomThroughRelay(
 async function relayUpgradeStatus(port: number, path: string, origin: string): Promise<number> {
 	const conn = await Deno.connect({ hostname: "127.0.0.1", port });
 	try {
-		const key = btoa("pancake-origin16");
+		const key = btoa("glowcap-origin16");
 		await conn.write(
 			new TextEncoder().encode(
 				`GET ${path} HTTP/1.1\r\n` +
@@ -343,7 +343,7 @@ Deno.test("the relay capacity caps admit under the ceiling and refuse at it", ()
 	);
 });
 
-Deno.test("a pancake peer reaches the room server through the /relay byte pipe", async () => {
+Deno.test("a glowcap peer reaches the room server through the /relay byte pipe", async () => {
 	await withWeb(async (httpPort, roomPort) => {
 		await waitForIndex(httpPort);
 		// The relay refuses targets off the allow-list before upgrading.
@@ -427,7 +427,7 @@ Deno.test("the web front reports a room server that cannot start, and stops", as
 		const proc = spawnOwned("deno", {
 			args: [...DENO_FLAGS, `--allow-write=${dir}`, WEB, String(freePort()), String(freePort())],
 			cwd: ROOT,
-			env: { PANCAKE_ROOMS_STATE: dir },
+			env: { GLOWCAP_ROOMS_STATE: dir },
 			stdout: "piped",
 			stderr: "piped",
 		});
@@ -471,7 +471,7 @@ Deno.test("rooms web UI attaches to a room server already on its port", async ()
 		second = spawnWeb(httpSecond);
 		const page = await waitForIndex(httpSecond);
 		assert(
-			page.includes("pancake rooms"),
+			page.includes("glowcap rooms"),
 			"the attached instance should serve the page",
 		);
 		// A peer dialing through the second instance reaches the shared room.

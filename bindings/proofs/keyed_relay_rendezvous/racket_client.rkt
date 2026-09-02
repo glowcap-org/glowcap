@@ -10,8 +10,8 @@
 
 (require racket/port
          racket/string
-         "../../racket/pancake.rkt"
-         "../../racket/pancake-relay.rkt")
+         "../../racket/glowcap.rkt"
+         "../../racket/glowcap-relay.rkt")
 
 (define (fail msg)
   (eprintf "FAIL: ~a\n" msg)
@@ -22,15 +22,15 @@
   (fail "usage: racket_client.rkt <locator>"))
 (define locator (vector-ref argv (sub1 (vector-length argv))))
 (define partner (parse-locator locator))
-(define native-relay-url (getenv "PANCAKE_PROOF_NATIVE_RELAY_URL"))
-(define native-ca-file (getenv "PANCAKE_PROOF_NATIVE_RELAY_CA_FILE"))
+(define native-relay-url (getenv "GLOWCAP_PROOF_NATIVE_RELAY_URL"))
+(define native-ca-file (getenv "GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE"))
 
 (define (expect-native-refusal route trust-pem cause)
   (define rt
     (open-runtime
      #:providers (list (relay-provider #:relay-url route #:trust-pem trust-pem))))
   (define refused
-    (with-handlers ([exn:fail:pancake? values])
+    (with-handlers ([exn:fail:glowcap? values])
       (define unexpected
         (runtime-connect rt (keyed-relay-locator (locator-designator partner) route)))
       (session-close! unexpected)
@@ -38,7 +38,7 @@
   (runtime-close! rt)
   (unless refused
     (fail (format "native WSS unexpectedly accepted ~a" cause)))
-  (define carrier (exn:fail:pancake-carrier-failure refused))
+  (define carrier (exn:fail:glowcap-carrier-failure refused))
   (unless (and carrier
                (eq? (carrier-failure-phase carrier) 'secure-handshake)
                (positive? (carrier-failure-verification-flags carrier)))
@@ -55,7 +55,7 @@
      (list 'connectors (list (relay-connector)))]
     [else
      (unless native-ca-file
-       (fail "native WSS proof needs PANCAKE_PROOF_NATIVE_RELAY_CA_FILE"))
+       (fail "native WSS proof needs GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE"))
      (define pem (call-with-input-file native-ca-file port->bytes))
      (define wrong-host
        (string-replace native-relay-url "//localhost:" "//127.0.0.1:"))

@@ -323,7 +323,7 @@ roomsTest("a steward for another room is rejected without replacing the one held
 });
 
 roomsTest("stewardship survives restart and never falls to the first member back", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-steward-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-steward-" });
 	const port = stablePort();
 	const locator = loopbackTcpDesignator(port);
 	let server = startStatefulServer(port, stateDirectory);

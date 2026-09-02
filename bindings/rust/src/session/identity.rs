@@ -60,7 +60,7 @@ impl DurableProvenance {
 			sys::DURABLE_PROVENANCE_UNAUTHENTICATED => Ok(Self::Unauthenticated),
 			other => Err(Error::with_detail(
 				sys::ERR_INTERNAL,
-				format!("pancake ABI returned unknown durable provenance {other}"),
+				format!("glowcap ABI returned unknown durable provenance {other}"),
 			)),
 		}
 	}
@@ -97,7 +97,7 @@ impl Session {
 	/// identity at all.
 	pub fn partner_identity(&self) -> Result<PartnerIdentity> {
 		self.shared.guard_open()?;
-		let mut out = ffi::PancakePartnerIdentity {
+		let mut out = ffi::GlowcapPartnerIdentity {
 			session_key: core::ptr::null(),
 			session_key_len: 0,
 			designator: core::ptr::null(),
@@ -106,7 +106,7 @@ impl Session {
 			locator_record_len: 0,
 			provenance: sys::DURABLE_PROVENANCE_UNAUTHENTICATED,
 		};
-		check_host(unsafe { ffi::pancake_host_session_partner_identity(self.shared.ptr.get(), &mut out) })?;
+		check_host(unsafe { ffi::glowcap_host_session_partner_identity(self.shared.ptr.get(), &mut out) })?;
 		// Session-owned views, valid only until the session is released, so
 		// every field is copied before it leaves this call.
 		let (session_key, designator, locator_record) = unsafe {
@@ -128,7 +128,7 @@ impl Session {
 	/// Testify what proved this connection's far end, when your own transport
 	/// proved one.
 	///
-	/// pancake does not open your sockets, so it cannot see what opening them
+	/// glowcap does not open your sockets, so it cannot see what opening them
 	/// established. An iroh connection completes only with the holder of the
 	/// node id you dialed or accepted, and that is a stronger fact than
 	/// anything a partner can claim about itself — but only you hold it. Pass
@@ -147,7 +147,7 @@ impl Session {
 	pub fn bind_verified_channel_key(&self, designator: &str) -> Result<()> {
 		self.shared.guard_open()?;
 		check_host(unsafe {
-			ffi::pancake_host_session_bind_verified_channel_key(
+			ffi::glowcap_host_session_bind_verified_channel_key(
 				self.shared.ptr.get(),
 				designator.as_ptr(),
 				designator.len(),

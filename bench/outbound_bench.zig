@@ -27,10 +27,10 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
 
 /// The same representative outbound call `bench-codec` encodes: a method
 /// invocation on an imported object with a small mixed-type argument list, so

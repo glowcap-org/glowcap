@@ -4,7 +4,7 @@
 //! the same set and a drifted copy would let a port fall out of one of them.
 
 pub const contract_path = "bindings/c-abi-resolve.json";
-pub const tarball_template = "pancake-c-v{version}-{target}.tar.gz";
+pub const tarball_template = "glowcap-c-v{version}-{target}.tar.gz";
 pub const operator_script = "tools/c-abi/fetch-c-abi.sh";
 
 /// The C-ABI find/download cascade is one contract (`bindings/c-abi-resolve.json`)
@@ -12,7 +12,7 @@ pub const operator_script = "tools/c-abi/fetch-c-abi.sh";
 /// language-native code; `tools/c-abi/fetch-c-abi.sh` is an operator CLI only.
 pub const c_abi_binding_loaders = [_][]const u8{
     "bindings/rust/build.rs",
-    "bindings/python/pancake/_lib_resolve.py",
+    "bindings/python/glowcap/_lib_resolve.py",
     "bindings/ts/runtime/internal/ffi/load.ts",
     "bindings/racket/private/lib-resolve.rkt",
 };

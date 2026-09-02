@@ -91,7 +91,7 @@ tier that owns threads.
 2. **Host tier and C ABI (stage 2).** `driver_core.Host` atomically reserves a
 resolver row and defers the current turn over the same machinery its vows
 already use, and the C archive exports that transaction in the
-`pancake_host_*` family with fulfilled and broken settle verbs. These are owning-thread
+`glowcap_host_*` family with fulfilled and broken settle verbs. These are owning-thread
    verbs like every other export; the Host's one-thread contract does not
    change. A resolver vow belongs to no session, so its row is the
    session-less vow row — the same prerequisite the Racket select-or-dial
@@ -101,7 +101,7 @@ already use, and the C archive exports that transaction in the
    3).** Every binding runtime already owns a thread-safe way onto its loop
    (`call_soon_threadsafe`, a channel to the reactor, a posted task). A
    binding behavior kicks work off, returns after atomic deferral, and the
-   completion settles the resolver from the loop. pancake does not duplicate
+   completion settles the resolver from the loop. glowcap does not duplicate
    the runtime's cross-thread machinery; each binding ships the recipe and a
    proof in which a behavior answers after real asynchronous work.
 
@@ -122,7 +122,7 @@ already use, and the C archive exports that transaction in the
    structure over them) into the mailbox under its io-aware mutex. A resolution
    that introduces a capability must be performed on the owning thread, where
    every existing verb already is. Authority never crosses threads inside
-   pancake.
+   glowcap.
 
 `BlockingSession` stays out: it parks in a read with nothing to wake, and
 its contract is one connection on one fiber. An application that needs
@@ -132,7 +132,7 @@ so beside the advice this mechanism completes.
 ## Scope (what this does not decide)
 
 - No thread pool, executor, or worker API. The application owns its threads;
-  pancake owns only the re-entry seam.
+  glowcap owns only the re-entry seam.
 - No cross-thread capability transfer, and no relaxation of the one-thread
   Host contract anywhere else.
 - No preemption or multi-Vat sharding; a slow turn still stalls its Host,

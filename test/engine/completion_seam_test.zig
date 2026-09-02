@@ -13,9 +13,9 @@
 //! breaks the seam, these fail rather than the future loop.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
+const engine = glowcap.ocapn.engine;
 
 /// A no-answer (`#f` answer position) `op:deliver` to live local export 7 — the
 /// fire-and-forget one-way send. With no answer position it installs no inbound
@@ -141,8 +141,8 @@ test "completion seam: recvStreamPrefix fails closed on incomplete-at-cap" {
     try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(&junk));
 }
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
 
 /// A real `op:start-session` grown past the scan threshold by its designator,
 /// with only its closing bracket removed. Every element is whole and the record

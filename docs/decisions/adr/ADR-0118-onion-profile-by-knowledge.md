@@ -3,7 +3,7 @@ id: ADR-0118
 status: accepted
 date: 2026-08-17
 tags: [onion, negotiation, hello, handoff, goblins]
-decision: "Over onion, a peer states its real profile preference exactly when it knows its partner is pancake: a dialer knows from the hinted form of the address it was handed, an acceptor knows by deferring its hello and mirroring an inbound pancake-hinted one. A give embeds the exporter location in the form its recipient can use: verbatim for a known-pancake recipient, profile hints stripped for everyone else. Every other wire-carried onion locator stays bare."
+decision: "Over onion, a peer states its real profile preference exactly when it knows its partner is glowcap: a dialer knows from the hinted form of the address it was handed, an acceptor knows by deferring its hello and mirroring an inbound glowcap-hinted one. A give embeds the exporter location in the form its recipient can use: verbatim for a known-glowcap recipient, profile hints stripped for everyone else. Every other wire-carried onion locator stays bare."
 supersedes: []
 superseded_by: []
 amends: [ADR-0108]
@@ -14,7 +14,7 @@ amended_by: []
 
 > **Landing note.** The mechanism ships across the Host tiers and the
 > blocking and completion dial tiers: knowledge mints from the handed form on every dial
-> path (`Peer.dialedLocatorIdentifiesPancake`), the profile-configured onion
+> path (`Peer.dialedLocatorIdentifiesGlowcap`), the profile-configured onion
 > accept defers and mirrors, and gives carry the recipient-usable location
 > form. The completion bridge retains the complete locator until Host
 > adoption, and the hinted-hello probe rides `zig build goblins-onion`.
@@ -25,13 +25,13 @@ amended_by: []
 
 ADR-0108 made every onion locator hintless, including the hello's
 `acceptable_location`, and the engine forced the baseline profile on onion as
-a consequence. The cost has grown with the product: two pancake peers over Tor
-settle the `1.0` Syrup baseline even though both ship `pancake-next` and the
+a consequence. The cost has grown with the product: two glowcap peers over Tor
+settle the `1.0` Syrup baseline even though both ship `glowcap-next` and the
 Cap'n Proto codec, and the multi-profile Host
 (`test/driver/core_host/trace_test.zig`, the mixed three-vat matrix) exists
 precisely to speak each partner's best language on one host. Onion is
 canonical Goblins ground, which makes it exactly the transport where a
-pancake pair is most likely to stand next to a Goblins vat — and the pancake
+glowcap pair is most likely to stand next to a Goblins vat — and the glowcap
 pair paid the whole compatibility bill even with no Goblins peer anywhere
 near the session.
 
@@ -49,7 +49,7 @@ goblins-gift-hints` (a hinted
 hello on tcp, keyed hints-and-all through a full three-party handoff), and
 the hinted-hello probe inside `zig build goblins-onion`, where a real vat
 over real circuits accepts a hello whose signed **onion** location carries
-the `pancake/*` profile hints, ignores them, settles the baseline, and
+the `glowcap/*` profile hints, ignores them, settles the baseline, and
 answers an echo call.
 
 **What is actually pinned as refusal is the dial.** Goblins'
@@ -77,27 +77,27 @@ accept eagerly and bare, exactly as ADR-0108 left it, and
 `test/driver/core_host/locator_test.zig` pins that alongside the deferred
 case. Knowledge itself is recorded unconditionally wherever the handed form
 carries it, because a baseline hello stamps nothing regardless and the give
-path still wants to know a recipient is pancake. There is no separate
+path still wants to know a recipient is glowcap. There is no separate
 feature flag, because a flag would only ever track this same configuration
 act.
 
-- **Dial side.** A pancake operator's onion address has two spellings of one
-  designator: the bare canonical form, the only form pancake ever puts on
-  the wire, and a hinted form carrying the ordinary `pancake/*` profile
-  hints, minted for out-of-band distribution between pancake parties. A
-  dialer handed the hinted form knows its acceptor is pancake before any
+- **Dial side.** A glowcap operator's onion address has two spellings of one
+  designator: the bare canonical form, the only form glowcap ever puts on
+  the wire, and a hinted form carrying the ordinary `glowcap/*` profile
+  hints, minted for out-of-band distribution between glowcap parties. A
+  dialer handed the hinted form knows its acceptor is glowcap before any
   hello (`Host.openDialedLocator` mints the knowledge;
-  `Peer.noteKnownPancakePartner` records it), so its hello states the
+  `Peer.noteKnownGlowcapPartner` records it), so its hello states the
   configured preference. A dialer holding the bare form states the baseline,
   exactly as before. The onion resident ignores locator hints at dial rather
   than refusing them; the designator alone routes the circuit.
 - **Accept side.** On onion alone, a profile-configured acceptor defers its hello until the
   initiator's arrives (`sessions.zig` `acceptedHelloAndEnroll`), because
-  only that hello can say whether the partner is pancake — and because
+  only that hello can say whether the partner is glowcap — and because
   `negotiation.settle` intersects both hellos, an acceptor that stated the
   baseline blind would cap the session at the baseline no matter what the
   dialer knew. An inbound hello stating a non-baseline preference is proof
-  the initiator is pancake — the pinned Goblins onion netlayer signs only
+  the initiator is glowcap — the pinned Goblins onion netlayer signs only
   bare locations — so the answering hello mirrors with the configured
   preference (`Peer.answerDeferredHello`, driven from the Host's
   before-serve hook). A bare inbound hello gets a bare answer, which is
@@ -110,15 +110,15 @@ act.
   toward everyone alike, so the verbatim bytes already match the receiver's
   hints-and-all withdrawal keying (`goblins-gift-hints` observes this
   live), and a give must not shed a byte. On onion, a recipient known to
-  be pancake (`Session.partnerKnownPancake`: minted knowledge, or any
+  be glowcap (`Session.partnerKnownGlowcap`: minted knowledge, or any
   non-baseline stated preference) keeps the exporter's verbatim bytes,
   profile hints and all, and can upgrade its redeem session from them.
   Every other recipient gets the same bytes with exactly the three
-  `pancake/*` entries stripped; routing hints such as `direct-addresses`
+  `glowcap/*` entries stripped; routing hints such as `direct-addresses`
   ride through untouched. The stripped give both dials (fact two) and
   matches the bare hello a deferred onion exporter answers an unknown
   recipient with (the withdrawal keying), while a Goblins exporter's bytes
-  never carry a `pancake/*` name and always take the verbatim path.
+  never carry a `glowcap/*` name and always take the verbatim path.
 
 `engine.advertisedPreference` keeps the hello decision in one place: it takes
 what is known about the partner beside the transport, instead of the
@@ -139,8 +139,8 @@ allowed to state an onion preference stamps at session time
 
 ## Consequences
 
-Two pancake peers over Tor settle `pancake-next` and Cap'n Proto whenever
-the dialer was handed the pancake form, and a pancake recipient of a
+Two glowcap peers over Tor settle `glowcap-next` and Cap'n Proto whenever
+the dialer was handed the glowcap form, and a glowcap recipient of a
 three-party handoff whose exporter runs hinted keeps that upgrade on the
 redeem session. Every byte a Goblins peer must act on is unchanged: it never
 receives a hinted onion locator it would have to dial, its withdrawal keying
@@ -155,11 +155,11 @@ budgets that already bound a silent partner.
 
 - Hermetic: `test/driver/onion_host_test.zig` ("onion profile by
   knowledge") — over the fake Tor daemon, a hinted dial settles
-  `pancake-next`/Cap'n Proto and carries a call, and a bare dial between the
+  `glowcap-next`/Cap'n Proto and carries a call, and a bare dial between the
   same two peers settles the baseline. `test/driver/core_host/locator_test.zig`
   pins the deferred accept (no hello frame before the initiator's) and the
   hintless stored advertisement.
 - Live: the hinted-hello probe inside `zig build goblins-onion` (the vat
-  accepts a pancake-hinted onion hello, settles the baseline, answers the
+  accepts a glowcap-hinted onion hello, settles the baseline, answers the
   echo), with `zig build goblins-onion` and `zig build
   ocapn-conformance-onion` otherwise unchanged.

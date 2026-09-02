@@ -1,4 +1,4 @@
-use pancake::{relay, Argument};
+use glowcap::{relay, Argument};
 
 // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 let seed = [7u8; 32]; // replace with durable secret bytes across restarts

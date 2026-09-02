@@ -5,7 +5,7 @@
 // peered publication releases its retained room reference, and an IRC bridge
 // parts through the gateway that owns its sockets and seats.
 
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import { MAX_OPERATOR_MEMBERS_PER_ROOM } from "../../lib/limits.ts";
 import { notifyLocalRoom, notifyPublicRoom } from "../discovery.ts";
 import { operatorBridgeMembers, operatorPartBridge } from "../irc_gateway.ts";

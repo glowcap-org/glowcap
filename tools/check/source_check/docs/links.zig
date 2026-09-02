@@ -114,7 +114,7 @@ fn checkMarkdownLinksInFile(
     }
 }
 
-/// A `github.com/jimisaacs/pancake/blob/main/<path>` link is a claim the path
+/// A `github.com/jimisaacs/glowcap/blob/main/<path>` link is a claim the path
 /// exists in this tree, and it is the one external-link class a network-free
 /// check can hold: a rename that leaves the link behind 404s every page that
 /// carries it, and no compiler or renderer notices. Walk the owned prose
@@ -172,7 +172,7 @@ fn checkRepoBlobLinksUnder(
     }
 }
 
-const blob_link_prefix = "github.com/jimisaacs/pancake/";
+const blob_link_prefix = "github.com/jimisaacs/glowcap/";
 
 fn checkRepoBlobLinksInFile(
     io: std.Io,

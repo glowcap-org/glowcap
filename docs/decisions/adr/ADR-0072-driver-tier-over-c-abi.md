@@ -3,7 +3,7 @@ id: ADR-0072
 status: accepted
 date: 2026-07-09
 tags: [c-abi, driver, host, net, netlayer, loop, bindings, wasm, browser]
-decision: "The C ABI gains a `libpancake_driver` archive that projects `driver.core.Host` (ADR-0068) as a sans-io core a binding drives, so a binding stops re-implementing the host tier per language on top of `pancake_peer_*` and the then-current pancake_node_* waist (since deleted; CapTP product work uses `pancake_host_*` only). Two seams are host-configurable: a binding registers netlayers as byte-fed callback vtables dispatched by transport symbol (the C projection of ADR-0062's `[]const net.netlayer.Netlayer`), and a binding either owns the loop (the core never blocks, draining through a `schedule` callback and honoring a `set_read_paused` backpressure callback while the binding pumps its own event loop) or delegates it (name a built-in netlayer and call a blocking `run`, where `net.TcpLoop` / `completion.Loop` owns sockets and scheduling; Zig CapTP multi-session work rides `driver.Bridge` per ADR-0076). The core is byte-fed, so Zig's stream-shaped `tcp`/`iroh` netlayers are used only in the Zig-owned mode where the loop bridges stream to feed; the byte-fed seam is not a rewrite of the stream contract. A published actor is embedder-hosted behavior the core hosts through `Vat.spawnHosted` / `HostedActor` (ADR-0071), reusing that contract rather than a second archive; the interim `libpancake_actors` archive is retired (this ADR supersedes ADR-0071: the `spawnHosted` foundation stands, consumed here). Because the core is sans-io it compiles to `wasm32`, so a browser binding (ADR-0070) drives this same core from JS through a WebSocket netlayer instead of driving the raw `Peer`. The archive is named after its Zig module (as `actors`/`net`/`ocapn` are), imports `driver` and `c_abi_shared`, exports only the `pancake_host_*` family, is symbol-disjoint per ADR-0059, and is an adapter, never in the sans-io core."
+decision: "The C ABI gains a `libglowcap_driver` archive that projects `driver.core.Host` (ADR-0068) as a sans-io core a binding drives, so a binding stops re-implementing the host tier per language on top of `glowcap_peer_*` and the then-current glowcap_node_* waist (since deleted; CapTP product work uses `glowcap_host_*` only). Two seams are host-configurable: a binding registers netlayers as byte-fed callback vtables dispatched by transport symbol (the C projection of ADR-0062's `[]const net.netlayer.Netlayer`), and a binding either owns the loop (the core never blocks, draining through a `schedule` callback and honoring a `set_read_paused` backpressure callback while the binding pumps its own event loop) or delegates it (name a built-in netlayer and call a blocking `run`, where `net.TcpLoop` / `completion.Loop` owns sockets and scheduling; Zig CapTP multi-session work rides `driver.Bridge` per ADR-0076). The core is byte-fed, so Zig's stream-shaped `tcp`/`iroh` netlayers are used only in the Zig-owned mode where the loop bridges stream to feed; the byte-fed seam is not a rewrite of the stream contract. A published actor is embedder-hosted behavior the core hosts through `Vat.spawnHosted` / `HostedActor` (ADR-0071), reusing that contract rather than a second archive; the interim `libglowcap_actors` archive is retired (this ADR supersedes ADR-0071: the `spawnHosted` foundation stands, consumed here). Because the core is sans-io it compiles to `wasm32`, so a browser binding (ADR-0070) drives this same core from JS through a WebSocket netlayer instead of driving the raw `Peer`. The archive is named after its Zig module (as `actors`/`net`/`ocapn` are), imports `driver` and `c_abi_shared`, exports only the `glowcap_host_*` family, is symbol-disjoint per ADR-0059, and is an adapter, never in the sans-io core."
 supersedes: [ADR-0071]
 superseded_by: []
 amends: []
@@ -16,8 +16,8 @@ amended_by: [ADR-0096, ADR-0100, ADR-0110, ADR-0112, ADR-0113]
 > session-owned, while the byte-fed C waist and action contract remain intact.
 
 > **Vocabulary note (ADR-0079).** CapTP multi-session product work is
-> `Host` / `PancakeHost` / binding `Host` over `pancake_host_*`. The
-> pancake_node_* C waist named in Context below is deleted; binding `Node` is
+> `Host` / `GlowcapHost` / binding `Host` over `glowcap_host_*`. The
+> glowcap_node_* C waist named in Context below is deleted; binding `Node` is
 > not current. Embedder-hosted behavior is `HostedActor` / `spawnHosted`.
 
 > **Framing amendment (ADR-0110).** `feed_bytes` accepts an outer-framed byte
@@ -25,18 +25,18 @@ amended_by: [ADR-0096, ADR-0100, ADR-0110, ADR-0112, ADR-0113]
 > one bare codec frame from a message-framed transport.
 
 > **Vocabulary amendment (ADR-0096).** The shipped archive is
-> `libpancake_host`, and `PancakeHost` is now the sole C CapTP application
-> surface. `PancakeReference` is one opaque Host-scoped id; raw peer and owning
+> `libglowcap_host`, and `GlowcapHost` is now the sole C CapTP application
+> surface. `GlowcapReference` is one opaque Host-scoped id; raw peer and owning
 > transport-session mirrors are retired. The byte-fed action/pump design below
 > stands.
 
 > **Archive/provider amendment (ADR-0112).** The archive and transport
 > composition described below are historical. The current byte-fed archive is
-> `libpancake_host`, which owns `pancake_host_*`; `libpancake_driver` exports
-> only `pancake_driver_*`, adopts a quiescent Host through
-> `pancake_driver_take_host`, and starts with zero transports. Transport
+> `libglowcap_host`, which owns `glowcap_host_*`; `libglowcap_driver` exports
+> only `glowcap_driver_*`, adopts a quiescent Host through
+> `glowcap_driver_take_host`, and starts with zero transports. Transport
 > archives install provider packages through the standalone
-> `pancake_transport_provider.h` ABI. See ADR-0112 for the current native-loop
+> `glowcap_transport_provider.h` ABI. See ADR-0112 for the current native-loop
 > contract; the byte-fed Host seam remains the primitive described here.
 
 ## Context
@@ -53,8 +53,8 @@ Every language binding delivers that same host tier to its users. ADR-0066/0067
 gave each binding a transparent three-party story by having its `connect` build
 a composite that owned the retained identity, the then-shared gift registry, and the
 serve step. That composite is `driver.core.Host`'s job, re-written in TypeScript,
-Python, Racket, and Rust on top of the sans-io `pancake_peer_*` and the then-
-current pancake_node_* families (since deleted): the connection pump, the
+Python, Racket, and Rust on top of the sans-io `glowcap_peer_*` and the then-
+current glowcap_node_* families (since deleted): the connection pump, the
 redeem loop, the
 publish/fetch ergonomics, the promise-to-answer bookkeeping, once per language.
 The reference implementation's own consumers carry the driver's orchestration,
@@ -67,11 +67,11 @@ Two configurable seams are the reason a binding cannot simply drive the Zig
 tier. ADR-0062 made a transport a runtime vtable the driver dispatches by symbol
 and settled the Zig front door on a bare `[]const net.netlayer.Netlayer` slice,
 but it exposed that configurability to C only as *built-in* transport archives
-(`libpancake_net_transport_{tcp,inproc,iroh}`): a C consumer links a transport,
+(`libglowcap_net_transport_{tcp,inproc,iroh}`): a C consumer links a transport,
 it does not supply one. A runtime that owns its transport: a Deno WebSocket, a
 `asyncio` socket, a browser tab that has no socket at all: has no C seam to plug
 that transport into the host tier. And the loop stays outside the netlayer
-contract (ADR-0043/0062): the C ABI's sans-io `PancakePeer` is offered "for a
+contract (ADR-0043/0062): the C ABI's sans-io `GlowcapPeer` is offered "for a
 host that owns its own loop and drives raw frames," but that ownership is
 available only at the single-`Peer` grain, not for the whole host tier, and the
 Zig-owned `LoopHost` is not exposed to C at all. ADR-0070 makes the browser
@@ -87,7 +87,7 @@ at the boundary that performs them.
 
 ## Decision
 
-**The C ABI gains `libpancake_driver`, a sans-io projection of `driver.core.Host`
+**The C ABI gains `libglowcap_driver`, a sans-io projection of `driver.core.Host`
 with two host-configurable seams.** A binding drives one shared host core
 instead of re-implementing the tier; `src/driver/core/host.zig` is the authority the
 archive wraps, and `src/c_abi/driver` is the new root. The archive is named
@@ -96,18 +96,18 @@ name.
 
 **The embedder owns its transports outright; the seam is a pull-based action
 queue, not callback vtables.** The embedder opens connections against its own
-sockets and registers each with the host (`pancake_host_session_open_dialed_locator` /
+sockets and registers each with the host (`glowcap_host_session_open_dialed_locator` /
 `_open_accepted`, which sign the keyed hello under the host identity), then
-then moves bytes: `pancake_host_session_feed_bytes` for an outer-framed byte
+then moves bytes: `glowcap_host_session_feed_bytes` for an outer-framed byte
 stream the core delimits internally (or `_feed` for an embedder whose transport
-already hands whole bare frames), and `pancake_host_session_take_outbound` for
+already hands whole bare frames), and `glowcap_host_session_take_outbound` for
 the bare frames it must write. The byte-stream pump adds the outbound envelope. Every
-host effect surfaces through one pollable queue, `pancake_host_next_action`:
+host effect surfaces through one pollable queue, `glowcap_host_next_action`:
 `DIAL` (open a connection to the named exporter: the action carries the full
 locator URI and its parsed transport/designator/direct-address-hint views,
-then report `pancake_host_dialed` / `_dial_failed` with the core-minted
+then report `glowcap_host_dialed` / `_dial_failed` with the core-minted
 ticket), `FLUSH` (drain that connection's outbound), `NEED_GIFT_ID` (draw
-32 bytes of entropy into `pancake_host_provide_gift_id`), and `SETTLE`/`FAIL`
+32 bytes of entropy into `glowcap_host_provide_gift_id`), and `SETTLE`/`FAIL`
 (a vow's outcome, its `ticket` the vow id: see the third amendment). The one
 loop rule: after any top-level call, drain the queue. This is simpler than
 the callback design first drafted here: no netlayer vtable, no `schedule` or
@@ -136,27 +136,27 @@ Amendment), its `spawnHosted` foundation consumed here.
 
 **A browser is this core in `wasm32` with a WebSocket netlayer.** Because the
 core is sans-io it compiles to WebAssembly (as ADR-0070 established for the
-Peer/Node core), so the browser binding drives `pancake_host_*` from JS with a
+Peer/Node core), so the browser binding drives `glowcap_host_*` from JS with a
 byte-fed WebSocket netlayer. JS owns the socket, feeds bytes, honors
 `schedule` as `queueMicrotask`: instead of driving the raw `Peer`. This is the
 same JS-owns-the-socket pattern ADR-0070 chose, lifted to the host tier.
 
 **Placement in the original decision.** At acceptance, this section placed the
-byte-fed Host family in `libpancake_driver`. ADR-0112 amended that placement:
-`libpancake_host` owns `pancake_host_*`, while `libpancake_driver` owns only its
+byte-fed Host family in `libglowcap_driver`. ADR-0112 amended that placement:
+`libglowcap_host` owns `glowcap_host_*`, while `libglowcap_driver` owns only its
 loop family and adopts Host explicitly. The two archives remain symbol-disjoint,
 share C layouts rather than symbols, and sit outside the layer DAG as adapter
 tiers above the sans-io core.
 
 ## Scope (what this does not decide)
 
-- **Nothing here is implemented.** There is no `libpancake_driver` archive, no
+- **Nothing here is implemented.** There is no `libglowcap_driver` archive, no
   `src/c_abi/driver`, and no byte-fed drive of `driver.core.Host`.
 - **No `tcp`/`iroh` rewrite.** The stream netlayer contract of ADR-0043/0062
   stands; the byte-fed form is additive and used by host-supplied transports and
   the Zig-owned-mode bridge only.
 - **ADR-0071's bare-vat archive is superseded, its foundation consumed.** This
-  ADR takes over its increment 3: bindings rewire onto `libpancake_driver`,
+  ADR takes over its increment 3: bindings rewire onto `libglowcap_driver`,
   not onto a bare vat archive. The `Vat.spawnHosted` foundation (ADR-0071
   increment 1) is the hosting contract this archive reuses; the interim C
   archive (increment 2) was held unconsumed against a possible network-free
@@ -196,9 +196,9 @@ tiers above the sans-io core.
   the explicit condition that it be retired if no consumer materialized. The
   condition fired and the retirement is recorded in the Amendment; the
   behavior contract lives on in this archive.
-- **Name the archive `libpancake_host` after the `Host` type.** Rejected: every
+- **Name the archive `libglowcap_host` after the `Host` type.** Rejected: every
   other archive is named after its Zig module, not a type it exports;
-  `libpancake_driver` keeps that convention and leaves `Host` the type it is.
+  `libglowcap_driver` keeps that convention and leaves `Host` the type it is.
 
 ## Consequences
 
@@ -222,18 +222,18 @@ tiers above the sans-io core.
   what makes a separate net-free actor archive unnecessary for the browser; the
   `cross_wasm` compile gate holds that extraction, which is what allowed the
   interim bare-vat archive's retirement (see the Amendment).
-- **A new archive** `libpancake_driver` in `build.zig`'s `layer_table` and
+- **A new archive** `libglowcap_driver` in `build.zig`'s `layer_table` and
   `archive_table` (`.graph = false`, `arch-check` claims the directory for file
   coverage and the I/O bans), with a reflected header and prose generator and a
   `gen-header-driver` / `gen-header-driver-check` gate, following the ADR-0059
   pattern. A `test/c_abi/driver_test.zig` exercises the two seams.
-- **The bindings collapse their in-language host tier onto `pancake_host_*`.**
+- **The bindings collapse their in-language host tier onto `glowcap_host_*`.**
   The per-binding pump, redeem loop, publish/fetch, and promise bookkeeping
   retire; the `bindings-*` dogfoods extend, and a per-binding
   `bindings-driver-loop` proof (mirroring `bindings-iroh-loop`) shows each
   binding serving many connections through a host-supplied netlayer and its own
   loop.
-- **ADR-0070's TypeScript wasm binding can sit on `pancake_host_*`** instead of
+- **ADR-0070's TypeScript wasm binding can sit on `glowcap_host_*`** instead of
   the raw `Peer`/`Node`, and its Milestone 1 WebSocket transport becomes a
   host-registered byte-fed netlayer in the browser, not only a Zig resident on
   the server. The rooms web bridge retires against the driver core.
@@ -245,7 +245,7 @@ tiers above the sans-io core.
 
 The byte-fed netlayer seam is the shape every callback-driven transport plugs
 into: a WebRTC DataChannel (ADR-0070 Milestone 2), a WebTransport stream, or any
-future host-owned transport is a `PancakeNetlayer` registration, no core edit.
+future host-owned transport is a `GlowcapNetlayer` registration, no core edit.
 The `schedule` and `set_read_paused` callbacks are the stable contract a host
 loop honors across TCP, WebSocket, and WebRTC, so a binding's loop integration
 is written once against the seam, not per transport.
@@ -258,7 +258,7 @@ is written once against the seam, not per transport.
   configurability from a Zig slice and built-in C transports to a host-supplied
   C netlayer.
 - Supersedes [ADR-0071](ADR-0071-actor-layer-c-abi-archive.md): bindings
-  rewire onto `libpancake_driver`, which hosts embedder behaviors through
+  rewire onto `libglowcap_driver`, which hosts embedder behaviors through
   ADR-0071's `Vat.spawnHosted` / `HostedActor` (its increment 1, standing and
   consumed); its
   interim increment-2 C archive is retired (see the Amendment). The
@@ -277,11 +277,11 @@ The bare-vat archive retention this decision originally carried resolved by
 its own named exit condition: no network-free local-vat consumer materialized,
 the byte-fed host landed with the sans-io core compiling for `wasm32` (the
 wasm-fallback hedge discharged by the `cross_wasm` gate), and hosted objects
-ride `Vat.spawnHosted` through `pancake_host_*` directly. The interim archive,
+ride `Vat.spawnHosted` through `glowcap_host_*` directly. The interim archive,
 its header, and its export family are removed from the tree; this ADR now
 supersedes ADR-0071, whose `spawnHosted` foundation stands consumed here. The
 decision text above was updated in place to the resolved state. The Racket
-binding's raw peer wrappers and the raw `pancake_peer_*` C family were removed
+binding's raw peer wrappers and the raw `glowcap_peer_*` C family were removed
 with the host rewire; bindings and C consumers now share the host family.
 
 ## Amendment (2026-07-10, second): the seam as shipped, and the decided calls
@@ -294,7 +294,7 @@ fusion is adopted** at the next rewire (an optional callback on
 `conn_send`/`vow_send`/`vow_index`/`vow_untag` fuses mint and listen into one
 crossing, retiring the eager register-at-mint discipline); **a host-native
 caretaker is held** (ADR-0064 keeps forwarding proxies ordinary actors,
-authorization policy stays above pancake); **an entropy callback is held**
+authorization policy stays above glowcap); **an entropy callback is held**
 (the `NEED_GIFT_ID` action keeps the queue uniform). The named next increment
 was the blocking-tier collapse, since landed: the blocking tier's parallel
 redeem executor and deferred-action machinery were deleted, its
@@ -308,18 +308,18 @@ tier became a socket loop over that core, which carries the `Host` name in
 The second amendment's decided vow-listener fusion is superseded before it
 ever lands: settle and fetch outcomes now ride the existing action queue as
 `SETTLE`/`FAIL` kinds whose `ticket` is the vow id, and the callback settle
-surface (`PancakeHostSettleCb`, `PancakeHostFetchCb`, `pancake_host_vow_send`)
-is deleted from the C ABI. `pancake_host_session_fetch` and
-`pancake_host_session_enliven` mint ids in the one vow space and return them
+surface (`GlowcapHostSettleCb`, `GlowcapHostFetchCb`, `glowcap_host_vow_send`)
+is deleted from the C ABI. `glowcap_host_session_fetch` and
+`glowcap_host_session_enliven` mint ids in the one vow space and return them
 through an out param. Behaviors stay callbacks: a served deliver still needs
 a synchronous reply: and the Zig host core's `vowOn` stays for in-process
 consumers, whose listeners keep hearing resolutions borrowed and zero-copy.
 
 The reasons, in order of force: the one loop rule stays one rule (a second
 notification channel is a second thing a binding can forget); the node tier
-already settled this way (`PANCAKE_NODE_ACTION_SETTLE`/`FAIL`: the host
+already settled this way (`GLOWCAP_NODE_ACTION_SETTLE`/`FAIL`: the host
 tier's callback detour was the anomaly); the lifetime contract already
-existed (host-owned, valid until the next `pancake_host_next_action`, the
+existed (host-owned, valid until the next `glowcap_host_next_action`, the
 DIAL locator's contract verbatim); and the three temporal traps,
 register-before-feed, `AlreadyListening`, and the enliven cache hit's
 fires-synchronously caveat: become unrepresentable rather than documented.
@@ -336,7 +336,7 @@ deleted. They were the last serve orchestration outside the byte-fed core,
 `Served`-per-connection with no node, so handoff was unreachable at that
 tier: and their only consumers were their own tests: the iroh scale path
 runs its own loop over the sidecar's readiness fd, and the bindings own
-their loops over `pancake_host_*`. `net.completion.AfterEvents` is deleted
+their loops over `glowcap_host_*`. `net.completion.AfterEvents` is deleted
 with its last consumer; the surviving hook seam (`make_conn_ctx`, `serve`,
 `free_conn_ctx`, `on_close`) is net-tier vocabulary with net-tier tests. The
 amplification verdict the loop tests pinned moves to a sans-io unit
@@ -354,14 +354,14 @@ sockets: stands under `completion.Loop` / `net.TcpLoop`.
 ## Amendment (2026-07-12, fifth): opt-in embedder pump wrapper
 
 The second amendment ratified the **pull-queue over callback vtables**. That
-stands: `pancake_host_next_action` remains the normative C contract in
-`pancake_driver.h`, and `examples/c/host_embedder_pump.c` remains a compiled
+stands: `glowcap_host_next_action` remains the normative C contract in
+`glowcap_driver.h`, and `examples/c/host_embedder_pump.c` remains a compiled
 checklist of that choreography, not a new ABI.
 
 This amendment authorizes an **optional convenience wrapper**. Zig-first under
 `src/c_abi/driver/embedder_pump.zig`, C-exported only if a later slice proves
 the export earns its keep: that still drains through
-`pancake_host_next_action` internally and invokes embedder-supplied I/O hooks
+`glowcap_host_next_action` internally and invokes embedder-supplied I/O hooks
 (flush-write, close, dial, gift entropy, settle routing). It does **not**:
 
 - replace the pull API or hide the one-loop rule,
@@ -375,37 +375,37 @@ promise settlement) stay hand-written per language: the same lesson Pass 2
 took for HostAction decode.
 
 **Landed.** Zig helper `src/c_abi/driver/embedder_pump.zig`, C export
-`pancake_host_pump_drain` + `PancakeHostPumpHooks`, and
+`glowcap_host_pump_drain` + `GlowcapHostPumpHooks`, and
 `examples/c/host_embedder_pump.c` rewritten to call the export. Bindings keep
 their hand-rolled drains (async dial / promise settlement / Racket sync lock).
 
-## Amendment (2026-07-15, sixth): bindings adopt `pancake_host_pump_drain`
+## Amendment (2026-07-15, sixth): bindings adopt `glowcap_host_pump_drain`
 
 The fifth amendment authorized the opt-in wrapper; this amendment lands the
 binding adoption where the runtime can supply C callbacks. Python, Rust, and
-Racket drain through `pancake_host_pump_drain` with **synchronous park-only
+Racket drain through `glowcap_host_pump_drain` with **synchronous park-only
 arms**: decode and append (or accumulate `drain-effects`), never await inside
-the C loop. TypeScript drains the normative `pancake_host_next_action` queue
+the C loop. TypeScript drains the normative `glowcap_host_next_action` queue
 directly because browser Wasm carries no general C-callback seam. The async
 bindings await parked arms only after the pop loop returns; Racket keeps its
 sync `with-host-drain` form (flush / gift-id under the host lock, dial / close /
 settle as post-lock fires).
 
-The pull-queue remains normative: `pancake_host_next_action` stays the C
+The pull-queue remains normative: `glowcap_host_next_action` stays the C
 contract the wrapper pops internally, and `examples/c/host_embedder_pump.c`
 still names it. Binding action modules must not hand-roll a
-`pancake_host_next_action` pop loop where the callback wrapper is available.
+`glowcap_host_next_action` pop loop where the callback wrapper is available.
 `zig build source-check` requires the wrapper in Python, Rust, and Racket while
 holding TypeScript's callbackless pull loop to the same generated action
 inventory.
 
-**Landed.** Python, Rust, and Racket call `pancake_host_pump_drain`; TypeScript
+**Landed.** Python, Rust, and Racket call `glowcap_host_pump_drain`; TypeScript
 uses the pull queue. Executor arm bodies (socket I/O, language promise
 settlement) stay hand-written per language.
 
 Every authority-bearing effect has a terminal report after it is popped.
-`DIAL` already answers with `pancake_host_dialed` or
-`pancake_host_dial_failed`; `NEED_GIFT_ID` answers with
-`pancake_host_provide_gift_id` or `pancake_host_gift_id_failed`. The failure
+`DIAL` already answers with `glowcap_host_dialed` or
+`glowcap_host_dial_failed`; `NEED_GIFT_ID` answers with
+`glowcap_host_provide_gift_id` or `glowcap_host_gift_id_failed`. The failure
 arm breaks the claimed handoff in the Node, so an entropy-provider failure
 cannot silently discard the only ticket capable of settling it.

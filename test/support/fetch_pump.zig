@@ -10,11 +10,11 @@
 //! each test keeps only the transport seam it is actually proving.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const net = glowcap.net;
 
 /// True once the peer's session has reached `open` — the `runUntil` predicate
 /// for handshake completion.

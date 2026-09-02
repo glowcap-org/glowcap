@@ -1,6 +1,6 @@
 # The full gate sequence, run in the canonical devcontainer image via
 # ci/gates.sh. The sequence itself is forge-neutral, so this file is the only
-# thing that would change if pancake moved.
+# thing that would change if glowcap moved.
 # Topology: CONTRIBUTING.md "Continuous integration".
 #
 # The devcontainer image is rebuilt from scratch on every run (push: never,
@@ -36,7 +36,7 @@ jobs:
         run: |
           bash .devcontainer/bin/configure.sh
           docker network create rooms-net 2>/dev/null || true
-          docker network create pancake-main-egress 2>/dev/null || true
+          docker network create glowcap-main-egress 2>/dev/null || true
 
       - name: Run the gates in the devcontainer
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3

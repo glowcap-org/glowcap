@@ -13,12 +13,12 @@ amended_by: [ADR-0111]
 
 ## Context
 
-pancake could hand a third party a promise but could not be handed one. The
+glowcap could hand a third party a promise but could not be handed one. The
 introducing-session proxy ([ADR-0009](ADR-0009-three-party-handoff-substrate.md))
 mints a third-party import-promise on a recipient session and relays the
 settlement to it, and when that settlement names a capability the node signs a
 give for each recipient. The recipient half was missing: nothing above the
-engine sent an `op:listen` for a promise received as a value, so a pancake
+engine sent an `op:listen` for a promise received as a value, so a glowcap
 recipient had nothing to wait on and the three-party promise shape could not be
 driven end to end against itself.
 
@@ -82,7 +82,7 @@ answered operation with no inline resolver, then follows it with a mandatory
 The two profiles also differ on `op:listen` itself. V1.0 canonically emits
 Goblins's third Boolean `wants_partial` operand. Its decoder also accepts the
 older two-operand shape as `#f` / settling-only, strictly as compatibility with
-the earlier OCapN text; pancake never emits that legacy form. Next carries
+the earlier OCapN text; glowcap never emits that legacy form. Next carries
 integer mode 1, 2, or 3. Both translate to `model.ListenMode` at the codec edge.
 [ADR-0111](ADR-0111-next-promise-listeners.md) records the next-profile
 amendment.
@@ -102,10 +102,10 @@ amendment.
   separate because its settlement consumer is different: it fans one home
   settlement out to N recipient stores and mints no vow. Both claim paths move
   their mode-2 listener to the current target when the promise shortens.
-- The C ABI verb is `pancake_host_session_listen`; each language binding exposes
+- The C ABI verb is `glowcap_host_session_listen`; each language binding exposes
   the same far-reference listen under its Host/Session face. An unrelated
   `listen` on some bindings still means accept connections.
-- No live partner has been asked to play *this* seat, where pancake waits on a
+- No live partner has been asked to play *this* seat, where glowcap waits on a
   promise a partner introduced, so the verb's own evidence is in-tree
   ([community-review](../../community-review.md) holds the proven/unproven
   split).
@@ -116,7 +116,7 @@ amendment.
   the same wire shape twice, and a deliver matching both would have to pick one
   by precedence, which is the kind of ambiguity a single owner removes.
 - **Restrict the target to third-party imports.** Rejected because CapTP admits
-  a listen on a settled capability and answers it immediately, which pancake's
+  a listen on a settled capability and answers it immediately, which glowcap's
   own inbound handler already does
   (`engine.pipeline.fireLiveObjectExportListener`). Refusing the shape we serve
   would be asymmetric.

@@ -1,12 +1,12 @@
 # Rust binding
 
-This crate is an in-tree consumer of pancake's C ABI (`publish = false`). Pin
+This crate is an in-tree consumer of glowcap's C ABI (`publish = false`). Pin
 a checkout, run `zig build`, and use it from the tree.
 
 Enable the `async` feature for the application session API:
 
 ```rust
-use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 let peer_key = "<64 lowercase hex characters from the server>";
 let partner = tcp::noise::locator(peer_key, "127.0.0.1", 9099);
@@ -30,7 +30,7 @@ The handshake budget is a Runtime-wide setting; use
 `RuntimeConfig::with_handshake_timeout` when the default is not appropriate.
 
 A bounded `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial or listener rides
-the driver archive (`libpancake_driver`, ADR-0112). The loop owns socket
+the driver archive (`libglowcap_driver`, ADR-0112). The loop owns socket
 or multiplexed readiness, handshake admission, pumping, and session release. A
 quiescent `Host` supplied by the application transfers to that same loop before
 its first network operation. Byte-fed integrations install explicit connectors;
@@ -85,20 +85,20 @@ session and its actors on that task.
 | `webrtc` | Raw WebRTC multiplexed readiness, signaling, and try-I/O ABI. | no |
 
 The core value and locator types are always available. Async builds link the
-symbol-disjoint `libpancake_host` and `libpancake_driver` archives: the driver
-exports only `pancake_driver_*`, adopts the Host through
-`pancake_driver_take_host`, and starts with zero providers. The `tcp` feature
+symbol-disjoint `libglowcap_host` and `libglowcap_driver` archives: the driver
+exports only `glowcap_driver_*`, adopts the Host through
+`glowcap_driver_take_host`, and starts with zero providers. The `tcp` feature
 supplies the complete `tcp`/`keyed-tcp`/`noise-tcp` provider package from
-`libpancake_net_transport_tcp`; the loop tier installs it through the common
+`libglowcap_net_transport_tcp`; the loop tier installs it through the common
 provider ABI. Blocking TCP handles remain available through that same feature.
 
-`onion` needs a running Tor daemon: pancake never starts, supervises, or
+`onion` needs a running Tor daemon: glowcap never starts, supervises, or
 configures one, so `Config` names where an existing daemon listens.
 With `async,onion`, `onion::listen` and `onion::connect` compose that provider
 into the generic driver and yield ordinary Sessions; `onion::Netlayer` remains
 the raw frame surface. The Rust binding check (`zig build rust-dogfood`) uses a fake daemon and makes no
 live-Tor claim of its own. Repository-level on-demand checks cross Tor with two
-pancake peers, Goblins in both directions, upstream conformance, service
+glowcap peers, Goblins in both directions, upstream conformance, service
 restoration, and Rooms; they require Tor and outbound network access.
 
 iroh requires `zig build iroh-abi`. Construct a `Runtime` with an iroh provider

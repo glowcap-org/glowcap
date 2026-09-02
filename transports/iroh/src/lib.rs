@@ -1,15 +1,15 @@
 //! The iroh netlayer sidecar (ADR-0055).
 //!
 //! This staticlib wraps one iroh endpoint behind the narrow C ABI
-//! declared in `include/pancake_iroh_sidecar.h`, emitting
-//! `libpancake_iroh_sidecar.a`. The Zig resident
+//! declared in `include/glowcap_iroh_sidecar.h`, emitting
+//! `libglowcap_iroh_sidecar.a`. The Zig resident
 //! (`src/net/transport/iroh.zig`) is the only consumer. Shape decisions:
 //!
 //! * Each endpoint owns its own tokio runtime behind the opaque handle, so a
 //!   caller needs no async runtime of its own. Evented dial, accept, and stream
 //!   I/O surface through one readiness fd; the explicit blocking resident keeps
 //!   the few `_blocking` calls. The runtime's thread bill is explicit and
-//!   bounded: two worker threads named `pancake-iroh`.
+//!   bounded: two worker threads named `glowcap-iroh`.
 //! * The caller chooses the endpoint's reachability when it is created, and
 //!   nothing is on by default: `REACH_DIRECT` binds relay-less and lookup-less
 //!   (dial by id plus explicit address hints), `REACH_DISCOVERY` adds the
@@ -61,8 +61,8 @@ fn teardown_status(f: impl FnOnce() -> Result<(), ()>) -> i32 {
 	}
 }
 
-/// The ALPN both pancake peers negotiate (ADR-0055).
-const ALPN: &[u8] = b"ocapn/pancake/1";
+/// The ALPN both glowcap peers negotiate (ADR-0055).
+const ALPN: &[u8] = b"ocapn/glowcap/1";
 
 /// Upper bound on a single dial, discovery resolution plus relay/hole-punch
 /// setup. A dial that cannot be established within this window terminates with
@@ -73,7 +73,7 @@ const ALPN: &[u8] = b"ocapn/pancake/1";
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The connection-level idle timeout when the caller names none. What the
-/// setting is for is documented once, on the C ABI's `PancakeIrohConfig`; this
+/// setting is for is documented once, on the C ABI's `GlowcapIrohConfig`; this
 /// is why the default is what it is.
 ///
 /// iroh sends keep-alives and bounds an individual *path* at fifteen seconds,
@@ -103,7 +103,7 @@ const WORKER_THREADS: usize = 2;
 /// positional arguments.
 ///
 /// Every layer above this one already carries a config object: the Zig
-/// resident's `Resident.Config` and the C ABI's `PancakeIrohConfig`. This is
+/// resident's `Resident.Config` and the C ABI's `GlowcapIrohConfig`. This is
 /// the layer that was still counting arguments, and each new endpoint knob was
 /// widening a signature that four call sites and an `extern fn` declaration had
 /// to agree on. A struct means the next one is a field.
@@ -112,8 +112,8 @@ const WORKER_THREADS: usize = 2;
 /// only `reachability` gets from a zeroed struct.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PancakeIrohEndpointConfig {
-	/// One of `PANCAKE_IROH_REACH_*`. Mandatory; an unknown value is refused.
+pub struct GlowcapIrohEndpointConfig {
+	/// One of `GLOWCAP_IROH_REACH_*`. Mandatory; an unknown value is refused.
 	pub reachability: u32,
 	/// Stream-establishment deadline in milliseconds, 0 for the default.
 	pub connect_timeout_ms: u64,
@@ -125,10 +125,10 @@ pub struct PancakeIrohEndpointConfig {
 }
 
 /// Reachability postures, chosen explicitly by the caller, with no default. A
-/// pancake peer never enables relays or a discovery service as a
+/// glowcap peer never enables relays or a discovery service as a
 /// hidden implementation detail; the host decides, in the open, how this
 /// endpoint becomes reachable. These values mirror
-/// `PANCAKE_IROH_REACH_*` in `include/pancake_iroh_sidecar.h` and the
+/// `GLOWCAP_IROH_REACH_*` in `include/glowcap_iroh_sidecar.h` and the
 /// `Reachability` enum the Zig resident exposes.
 const REACH_DIRECT: u32 = 0;
 const REACH_DISCOVERY: u32 = 1;
@@ -139,11 +139,11 @@ const REACH_LOCAL_DISCOVERY: u32 = 3;
 /// progress without blocking: no inbound bytes are buffered yet, or the outbound
 /// buffer has no room. The loop yields the connection and re-arms it on the next
 /// readiness event. Distinct from `0` (clean end of stream or zero-length write)
-/// and `-1` (error). Mirrors `PANCAKE_IROH_WOULD_BLOCK` in the header and the
+/// and `-1` (error). Mirrors `GLOWCAP_IROH_WOULD_BLOCK` in the header and the
 /// Zig resident.
 const WOULD_BLOCK: isize = -2;
 
-/// Readiness event bits packed into `PancakeIrohReadyEvent.events`. A single
+/// Readiness event bits packed into `GlowcapIrohReadyEvent.events`. A single
 /// drained record may carry several at once (e.g. `EV_READABLE | EV_CLOSED` when
 /// the peer's last bytes arrive with its end of stream).
 const EV_READABLE: u32 = 1;
@@ -196,10 +196,10 @@ const DIAL_ADMISSION_BOUND: usize = 32;
 /// One drained readiness record. `subject` is zero for `EV_ACCEPT`, a caller
 /// request id for `EV_CONNECT`, and otherwise a stable endpoint-scoped
 /// connection id. `#[repr(C)]` keeps the layout in lockstep with
-/// `pancake_iroh_sidecar_ready_event` and the Zig resident's `ReadyEvent`.
+/// `glowcap_iroh_sidecar_ready_event` and the Zig resident's `ReadyEvent`.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PancakeIrohReadyEvent {
+pub struct GlowcapIrohReadyEvent {
 	subject: usize,
 	events: u32,
 }
@@ -249,7 +249,7 @@ fn publish_local(ep: &Endpoint) {
 /// `readiness` and `accept` are lazily created the first time the event-driven
 /// scale surface (ADR-0057) is used on this endpoint; an endpoint driven only
 /// through the blocking calls never allocates them.
-pub struct PancakeIrohEndpoint {
+pub struct GlowcapIrohEndpoint {
 	rt: RuntimeOwner,
 	ep: Endpoint,
 	/// The deadline every bi-stream establishment on this endpoint rides — the
@@ -272,7 +272,7 @@ pub struct PancakeIrohEndpoint {
 /// `conn_set_nonblocking` moves the streams out to the reader/writer tasks,
 /// after which the blocking calls refuse (the connection is owned by the loop).
 /// `nb` holds the non-blocking state once that transition happens.
-pub struct PancakeIrohConn {
+pub struct GlowcapIrohConn {
 	id: usize,
 	rt: tokio::runtime::Handle,
 	conn: Connection,
@@ -294,20 +294,20 @@ pub struct PancakeIrohConn {
 /// Create an endpoint. `secret_seed32` is either null (generate a fresh random
 /// endpoint key) or a pointer to 32 bytes of Ed25519 secret key material.
 /// `reachability` selects how this endpoint becomes reachable and is mandatory,
-/// one of `PANCAKE_IROH_REACH_*`, with no implicit default. An unknown value
+/// one of `GLOWCAP_IROH_REACH_*`, with no implicit default. An unknown value
 /// returns null. Returns an owned handle (release with
-/// `pancake_iroh_sidecar_endpoint_free`) or null on failure. Blocks until the
+/// `glowcap_iroh_sidecar_endpoint_free`) or null on failure. Blocks until the
 /// UDP sockets are bound.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_new(
 	secret_seed32: *const u8,
-	config: *const PancakeIrohEndpointConfig,
-) -> *mut PancakeIrohEndpoint {
+	config: *const GlowcapIrohEndpointConfig,
+) -> *mut GlowcapIrohEndpoint {
 	if config.is_null() {
 		return std::ptr::null_mut();
 	}
 	// Safety: the contract requires a readable config when non-null.
-	let PancakeIrohEndpointConfig {
+	let GlowcapIrohEndpointConfig {
 		reachability,
 		connect_timeout_ms,
 		idle_timeout_ms,
@@ -321,7 +321,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
 				} else {
 					worker_threads as usize
 				})
-				.thread_name("pancake-iroh")
+				.thread_name("glowcap-iroh")
 				.enable_all()
 				.build()
 				.ok()?,
@@ -385,7 +385,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
 		} else {
 			std::time::Duration::from_millis(connect_timeout_ms)
 		};
-		Some(Box::into_raw(Box::new(PancakeIrohEndpoint {
+		Some(Box::into_raw(Box::new(GlowcapIrohEndpoint {
 			rt,
 			ep,
 			connect_timeout,
@@ -419,8 +419,8 @@ fn write_str(s: &str, out: *mut u8, out_cap: usize) -> isize {
 /// copies only when `out_cap` is large enough. Borrows the handle; writes no
 /// terminator.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_node_id(
-	ep: *const PancakeIrohEndpoint,
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_node_id(
+	ep: *const GlowcapIrohEndpoint,
 	out: *mut u8,
 	out_cap: usize,
 ) -> isize {
@@ -439,8 +439,8 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_node_id(
 /// Returns the complete byte count and copies only when `out_cap` is large
 /// enough. Borrows the handle; writes no terminator.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_direct_addrs(
-	ep: *const PancakeIrohEndpoint,
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_direct_addrs(
+	ep: *const GlowcapIrohEndpoint,
 	out: *mut u8,
 	out_cap: usize,
 ) -> isize {
@@ -459,9 +459,9 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_direct_addrs(
 /// Close the endpoint without releasing its handle: an in-flight bounded accept
 /// returns null, subsequent dials fail, and queued connection closes are
 /// delivered. Idempotent. Borrows the handle; the handle stays valid until
-/// `pancake_iroh_sidecar_endpoint_free`.
+/// `glowcap_iroh_sidecar_endpoint_free`.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_close(ep: *mut PancakeIrohEndpoint) {
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIrohEndpoint) {
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		if let Some(dials) = ep.dials.get() {
@@ -476,7 +476,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_close(ep: *mut PancakeIrohEndpoi
 /// closes, then shuts the runtime down. Free every connection minted from this
 /// endpoint first.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_free(ep: *mut PancakeIrohEndpoint) -> i32 {
+pub extern "C" fn glowcap_iroh_sidecar_endpoint_free(ep: *mut GlowcapIrohEndpoint) -> i32 {
 	if ep.is_null() {
 		return 0;
 	}

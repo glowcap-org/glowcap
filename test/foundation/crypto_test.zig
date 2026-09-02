@@ -1,10 +1,10 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const crypto = pancake.foundation.crypto;
-const PeerKey = pancake.foundation.PeerKey;
-const SecretKey = pancake.foundation.SecretKey;
-const CryptoError = pancake.foundation.CryptoError;
+const crypto = glowcap.foundation.crypto;
+const PeerKey = glowcap.foundation.PeerKey;
+const SecretKey = glowcap.foundation.SecretKey;
+const CryptoError = glowcap.foundation.CryptoError;
 
 const SEED_A = @as([32]u8, @splat(7));
 const SEED_B = @as([32]u8, @splat(9));
@@ -132,10 +132,10 @@ test "session id differs from either constituent peer id" {
     );
     try std.testing.expect(!session.eql(blk: {
         const pid = crypto.derivePublicIdentifier(key_a);
-        break :blk pancake.foundation.SessionId.fromBytes(pid.bytes);
+        break :blk glowcap.foundation.SessionId.fromBytes(pid.bytes);
     }));
     try std.testing.expect(!session.eql(blk: {
         const pid = crypto.derivePublicIdentifier(key_b);
-        break :blk pancake.foundation.SessionId.fromBytes(pid.bytes);
+        break :blk glowcap.foundation.SessionId.fromBytes(pid.bytes);
     }));
 }

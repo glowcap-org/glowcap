@@ -20,11 +20,11 @@
 
 # Fail here, naming the contract, rather than letting an unset `dir` copy from
 # a path that silently resolves somewhere else.
-pancake_pins_companion_source() {
+glowcap_pins_companion_source() {
     printf '%s\n' "${dir:?update-pins: companions.sh needs dir set by its caller}/../$1"
 }
 
-pancake_pins_companions() {
+glowcap_pins_companions() {
     local dep="$1" old="$2" new="$3"
     local old_digest="${4:-${DENO_IMAGE_DIGEST:-}}" new_digest="${5:-${DENO_IMAGE_DIGEST:-}}"
     case "${dep}" in
@@ -48,7 +48,7 @@ pancake_pins_companions() {
     esac
 }
 
-# Point `pancake_pins_companion_staged` at the staged copy of one companion
+# Point `glowcap_pins_companion_staged` at the staged copy of one companion
 # file, taken from disk the first time it is asked for and reused after that.
 # Two deps can restate their pins in the same file, as the rooms image does with
 # the base image and Deno, so a later edit has to build on the earlier one.
@@ -57,33 +57,33 @@ pancake_pins_companions() {
 #
 # It answers through a variable rather than stdout because a command
 # substitution runs in a subshell, where the append below would be discarded.
-pancake_pins_companion_staged=""
-pancake_pins_companion_stage_for() {
+glowcap_pins_companion_staged=""
+glowcap_pins_companion_stage_for() {
     local relative="$1" row candidate staged
-    for row in "${pancake_pins_staged_companions[@]:-}"; do
+    for row in "${glowcap_pins_staged_companions[@]:-}"; do
         [[ -n "${row}" ]] || continue
         IFS=$'\t' read -r candidate staged <<< "${row}"
         if [[ "${candidate}" == "${relative}" ]]; then
-            pancake_pins_companion_staged="${staged}"
+            glowcap_pins_companion_staged="${staged}"
             return 0
         fi
     done
-    staged="$(mktemp -t pancake-companion-XXXXXX)"
-    cp "$(pancake_pins_companion_source "${relative}")" "${staged}"
-    pancake_pins_staged_companions+=("${relative}"$'\t'"${staged}")
-    pancake_pins_companion_staged="${staged}"
+    staged="$(mktemp -t glowcap-companion-XXXXXX)"
+    cp "$(glowcap_pins_companion_source "${relative}")" "${staged}"
+    glowcap_pins_staged_companions+=("${relative}"$'\t'"${staged}")
+    glowcap_pins_companion_staged="${staged}"
 }
 
 # Stage every companion of one dep. Replacement is literal text, never a
 # pattern, because a version string carries dots that a regex would widen.
-pancake_pins_stage_companions() {
+glowcap_pins_stage_companions() {
     local dep="$1" old="$2" new="$3" old_digest="${4:-}" new_digest="${5:-}"
     local relative from to staged edited
     while IFS=$'\t' read -r relative from to; do
         [[ -n "${relative}" ]] || continue
-        pancake_pins_companion_stage_for "${relative}"
-        staged="${pancake_pins_companion_staged}"
-        edited="$(mktemp -t pancake-companion-edit-XXXXXX)"
+        glowcap_pins_companion_stage_for "${relative}"
+        staged="${glowcap_pins_companion_staged}"
+        edited="$(mktemp -t glowcap-companion-edit-XXXXXX)"
         awk -v from="${from}" -v to="${to}" '
             {
                 rest = $0
@@ -104,5 +104,5 @@ pancake_pins_stage_companions() {
             return 1
         }
         mv "${edited}" "${staged}"
-    done < <(pancake_pins_companions "${dep}" "${old}" "${new}" "${old_digest}" "${new_digest}")
+    done < <(glowcap_pins_companions "${dep}" "${old}" "${new}" "${old_digest}" "${new_digest}")
 }

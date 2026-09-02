@@ -4,7 +4,7 @@
 ;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
 ;; (part of `check`) fails when this is stale.
 ;;
-;; The keyed table of libpancake_net_transport_iroh. The archive is
+;; The keyed table of libglowcap_net_transport_iroh. The archive is
 ;; optional and loads lazily, so this module exports one table-building
 ;; function the hand-written sibling (`ffi-iroh.rkt`) calls with the opened
 ;; library and the config cstruct pointer type it declares — the generated
@@ -15,57 +15,57 @@
          "ffi-shared.rkt")
 (provide iroh-ffi-table)
 
-(define (iroh-ffi-table L _PancakeIrohConfig-pointer)
+(define (iroh-ffi-table L _GlowcapIrohConfig-pointer)
   (hasheq
    'archive-fingerprint
-   (get-ffi-obj 'pancake_iroh_archive_fingerprint L (_fun -> _uint64))
+   (get-ffi-obj 'glowcap_iroh_archive_fingerprint L (_fun -> _uint64))
    'last-error
-   (get-ffi-obj 'pancake_iroh_last_error L (_fun _pointer _size -> _size))
+   (get-ffi-obj 'glowcap_iroh_last_error L (_fun _pointer _size -> _size))
    'netlayer-new
-   (let ([raw (get-ffi-obj 'pancake_iroh_netlayer_new L (_fun #:blocking? #t _pointer _size (_or-null _PancakeIrohConfig-pointer) _pointer _pointer _size _pointer -> _int32))])
+   (let ([raw (get-ffi-obj 'glowcap_iroh_netlayer_new L (_fun #:blocking? #t _pointer _size (_or-null _GlowcapIrohConfig-pointer) _pointer _pointer _size _pointer -> _int32))])
      (lambda (seed seed-len config)
        (call/out _pointer #f
          (lambda (out)
            (call/without-diagnostic raw seed seed-len config out)))))
    'netlayer-close
-   (get-ffi-obj 'pancake_iroh_netlayer_close L (_fun #:blocking? #t _pointer -> _void))
+   (get-ffi-obj 'glowcap_iroh_netlayer_close L (_fun #:blocking? #t _pointer -> _void))
    'netlayer-release
-   (let ([raw (get-ffi-obj 'pancake_iroh_netlayer_release L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))])
+   (let ([raw (get-ffi-obj 'glowcap_iroh_netlayer_release L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))])
      (lambda (netlayer)
        (call/without-diagnostic raw netlayer)))
    'netlayer-node-id
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_node_id L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_iroh_netlayer_node_id L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'netlayer-direct-addrs
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_direct_addrs L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_iroh_netlayer_direct_addrs L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'conn-release
-   (get-ffi-obj 'pancake_iroh_conn_release L (_fun _pointer -> _void))
+   (get-ffi-obj 'glowcap_iroh_conn_release L (_fun _pointer -> _void))
    'conn-id
-   (get-ffi-obj 'pancake_iroh_conn_id L (_fun _pointer -> _size))
+   (get-ffi-obj 'glowcap_iroh_conn_id L (_fun _pointer -> _size))
    'conn-remote-node-id
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_conn_remote_node_id L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_iroh_conn_remote_node_id L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'netlayer-readiness-fd
-   (get-ffi-obj 'pancake_iroh_netlayer_readiness_fd L (_fun _pointer -> _int32))
+   (get-ffi-obj 'glowcap_iroh_netlayer_readiness_fd L (_fun _pointer -> _int32))
    'netlayer-drain-ready
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_drain_ready L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_iroh_netlayer_drain_ready L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'netlayer-try-accept
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_try_accept L (_fun _pointer _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_iroh_netlayer_try_accept L (_fun _pointer _pointer -> _int32))
               _pointer #f)
    'netlayer-start-connect
-   (get-ffi-obj 'pancake_iroh_netlayer_start_connect L (_fun _pointer _size _pointer _size _pointer _size -> _int32))
+   (get-ffi-obj 'glowcap_iroh_netlayer_start_connect L (_fun _pointer _size _pointer _size _pointer _size -> _int32))
    'netlayer-finish-connect
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_finish_connect L (_fun _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_iroh_netlayer_finish_connect L (_fun _pointer _size _pointer -> _int32))
               _pointer #f)
    'netlayer-cancel-connect
-   (get-ffi-obj 'pancake_iroh_netlayer_cancel_connect L (_fun _pointer _size -> _int32))
+   (get-ffi-obj 'glowcap_iroh_netlayer_cancel_connect L (_fun _pointer _size -> _int32))
    'conn-try-read
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_conn_try_read L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_iroh_conn_try_read L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'conn-try-write
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_conn_try_write L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_iroh_conn_try_write L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'transport-provider
-   (get-ffi-obj 'pancake_iroh_transport_provider L (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))))
+   (get-ffi-obj 'glowcap_iroh_transport_provider L (_fun _pointer (_or-null _GlowcapTransportProvider-pointer) -> _int32))))

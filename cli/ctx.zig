@@ -1,15 +1,15 @@
 //! Shared process context for CLI / REPL / MCP fronts.
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const identity_mod = @import("operability/identity.zig");
 const state_lock = @import("operability/state_lock.zig");
 const xdg = @import("operability/xdg.zig");
 const relay_runtime = @import("ocapn/relay_runtime.zig");
 
-const crypto = pancake.foundation.crypto;
-const FailureChain = pancake.foundation.FailureChain;
-const Session = pancake.driver.Session;
-const OperationFailure = pancake.driver.OperationFailure;
+const crypto = glowcap.foundation.crypto;
+const FailureChain = glowcap.foundation.FailureChain;
+const Session = glowcap.driver.Session;
+const OperationFailure = glowcap.driver.OperationFailure;
 const Io = std.Io;
 const exit_codes = @import("exit_codes.zig");
 
@@ -39,11 +39,11 @@ pub const Ctx = struct {
     /// session's host resolves later dials against this slice — a redeem
     /// reaches an exporter this way (ADR-0090) — so the residents and the
     /// slice storage must outlive the session, not the dialing frame. Slot 0
-    /// is always tcp; slots 1 and 2 join when `PANCAKE_RENDEZVOUS` configures
+    /// is always tcp; slots 1 and 2 join when `GLOWCAP_RENDEZVOUS` configures
     /// the relay provider's clear and sealed rendezvous profiles.
-    dial_resident: pancake.net.tcp.Resident = undefined,
+    dial_resident: glowcap.net.tcp.Resident = undefined,
     rendezvous_provider: ?relay_runtime.Provider = null,
-    dial_netlayers: [3]pancake.net.netlayer.Netlayer = undefined,
+    dial_netlayers: [3]glowcap.net.netlayer.Netlayer = undefined,
     session: ?*Session = null,
     /// A refused close leaves `session` reachable for the exact retry but no
     /// longer exposes it as an ordinary command session.
@@ -94,15 +94,15 @@ pub const Ctx = struct {
     }
 
     /// CapTP session signing posture from the product identity file.
-    pub fn dialIdentity(self: *Ctx) !pancake.driver.Identity {
+    pub fn dialIdentity(self: *Ctx) !glowcap.driver.Identity {
         const secret = try self.ensureSecret();
         return .{ .keyed = .{
             .secret = secret,
-            .designator = pancake.driver.unreachable_client_designator,
+            .designator = glowcap.driver.unreachable_client_designator,
         } };
     }
 
-    pub fn acceptIdentity(self: *Ctx) !pancake.driver.AcceptIdentity {
+    pub fn acceptIdentity(self: *Ctx) !glowcap.driver.AcceptIdentity {
         return .{ .keyed = try self.ensureSecret() };
     }
 
@@ -164,7 +164,7 @@ pub const Ctx = struct {
     /// Close only the retained CapTP session. Relay transport ownership is
     /// separate so an atomic session replacement can keep the shared provider
     /// alive for the new session.
-    pub fn closeHeldSession(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
+    pub fn closeHeldSession(self: *Ctx, pending: glowcap.driver.PendingWork) ?FailureChain {
         var failure: ?FailureChain = null;
         if (self.session) |s| {
             s.close(pending) catch |err| {
@@ -184,7 +184,7 @@ pub const Ctx = struct {
         return failure;
     }
 
-    fn closePendingSession(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
+    fn closePendingSession(self: *Ctx, pending: glowcap.driver.PendingWork) ?FailureChain {
         var failure: ?FailureChain = null;
         const session = self.pending_session orelse return null;
         session.close(pending) catch |err| {
@@ -253,7 +253,7 @@ pub const Ctx = struct {
 
     /// Settle the held session first, then its transport owner, preserving the
     /// session refusal as primary and provider retirement as a consequence.
-    pub fn closeSession(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
+    pub fn closeSession(self: *Ctx, pending: glowcap.driver.PendingWork) ?FailureChain {
         var failure = self.closeHeldSession(pending);
         // A refused session barrier still owns the provider needed for its
         // retry. Retire the provider only after the session release commits.
@@ -275,7 +275,7 @@ pub const Ctx = struct {
 
     /// One close of every process-owned CapTP resource: listener, then session,
     /// then relay. The first refusal is primary; later ones are consequences.
-    pub fn closeOwned(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
+    pub fn closeOwned(self: *Ctx, pending: glowcap.driver.PendingWork) ?FailureChain {
         var failure = self.closeBackgroundListener();
         if (self.closeSession(pending)) |cleanup| self.retainCleanup(&failure, cleanup);
         if (self.closePendingSession(pending)) |cleanup| self.retainCleanup(&failure, cleanup);

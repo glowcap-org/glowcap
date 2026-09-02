@@ -10,7 +10,7 @@
 // than an inline `deno eval` because `eval` takes no permission flags, and a
 // probe that cannot ask the question reads as a dead container.
 
-const port = Deno.env.get("PANCAKE_ROOMS_HTTP_PORT") ?? "8000";
+const port = Deno.env.get("GLOWCAP_ROOMS_HTTP_PORT") ?? "8000";
 const at = `http://127.0.0.1:${port}/locator`;
 
 try {

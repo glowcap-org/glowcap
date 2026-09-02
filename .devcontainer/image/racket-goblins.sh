@@ -4,11 +4,11 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}" checksums
-pancake_require_devcontainer "image/racket-goblins"
+glowcap_devcontainer_init "${dir}" checksums
+glowcap_require_devcontainer "image/racket-goblins"
 
 racket_dir="/opt/racket-${RACKET_VERSION}"
-tmp="$(mktemp -d -t pancake-racket-install-XXXXXX)"
+tmp="$(mktemp -d -t glowcap-racket-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
 
 mapfile -t racket_asset < <(racket_tarball_and_sha256)
@@ -16,7 +16,7 @@ tarball="${racket_asset[0]}"
 sha256="${racket_asset[1]}"
 url="https://download.racket-lang.org/releases/${RACKET_VERSION}/installers/${tarball}"
 
-pancake_fetch_verified "${url}" "${tmp}/${tarball}" "${sha256}"
+glowcap_fetch_verified "${url}" "${tmp}/${tarball}" "${sha256}"
 
 mkdir -p "${racket_dir}"
 tar -xzf "${tmp}/${tarball}" --strip-components=1 -C "${racket_dir}"
@@ -77,10 +77,10 @@ fi
 # scramble/inject-syntax dependency, which the pinned package set does not
 # carry, and calls the atomic primitives directly instead.
 echo "patching crypto-lib to drop its inject-syntax dependency" >&2
-pancake_verify_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_SOURCE_SHA256}"
+glowcap_verify_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_SOURCE_SHA256}"
 patch --directory "${user_pkgs_dir}" --strip=1 \
     < "${dir}/image/patches/crypto-lib-drop-inject-syntax.patch"
-pancake_verify_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_PATCHED_SHA256}"
+glowcap_verify_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_PATCHED_SHA256}"
 
 raco setup --no-docs --pkgs compiler compiler-lib unix-socket-lib goblins crypto-lib crypto
 raco help make >/dev/null

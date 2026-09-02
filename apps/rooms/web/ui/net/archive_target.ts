@@ -5,7 +5,7 @@
 // swaps the history seam only after the candidate has proved the contract.
 
 import * as store from "../store.ts";
-import { type Ref, retainCleanupFailures, type Session } from "@pancake/runtime";
+import { type Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import {
 	ALL_ARCHIVE_RECORDS,
 	type ArchiveFilter,

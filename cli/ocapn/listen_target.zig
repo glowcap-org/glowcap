@@ -1,13 +1,13 @@
 //! Select and own the CLI's direct TCP or relay listener transport.
 
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ctx_mod = @import("../ctx.zig");
 const relay_runtime = @import("relay_runtime.zig");
 
 const Ctx = ctx_mod.Ctx;
 
 pub const ListenTarget = struct {
-    netlayer: pancake.net.netlayer.Netlayer,
+    netlayer: glowcap.net.netlayer.Netlayer,
     designator: []const u8,
 };
 
@@ -16,7 +16,7 @@ pub fn select(
     bind_designator: []const u8,
     register_url_opt: ?[]const u8,
     relay_url_opt: ?[]const u8,
-    tcp: *pancake.net.tcp.Resident,
+    tcp: *glowcap.net.tcp.Resident,
     relay: *?relay_runtime.Provider,
 ) !ListenTarget {
     tcp.* = .{ .io = ctx.io };
@@ -24,17 +24,17 @@ pub fn select(
         .netlayer = tcp.netlayer(),
         .designator = bind_designator,
     };
-    _ = pancake.net.relay.RelayUrl.parse(register_url) catch {
+    _ = glowcap.net.relay.RelayUrl.parse(register_url) catch {
         ctx.logErr("--rendezvous wants a ws:// or wss:// relay URL, got {s}", .{register_url});
         return error.Usage;
     };
-    const dial_url = relay_url_opt orelse ctx.environ.get("PANCAKE_RENDEZVOUS") orelse {
-        ctx.logErr("--rendezvous requires --rendezvous-relay or PANCAKE_RENDEZVOUS so its locator names a dialable route", .{});
+    const dial_url = relay_url_opt orelse ctx.environ.get("GLOWCAP_RENDEZVOUS") orelse {
+        ctx.logErr("--rendezvous requires --rendezvous-relay or GLOWCAP_RENDEZVOUS so its locator names a dialable route", .{});
         return error.Usage;
     };
-    _ = pancake.net.relay.RelayUrl.parse(dial_url) catch {
+    _ = glowcap.net.relay.RelayUrl.parse(dial_url) catch {
         ctx.logErr("{s} is not a ws:// or wss:// relay URL: {s}", .{
-            if (relay_url_opt != null) "--rendezvous-relay" else "PANCAKE_RENDEZVOUS",
+            if (relay_url_opt != null) "--rendezvous-relay" else "GLOWCAP_RENDEZVOUS",
             dial_url,
         });
         return error.Usage;

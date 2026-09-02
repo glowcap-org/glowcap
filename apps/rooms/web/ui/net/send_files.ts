@@ -4,7 +4,7 @@
 // sender-hosted blob capabilities. Callers still go through `send.ts`.
 
 import * as store from "../store.ts";
-import { Ref } from "@pancake/runtime";
+import { Ref } from "@glowcap/runtime";
 import { type Attachment, validateAttachmentSource } from "../../../lib/attachment.ts";
 import { PostedLine, Room } from "../../../lib/room/client.ts";
 import { lineCost, MAX_LINE, MAX_MESSAGE_FILES } from "../../../lib/limits.ts";

@@ -13,9 +13,9 @@ const c = @import("../mod.zig");
 
 const Internal = root.Internal;
 const Instance = Internal.Instance;
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 const instanceFrom = Internal.instanceFrom;
 const errToCode = Internal.errToCode;
 const claimHost = Internal.claimHost;
@@ -38,32 +38,32 @@ const compactEventsIfDrained = events.compactEventsIfDrained;
 /// transport execution, action draining, session release, and terminal Host
 /// release to the returned loop. Buffer and admission limits must be positive;
 /// a zero wait budget explicitly selects an unbounded wait, and each nonzero
-/// wait is bounded by PANCAKE_DRIVER_MAX_WAIT_MS. The generic loop starts with
+/// wait is bounded by GLOWCAP_DRIVER_MAX_WAIT_MS. The generic loop starts with
 /// no transports, so install provider packages before dialing or listening.
-/// Released with `pancake_driver_release`.
-pub export fn pancake_driver_take_host(
-    host: ?*ch.PancakeHost,
-    options: ?*const c.PancakeDriverOptions,
-    out_loop: ?*?*c.PancakeDriverLoop,
+/// Released with `glowcap_driver_release`.
+pub export fn glowcap_driver_take_host(
+    host: ?*ch.GlowcapHost,
+    options: ?*const c.GlowcapDriverOptions,
+    out_loop: ?*?*c.GlowcapDriverLoop,
 ) i32 {
     shared.lastErrorClear();
-    const host_handle = host orelse return PANCAKE_ERR_NULL_POINTER;
-    const options_ptr = options orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_loop orelse return PANCAKE_ERR_NULL_POINTER;
-    if (options_ptr.abi_version != c.PANCAKE_DRIVER_OPTIONS_ABI_VERSION or
-        options_ptr.struct_size < @sizeOf(c.PancakeDriverOptions))
+    const host_handle = host orelse return GLOWCAP_ERR_NULL_POINTER;
+    const options_ptr = options orelse return GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_loop orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (options_ptr.abi_version != c.GLOWCAP_DRIVER_OPTIONS_ABI_VERSION or
+        options_ptr.struct_size < @sizeOf(c.GlowcapDriverOptions))
     {
-        shared.setLastError("driver: unsupported PancakeDriverOptions layout", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        shared.setLastError("driver: unsupported GlowcapDriverOptions layout", .{});
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     const opts = options_ptr.*;
     if (opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0 or
-        opts.handshake_ms > c.PANCAKE_DRIVER_MAX_WAIT_MS or
-        opts.listener_setup_ms > c.PANCAKE_DRIVER_MAX_WAIT_MS or
-        opts.settle_ms > c.PANCAKE_DRIVER_MAX_WAIT_MS)
+        opts.handshake_ms > c.GLOWCAP_DRIVER_MAX_WAIT_MS or
+        opts.listener_setup_ms > c.GLOWCAP_DRIVER_MAX_WAIT_MS or
+        opts.settle_ms > c.GLOWCAP_DRIVER_MAX_WAIT_MS)
     {
-        shared.setLastError("driver: buffer/open limits must be positive and wait budgets must be 0 or at most PANCAKE_DRIVER_MAX_WAIT_MS", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        shared.setLastError("driver: buffer/open limits must be positive and wait budgets must be 0 or at most GLOWCAP_DRIVER_MAX_WAIT_MS", .{});
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     const claim = claimHost(host_handle) catch |err| return errToCode(err);
     const inst = buildInstance(
@@ -75,12 +75,12 @@ pub export fn pancake_driver_take_host(
         return adoptionErrorCode(err);
     };
     slot.* = @ptrCast(inst);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 fn buildInstance(
     claim: ch.embedding.DriverClaim,
-    host_handle: *ch.PancakeHost,
+    host_handle: *ch.GlowcapHost,
     opts: driver.HostRuntime.AdoptionOptions,
 ) !*Instance {
     const alloc = claim.allocator();
@@ -128,25 +128,25 @@ pub fn releaseRetiredListenerMetadata(inst: *Instance) bool {
 /// this ABI owner terminating until the caller has received them.
 fn projectDriverLifecycle(inst: *const Instance) u32 {
     return switch (inst.runtime.lifecyclePhase()) {
-        .active => ch.PANCAKE_LIFECYCLE_ACTIVE,
-        .finishing => ch.PANCAKE_LIFECYCLE_FINISHING,
-        .terminating => ch.PANCAKE_LIFECYCLE_TERMINATING,
+        .active => ch.GLOWCAP_LIFECYCLE_ACTIVE,
+        .finishing => ch.GLOWCAP_LIFECYCLE_FINISHING,
+        .terminating => ch.GLOWCAP_LIFECYCLE_TERMINATING,
         .closed => if (inst.runtime.closeOutcome() == .pending or
             inst.events_head < inst.events.items.len)
-            ch.PANCAKE_LIFECYCLE_TERMINATING
+            ch.GLOWCAP_LIFECYCLE_TERMINATING
         else
-            ch.PANCAKE_LIFECYCLE_CLOSED,
+            ch.GLOWCAP_LIFECYCLE_CLOSED,
     };
 }
 
 /// Seal loop admission, close listeners, and begin or escalate the shared
 /// runtime close barrier. Progress remains step-driven and nonblocking.
-pub export fn pancake_driver_close(
-    raw: ?*c.PancakeDriverLoop,
-    options: ?*const ch.PancakeCloseOptions,
+pub export fn glowcap_driver_close(
+    raw: ?*c.GlowcapDriverLoop,
+    options: ?*const ch.GlowcapCloseOptions,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const callback_close = inst.stepping and inst.runtime.withinCallback();
     if (!callback_close) {
         if (reentrancyCode(inst, "close")) |code| return code;
@@ -157,15 +157,15 @@ pub export fn pancake_driver_close(
     if (!callback_close and inst.runtime.listenerOwnershipRetired() and
         !releaseRetiredListenerMetadata(inst))
         inst.runtime.noteTerminalFailure(error.ProviderContract);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Stop listener admission and retire the loop after every application-owned
 /// session handle releases. Existing sessions remain active; the final
 /// release begins the ordinary cancel close barrier.
-pub export fn pancake_driver_retire(raw: ?*c.PancakeDriverLoop) i32 {
+pub export fn glowcap_driver_retire(raw: ?*c.GlowcapDriverLoop) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const callback_retire = inst.stepping and inst.runtime.withinCallback();
     if (!callback_retire) {
         if (reentrancyCode(inst, "retire")) |code| return code;
@@ -174,52 +174,52 @@ pub export fn pancake_driver_retire(raw: ?*c.PancakeDriverLoop) i32 {
     if (!callback_retire and inst.runtime.listenerOwnershipRetired() and
         !releaseRetiredListenerMetadata(inst))
         inst.runtime.noteTerminalFailure(error.ProviderContract);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-/// Observe the close barrier. A timed-out FINISH returns PANCAKE_ERR_TIMEOUT
+/// Observe the close barrier. A timed-out FINISH returns GLOWCAP_ERR_TIMEOUT
 /// only after teardown and queued event delivery have reached CLOSED.
-pub export fn pancake_driver_lifecycle_state(raw: ?*c.PancakeDriverLoop, out_state: ?*u32) i32 {
+pub export fn glowcap_driver_lifecycle_state(raw: ?*c.GlowcapDriverLoop, out_state: ?*u32) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "lifecycle_state")) |code| return code;
-    const slot = out_state orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_state orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = projectDriverLifecycle(inst);
-    if (slot.* == ch.PANCAKE_LIFECYCLE_CLOSED and inst.runtime.closeOutcome() == .timed_out)
-        return shared.PANCAKE_ERR_TIMEOUT;
-    return PANCAKE_OK;
+    if (slot.* == ch.GLOWCAP_LIFECYCLE_CLOSED and inst.runtime.closeOutcome() == .timed_out)
+        return shared.GLOWCAP_ERR_TIMEOUT;
+    return GLOWCAP_OK;
 }
 
 /// The longest a nonblocking embedder may park on the readiness descriptor
-/// before calling `pancake_driver_step` again with a zero timeout:
+/// before calling `glowcap_driver_step` again with a zero timeout:
 /// milliseconds until the nearest pending-work deadline (the close grace, a
 /// session's close grace, a dial or listener setup budget), clamped at zero,
 /// or -1 when no finite deadline is pending and readiness alone advances the
 /// loop. Poll-shaped on purpose: the value drops straight into a wait
 /// primitive's timeout argument.
-pub export fn pancake_driver_step_wait_ms(raw: ?*c.PancakeDriverLoop, out_wait_ms: ?*i32) i32 {
+pub export fn glowcap_driver_step_wait_ms(raw: ?*c.GlowcapDriverLoop, out_wait_ms: ?*i32) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "step_wait_ms")) |code| return code;
-    const slot = out_wait_ms orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_wait_ms orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = inst.runtime.stepWaitMs();
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Release the loop and everything it owns: listeners, in-flight opens,
 /// queued events, every live wire, and then the wrapped host itself (with
-/// `pancake_host_release`'s exact semantics). Do not release the host handle
+/// `glowcap_host_release`'s exact semantics). Do not release the host handle
 /// separately. Null is a no-op; refused from inside a callback.
-pub export fn pancake_driver_release(
-    raw: ?*c.PancakeDriverLoop,
-    out_failure: ?*failure_output.PancakeDriverFailure,
+pub export fn glowcap_driver_release(
+    raw: ?*c.GlowcapDriverLoop,
+    out_failure: ?*failure_output.GlowcapDriverFailure,
 ) i32 {
     shared.lastErrorClear();
     const failure_slot = switch (failure_output.claim(out_failure, "driver release")) {
         .slot => |slot| slot,
         .refused => |code| return code,
     };
-    const inst = instanceFrom(raw) orelse return PANCAKE_OK;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_OK;
     if (reentrancyCode(inst, "release")) |code|
         return failure_output.refuse(failure_slot, code, error.ReenteredHost);
     // No projection survives release. Retire core-owned completion payloads
@@ -269,9 +269,9 @@ pub export fn pancake_driver_release(
         // report as internal at this boundary while preserving its exact cause
         // in last_error, so consumers can distinguish retry from consumption.
         const code = driver_error.code(failure.kind);
-        const consumed_code = if (code == PANCAKE_ERR_INVALID_ARGUMENT) shared.PANCAKE_ERR_INTERNAL else code;
+        const consumed_code = if (code == GLOWCAP_ERR_INVALID_ARGUMENT) shared.GLOWCAP_ERR_INTERNAL else code;
         failure_output.project(failure_slot, consumed_code, failure);
         return consumed_code;
     }
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }

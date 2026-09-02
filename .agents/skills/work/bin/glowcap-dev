@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+user=${GLOWCAP_DEV_USER:-vscode}
+
+if ! command -v docker >/dev/null 2>&1; then
+	echo "glowcap-dev: docker is not on PATH" >&2
+	exit 127
+fi
+
+source_path=${BASH_SOURCE[0]}
+while [[ -L "${source_path}" ]]; do
+	source_dir=$(cd -P "$(dirname "${source_path}")" && pwd)
+	source_path=$(readlink "${source_path}")
+	[[ "${source_path}" = /* ]] || source_path="${source_dir}/${source_path}"
+done
+repo_root=$(cd -P "$(dirname "${source_path}")/../../../.." && pwd)
+workdir=${GLOWCAP_DEV_WORKDIR:-/workspaces/glowcap}
+
+# shellcheck source=../../../../.devcontainer/lib/mod.sh
+source "${repo_root}/.devcontainer/lib/mod.sh"
+worktree=$(glowcap_devcontainer_worktree_name "${repo_root}/.devcontainer")
+if [[ -n "${GLOWCAP_DEV_CONTAINER:-}" ]]; then
+	container_name="${GLOWCAP_DEV_CONTAINER}"
+	container_id=$(
+		docker ps --filter "name=^/${container_name}$" --format '{{.ID}}' | head -n 1
+	)
+else
+	container_name="glowcap-${worktree}"
+	container_id="$(glowcap_devcontainer_running_container "${repo_root}")" || container_id=""
+fi
+
+if [[ -z "$container_id" ]]; then
+	echo "glowcap-dev: no running devcontainer for ${repo_root}" >&2
+	echo "glowcap-dev: expected ${container_name}; start it with Dev Containers or set GLOWCAP_DEV_CONTAINER explicitly" >&2
+	exit 1
+fi
+
+tty_args=(-i)
+if [[ -t 0 && -t 1 ]]; then
+	tty_args=(-it)
+fi
+
+if [[ $# -eq 0 ]]; then
+	set -- /bin/bash
+fi
+
+exec docker exec "${tty_args[@]}" --user "$user" --workdir "$workdir" "$container_id" "$@"

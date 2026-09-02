@@ -4,9 +4,9 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of the `pancake_driver_*` loop family (ADR-0112),
-// exported only by `libpancake_driver`. The loop adopts a Host created
-// through the separate `libpancake_host` archive. The hand-written
+// The raw extern block of the `glowcap_driver_*` loop family (ADR-0112),
+// exported only by `libglowcap_driver`. The loop adopts a Host created
+// through the separate `libglowcap_host` archive. The hand-written
 // sibling (`driver.rs`) owns the `#[repr(C)]` mirrors and their layout
 // pins, and re-exports this block.
 
@@ -15,103 +15,103 @@
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::driver::{
-	PancakeDriverEvent, PancakeDriverFailure, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportOperationOptions,
+	GlowcapDriverEvent, GlowcapDriverFailure, GlowcapDriverLoop, GlowcapDriverOptions, GlowcapTransportOperationOptions,
 };
-use super::host::{PancakeCloseOptions, PancakeHost, PancakeHostSession};
-use super::ocapn::PancakeLocatorView;
-use crate::sys::{PancakeReference, PancakeTransportProvider};
+use super::host::{GlowcapCloseOptions, GlowcapHost, GlowcapHostSession};
+use super::ocapn::GlowcapLocatorView;
+use crate::sys::{GlowcapReference, GlowcapTransportProvider};
 
 extern "C" {
-	pub fn pancake_driver_archive_fingerprint() -> u64;
-	pub fn pancake_driver_take_host(
-		host: *mut PancakeHost,
-		options: *const PancakeDriverOptions,
-		out_loop: *mut *mut PancakeDriverLoop,
+	pub fn glowcap_driver_archive_fingerprint() -> u64;
+	pub fn glowcap_driver_take_host(
+		host: *mut GlowcapHost,
+		options: *const GlowcapDriverOptions,
+		out_loop: *mut *mut GlowcapDriverLoop,
 	) -> c_int;
-	pub fn pancake_driver_close(loop_: *mut PancakeDriverLoop, options: *const PancakeCloseOptions) -> c_int;
-	pub fn pancake_driver_retire(loop_: *mut PancakeDriverLoop) -> c_int;
-	pub fn pancake_driver_lifecycle_state(loop_: *mut PancakeDriverLoop, out_state: *mut u32) -> c_int;
-	pub fn pancake_driver_step_wait_ms(loop_: *mut PancakeDriverLoop, out_wait_ms: *mut i32) -> c_int;
-	pub fn pancake_driver_release(loop_: *mut PancakeDriverLoop, out_failure: *mut PancakeDriverFailure) -> c_int;
-	pub fn pancake_driver_add_provider(
-		loop_: *mut PancakeDriverLoop,
-		provider: *const PancakeTransportProvider,
-		out_failure: *mut PancakeDriverFailure,
+	pub fn glowcap_driver_close(loop_: *mut GlowcapDriverLoop, options: *const GlowcapCloseOptions) -> c_int;
+	pub fn glowcap_driver_retire(loop_: *mut GlowcapDriverLoop) -> c_int;
+	pub fn glowcap_driver_lifecycle_state(loop_: *mut GlowcapDriverLoop, out_state: *mut u32) -> c_int;
+	pub fn glowcap_driver_step_wait_ms(loop_: *mut GlowcapDriverLoop, out_wait_ms: *mut i32) -> c_int;
+	pub fn glowcap_driver_release(loop_: *mut GlowcapDriverLoop, out_failure: *mut GlowcapDriverFailure) -> c_int;
+	pub fn glowcap_driver_add_provider(
+		loop_: *mut GlowcapDriverLoop,
+		provider: *const GlowcapTransportProvider,
+		out_failure: *mut GlowcapDriverFailure,
 	) -> c_int;
-	pub fn pancake_driver_has_transport(
-		loop_: *mut PancakeDriverLoop,
+	pub fn glowcap_driver_has_transport(
+		loop_: *mut GlowcapDriverLoop,
 		transport: *const c_uchar,
 		transport_len: usize,
 		out_present: *mut c_uchar,
 	) -> c_int;
-	pub fn pancake_driver_dial(
-		loop_: *mut PancakeDriverLoop,
-		locator: *const PancakeLocatorView,
-		options: *const PancakeTransportOperationOptions,
+	pub fn glowcap_driver_dial(
+		loop_: *mut GlowcapDriverLoop,
+		locator: *const GlowcapLocatorView,
+		options: *const GlowcapTransportOperationOptions,
 		out_operation_id: *mut u64,
 	) -> c_int;
-	pub fn pancake_driver_adopt_external(
-		loop_: *mut PancakeDriverLoop,
+	pub fn glowcap_driver_adopt_external(
+		loop_: *mut GlowcapDriverLoop,
 		transport: *const c_uchar,
 		transport_len: usize,
 		subject: u64,
 		role: c_uint,
 		out_operation_id: *mut u64,
 	) -> c_int;
-	pub fn pancake_driver_listen(
-		loop_: *mut PancakeDriverLoop,
+	pub fn glowcap_driver_listen(
+		loop_: *mut GlowcapDriverLoop,
 		transport: *const c_uchar,
 		transport_len: usize,
 		designator: *const c_uchar,
 		designator_len: usize,
-		options: *const PancakeTransportOperationOptions,
+		options: *const GlowcapTransportOperationOptions,
 		out_listener: *mut u64,
 	) -> c_int;
-	pub fn pancake_driver_listener_locator(
-		loop_: *mut PancakeDriverLoop,
+	pub fn glowcap_driver_listener_locator(
+		loop_: *mut GlowcapDriverLoop,
 		listener: u64,
-		out_locator: *mut PancakeLocatorView,
+		out_locator: *mut GlowcapLocatorView,
 	) -> c_int;
-	pub fn pancake_driver_listener_restoration_state(
-		loop_: *mut PancakeDriverLoop,
+	pub fn glowcap_driver_listener_restoration_state(
+		loop_: *mut GlowcapDriverLoop,
 		listener: u64,
 		out: *mut c_uchar,
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_driver_listener_advertise(
-		loop_: *mut PancakeDriverLoop,
+	pub fn glowcap_driver_listener_advertise(
+		loop_: *mut GlowcapDriverLoop,
 		listener: u64,
-		locator: *const PancakeLocatorView,
+		locator: *const GlowcapLocatorView,
 	) -> c_int;
-	pub fn pancake_driver_listener_select(loop_: *mut PancakeDriverLoop, listener: u64) -> c_int;
-	pub fn pancake_driver_listener_close(
-		loop_: *mut PancakeDriverLoop,
+	pub fn glowcap_driver_listener_select(loop_: *mut GlowcapDriverLoop, listener: u64) -> c_int;
+	pub fn glowcap_driver_listener_close(
+		loop_: *mut GlowcapDriverLoop,
 		listener: u64,
-		out_failure: *mut PancakeDriverFailure,
+		out_failure: *mut GlowcapDriverFailure,
 	) -> c_int;
-	pub fn pancake_driver_readiness_fd(loop_: *mut PancakeDriverLoop, out_fd: *mut i32) -> c_int;
-	pub fn pancake_driver_step(loop_: *mut PancakeDriverLoop, timeout_ms: c_int) -> c_int;
-	pub fn pancake_driver_detach_thread(loop_: *mut PancakeDriverLoop) -> c_int;
-	pub fn pancake_driver_wake(loop_: *mut PancakeDriverLoop) -> c_int;
-	pub fn pancake_driver_next_event(loop_: *mut PancakeDriverLoop, out: *mut PancakeDriverEvent) -> c_int;
-	pub fn pancake_driver_claim_reference_exporter(
-		loop_: *mut PancakeDriverLoop,
-		reference: *const PancakeReference,
-		out_session: *mut *mut PancakeHostSession,
+	pub fn glowcap_driver_readiness_fd(loop_: *mut GlowcapDriverLoop, out_fd: *mut i32) -> c_int;
+	pub fn glowcap_driver_step(loop_: *mut GlowcapDriverLoop, timeout_ms: c_int) -> c_int;
+	pub fn glowcap_driver_detach_thread(loop_: *mut GlowcapDriverLoop) -> c_int;
+	pub fn glowcap_driver_wake(loop_: *mut GlowcapDriverLoop) -> c_int;
+	pub fn glowcap_driver_next_event(loop_: *mut GlowcapDriverLoop, out: *mut GlowcapDriverEvent) -> c_int;
+	pub fn glowcap_driver_claim_reference_exporter(
+		loop_: *mut GlowcapDriverLoop,
+		reference: *const GlowcapReference,
+		out_session: *mut *mut GlowcapHostSession,
 	) -> c_int;
-	pub fn pancake_driver_session_close(
-		loop_: *mut PancakeDriverLoop,
-		session: *mut PancakeHostSession,
-		options: *const PancakeCloseOptions,
+	pub fn glowcap_driver_session_close(
+		loop_: *mut GlowcapDriverLoop,
+		session: *mut GlowcapHostSession,
+		options: *const GlowcapCloseOptions,
 	) -> c_int;
-	pub fn pancake_driver_session_lifecycle_state(
-		loop_: *mut PancakeDriverLoop,
-		session: *mut PancakeHostSession,
+	pub fn glowcap_driver_session_lifecycle_state(
+		loop_: *mut GlowcapDriverLoop,
+		session: *mut GlowcapHostSession,
 		out_state: *mut u32,
 	) -> c_int;
-	pub fn pancake_driver_session_serve(loop_: *mut PancakeDriverLoop, session: *mut PancakeHostSession) -> c_int;
-	pub fn pancake_driver_session_release(loop_: *mut PancakeDriverLoop, session: *mut PancakeHostSession) -> c_int;
-	pub fn pancake_driver_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_driver_clear_last_error();
+	pub fn glowcap_driver_session_serve(loop_: *mut GlowcapDriverLoop, session: *mut GlowcapHostSession) -> c_int;
+	pub fn glowcap_driver_session_release(loop_: *mut GlowcapDriverLoop, session: *mut GlowcapHostSession) -> c_int;
+	pub fn glowcap_driver_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_driver_clear_last_error();
 }

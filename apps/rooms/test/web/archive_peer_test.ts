@@ -116,7 +116,7 @@ async function chooseArchive(tab: Page, sturdyref: string): Promise<void> {
 	// Case-folded: the claim is that the copy names what this peer is and what
 	// the capability grants, not that it opens either sentence in lower case.
 	const explained = historyForm.copy.toLowerCase();
-	if (!explained.includes("separate pancake peer") || !explained.includes("bearer authority")) {
+	if (!explained.includes("separate glowcap peer") || !explained.includes("bearer authority")) {
 		fail(`the archive peer explanation does not name its role and authority: ${JSON.stringify(historyForm.copy)}`);
 	}
 	await tab.click("#rememberArchivePeer");

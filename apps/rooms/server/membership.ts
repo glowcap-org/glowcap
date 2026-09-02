@@ -1,7 +1,7 @@
 // Operations on one live room seat. The capability identifies the membership;
 // no nickname, account, or calling-session lookup authorizes an act.
 
-import { type Argument, type Behavior, currentSession, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, type Session } from "@glowcap/runtime";
 import { attachmentRefusal } from "../lib/attachment.ts";
 import {
 	ATTACH,
@@ -66,7 +66,7 @@ function retainLine(
 	ctx: RoomServerContext,
 	member: Member,
 	session: Session,
-	ref: import("@pancake/runtime").Ref,
+	ref: import("@glowcap/runtime").Ref,
 ): void {
 	member.lines.push({ session, ref });
 	ctx.operator.noteChange();

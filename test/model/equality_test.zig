@@ -1,7 +1,7 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
+const model = glowcap.ocapn.model;
 
 test "far references are equal on import id and wire kind" {
     const a: model.Reference = .{ .far = .{ .import_position = .from(7), .kind = .object } };

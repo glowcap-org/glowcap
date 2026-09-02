@@ -1,9 +1,9 @@
-// A real Spritely Goblins vat joins the pancake rooms chat, and the room holds
+// A real Spritely Goblins vat joins the glowcap rooms chat, and the room holds
 // both profiles at once.
 //
-// Every peer in a room is a pancake peer, so the rooms fleet prefers pancake's
-// own CapTP profile — `pancake-next` over Cap'n Proto — and this run keeps one
-// pancake member in the room to hold that end. The other member is a genuine
+// Every peer in a room is a glowcap peer, so the rooms fleet prefers glowcap's
+// own CapTP profile — `glowcap-next` over Cap'n Proto — and this run keeps one
+// glowcap member in the room to hold that end. The other member is a genuine
 // Goblins vat (`conformance/goblins-peer/racket/rooms-member.rkt`), which
 // speaks the OCapN v1.0 baseline over Syrup and nothing else. Since ADR-0103
 // each session settles its own pair from the two hellos, so the room admits
@@ -11,9 +11,9 @@
 //
 // The run proves four things, and asserts all four rather than assuming any:
 //
-//   1. The Goblins vat entered the room, posted a line, and heard the pancake
+//   1. The Goblins vat entered the room, posted a line, and heard the glowcap
 //      member's line come back through the capability the room calls it on.
-//   2. The pancake member heard the Goblins vat's line the same way.
+//   2. The glowcap member heard the Goblins vat's line the same way.
 //   3. The two sessions settled on *different* profiles. The proof is the
 //      server's own trace stream — the one ocapnviz's Live mode reads — where
 //      each `ocapn.session-opened` names the codec and CapTP version the
@@ -21,10 +21,10 @@
 //      member subscribes names which member that session carries.
 //   4. The vat reports its own end of that session to the same stream, and the
 //      two ends name the session identically. The vat is pointed at the
-//      endpoint with `PANCAKE_ROOMS_VIZ_URL`, so the wire it holds is described twice,
+//      endpoint with `GLOWCAP_ROOMS_VIZ_URL`, so the wire it holds is described twice,
 //      once from each side. A viewer draws one edge per OCapN Session ID, and
 //      neither end is ever told that name — each derives it from the two
-//      session keys the handshake exchanged. So this is where pancake's
+//      session keys the handshake exchanged. So this is where glowcap's
 //      derivation and Goblins's are held to the same bytes, and where the vat
 //      stops being a loose end on the picture.
 //
@@ -33,7 +33,7 @@
 
 import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
 import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
-import { CAPTP_VERSION_WIRE, type TraceEvent } from "@pancake/runtime";
+import { CAPTP_VERSION_WIRE, type TraceEvent } from "@glowcap/runtime";
 import { connectVizViewer, vizUrlOf } from "../../apps/rooms/test/viz/viewer.ts";
 
 /** `--iroh` runs the same room over encrypted QUIC instead of cleartext TCP.
@@ -47,16 +47,16 @@ import { connectVizViewer, vizUrlOf } from "../../apps/rooms/test/viz/viewer.ts"
 const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-iroh" : "goblins-rooms";
 const ROOT = Deno.cwd();
-const ROOM = "goblins-and-pancake";
-const PANCAKE_NICK = "deno-ada";
+const ROOM = "goblins-and-glowcap";
+const GLOWCAP_NICK = "deno-ada";
 const GOBLINS_NICK = "goblins-carol";
 const GOBLINS_LINE = "hello from a goblins vat";
 /** What the Goblins vat calls its own implementation on the records it
  * publishes, and what the room server calls its own. Reading them off the trace
  * is how this harness tells one producer's view of a wire from the other's. */
 const GOBLINS_PROFILE = "goblins";
-const PANCAKE_PROFILE = "pancake";
-const PANCAKE_LINE = "hello from a pancake peer";
+const GLOWCAP_PROFILE = "glowcap";
+const GLOWCAP_LINE = "hello from a glowcap peer";
 /** How long the server has to say where it is listening. Finite, because a
  * server that never comes up must fail loud rather than park the step. */
 const ANNOUNCE_MS = 30_000;
@@ -182,7 +182,7 @@ function sessionOf(rows: Map<string, SessionRow>, label: string): SessionRow {
  *
  * The room server reports every session it carries; the vat reports the one it
  * holds. Both views reach this endpoint, and `a_profile` is what tells them
- * apart — the room server says `pancake` of its own end, the vat says
+ * apart — the room server says `glowcap` of its own end, the vat says
  * `goblins`. Nothing else on a record can: the two views of one wire agree on
  * the session id by design, which is the whole point of it. */
 function vatSelfReport(rows: Map<string, SessionRow>): SessionRow {
@@ -233,8 +233,8 @@ const server = new Deno.Command("deno", {
 		: [...DENO_FLAGS, `${ROOT}/apps/rooms/server/main.ts`, "0"],
 	cwd: ROOT,
 	env: IROH
-		? { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: "0", PANCAKE_ROOMS_TRANSPORT: "iroh" }
-		: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: "0" },
+		? { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: "0", GLOWCAP_ROOMS_TRANSPORT: "iroh" }
+		: { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: "0" },
 	stdout: "piped",
 	stderr: "piped",
 }).spawn();
@@ -258,17 +258,17 @@ try {
 	const publishUrl = vizUrlOf(vizRef);
 
 	// Both members enter the same room and each waits to hear the other. The
-	// pancake client posts once its whole roster is present; the Goblins vat
-	// posts as soon as it has subscribed and waits for the pancake member's line.
-	const roster = `${PANCAKE_NICK},${GOBLINS_NICK}`;
-	const [pancake, goblins] = await Promise.all([
+	// glowcap client posts once its whole roster is present; the Goblins vat
+	// posts as soon as it has subscribed and waits for the glowcap member's line.
+	const roster = `${GLOWCAP_NICK},${GOBLINS_NICK}`;
+	const [glowcap, goblins] = await Promise.all([
 		runChild("deno", [
 			...DENO_FLAGS,
 			`${ROOT}/apps/rooms/clients/deno/client.ts`,
 			locator,
 			ROOM,
-			PANCAKE_NICK,
-			PANCAKE_LINE,
+			GLOWCAP_NICK,
+			GLOWCAP_LINE,
 			roster,
 		], ROOT),
 		runChild(
@@ -280,15 +280,15 @@ try {
 				ROOM,
 				GOBLINS_NICK,
 				GOBLINS_LINE,
-				PANCAKE_NICK,
+				GLOWCAP_NICK,
 			],
 			ROOT,
-			{ PANCAKE_ROOMS_VIZ_URL: publishUrl },
+			{ GLOWCAP_ROOMS_VIZ_URL: publishUrl },
 		),
 	]);
 
-	console.log(`──────── the pancake member (exit ${pancake.code}) ────────`);
-	console.log(pancake.out.trimEnd());
+	console.log(`──────── the glowcap member (exit ${glowcap.code}) ────────`);
+	console.log(glowcap.out.trimEnd());
 	console.log(`──────── the goblins vat (exit ${goblins.code}) ────────`);
 	console.log(goblins.out.trimEnd());
 	console.log("");
@@ -296,19 +296,19 @@ try {
 	if (goblins.code !== 0 || !goblins.out.includes("ROOMS OK")) {
 		fail("the goblins vat did not complete the exchange");
 	}
-	if (pancake.code !== 0) fail("the pancake member did not complete the exchange");
-	if (!goblins.out.includes(PANCAKE_LINE)) {
-		fail(`the goblins vat never heard "${PANCAKE_LINE}"`);
+	if (glowcap.code !== 0) fail("the glowcap member did not complete the exchange");
+	if (!goblins.out.includes(GLOWCAP_LINE)) {
+		fail(`the goblins vat never heard "${GLOWCAP_LINE}"`);
 	}
-	if (!pancake.out.includes(GOBLINS_LINE)) {
-		fail(`the pancake member never heard "${GOBLINS_LINE}"`);
+	if (!glowcap.out.includes(GOBLINS_LINE)) {
+		fail(`the glowcap member never heard "${GOBLINS_LINE}"`);
 	}
 
 	// The profiles, off the server's own trace rather than off either member's
-	// word. A Goblins vat speaks only the baseline; the pancake member and the
-	// server both prefer pancake-next over Cap'n Proto and get it.
+	// word. A Goblins vat speaks only the baseline; the glowcap member and the
+	// server both prefer glowcap-next over Cap'n Proto and get it.
 	const goblinsServerView = sessionOf(trace.rows, GOBLINS_NICK);
-	const pancakeServerView = sessionOf(trace.rows, PANCAKE_NICK);
+	const glowcapServerView = sessionOf(trace.rows, GLOWCAP_NICK);
 	expectProfile(
 		goblinsServerView,
 		GOBLINS_NICK,
@@ -316,15 +316,15 @@ try {
 		CAPTP_VERSION_WIRE.v1_0,
 	);
 	expectProfile(
-		pancakeServerView,
-		PANCAKE_NICK,
+		glowcapServerView,
+		GLOWCAP_NICK,
 		"capnp",
 		CAPTP_VERSION_WIRE.next,
 	);
 	expectTransport(goblinsServerView, `${GOBLINS_NICK} at the room`);
-	expectTransport(pancakeServerView, `${PANCAKE_NICK} at the room`);
+	expectTransport(glowcapServerView, `${GLOWCAP_NICK} at the room`);
 
-	// The vat is a PRODUCER here, not only a member: `PANCAKE_ROOMS_VIZ_URL` above points
+	// The vat is a PRODUCER here, not only a member: `GLOWCAP_ROOMS_VIZ_URL` above points
 	// it at the same endpoint the server publishes to, so the wire it holds is
 	// reported from both of its ends. What has to hold is that the two reports
 	// name one wire and not two — a viewer draws one edge per OCapN Session ID,
@@ -333,13 +333,13 @@ try {
 	//
 	// Neither end is told the name. Each derives it from the two session keys
 	// the handshake already exchanged, so this is also the assertion that
-	// pancake's derivation and Goblins's agree byte for byte.
+	// glowcap's derivation and Goblins's agree byte for byte.
 	const serverView = goblinsServerView;
 	const vatView = vatSelfReport(trace.rows);
 	expectTransport(vatView, `${GOBLINS_NICK} at the vat`);
-	if (serverView.selfProfile !== PANCAKE_PROFILE) {
+	if (serverView.selfProfile !== GLOWCAP_PROFILE) {
 		fail(
-			`the room server reported its own end as "${serverView.selfProfile}", wanted "${PANCAKE_PROFILE}"`,
+			`the room server reported its own end as "${serverView.selfProfile}", wanted "${GLOWCAP_PROFILE}"`,
 		);
 	}
 	if (!vatView.sessionId || !serverView.sessionId) {
@@ -357,7 +357,7 @@ try {
 	);
 
 	console.log(
-		`${GATE} OK: a real Goblins vat and a pancake peer held one room, each on the profile its own session settled`,
+		`${GATE} OK: a real Goblins vat and a glowcap peer held one room, each on the profile its own session settled`,
 	);
 } catch (err) {
 	failed = true;

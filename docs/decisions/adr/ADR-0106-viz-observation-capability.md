@@ -161,7 +161,7 @@ browser Host only when the operator supplies a sturdyref.
 - ocapnviz tests cover sturdyref validation, lazy wasm startup, inbox delivery,
   replay reconciliation, reconnect, and exact peer lifetime.
 - `zig build ocapnviz-check` builds the production Vite bundle and requires
-  `dist/pancake_host.wasm`.
+  `dist/glowcap_host.wasm`.
 - `zig build ocapnviz-live-browser` drives a real Chromium tab against the
   production bundle. It initializes wasm, dials the announced sturdyref,
   renders a fresh replay and a subsequent live record, and asserts that the

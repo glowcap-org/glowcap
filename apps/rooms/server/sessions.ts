@@ -5,7 +5,7 @@
 // than inside either caller: presence is retired at the transport's terminal
 // boundary, and the session shell itself is closed when its serve settles.
 
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import { routinePeerDisconnect } from "../lib/session_failure.ts";
 import type { RoomDisconnects } from "./presence.ts";
 import { registeredNickOf } from "./introductions.ts";

@@ -6,7 +6,7 @@ import {
 	parseLocator,
 	stringHint,
 	TRANSPORT_ID,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import { roomsIdentityRoute } from "../lib/routes.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../lib/locator.ts";
 

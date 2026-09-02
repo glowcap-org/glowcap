@@ -14,7 +14,7 @@ amended_by: [ADR-0100, ADR-0121]
 
 ## Context
 
-A partner that completes `op:start-session` can grow pancake's session tables
+A partner that completes `op:start-session` can grow glowcap's session tables
 without sending one malformed frame: blast `op:deliver` against ever-larger
 answer ids, register listeners against one target, introduce fresh imports,
 park early withdrawals whose deposits never arrive, or deposit gifts that are
@@ -81,12 +81,12 @@ Two adjacent accumulators are bounded but do **not** project to
 - **Handoff-count expiry.** Replay authority is one scalar per live session,
   destroyed with that session. There is no per-counter row set to expire or
   cap.
-- **Outbound / pancake-allocated tables.** Export and outbound-answer tables
-  grow at pancake's own rate, so they carry no cap. The caps bound
+- **Outbound / glowcap-allocated tables.** Export and outbound-answer tables
+  grow at glowcap's own rate, so they carry no cap. The caps bound
   partner-driven growth only.
 - **Rate limiting.** A cap refuses a peer that pushes _past_ it; a peer that
   churns rows at the cap is still admissible. Rate limiting belongs above
-  pancake.
+  glowcap.
 - **Per-deployment tuning.** Per-deployment tuning of the defaults is an adapter
   concern, not the session's.
 

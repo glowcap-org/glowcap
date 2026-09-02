@@ -29,18 +29,18 @@ pub const step_name = "gen-binding-python-ffi";
 const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
-    .{ .path = "bindings/python/pancake/_sigs_gen.py", .generate = generate },
+    .{ .path = "bindings/python/glowcap/_sigs_gen.py", .generate = generate },
 };
 
-/// `module.PancakeIrohConfig` → `PancakeIrohConfig`.
+/// `module.GlowcapIrohConfig` → `GlowcapIrohConfig`.
 const baseName = @import("reflect").baseName;
 
-/// `PancakeDialPlan` -> `_DialPlan`, the hand mirrors' naming rule.
+/// `GlowcapDialPlan` -> `_DialPlan`, the hand mirrors' naming rule.
 fn mirrorName(comptime T: type) []const u8 {
     const base = baseName(T);
-    if (!std.mem.startsWith(u8, base, "Pancake"))
-        @compileError("struct parameter without the Pancake prefix: " ++ base);
-    return "_" ++ base["Pancake".len..];
+    if (!std.mem.startsWith(u8, base, "Glowcap"))
+        @compileError("struct parameter without the Glowcap prefix: " ++ base);
+    return "_" ++ base["Glowcap".len..];
 }
 
 /// A named function-pointer alias the base spelling has no case for: the Zig
@@ -257,37 +257,37 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
     try renderArchive(gpa, &out, c, "ocapn_sigs", &.{
         "_Allocator", "_ManagedFrame", "_LocatorHintView", "_LocatorView", "_FailureReport", "_FailureEvent",
-    }, "``libpancake_ocapn`` signatures, in the inventory's order.", &.{});
+    }, "``libglowcap_ocapn`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cd, "driver_sigs", &.{
         "_Argument",        "_Reference",       "_ManagedFrame", "_LastAbort",
         "_HostPumpHooks",   "_LocatorHintView", "_LocatorView",  "_HostBehavior",
         "_PartnerIdentity", "_TraceCallback",   "_CloseOptions", "_SessionLimitOptions",
-    }, "``libpancake_host`` signatures, in the inventory's order.", &.{
-        .{ .T = cd.PancakeHostBehavior, .spelling = "_HostBehavior" },
-        .{ .T = cd.PancakeHostCtxFree, .spelling = "P" },
-        .{ .T = cd.PancakeTraceCallback, .spelling = "_TraceCallback" },
+    }, "``libglowcap_host`` signatures, in the inventory's order.", &.{
+        .{ .T = cd.GlowcapHostBehavior, .spelling = "_HostBehavior" },
+        .{ .T = cd.GlowcapHostCtxFree, .spelling = "P" },
+        .{ .T = cd.GlowcapTraceCallback, .spelling = "_TraceCallback" },
     });
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cdr, "loop_sigs", &.{
         "_DriverOptions",             "_DriverFailure",     "_CloseOptions", "_DriverEvent", "_LocatorView", "_Reference",
         "_TransportOperationOptions", "_TransportProvider",
-    }, "``libpancake_driver`` loop-family signatures, in the inventory's order.", &.{
-        .{ .T = cdr.PancakeDriverFailure, .spelling = "_DriverFailure" },
+    }, "``libglowcap_driver`` loop-family signatures, in the inventory's order.", &.{
+        .{ .T = cdr.GlowcapDriverFailure, .spelling = "_DriverFailure" },
     });
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, ct, "tcp_sigs", &.{
         "_Frame", "_ManagedFrame", "_TcpConfig", "_TcpStreamOptions", "_TransportProvider",
-    }, "``libpancake_net_transport_tcp`` signatures, in the inventory's order.", &.{});
+    }, "``libglowcap_net_transport_tcp`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, cin, "inproc_sigs", &.{ "_Frame", "_ManagedFrame" }, "``libpancake_net_transport_inproc`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, cin, "inproc_sigs", &.{ "_Frame", "_ManagedFrame" }, "``libglowcap_net_transport_inproc`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, con, "onion_sigs", &.{ "_Frame", "_ManagedFrame", "_OnionConfig", "_TransportProvider" }, "``libpancake_net_transport_onion`` signatures, in the inventory's order.", &.{.{ .T = con.PancakeOnionConfig, .spelling = "_OnionConfig" }});
+    try renderArchive(gpa, &out, con, "onion_sigs", &.{ "_Frame", "_ManagedFrame", "_OnionConfig", "_TransportProvider" }, "``libglowcap_net_transport_onion`` signatures, in the inventory's order.", &.{.{ .T = con.GlowcapOnionConfig, .spelling = "_OnionConfig" }});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, ci, "iroh_sigs", &.{ "_IrohReadyEvent", "_IrohConfig", "_TransportProvider" }, "``libpancake_net_transport_iroh`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, ci, "iroh_sigs", &.{ "_IrohReadyEvent", "_IrohConfig", "_TransportProvider" }, "``libglowcap_net_transport_iroh`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{ "_WebrtcReadyEvent", "_WebrtcConfig", "_TransportProvider" }, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{ "_WebrtcReadyEvent", "_WebrtcConfig", "_TransportProvider" }, "``libglowcap_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, cr, "relay_sigs", &.{ "_RelayConfig", "_RelayTrustSummary", "_TransportProvider" }, "``libpancake_net_transport_relay`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, cr, "relay_sigs", &.{ "_RelayConfig", "_RelayTrustSummary", "_TransportProvider" }, "``libglowcap_net_transport_relay`` signatures, in the inventory's order.", &.{});
     return out.toOwnedSlice(gpa);
 }

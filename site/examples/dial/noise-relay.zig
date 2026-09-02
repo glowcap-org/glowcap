@@ -1,5 +1,5 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const native_relay = @import("native_relay");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
@@ -11,12 +11,12 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
         .failed => return error.RelayUnavailable,
     }
     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
-    const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
-    var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
+    var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
     const peer_key = "<64 lowercase hex characters from the server>";
-    const partner = pancake.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
+    const partner = glowcap.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
     // From here, the CapTP workflow is transport-independent.
-    const session = try pancake.driver.connect(
+    const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
         partner,

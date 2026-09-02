@@ -3,7 +3,7 @@
 // establishment supplies a Connector. Transport packages construct both and
 // own locator interpretation.
 
-import { checkHost, PancakeError } from "./errors.ts";
+import { checkHost, GlowcapError } from "./errors.ts";
 import { Host } from "./host.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { L } from "./internal/layout.ts";
@@ -11,7 +11,7 @@ import { ab } from "./internal/seam.ts";
 import { type Locator, OwnedLocator } from "./locator.ts";
 import { HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
 import type { Connector } from "./transport.ts";
-import { BUFFER_TOO_SMALL, INVALID_ARGUMENT } from "@pancake/abi";
+import { BUFFER_TOO_SMALL, INVALID_ARGUMENT } from "@glowcap/abi";
 
 const utf8Encoder = new TextEncoder();
 
@@ -25,13 +25,13 @@ export async function dialWithConnector(
 	transportOptions?: Uint8Array,
 ): Promise<Session> {
 	if (!connector.supports(locator.transport)) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			INVALID_ARGUMENT,
 			`connector does not advertise transport ${JSON.stringify(locator.transport)}`,
 		);
 	}
 	if (host.driverLoop != null) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			INVALID_ARGUMENT,
 			"a native-loop Host cannot open an embedder-owned byte channel",
 		);
@@ -50,14 +50,14 @@ export async function dialExporter(
 	signal?: AbortSignal,
 ): Promise<Session> {
 	if (host.driverLoop != null) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			INVALID_ARGUMENT,
 			"native-loop handoff dials are owned by the driver",
 		);
 	}
 	const connector = host.connectorFor(locator.transport);
 	if (connector == null) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			INVALID_ARGUMENT,
 			`byte-fed Host has no connector for transport ${JSON.stringify(locator.transport)}`,
 		);
@@ -86,7 +86,7 @@ export async function runDialTicket(
 		let view = new Uint8Array(L.LOCATOR_VIEW_SIZE);
 		let count = new Uint8Array(L.ptrSize);
 		let hints: Uint8Array | null = null;
-		let rc = hostS.pancake_host_pending_dial(
+		let rc = hostS.glowcap_host_pending_dial(
 			host.raw,
 			ticket,
 			routeIndex,
@@ -100,7 +100,7 @@ export async function runDialTicket(
 			hints = new Uint8Array(L.LOCATOR_HINT_VIEW_SIZE * capacity);
 			view = new Uint8Array(L.LOCATOR_VIEW_SIZE);
 			count = new Uint8Array(L.ptrSize);
-			rc = hostS.pancake_host_pending_dial(
+			rc = hostS.glowcap_host_pending_dial(
 				host.raw,
 				ticket,
 				routeIndex,
@@ -123,7 +123,7 @@ export async function runDialTicket(
 			return;
 		}
 		const adopted = new Uint8Array(1);
-		checkHost(hostS.pancake_host_dialed(
+		checkHost(hostS.glowcap_host_dialed(
 			host.raw,
 			ticket,
 			routeIndex,
@@ -157,7 +157,7 @@ export async function runDialTicket(
 		}
 		if (host.released || signal?.aborted) return;
 		const reason = utf8Encoder.encode(error instanceof Error ? error.message : String(error));
-		checkHost(hostS.pancake_host_dial_failed(
+		checkHost(hostS.glowcap_host_dial_failed(
 			host.raw,
 			ticket,
 			routeIndex,

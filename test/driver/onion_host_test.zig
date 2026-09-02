@@ -1,11 +1,11 @@
 //! Host-tier onion loopback proof over the fake Tor daemon.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const driver = pancake.driver;
-const model = pancake.ocapn.model;
-const net = pancake.net;
+const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
+const net = glowcap.net;
 const onion = net.onion;
 const support_actors = @import("../support/actors.zig");
 const fake = @import("../support/onion_fake_daemon.zig");
@@ -102,7 +102,7 @@ const next_opts: driver.SessionOptions = .{
     .captp_version = .next,
 };
 
-test "onion profile by knowledge: a hinted dial settles pancake-next, a bare dial the baseline" {
+test "onion profile by knowledge: a hinted dial settles glowcap-next, a bare dial the baseline" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -119,8 +119,8 @@ test "onion profile by knowledge: a hinted dial settles pancake-next, a bare dia
     var server = try driver.listen(allocator, host_res.netlayer(), .{ .designator = "" }, .ephemeral, next_opts);
     defer server.deinit();
 
-    // Handed the pancake-hinted form of the address, the dialer knows its
-    // acceptor is pancake, states its real preference, and the deferred
+    // Handed the glowcap-hinted form of the address, the dialer knows its
+    // acceptor is glowcap, states its real preference, and the deferred
     // acceptor hello mirrors it (ADR-0118). The session settles the full
     // configured profile and carries a call on it.
     {

@@ -1,14 +1,9 @@
 import { RoomServerOperationsState } from "../../server/operations_state.ts";
 import { assertEquals } from "../assert.ts";
+import { parseBridgeGateway } from "../../lib/bridge/gateway.ts";
 import { roomsHost } from "../../lib/locator.ts";
 import { ListenerRegistry } from "../../server/listeners.ts";
-import {
-	closeIrcBridges,
-	ircBridgeSnapshot,
-	ircGatewaySnapshot,
-	partIrcBridge,
-	restoreIrcBridges,
-} from "../../server/irc_gateway.ts";
+import { closeIrcBridges, ircGatewaySnapshot, partIrcBridge, restoreIrcBridges } from "../../server/irc_gateway.ts";
 import { RoomServerState } from "../../server/state.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { DENO_FLAGS, readPort, ROOT, SERVER } from "../support/rooms_server.ts";
@@ -17,7 +12,7 @@ import { RoomDisconnects } from "../../server/presence.ts";
 import { RoomServer } from "../../server/room_server.ts";
 
 Deno.test("operator-managed server configuration survives restart as intent", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-operations-state-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-operations-state-" });
 	try {
 		const state = await RoomServerOperationsState.open(directory);
 		await state.rememberListener({ transport: "noise-tcp", options: { bind: "127.0.0.1", port: 4312 } });
@@ -26,12 +21,12 @@ Deno.test("operator-managed server configuration survives restart as intent", as
 			host: "irc.example.test",
 			port: 6697,
 			tls: true,
-			nick: "pancake-rooms",
+			nick: "glowcap-rooms",
 			sasl: { account: "rooms", password: "secret" },
 		});
 		const publicationId = await state.rememberIrcBridge({
 			network: "libera",
-			channel: "#pancake",
+			channel: "#glowcap",
 		});
 		const authority = state.ircBridgeAuthority(publicationId);
 		assertEquals(authority != null, true);
@@ -47,7 +42,7 @@ Deno.test("operator-managed server configuration survives restart as intent", as
 		const issuedRestored = await RoomServerOperationsState.open(directory);
 		assertEquals(issuedRestored.ircBridgeAuthority(publicationId), issued);
 		await issuedRestored.forgetListener("noise-tcp");
-		await issuedRestored.forgetIrcBridge("LIBERA", "#PANCAKE");
+		await issuedRestored.forgetIrcBridge("LIBERA", "#GLOWCAP");
 		await issuedRestored.forgetIrcNetwork("LIBERA");
 		const cleared = await RoomServerOperationsState.open(directory);
 		assertEquals(cleared.listeners(), []);
@@ -91,7 +86,7 @@ Deno.test("operator-managed configuration replaces one logical listener or chann
 });
 
 Deno.test("operator-managed server state refuses duplicate or malformed intent at startup", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-operations-corrupt-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-operations-corrupt-" });
 	try {
 		await Deno.writeTextFile(
 			`${directory}/operations.json`,
@@ -206,14 +201,14 @@ Deno.test("operator-managed server state refuses duplicate or malformed intent a
 });
 
 Deno.test("server startup names a corrupt operator-managed state document", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-operations-startup-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-operations-startup-" });
 	try {
 		await RoomServerState.open(directory);
 		await Deno.writeTextFile(`${directory}/operations.json`, "not-json\n");
 		const process = spawnOwned("deno", {
 			args: [...DENO_FLAGS, "--allow-write", SERVER, "0"],
 			cwd: ROOT,
-			env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: directory },
+			env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: directory },
 			stdout: "piped",
 			stderr: "piped",
 		});
@@ -231,12 +226,12 @@ Deno.test("server startup names a corrupt operator-managed state document", asyn
 });
 
 Deno.test("one Rooms server state directory admits one live writer", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-server-custody-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-server-custody-" });
 	const start = () =>
 		spawnOwned("deno", {
 			args: [...DENO_FLAGS, "--allow-write", SERVER, "0"],
 			cwd: ROOT,
-			env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: directory },
+			env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: directory },
 			stdout: "piped",
 			stderr: "piped",
 		});
@@ -287,11 +282,16 @@ Deno.test("listener and IRC runtime owners replay and forget saved intent", asyn
 		channel: "#state",
 	});
 	await restoreIrcBridges(roomServer, state);
-	assertEquals(ircBridgeSnapshot(roomServer).map((row) => (row as unknown[]).slice(0, 2)), [["restore", "#state"]]);
-	assertEquals((ircBridgeSnapshot(roomServer)[0] as unknown[])[3], publicationId);
+	const restoredLease = () => {
+		const connection = parseBridgeGateway(ircGatewaySnapshot(roomServer)).connections.find((c) =>
+			c.id === "restore"
+		);
+		return connection?.leases[0];
+	};
+	assertEquals([restoredLease()?.id, restoredLease()?.publicationId], ["#state", publicationId]);
 	closeIrcBridges(roomServer);
 	await restoreIrcBridges(roomServer, state);
-	assertEquals((ircBridgeSnapshot(roomServer)[0] as unknown[])[3], publicationId);
+	assertEquals(restoredLease()?.publicationId, publicationId);
 	await partIrcBridge(roomServer, "restore", "#state", state);
 	assertEquals(state.ircBridges(), []);
 	closeIrcBridges(roomServer);
@@ -308,8 +308,8 @@ Deno.test("a zero-channel IRC network survives restart without enacting a transp
 	});
 	const roomServer = new RoomServer();
 	await restoreIrcBridges(roomServer, state);
-	const snapshot = ircGatewaySnapshot(roomServer) as unknown[][];
-	assertEquals((snapshot[0] as unknown[][]).map((row) => row.slice(0, 2)), [["quiet", "dormant"]]);
-	assertEquals(snapshot[1], []);
+	const gateway = parseBridgeGateway(ircGatewaySnapshot(roomServer));
+	assertEquals(gateway.connections.map((c) => [c.id, c.status.label]), [["quiet", "ready"]]);
+	assertEquals(gateway.connections[0]?.leases ?? [], []);
 	closeIrcBridges(roomServer);
 });

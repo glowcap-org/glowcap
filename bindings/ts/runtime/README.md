@@ -1,9 +1,9 @@
-# @pancake/runtime
+# @glowcap/runtime
 
-The core multi-runtime JavaScript/TypeScript consumer of the pancake C ABI archives: a full OCapN
-node over the separate `libpancake_host` and `libpancake_driver` archives (ADR-0112). The Host
+The core multi-runtime JavaScript/TypeScript consumer of the glowcap C ABI archives: a full OCapN
+node over the separate `libglowcap_host` and `libglowcap_driver` archives (ADR-0112). The Host
 archive owns the byte-fed family; the driver exports only its loop verbs, adopts a Host through
-`pancake_driver_take_host`, and starts with zero providers. The TCP archive supplies the complete
+`glowcap_driver_take_host`, and starts with zero providers. The TCP archive supplies the complete
 plain, keyed, and sealed provider package through the common provider ABI. The relay archive does
 the same for keyed and sealed relay profiles. It covers values, capabilities,
 actors, and locator URIs, and exposes the transport-neutral async `Session` /
@@ -12,11 +12,11 @@ loop; transport packages own listener construction and return their `Server`
 over that same loop. The byte-fed pump remains for runtime-owned channels. The
 low-level blocking transports remain explicit embedding surfaces. The optional
 encrypted-QUIC transport ships separately as
-[`@pancake/iroh`](../iroh/README.md).
+[`@glowcap/iroh`](../iroh/README.md).
 
 One source, three runtimes: all runtime coupling (the FFI, the sockets, and the struct layout) lives
 behind a thin seam in [`internal/ffi/runtime.ts`](internal/ffi/runtime.ts), which binds an injected
-adapter when one was installed before load (that is how [`@pancake/web`](../web/README.md) runs this
+adapter when one was installed before load (that is how [`@glowcap/web`](../web/README.md) runs this
 same module in a browser over WebAssembly) and otherwise detects the host and `import()`s the
 matching adapter, so `bun:ffi` never loads on the wrong runtime. The binding is à-la-carte, exactly
 like the archives it rides (ADR-0059): you import the core plus whichever transports you want, and
@@ -29,7 +29,7 @@ ABI surface and how the bindings are gated.
 | ------------------------ | -------------------- | ---------------------- | ----------------------------------------- |
 | [Deno](https://deno.com) | tested (build check) | `Deno.dlopen`          | `deno run --allow-ffi --allow-read`       |
 | [Bun](https://bun.sh)    | tested (build check) | `bun:ffi`              | `bun run`                                 |
-| Browser                  | tested (build check) | WebAssembly (ADR-0070) | [`@pancake/web`](../web/README.md) `init` |
+| Browser                  | tested (build check) | WebAssembly (ADR-0070) | [`@glowcap/web`](../web/README.md) `init` |
 
 Deno and Bun each have a `zig build` binding check (`deno-dogfood`, `bun-dogfood`), and the browser
 path has `web-peer-test`. Deno's check covers the native-loop application surface. Bun's check
@@ -46,16 +46,16 @@ never loads a transport and importing one transport never loads another.
 
 | Import                            | File                                         | Archive it opens                                                                                                                                                                 |
 | --------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pancake/runtime` | [`mod.ts`](mod.ts) | `libpancake_host`, `libpancake_driver`, and the shared OCapN vocabulary |
-| `@pancake/runtime/transport` | [`transport.ts`](transport.ts) | Transport-package authoring contract; not an application import |
-| `@pancake/tcp` | [`../tcp/mod.ts`](../tcp/mod.ts) | TCP-profile locators, provider construction, and listeners |
-| `@pancake/tcp/transport` | [`../tcp/transport.ts`](../tcp/transport.ts) | TCP provider package plus blocking frame handles |
-| `@pancake/inproc` | [`../inproc/mod.ts`](../inproc/mod.ts) | Socket-free in-process frame transport |
-| `@pancake/onion` | [`../onion/mod.ts`](../onion/mod.ts) | Tor provider, listener, and raw transport handles |
-| `@pancake/relay` | [`../relay/mod.ts`](../relay/mod.ts) | `keyed-relay` and `noise-relay` provider package |
-| `@pancake/runtime/ffi` | [`ffi.ts`](ffi.ts) | Native FFI seam used by transport packages; not an application import |
+| `@glowcap/runtime` | [`mod.ts`](mod.ts) | `libglowcap_host`, `libglowcap_driver`, and the shared OCapN vocabulary |
+| `@glowcap/runtime/transport` | [`transport.ts`](transport.ts) | Transport-package authoring contract; not an application import |
+| `@glowcap/tcp` | [`../tcp/mod.ts`](../tcp/mod.ts) | TCP-profile locators, provider construction, and listeners |
+| `@glowcap/tcp/transport` | [`../tcp/transport.ts`](../tcp/transport.ts) | TCP provider package plus blocking frame handles |
+| `@glowcap/inproc` | [`../inproc/mod.ts`](../inproc/mod.ts) | Socket-free in-process frame transport |
+| `@glowcap/onion` | [`../onion/mod.ts`](../onion/mod.ts) | Tor provider, listener, and raw transport handles |
+| `@glowcap/relay` | [`../relay/mod.ts`](../relay/mod.ts) | `keyed-relay` and `noise-relay` provider package |
+| `@glowcap/runtime/ffi` | [`ffi.ts`](ffi.ts) | Native FFI seam used by transport packages; not an application import |
 
-The optional encrypted-QUIC transport is a separate package, [`@pancake/iroh`](../iroh/README.md),
+The optional encrypted-QUIC transport is a separate package, [`@glowcap/iroh`](../iroh/README.md),
 so a consumer that never speaks iroh never installs the Rust-sidecar artifact. Applications compose
 its `provider(config)` or `connector(config)` explicitly when opening a Runtime; the generic core
 never imports or dispatches to a concrete transport.
@@ -68,7 +68,7 @@ the core, sibling modules split by responsibility: `promise`, `gc`, `dial`, `ses
 `action`, `driver_loop`, and `host`. `mod.ts` is only the barrel. The internal loaders live under
 [`internal/ffi/`](internal/ffi/) (one per archive). The generated ABI mirror splits by target
 dependence: `zig build gen-ts-abi` writes the target-independent constant values into the
-`@pancake/abi` package (`bindings/ts/abi/constants.ts`) and the 64-bit struct layouts into
+`@glowcap/abi` package (`bindings/ts/abi/constants.ts`) and the 64-bit struct layouts into
 [`internal/abi.ts`](internal/abi.ts); [`internal/layout.ts`](internal/layout.ts) holds the active
 layout (that 64-bit mirror, or the wasm module's own descriptor under the browser adapter), and
 every struct marshaller reads through it. A consumer never imports any of those.
@@ -84,8 +84,8 @@ The binding moves bytes and honors the host's action queue. Integers are `bigint
 `number`:
 
 ```ts
-import { Runtime } from "@pancake/runtime";
-import { locator, provider } from "@pancake/tcp";
+import { Runtime } from "@glowcap/runtime";
+import { locator, provider } from "@glowcap/tcp";
 
 // tcp: the peer is a place, a cleartext host and port.
 const partner = locator("127.0.0.1", 9099);
@@ -105,18 +105,18 @@ Passing `adoptHost` explicitly transfers an existing Host into the Runtime;
 `tcp.noise.listen` accepts an optional 32-byte durable seed; `Runtime.connect` routes its
 key-plus-address locator through the same native loop on Deno.
 
-A relay Runtime composes `provider(config)` from `@pancake/relay`; locator hints
+A relay Runtime composes `provider(config)` from `@glowcap/relay`; locator hints
 select a route within that transport package, not which package the Runtime loads.
 
 All three TCP-profile listeners accept `ListenOptions` for `host`, `codec`, and
 the optional `advertisedHost`; keyed and Noise listeners also accept `seed`.
 A wildcard bind requires an advertised host; binding an interface does not
-prove a dialable route and pancake will not sign the wildcard into a Host
+prove a dialable route and glowcap will not sign the wildcard into a Host
 locator. The native driver owns admission and handshake concurrency.
 
 ## The transports
 
-`@pancake/tcp/transport` and `@pancake/inproc` expose the C ABI's frame shuttle directly: a
+`@glowcap/tcp/transport` and `@glowcap/inproc` expose the C ABI's frame shuttle directly: a
 `Netlayer` binds a `Listener` and asynchronously dials a `Connection`; accepting, reading, and
 writing are asynchronous because a supported runtime moves each potentially parking native call
 off its JavaScript reactor.
@@ -131,7 +131,7 @@ most 16 writes may be pending. A call beyond either bound rejects instead of
 retaining more payloads or promise closures.
 
 ```ts
-import { Netlayer } from "@pancake/inproc";
+import { Netlayer } from "@glowcap/inproc";
 
 await using net = new Netlayer();
 await using listener = net.listen("rooms");
@@ -144,7 +144,7 @@ const got = await server.readFrame();
 Child disposal requests shutdown synchronously. `await using` on the netlayer
 also waits for every child release and the borrowed native backend to retire.
 
-Each transport routes its own failures through its own `pancake_<t>_last_error` slot, so a transport
+Each transport routes its own failures through its own `glowcap_<t>_last_error` slot, so a transport
 call's diagnostic never scrapes the core's unrelated one.
 
 Callerless failures are separate from returned errors and close barriers.
@@ -174,5 +174,5 @@ cannot move off the JavaScript event loop. Deno's FFI needs `--allow-ffi --allow
 step passes them and resolves the shared libraries relative to `zig-out/`.
 
 ```sh
-zig build bindings        # builds the pancake archives, runs every binding consumer
+zig build bindings        # builds the glowcap archives, runs every binding consumer
 ```

@@ -5,7 +5,7 @@
 // are eight bytes on the dlopen targets and four on wasm32. This module holds
 // the active layout as one object, `L`: the generated 64-bit mirror
 // (`abi.ts`, `zig build gen-ts-abi`) by default, or a layout rebuilt from the
-// wasm32 module's own descriptor (`pancake_wasm_abi_layout`) when the browser
+// wasm32 module's own descriptor (`glowcap_wasm_abi_layout`) when the browser
 // adapter is active. Struct consumers read every size and field offset through
 // `L`, and read/write pointer-width fields through `L.getPtr` / `L.setPtr` /
 // `L.getUsize` / `L.setUsize`, so one marshaller body serves both widths.
@@ -17,7 +17,7 @@
 // offsets themselves go through the layout.
 
 import * as abi64 from "./abi.ts";
-import { WASM_LAYOUT_STRUCTS } from "@pancake/abi";
+import { WASM_LAYOUT_STRUCTS } from "@glowcap/abi";
 
 /** Every struct size / field-offset constant the generated 64-bit mirror
  * declares; the wasm32 layout rebuilds the same names at its own offsets. */
@@ -76,7 +76,7 @@ export function fnv1a32(name: string): number {
 }
 
 /** Rebuild the layout from a wasm32 module's descriptor blob
- * (`pancake_wasm_abi_layout`): little-endian u32 words, per struct in the
+ * (`glowcap_wasm_abi_layout`): little-endian u32 words, per struct in the
  * `WASM_LAYOUT_STRUCTS` manifest order, `[name_hash, size, field_count,
  * off_0, …]`. The identity hash proves each block is the struct the manifest
  * row names, and the manifest lists the fields in declaration order, so the

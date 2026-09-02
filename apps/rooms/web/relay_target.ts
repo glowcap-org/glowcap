@@ -1,17 +1,17 @@
 import {
 	designatorHostPort,
 	formatLocatorUri,
+	GlowcapError,
 	HINT_DIRECT_ADDRESSES,
-	PancakeError,
 	parseLocator,
 	stringHint,
 	TRANSPORT_IROH,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_NOISE_TCP,
 	TRANSPORT_TCP,
-} from "@pancake/runtime";
-import { INVALID_ARGUMENT, TRANSPORT_ONION } from "@pancake/abi";
-import { isRendezvousDesignator } from "@pancake/relay";
+} from "@glowcap/runtime";
+import { INVALID_ARGUMENT, TRANSPORT_ONION } from "@glowcap/abi";
+import { isRendezvousDesignator } from "@glowcap/relay";
 
 /** A byte-channel target accepted by the rooms relay. */
 export type RelayTarget =
@@ -41,7 +41,7 @@ export function classifyRelayTarget(input: string): RelayTarget {
 		// than handed to the iroh dialer as an attacker-shaped map key. Same
 		// canonical 64-hex shape the rendezvous designator check owns.
 		if (!isRendezvousDesignator(locator.designator)) {
-			throw new PancakeError(INVALID_ARGUMENT, "iroh relay target requires a canonical node id");
+			throw new GlowcapError(INVALID_ARGUMENT, "iroh relay target requires a canonical node id");
 		}
 		return { kind: "iroh", locator: formatLocatorUri(locator) };
 	}
@@ -51,7 +51,7 @@ export function classifyRelayTarget(input: string): RelayTarget {
 	) {
 		const address = stringHint(locator, HINT_DIRECT_ADDRESSES);
 		if (address == null) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`${locator.transport} relay target requires a direct-addresses hint`,
 			);
@@ -67,7 +67,7 @@ export function classifyRelayTarget(input: string): RelayTarget {
 	if (locator.transport === TRANSPORT_ONION) {
 		return { kind: "onion", designator: locator.designator };
 	}
-	throw new PancakeError(
+	throw new GlowcapError(
 		INVALID_ARGUMENT,
 		`rooms relay cannot dial transport ${JSON.stringify(locator.transport)}`,
 	);

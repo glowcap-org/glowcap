@@ -48,7 +48,7 @@ Deno.serve({ port, hostname: "127.0.0.1" }, (req) => {
 			provenance: "unauthenticated",
 			codec: "capnp",
 			// The handshake's own spelling, which is what a trace reports.
-			captp_version: "pancake-next",
+			captp_version: "glowcap-next",
 			replay: true,
 		});
 		send(open("p1/s1", HOST_A, HOST_B));

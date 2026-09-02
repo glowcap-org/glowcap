@@ -3,13 +3,13 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const tcp = pancake.net.tcp;
-const completion = pancake.net.completion;
-const Loop = pancake.net.TcpLoop;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const tcp = glowcap.net.tcp;
+const completion = glowcap.net.completion;
+const Loop = glowcap.net.TcpLoop;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
 

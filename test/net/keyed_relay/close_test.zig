@@ -4,10 +4,10 @@
 //! descriptor and truthfully settling the synthetic close barrier.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const admission = @import("../../support/keyed_relay_admission.zig");
 
-const net = pancake.net;
+const net = glowcap.net;
 const keyed_relay = net.relay;
 const admissionBackend = admission.admissionBackend;
 const deinitAdmissionBackend = admission.deinitAdmissionBackend;

@@ -75,16 +75,16 @@
                              (+ (failure-event-dropped-before first)
                                 (failure-event-dropped-before dropped)
                                 1))]))))
-     (define pancake-error? (exn:fail:pancake? error))
+     (define glowcap-error? (exn:fail:glowcap? error))
      (define secondary-count
-       (if pancake-error? (exn:fail:pancake-secondary-count error) 0))
+       (if glowcap-error? (exn:fail:glowcap-secondary-count error) 0))
      (define secondary-result
        (if (positive? secondary-count)
-           (stable-result (exn:fail:pancake-secondary-code error))
+           (stable-result (exn:fail:glowcap-secondary-code error))
            OK))
      (define secondary-name
        (if (positive? secondary-count)
-           (exn:fail:pancake-secondary-name error)
+           (exn:fail:glowcap-secondary-name error)
            ""))
      (define-values (texts truncated-fields)
        (bounded-fields
@@ -94,8 +94,8 @@
      (vector-set!
       failures tail
       (failure-event next-sequence 0 layer 'process 0 0
-                     (if pancake-error?
-                         (stable-result (exn:fail:pancake-code error))
+                     (if glowcap-error?
+                         (stable-result (exn:fail:glowcap-code error))
                          ERR-INTERNAL)
                      secondary-result secondary-count truncated-fields
                      (list-ref texts 0) (list-ref texts 1) (list-ref texts 2)

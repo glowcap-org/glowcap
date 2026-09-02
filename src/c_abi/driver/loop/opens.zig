@@ -11,9 +11,9 @@ const c = @import("../mod.zig");
 
 const Internal = root.Internal;
 const Instance = Internal.Instance;
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 const instanceFrom = Internal.instanceFrom;
 const operationOptionsCode = Internal.operationOptionsCode;
 const reentrancyCode = events.reentrancyCode;
@@ -26,10 +26,10 @@ const openFailedEvent = events.openFailedEvent;
 // ── Transport providers ─────────────────────────────────────────────────────
 
 /// Install a provider package atomically through the generic provider registry.
-pub export fn pancake_driver_add_provider(
-    raw: ?*c.PancakeDriverLoop,
-    provider: ?*const shared.PancakeTransportProvider,
-    out_failure: ?*failure_output.PancakeDriverFailure,
+pub export fn glowcap_driver_add_provider(
+    raw: ?*c.GlowcapDriverLoop,
+    provider: ?*const shared.GlowcapTransportProvider,
+    out_failure: ?*failure_output.GlowcapDriverFailure,
 ) i32 {
     shared.lastErrorClear();
     const failure_slot = switch (failure_output.claim(out_failure, "driver add_provider")) {
@@ -37,7 +37,7 @@ pub export fn pancake_driver_add_provider(
         .refused => |code| return code,
     };
     const inst = instanceFrom(raw) orelse
-        return failure_output.refuse(failure_slot, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        return failure_output.refuse(failure_slot, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     if (reentrancyCode(inst, "add_provider")) |code|
         return failure_output.refuse(failure_slot, code, error.ReenteredHost);
     const outcome = inst.providers.addProvider(provider);
@@ -46,22 +46,22 @@ pub export fn pancake_driver_add_provider(
 }
 
 /// Report whether the loop's provider registry owns `transport`.
-pub export fn pancake_driver_has_transport(
-    raw: ?*c.PancakeDriverLoop,
+pub export fn glowcap_driver_has_transport(
+    raw: ?*c.GlowcapDriverLoop,
     transport: ?[*]const u8,
     transport_len: usize,
     out_present: ?*u8,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_present orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_present orelse return GLOWCAP_ERR_NULL_POINTER;
     const name = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     if (name.len == 0) {
         shared.setLastError("driver: has_transport requires a non-empty transport name", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     slot.* = @intFromBool(inst.runtime.hasTransport(name));
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 // ── Dial, listen, readiness ──────────────────────────────────────────────────
@@ -70,27 +70,27 @@ pub export fn pancake_driver_has_transport(
 /// and answer at once with an operation id. Transport completion and the handshake
 /// advance across steps under the handshake budget; OPENED or OPEN_FAILED
 /// carries the operation id.
-pub export fn pancake_driver_dial(
-    raw: ?*c.PancakeDriverLoop,
-    locator_view: ?*const shared.PancakeLocatorView,
-    options: ?*const shared.PancakeTransportOperationOptions,
+pub export fn glowcap_driver_dial(
+    raw: ?*c.GlowcapDriverLoop,
+    locator_view: ?*const shared.GlowcapLocatorView,
+    options: ?*const shared.GlowcapTransportOperationOptions,
     out_operation_id: ?*u64,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "dial")) |code| return code;
-    const slot = out_operation_id orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_operation_id orelse return GLOWCAP_ERR_NULL_POINTER;
     const operation_id = beginDial(inst, locator_view, options) catch |err| return operationErrorCode(inst, err);
     slot.* = operation_id;
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Begin adoption of one externally established provider connection. The
 /// subject is meaningful only to the provider registered under `transport`;
 /// the driver never interprets it. `role` selects the Host/session half; the
 /// terminal OPENED or OPEN_FAILED event carries the returned operation id.
-pub export fn pancake_driver_adopt_external(
-    raw: ?*c.PancakeDriverLoop,
+pub export fn glowcap_driver_adopt_external(
+    raw: ?*c.GlowcapDriverLoop,
     transport: ?[*]const u8,
     transport_len: usize,
     subject: u64,
@@ -98,21 +98,21 @@ pub export fn pancake_driver_adopt_external(
     out_operation_id: ?*u64,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "adopt_external")) |code| return code;
-    const slot = out_operation_id orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_operation_id orelse return GLOWCAP_ERR_NULL_POINTER;
     const adoption_role: driver.HostRuntime.ExternalAdoptionRole = switch (role) {
-        c.PANCAKE_DRIVER_ADOPT_DIALED => .dialed,
-        c.PANCAKE_DRIVER_ADOPT_ACCEPTED => .accepted,
+        c.GLOWCAP_DRIVER_ADOPT_DIALED => .dialed,
+        c.GLOWCAP_DRIVER_ADOPT_ACCEPTED => .accepted,
         else => {
-            shared.setLastError("driver: adopt_external role must be PANCAKE_DRIVER_ADOPT_DIALED or PANCAKE_DRIVER_ADOPT_ACCEPTED", .{});
-            return PANCAKE_ERR_INVALID_ARGUMENT;
+            shared.setLastError("driver: adopt_external role must be GLOWCAP_DRIVER_ADOPT_DIALED or GLOWCAP_DRIVER_ADOPT_ACCEPTED", .{});
+            return GLOWCAP_ERR_INVALID_ARGUMENT;
         },
     };
     const operation_id = beginExternalAdoption(inst, transport, transport_len, subject, adoption_role) catch |err|
         return operationErrorCode(inst, err);
     slot.* = operation_id;
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 fn beginExternalAdoption(
@@ -142,8 +142,8 @@ fn beginExternalAdoption(
 
 fn beginDial(
     inst: *Instance,
-    locator_view: ?*const shared.PancakeLocatorView,
-    options_raw: ?*const shared.PancakeTransportOperationOptions,
+    locator_view: ?*const shared.GlowcapLocatorView,
+    options_raw: ?*const shared.GlowcapTransportOperationOptions,
 ) !u64 {
     const view = locator_view orelse return error.InvalidArgument;
     var hints: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;

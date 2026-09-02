@@ -1,5 +1,5 @@
 #!/bin/sh
-# Operator/CI helper: fetch a pancake C-ABI release tarball into the
+# Operator/CI helper: fetch a glowcap C-ABI release tarball into the
 # abi-versioned cache.
 #
 # Bindings do NOT call this script (ADR-0077). Each language package ships
@@ -14,19 +14,19 @@
 #   tools/c-abi/fetch-c-abi.sh --version 0.1.0 --target x86_64-linux
 #
 # Environment:
-#   PANCAKE_REPO_ROOT          repository root (default: parent of tools/)
-#   PANCAKE_CACHE_DIR          cache base (default: ~/.cache/pancake/c-abi,
+#   GLOWCAP_REPO_ROOT          repository root (default: parent of tools/)
+#   GLOWCAP_CACHE_DIR          cache base (default: ~/.cache/glowcap/c-abi,
 #                              else $TMPDIR/<fallback_cache_name from contract>)
-#   PANCAKE_RELEASE_BASE_URL   override release download base URL
-#   PANCAKE_DOWNLOAD=1         attempt fetch even when releases_published is false
-#   PANCAKE_SKIP_DOWNLOAD=1    exit 0 without fetching
-#   PANCAKE_STRICT=1           exit non-zero on soft-fail paths (network/tooling)
-#   PANCAKE_ALLOW_INSECURE=1   allow a non-HTTPS release base URL
+#   GLOWCAP_RELEASE_BASE_URL   override release download base URL
+#   GLOWCAP_DOWNLOAD=1         attempt fetch even when releases_published is false
+#   GLOWCAP_SKIP_DOWNLOAD=1    exit 0 without fetching
+#   GLOWCAP_STRICT=1           exit non-zero on soft-fail paths (network/tooling)
+#   GLOWCAP_ALLOW_INSECURE=1   allow a non-HTTPS release base URL
 #
 # Exit: 0 on success or soft-fail (network/tooling/unpublished); non-zero on
-# hard hygiene failure (HTTPS/checksum/extract), or when PANCAKE_STRICT=1 and
+# hard hygiene failure (HTTPS/checksum/extract), or when GLOWCAP_STRICT=1 and
 # a soft path fails. When the contract's releases_published is false, exit 0
-# without curling unless PANCAKE_DOWNLOAD=1.
+# without curling unless GLOWCAP_DOWNLOAD=1.
 
 set -eu
 
@@ -42,23 +42,23 @@ truthy() {
 }
 
 die_usage() {
-	echo "pancake fetch-c-abi: $1" >&2
+	echo "glowcap fetch-c-abi: $1" >&2
 	exit 2
 }
 
 soft_fail() {
 	msg=$1
-	if truthy "${PANCAKE_STRICT:-}"; then
-		echo "pancake fetch-c-abi: $msg" >&2
+	if truthy "${GLOWCAP_STRICT:-}"; then
+		echo "glowcap fetch-c-abi: $msg" >&2
 		exit 1
 	fi
-	echo "pancake fetch-c-abi: $msg (soft-fail)" >&2
+	echo "glowcap fetch-c-abi: $msg (soft-fail)" >&2
 	exit 0
 }
 
 # Hygiene/security failures always fail closed (never gated on STRICT).
 hard_fail() {
-	echo "pancake fetch-c-abi: $1" >&2
+	echo "glowcap fetch-c-abi: $1" >&2
 	exit 1
 }
 
@@ -85,9 +85,9 @@ abi_version_from_header() {
 		contract abi_version
 		return
 	fi
-	major=$(sed -n 's/^#define PANCAKE_VERSION_MAJOR[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$header" | head -1)
-	minor=$(sed -n 's/^#define PANCAKE_VERSION_MINOR[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$header" | head -1)
-	patch=$(sed -n 's/^#define PANCAKE_VERSION_PATCH[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$header" | head -1)
+	major=$(sed -n 's/^#define GLOWCAP_VERSION_MAJOR[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$header" | head -1)
+	minor=$(sed -n 's/^#define GLOWCAP_VERSION_MINOR[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$header" | head -1)
+	patch=$(sed -n 's/^#define GLOWCAP_VERSION_PATCH[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$header" | head -1)
 	echo "${major:-0}.${minor:-1}.${patch:-0}"
 }
 
@@ -123,12 +123,12 @@ shared_marker_name() {
 }
 
 resolve_cache_base() {
-	if [ -n "${PANCAKE_CACHE_DIR:-}" ]; then
-		printf '%s' "$PANCAKE_CACHE_DIR"
+	if [ -n "${GLOWCAP_CACHE_DIR:-}" ]; then
+		printf '%s' "$GLOWCAP_CACHE_DIR"
 	elif [ -n "${XDG_CACHE_HOME:-}" ]; then
-		printf '%s' "$XDG_CACHE_HOME/pancake/c-abi"
+		printf '%s' "$XDG_CACHE_HOME/glowcap/c-abi"
 	elif [ -n "${HOME:-}" ]; then
-		printf '%s' "$HOME/.cache/pancake/c-abi"
+		printf '%s' "$HOME/.cache/glowcap/c-abi"
 	else
 		printf '%s' "${TMPDIR:-/tmp}/$(contract fallback_cache_name)"
 	fi
@@ -141,7 +141,7 @@ download() {
 	dest=$2
 	max_bytes=$3
 
-	if truthy "${PANCAKE_ALLOW_INSECURE:-}" && ! printf '%s' "$url" | grep -q '^https://'; then
+	if truthy "${GLOWCAP_ALLOW_INSECURE:-}" && ! printf '%s' "$url" | grep -q '^https://'; then
 		curl -fsSL --max-filesize "$max_bytes" -A "$UA" -o "$dest" "$url"
 	else
 		curl -fsSL --proto =https --tlsv1.2 \
@@ -189,7 +189,7 @@ acquire_lock() {
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=${PANCAKE_REPO_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)}
+REPO_ROOT=${GLOWCAP_REPO_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)}
 CONTRACT="$REPO_ROOT/bindings/c-abi-resolve.json"
 . "$SCRIPT_DIR/archive-hygiene.sh"
 
@@ -217,7 +217,7 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-if truthy "${PANCAKE_SKIP_DOWNLOAD:-}"; then
+if truthy "${GLOWCAP_SKIP_DOWNLOAD:-}"; then
 	exit 0
 fi
 
@@ -228,10 +228,10 @@ jq -e '.require_https == true and .require_checksum == true' "$CONTRACT" >/dev/n
 	|| soft_fail "c-abi-resolve.json: require_https and require_checksum must be true"
 
 # Prerelease valve: skip network until releases_published flips, unless the
-# operator forces a rehearsal with PANCAKE_DOWNLOAD=1.
+# operator forces a rehearsal with GLOWCAP_DOWNLOAD=1.
 RELEASES_PUBLISHED=$(jq -r '.releases_published' "$CONTRACT")
-if [ "$RELEASES_PUBLISHED" != "true" ] && ! truthy "${PANCAKE_DOWNLOAD:-}"; then
-	echo "pancake fetch-c-abi: releases_published is false; set PANCAKE_DOWNLOAD=1 to fetch" >&2
+if [ "$RELEASES_PUBLISHED" != "true" ] && ! truthy "${GLOWCAP_DOWNLOAD:-}"; then
+	echo "glowcap fetch-c-abi: releases_published is false; set GLOWCAP_DOWNLOAD=1 to fetch" >&2
 	exit 0
 fi
 
@@ -246,7 +246,7 @@ need_cmd tar
 [ -n "$TARGET" ] || TARGET=$(host_target)
 
 CACHE_BASE=$(resolve_cache_base)
-BASE_URL=${PANCAKE_RELEASE_BASE_URL:-$(contract default_release_base_url)}
+BASE_URL=${GLOWCAP_RELEASE_BASE_URL:-$(contract default_release_base_url)}
 TAG=$(apply_contract_template "$(contract release_tag_template)")
 TARBALL=$(apply_contract_template "$(contract tarball_template)")
 CACHE_LIB=$(apply_contract_template "$(contract cache_layout)")
@@ -285,13 +285,13 @@ SUMS_PATH="${CACHE_ROOT}/SHA256SUMS"
 case "$BASE_URL" in
 https://*) ;;
 *)
-	if ! truthy "${PANCAKE_ALLOW_INSECURE:-}"; then
+	if ! truthy "${GLOWCAP_ALLOW_INSECURE:-}"; then
 		hard_fail "refusing non-HTTPS release base URL: $BASE_URL"
 	fi
 	;;
 esac
 
-echo "pancake fetch-c-abi: downloading $URL" >&2
+echo "glowcap fetch-c-abi: downloading $URL" >&2
 if ! download "$URL" "$TARBALL_PATH" "$MAX_BYTES"; then
 	rm -f "$TARBALL_PATH"
 	soft_fail "download failed: $URL"

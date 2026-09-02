@@ -23,7 +23,7 @@
 ;; Begin a nonblocking dial, kick a step so the handshake starts advancing, and park for
 ;; the outcome. The loop's handshake budget bounds the whole dial natively,
 ;; and both the park thread and the co-stepping waiter below arm exactly the
-;; deadline returned by `pancake_driver_step_wait_ms`. The driver's event
+;; deadline returned by `glowcap_driver_step_wait_ms`. The driver's event
 ;; result is the authoritative failure category; its message remains
 ;; diagnostic detail.
 (define (loop-dial! lp locator-uri [options #f])
@@ -36,17 +36,17 @@
         (call-with-locator-view
          locator-uri
          (lambda (view)
-           (pancake_driver_dial (driver-loop-handle lp) view c-options))))
+           (glowcap_driver_dial (driver-loop-handle lp) view c-options))))
       (check/driver rc)
       (hash-set! (driver-loop-dials lp) operation-id w)
       (drain-host-actions! m)))
   ;; The park thread may be in an unbounded fd park from before this dial
   ;; existed; the loop's one cross-thread verb makes the fd readable so it
   ;; rebuilds its wait from the newly installed native deadline.
-  (check/driver (pancake_driver_wake (driver-loop-handle lp)))
+  (check/driver (glowcap_driver_wake (driver-loop-handle lp)))
   ;; Co-stepping park: a listener fire may run this dial on the park thread
   ;; itself, and then nobody else would step the handshake forward. Wait on
-  ;; the loop descriptor and pancake's nearest deadline beside the result;
+  ;; the loop descriptor and glowcap's nearest deadline beside the result;
   ;; either wake runs the ordinary drain without a fixed polling cadence.
   (define fd-sema
     (unsafe-file-descriptor->semaphore (driver-loop-fd lp) 'read))
@@ -68,7 +68,7 @@
     [(fail)
      (raise (driver-failure-exn 'connect (cadr r) #f))]
     [(error) (raise (cdr r))]
-    [else (raise-pancake 'connect ERR-CLOSED "the loop closed before the dial settled")]))
+    [else (raise-glowcap 'connect ERR-CLOSED "the loop closed before the dial settled")]))
 
 ;; The loop-backed session transport: the native loop owns the wire, so
 ;; there is nothing to write, flush, read, or close here. A read parks on
@@ -100,7 +100,7 @@
                   ;; Serving releases frames parked behind the handshake and
                   ;; may invoke a hosted behavior before returning.
                   (parameterize ([current-deliver-owner m])
-                    (check/driver (pancake_driver_session_serve
+                    (check/driver (glowcap_driver_session_serve
                                    (driver-loop-handle lp) ptr)))))
       (define terminal (hash-ref (driver-loop-closed-ptrs lp) (session-key ptr) #f))
       (when terminal

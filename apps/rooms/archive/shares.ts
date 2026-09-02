@@ -1,6 +1,6 @@
 // Durable, independently revocable archive-peer shares and their publications.
 
-import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { atomicWrite, readBoundedText } from "../lib/durable_file.ts";
 import { type ArchiveFilter, archiveFilterRow, parseArchiveFilter } from "../lib/archive/protocol.ts";
@@ -242,7 +242,7 @@ export class DurableArchiveShares {
 		const existing = this.#swiss.get(share.id);
 		if (existing != null) return existing;
 		const material = encoder.encode(
-			`pancake Rooms archive share\u0000${share.id}\u0000${
+			`glowcap Rooms archive share\u0000${share.id}\u0000${
 				JSON.stringify(archiveFilterRow(canonicalFilter(share.filter)))
 			}`,
 		);

@@ -4,12 +4,12 @@
 //! greeter payload). Not Goblins/suite wire evidence — see community-review.
 const std = @import("std");
 const cli = @import("cli");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const Ctx = cli.ctx.Ctx;
 
-fn testSecret(seed: u8) pancake.foundation.crypto.SecretKey {
-    return pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(seed)));
+fn testSecret(seed: u8) glowcap.foundation.crypto.SecretKey {
+    return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(seed)));
 }
 
 fn makeCtx(io: std.Io, gpa: std.mem.Allocator, environ: *const std.process.Environ.Map, seed: u8) Ctx {
@@ -244,9 +244,9 @@ test "argv locator call does not retain a session" {
     try std.testing.expectEqual(cli.exit_codes.ok, host_code);
 }
 
-test "listen publish greeter once then pancakesay round-trips through cli.ocapn" {
-    // Face cake in formatPancakesay: `(_|^_^|__)`.
-    try expectPublishedCallRoundTrip(14, 24, "pancakesay", "flapjacks", &.{ "< flapjacks >", "|^_^|", "~~syrup~~" });
+test "listen publish greeter once then glowcapsay round-trips through cli.ocapn" {
+    // Face cake in formatGlowcapsay: `(_|^_^|__)`.
+    try expectPublishedCallRoundTrip(14, 24, "glowcapsay", "flapjacks", &.{ "< flapjacks >", "|^_^|", "~~syrup~~" });
 }
 
 test "listen publish greeter once then goblinsay round-trips through cli.ocapn" {
@@ -504,7 +504,7 @@ test "await queue finishes a dropped socket as connection failure" {
 test "publishBuiltin rejects unknown names" {
     const Stub = struct {
         called: bool = false,
-        pub fn publish(self: *@This(), name: []const u8, comptime T: type, init: anytype) !pancake.driver.Capability {
+        pub fn publish(self: *@This(), name: []const u8, comptime T: type, init: anytype) !glowcap.driver.Capability {
             _ = name;
             _ = T;
             _ = init;

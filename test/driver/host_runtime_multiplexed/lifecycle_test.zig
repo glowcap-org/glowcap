@@ -4,13 +4,13 @@
 //! exactly one owner, and a failed remote-key contract retires its dial.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../../support/netlayer.zig");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
 const driver_core = driver.core;
-const net = pancake.net;
+const net = glowcap.net;
 const tcp = net.tcp;
 const linux = std.os.linux;
 
@@ -132,14 +132,14 @@ const ImmediateClosedExternalResident = struct {
         const self = of(ctx);
         self.close_calls += 1;
         if (!self.close_ready) return .pending;
-        var failure = pancake.foundation.FailureChain.init(error.ResidentCloseFailed);
+        var failure = glowcap.foundation.FailureChain.init(error.ResidentCloseFailed);
         failure.note(error.ResidentCloseCleanupFailed);
         return .{ .failed = failure };
     }
 
-    fn connRemoteKey(_: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {
+    fn connRemoteKey(_: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
         std.debug.assert(conn == conn_id);
-        return pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x5d))).publicKey();
+        return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x5d))).publicKey();
     }
 };
 

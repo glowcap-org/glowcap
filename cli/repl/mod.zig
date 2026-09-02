@@ -52,7 +52,7 @@ fn runAttachedLine(ctx: *Ctx) !u8 {
     var read_buf: [4096]u8 = undefined;
     var reader = std.Io.File.stdin().reader(ctx.io, &read_buf);
     while (true) {
-        const prompt = if (ctx.activeSession() != null) "pancake> " else "pancake. ";
+        const prompt = if (ctx.activeSession() != null) "glowcap> " else "glowcap. ";
         try std.Io.File.stdout().writeStreamingAll(ctx.io, prompt);
         const line_raw = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => break,
@@ -85,7 +85,7 @@ fn flushNewBlocks(ctx: *Ctx, store: *const blocks.Store, from: usize) !void {
     }
 }
 
-/// Command-tree entry for `pancake repl [locator]`.
+/// Command-tree entry for `glowcap repl [locator]`.
 pub fn runParsed(ctx: *Ctx, parsed: *Parsed) !u8 {
     ctx.front = .repl;
     if (parsed.positionals.len > 0) {

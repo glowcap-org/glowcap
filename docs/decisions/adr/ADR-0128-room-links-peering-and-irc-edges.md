@@ -93,7 +93,7 @@ handoff the direct-message path ships: the directory introduces, the member
 redeems, the member connects to the hosting server directly, and the
 introducing directory carries no traffic afterward. A peered room reference
 names the hosting peer plus its routes (ADR-0125), and the directory lowers
-what it hands out to the recipient's session: a pancake peer that negotiated
+what it hands out to the recipient's session: a glowcap peer that negotiated
 identity routes receives the `id` form, a Goblins member receives one
 `1.0`/Syrup-compatible locator, and a room with no such route is refused as
 unreachable rather than leaking private vocabulary. There is no server-to-server

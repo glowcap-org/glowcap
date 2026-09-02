@@ -66,7 +66,7 @@ if [ "${has_port}" = false ]; then
     echo "docs-serve: port ${port} is already in use; pass -Dport=N or stop the process holding it" >&2
     exit 1
   fi
-  echo "docs-serve: using http://127.0.0.1:${port}/pancake/" >&2
+  echo "docs-serve: using http://127.0.0.1:${port}/glowcap/" >&2
   set -- "$@" "-Dport=${port}"
 fi
 

@@ -1,5 +1,5 @@
-(require "pancake.rkt"
-         "pancake-tcp.rkt")
+(require "glowcap.rkt"
+         "glowcap-tcp.rkt")
 
 ;; Key designator, cleartext CapTP. Persist the seed to keep the same key.
 (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.

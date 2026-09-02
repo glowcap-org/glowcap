@@ -5,7 +5,7 @@ const driver_error = @import("../error.zig");
 const shared = @import("c_abi_shared");
 
 pub const Outcome = struct {
-    result: i32 = shared.PANCAKE_OK,
+    result: i32 = shared.GLOWCAP_OK,
     failure: ?driver.OperationFailure = null,
 
     pub fn fromError(err: anyerror) Outcome {

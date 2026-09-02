@@ -3,17 +3,17 @@
 // — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// Internal: the FFI mirror of the `pancake_driver_*` loop family —
-// `libpancake_driver`, the driver archive (ADR-0112).
+// Internal: the FFI mirror of the `glowcap_driver_*` loop family —
+// `libglowcap_driver`, the driver archive (ADR-0112).
 //
 // Nothing here is public; `../../driver_loop.ts` is the surface over it.
 // The archive exports only this family and consumes a Host transferred from
-// `libpancake_host`. One thread drives one loop:
-// `pancake_driver_wake` is the one cross-thread call, and borrowed views
-// in a popped event die at the next `pancake_driver_next_event`.
+// `libglowcap_host`. One thread drives one loop:
+// `glowcap_driver_wake` is the one cross-thread call, and borrowed views
+// in a popped event die at the next `glowcap_driver_next_event`.
 
-import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-import { DRIVER_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+import { DRIVER_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 
 const P = "pointer",
 	B = "buffer",
@@ -22,44 +22,44 @@ const P = "pointer",
 	V = "void",
 	U64 = "u64";
 
-export const loopS = lazySymbols(() => libPath("pancake_driver"), {
-	pancake_driver_archive_fingerprint: { parameters: [], result: U64 },
+export const loopS = lazySymbols(() => libPath("glowcap_driver"), {
+	glowcap_driver_archive_fingerprint: { parameters: [], result: U64 },
 	// Lifecycle.
-	pancake_driver_take_host: { parameters: [P, P, B], result: I, outBuffers: [2] },
-	pancake_driver_close: { parameters: [P, B], result: I, outBuffers: [] },
-	pancake_driver_retire: { parameters: [P], result: I },
-	pancake_driver_lifecycle_state: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_driver_step_wait_ms: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_driver_release: { parameters: [P, B], result: I, outBuffers: [] },
+	glowcap_driver_take_host: { parameters: [P, P, B], result: I, outBuffers: [2] },
+	glowcap_driver_close: { parameters: [P, B], result: I, outBuffers: [] },
+	glowcap_driver_retire: { parameters: [P], result: I },
+	glowcap_driver_lifecycle_state: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_driver_step_wait_ms: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_driver_release: { parameters: [P, B], result: I, outBuffers: [] },
 	// Transport providers.
-	pancake_driver_add_provider: { parameters: [P, P, B], result: I, outBuffers: [] },
-	pancake_driver_has_transport: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
+	glowcap_driver_add_provider: { parameters: [P, P, B], result: I, outBuffers: [] },
+	glowcap_driver_has_transport: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	// Dial, listen, readiness.
-	pancake_driver_dial: { parameters: [P, P, B, B], result: I, outBuffers: [3] },
+	glowcap_driver_dial: { parameters: [P, P, B, B], result: I, outBuffers: [3] },
 	// Dial, listen, readiness.
-	pancake_driver_adopt_external: { parameters: [P, B, U, U64, "u32", B], result: I, outBuffers: [5] },
-	pancake_driver_listen: { parameters: [P, B, U, B, U, B, B], result: I, outBuffers: [6] },
-	pancake_driver_listener_locator: { parameters: [P, U64, B], result: I, outBuffers: [2] },
-	pancake_driver_listener_restoration_state: { parameters: [P, U64, B, U, B], result: I, outBuffers: [2, 4] },
-	pancake_driver_listener_advertise: { parameters: [P, U64, P], result: I },
-	pancake_driver_listener_select: { parameters: [P, U64], result: I },
-	pancake_driver_listener_close: { parameters: [P, U64, B], result: I, outBuffers: [] },
-	pancake_driver_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_driver_adopt_external: { parameters: [P, B, U, U64, "u32", B], result: I, outBuffers: [5] },
+	glowcap_driver_listen: { parameters: [P, B, U, B, U, B, B], result: I, outBuffers: [6] },
+	glowcap_driver_listener_locator: { parameters: [P, U64, B], result: I, outBuffers: [2] },
+	glowcap_driver_listener_restoration_state: { parameters: [P, U64, B, U, B], result: I, outBuffers: [2, 4] },
+	glowcap_driver_listener_advertise: { parameters: [P, U64, P], result: I },
+	glowcap_driver_listener_select: { parameters: [P, U64], result: I },
+	glowcap_driver_listener_close: { parameters: [P, U64, B], result: I, outBuffers: [] },
+	glowcap_driver_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
 	// Step, wake, events.
-	pancake_driver_step: { parameters: [P, I], result: I },
-	pancake_driver_detach_thread: { parameters: [P], result: I },
-	pancake_driver_wake: { parameters: [P], result: I, nonblocking: true },
-	pancake_driver_next_event: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_driver_claim_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
-	pancake_driver_session_close: { parameters: [P, P, B], result: I, outBuffers: [] },
-	pancake_driver_session_lifecycle_state: { parameters: [P, P, B], result: I, outBuffers: [2] },
-	pancake_driver_session_serve: { parameters: [P, P], result: I },
-	pancake_driver_session_release: { parameters: [P, P], result: I },
+	glowcap_driver_step: { parameters: [P, I], result: I },
+	glowcap_driver_detach_thread: { parameters: [P], result: I },
+	glowcap_driver_wake: { parameters: [P], result: I, nonblocking: true },
+	glowcap_driver_next_event: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_driver_claim_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
+	glowcap_driver_session_close: { parameters: [P, P, B], result: I, outBuffers: [] },
+	glowcap_driver_session_lifecycle_state: { parameters: [P, P, B], result: I, outBuffers: [2] },
+	glowcap_driver_session_serve: { parameters: [P, P], result: I },
+	glowcap_driver_session_release: { parameters: [P, P], result: I },
 	// Last error.
-	pancake_driver_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_driver_clear_last_error: { parameters: [], result: V },
+	glowcap_driver_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
+	glowcap_driver_clear_last_error: { parameters: [], result: V },
 }, {
-	symbol: "pancake_driver_archive_fingerprint",
+	symbol: "glowcap_driver_archive_fingerprint",
 	expected: DRIVER_ARCHIVE_FINGERPRINT,
-	archive: "pancake_driver",
+	archive: "glowcap_driver",
 });

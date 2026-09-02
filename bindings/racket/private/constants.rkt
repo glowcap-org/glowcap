@@ -1,6 +1,6 @@
 #lang racket/base
 
-;; Private ABI constants for the Racket pancake binding.
+;; Private ABI constants for the Racket glowcap binding.
 ;;
 ;; Reflected ABI constants, model-owned transport vocabulary, and shared
 ;; binding policy are generated into `constants-gen.rkt` and re-provided here.
@@ -25,7 +25,7 @@
   (cond
     [(= raw DURABLE-PROVENANCE-AUTHENTICATED-TRANSPORT) 'authenticated-transport]
     [(= raw DURABLE-PROVENANCE-UNAUTHENTICATED) 'unauthenticated]
-    [else (error 'pancake "ABI returned unknown durable provenance: ~a" raw)]))
+    [else (error 'glowcap "ABI returned unknown durable provenance: ~a" raw)]))
 
 ;; A future/corrupted lifecycle word is not ordinary unfinished progress: that
 ;; interpretation would park forever waiting for a state this ABI cannot name.
@@ -35,7 +35,7 @@
          (= raw LIFECYCLE-FINISHING)
          (= raw LIFECYCLE-TERMINATING)) #f]
     [(= raw LIFECYCLE-CLOSED) #t]
-    [else (error 'pancake "ABI returned unknown lifecycle state: ~a" raw)]))
+    [else (error 'glowcap "ABI returned unknown lifecycle state: ~a" raw)]))
 
 ;; Cycle break message when a local Forward chain exceeds the hop cap.
 (define FORWARD-CYCLE-MESSAGE "forward cycle: the local forward chain never terminates")

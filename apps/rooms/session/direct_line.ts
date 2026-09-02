@@ -1,7 +1,7 @@
 // One durable session's live direct conversation and its posted-line authority.
 
-import { currentSession, type Session } from "@pancake/runtime";
-import type { Argument, Behavior } from "@pancake/runtime";
+import { currentSession, type Session } from "@glowcap/runtime";
+import type { Argument, Behavior } from "@glowcap/runtime";
 import type { Message, PostedLine } from "../lib/room/client.ts";
 import { DirectMessage } from "../lib/direct_message.ts";
 import type { Attachment, AttachmentSource } from "../lib/attachment.ts";

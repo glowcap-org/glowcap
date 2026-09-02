@@ -78,7 +78,7 @@ pub fn checkPlaywrightPin(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file) continue;
-            // Vendored and generated trees carry no pancake rule, and a lock
+            // Vendored and generated trees carry no glowcap rule, and a lock
             // file records a resolution rather than declaring one.
             if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
             if (std.mem.indexOf(u8, entry.path, "upstream/") != null) continue;

@@ -1,4 +1,4 @@
-//! Evidence item 2 of ADR-0108: the Tor control protocol exchange pancake writes
+//! Evidence item 2 of ADR-0108: the Tor control protocol exchange glowcap writes
 //! is the exchange the pinned Spritely Goblins writes, and the replies it reads
 //! are the replies Goblins reads.
 //!
@@ -13,12 +13,12 @@
 //!
 //! Cookie and password authentication and `SETEVENTS HS_DESC` have no counterpart
 //! in that source. Their expectations come from the control protocol itself, and
-//! each is asserted as text rather than by round-tripping pancake's own formatter.
+//! each is asserted as text rather than by round-tripping glowcap's own formatter.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const control = pancake.net.onion.control;
+const control = glowcap.net.onion.control;
 
 /// The same real version 3 id the SOCKS evidence uses, from the pinned Goblins
 /// `structs-urls.rkt`.
@@ -92,7 +92,7 @@ test "creating a service is the ADD_ONION line Goblins sends" {
 test "restoring a service passes the stored key through verbatim" {
     var buf: [control.max_line_bytes]u8 = undefined;
     // The value Tor returned in `250-PrivateKey=`, including its type prefix.
-    // pancake never parses it, so the request must carry exactly these bytes.
+    // glowcap never parses it, so the request must carry exactly these bytes.
     const key = "ED25519-V3:0PDwaQEnbFVXRZrq7uqvY0XmvJXhbXCXsiuXqYbAY1nOZ1Bnj2Rw1qJpZbDLb0hnbC6q6IjhVaKrhVv6bBGx6A==";
     try std.testing.expectEqualStrings(
         "ADD_ONION " ++ key ++ " PORT=9045,unix:" ++ goblins_shaped_path ++ "\r\n",
@@ -137,7 +137,7 @@ test "the forwarded port is 9045 in the request Tor receives" {
     const line = try control.writeAddOnionNew(&buf, .{ .address = "127.0.0.1:1" });
     try std.testing.expect(std.mem.indexOf(u8, line, "PORT=9045,") != null);
     try std.testing.expectEqual(@as(u16, 9045), control.virtual_port);
-    try std.testing.expectEqual(pancake.net.onion.socks5.virtual_port, control.virtual_port);
+    try std.testing.expectEqual(glowcap.net.onion.socks5.virtual_port, control.virtual_port);
 }
 
 test "waiting for publication subscribes to descriptor events" {
@@ -215,7 +215,7 @@ test "a malformed reply line is refused rather than guessed at" {
 }
 
 test "an unbounded reply line is refused" {
-    // Nothing in the control protocol limits a line, so pancake does. A daemon
+    // Nothing in the control protocol limits a line, so glowcap does. A daemon
     // that streamed without a terminator would otherwise grow a reader's buffer
     // for as long as it kept writing.
     var long: [control.max_line_bytes + 1]u8 = undefined;

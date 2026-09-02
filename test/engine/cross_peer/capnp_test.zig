@@ -2,14 +2,14 @@
 //! signed bytes, and both hint shapes round-tripping.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
-const crypto = pancake.foundation.crypto;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
+const crypto = glowcap.foundation.crypto;
+const syrup = glowcap.ocapn.codec.syrup;
 const cross_peer = @import("../../support/cross_peer.zig");
 const CountingAllocator = @import("../../support/alloc_metrics.zig").CountingAllocator;
 const peer_fixture = @import("../../support/peer_fixture.zig");
@@ -40,7 +40,7 @@ test "a binding-originated give carries typed fields over a Cap'n Proto session,
     defer pair.deinit();
 
     // The exact shape a binding hands `Peer.sendResolveHandoffGive`:
-    // `handoff_gifter.buildSignedGive` (what `pancake_build_handoff_give`
+    // `handoff_gifter.buildSignedGive` (what `glowcap_build_handoff_give`
     // calls) returns a Syrup-encoded `<desc:sig-envelope …>`. Before this, the
     // send path only ever set that envelope as `raw_signed` and left the typed
     // fields empty, so a Cap'n Proto session (which does not understand

@@ -17,7 +17,7 @@
 // trampolines fire inside it; provider starts are nonblocking, and readiness
 // drives connect completion and CapTP handshakes through later steps.
 
-import { DEFAULT_FRAME_CAP } from "@pancake/abi";
+import { DEFAULT_FRAME_CAP } from "@glowcap/abi";
 import { type DriverLoopOptions, encodeDriverOptions } from "./driver_loop/options.ts";
 import { Host } from "./host.ts";
 import { checkDriver } from "./internal/driver_failure.ts";
@@ -53,7 +53,7 @@ import { DriverLoopConnections } from "./driver_loop/connections.ts";
  *
  * Construct with `open` on the thread that will drive it, `start()` to park on
  * the readiness descriptor, and `close()` before dropping it. One thread
- * drives one loop; `pancake_driver_wake` is the one cross-thread call, and the
+ * drives one loop; `glowcap_driver_wake` is the one cross-thread call, and the
  * park task is the only place it is needed here. */
 export class DriverLoop extends DriverLoopConnections {
 	private constructor(handle: Ptr, wrapper: Host) {
@@ -89,7 +89,7 @@ export class DriverLoop extends DriverLoopConnections {
 	): DriverLoop {
 		const options = encodeDriverOptions(opts);
 		const out = new Uint8Array(8);
-		checkDriver(loopS.pancake_driver_take_host(
+		checkDriver(loopS.glowcap_driver_take_host(
 			host.raw,
 			ffi.pointerOf(options),
 			ab(out),

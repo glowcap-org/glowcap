@@ -3,7 +3,7 @@ id: ADR-0036
 status: accepted
 date: 2026-06-07
 tags: [actors, vat, layer, sans-io]
-decision: "pancake provides a Goblins-shaped actor layer (`src/actors/`) as a new sync, no-I/O layer above the engine. A `Vat` is a turn loop over local actors: typed `spawn`, synchronous near-call (`$`), eventual-send (`<-`) returning a `Vow` with one-shot listeners, and 'become' expressed as mutating an actor's own `self`. A peer-bound vat also binds actors to wire exports and meets the OCapN engine at one location-transparent seam, with a per-turn reply arena. It owns no I/O and adds no CapTP semantics the engine lacks."
+decision: "glowcap provides a Goblins-shaped actor layer (`src/actors/`) as a new sync, no-I/O layer above the engine. A `Vat` is a turn loop over local actors: typed `spawn`, synchronous near-call (`$`), eventual-send (`<-`) returning a `Vow` with one-shot listeners, and 'become' expressed as mutating an actor's own `self`. A peer-bound vat also binds actors to wire exports and meets the OCapN engine at one location-transparent seam, with a per-turn reply arena. It owns no I/O and adds no CapTP semantics the engine lacks."
 supersedes: []
 superseded_by: []
 amends: []
@@ -14,7 +14,7 @@ amended_by: [ADR-0099]
 
 ## Context
 
-The vision asks for actors like Goblins so applications are built on pancake the
+The vision asks for actors like Goblins so applications are built on glowcap the
 way they are built on Goblins, with the rest of the vision (Goblins interop, all
 bindings) true for them too. The engine already carries the _wire_ half of a vat
 (deliver/resolve, promises, exports/imports, listener fan-out), but ADR-0007
@@ -25,7 +25,7 @@ the application to dispatch." That gap is an actor layer's job.
 Goblins' turn is already a pure function
 `(heap, message)` to `(heap', value,
 outbound)` driven by a per-turn syscaller, not
-an ambient runtime: so an actor layer fits pancake's "sync, no-I/O core, no
+an ambient runtime: so an actor layer fits glowcap's "sync, no-I/O core, no
 hidden runtime" posture without strain.
 
 ## Decision

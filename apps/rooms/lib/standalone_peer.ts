@@ -7,8 +7,8 @@ import {
 	secondaryFailures,
 	type Session,
 	TRANSPORT_IROH,
-} from "@pancake/runtime";
-import * as irohTransport from "@pancake/iroh";
+} from "@glowcap/runtime";
+import * as irohTransport from "@glowcap/iroh";
 import { isWildcardHost } from "./bind_host.ts";
 import { roomsListen } from "./locator.ts";
 import { optionalEnv } from "./env.ts";

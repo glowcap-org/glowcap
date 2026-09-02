@@ -75,7 +75,7 @@
  */
 
 import type { TimelineEvent } from "./timeline.ts";
-import { PANCAKE_PROFILE, type PeerProfile, UNNAMED_PROFILE } from "../schema/topology.ts";
+import { GLOWCAP_PROFILE, type PeerProfile, UNNAMED_PROFILE } from "../schema/topology.ts";
 import { endpointStageId, parseEndpointStageId } from "../schema/session-end.ts";
 import { LedgerLifetime } from "./stage-ledger/lifetime.ts";
 import { LedgerNames } from "./stage-ledger/names.ts";
@@ -264,21 +264,21 @@ export class StageLedger {
 			 * passes nothing, and the end joins unknown. */
 			partnerOwnProfile?: PeerProfile;
 			/** True when this session negotiated the `next` CapTP profile, which
-			 * is pancake-private (ADR-0003) and so names BOTH ends as pancake
+			 * is glowcap-private (ADR-0003) and so names BOTH ends as glowcap
 			 * hosts. The caller passes the fact rather than the version string
 			 * because the version is wire vocabulary and the conclusion is what
 			 * the ledger acts on; `LedgerNames.learnProfile` is where it lands and why.
 			 *
 			 * False, or absent, says nothing at all about the far end — a `v1_0`
-			 * session is the OCapN interop floor, which two pancake peers speak
+			 * session is the OCapN interop floor, which two glowcap peers speak
 			 * to each other as readily as either speaks it to a Goblins vat. */
-			pancakePrivateProfile?: boolean;
+			glowcapPrivateProfile?: boolean;
 			/** What the reporting producer STATES it runs, when it stated
 			 * anything. This is the only thing that names the producer's own
 			 * end, and it stands beside `selfKey` as one more fact the producer
 			 * asserts about itself.
 			 *
-			 * Absent means unknown, for a pancake producer exactly as for any
+			 * Absent means unknown, for a glowcap producer exactly as for any
 			 * other: `LedgerNames.learnProfile` says why a record's own existence proves
 			 * nothing about the host that sent it. */
 			selfProfile?: PeerProfile;
@@ -333,13 +333,13 @@ export class StageLedger {
 		// both are somebody's words. The far end's OWN statement, when the caller
 		// is holding that end's report of this wire and it is the peer being
 		// drawn here — that producer speaking about itself, exactly as
-		// `selfProfile` is for this record. Failing that, the pancake-private
+		// `selfProfile` is for this record. Failing that, the glowcap-private
 		// profile, which names both ends of the session it ran on. Correlating
 		// two reports is neither: it says WHO is there, and who is there is not
 		// what is there. So a far end on the v1.0 floor that nobody has spoken
 		// for joins unknown and learns when its own producer states something.
 		const farProfile = (otherKey === opts?.partnerOwnName ? opts?.partnerOwnProfile : undefined) ??
-			(opts?.pancakePrivateProfile === true ? PANCAKE_PROFILE : undefined);
+			(opts?.glowcapPrivateProfile === true ? GLOWCAP_PROFILE : undefined);
 		// Attributed means `otherKey` is a name somebody stated, so it is the
 		// peer's key and its designator alike; unattributed it is the wire-scoped
 		// stand-in for a side nobody spoke for, and no peer is drawn there.
@@ -401,7 +401,7 @@ export class StageLedger {
 		opts?: {
 			verified?: boolean;
 			aLabel?: string;
-			pancakePrivateProfile?: boolean;
+			glowcapPrivateProfile?: boolean;
 			selfProfile?: PeerProfile;
 		},
 	): void {
@@ -449,8 +449,8 @@ export class StageLedger {
 		}
 		// A `next` session names both its ends, so this observation can speak
 		// for the peer at the other end too, whichever producer drew it.
-		if (opts?.pancakePrivateProfile === true && theirsRow !== undefined) {
-			this.#names.learnProfile(theirsRow, PANCAKE_PROFILE, t, out);
+		if (opts?.glowcapPrivateProfile === true && theirsRow !== undefined) {
+			this.#names.learnProfile(theirsRow, GLOWCAP_PROFILE, t, out);
 		}
 		row.observers.set(sessionId, {
 			selfStage: mineRow?.stageId ?? side,

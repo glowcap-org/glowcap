@@ -8,7 +8,7 @@
 
 (define-runtime-path here ".")
 (define args (current-command-line-arguments))
-(define backend-name (vector-ref args 0)) ; "goblins" | "pancake"
+(define backend-name (vector-ref args 0)) ; "goblins" | "glowcap"
 (define suite (vector-ref args 1))
 (define host (vector-ref args 2))
 (define port (string->number (vector-ref args 3)))

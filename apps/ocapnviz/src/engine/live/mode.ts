@@ -170,7 +170,7 @@ export function startLiveMode(
 		recording: {
 			sources: [{
 				id: "live",
-				meta: { kind: "pancake-host" },
+				meta: { kind: "glowcap-host" },
 				observations: [],
 			}],
 		},

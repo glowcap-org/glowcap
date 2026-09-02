@@ -1,4 +1,4 @@
-import type { TraceEvent } from "@pancake/runtime";
+import type { TraceEvent } from "@glowcap/runtime";
 import { MAX_FIELD_BYTES, MAX_LINE_BYTES } from "./policy.ts";
 
 export function utf8Bytes(value: string): number {
@@ -122,7 +122,7 @@ function validOpened(rec: Record<string, unknown>): boolean {
 		return false;
 	}
 	if (rec.codec !== undefined && rec.codec !== "syrup" && rec.codec !== "capnp") return false;
-	if (rec.captp_version !== undefined && rec.captp_version !== "1.0" && rec.captp_version !== "pancake-next") {
+	if (rec.captp_version !== undefined && rec.captp_version !== "1.0" && rec.captp_version !== "glowcap-next") {
 		return false;
 	}
 	if (

@@ -41,7 +41,7 @@ const REPLY_TEXT = "got it bo, replying from mine";
 // the one that has to reach the room it is visiting.
 function serveRooms(httpPort: number, roomPort: number, reaches?: number): Deno.ChildProcess {
 	return spawnOwned("deno", {
-		env: reaches === undefined ? {} : { PANCAKE_RELAY_TCP_PEERS: `127.0.0.1:${reaches}` },
+		env: reaches === undefined ? {} : { GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${reaches}` },
 		args: [
 			"run",
 			"--allow-ffi",

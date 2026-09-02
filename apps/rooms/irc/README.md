@@ -19,7 +19,7 @@ appear as `irc/<nick>`, which keeps their origin visible on every front.
 
 The default is read-only. A registered bridge nick can carry Rooms messages
 back to IRC when its SASL password is available in
-`PANCAKE_ROOMS_IRC_SASL_PASSWORD`:
+`GLOWCAP_ROOMS_IRC_SASL_PASSWORD`:
 
 ```sh
 zig build rooms-irc-bridge -- \

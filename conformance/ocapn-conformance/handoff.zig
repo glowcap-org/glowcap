@@ -3,19 +3,19 @@
 //! helpers that teach the `tcp-testing-only` dialer the exporter's
 //! address.
 //!
-//! `pancake_peer.zig` owns the bootstrap actors, the promise-resolver
+//! `glowcap_peer.zig` owns the bootstrap actors, the promise-resolver
 //! interceptor, and Host wiring. Shared tables live in `conf_state.zig`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const peer_options = @import("ocapn_peer_options");
 const conf_state = @import("conf_state.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const tcp = pancake.net.tcp;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const tcp = glowcap.net.tcp;
+const driver = glowcap.driver;
 
 const HostSession = driver.core.HostSession;
 const PeerHandle = engine.PeerHandle;

@@ -132,8 +132,8 @@ pub const codec_decode_nesting_rows: []const Ban = &.{
     },
 };
 
-/// The host-session and host-turn C verbs are `pancake_host_session_*` and
-/// `pancake_host_turn_*`. ADR-0079 retired the binding `Connection` concept, so
+/// The host-session and host-turn C verbs are `glowcap_host_session_*` and
+/// `glowcap_host_turn_*`. ADR-0079 retired the binding `Connection` concept, so
 /// no `conn_*` export exists. A backticked `conn_` shorthand in the bindings
 /// README names a symbol a C consumer cannot grep, so the drift fails here.
 pub const readme_c_verb_names: []const Ban = &.{
@@ -142,7 +142,7 @@ pub const readme_c_verb_names: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{"`conn_"},
         .check = "readme-c-verb-names",
-        .why = "no `conn_*` C export exists (ADR-0079 retired the binding Connection concept); name the real `pancake_host_session_*` or `pancake_iroh_conn_*` verb a consumer can grep",
+        .why = "no `conn_*` C export exists (ADR-0079 retired the binding Connection concept); name the real `glowcap_host_session_*` or `glowcap_iroh_conn_*` verb a consumer can grep",
     },
 };
 
@@ -182,14 +182,14 @@ pub const discovery_dial_budget_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/c_abi/host/mod.zig" },
         .kind = .require,
-        .needles = &.{"PANCAKE_DISCOVERY_DIAL_RETRY_MS: u64 = driver_core.discovery_retry_ms"},
+        .needles = &.{"GLOWCAP_DISCOVERY_DIAL_RETRY_MS: u64 = driver_core.discovery_retry_ms"},
         .check = "discovery-dial-budget",
         .why = "the Host C ABI projects the shared discovery retry interval instead of restating the value",
     },
     .{
         .where = .{ .file = "src/c_abi/host/mod.zig" },
         .kind = .require,
-        .needles = &.{"PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = driver_core.discovery_max_attempts"},
+        .needles = &.{"GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = driver_core.discovery_max_attempts"},
         .check = "discovery-dial-budget",
         .why = "the Host C ABI projects the shared discovery attempt budget instead of restating the value",
     },
@@ -199,8 +199,8 @@ pub const discovery_dial_budget_rows: []const Ban = &.{
         .needles = &.{
             "pub const discovery_retry_ms: u64 = 3_000;",
             "pub const discovery_max_attempts: u32 = 24;",
-            "PANCAKE_DISCOVERY_DIAL_RETRY_MS: u64 = 3_000",
-            "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = 24",
+            "GLOWCAP_DISCOVERY_DIAL_RETRY_MS: u64 = 3_000",
+            "GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = 24",
         },
         .check = "discovery-dial-budget",
         .why = "discovery dial defaults live in driver_core; driver and the Host C ABI project them",
@@ -260,7 +260,7 @@ pub const iroh_node_id_bytes_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/c_abi/net_transport/iroh/mod.zig" },
         .kind = .require,
-        .needles = &.{"pub const PANCAKE_IROH_NODE_ID_BYTES: usize = iroh.node_id_len;"},
+        .needles = &.{"pub const GLOWCAP_IROH_NODE_ID_BYTES: usize = iroh.node_id_len;"},
         .check = "iroh-node-id-bytes",
         .why = "the iroh C ABI mirrors the resident-owned node id width",
     },
@@ -271,13 +271,13 @@ pub const iroh_node_id_bytes_rows: []const Ban = &.{
             "tools/gen/header/iroh.zig",
         } },
         .kind = .require,
-        .needles = &.{ "IROH_NODE_ID_BYTES", "PANCAKE_IROH_NODE_ID_BYTES" },
+        .needles = &.{ "IROH_NODE_ID_BYTES", "GLOWCAP_IROH_NODE_ID_BYTES" },
         .check = "iroh-node-id-bytes",
         .why = "generated mirrors carry the iroh node id width",
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/pancake/_iroh_native.py",
+            "bindings/python/glowcap/_iroh_native.py",
             "bindings/rust/src/iroh.rs",
             "bindings/ts/iroh/native.ts",
             "bindings/racket/private/iroh/netlayer.rkt",
@@ -290,7 +290,7 @@ pub const iroh_node_id_bytes_rows: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/pancake/_iroh_native.py",
+            "bindings/python/glowcap/_iroh_native.py",
             "bindings/rust/src/iroh.rs",
             "bindings/ts/iroh/native.ts",
             "bindings/racket/private/iroh/netlayer.rkt",
@@ -322,14 +322,14 @@ pub const iroh_direct_address_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/net/transport/iroh/resident.zig" },
         .kind = .forbid,
-        .needles = &.{"const direct_len = sidecar.pancake_iroh_sidecar_endpoint_direct_addrs"},
+        .needles = &.{"const direct_len = sidecar.glowcap_iroh_sidecar_endpoint_direct_addrs"},
         .check = "iroh-direct-address-sizing",
         .why = "listener locator publication must use the resident-owned bounded sizing helper",
     },
     .{
         .where = .{ .file = "src/c_abi/net_transport/iroh/mod.zig" },
         .kind = .require,
-        .needles = &.{"PANCAKE_IROH_MAX_DIRECT_ADDRESS_BYTES"},
+        .needles = &.{"GLOWCAP_IROH_MAX_DIRECT_ADDRESS_BYTES"},
         .check = "iroh-direct-address-sizing",
         .why = "the iroh C ABI names the direct-address cap it enforces",
     },
@@ -341,7 +341,7 @@ pub const iroh_direct_address_rows: []const Ban = &.{
         .why = "the iroh C ABI reports required capacity on BUFFER_TOO_SMALL",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_iroh_native.py" },
+        .where = .{ .file = "bindings/python/glowcap/_iroh_native.py" },
         .kind = .require,
         .needles = &.{"raw,\n                None,\n                0,"},
         .check = "iroh-direct-address-sizing",
@@ -369,7 +369,7 @@ pub const iroh_direct_address_rows: []const Ban = &.{
         .why = "Racket queries direct-address size through the C ABI before allocating",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_iroh_native.py" },
+        .where = .{ .file = "bindings/python/glowcap/_iroh_native.py" },
         .kind = .require,
         .needles = &.{"n.value > cap"},
         .check = "iroh-direct-address-sizing",
@@ -398,7 +398,7 @@ pub const iroh_direct_address_rows: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/pancake/_iroh_native.py",
+            "bindings/python/glowcap/_iroh_native.py",
             "bindings/rust/src/iroh.rs",
             "bindings/ts/iroh/native.ts",
             "bindings/racket/private/iroh/netlayer.rkt",
@@ -476,7 +476,7 @@ pub const uri_format_sizing_rows: []const Ban = &.{
         .why = "the C ABI test proves exact-size URI buffers succeed with no NUL terminator room",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_locator.py" },
+        .where = .{ .file = "bindings/python/glowcap/_locator.py" },
         .kind = .require,
         .needles = &.{"rc = call_format(None, 0, out_len)"},
         .check = "uri-format-sizing",
@@ -505,7 +505,7 @@ pub const uri_format_sizing_rows: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/pancake/_locator.py",
+            "bindings/python/glowcap/_locator.py",
             "bindings/rust/src/uri.rs",
             "bindings/ts/runtime/locator.ts",
             "bindings/racket/private/locator.rkt",
@@ -544,7 +544,7 @@ pub const relay_route_hint_cap_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/c_abi/net_transport/relay/mod.zig" },
         .kind = .require,
-        .needles = &.{"PANCAKE_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES = net.relay.max_rendezvous_relay_hint_bytes"},
+        .needles = &.{"GLOWCAP_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES = net.relay.max_rendezvous_relay_hint_bytes"},
         .check = "relay-route-hint-cap",
         .why = "the relay C ABI must project the route-owned hint cap instead of restating the value",
     },
@@ -563,7 +563,7 @@ pub const relay_route_hint_cap_rows: []const Ban = &.{
         .why = "TypeScript relay route validation must consume the generated route hint cap instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/relay.py" },
+        .where = .{ .file = "bindings/python/glowcap/relay.py" },
         .kind = .require,
         .needles = &.{"_MAX_RENDEZVOUS_RELAY_HINT_BYTES = _c.RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES"},
         .check = "relay-route-hint-cap",

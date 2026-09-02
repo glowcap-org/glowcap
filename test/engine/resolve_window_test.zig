@@ -24,11 +24,11 @@
 //! `zig build test`, and never again only by a binding's async timing.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
 
 const peer_fixture = @import("../support/peer_fixture.zig");
 

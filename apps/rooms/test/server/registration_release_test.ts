@@ -25,7 +25,7 @@ import { assert, dial, roomsTest, startStatefulServer, stopServer } from "../sup
 import { readPort } from "../support/rooms_server.ts";
 
 roomsTest("a closed connection's nickname registration leaves the inventory and frees the name", async () => {
-	const stateDirectory = await Deno.makeTempDir({ prefix: "pancake-rooms-registration-release-" });
+	const stateDirectory = await Deno.makeTempDir({ prefix: "glowcap-rooms-registration-release-" });
 	const port = (49_400 + Math.floor(Math.random() * 900)) | 0;
 	const locator = loopbackTcpDesignator(port);
 	const server = startStatefulServer(port, stateDirectory, ["--operator"]);

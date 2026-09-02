@@ -1,4 +1,4 @@
-import type { TraceEvent } from "@pancake/runtime";
+import type { TraceEvent } from "@glowcap/runtime";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import type { VizPublisher } from "../../lib/viz_publish.ts";
 import { roomsReconciliationNeedsRetry } from "../../session/reconnect.ts";

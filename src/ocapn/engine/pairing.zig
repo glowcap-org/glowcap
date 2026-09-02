@@ -104,7 +104,7 @@ pub fn shuttleUntilQuiescent(p1: *Peer, p2: *Peer) !ShuttleOutcome {
 
 /// Construct a paired pair and drive the in-process handshake with stub-zero
 /// `session_pubkey` / `acceptable_location_sig` (the no-crypto fixture path).
-/// Settles `Offer.native()` — typically `next` / `"pancake-next"` over Cap'n
+/// Settles `Offer.native()` — typically `next` / `"glowcap-next"` over Cap'n
 /// Proto. V1.0-floor (`v1_0` / Syrup) fixtures use `pairedV1_0Syrup` instead. Both peers reach
 /// `open` with handshake bookkeeping populated; the handshake-artifact events
 /// are drained so the caller sees empty event queues.
@@ -157,7 +157,7 @@ pub fn pairedWithCodec(allocator: std.mem.Allocator, codec_id: model.CodecId) !P
 
 /// V1.0-floor pairing: `Offer.v1_0Syrup()` yields authenticated `v1_0` / `"1.0"`
 /// over Syrup (full feature set). Use this for fixtures and examples that must
-/// match live Goblins wire shape; `paired` is the pancake-forward CapNP path.
+/// match live Goblins wire shape; `paired` is the glowcap-forward CapNP path.
 pub fn pairedV1_0Syrup(allocator: std.mem.Allocator) !Pair {
     return pairedWithOffers(allocator, engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()), engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()));
 }

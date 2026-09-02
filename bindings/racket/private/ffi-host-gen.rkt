@@ -4,8 +4,8 @@
 ;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
 ;; (part of `check`) fails when this is stale.
 ;;
-;; The raw `ffi/unsafe` table of the `pancake_host_*` byte-fed host
-;; family, loaded from its symbol-disjoint libpancake_host archive.
+;; The raw `ffi/unsafe` table of the `glowcap_host_*` byte-fed host
+;; family, loaded from its symbol-disjoint libglowcap_host archive.
 ;; The hand-written sibling (`ffi-host.rkt`) owns the prose and
 ;; the bespoke pending-dial wrapper over the starred raw, and re-provides
 ;; this module. The behavior/pump callback types and the plan/dial cstructs
@@ -15,216 +15,216 @@
          "ffi-shared.rkt"
          "constants-gen.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
-                     pancake_host_new_in*
-                     pancake_host_diagnostic_id*
-                     pancake_host_close_progress*
-                     pancake_host_close_wait_ms*
-                     pancake_host_session_open_dialed_locator*
-                     pancake_host_session_open_accepted*
-                     pancake_host_reference_exporter*
-                     pancake_host_session_close_progress*
-                     pancake_host_session_profile*
-                     pancake_host_session_transport_name*
-                     pancake_host_session_trace_id*
-                     pancake_host_session_take_outbound*
-                     pancake_host_pump_drain*
-                     pancake_host_session_publish*
-                     pancake_host_session_spawn*
-                     pancake_host_session_fetch*
-                     pancake_host_session_enliven*
-                     pancake_host_enliven*
-                     pancake_host_enliven_for_version*
-                     pancake_host_fetch_at*
-                     pancake_host_session_listen*
-                     pancake_host_session_send*
-                     pancake_host_vow_send*
-                     pancake_host_vow_index*
-                     pancake_host_vow_untag*
-                     pancake_host_vow_get*
-                     pancake_host_turn_session*
-                     pancake_host_turn_defer*
-                     pancake_host_turn_spawn*
-                     pancake_host_session_published_ref*))
+                     glowcap_host_new_in*
+                     glowcap_host_diagnostic_id*
+                     glowcap_host_close_progress*
+                     glowcap_host_close_wait_ms*
+                     glowcap_host_session_open_dialed_locator*
+                     glowcap_host_session_open_accepted*
+                     glowcap_host_reference_exporter*
+                     glowcap_host_session_close_progress*
+                     glowcap_host_session_profile*
+                     glowcap_host_session_transport_name*
+                     glowcap_host_session_trace_id*
+                     glowcap_host_session_take_outbound*
+                     glowcap_host_pump_drain*
+                     glowcap_host_session_publish*
+                     glowcap_host_session_spawn*
+                     glowcap_host_session_fetch*
+                     glowcap_host_session_enliven*
+                     glowcap_host_enliven*
+                     glowcap_host_enliven_for_version*
+                     glowcap_host_fetch_at*
+                     glowcap_host_session_listen*
+                     glowcap_host_session_send*
+                     glowcap_host_vow_send*
+                     glowcap_host_vow_index*
+                     glowcap_host_vow_untag*
+                     glowcap_host_vow_get*
+                     glowcap_host_turn_session*
+                     glowcap_host_turn_defer*
+                     glowcap_host_turn_spawn*
+                     glowcap_host_session_published_ref*))
 
-(define host-lib (open-pancake-archive "pancake_host"))
+(define host-lib (open-glowcap-archive "glowcap_host"))
 
 (define-ffi-definer define-host host-lib)
 
-(define-host pancake_host_archive_fingerprint (_fun -> _uint64))
-(define-host pancake_host_new_in*
+(define-host glowcap_host_archive_fingerprint (_fun -> _uint64))
+(define-host glowcap_host_new_in*
   (_fun _pointer _pointer _size _size _uint32 _uint32 _uint32 _uint32 _uint32 _pointer -> _int32)
-  #:c-id pancake_host_new_in)
-(define pancake_host_new_in (wrap-out1 pancake_host_new_in* _pointer #f))
-(define-host pancake_host_diagnostic_id*
+  #:c-id glowcap_host_new_in)
+(define glowcap_host_new_in (wrap-out1 glowcap_host_new_in* _pointer #f))
+(define-host glowcap_host_diagnostic_id*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_host_diagnostic_id)
-(define pancake_host_diagnostic_id (wrap-out1 pancake_host_diagnostic_id* _uint64 0))
-(define-host pancake_host_close (_fun _pointer (_or-null _PancakeCloseOptions-pointer) _int64 -> _int32))
-(define-host pancake_host_close_progress*
+  #:c-id glowcap_host_diagnostic_id)
+(define glowcap_host_diagnostic_id (wrap-out1 glowcap_host_diagnostic_id* _uint64 0))
+(define-host glowcap_host_close (_fun _pointer (_or-null _GlowcapCloseOptions-pointer) _int64 -> _int32))
+(define-host glowcap_host_close_progress*
   (_fun _pointer _int64 _pointer -> _int32)
-  #:c-id pancake_host_close_progress)
-(define pancake_host_close_progress (wrap-out1 pancake_host_close_progress* _uint32 0))
-(define-host pancake_host_close_wait_ms*
+  #:c-id glowcap_host_close_progress)
+(define glowcap_host_close_progress (wrap-out1 glowcap_host_close_progress* _uint32 0))
+(define-host glowcap_host_close_wait_ms*
   (_fun _pointer _int64 _pointer -> _int32)
-  #:c-id pancake_host_close_wait_ms)
-(define pancake_host_close_wait_ms (wrap-out1 pancake_host_close_wait_ms* _int64 0))
-(define-host pancake_host_release (_fun _pointer -> _int32))
-(define-host pancake_host_designator_from_seed (_fun _pointer _size _pointer _size -> _int32))
-(define-host pancake_host_set_advertised_locator (_fun _pointer (_or-null _PancakeLocatorView-pointer) -> _int32))
-(define-host pancake_host_remove_advertised_locator (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_set_session_limits
-  (_fun _pointer (_or-null _PancakeSessionLimitOptions-pointer) -> _int32))
-(define-host pancake_host_session_open_dialed_locator*
-  (_fun _pointer (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
-  #:c-id pancake_host_session_open_dialed_locator)
-(define pancake_host_session_open_dialed_locator (wrap-out1 pancake_host_session_open_dialed_locator* _pointer #f))
-(define-host pancake_host_session_open_accepted*
+  #:c-id glowcap_host_close_wait_ms)
+(define glowcap_host_close_wait_ms (wrap-out1 glowcap_host_close_wait_ms* _int64 0))
+(define-host glowcap_host_release (_fun _pointer -> _int32))
+(define-host glowcap_host_designator_from_seed (_fun _pointer _size _pointer _size -> _int32))
+(define-host glowcap_host_set_advertised_locator (_fun _pointer (_or-null _GlowcapLocatorView-pointer) -> _int32))
+(define-host glowcap_host_remove_advertised_locator (_fun _pointer _pointer _size -> _int32))
+(define-host glowcap_host_set_session_limits
+  (_fun _pointer (_or-null _GlowcapSessionLimitOptions-pointer) -> _int32))
+(define-host glowcap_host_session_open_dialed_locator*
+  (_fun _pointer (_or-null _GlowcapLocatorView-pointer) _pointer -> _int32)
+  #:c-id glowcap_host_session_open_dialed_locator)
+(define glowcap_host_session_open_dialed_locator (wrap-out1 glowcap_host_session_open_dialed_locator* _pointer #f))
+(define-host glowcap_host_session_open_accepted*
   (_fun _pointer _pointer _size _uint32 _pointer _size _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_session_open_accepted)
-(define pancake_host_session_open_accepted (wrap-out1 pancake_host_session_open_accepted* _pointer #f))
-(define-host pancake_host_pending_dial*
-  (_fun _pointer _uint64 _size _pointer _size (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
-  #:c-id pancake_host_pending_dial)
-(define-host pancake_host_reference_exporter*
-  (_fun _pointer (_or-null _PancakeReference-pointer) _pointer -> _int32)
-  #:c-id pancake_host_reference_exporter)
-(define pancake_host_reference_exporter (wrap-out1 pancake_host_reference_exporter* _pointer #f))
-(define-host pancake_host_session_close (_fun _pointer (_or-null _PancakeCloseOptions-pointer) _int64 -> _int32))
-(define-host pancake_host_session_close_progress*
+  #:c-id glowcap_host_session_open_accepted)
+(define glowcap_host_session_open_accepted (wrap-out1 glowcap_host_session_open_accepted* _pointer #f))
+(define-host glowcap_host_pending_dial*
+  (_fun _pointer _uint64 _size _pointer _size (_or-null _GlowcapLocatorView-pointer) _pointer -> _int32)
+  #:c-id glowcap_host_pending_dial)
+(define-host glowcap_host_reference_exporter*
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer -> _int32)
+  #:c-id glowcap_host_reference_exporter)
+(define glowcap_host_reference_exporter (wrap-out1 glowcap_host_reference_exporter* _pointer #f))
+(define-host glowcap_host_session_close (_fun _pointer (_or-null _GlowcapCloseOptions-pointer) _int64 -> _int32))
+(define-host glowcap_host_session_close_progress*
   (_fun _pointer _int64 _pointer -> _int32)
-  #:c-id pancake_host_session_close_progress)
-(define pancake_host_session_close_progress (wrap-out1 pancake_host_session_close_progress* _uint32 0))
-(define-host pancake_host_session_release (_fun _pointer -> _int32))
-(define-host pancake_host_session_is_open (_fun _pointer -> _int32))
-(define-host pancake_host_session_profile*
+  #:c-id glowcap_host_session_close_progress)
+(define glowcap_host_session_close_progress (wrap-out1 glowcap_host_session_close_progress* _uint32 0))
+(define-host glowcap_host_session_release (_fun _pointer -> _int32))
+(define-host glowcap_host_session_is_open (_fun _pointer -> _int32))
+(define-host glowcap_host_session_profile*
   (_fun _pointer _pointer _pointer _pointer -> _int32)
-  #:c-id pancake_host_session_profile)
-(define (pancake_host_session_profile session)
+  #:c-id glowcap_host_session_profile)
+(define (glowcap_host_session_profile session)
   (call/outs (list (cons _uint32 0) (cons _uint32 0) (cons _uint32 0))
              (lambda (out0 out1 out2)
-               (pancake_host_session_profile* session out0 out1 out2))))
-(define-host pancake_host_session_transport_name*
+               (glowcap_host_session_profile* session out0 out1 out2))))
+(define-host glowcap_host_session_transport_name*
   (_fun _pointer _pointer _pointer -> _int32)
-  #:c-id pancake_host_session_transport_name)
-(define (pancake_host_session_transport_name session)
+  #:c-id glowcap_host_session_transport_name)
+(define (glowcap_host_session_transport_name session)
   (call/outs (list (cons _pointer #f) (cons _size 0))
              (lambda (out0 out1)
-               (pancake_host_session_transport_name* session out0 out1))))
-(define-host pancake_host_session_trace_id*
+               (glowcap_host_session_transport_name* session out0 out1))))
+(define-host glowcap_host_session_trace_id*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_host_session_trace_id)
-(define pancake_host_session_trace_id (wrap-out1 pancake_host_session_trace_id* _uint64 0))
-(define-host pancake_host_session_feed_bytes (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_session_resume_feed (_fun _pointer -> _int32))
-(define-host pancake_host_session_take_outbound*
-  (_fun _pointer (_or-null _PancakeManagedFrame-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_session_take_outbound)
-(define pancake_host_session_take_outbound (wrap-out1 pancake_host_session_take_outbound* _size 0))
-(define-host pancake_host_pump_drain*
-  (_fun _pointer (_or-null _PancakeHostPumpHooks-pointer) _pointer _pointer -> _int32)
-  #:c-id pancake_host_pump_drain)
-(define (pancake_host_pump_drain host hooks)
+  #:c-id glowcap_host_session_trace_id)
+(define glowcap_host_session_trace_id (wrap-out1 glowcap_host_session_trace_id* _uint64 0))
+(define-host glowcap_host_session_feed_bytes (_fun _pointer _pointer _size -> _int32))
+(define-host glowcap_host_session_resume_feed (_fun _pointer -> _int32))
+(define-host glowcap_host_session_take_outbound*
+  (_fun _pointer (_or-null _GlowcapManagedFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_host_session_take_outbound)
+(define glowcap_host_session_take_outbound (wrap-out1 glowcap_host_session_take_outbound* _size 0))
+(define-host glowcap_host_pump_drain*
+  (_fun _pointer (_or-null _GlowcapHostPumpHooks-pointer) _pointer _pointer -> _int32)
+  #:c-id glowcap_host_pump_drain)
+(define (glowcap_host_pump_drain host hooks)
   (call/outs (list (cons _uint32 0) (cons _uint32 0))
              (lambda (out0 out1)
-               (pancake_host_pump_drain* host hooks out0 out1))))
-(define-host pancake_host_dialed (_fun _pointer _uint64 _size _pointer _pointer -> _int32))
-(define-host pancake_host_dial_failed (_fun _pointer _uint64 _size _pointer _size -> _int32))
-(define-host pancake_host_dial_cancelled (_fun _pointer _uint64 _size -> _int32))
-(define-host pancake_host_provide_gift_id (_fun _pointer _uint64 _pointer _size -> _int32))
-(define-host pancake_host_gift_id_failed (_fun _pointer _uint64 -> _int32))
-(define-host pancake_host_session_publish*
-  (_fun _pointer _pointer _size _PancakeHostBehavior _pointer _pointer (_or-null _PancakeReference-pointer) -> _int32)
-  #:c-id pancake_host_session_publish)
-(define pancake_host_session_publish
-  (wrap-out1 pancake_host_session_publish* _PancakeReference (make-PancakeReference 0)))
-(define-host pancake_host_session_spawn*
-  (_fun _pointer _PancakeHostBehavior _pointer _pointer (_or-null _PancakeReference-pointer) -> _int32)
-  #:c-id pancake_host_session_spawn)
-(define pancake_host_session_spawn
-  (wrap-out1 pancake_host_session_spawn* _PancakeReference (make-PancakeReference 0)))
-(define-host pancake_host_publish (_fun _pointer _pointer _size _PancakeHostBehavior _pointer _pointer -> _int32))
-(define-host pancake_host_unpublish (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_publish_durable
-  (_fun _pointer _pointer _size _PancakeHostBehavior _pointer _pointer _pointer _size -> _int32))
-(define-host pancake_host_remove_durable (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_session_fetch*
+               (glowcap_host_pump_drain* host hooks out0 out1))))
+(define-host glowcap_host_dialed (_fun _pointer _uint64 _size _pointer _pointer -> _int32))
+(define-host glowcap_host_dial_failed (_fun _pointer _uint64 _size _pointer _size -> _int32))
+(define-host glowcap_host_dial_cancelled (_fun _pointer _uint64 _size -> _int32))
+(define-host glowcap_host_provide_gift_id (_fun _pointer _uint64 _pointer _size -> _int32))
+(define-host glowcap_host_gift_id_failed (_fun _pointer _uint64 -> _int32))
+(define-host glowcap_host_session_publish*
+  (_fun _pointer _pointer _size _GlowcapHostBehavior _pointer _pointer (_or-null _GlowcapReference-pointer) -> _int32)
+  #:c-id glowcap_host_session_publish)
+(define glowcap_host_session_publish
+  (wrap-out1 glowcap_host_session_publish* _GlowcapReference (make-GlowcapReference 0)))
+(define-host glowcap_host_session_spawn*
+  (_fun _pointer _GlowcapHostBehavior _pointer _pointer (_or-null _GlowcapReference-pointer) -> _int32)
+  #:c-id glowcap_host_session_spawn)
+(define glowcap_host_session_spawn
+  (wrap-out1 glowcap_host_session_spawn* _GlowcapReference (make-GlowcapReference 0)))
+(define-host glowcap_host_publish (_fun _pointer _pointer _size _GlowcapHostBehavior _pointer _pointer -> _int32))
+(define-host glowcap_host_unpublish (_fun _pointer _pointer _size -> _int32))
+(define-host glowcap_host_publish_durable
+  (_fun _pointer _pointer _size _GlowcapHostBehavior _pointer _pointer _pointer _size -> _int32))
+(define-host glowcap_host_remove_durable (_fun _pointer _pointer _size -> _int32))
+(define-host glowcap_host_session_fetch*
   (_fun _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_session_fetch)
-(define pancake_host_session_fetch (wrap-out1 pancake_host_session_fetch* _uint64 0))
-(define-host pancake_host_session_enliven*
+  #:c-id glowcap_host_session_fetch)
+(define glowcap_host_session_fetch (wrap-out1 glowcap_host_session_fetch* _uint64 0))
+(define-host glowcap_host_session_enliven*
   (_fun _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_session_enliven)
-(define pancake_host_session_enliven (wrap-out1 pancake_host_session_enliven* _uint64 0))
-(define-host pancake_host_enliven*
+  #:c-id glowcap_host_session_enliven)
+(define glowcap_host_session_enliven (wrap-out1 glowcap_host_session_enliven* _uint64 0))
+(define-host glowcap_host_enliven*
   (_fun _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_enliven)
-(define pancake_host_enliven (wrap-out1 pancake_host_enliven* _uint64 0))
-(define-host pancake_host_enliven_for_version*
+  #:c-id glowcap_host_enliven)
+(define glowcap_host_enliven (wrap-out1 glowcap_host_enliven* _uint64 0))
+(define-host glowcap_host_enliven_for_version*
   (_fun _pointer _uint32 _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_enliven_for_version)
-(define pancake_host_enliven_for_version (wrap-out1 pancake_host_enliven_for_version* _uint64 0))
-(define-host pancake_host_fetch_at*
-  (_fun _pointer (_or-null _PancakeLocatorView-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_fetch_at)
-(define pancake_host_fetch_at (wrap-out1 pancake_host_fetch_at* _uint64 0))
-(define-host pancake_host_set_trace (_fun _pointer _fpointer _pointer -> _int32))
-(define-host pancake_host_resolver_fulfill (_fun _pointer _uint64 (_or-null _PancakeArgument-pointer) -> _int32))
-(define-host pancake_host_resolver_break (_fun _pointer _uint64 _pointer _size -> _int32))
-(define-host pancake_host_session_listen*
-  (_fun _pointer (_or-null _PancakeReference-pointer) _pointer -> _int32)
-  #:c-id pancake_host_session_listen)
-(define pancake_host_session_listen (wrap-out1 pancake_host_session_listen* _uint64 0))
-(define-host pancake_host_session_send*
-  (_fun _pointer (_or-null _PancakeReference-pointer) _pointer _size _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_session_send)
-(define pancake_host_session_send (wrap-out1 pancake_host_session_send* _uint64 0))
-(define-host pancake_host_session_tell
-  (_fun _pointer (_or-null _PancakeReference-pointer) _pointer _size _pointer _size -> _int32))
-(define-host pancake_host_vow_send*
+  #:c-id glowcap_host_enliven_for_version)
+(define glowcap_host_enliven_for_version (wrap-out1 glowcap_host_enliven_for_version* _uint64 0))
+(define-host glowcap_host_fetch_at*
+  (_fun _pointer (_or-null _GlowcapLocatorView-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_host_fetch_at)
+(define glowcap_host_fetch_at (wrap-out1 glowcap_host_fetch_at* _uint64 0))
+(define-host glowcap_host_set_trace (_fun _pointer _fpointer _pointer -> _int32))
+(define-host glowcap_host_resolver_fulfill (_fun _pointer _uint64 (_or-null _GlowcapArgument-pointer) -> _int32))
+(define-host glowcap_host_resolver_break (_fun _pointer _uint64 _pointer _size -> _int32))
+(define-host glowcap_host_session_listen*
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer -> _int32)
+  #:c-id glowcap_host_session_listen)
+(define glowcap_host_session_listen (wrap-out1 glowcap_host_session_listen* _uint64 0))
+(define-host glowcap_host_session_send*
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size _pointer -> _int32)
+  #:c-id glowcap_host_session_send)
+(define glowcap_host_session_send (wrap-out1 glowcap_host_session_send* _uint64 0))
+(define-host glowcap_host_session_tell
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size -> _int32))
+(define-host glowcap_host_vow_send*
   (_fun _pointer _uint64 _pointer _size _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_vow_send)
-(define pancake_host_vow_send (wrap-out1 pancake_host_vow_send* _uint64 0))
-(define-host pancake_host_vow_tell (_fun _pointer _uint64 _pointer _size _pointer _size -> _int32))
-(define-host pancake_host_vow_release (_fun _pointer _uint64 -> _int32))
-(define-host pancake_host_vow_index*
+  #:c-id glowcap_host_vow_send)
+(define glowcap_host_vow_send (wrap-out1 glowcap_host_vow_send* _uint64 0))
+(define-host glowcap_host_vow_tell (_fun _pointer _uint64 _pointer _size _pointer _size -> _int32))
+(define-host glowcap_host_vow_release (_fun _pointer _uint64 -> _int32))
+(define-host glowcap_host_vow_index*
   (_fun _pointer _uint64 _uint64 _pointer -> _int32)
-  #:c-id pancake_host_vow_index)
-(define pancake_host_vow_index (wrap-out1 pancake_host_vow_index* _uint64 0))
-(define-host pancake_host_vow_untag*
+  #:c-id glowcap_host_vow_index)
+(define glowcap_host_vow_index (wrap-out1 glowcap_host_vow_index* _uint64 0))
+(define-host glowcap_host_vow_untag*
   (_fun _pointer _uint64 _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_vow_untag)
-(define pancake_host_vow_untag (wrap-out1 pancake_host_vow_untag* _uint64 0))
-(define-host pancake_host_vow_get*
+  #:c-id glowcap_host_vow_untag)
+(define glowcap_host_vow_untag (wrap-out1 glowcap_host_vow_untag* _uint64 0))
+(define-host glowcap_host_vow_get*
   (_fun _pointer _uint64 _pointer _size _pointer -> _int32)
-  #:c-id pancake_host_vow_get)
-(define pancake_host_vow_get (wrap-out1 pancake_host_vow_get* _uint64 0))
-(define-host pancake_host_turn_session*
+  #:c-id glowcap_host_vow_get)
+(define glowcap_host_vow_get (wrap-out1 glowcap_host_vow_get* _uint64 0))
+(define-host glowcap_host_turn_session*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_host_turn_session)
-(define pancake_host_turn_session (wrap-out1 pancake_host_turn_session* _pointer #f))
-(define-host pancake_host_turn_forward
-  (_fun _pointer (_or-null _PancakeReference-pointer) _pointer _size _pointer _size (_or-null _PancakeArgument-pointer) -> _int32))
-(define-host pancake_host_turn_defer*
+  #:c-id glowcap_host_turn_session)
+(define glowcap_host_turn_session (wrap-out1 glowcap_host_turn_session* _pointer #f))
+(define-host glowcap_host_turn_forward
+  (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer _size _pointer _size (_or-null _GlowcapArgument-pointer) -> _int32))
+(define-host glowcap_host_turn_defer*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_host_turn_defer)
-(define pancake_host_turn_defer (wrap-out1 pancake_host_turn_defer* _uint64 0))
-(define-host pancake_host_turn_spawn*
-  (_fun _pointer _PancakeHostBehavior _pointer _pointer (_or-null _PancakeReference-pointer) -> _int32)
-  #:c-id pancake_host_turn_spawn)
-(define pancake_host_turn_spawn (wrap-out1 pancake_host_turn_spawn* _PancakeReference (make-PancakeReference 0)))
-(define-host pancake_host_turn_break (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_ref_release (_fun _pointer (_or-null _PancakeReference-pointer) _uint64 -> _int32))
-(define-host pancake_host_session_published_ref*
-  (_fun _pointer _pointer _size (_or-null _PancakeReference-pointer) -> _int32)
-  #:c-id pancake_host_session_published_ref)
-(define pancake_host_session_published_ref
-  (wrap-out1 pancake_host_session_published_ref* _PancakeReference (make-PancakeReference 0)))
-(define-host pancake_host_session_break_far_vows (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_session_transport_closed (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_session_set_exporter_location
-  (_fun _pointer (_or-null _PancakeLocatorView-pointer) -> _int32))
-(define-host pancake_host_session_last_abort (_fun _pointer (_or-null _PancakeLastAbort-pointer) -> _int32))
-(define-host pancake_host_session_partner_identity
-  (_fun _pointer (_or-null _PancakePartnerIdentity-pointer) -> _int32))
-(define-host pancake_host_session_bind_verified_channel_key (_fun _pointer _pointer _size -> _int32))
-(define-host pancake_host_last_error (_fun _pointer _size -> _size))
+  #:c-id glowcap_host_turn_defer)
+(define glowcap_host_turn_defer (wrap-out1 glowcap_host_turn_defer* _uint64 0))
+(define-host glowcap_host_turn_spawn*
+  (_fun _pointer _GlowcapHostBehavior _pointer _pointer (_or-null _GlowcapReference-pointer) -> _int32)
+  #:c-id glowcap_host_turn_spawn)
+(define glowcap_host_turn_spawn (wrap-out1 glowcap_host_turn_spawn* _GlowcapReference (make-GlowcapReference 0)))
+(define-host glowcap_host_turn_break (_fun _pointer _pointer _size -> _int32))
+(define-host glowcap_host_ref_release (_fun _pointer (_or-null _GlowcapReference-pointer) _uint64 -> _int32))
+(define-host glowcap_host_session_published_ref*
+  (_fun _pointer _pointer _size (_or-null _GlowcapReference-pointer) -> _int32)
+  #:c-id glowcap_host_session_published_ref)
+(define glowcap_host_session_published_ref
+  (wrap-out1 glowcap_host_session_published_ref* _GlowcapReference (make-GlowcapReference 0)))
+(define-host glowcap_host_session_break_far_vows (_fun _pointer _pointer _size -> _int32))
+(define-host glowcap_host_session_transport_closed (_fun _pointer _pointer _size -> _int32))
+(define-host glowcap_host_session_set_exporter_location
+  (_fun _pointer (_or-null _GlowcapLocatorView-pointer) -> _int32))
+(define-host glowcap_host_session_last_abort (_fun _pointer (_or-null _GlowcapLastAbort-pointer) -> _int32))
+(define-host glowcap_host_session_partner_identity
+  (_fun _pointer (_or-null _GlowcapPartnerIdentity-pointer) -> _int32))
+(define-host glowcap_host_session_bind_verified_channel_key (_fun _pointer _pointer _size -> _int32))
+(define-host glowcap_host_last_error (_fun _pointer _size -> _size))

@@ -14,9 +14,9 @@
 // this module exists to keep out of reach.
 
 import * as store from "../store.ts";
-import { serveRendezvous } from "@pancake/web";
-import type { RendezvousHandle, WebRuntime } from "@pancake/web";
-import { formatLocatorUri, formatPeerUri, type Host, TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { serveRendezvous } from "@glowcap/web";
+import type { RendezvousHandle, WebRuntime } from "@glowcap/web";
+import { formatLocatorUri, formatPeerUri, type Host, TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@glowcap/runtime";
 import { roomsLocator, WEBRTC_SIGNALING_DIRECTORY_HINT } from "../../../lib/locator.ts";
 import { directMessageReceiverBehavior } from "../../../lib/direct_message.ts";
 import { serveWebrtcSignaling } from "../../../lib/signaling.ts";

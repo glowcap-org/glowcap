@@ -12,10 +12,10 @@ superseded_by: []
 
 ## Context
 
-Actors are why pancake exists: the goal is that building a distributed (OCapN)
+Actors are why glowcap exists: the goal is that building a distributed (OCapN)
 system in Zig _or any binding_ feels native enough to be the obvious choice in
 that language. So the actor layer must live in each binding's own idiom, not as
-a wrapped C vat invoked through foreign callbacks. The pancake-Zig actor seam
+a wrapped C vat invoked through foreign callbacks. The glowcap-Zig actor seam
 (ADR-0036: a unified `Ref` local|far, location-transparent `<-`, near-only `$`,
 promises spanning local and wire) is the model; each binding mirrors it
 in-language over the existing typed peer C ABI (`register_export`, the typed
@@ -24,12 +24,12 @@ sockets. No new C ABI is needed.
 
 The Racket binding is the closest target and the proof: it should feel like
 Spritely Goblins, because a Racket distributed-systems programmer already
-reaches for Goblins, and pancake-on-Racket should be at home next to it.
+reaches for Goblins, and glowcap-on-Racket should be at home next to it.
 
 ## Decision
 
 The Racket actor layer
-([`bindings/racket/pancake.rkt`](../../../bindings/racket/pancake.rkt)) is
+([`bindings/racket/glowcap.rkt`](../../../bindings/racket/glowcap.rkt)) is
 Goblins-faithful:
 
 - An actor is a **constructor** `(define (^name bcom arg …) <behavior>)` the vat
@@ -78,7 +78,7 @@ far vow) is not yet wired.
 
 ## Consequences
 
-`bindings/racket/pancake.rkt` gains the Goblins-faithful actor section
+`bindings/racket/glowcap.rkt` gains the Goblins-faithful actor section
 (replacing the earlier basic `vat`/`host`); `bindings/racket/zig-smoke.rkt`
 drives a local counter (constructor + `methods` + `bcom`, `spawn`, `$`, `<-` +
 `on` + `drive`) and a hosted-actor deliver/resolve. `bindings/README.md`
@@ -99,4 +99,4 @@ every binding.
 
 Realizes the seam of [ADR-0036](ADR-0036-actor-layer.md) in the bindings.
 Goblins (Apache-2.0, vendored under `conformance/spritely-goblins/`) is the
-idiom reference; pancake's wire is the transport.
+idiom reference; glowcap's wire is the transport.

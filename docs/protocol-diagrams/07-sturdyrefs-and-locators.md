@@ -10,7 +10,7 @@ A sturdyref is offline authority: a locator saying _where_ the hosting peer
 lives plus a swiss number saying _which_ object to fetch there. It carries no
 live session state, so the token survives restarts. Whether it still redeems
 after the hosting peer restarts depends on that host re-registering the swiss
-number under the same identity; pancake's default Host registry is ephemeral
+number under the same identity; glowcap's default Host registry is ephemeral
 (see [boundaries](../boundaries.md)).
 
 ```mermaid

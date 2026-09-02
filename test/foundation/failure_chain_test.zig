@@ -1,5 +1,5 @@
 const std = @import("std");
-const FailureChain = @import("pancake").foundation.FailureChain;
+const FailureChain = @import("glowcap").foundation.FailureChain;
 
 test "failure chain retains first cause and bounded consequences" {
     var failure = FailureChain.init(error.Primary);

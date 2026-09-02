@@ -1,6 +1,6 @@
 // Durable room-link and moderator publications backed by RoomServerState.
 
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import { roomAuthorityIdentity } from "../lib/authority_identity.ts";
 import { formatRoomsSturdyref, roomsLocator } from "../lib/locator.ts";
 import type { RoomAuthorityKind } from "../lib/room/authority.ts";

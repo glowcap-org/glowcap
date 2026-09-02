@@ -14,7 +14,7 @@ const Error = session.Error;
 const Session = session.Session;
 
 /// Reserved versioned namespace for cryptographically minted durable names.
-pub const durable_swiss_prefix = "pancake-durable-1-";
+pub const durable_swiss_prefix = "glowcap-durable-1-";
 /// Random bytes behind the prefix, encoded as lowercase hex.
 pub const durable_swiss_entropy_len = 16;
 /// A minted durable swiss name's exact byte length.

@@ -14,11 +14,11 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+	type AdministeredBridge,
 	awayByPeer,
 	awayOf,
 	type DirId,
 	type DirView,
-	type IrcBridgeRow,
 	type RoomConv,
 	type SessionConv,
 } from "./types.ts";
@@ -73,9 +73,9 @@ export const ConvCard = memo(function ConvCard(
 		follows: string;
 		online: boolean;
 		open: boolean;
-		initialPane: "about" | "irc" | "capabilities";
+		initialPane: "about" | "bridge" | "capabilities";
 		request: number;
-		administeredBridge: IrcBridgeRow | null;
+		administeredBridge: AdministeredBridge | null;
 		retain?: boolean;
 		askingLeave: boolean;
 		onLayer: (held: boolean) => void;
@@ -92,9 +92,9 @@ export const ConvCard = memo(function ConvCard(
 		standing: string;
 		follows: string;
 		online: boolean;
-		initialPane: "about" | "irc" | "capabilities";
+		initialPane: "about" | "bridge" | "capabilities";
 		request: number;
-		administeredBridge: IrcBridgeRow | null;
+		administeredBridge: AdministeredBridge | null;
 		canInteract: boolean;
 	};
 	const last = useRef<View | null>(
@@ -194,29 +194,38 @@ function leaveSaid(conv: SessionConv): string {
 	return "Leave " + roomCalled(conv.id, false) + "? You can come back by its name.";
 }
 
-type RoomPane = "about" | "irc" | "capabilities" | "moderation";
+type RoomPane = "about" | "bridge" | "capabilities" | "moderation";
 
-const ROOM_TABS: readonly TabFace<RoomPane>[] = [
-	{ id: "about", domId: "convcardAboutTab", label: "About", panelId: "convcardAboutPanel" },
-	{
-		id: "irc",
-		domId: "convcardIrcTab",
-		label: "IRC",
-		panelId: "convcardIrcPanel",
-	},
-	{
-		id: "capabilities",
-		domId: "convcardCapabilitiesTab",
-		label: "Capabilities",
-		panelId: "convcardCapabilitiesPanel",
-	},
-	{
-		id: "moderation",
-		domId: "convcardModerationTab",
-		label: "Moderation",
-		panelId: "convcardModerationPanel",
-	},
-];
+// The fixed room panes. The bridge pane is not among them because its tab
+// wears the bridge's own word for itself (its seat badge), which is a live
+// value, not a constant: a second bridge names its own tab without a change
+// here.
+const ABOUT_TAB: TabFace<RoomPane> = {
+	id: "about",
+	domId: "convcardAboutTab",
+	label: "About",
+	panelId: "convcardAboutPanel",
+};
+const CAPABILITIES_TAB: TabFace<RoomPane> = {
+	id: "capabilities",
+	domId: "convcardCapabilitiesTab",
+	label: "Capabilities",
+	panelId: "convcardCapabilitiesPanel",
+};
+const MODERATION_TAB: TabFace<RoomPane> = {
+	id: "moderation",
+	domId: "convcardModerationTab",
+	label: "Moderation",
+	panelId: "convcardModerationPanel",
+};
+
+/** The bridge-identity tab for a member holding a foreign seat, labeled by the
+ * bridge's own service badge so it reads as that service rather than as IRC.
+ * The label is the room's bridge word (`conv.bridge.badge`), not the seat's
+ * state badge, which is the link phase and belongs on the member chip. */
+function bridgeTab(serviceBadge: string): TabFace<RoomPane> {
+	return { id: "bridge", domId: "convcardBridgeTab", label: serviceBadge, panelId: "convcardBridgePanel" };
+}
 
 function RoomCardBody(
 	{
@@ -242,8 +251,8 @@ function RoomCardBody(
 		asking: boolean;
 		setAsking: (asking: boolean) => void;
 		askingLeave: boolean;
-		initialPane: "about" | "irc" | "capabilities";
-		administeredBridge: IrcBridgeRow | null;
+		initialPane: "about" | "bridge" | "capabilities";
+		administeredBridge: AdministeredBridge | null;
 		canInteract: boolean;
 	},
 ) {
@@ -252,17 +261,19 @@ function RoomCardBody(
 	const held = conv.grants.has("steward");
 	const roomAvailable = conv.membership === "joined";
 	const canModerate = (held && roomAvailable) || administeredBridge !== null;
-	const ownIrc = dir === null ? undefined : roster.get(dir.nick)?.seat;
+	const ownSeat = dir === null ? undefined : roster.get(dir.nick)?.seat;
 	const bridgeOrigin = bridgedOrigin(dir ?? undefined, conv.publicationId);
 	const publication = roomPublication(dir ?? undefined, conv.publicationId);
 	const authoritySource = conv.publicationId === undefined ? "local" : publication?.kind ?? "unknown";
-	const tabs = ROOM_TABS.filter((tab) =>
-		(tab.id === "about" || canInteract) &&
-		(tab.id !== "irc" || ownIrc !== undefined) && (tab.id !== "moderation" || canModerate)
-	);
+	const tabs: TabFace<RoomPane>[] = [
+		ABOUT_TAB,
+		...(canInteract && ownSeat !== undefined ? [bridgeTab(conv.bridge?.badge ?? "Bridge")] : []),
+		...(canInteract ? [CAPABILITIES_TAB] : []),
+		...(canInteract && canModerate ? [MODERATION_TAB] : []),
+	];
 	const [chosen, setChosen] = useState<RoomPane>(
-		initialPane === "irc" && ownIrc !== undefined
-			? "irc"
+		initialPane === "bridge" && ownSeat !== undefined
+			? "bridge"
 			: initialPane === "capabilities" && canInteract
 			? "capabilities"
 			: "about",
@@ -271,7 +282,7 @@ function RoomCardBody(
 		? "about"
 		: chosen === "moderation" && !canModerate
 		? "capabilities"
-		: chosen === "irc" && ownIrc === undefined
+		: chosen === "bridge" && ownSeat === undefined
 		? "about"
 		: chosen;
 	const tabbed = tabs.length > 1;
@@ -323,12 +334,17 @@ function RoomCardBody(
 					<RoomCapabilities conv={conv} available={roomAvailable} authoritySource={authoritySource} />
 				</div>
 			)}
-			{ownIrc !== undefined && (
-				<div id="convcardIrcPanel" hidden={pane !== "irc"} role="tabpanel" aria-labelledby="convcardIrcTab">
+			{ownSeat !== undefined && (
+				<div
+					id="convcardBridgePanel"
+					hidden={pane !== "bridge"}
+					role="tabpanel"
+					aria-labelledby="convcardBridgeTab"
+				>
 					<BridgeIdentityForm
 						conv={conv}
 						connected={roomAvailable}
-						stateKey={`${ownIrc.state}\u0000${ownIrc.nick}`}
+						stateKey={`${ownSeat.state}\u0000${ownSeat.nick}`}
 					/>
 				</div>
 			)}
@@ -420,9 +436,9 @@ function ConvDialog(
 		follows: string;
 		online: boolean;
 		away: string | null;
-		initialPane: "about" | "irc" | "capabilities";
+		initialPane: "about" | "bridge" | "capabilities";
 		request: number;
-		administeredBridge: IrcBridgeRow | null;
+		administeredBridge: AdministeredBridge | null;
 		canInteract: boolean;
 		askingLeave: boolean;
 	},

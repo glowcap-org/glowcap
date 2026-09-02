@@ -1,7 +1,7 @@
 // The WebRTC browser-peer proof in a REAL browser (ADR-0089 phase 6). A headless
-// Chromium is the offerer: it bundles `@pancake/web` (the wasm protocol core) and
-// `@pancake/webrtc` (`RtcPeer` over RTCPeerConnection), brings up a DataChannel to
-// the native answerer (`answerer.zig`, over the `pancake_webrtc_*` sidecar), and
+// Chromium is the offerer: it bundles `@glowcap/web` (the wasm protocol core) and
+// `@glowcap/webrtc` (`RtcPeer` over RTCPeerConnection), brings up a DataChannel to
+// the native answerer (`answerer.zig`, over the `glowcap_webrtc_*` sidecar), and
 // runs a full keyed OCapN session over that channel: fetch the answerer's
 // `greeter`, call `greet`, and check the reply.
 //
@@ -29,8 +29,8 @@ import { chromium } from "playwright";
 import { bundleProbe, fail, freePort } from "../../bindings/ts/web/test/support.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const ANSWERER = `${ROOT}zig-out/bin/pancake-webrtc-answerer`;
-const WASM = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
+const ANSWERER = `${ROOT}zig-out/bin/glowcap-webrtc-answerer`;
+const WASM = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const deadline = setTimeout(() => fail("browser-peer scenario timed out after 60s"), 60_000);
 
@@ -58,7 +58,7 @@ try {
 	const pagePort = freePort();
 	Deno.serve({ port: pagePort, signal: assetServer.signal }, (req) => {
 		const url = new URL(req.url);
-		if (url.pathname === "/pancake_host.wasm") {
+		if (url.pathname === "/glowcap_host.wasm") {
 			return new Response(wasmBytes, { headers: { "content-type": "application/wasm" } });
 		}
 		return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
@@ -114,7 +114,7 @@ try {
 	}
 
 	console.log(
-		"PASS: a real headless Chromium ran @pancake/web + @pancake/webrtc, brought up a " +
+		"PASS: a real headless Chromium ran @glowcap/web + @glowcap/webrtc, brought up a " +
 			"DataChannel to the native answerer, and greeted it over a keyed OCapN session",
 	);
 } finally {

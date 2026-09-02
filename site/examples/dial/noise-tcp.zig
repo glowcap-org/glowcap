@@ -1,21 +1,21 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // Same TCP sockets as cleartext keyed dialing; Noise_XK seals the CapTP stream.
-    var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
-    const netlayers = [_]pancake.net.netlayer.Netlayer{noise_resident.netlayer()};
+    var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
     // The designator is the peer's durable key; the hint is where to dial.
-    var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+    var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
     const peer_key = "<64 lowercase hex characters from the server>";
-    const partner = pancake.net.tcp.noise.locator(
+    const partner = glowcap.net.tcp.noise.locator(
         peer_key,
         "127.0.0.1:9099",
         &hint_storage,
     );
 
     // From here, the CapTP workflow is transport-independent.
-    const session = try pancake.driver.connect(
+    const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
         partner,

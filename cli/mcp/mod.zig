@@ -139,7 +139,7 @@ fn handleInitialize(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8, roo
         build_options.version_minor,
         build_options.version_patch,
     });
-    try body.print(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"result\":{{\"protocolVersion\":\"{s}\",\"capabilities\":{{\"tools\":{{}}}},\"serverInfo\":{{\"name\":\"pancake\",\"version\":\"{s}\"}}}}}}", .{ id_json, answering, ver });
+    try body.print(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"result\":{{\"protocolVersion\":\"{s}\",\"capabilities\":{{\"tools\":{{}}}},\"serverInfo\":{{\"name\":\"glowcap\",\"version\":\"{s}\"}}}}}}", .{ id_json, answering, ver });
     try writeMessage(io, body.items);
 }
 
@@ -356,7 +356,7 @@ fn parseMs(s: []const u8) ?i64 {
     return std.math.cast(i64, n) orelse std.math.maxInt(i64);
 }
 
-/// Command-tree entry for `pancake mcp …`.
+/// Command-tree entry for `glowcap mcp …`.
 pub fn runParsed(ctx: *Ctx, parsed: *Parsed) !u8 {
     ctx.front = .mcp;
     // Same CapTP body shape as argv `--json` so agents parse one contract.
@@ -364,10 +364,10 @@ pub fn runParsed(ctx: *Ctx, parsed: *Parsed) !u8 {
     var catalog: McpCatalog = .default;
     var idle_ms: i64 = default_idle_ms;
     var max_session_ms: i64 = default_max_session_ms;
-    if (ctx.environ.get("PANCAKE_MCP_IDLE_MS")) |v| {
+    if (ctx.environ.get("GLOWCAP_MCP_IDLE_MS")) |v| {
         if (parseMs(v)) |n| idle_ms = n;
     }
-    if (ctx.environ.get("PANCAKE_MCP_MAX_SESSION_MS")) |v| {
+    if (ctx.environ.get("GLOWCAP_MCP_MAX_SESSION_MS")) |v| {
         if (parseMs(v)) |n| max_session_ms = n;
     }
     if (parsed.flagString("tools")) |v| {

@@ -1,5 +1,5 @@
-import { PancakeError, type Session } from "@pancake/runtime";
-import { IO } from "@pancake/abi";
+import { GlowcapError, type Session } from "@glowcap/runtime";
+import { IO } from "@glowcap/abi";
 import { type ClosingServer, serveStandalone } from "../lib/standalone_peer.ts";
 import { assertEquals } from "./assert.ts";
 
@@ -35,7 +35,7 @@ Deno.test("a standalone peer treats connection loss as departure but still repor
 	console.error = (...values: unknown[]) => messages.push(values.map(String).join(" "));
 	try {
 		const session = {
-			serve: () => Promise.reject(new PancakeError(IO, "session failed: ConnectionLost")),
+			serve: () => Promise.reject(new GlowcapError(IO, "session failed: ConnectionLost")),
 			close: () => Promise.reject(new Error("close broke")),
 		} as unknown as Session;
 		const server = {

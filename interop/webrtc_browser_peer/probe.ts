@@ -1,8 +1,8 @@
 /// <reference lib="dom" />
 
 // The browser offerer for the WebRTC browser-peer proof (ADR-0089 phase 6). A
-// real headless Chromium bundles this: `@pancake/web`'s wasm Host plus
-// `@pancake/webrtc`'s `RtcPeer`. It brings up a DataChannel to the native
+// real headless Chromium bundles this: `@glowcap/web`'s wasm Host plus
+// `@glowcap/webrtc`'s `RtcPeer`. It brings up a DataChannel to the native
 // answerer (`interop/webrtc_browser_peer/answerer.zig`) through the harness's
 // stdio signaling ferry, then runs a full keyed OCapN session over that channel
 // — fetch the answerer's `greeter`, call `greet`, and check the reply. This is
@@ -16,8 +16,8 @@
 // (`identity`), which this peer pins for the keyed dial, so the handshake proves
 // the answerer's identity end to end.
 
-import { init } from "@pancake/web";
-import { RtcPeer } from "@pancake/webrtc";
+import { init } from "@glowcap/web";
+import { RtcPeer } from "@glowcap/webrtc";
 
 const GREETING = "hello over webrtc";
 
@@ -59,7 +59,7 @@ globalThis.applySignal = (line: string): Promise<void> => {
 };
 
 async function main(): Promise<void> {
-	const stack = await init({ wasm: fetch("/pancake_host.wasm") });
+	const stack = await init({ wasm: fetch("/glowcap_host.wasm") });
 	const peer = new RtcPeer({ offerer: true });
 
 	// Inbound signaling from the answerer, fed in by the harness.

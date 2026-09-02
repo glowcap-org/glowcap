@@ -1,12 +1,12 @@
-# pancake
+# glowcap
 
-<img src="site/assets/pancake-icon-256.png" alt="" align="left" width="140" />
+<img src="site/assets/glowcap-icon-256.png" alt="" align="left" width="140" />
 
 [![Zig](https://img.shields.io/badge/language-Zig-f7a41d.svg)](https://ziglang.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
-[![checks](https://github.com/jimisaacs/pancake/actions/workflows/check.yml/badge.svg)](https://github.com/jimisaacs/pancake/actions/workflows/check.yml)
+[![checks](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml/badge.svg)](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
 
-pancake is a Zig implementation of [OCapN](https://github.com/ocapn/ocapn), the
+glowcap is a Zig implementation of [OCapN](https://github.com/ocapn/ocapn), the
 object-capability network protocol from
 [Spritely Institute](https://spritely.institute/) and the OCapN community. Two
 programs hand each other references to objects and call methods on them across
@@ -18,18 +18,18 @@ it was given and cannot forge others, so there is no ambient authority.
 The session protocol is [CapTP](http://erights.org/elib/distrib/captp/). The
 core is codec-neutral, and on the wire it speaks
 [Syrup](https://github.com/ocapn/syrup), OCapN's canonical encoding, which is
-where the name comes from: you can't have pancakes without syrup.
+where the mascot comes from: you can't have pancakes without syrup.
 
 It is a library, not a framework. You link it and manage its memory. The
 protocol core is synchronous and does no I/O of its own; sockets, scheduling,
 and encryption belong to the transport adapters.
 
-pancake is built with AI coding assistants. The maintainer directs the work
+glowcap is built with AI coding assistants. The maintainer directs the work
 and is answerable for what lands.
 [`PROVENANCE.md`](PROVENANCE.md) records how, including the upstream-contact
 limits that follow.
 
-[iroh](https://www.iroh.computer/) and `noise-tcp` are pancake-to-pancake
+[iroh](https://www.iroh.computer/) and `noise-tcp` are glowcap-to-glowcap
 paths: encrypted QUIC with discovery, and a sealed TCP route that proves the
 dialed key. Unmodified Goblins over Tor uses onion; that meeting is on demand.
 Plain `tcp` is a testing transport: cleartext, no identity proof, used for the
@@ -48,42 +48,42 @@ before depending on it.
 ## Quick start
 
 ```sh
-zig fetch --save git+https://github.com/jimisaacs/pancake#COMMIT_SHA
+zig fetch --save git+https://github.com/jimisaacs/glowcap#COMMIT_SHA
 ```
 
 Replace `COMMIT_SHA` with the revision you want to pin. In your `build.zig`:
 
 ```zig
-const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimize });
-exe.root_module.addImport("pancake", pancake.module("pancake"));
+const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimize });
+exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
 ```
 
 Then dial a peer over `noise-tcp`, fetch a capability by name, and call it.
 This is the body of a function whose caller supplies `io`, `allocator`, the
 peer's durable key, and the `host:port` hint; the compilable whole is
 [`examples/zig/readme_quick_start.zig`](examples/zig/readme_quick_start.zig).
-[Start building](https://jimisaacs.github.io/pancake/start/) leads with iroh,
+[Start building](https://jimisaacs.github.io/glowcap/start/) leads with iroh,
 for discovery and NAT traversal.
 
 ```zig
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 // Noise_XK seals the CapTP stream and proves the dialed key.
-var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
-const netlayers = [_]pancake.net.netlayer.Netlayer{noise_resident.netlayer()};
-var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
-const partner = pancake.net.tcp.noise.locator(peer_key, address, &hint_storage);
+var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
+const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
+var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
+const partner = glowcap.net.tcp.noise.locator(peer_key, address, &hint_storage);
 
-const session = try pancake.driver.connect(
+const session = try glowcap.driver.connect(
     allocator,
     &netlayers,
     partner,
     .ephemeral,
     // Never leave a network wait unbounded.
     .{
-        .handshake = pancake.driver.default_handshake_budget,
-        .settle = pancake.driver.default_settle_budget,
+        .handshake = glowcap.driver.default_handshake_budget,
+        .settle = glowcap.driver.default_settle_budget,
     },
 );
 defer session.deinit();
@@ -104,9 +104,9 @@ switch (settled) {
 `fetch` asks the peer's bootstrap object for a name that side published. A peer
 that never published `"greeter"` cannot be fetched that way.
 
-[Start building](https://jimisaacs.github.io/pancake/start/) is the listen half
-and the other languages. `zig build` puts the `pancake` CLI in `zig-out/bin`;
-`pancake app rooms-peer` is an encrypted conversation over iroh.
+[Start building](https://jimisaacs.github.io/glowcap/start/) is the listen half
+and the other languages. `zig build` puts the `glowcap` CLI in `zig-out/bin`;
+`glowcap app rooms-peer` is an encrypted conversation over iroh.
 [`docs/cli.md`](docs/cli.md) covers the REPL, `--json` scripting, MCP, and the
 cleartext lab round-trip.
 
@@ -120,13 +120,13 @@ TypeScript, Python, and Racket bindings live in
 
 ## Conformance
 
-pancake is tested against the upstream
+glowcap is tested against the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and holds live
 sessions with Goblins. The recurring outside claim is signed CapTP 1.0 over
 Syrup:
 
 ```sh
-zig build ocapn-conformance  # the upstream OCapN test suite, against a pancake peer
+zig build ocapn-conformance  # the upstream OCapN test suite, against a glowcap peer
 zig build goblins-interop    # live Goblins over cleartext TCP (repo testing adapter)
 ```
 
@@ -144,16 +144,16 @@ collection; the devcontainer has both.
 Goblins evidence and says what each listed check does and does not prove.
 
 <p align="center">
-  <img src="site/assets/pancake-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
+  <img src="site/assets/glowcap-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
 </p>
 
 ## Build
 
-pancake builds with Zig 0.17. `build.zig.zon` pins the exact minimum, and
+glowcap builds with Zig 0.17. `build.zig.zon` pins the exact minimum, and
 [`.devcontainer/pins.sh`](.devcontainer/pins.sh) pins every other toolchain.
 
 ```sh
-zig build          # C ABI archives + headers + the pancake CLI
+zig build          # C ABI archives + headers + the glowcap CLI
 zig build check    # the full in-tree check: tests, examples, fixtures, budgets
 zig build test -Dtest-filter=substring   # just the tests whose names match
 ```
@@ -165,10 +165,10 @@ workflow.
 
 ## Documentation
 
-The [website](https://jimisaacs.github.io/pancake/) is the primary guide. For
+The [website](https://jimisaacs.github.io/glowcap/) is the primary guide. For
 a local preview, run `zig build docs-serve` and open
-`http://127.0.0.1:1990/pancake/`. In the devcontainer that process binds every
-interface so the published host port (`PANCAKE_DOCS_HOST_PORT`, 1990 on the
+`http://127.0.0.1:1990/glowcap/`. In the devcontainer that process binds every
+interface so the published host port (`GLOWCAP_DOCS_HOST_PORT`, 1990 on the
 primary checkout) reaches it.
 
 These pages must match the code as it is today:
@@ -186,6 +186,6 @@ The [protocol diagrams](docs/protocol-diagrams/README.md) and
 
 ## License
 
-Pancake-authored work is licensed under [Apache-2.0](LICENSE-APACHE). Third-party files keep their
+Glowcap-authored work is licensed under [Apache-2.0](LICENSE-APACHE). Third-party files keep their
 original terms; [third-party notices](LICENSE-THIRD-PARTY) record their scope
-and licenses. Contributions are accepted under pancake's Apache-2.0 terms.
+and licenses. Contributions are accepted under glowcap's Apache-2.0 terms.

@@ -44,14 +44,14 @@ pub fn sendKeyedStartSession(
 /// because completion cannot know a partner and a bare locator is the
 /// only onion form other parties may be handed (ADR-0108). The one
 /// session that may state a real onion preference — a partner known to
-/// be pancake (ADR-0118) — therefore stamps here, at session time;
+/// be glowcap (ADR-0118) — therefore stamps here, at session time;
 /// everything else sends the completed snapshot exactly.
 pub fn sendKeyedStartSessionAdvertised(
     self: *Peer,
     advertised: model.PeerLocator,
     session_secret: foundation.crypto.SecretKey,
 ) !void {
-    if (self.session_state.partner_known_pancake and
+    if (self.session_state.partner_known_glowcap and
         std.mem.eql(u8, advertised.transport, model.transport.onion))
         return self.sendKeyedStartSession(advertised, session_secret);
     return self.sendKeyedStartSessionExact(advertised, session_secret);
@@ -62,7 +62,7 @@ pub fn sendKeyedStartSessionAdvertised(
 /// are still canonicalized here: onion's interoperable spelling has `#f`
 /// hints, so no entry point can sign an onion location the pinned Goblins
 /// cannot dial. The one exception is a partner already known to be
-/// pancake, whose hello may keep the profile hints this peer stamped
+/// glowcap, whose hello may keep the profile hints this peer stamped
 /// (ADR-0118); routing hints stay stripped even then.
 pub fn sendKeyedStartSessionExact(
     self: *Peer,
@@ -71,10 +71,10 @@ pub fn sendKeyedStartSessionExact(
 ) !void {
     if (!codec.registry.contains(self.session_state.preferred.codec))
         return error.UnknownCodec;
-    const canonical = canonicalAdvertisedLocator(advertised, self.session_state.partner_known_pancake);
+    const canonical = canonicalAdvertisedLocator(advertised, self.session_state.partner_known_glowcap);
     try validateExactAdvertisedProfile(
         canonical,
-        advertisedPreference(canonical.transport, self.session_state.preferred, self.session_state.partner_known_pancake),
+        advertisedPreference(canonical.transport, self.session_state.preferred, self.session_state.partner_known_glowcap),
     );
     const session_pubkey = session_secret.publicKey();
     const signed = try codec.signed.locationBytes(self.allocator, canonical);
@@ -93,11 +93,11 @@ pub fn sendKeyedStartSessionExact(
 }
 
 /// Whether the locator a dialer was handed identifies its acceptor as
-/// pancake (ADR-0118): the hinted form of an onion address carries the
-/// `pancake/*` profile hints out of band. Wire-carried locators are bare on
+/// glowcap (ADR-0118): the hinted form of an onion address carries the
+/// `glowcap/*` profile hints out of band. Wire-carried locators are bare on
 /// onion, so a redeem or handoff dial never passes this test. Every dial
 /// tier reads it so the handed form means the same thing everywhere.
-pub fn dialedLocatorIdentifiesPancake(locator: model.PeerLocator) bool {
+pub fn dialedLocatorIdentifiesGlowcap(locator: model.PeerLocator) bool {
     if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return false;
     for (locator.hints.entries) |entry| {
         if (model.transport.isProfileHintName(entry.name)) return true;
@@ -105,17 +105,17 @@ pub fn dialedLocatorIdentifiesPancake(locator: model.PeerLocator) bool {
     return false;
 }
 
-/// Record out-of-band knowledge that this partner is pancake, before any
-/// hello: the dialer was handed the pancake-hinted form of an onion
+/// Record out-of-band knowledge that this partner is glowcap, before any
+/// hello: the dialer was handed the glowcap-hinted form of an onion
 /// address (ADR-0118). On every other transport the flag changes nothing,
 /// because the configured preference is advertised regardless.
-pub fn noteKnownPancakePartner(self: *Peer) void {
-    self.session_state.partner_known_pancake = true;
+pub fn noteKnownGlowcapPartner(self: *Peer) void {
+    self.session_state.partner_known_glowcap = true;
 }
 
 /// Answer a deferred onion hello (ADR-0118): read the inbound hello's
 /// stated preference, and when it differs from the baseline — proof the
-/// initiator is pancake, because the pinned Goblins onion netlayer signs
+/// initiator is glowcap, because the pinned Goblins onion netlayer signs
 /// only `#f`-hinted locations — record the knowledge before stamping our
 /// own hello, so `advertisedLocator`'s onion arm states the configured
 /// preference. A bare inbound hello gets today's bare answer. Unreadable
@@ -130,7 +130,7 @@ pub fn answerDeferredHello(
 ) !void {
     // tolerant: unreadable hints are ignored; a hello stands without them.
     const stated = session.parsePreferenceHints(ss.acceptable_location.hints) catch return;
-    if (!std.meta.eql(stated, model.Preference.baseline)) self.session_state.partner_known_pancake = true;
+    if (!std.meta.eql(stated, model.Preference.baseline)) self.session_state.partner_known_glowcap = true;
     return self.sendKeyedStartSessionAdvertised(advertised, session_secret);
 }
 
@@ -149,7 +149,7 @@ fn validateExactAdvertisedProfile(
 /// This peer's hello locator: the caller's plus the preference hints this
 /// peer stamps when the transport admits them. Onion stays hintless and
 /// advertises the baseline profile (ADR-0108) unless this partner is
-/// already known to be pancake, the one licence to state a real
+/// already known to be glowcap, the one licence to state a real
 /// preference there (ADR-0118).
 ///
 /// Every hello passes through here, and it has to be *before* the caller
@@ -167,7 +167,7 @@ pub fn advertisedLocator(
         self.allocator,
         locator,
         self.session_state.preferred,
-        self.session_state.partner_known_pancake,
+        self.session_state.partner_known_glowcap,
     );
 }
 
@@ -207,12 +207,12 @@ pub const HelloHints = struct {
         allocator: std.mem.Allocator,
         supplied: model.PeerLocator,
         preference: model.Preference,
-        partner_known_pancake: bool,
+        partner_known_glowcap: bool,
     ) Error!model.PeerLocator {
         std.debug.assert(self.allocated_entries == null);
         if (!codec.registry.contains(preference.codec)) return Error.UnknownCodec;
         try model.validatePeerLocator(supplied);
-        const locator = canonicalAdvertisedLocator(supplied, partner_known_pancake);
+        const locator = canonicalAdvertisedLocator(supplied, partner_known_glowcap);
         const carried = locator.hints.entries;
         // Every silent path out of here is a downgrade: a partner reads a
         // missing hint as "this peer wants the baseline" and is right to,
@@ -241,10 +241,10 @@ pub const HelloHints = struct {
         // Onion's standardized locator is deliberately hintless: the
         // Goblins dialer accepts only the `#f`-hints shape, so an onion
         // hello states the baseline (ADR-0108) unless the partner is
-        // already known to be pancake, when it states the configured
+        // already known to be glowcap, when it states the configured
         // preference like any other transport's (ADR-0118). Every other
         // transport always advertises the configured preference.
-        const effective = advertisedPreference(locator.transport, preference, partner_known_pancake);
+        const effective = advertisedPreference(locator.transport, preference, partner_known_glowcap);
         // Only a preference that differs from the baseline is worth
         // stating. `model.Preference.baseline` rather than literals, so
         // changing the baseline is one edit.
@@ -295,9 +295,9 @@ pub const HelloHints = struct {
 fn advertisedPreference(
     transport: []const u8,
     configured: model.Preference,
-    partner_known_pancake: bool,
+    partner_known_glowcap: bool,
 ) model.Preference {
-    var effective = if (std.mem.eql(u8, transport, model.transport.onion) and !partner_known_pancake)
+    var effective = if (std.mem.eql(u8, transport, model.transport.onion) and !partner_known_glowcap)
         model.Preference.baseline
     else
         configured;
@@ -307,7 +307,7 @@ fn advertisedPreference(
 
 fn canonicalAdvertisedLocator(locator: model.PeerLocator, keep_profile_hints: bool) model.PeerLocator {
     if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return locator;
-    // A partner known to be pancake reads profile hints like any other
+    // A partner known to be glowcap reads profile hints like any other
     // transport's (ADR-0118); everyone else gets onion's one interoperable
     // spelling, `#f` hints, so nothing this peer signs is undialable by
     // the pinned Goblins (ADR-0108). Routing hints stay stripped in both

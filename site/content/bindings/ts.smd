@@ -7,26 +7,26 @@
 ---
 
 The TypeScript binding supports three runtimes from one source tree.
-`@pancake/runtime`
-([`mod.ts`](https://github.com/jimisaacs/pancake/blob/main/bindings/ts/runtime/mod.ts))
-gives Deno and Bun the transport-neutral `Session` / `Host` API over the pancake
+`@glowcap/runtime`
+([`mod.ts`](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/runtime/mod.ts))
+gives Deno and Bun the transport-neutral `Session` / `Host` API over the glowcap
 C ABI, plus the
 transport providers and connectors that `Runtime.open` installs once. Transport
-packages such as `@pancake/iroh` own locator construction and transport
+packages such as `@glowcap/iroh` own locator construction and transport
 configuration; `runtime.connect` selects the already-installed authority.
-`@pancake/onion`, `@pancake/relay`, and `@pancake/tcp` provide the other native
-providers or connectors shown below. `@pancake/inproc` is a raw-frame
+`@glowcap/onion`, `@glowcap/relay`, and `@glowcap/tcp` provide the other native
+providers or connectors shown below. `@glowcap/inproc` is a raw-frame
 netlayer package. It stays outside this managed session matrix until it has
 that composition seam.
 
-The same source also compiles to WebAssembly as `@pancake/web`, so the same
+The same source also compiles to WebAssembly as `@glowcap/web`, so the same
 `Session` runs in the browser, dialing rather than listening.
 [In the browser]($link.page('bindings/browser')) covers how a page reaches its
 peers.
 
 Pin a checkout, build the archives, and
 run from `bindings/ts` or point an import map at `bindings/ts/runtime/mod.ts`.
-Set `PANCAKE_LIB_DIR` only if the archives are outside `zig-out/lib`. Deno
+Set `GLOWCAP_LIB_DIR` only if the archives are outside `zig-out/lib`. Deno
 needs `--allow-ffi --allow-read --allow-net`, plus `--allow-env` when the
 library path comes from the environment.
 
@@ -44,8 +44,8 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { locator, provider, Reachability } from "@pancake/iroh";
+> import { Runtime } from "@glowcap/runtime";
+> import { locator, provider, Reachability } from "@glowcap/iroh";
 >
 > // Discovery resolves a bare iroh node ID without an address hint.
 > const nodeId = "<64 lowercase hex characters from the server>";
@@ -57,8 +57,8 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > ```
 > **webrtc**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { connector, locator, type SignalingAuthority } from "@pancake/webrtc";
+> import { Runtime } from "@glowcap/runtime";
+> import { connector, locator, type SignalingAuthority } from "@glowcap/webrtc";
 >
 > declare const signaling: SignalingAuthority;
 > const peerKey = "<64 lowercase hex characters from the peer>";
@@ -70,8 +70,8 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > ```
 > **noise-tcp**
 > ```ts
-> import { noise, provider } from "@pancake/tcp";
-> import { Runtime } from "@pancake/runtime";
+> import { noise, provider } from "@glowcap/tcp";
+> import { Runtime } from "@glowcap/runtime";
 >
 > // Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > const peerKey = "<64 lowercase hex characters from the server>";
@@ -81,8 +81,8 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > ```
 > **noise-relay**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { noise, provider } from "@pancake/relay";
+> import { Runtime } from "@glowcap/runtime";
+> import { noise, provider } from "@glowcap/relay";
 >
 > // Noise_XK seals the session end to end; the relay forwards ciphertext.
 > const peerKey = "<64 lowercase hex characters from the server>";
@@ -95,10 +95,10 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > ```
 > **onion**
 > ```ts
-> import { locator, provider } from "@pancake/onion";
-> import { Runtime } from "@pancake/runtime";
+> import { locator, provider } from "@glowcap/onion";
+> import { Runtime } from "@glowcap/runtime";
 >
-> // pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+> // glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > const partner = locator("<56-character onion service id>");
 >
 > await using runtime = await Runtime.open({
@@ -107,8 +107,8 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > ```
 > **keyed-tcp**
 > ```ts
-> import { keyed, provider } from "@pancake/tcp";
-> import { Runtime } from "@pancake/runtime";
+> import { keyed, provider } from "@glowcap/tcp";
+> import { Runtime } from "@glowcap/runtime";
 >
 > // Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > const peerKey = "<64 lowercase hex characters from the server>";
@@ -118,8 +118,8 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > ```
 > **keyed-relay**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { keyed, provider } from "@pancake/relay";
+> import { Runtime } from "@glowcap/runtime";
+> import { keyed, provider } from "@glowcap/relay";
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > const peerKey = "<64 lowercase hex characters from the server>";
@@ -132,8 +132,8 @@ task. Use `serve` when another task needs to wait for session shutdown.
 > ```
 > **tcp**
 > ```ts
-> import { locator, provider } from "@pancake/tcp";
-> import { Runtime } from "@pancake/runtime";
+> import { locator, provider } from "@glowcap/tcp";
+> import { Runtime } from "@glowcap/runtime";
 >
 > // Plain TCP uses a cleartext host and port.
 > const partner = locator("127.0.0.1", 9099);
@@ -155,7 +155,7 @@ console.log(reply);
 
 The CapTP verbs stay the same across tabs. What changes is the locator helper,
 the listen/seed posture, and whether CapTP rides cleartext or Noise. The iroh
-tab needs `@pancake/iroh` and a discovery-reachable node id.
+tab needs `@glowcap/iroh` and a discovery-reachable node id.
 
 The `serve` promise resolves when the session closes cleanly and rejects on a
 transport or protocol error. When the loop ends, every `send` still awaiting a
@@ -176,8 +176,8 @@ restart; iroh binds a node id instead of a host and port.
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { type IrohConfig, listen, Reachability } from "@pancake/iroh";
+> import type { Argument } from "@glowcap/runtime";
+> import { type IrohConfig, listen, Reachability } from "@glowcap/iroh";
 >
 > // This listener is named by its node id. Partners can dial it from anywhere.
 > const config: IrohConfig = { reachability: Reachability.Discovery };
@@ -185,8 +185,8 @@ restart; iroh binds a node id instead of a host and port.
 > ```
 > **noise-tcp**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { noise } from "@pancake/tcp";
+> import type { Argument } from "@glowcap/runtime";
+> import { noise } from "@glowcap/tcp";
 >
 > // Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > const seed = crypto.getRandomValues(new Uint8Array(32));
@@ -194,8 +194,8 @@ restart; iroh binds a node id instead of a host and port.
 > ```
 > **noise-relay**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { noise } from "@pancake/relay";
+> import type { Argument } from "@glowcap/runtime";
+> import { noise } from "@glowcap/relay";
 >
 > // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > const seed = crypto.getRandomValues(new Uint8Array(32));
@@ -207,10 +207,10 @@ restart; iroh binds a node id instead of a host and port.
 > ```
 > **onion**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { listen } from "@pancake/onion";
+> import type { Argument } from "@glowcap/runtime";
+> import { listen } from "@glowcap/onion";
 >
-> // pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+> // glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > await using server = await listen({
 > 	socks: "/run/tor/socks",
 > 	control: "/run/tor/control",
@@ -219,8 +219,8 @@ restart; iroh binds a node id instead of a host and port.
 > ```
 > **keyed-tcp**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { keyed } from "@pancake/tcp";
+> import type { Argument } from "@glowcap/runtime";
+> import { keyed } from "@glowcap/tcp";
 >
 > // Key designator, cleartext CapTP. Reuse a 32-byte seed to keep the same key.
 > const seed = crypto.getRandomValues(new Uint8Array(32));
@@ -228,8 +228,8 @@ restart; iroh binds a node id instead of a host and port.
 > ```
 > **tcp**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { listen } from "@pancake/tcp";
+> import type { Argument } from "@glowcap/runtime";
+> import { listen } from "@glowcap/tcp";
 >
 > // Plain TCP binds the host and port you choose.
 > await using server = await listen("127.0.0.1", 9099);
@@ -281,7 +281,7 @@ product in [modules]($link.page('modules')), and
 rides on.
 
 The complete API lives in the
-[TypeScript binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/ts/README.md).
+[TypeScript binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/README.md).
 The same source runs under Deno and Bun. Deno hosts the native driver loop;
 Bun's synchronous FFI cannot, so Bun stays on the byte-fed Host path for
 identity and locator checks rather than hosted dial/listen. The wasm build is

@@ -33,7 +33,7 @@ pub const Options = struct {
     /// Full CapTP session limits applied to every minted peer (ADR-0082).
     /// Defaults match `session.SessionLimits{}`, including the 1 MiB
     /// `max_frame_bytes` the driver C ABI publishes as
-    /// `PANCAKE_DEFAULT_FRAME_CAP`. The completion loop's read buffers come
+    /// `GLOWCAP_DEFAULT_FRAME_CAP`. The completion loop's read buffers come
     /// from a shared 16 KiB pool (ADR-0054), not from `max_frame_bytes`, so
     /// raising the admission cap costs no per-session memory.
     limits: engine.SessionLimits = .{},
@@ -62,7 +62,7 @@ pub const Options = struct {
     captp_version: model.CaptpVersion = model.Preference.default_offer.captp_version,
     /// Optional CapTP features this host offers. Defaults to
     /// `model.Preference.default_offer.features`; each session intersects this
-    /// set with the partner's offer at handshake. A peer with no Pancake
+    /// set with the partner's offer at handshake. A peer with no Glowcap
     /// feature hint gets the baseline compatibility set, which keeps outbound
     /// `op:untag` disabled without changing the session's OCapN version.
     features: model.FeatureSet = model.Preference.default_offer.features,

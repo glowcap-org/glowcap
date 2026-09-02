@@ -2,8 +2,8 @@
 id: ADR-0119
 status: superseded
 date: 2026-08-17
-tags: [locators, netlayer, negotiation, handoff, pancake-next, upstream]
-decision: "Multi-homing is prototyped as a measured comparison of two shapes on one shared core: a keyed id/via locator skin expanded through the Node pending-dial waist and gated by pancake-next route-vocabulary negotiation, and a multi-location locator vocabulary gated as a named pancake-next negotiated feature. No new CapTP version is minted, no baseline byte changes, and the success criterion is upstream adoption of whichever shape the measurements favor."
+tags: [locators, netlayer, negotiation, handoff, glowcap-next, upstream]
+decision: "Multi-homing is prototyped as a measured comparison of two shapes on one shared core: a keyed id/via locator skin expanded through the Node pending-dial waist and gated by glowcap-next route-vocabulary negotiation, and a multi-location locator vocabulary gated as a named glowcap-next negotiated feature. No new CapTP version is minted, no baseline byte changes, and the success criterion is upstream adoption of whichever shape the measurements favor."
 supersedes: []
 superseded_by: [ADR-0125]
 amends: []
@@ -75,7 +75,7 @@ is the shape as a network property rather than a dependency: its routes are
 its own, no other OCapN implementation can join, browsers cannot run it, and
 a sturdyref welded to it bets long-lived identity on one ecosystem.
 
-pancake holds every ingredient of the netlayer shape already: four keyed
+glowcap holds every ingredient of the netlayer shape already: four keyed
 transports, the sealed channel of
 [ADR-0107](ADR-0107-sealed-byte-channel.md) proving a durable key over any
 byte carrier, relay carriers, and the hint machinery of
@@ -104,7 +104,7 @@ is not implemented by this record. The core is expressed through two skins:
   to a concrete route, and a peer that did not negotiate this vocabulary sees
   a concrete compatible route or a refusal.
 - **A multi-location locator vocabulary variant.** A named negotiated
-  feature under `pancake-next`, stamped into the signed hello and refused
+  feature under `glowcap-next`, stamped into the signed hello and refused
   unless both peers advertise it, the same machinery the pairing suite pins
   today. The feature name and its documentation carry comparison-only
   status, because no recorded upstream proposal specifies this shape; it
@@ -113,7 +113,7 @@ is not implemented by this record. The core is expressed through two skins:
   Goblins, no novel byte leaves the machine.
 
 The compatibility floor is per session, not per host. A host may prefer
-`pancake-next`, Cap'n Proto, and every linked transport for other pancake
+`glowcap-next`, Cap'n Proto, and every linked transport for other glowcap
 hosts, while the same process keeps a Goblins session on `1.0` over Syrup.
 Hello emission follows that settled session. A signed give crosses two settled
 sessions, so its exporter location lies in their intersection: the recipient
@@ -122,12 +122,12 @@ the signed give returns inside the withdrawal. If the exporter session did not
 negotiate route vocabulary, a configured baseline locator remains valid, while
 a configured `id` or multi-location locator falls back to the concrete location
 the exporter claimed on that session. A peer that negotiated
-`multi_location` may receive the `pancake/locations` vocabulary as
+`multi_location` may receive the `glowcap/locations` vocabulary as
 comparison-only data. A peer that did not gets a single baseline locator for a
 transport it demonstrably participates in: the transport carrying its current
 session. Baseline CapTP advertises no remote outbound-provider inventory, so the
 gifter does not invent one. If no matching route exists, lowering refuses. The
-fallback is never to serialize pancake-next vocabulary and hope the recipient
+fallback is never to serialize glowcap-next vocabulary and hope the recipient
 ignores it. `id` follows the same rule at the identity layer: a recipient
 without route-vocabulary negotiation is handed one concrete route or no route
 at all, never an instruction to parse `via`.
@@ -171,7 +171,7 @@ upstream outcome.
   Host selects an active authenticated same-key session, including a baseline
   session because no route syntax crosses that established channel, or stages
   the concrete `via` routes through the Node pending-dial waist. Host parking
-  and Node dial publication commit atomically. `pancake/locations` sturdyrefs
+  and Node dial publication commit atomically. `glowcap/locations` sturdyrefs
   remain comparison-only and are refused because the hint does not prove peer
   identity.
 - Whether the sealed channel's Noise pattern converges with issue 208's
@@ -180,7 +180,7 @@ upstream outcome.
 
 ## Alternatives Considered
 
-- **Mint a `pancake-experimental` CapTP version**: rejected; a version gates
+- **Mint a `glowcap-experimental` CapTP version**: rejected; a version gates
   at session granularity where the comparison needs per-feature dials, and
   the symbol would carry development status, not a wire-level meaning.
 - **Choose the netlayer shape by argument and skip the comparison**:
@@ -201,7 +201,7 @@ upstream outcome.
   admission policy, and Node redeem uses that shared policy before staging a
   dial. A future provider archive or route-key binding must keep using that
   spine rather than parsing its own route list or deciding key proof locally.
-- A registered `pancake-next` feature name for the vocabulary variant, with
+- A registered `glowcap-next` feature name for the vocabulary variant, with
   refusal-before-send toward non-advertising peers pinned beside the
   existing negotiation scenarios in `test/engine/pairing/`.
 - Scenarios per skin, and baseline-unchanged proofs: the Goblins interop steps
@@ -225,7 +225,7 @@ every other landed slice. The compatibility claim is intentionally narrower
 than the final product goal: existing live interop steps must keep running
 unchanged against a build with both prototypes present, while focused tests pin
 first-hello silence, signed-give lowering, Host-level `id` sturdyref staging,
-and fail-closed `pancake/locations` sturdyrefs. The recurring Rooms server suite
+and fail-closed `glowcap/locations` sturdyrefs. The recurring Rooms server suite
 pins profile-gated Noise/TCP route advertisement and TCP directory peering. When
 the iroh sidecar is available, an additional scenario publishes a room from an
 iroh identity route into a destination without iroh and redeems it through the

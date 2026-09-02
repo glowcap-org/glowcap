@@ -1,6 +1,6 @@
 # Vision
 
-pancake should be a dependable OCapN implementation for people who need
+glowcap should be a dependable OCapN implementation for people who need
 capability networking from Zig or another systems boundary.
 
 [What ships](shipped.md) describes the code today; [the roadmap](roadmap.md)
@@ -8,7 +8,7 @@ names the work between here and that destination.
 
 ## The goal
 
-A pancake peer should hold a complete, correct conversation with any conforming
+A glowcap peer should hold a complete, correct conversation with any conforming
 OCapN peer, including [Spritely Goblins](https://spritely.institute/goblins/).
 That conversation should work whether the application uses native Zig, the C
 ABI, or a language binding.
@@ -19,7 +19,7 @@ without making ordinary applications manage protocol machinery.
 
 An independent implementation also tests whether the specification can be
 implemented from its own words. Differences between the draft, Goblins, and
-pancake stay visible in [community review](community-review.md). Project
+glowcap stay visible in [community review](community-review.md). Project
 provenance and upstream-contact policy live in
 [`PROVENANCE.md`](../PROVENANCE.md).
 
@@ -90,9 +90,9 @@ turning a relay into an application-level authority.
 
 Interoperability means:
 
-- native pancake and Goblins can dial, host, call, and hand off to each other;
+- native glowcap and Goblins can dial, host, call, and hand off to each other;
 - every language binding can act as both client and host with outside peers;
-- pancake peers using different bindings, codecs, and transports preserve the
+- glowcap peers using different bindings, codecs, and transports preserve the
   same capability semantics.
 
 ## Read the current state

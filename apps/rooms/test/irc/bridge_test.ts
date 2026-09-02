@@ -1,4 +1,4 @@
-import { type Argument, type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { Directory, Room } from "../../lib/room/client.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";

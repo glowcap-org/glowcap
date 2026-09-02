@@ -5,12 +5,12 @@
 //! that spend no allocation after the home fire.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesAllocator;
 
 const Node = engine.Node;
@@ -553,7 +553,7 @@ test "relayed gift-id failure spends no allocation after the home fire" {
     const listener = blk: {
         var frame = node.peer(home).?.takeOutbound().?;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         break :blk view.listen.listener.far.import_position.int();
     };
 
@@ -583,11 +583,11 @@ test "relayed gift-id failure spends no allocation after the home fire" {
     try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(recipient).?.step());
     var fire = node.peer(recipient).?.takeOutbound().?;
     defer fire.deinit();
-    const fire_body = try pancake.ocapn.codec.syrup.decodeBody(fire.view());
+    const fire_body = try glowcap.ocapn.codec.syrup.decodeBody(fire.view());
     try std.testing.expect(fire_body == .deliver);
     var release = node.peer(recipient).?.takeOutbound().?;
     defer release.deinit();
-    const release_body = try pancake.ocapn.codec.syrup.decodeBody(release.view());
+    const release_body = try glowcap.ocapn.codec.syrup.decodeBody(release.view());
     try std.testing.expect(release_body == .gc_export);
     try std.testing.expect(node.peer(recipient).?.takeOutbound() == null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try node.peer(recipient).?.step());
@@ -620,7 +620,7 @@ test "a projected relayed value breaks from admission escrow under allocation fa
     const listener = blk: {
         var frame = node.peer(home).?.takeOutbound().?;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         break :blk view.listen.listener.far.import_position.int();
     };
 

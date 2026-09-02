@@ -69,7 +69,7 @@ impl HostShared {
 	/// the DIAL arm's dial executor establishes a whole new session *inside*
 	/// an action, and that establish must itself drain (its start-session
 	/// FLUSH) — a single-flighted drain would await its own completion there.
-	/// Arms are parked under `pancake_host_pump_drain` (sync hooks only) and
+	/// Arms are parked under `glowcap_host_pump_drain` (sync hooks only) and
 	/// awaited after the C loop returns, so overlapping kickers never await
 	/// inside the C callback. Re-parks until empty: a NEED_GIFT_ID's
 	/// `provide_gift_id` can queue FLUSH legs after the C drain returns (same
@@ -84,7 +84,7 @@ impl HostShared {
 		crate::gc::drain(self)?;
 		// The native loop is the drain on a loop-adopted Host: one step flushes
 		// what a verb queued and routes completions as loop events. No
-		// `pancake_host_pump_drain` may run beside it — the loop owns the queue.
+		// `glowcap_host_pump_drain` may run beside it — the loop owns the queue.
 		if let Some(lp) = self.driver_loop() {
 			return match lp.step_now() {
 				Ok(()) => Ok(()),

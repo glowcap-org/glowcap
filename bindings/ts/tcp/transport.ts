@@ -1,7 +1,7 @@
-// Framed transport API for `libpancake_net_transport_tcp`, beside
+// Framed transport API for `libglowcap_net_transport_tcp`, beside
 // this package's dependency-free locator constructors in `mod.ts` (ADR-0059).
 //
-// The transport subpath opens only the TCP archive and builds on `@pancake/runtime`'s
+// The transport subpath opens only the TCP archive and builds on `@glowcap/runtime`'s
 // shared frame/context types. Applications normally use the package root to
 // construct locators and the runtime's `connect`/`listen`; this subpath exposes
 // provider installation and the C ABI's direct frame shuttle. Deno offloads
@@ -16,8 +16,8 @@
 //   const got = await server.readFrame();
 //
 // The TCP archive keeps its own thread-local last-error, read through
-// `pancake_tcp_last_error`, so a failed call's diagnostic never scrapes the
-// core's unrelated `pancake_last_error`.
+// `glowcap_tcp_last_error`, so a failed call's diagnostic never scrapes the
+// core's unrelated `glowcap_last_error`.
 
 import {
 	AsyncFfiWriteQueue,
@@ -25,6 +25,7 @@ import {
 	checkedMaxFrameBytes,
 	codecId,
 	consumedReleaseFailure,
+	GlowcapError,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
@@ -32,7 +33,6 @@ import {
 	NativeHandle,
 	NativeParent,
 	outPointer,
-	PancakeError,
 	readBytes,
 	readErrorSlot,
 	releaseManagedFrame,
@@ -45,10 +45,10 @@ import {
 	TCP_STREAM_OPTIONS_KEEPALIVE_INTERVAL_SEC_OFF,
 	TCP_STREAM_OPTIONS_SIZE,
 	TRANSPORT_PROVIDER_SIZE,
-} from "@pancake/runtime/transport";
-import type { Codec, ProviderTarget, Ptr } from "@pancake/runtime/transport";
+} from "@glowcap/runtime/transport";
+import type { Codec, ProviderTarget, Ptr } from "@glowcap/runtime/transport";
 import { tcpS } from "./ffi.ts";
-import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@pancake/abi";
+import { RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@glowcap/abi";
 
 const OK = 0;
 
@@ -110,7 +110,7 @@ function encodeConfig(config: Config): Uint8Array {
 /** Build a typed per-operation override for `Runtime.connect`. */
 export function options(
 	value: OperationOptions = {},
-): import("@pancake/runtime").TransportOperationOptions {
+): import("@glowcap/runtime").TransportOperationOptions {
 	return {
 		transports: [TRANSPORT_TCP, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP],
 		data: encodeStreamOptions(value.stream),
@@ -119,17 +119,17 @@ export function options(
 
 // The calling thread's last error from the TCP transport, or null when there is
 // none. The transport keeps its own thread-local slot, so a tcp call's
-// diagnostic is read here, never from the core's `pancake_last_error`.
+// diagnostic is read here, never from the core's `glowcap_last_error`.
 function tcpLastError(): string | null {
-	return readErrorSlot(tcpS.pancake_tcp_last_error);
+	return readErrorSlot(tcpS.glowcap_tcp_last_error);
 }
 
 // A failed TCP-transport call: read its diagnostic from the transport's own
-// thread-local last-error and pass it explicitly, so `PancakeError` never
-// scrapes the unrelated core-family `pancake_last_error`.
+// thread-local last-error and pass it explicitly, so `GlowcapError` never
+// scrapes the unrelated core-family `glowcap_last_error`.
 function checkTcp(code: number): void {
 	if (code !== OK) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			code,
 			tcpLastError() ?? `tcp transport call failed (code ${code})`,
 		);
@@ -150,13 +150,13 @@ export class Connection {
 		this.#native = new NativeHandle(
 			"tcp connection",
 			raw,
-			(p) => checkTcp(tcpS.pancake_tcp_conn_shutdown(p)),
+			(p) => checkTcp(tcpS.glowcap_tcp_conn_shutdown(p)),
 			async (p) => {
 				try {
 					await checkDiagnosedCall(
 						"tcp",
 						"connection release",
-						(error, cap, errorLen) => tcpS.pancake_tcp_conn_release(p, error, cap, errorLen),
+						(error, cap, errorLen) => tcpS.glowcap_tcp_conn_release(p, error, cap, errorLen),
 					);
 				} catch (error) {
 					consumedReleaseFailure(error);
@@ -172,7 +172,7 @@ export class Connection {
 	[Symbol.dispose](): void {
 		this.close();
 	}
-	/** Wait for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF. */
+	/** Wait for one whole frame. Throws GLOWCAP_ERR_CLOSED on clean EOF. */
 	readFrame(): Promise<Uint8Array> {
 		requireOffThreadFfi("tcp", "readFrame");
 		return this.#reads.run(() =>
@@ -180,7 +180,7 @@ export class Connection {
 				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 				try {
 					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
-						tcpS.pancake_tcp_conn_read_frame(
+						tcpS.glowcap_tcp_conn_read_frame(
 							raw,
 							mf,
 							error,
@@ -203,7 +203,7 @@ export class Connection {
 		return this.#writes.run(frame, (owned) =>
 			this.#native.use(async (raw) => {
 				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
-					tcpS.pancake_tcp_conn_write_frame(
+					tcpS.glowcap_tcp_conn_write_frame(
 						raw,
 						owned.argument(),
 						error,
@@ -225,8 +225,8 @@ export class Listener {
 		this.#native = new NativeHandle(
 			"tcp listener",
 			raw,
-			(p) => tcpS.pancake_tcp_listener_shutdown(p),
-			(p) => tcpS.pancake_tcp_listener_release(p),
+			(p) => tcpS.glowcap_tcp_listener_shutdown(p),
+			(p) => tcpS.glowcap_tcp_listener_release(p),
 			(retirement) => this.#parent.retire(this, retirement),
 		);
 		if (!parent.adopt(this)) throw new Error("tcp netlayer is released");
@@ -239,14 +239,14 @@ export class Listener {
 	}
 	port(): number {
 		const out = new Uint8Array(2);
-		checkTcp(tcpS.pancake_tcp_listener_port(this.#native.borrow(), out));
+		checkTcp(tcpS.glowcap_tcp_listener_port(this.#native.borrow(), out));
 		return new DataView(out.buffer).getUint16(0, true);
 	}
 	/** Borrowed listening descriptor for integration with an external reactor.
 	 * The listener owns it; do not close it or retain it after `close`. */
 	readinessFd(): number {
 		const out = new Uint8Array(4);
-		checkTcp(tcpS.pancake_tcp_listener_readiness_fd(this.#native.borrow(), out));
+		checkTcp(tcpS.glowcap_tcp_listener_readiness_fd(this.#native.borrow(), out));
 		return new DataView(out.buffer).getInt32(0, true);
 	}
 	accept(
@@ -260,7 +260,7 @@ export class Listener {
 			this.#native.use(async (raw) => {
 				const out = new Uint8Array(8);
 				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
-					tcpS.pancake_tcp_accept(
+					tcpS.glowcap_tcp_accept(
 						raw,
 						options == null ? null : encodeStreamOptions(options),
 						codecId(codec),
@@ -282,13 +282,13 @@ export class Netlayer {
 	constructor(config: Config = {}) {
 		requireOffThreadFfi("tcp", "native transport lifecycle");
 		const out = new Uint8Array(8);
-		checkTcp(tcpS.pancake_tcp_netlayer_new(encodeConfig(config), out));
+		checkTcp(tcpS.glowcap_tcp_netlayer_new(encodeConfig(config), out));
 		const native = outPointer(out);
 		this.#native = new NativeParent(
 			"tcp netlayer",
 			native,
-			(p) => tcpS.pancake_tcp_netlayer_shutdown(p),
-			(p) => tcpS.pancake_tcp_netlayer_release(p),
+			(p) => tcpS.glowcap_tcp_netlayer_shutdown(p),
+			(p) => tcpS.glowcap_tcp_netlayer_release(p),
 		);
 	}
 
@@ -306,7 +306,7 @@ export class Netlayer {
 		const h = new TextEncoder().encode(host);
 		const out = new Uint8Array(8);
 		checkTcp(
-			tcpS.pancake_tcp_listen(this.#native.borrow(), h, BigInt(h.length), port, out),
+			tcpS.glowcap_tcp_listen(this.#native.borrow(), h, BigInt(h.length), port, out),
 		);
 		return new Listener(outPointer(out), this.#native);
 	}
@@ -326,7 +326,7 @@ export class Netlayer {
 				"tcp",
 				"connect",
 				(error, cap, errorLen) =>
-					tcpS.pancake_tcp_connect(
+					tcpS.glowcap_tcp_connect(
 						raw,
 						h,
 						BigInt(h.length),
@@ -350,21 +350,21 @@ export class Netlayer {
  * construction reference; no binding-side owner is retained. */
 export function installProvider(loop: ProviderTarget, config: Config = {}): void {
 	const out = new Uint8Array(8);
-	checkTcp(tcpS.pancake_tcp_netlayer_new(encodeConfig(config), out));
+	checkTcp(tcpS.glowcap_tcp_netlayer_new(encodeConfig(config), out));
 	const raw = outPointer(out);
 	try {
 		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
-		checkTcp(tcpS.pancake_tcp_transport_provider(raw, packageBytes));
+		checkTcp(tcpS.glowcap_tcp_transport_provider(raw, packageBytes));
 		loop.installProvider((register) => register(packageBytes));
 	} finally {
 		// This is a reference drop, not connection shutdown. On success the driver
 		// owns the remaining lease; on failure this retires the uninstalled runtime.
-		tcpS.pancake_tcp_netlayer_release(raw);
+		tcpS.glowcap_tcp_netlayer_release(raw);
 	}
 }
 
 /** Configure this archive's tcp/keyed-tcp/noise-tcp package for `connect`. */
-export function provider(config: Config = {}): import("@pancake/runtime").DriverProvider {
+export function provider(config: Config = {}): import("@glowcap/runtime").DriverProvider {
 	return {
 		install(loop) {
 			installProvider(loop, config);

@@ -1,7 +1,7 @@
 //! Toolchain gate — holds `zig build check` to a declared set of runtimes.
 //!
 //! `check` is hermetic in the sense that matters: no network, no submodules, no
-//! live peer, no authority outside pancake. That is the axis `check-external`
+//! live peer, no authority outside glowcap. That is the axis `check-external`
 //! divides on. It is *not* Zig-only, and the [cli rule](../../.agents/rules/cli.md)
 //! promised for a long time that it was, even though the hermetic CLI tests link
 //! the iroh sidecar staticlib and two gated harnesses invoke host tools.

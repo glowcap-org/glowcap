@@ -4,20 +4,20 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}" checksums
-pancake_require_devcontainer "image/zls"
+glowcap_devcontainer_init "${dir}" checksums
+glowcap_require_devcontainer "image/zls"
 
-if ! pancake_devcontainer_zls_enabled; then
+if ! glowcap_devcontainer_zls_enabled; then
     echo "image/zls: skipped; pinned Zig is ahead of supported ZLS"
     exit 0
 fi
 
 tarball="zls-${ZLS_SOURCE_REVISION}.tar.gz"
 url="https://github.com/zigtools/zls/archive/${ZLS_SOURCE_REVISION}.tar.gz"
-tmp="$(mktemp -d -t pancake-zls-install-XXXXXX)"
+tmp="$(mktemp -d -t glowcap-zls-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
 
-pancake_fetch_verified "${url}" "${tmp}/${tarball}" "${ZLS_SOURCE_SHA256}"
+glowcap_fetch_verified "${url}" "${tmp}/${tarball}" "${ZLS_SOURCE_SHA256}"
 
 tar -xzf "${tmp}/${tarball}" --strip-components=1 -C "${tmp}"
 (

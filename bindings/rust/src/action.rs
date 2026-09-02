@@ -1,4 +1,4 @@
-//! Host action park + execute: run `pancake_host_pump_drain` with sync
+//! Host action park + execute: run `glowcap_host_pump_drain` with sync
 //! park-only hooks, then honor each parked arm (dial / flush / close /
 //! gift-id / settle / fail). Decode/types and the exhaustive dispatch come
 //! from the generated [`host_action_gen`](crate::host_action_gen) module
@@ -16,13 +16,13 @@ use crate::host_action_gen::{self, HostAction, HostActionHandlers};
 use crate::sys::host as ffi;
 use crate::{sys, Error, Result};
 
-/// Sync park arm for every `PancakeHostPumpHooks` slot: decode+append, set
+/// Sync park arm for every `GlowcapHostPumpHooks` slot: decode+append, set
 /// progress, return. Views are copied inside [`host_action_gen::decode`]
 /// before the next pop frees them.
 unsafe extern "C" fn park_arm(
 	ctx: *mut core::ffi::c_void,
-	_host: *mut ffi::PancakeHost,
-	action: *const ffi::PancakeHostAction,
+	_host: *mut ffi::GlowcapHost,
+	action: *const ffi::GlowcapHostAction,
 	out_progressed: *mut u32,
 ) -> i32 {
 	if ctx.is_null() || action.is_null() {
@@ -41,12 +41,12 @@ unsafe extern "C" fn park_arm(
 	sys::OK
 }
 
-/// Run `pancake_host_pump_drain` with park-only arms; return decoded actions
+/// Run `glowcap_host_pump_drain` with park-only arms; return decoded actions
 /// in queue order. The hooks struct and the parked vec stay alive for the
 /// duration of the C call.
 pub(crate) fn park(host: &HostShared) -> Result<(Vec<HostAction>, bool)> {
 	let mut parked: Vec<HostAction> = Vec::new();
-	let hooks = ffi::PancakeHostPumpHooks {
+	let hooks = ffi::GlowcapHostPumpHooks {
 		ctx: &mut parked as *mut Vec<HostAction> as *mut core::ffi::c_void,
 		flush: Some(park_arm),
 		close: Some(park_arm),
@@ -56,7 +56,7 @@ pub(crate) fn park(host: &HostShared) -> Result<(Vec<HostAction>, bool)> {
 	};
 	let mut acted: u32 = 0;
 	let mut yielded: u32 = 0;
-	check_host(unsafe { ffi::pancake_host_pump_drain(host.raw(), &hooks, &mut acted, &mut yielded) })?;
+	check_host(unsafe { ffi::glowcap_host_pump_drain(host.raw(), &hooks, &mut acted, &mut yielded) })?;
 	Ok((parked, yielded != 0))
 }
 
@@ -107,13 +107,13 @@ impl HostActionHandlers for Handlers<'_> {
 			Ok(false) => {
 				let reason = b"dial executor unavailable";
 				check_host(unsafe {
-					ffi::pancake_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
+					ffi::glowcap_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
 				})
 			}
 			Err(primary) => {
 				let reason = primary.to_string();
 				let report = check_host(unsafe {
-					ffi::pancake_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
+					ffi::glowcap_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
 				});
 				match report {
 					Ok(()) => Ok(()),
@@ -160,10 +160,10 @@ impl HostActionHandlers for Handlers<'_> {
 			},
 			|gift_id| {
 				check_host(unsafe {
-					ffi::pancake_host_provide_gift_id(self.host.raw(), ticket, gift_id.as_ptr(), gift_id.len())
+					ffi::glowcap_host_provide_gift_id(self.host.raw(), ticket, gift_id.as_ptr(), gift_id.len())
 				})
 			},
-			|| check_host(unsafe { ffi::pancake_host_gift_id_failed(self.host.raw(), ticket) }),
+			|| check_host(unsafe { ffi::glowcap_host_gift_id_failed(self.host.raw(), ticket) }),
 		)
 	}
 
@@ -225,7 +225,7 @@ mod tests {
 	#[test]
 	fn unknown_native_action_kind_is_a_returned_callback_failure() {
 		let mut parked = Vec::new();
-		let mut action: ffi::PancakeHostAction = unsafe { core::mem::zeroed() };
+		let mut action: ffi::GlowcapHostAction = unsafe { core::mem::zeroed() };
 		action.kind = u32::MAX;
 		let error = host_action_gen::decode(&action)
 			.err()
@@ -247,7 +247,7 @@ mod tests {
 	#[test]
 	fn unknown_nested_argument_kind_is_a_returned_callback_failure() {
 		let mut parked = Vec::new();
-		let mut action: ffi::PancakeHostAction = unsafe { core::mem::zeroed() };
+		let mut action: ffi::GlowcapHostAction = unsafe { core::mem::zeroed() };
 		action.kind = host_action_gen::HOST_ACTION_SETTLE;
 		action.value.kind = u32::MAX;
 		let error = host_action_gen::decode(&action)

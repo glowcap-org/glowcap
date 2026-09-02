@@ -1,6 +1,6 @@
 /**
  * Recording layer — the append-only observed history of a
- * pancake document. See `docs/data-model.md` for the three-layer
+ * glowcap document. See `docs/data-model.md` for the three-layer
  * architecture (identity / behavior / recording).
  *
  * A recording is organized into named **sources**. Each source is
@@ -252,7 +252,7 @@ export const Observation = z.discriminatedUnion("kind", [
 export type Observation = z.infer<typeof Observation>;
 
 export const RecordingSourceMeta = z.object({
-	/** Emitter family / kind — "pancake-host" (a live host tap), "griddle"
+	/** Emitter family / kind — "glowcap-host" (a live host tap), "griddle"
 	 * (the deterministic simulator), etc. */
 	kind: z.string().min(1),
 	version: z.string().optional(),

@@ -1,4 +1,4 @@
-"""A small, friendly client for the rooms chat, built on pancake actors.
+"""A small, friendly client for the rooms chat, built on glowcap actors.
 
 On the connection API this is barely a layer: connect, fetch the directory by
 name, ask it to open or enter a room (which hands back a live reference to that
@@ -31,7 +31,7 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path()
 
-from pancake import (  # noqa: E402
+from glowcap import (  # noqa: E402
     tcp,
     Host,
     Session,
@@ -39,8 +39,8 @@ from pancake import (  # noqa: E402
     designator_host_port,
     parse_locator,
 )
-from pancake._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
-from pancake.iroh import IrohConfig, Reachability, provider as iroh_provider  # noqa: E402
+from glowcap._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
+from glowcap.iroh import IrohConfig, Reachability, provider as iroh_provider  # noqa: E402
 
 DIRECTORY = "directory"
 OPEN, ENTER = "open", "enter"

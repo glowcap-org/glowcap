@@ -5,10 +5,10 @@
 // broadcast. Product composition installs the onion provider explicitly; the
 // generic driver and binding remain unaware of concrete transports.
 
-import { formatPeerUri, parseLocator, Runtime } from "@pancake/runtime";
-import type { Session } from "@pancake/runtime";
-import { DriverListener, DriverLoop } from "@pancake/runtime/transport";
-import { installProvider, provider } from "@pancake/onion";
+import { formatPeerUri, parseLocator, Runtime } from "@glowcap/runtime";
+import type { Session } from "@glowcap/runtime";
+import { DriverListener, DriverLoop } from "@glowcap/runtime/transport";
+import { installProvider, provider } from "@glowcap/onion";
 import { runClient } from "../clients/deno/client.ts";
 import type { RoomsDial } from "../lib/locator.ts";
 import { roomsHost } from "../lib/locator.ts";
@@ -24,8 +24,8 @@ function requiredEnv(name: string): string {
 	return value;
 }
 
-const socks = requiredEnv("PANCAKE_ONION_SOCKS");
-const control = requiredEnv("PANCAKE_ONION_CONTROL");
+const socks = requiredEnv("GLOWCAP_ONION_SOCKS");
+const control = requiredEnv("GLOWCAP_ONION_CONTROL");
 
 function openLoop(controlEndpoint?: string): DriverLoop {
 	const loop = DriverLoop.takeHost(roomsHost(), {

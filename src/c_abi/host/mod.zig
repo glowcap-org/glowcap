@@ -1,49 +1,49 @@
-//! The byte-fed host tier's public C ABI — `libpancake_host` (ADR-0072).
+//! The byte-fed host tier's public C ABI — `libglowcap_host` (ADR-0072).
 //!
-//! One `PancakeHost` is the multi-session CapTP **host** for an embedder that
+//! One `GlowcapHost` is the multi-session CapTP **host** for an embedder that
 //! owns its own loop, sockets, and entropy: it wraps `driver_core.Host`, so
 //! everything the node decides — where a token routes, which exporter a give
 //! withdraws from, when a served reply becomes a signed give — runs inside the
 //! library, and the embedder's whole job is moving bytes and answering the
 //! action queue. Inbound transport packets enter through
-//! `pancake_host_session_feed_packet` (or the narrower frame/byte-stream
-//! verbs), outbound packets leave through `pancake_host_session_take_packet`,
+//! `glowcap_host_session_feed_packet` (or the narrower frame/byte-stream
+//! verbs), outbound packets leave through `glowcap_host_session_take_packet`,
 //! and the host's own effects (dial an exporter, draw gift-id entropy, flush a
-//! session) surface as `PancakeHostAction`s the embedder drains with
-//! `pancake_host_next_action` and answers with `pancake_host_dialed` /
-//! `pancake_host_dial_failed` / `pancake_host_provide_gift_id` /
-//! `pancake_host_gift_id_failed`. Settlements ride the same queue: a vow's
+//! session) surface as `GlowcapHostAction`s the embedder drains with
+//! `glowcap_host_next_action` and answers with `glowcap_host_dialed` /
+//! `glowcap_host_dial_failed` / `glowcap_host_provide_gift_id` /
+//! `glowcap_host_gift_id_failed`. Settlements ride the same queue: a vow's
 //! outcome pops as a `SETTLE` or `FAIL` action
 //! whose `ticket` is the vow id, so one drain routes every outcome and there
 //! is no listener to register before the bytes that settle it.
 //!
 //! One thread (or one green-thread scheduler) drives one host; nothing here
 //! locks. The one callback — a behavior answering a deliver — fires on the
-//! thread executing the enclosing `pancake_host_*` call. Inside it the
+//! thread executing the enclosing `glowcap_host_*` call. Inside it the
 //! enqueueing verbs are legal (send/tell, vow verbs, turn verbs, gc release,
 //! exporter location) and are encoded and pumped when the enclosing call
 //! unwinds; the host-driving verbs (feed, feed_bytes, feed_packet,
 //! resume_feed, take_packet, take_outbound, next_action,
 //! the dial/gift completions, open, publish/spawn,
 //! fetch/enliven, break_far_vows, transport_closed, release) are refused with
-//! `PANCAKE_ERR_INVALID_ARGUMENT`.
+//! `GLOWCAP_ERR_INVALID_ARGUMENT`.
 //!
-//! This is a *separate archive* from `libpancake_ocapn` (ADR-0059): it imports
+//! This is a *separate archive* from `libglowcap_ocapn` (ADR-0059): it imports
 //! the shared vocabulary leaf (`c_abi_shared` — frame/argument types, codes,
 //! allocation, the per-thread last-error slot) plus the `driver_core` and
-//! `actors` layers it bridges, so it exports only the `pancake_host_*` family
+//! `actors` layers it bridges, so it exports only the `glowcap_host_*` family
 //! and shares no core symbol with the ocapn archive. The family reads for its
 //! entry type `Host` while the archive is named for its Zig module, the same
-//! divergence `libpancake_net_transport_tcp` carries toward `pancake_tcp_*`. A
-//! consumer links this alongside `libpancake_ocapn` and reuses the shared
+//! divergence `libglowcap_net_transport_tcp` carries toward `glowcap_tcp_*`. A
+//! consumer links this alongside `libglowcap_ocapn` and reuses the shared
 //! value types by layout. The archive carries its own last-error slot, read
-//! through `pancake_host_last_error`.
+//! through `glowcap_host_last_error`.
 //!
 //! This file is the archive root, the way `src/c_abi/ocapn/mod.zig` is: it owns
 //! the public C vocabulary (the opaque handles, the action and dial-plan
 //! structs, the callback typedefs, and the discriminant constants) from
 //! focused POD vocabulary leaves and
-//! re-exports the `pancake_host_*` exports that live in the handle-family
+//! re-exports the `glowcap_host_*` exports that live in the handle-family
 //! leaves, so the header generator and the binding mirrors see the whole ABI
 //! from one place. The exports themselves are split by responsibility:
 //! `host.zig` owns host lifecycle, the pure dial/accept planners, the action
@@ -53,7 +53,7 @@
 //! `session/lifecycle.zig` owns open/close/release; `session/pump.zig` owns the
 //! session byte and packet pump; `session.zig` owns publish/spawn, fetch/enliven,
 //! send/tell/vows, and abort diagnostics; `turn.zig` owns the turn-time verbs;
-//! `pump.zig` owns the optional `pancake_host_pump_drain` convenience;
+//! `pump.zig` owns the optional `glowcap_host_pump_drain` convenience;
 //! and `common.zig` holds the internal glue those leaves share (the `Instance`
 //! state, the behavior bridge, marshalling, and the error projection).
 
@@ -82,16 +82,16 @@ const common = @import("common.zig");
 const trace_abi = @import("trace_abi.zig");
 const planning_abi = @import("planning_abi.zig");
 
-pub const PancakeLocatorHintView = shared.PancakeLocatorHintView;
-pub const PancakeLocatorView = shared.PancakeLocatorView;
+pub const GlowcapLocatorHintView = shared.GlowcapLocatorHintView;
+pub const GlowcapLocatorView = shared.GlowcapLocatorView;
 
-pub const PANCAKE_DESIGNATOR_SCHEME_ADDRESS = shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_ADDRESS;
-pub const PANCAKE_DESIGNATOR_SCHEME_KEY = shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY;
-pub const PANCAKE_HOST_OUTBOUND_PREFIX_CAP: usize = 32;
-pub const PANCAKE_HOST_DURABLE_ENTROPY_LEN: usize = engine.durable_swiss_entropy_len;
-pub const PANCAKE_HOST_DURABLE_SWISS_LEN: usize = engine.durable_swiss_len;
+pub const GLOWCAP_DESIGNATOR_SCHEME_ADDRESS = shared.transport_provider.GLOWCAP_DESIGNATOR_SCHEME_ADDRESS;
+pub const GLOWCAP_DESIGNATOR_SCHEME_KEY = shared.transport_provider.GLOWCAP_DESIGNATOR_SCHEME_KEY;
+pub const GLOWCAP_HOST_OUTBOUND_PREFIX_CAP: usize = 32;
+pub const GLOWCAP_HOST_DURABLE_ENTROPY_LEN: usize = engine.durable_swiss_entropy_len;
+pub const GLOWCAP_HOST_DURABLE_SWISS_LEN: usize = engine.durable_swiss_len;
 comptime {
-    std.debug.assert(PANCAKE_HOST_OUTBOUND_PREFIX_CAP >= foundation.stream_framing.prefix_buffer_bytes);
+    std.debug.assert(GLOWCAP_HOST_OUTBOUND_PREFIX_CAP >= foundation.stream_framing.prefix_buffer_bytes);
 }
 
 /// Zig-only seams for the sibling driver archive (ADR-0112). Nothing in this
@@ -101,14 +101,14 @@ pub const embedding = @import("embedding.zig");
 /// Zig-only seams for exercising C-boundary transactions without exporting
 /// another ABI symbol. Production consumers cannot name this through a header.
 pub const testing = if (builtin.is_test) struct {
-    pub fn importObject(raw: ?*PancakeHostSession, position: u64) !void {
+    pub fn importObject(raw: ?*GlowcapHostSession, position: u64) !void {
         const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
         try session_ptr.served.port.peer.importObject(position);
     }
 
     pub fn projectArgs(
-        host_handle: ?*PancakeHost,
-        raw: ?*PancakeHostSession,
+        host_handle: ?*GlowcapHost,
+        raw: ?*GlowcapHostSession,
         allocator: @import("std").mem.Allocator,
         args: []const model.Argument,
     ) !void {
@@ -117,17 +117,17 @@ pub const testing = if (builtin.is_test) struct {
         _ = try common.hostArgsToC(inst, session_ptr, allocator, args);
     }
 
-    pub fn liveCapabilityCount(host_handle: ?*PancakeHost) !usize {
+    pub fn liveCapabilityCount(host_handle: ?*GlowcapHost) !usize {
         const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
         return inst.core.capabilities.liveCount();
     }
 
-    pub fn configuredSessionLimits(host_handle: ?*PancakeHost) !engine.SessionLimits {
+    pub fn configuredSessionLimits(host_handle: ?*GlowcapHost) !engine.SessionLimits {
         const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
         return inst.core.opts.limits;
     }
 
-    pub fn importRefcount(raw: ?*PancakeHostSession, position: u64) !u64 {
+    pub fn importRefcount(raw: ?*GlowcapHostSession, position: u64) !u64 {
         const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
         return session_ptr.served.port.peer.session_state.importRefcount(.from(position));
     }
@@ -135,19 +135,19 @@ pub const testing = if (builtin.is_test) struct {
 
 // ── Shared value vocabulary (by layout, from c_abi_shared) ────────────────────
 
-/// The allocation context (`pancake_host_new_in`), shared with
-/// `libpancake_ocapn` by layout.
-pub const PancakeContext = shared.PancakeContext;
+/// The allocation context (`glowcap_host_new_in`), shared with
+/// `libglowcap_ocapn` by layout.
+pub const GlowcapContext = shared.GlowcapContext;
 
 // ── Handles ──────────────────────────────────────────────────────────────────
 
 /// A byte-fed multi-session CapTP host: one identity, one routing/redeem
-/// authority, many sessions. Created with `pancake_host_new`; released with
-/// `pancake_host_release`.
+/// authority, many sessions. Created with `glowcap_host_new`; released with
+/// `glowcap_host_release`.
 /// The structs the wasm32 layout descriptor reports and the TypeScript
 /// `WASM_LAYOUT_STRUCTS` manifest names, in one canonical order.
 /// This table is the single authority both consumers read — the wasm
-/// module's `pancake_wasm_abi_layout` walks it to emit offsets, and
+/// module's `glowcap_wasm_abi_layout` walks it to emit offsets, and
 /// `tools/gen/binding/ts_abi.zig` walks it to emit the manifest — so a
 /// struct added to the ABI cannot reach one mirror and miss the other
 /// (the drift that once shipped a page demanding a layout the wasm
@@ -165,33 +165,33 @@ pub const WasmLayoutSpec = struct {
 };
 
 pub const wasm_layout_manifest = [_]WasmLayoutSpec{
-    .{ .prefix = "MANAGED_FRAME", .T = shared.PancakeManagedFrame },
-    .{ .prefix = "REF", .T = shared.PancakeReference },
-    .{ .prefix = "ARG", .T = shared.PancakeArgument },
-    .{ .prefix = "FRAME", .T = shared.PancakeFrame },
-    .{ .prefix = "LAST_ABORT", .T = shared.PancakeLastAbort },
-    .{ .prefix = "ALLOCATOR", .T = shared.PancakeAllocator },
-    .{ .prefix = "HOST_ACTION", .T = PancakeHostAction },
-    .{ .prefix = "HOST_PUMP_HOOKS", .T = PancakeHostPumpHooks },
-    .{ .prefix = "DIAL_PLAN", .T = PancakeDialPlan, .native_mirror = false },
-    .{ .prefix = "PARTNER_IDENTITY", .T = PancakePartnerIdentity },
-    .{ .prefix = "TRACE_EVENT", .T = PancakeTraceEvent },
-    .{ .prefix = "LOCATOR_HINT_VIEW", .T = shared.PancakeLocatorHintView },
-    .{ .prefix = "LOCATOR_VIEW", .T = shared.PancakeLocatorView },
-    .{ .prefix = "CLOSE_OPTIONS", .T = shared.PancakeCloseOptions },
-    .{ .prefix = "SESSION_LIMIT_OPTIONS", .T = PancakeSessionLimitOptions },
-    .{ .prefix = "FAILURE_REPORT", .T = shared.PancakeFailureReport },
-    .{ .prefix = "FAILURE_EVENT", .T = shared.PancakeFailureEvent },
+    .{ .prefix = "MANAGED_FRAME", .T = shared.GlowcapManagedFrame },
+    .{ .prefix = "REF", .T = shared.GlowcapReference },
+    .{ .prefix = "ARG", .T = shared.GlowcapArgument },
+    .{ .prefix = "FRAME", .T = shared.GlowcapFrame },
+    .{ .prefix = "LAST_ABORT", .T = shared.GlowcapLastAbort },
+    .{ .prefix = "ALLOCATOR", .T = shared.GlowcapAllocator },
+    .{ .prefix = "HOST_ACTION", .T = GlowcapHostAction },
+    .{ .prefix = "HOST_PUMP_HOOKS", .T = GlowcapHostPumpHooks },
+    .{ .prefix = "DIAL_PLAN", .T = GlowcapDialPlan, .native_mirror = false },
+    .{ .prefix = "PARTNER_IDENTITY", .T = GlowcapPartnerIdentity },
+    .{ .prefix = "TRACE_EVENT", .T = GlowcapTraceEvent },
+    .{ .prefix = "LOCATOR_HINT_VIEW", .T = shared.GlowcapLocatorHintView },
+    .{ .prefix = "LOCATOR_VIEW", .T = shared.GlowcapLocatorView },
+    .{ .prefix = "CLOSE_OPTIONS", .T = shared.GlowcapCloseOptions },
+    .{ .prefix = "SESSION_LIMIT_OPTIONS", .T = GlowcapSessionLimitOptions },
+    .{ .prefix = "FAILURE_REPORT", .T = shared.GlowcapFailureReport },
+    .{ .prefix = "FAILURE_EVENT", .T = shared.GlowcapFailureEvent },
 };
 
-pub const PancakeHost = opaque {};
+pub const GlowcapHost = opaque {};
 
-pub const PancakeCloseOptions = shared.PancakeCloseOptions;
-/// Current layout version for `PancakeSessionLimitOptions`.
-pub const PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION: u32 = 1;
+pub const GlowcapCloseOptions = shared.GlowcapCloseOptions;
+/// Current layout version for `GlowcapSessionLimitOptions`.
+pub const GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION: u32 = 1;
 /// Selective overrides for the limits copied into future sessions. A zero
 /// field leaves the Host's current value unchanged.
-pub const PancakeSessionLimitOptions = extern struct {
+pub const GlowcapSessionLimitOptions = extern struct {
     abi_version: u32,
     struct_size: usize,
     max_frame_bytes: usize,
@@ -199,15 +199,15 @@ pub const PancakeSessionLimitOptions = extern struct {
     outbound_high_water_bytes: usize,
     max_retained_sent_answer_bytes: usize,
 };
-pub const PANCAKE_PENDING_CANCEL = shared.PANCAKE_PENDING_CANCEL;
-pub const PANCAKE_PENDING_FINISH = shared.PANCAKE_PENDING_FINISH;
-pub const PANCAKE_CLOSE_OPTIONS_ABI_VERSION = shared.PANCAKE_CLOSE_OPTIONS_ABI_VERSION;
-pub const PANCAKE_CLOSE_MAX_GRACE_MS = shared.PANCAKE_CLOSE_MAX_GRACE_MS;
-pub const PANCAKE_CLOSE_GRACE_UNSPECIFIED = shared.PANCAKE_CLOSE_GRACE_UNSPECIFIED;
-pub const PANCAKE_CLOSE_GRACE_FINITE = shared.PANCAKE_CLOSE_GRACE_FINITE;
-pub const PANCAKE_CLOSE_GRACE_UNBOUNDED = shared.PANCAKE_CLOSE_GRACE_UNBOUNDED;
+pub const GLOWCAP_PENDING_CANCEL = shared.GLOWCAP_PENDING_CANCEL;
+pub const GLOWCAP_PENDING_FINISH = shared.GLOWCAP_PENDING_FINISH;
+pub const GLOWCAP_CLOSE_OPTIONS_ABI_VERSION = shared.GLOWCAP_CLOSE_OPTIONS_ABI_VERSION;
+pub const GLOWCAP_CLOSE_MAX_GRACE_MS = shared.GLOWCAP_CLOSE_MAX_GRACE_MS;
+pub const GLOWCAP_CLOSE_GRACE_UNSPECIFIED = shared.GLOWCAP_CLOSE_GRACE_UNSPECIFIED;
+pub const GLOWCAP_CLOSE_GRACE_FINITE = shared.GLOWCAP_CLOSE_GRACE_FINITE;
+pub const GLOWCAP_CLOSE_GRACE_UNBOUNDED = shared.GLOWCAP_CLOSE_GRACE_UNBOUNDED;
 comptime {
-    std.debug.assert(PANCAKE_CLOSE_MAX_GRACE_MS == driver_core.max_finite_close_grace_ms);
+    std.debug.assert(GLOWCAP_CLOSE_MAX_GRACE_MS == driver_core.max_finite_close_grace_ms);
 }
 
 pub const CloseOptionsError = error{
@@ -221,230 +221,230 @@ pub const CloseOptionsError = error{
 /// Validate the C record layout, map its discriminants, and delegate all
 /// pending-work semantics to the shared sans-I/O policy constructor. Archive
 /// faces add only their diagnostic prefix.
-pub fn parseCloseOptions(options: ?*const PancakeCloseOptions) CloseOptionsError!driver_core.PendingWork {
+pub fn parseCloseOptions(options: ?*const GlowcapCloseOptions) CloseOptionsError!driver_core.PendingWork {
     const opts = options orelse return error.NullPointer;
-    if (opts.abi_version != PANCAKE_CLOSE_OPTIONS_ABI_VERSION or
-        opts.struct_size < @sizeOf(PancakeCloseOptions)) return error.UnsupportedLayout;
+    if (opts.abi_version != GLOWCAP_CLOSE_OPTIONS_ABI_VERSION or
+        opts.struct_size < @sizeOf(GlowcapCloseOptions)) return error.UnsupportedLayout;
     const pending: driver_core.PendingWorkInput.Pending = switch (opts.pending) {
-        PANCAKE_PENDING_CANCEL => .cancel,
-        PANCAKE_PENDING_FINISH => .finish,
+        GLOWCAP_PENDING_CANCEL => .cancel,
+        GLOWCAP_PENDING_FINISH => .finish,
         else => return error.InvalidPending,
     };
     const grace: driver_core.PendingWorkInput.GraceInput = switch (opts.grace_mode) {
-        PANCAKE_CLOSE_GRACE_UNSPECIFIED => if (opts.grace_ms == 0) .unspecified else return error.InvalidGraceValue,
-        PANCAKE_CLOSE_GRACE_FINITE => .{ .finite_ms = opts.grace_ms },
-        PANCAKE_CLOSE_GRACE_UNBOUNDED => if (opts.grace_ms == 0) .unbounded else return error.InvalidGraceValue,
+        GLOWCAP_CLOSE_GRACE_UNSPECIFIED => if (opts.grace_ms == 0) .unspecified else return error.InvalidGraceValue,
+        GLOWCAP_CLOSE_GRACE_FINITE => .{ .finite_ms = opts.grace_ms },
+        GLOWCAP_CLOSE_GRACE_UNBOUNDED => if (opts.grace_ms == 0) .unbounded else return error.InvalidGraceValue,
         else => return error.InvalidGraceMode,
     };
     return (driver_core.PendingWorkInput{ .pending = pending, .grace = grace }).resolve();
 }
 
 pub fn closeOptionsErrorCode(scope: []const u8, err: CloseOptionsError) i32 {
-    if (err == error.NullPointer) return shared.PANCAKE_ERR_NULL_POINTER;
+    if (err == error.NullPointer) return shared.GLOWCAP_ERR_NULL_POINTER;
     const detail = switch (err) {
         error.NullPointer => unreachable,
-        error.UnsupportedLayout => "unsupported PancakeCloseOptions layout",
+        error.UnsupportedLayout => "unsupported GlowcapCloseOptions layout",
         error.CancelGraceSpecified => "cancel close does not accept grace",
         error.FinishGraceRequired => "finish close requires finite or unbounded grace",
-        error.InvalidGraceMode => "close grace_mode is not a PANCAKE_CLOSE_GRACE_* value",
+        error.InvalidGraceMode => "close grace_mode is not a GLOWCAP_CLOSE_GRACE_* value",
         error.InvalidGraceValue => "unspecified or unbounded close grace requires grace_ms == 0",
-        error.InvalidPending => "close pending must be PANCAKE_PENDING_CANCEL or PANCAKE_PENDING_FINISH",
+        error.InvalidPending => "close pending must be GLOWCAP_PENDING_CANCEL or GLOWCAP_PENDING_FINISH",
     };
     shared.setLastError("{s}: {s}", .{ scope, detail });
-    return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+    return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 }
 
-/// `pancake_host_lifecycle_state`: the Host still admits application work.
-pub const PANCAKE_LIFECYCLE_ACTIVE: u32 = 0;
-/// `pancake_host_lifecycle_state`: admission is sealed while admitted work runs.
-pub const PANCAKE_LIFECYCLE_FINISHING: u32 = 1;
-/// `pancake_host_lifecycle_state`: terminal session shutdown is in progress.
-pub const PANCAKE_LIFECYCLE_TERMINATING: u32 = 2;
-/// `pancake_host_lifecycle_state`: every session and queued Host effect retired.
-pub const PANCAKE_LIFECYCLE_CLOSED: u32 = 3;
+/// `glowcap_host_lifecycle_state`: the Host still admits application work.
+pub const GLOWCAP_LIFECYCLE_ACTIVE: u32 = 0;
+/// `glowcap_host_lifecycle_state`: admission is sealed while admitted work runs.
+pub const GLOWCAP_LIFECYCLE_FINISHING: u32 = 1;
+/// `glowcap_host_lifecycle_state`: terminal session shutdown is in progress.
+pub const GLOWCAP_LIFECYCLE_TERMINATING: u32 = 2;
+/// `glowcap_host_lifecycle_state`: every session and queued Host effect retired.
+pub const GLOWCAP_LIFECYCLE_CLOSED: u32 = 3;
 
-/// One byte-fed CapTP session a host minted (`pancake_host_session_open_dialed_locator` /
-/// `pancake_host_session_open_accepted`). Released with
-/// `pancake_host_session_release`, always before its host.
-pub const PancakeHostSession = opaque {};
+/// One byte-fed CapTP session a host minted (`glowcap_host_session_open_dialed_locator` /
+/// `glowcap_host_session_open_accepted`). Released with
+/// `glowcap_host_session_release`, always before its host.
+pub const GlowcapHostSession = opaque {};
 
 /// The current turn, passed to a behavior callback so it can forward and
-/// eventual-send while handling a deliver (`pancake_host_turn_*`). Valid only
+/// eventual-send while handling a deliver (`glowcap_host_turn_*`). Valid only
 /// for the duration of that callback: stashing the pointer and using it after
 /// the callback returns is undefined behavior.
-pub const PancakeHostTurn = opaque {};
+pub const GlowcapHostTurn = opaque {};
 
 // ── Action queue vocabulary ──────────────────────────────────────────────────
 
-/// `PancakeHostAction.kind`: dial the exporter named by `ticket` (borrow the
-/// pending view with `pancake_host_pending_dial`) and report back through
-/// `pancake_host_dialed` / `pancake_host_dial_failed`.
-pub const PANCAKE_HOST_ACTION_DIAL: u32 = 0;
-/// `PancakeHostAction.kind`: outbound transport packets may be ready on
+/// `GlowcapHostAction.kind`: dial the exporter named by `ticket` (borrow the
+/// pending view with `glowcap_host_pending_dial`) and report back through
+/// `glowcap_host_dialed` / `glowcap_host_dial_failed`.
+pub const GLOWCAP_HOST_ACTION_DIAL: u32 = 0;
+/// `GlowcapHostAction.kind`: outbound transport packets may be ready on
 /// `session`; drain the session's transport output until WOULD_BLOCK and write it.
-pub const PANCAKE_HOST_ACTION_FLUSH: u32 = 1;
-/// `PancakeHostAction.kind`: draw 32 random bytes and feed them back through
-/// `pancake_host_provide_gift_id` with this action's `ticket`.
-pub const PANCAKE_HOST_ACTION_NEED_GIFT_ID: u32 = 2;
-/// `PancakeHostAction.kind`: the vow `ticket` names settled fulfilled with
+pub const GLOWCAP_HOST_ACTION_FLUSH: u32 = 1;
+/// `GlowcapHostAction.kind`: draw 32 random bytes and feed them back through
+/// `glowcap_host_provide_gift_id` with this action's `ticket`.
+pub const GLOWCAP_HOST_ACTION_NEED_GIFT_ID: u32 = 2;
+/// `GlowcapHostAction.kind`: the vow `ticket` names settled fulfilled with
 /// `value`; route the outcome to whatever awaits that vow.
-pub const PANCAKE_HOST_ACTION_SETTLE: u32 = 3;
-/// `PancakeHostAction.kind`: the vow `ticket` names settled broken with
+pub const GLOWCAP_HOST_ACTION_SETTLE: u32 = 3;
+/// `GlowcapHostAction.kind`: the vow `ticket` names settled broken with
 /// `message`; route the outcome to whatever awaits that vow.
-pub const PANCAKE_HOST_ACTION_FAIL: u32 = 4;
-/// `PancakeHostAction.kind`: the host retired `session`. Drain and write any
+pub const GLOWCAP_HOST_ACTION_FAIL: u32 = 4;
+/// `GlowcapHostAction.kind`: the host retired `session`. Drain and write any
 /// queued terminal frame, then close its transport and release the connection.
 /// A condemned session carries an abort; redeem-only cleanup closes quietly.
-pub const PANCAKE_HOST_ACTION_CLOSE: u32 = 5;
-/// `PancakeHostAction.kind`: the finite host scheduler yielded with internal
+pub const GLOWCAP_HOST_ACTION_CLOSE: u32 = 5;
+/// `GlowcapHostAction.kind`: the finite host scheduler yielded with internal
 /// work remaining. Return to the embedder scheduler before continuing
-/// `pancake_host_next_action`; this carries no session, ticket, or I/O request.
-pub const PANCAKE_HOST_ACTION_RESUME: u32 = 6;
-/// `PancakeHostAction.kind`: interrupt and join the external dial named by
-/// `ticket`, then acknowledge it through `pancake_host_dial_cancelled`.
-pub const PANCAKE_HOST_ACTION_CANCEL_DIAL: u32 = 7;
+/// `glowcap_host_next_action`; this carries no session, ticket, or I/O request.
+pub const GLOWCAP_HOST_ACTION_RESUME: u32 = 6;
+/// `GlowcapHostAction.kind`: interrupt and join the external dial named by
+/// `ticket`, then acknowledge it through `glowcap_host_dial_cancelled`.
+pub const GLOWCAP_HOST_ACTION_CANCEL_DIAL: u32 = 7;
 
 /// Default maximum admissible frame for a host connection, mirroring
 /// `session.SessionLimits.max_frame_bytes` (1 MiB). Bindings pass this to
-/// `pancake_host_new` / `pancake_host_new_in` unless the embedder overrides.
-pub const PANCAKE_DEFAULT_FRAME_CAP: usize = (engine.SessionLimits{}).max_frame_bytes;
+/// `glowcap_host_new` / `glowcap_host_new_in` unless the embedder overrides.
+pub const GLOWCAP_DEFAULT_FRAME_CAP: usize = (engine.SessionLimits{}).max_frame_bytes;
 
 /// How long a binding's establish waits for a partner's `op:start-session`
 /// before abandoning the half-built connection. The budget is finite so a peer
 /// that opens a byte channel and then stays silent cannot pin the caller.
-pub const PANCAKE_HANDSHAKE_TIMEOUT_MS: u64 = @intCast(driver_core.default_handshake_timeout_ms);
+pub const GLOWCAP_HANDSHAKE_TIMEOUT_MS: u64 = @intCast(driver_core.default_handshake_timeout_ms);
 
 /// Default accepted connections held across handshaking plus ready-but-unclaimed
 /// sessions by a high-level binding listener. This is capacity, not eager
 /// allocation; callers may tune it for their service.
-pub const PANCAKE_DEFAULT_PENDING_ACCEPTS: usize = 128;
+pub const GLOWCAP_DEFAULT_PENDING_ACCEPTS: usize = 128;
 
 /// Default OCapN handshakes one high-level binding listener drives at once.
-pub const PANCAKE_DEFAULT_HANDSHAKE_CONCURRENCY: usize = 16;
+pub const GLOWCAP_DEFAULT_HANDSHAKE_CONCURRENCY: usize = 16;
 
 /// Maximum OCapN handshakes one high-level binding listener drives at once.
 /// A silent peer therefore occupies one bounded execution seat instead of
 /// serializing every connection behind its timeout, while an accept flood
 /// cannot mint an unbounded set of half-open Host sessions.
-pub const PANCAKE_MAX_HANDSHAKE_CONCURRENCY: usize = 32;
+pub const GLOWCAP_MAX_HANDSHAKE_CONCURRENCY: usize = 32;
 
 /// Discovery-posture dial retry interval (ms), projected from the shared
 /// `driver_core` default that `driver.DialRetry` also consumes.
-pub const PANCAKE_DISCOVERY_DIAL_RETRY_MS: u64 = driver_core.discovery_retry_ms;
+pub const GLOWCAP_DISCOVERY_DIAL_RETRY_MS: u64 = driver_core.discovery_retry_ms;
 /// Discovery-posture dial attempt budget, including the first attempt.
-pub const PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = driver_core.discovery_max_attempts;
+pub const GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = driver_core.discovery_max_attempts;
 
 /// Bound on one turn's synchronous local `Forward` chase (caretaker over
 /// attenuator). Hop N+1 breaks the answer instead of spinning; the wire path
 /// defers each hop onto a fresh turn so it needs no matching cap. Mirrored by
 /// every binding's trampoline / vat.
-pub const PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_hops;
+pub const GLOWCAP_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_hops;
 
-/// One embedder effect popped from `pancake_host_next_action`. `kind` selects
+/// One embedder effect popped from `glowcap_host_next_action`. `kind` selects
 /// the live fields: DIAL and CANCEL_DIAL carry `ticket` and `route_index`
-/// (DIAL borrows the pending view with `pancake_host_pending_dial`). FLUSH and
+/// (DIAL borrows the pending view with `glowcap_host_pending_dial`). FLUSH and
 /// CLOSE carry `session`;
 /// NEED_GIFT_ID carries `ticket`. SETTLE carries the settled vow id in
 /// `ticket` and the fulfilled value in `value`; FAIL carries the vow id in
 /// `ticket`, the typed failure code in `result`, and the failure reason in
 /// `message`/`message_len`. Every popped byte
 /// view and `value`'s sub-structure are host-owned and valid until the next
-/// `pancake_host_next_action` call, which frees them. Unused fields are zeroed.
-pub const PancakeHostAction = extern struct {
+/// `glowcap_host_next_action` call, which frees them. Unused fields are zeroed.
+pub const GlowcapHostAction = extern struct {
     kind: u32,
     ticket: u64,
     route_index: usize,
-    session: ?*PancakeHostSession,
-    value: shared.PancakeArgument,
+    session: ?*GlowcapHostSession,
+    value: shared.GlowcapArgument,
     message: ?[*]const u8,
     message_len: usize,
-    /// CLOSE: PANCAKE_OK or PANCAKE_ERR_TIMEOUT. FAIL: PANCAKE_ERR_BROKEN or
-    /// PANCAKE_ERR_CLOSED. Zero for every other kind.
+    /// CLOSE: GLOWCAP_OK or GLOWCAP_ERR_TIMEOUT. FAIL: GLOWCAP_ERR_BROKEN or
+    /// GLOWCAP_ERR_CLOSED. Zero for every other kind.
     result: i32,
 };
 
-/// One shared arm callback for `PancakeHostPumpHooks`: flush, close,
-/// need_gift_id, complete (SETTLE/FAIL), and dial. Return `PANCAKE_OK` or a
-/// real `PANCAKE_ERR_*`. A non-OK return means the arm committed no externally
+/// One shared arm callback for `GlowcapHostPumpHooks`: flush, close,
+/// need_gift_id, complete (SETTLE/FAIL), and dial. Return `GLOWCAP_OK` or a
+/// real `GLOWCAP_ERR_*`. A non-OK return means the arm committed no externally
 /// visible effect; the drain preserves this exact action as the first action of
-/// its next call. Return `PANCAKE_OK` after taking responsibility for the
+/// its next call. Return `GLOWCAP_OK` after taking responsibility for the
 /// action, even when later asynchronous work may fail. When `out_progressed`
 /// is non-null, set it to 1 if the
 /// arm counts as quiescence progress (gift-id answered, dial parked, settle
 /// routed); leave 0 for a handled notice that a sibling shuttle already
 /// covers (typical empty FLUSH). `action` views are host-owned until the next
-/// `pancake_host_next_action` (this drain pops internally).
-pub const PancakeHostPumpArmFn = *const fn (
+/// `glowcap_host_next_action` (this drain pops internally).
+pub const GlowcapHostPumpArmFn = *const fn (
     ctx: ?*anyopaque,
-    host: ?*PancakeHost,
-    action: *const PancakeHostAction,
+    host: ?*GlowcapHost,
+    action: *const GlowcapHostAction,
     out_progressed: ?*u32,
 ) callconv(.c) i32;
 
-/// Opt-in embedder hooks for `pancake_host_pump_drain` (ADR-0072 fifth
+/// Opt-in embedder hooks for `glowcap_host_pump_drain` (ADR-0072 fifth
 /// amendment). NULL arm pointers skip that kind (no error, no progress). The
 /// pull-queue remains normative — this struct is a convenience wrapper's
-/// callback surface, not a replacement for `pancake_host_next_action`.
-pub const PancakeHostPumpHooks = extern struct {
+/// callback surface, not a replacement for `glowcap_host_next_action`.
+pub const GlowcapHostPumpHooks = extern struct {
     ctx: ?*anyopaque,
-    flush: ?PancakeHostPumpArmFn,
-    close: ?PancakeHostPumpArmFn,
-    need_gift_id: ?PancakeHostPumpArmFn,
-    complete: ?PancakeHostPumpArmFn,
-    dial: ?PancakeHostPumpArmFn,
+    flush: ?GlowcapHostPumpArmFn,
+    close: ?GlowcapHostPumpArmFn,
+    need_gift_id: ?GlowcapHostPumpArmFn,
+    complete: ?GlowcapHostPumpArmFn,
+    dial: ?GlowcapHostPumpArmFn,
 };
 
 // ── Callbacks ────────────────────────────────────────────────────────────────
 
 /// A hosted object's behavior, invoked on each deliver. `verb`/`args` are
-/// borrowed for the call; each `PancakeReference` leaf is nevertheless one
+/// borrowed for the call; each `GlowcapReference` leaf is nevertheless one
 /// application retain and must eventually be returned with
-/// `pancake_host_ref_release`. Copying its `{ id }` bytes does not create
+/// `glowcap_host_ref_release`. Copying its `{ id }` bytes does not create
 /// another retain. The vat copies
 /// `out_reply`'s payload the instant the callback returns, so its bytes must
 /// stay valid across the return (point them at your `ctx` or a buffer you own,
 /// not a callback stack local). Any non-OK return settles the answer broken
 /// with a generic reason. Inside the callback the enqueueing host verbs and
-/// the `pancake_host_turn_*` verbs (with this `turn` only) are legal; the
+/// the `glowcap_host_turn_*` verbs (with this `turn` only) are legal; the
 /// host-driving verbs are refused.
-pub const PancakeHostBehavior = *const fn (
+pub const GlowcapHostBehavior = *const fn (
     ctx: ?*anyopaque,
-    turn: ?*PancakeHostTurn,
+    turn: ?*GlowcapHostTurn,
     verb: [*]const u8,
     verb_len: usize,
-    args: ?[*]const shared.PancakeArgument,
+    args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
-    out_reply: *shared.PancakeArgument,
+    out_reply: *shared.GlowcapArgument,
 ) callconv(.c) i32;
 
 /// Release a hosted object's `ctx` when the object is torn down. Null when
-/// the consumer keeps ownership of `ctx`. Must call no `pancake_host_*`
+/// the consumer keeps ownership of `ctx`. Must call no `glowcap_host_*`
 /// function.
-pub const PancakeHostCtxFree = *const fn (ctx: ?*anyopaque) callconv(.c) void;
+pub const GlowcapHostCtxFree = *const fn (ctx: ?*anyopaque) callconv(.c) void;
 
 // ── Trace and planning vocabulary ────────────────────────────────────────────
 
-pub const PANCAKE_TRACE_SESSION_OPEN = trace_abi.PANCAKE_TRACE_SESSION_OPEN;
-pub const PANCAKE_TRACE_MESSAGE = trace_abi.PANCAKE_TRACE_MESSAGE;
-pub const PANCAKE_TRACE_SESSION_CLOSE = trace_abi.PANCAKE_TRACE_SESSION_CLOSE;
-pub const PANCAKE_TRACE_DIGEST_BYTES = trace_abi.PANCAKE_TRACE_DIGEST_BYTES;
-pub const PancakeTraceEvent = trace_abi.PancakeTraceEvent;
-pub const PancakeTraceCallback = trace_abi.PancakeTraceCallback;
+pub const GLOWCAP_TRACE_SESSION_OPEN = trace_abi.GLOWCAP_TRACE_SESSION_OPEN;
+pub const GLOWCAP_TRACE_MESSAGE = trace_abi.GLOWCAP_TRACE_MESSAGE;
+pub const GLOWCAP_TRACE_SESSION_CLOSE = trace_abi.GLOWCAP_TRACE_SESSION_CLOSE;
+pub const GLOWCAP_TRACE_DIGEST_BYTES = trace_abi.GLOWCAP_TRACE_DIGEST_BYTES;
+pub const GlowcapTraceEvent = trace_abi.GlowcapTraceEvent;
+pub const GlowcapTraceCallback = trace_abi.GlowcapTraceCallback;
 
-pub const PANCAKE_DIAL_SHAPE_HOST_PORT = planning_abi.PANCAKE_DIAL_SHAPE_HOST_PORT;
-pub const PANCAKE_DIAL_SHAPE_PEER_ID = planning_abi.PANCAKE_DIAL_SHAPE_PEER_ID;
-pub const PANCAKE_DIAL_SHAPE_SIGNALING = planning_abi.PANCAKE_DIAL_SHAPE_SIGNALING;
-pub const PANCAKE_DIAL_SHAPE_RENDEZVOUS = planning_abi.PANCAKE_DIAL_SHAPE_RENDEZVOUS;
-pub const PANCAKE_DIAL_REACH_DIRECT = planning_abi.PANCAKE_DIAL_REACH_DIRECT;
-pub const PANCAKE_DIAL_REACH_CONFIGURED = planning_abi.PANCAKE_DIAL_REACH_CONFIGURED;
-pub const PANCAKE_DIAL_REACH_EXPLICIT = planning_abi.PANCAKE_DIAL_REACH_EXPLICIT;
-pub const PANCAKE_DIAL_POSTURE_REDEEM = planning_abi.PANCAKE_DIAL_POSTURE_REDEEM;
-pub const PANCAKE_DIAL_POSTURE_EXPLICIT = planning_abi.PANCAKE_DIAL_POSTURE_EXPLICIT;
-pub const PANCAKE_DIAL_POSTURE_EXPLICIT_NONE = planning_abi.PANCAKE_DIAL_POSTURE_EXPLICIT_NONE;
-pub const PancakeDialPlan = planning_abi.PancakeDialPlan;
-pub const PancakePartnerIdentity = planning_abi.PancakePartnerIdentity;
-pub const PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT = planning_abi.PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT;
-pub const PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED = planning_abi.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED;
+pub const GLOWCAP_DIAL_SHAPE_HOST_PORT = planning_abi.GLOWCAP_DIAL_SHAPE_HOST_PORT;
+pub const GLOWCAP_DIAL_SHAPE_PEER_ID = planning_abi.GLOWCAP_DIAL_SHAPE_PEER_ID;
+pub const GLOWCAP_DIAL_SHAPE_SIGNALING = planning_abi.GLOWCAP_DIAL_SHAPE_SIGNALING;
+pub const GLOWCAP_DIAL_SHAPE_RENDEZVOUS = planning_abi.GLOWCAP_DIAL_SHAPE_RENDEZVOUS;
+pub const GLOWCAP_DIAL_REACH_DIRECT = planning_abi.GLOWCAP_DIAL_REACH_DIRECT;
+pub const GLOWCAP_DIAL_REACH_CONFIGURED = planning_abi.GLOWCAP_DIAL_REACH_CONFIGURED;
+pub const GLOWCAP_DIAL_REACH_EXPLICIT = planning_abi.GLOWCAP_DIAL_REACH_EXPLICIT;
+pub const GLOWCAP_DIAL_POSTURE_REDEEM = planning_abi.GLOWCAP_DIAL_POSTURE_REDEEM;
+pub const GLOWCAP_DIAL_POSTURE_EXPLICIT = planning_abi.GLOWCAP_DIAL_POSTURE_EXPLICIT;
+pub const GLOWCAP_DIAL_POSTURE_EXPLICIT_NONE = planning_abi.GLOWCAP_DIAL_POSTURE_EXPLICIT_NONE;
+pub const GlowcapDialPlan = planning_abi.GlowcapDialPlan;
+pub const GlowcapPartnerIdentity = planning_abi.GlowcapPartnerIdentity;
+pub const GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT = planning_abi.GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT;
+pub const GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED = planning_abi.GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED;
 
 // ── Handle-family re-exports ─────────────────────────────────────────────────
 //
@@ -454,118 +454,118 @@ pub const PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED = planning_abi.PANCAKE_DURA
 // (which reflects over the module root) and the binding mirrors see the full ABI
 // from one place.
 
-pub const pancake_host_new = host.pancake_host_new;
-pub const pancake_host_new_in = host.pancake_host_new_in;
-pub const pancake_host_diagnostic_id = host.pancake_host_diagnostic_id;
-pub const pancake_host_close = host.pancake_host_close;
-pub const pancake_host_close_progress = host.pancake_host_close_progress;
-pub const pancake_host_close_wait_ms = host.pancake_host_close_wait_ms;
-pub const pancake_host_lifecycle_state = host.pancake_host_lifecycle_state;
-pub const pancake_host_release = host.pancake_host_release;
-pub const pancake_host_designator_from_seed = locators.pancake_host_designator_from_seed;
-pub const pancake_host_set_advertised_locator = locators.pancake_host_set_advertised_locator;
-pub const pancake_host_ensure_advertised_locator = locators.pancake_host_ensure_advertised_locator;
-pub const pancake_host_remove_advertised_locator = locators.pancake_host_remove_advertised_locator;
-pub const pancake_host_set_session_limits = session_limits.pancake_host_set_session_limits;
-pub const pancake_host_plan_dial = host.pancake_host_plan_dial;
-pub const pancake_host_pending_dial = host.pancake_host_pending_dial;
-pub const pancake_host_reference_exporter = host.pancake_host_reference_exporter;
-pub const pancake_host_next_action = host.pancake_host_next_action;
+pub const glowcap_host_new = host.glowcap_host_new;
+pub const glowcap_host_new_in = host.glowcap_host_new_in;
+pub const glowcap_host_diagnostic_id = host.glowcap_host_diagnostic_id;
+pub const glowcap_host_close = host.glowcap_host_close;
+pub const glowcap_host_close_progress = host.glowcap_host_close_progress;
+pub const glowcap_host_close_wait_ms = host.glowcap_host_close_wait_ms;
+pub const glowcap_host_lifecycle_state = host.glowcap_host_lifecycle_state;
+pub const glowcap_host_release = host.glowcap_host_release;
+pub const glowcap_host_designator_from_seed = locators.glowcap_host_designator_from_seed;
+pub const glowcap_host_set_advertised_locator = locators.glowcap_host_set_advertised_locator;
+pub const glowcap_host_ensure_advertised_locator = locators.glowcap_host_ensure_advertised_locator;
+pub const glowcap_host_remove_advertised_locator = locators.glowcap_host_remove_advertised_locator;
+pub const glowcap_host_set_session_limits = session_limits.glowcap_host_set_session_limits;
+pub const glowcap_host_plan_dial = host.glowcap_host_plan_dial;
+pub const glowcap_host_pending_dial = host.glowcap_host_pending_dial;
+pub const glowcap_host_reference_exporter = host.glowcap_host_reference_exporter;
+pub const glowcap_host_next_action = host.glowcap_host_next_action;
 pub const retryBorrowedAction = host.retryBorrowedAction;
-pub const pancake_host_dialed = host.pancake_host_dialed;
-pub const pancake_host_dial_failed = host.pancake_host_dial_failed;
-pub const pancake_host_dial_cancelled = host.pancake_host_dial_cancelled;
-pub const pancake_host_provide_gift_id = host.pancake_host_provide_gift_id;
-pub const pancake_host_gift_id_failed = host.pancake_host_gift_id_failed;
-pub const pancake_host_publish = host.pancake_host_publish;
-pub const pancake_host_unpublish = host.pancake_host_unpublish;
-pub const pancake_host_publish_durable = host.pancake_host_publish_durable;
-pub const pancake_host_remove_durable = host.pancake_host_remove_durable;
-pub const pancake_host_ref_release = host.pancake_host_ref_release;
-pub const pancake_host_last_error = host.pancake_host_last_error;
-pub const pancake_host_clear_last_error = host.pancake_host_clear_last_error;
+pub const glowcap_host_dialed = host.glowcap_host_dialed;
+pub const glowcap_host_dial_failed = host.glowcap_host_dial_failed;
+pub const glowcap_host_dial_cancelled = host.glowcap_host_dial_cancelled;
+pub const glowcap_host_provide_gift_id = host.glowcap_host_provide_gift_id;
+pub const glowcap_host_gift_id_failed = host.glowcap_host_gift_id_failed;
+pub const glowcap_host_publish = host.glowcap_host_publish;
+pub const glowcap_host_unpublish = host.glowcap_host_unpublish;
+pub const glowcap_host_publish_durable = host.glowcap_host_publish_durable;
+pub const glowcap_host_remove_durable = host.glowcap_host_remove_durable;
+pub const glowcap_host_ref_release = host.glowcap_host_ref_release;
+pub const glowcap_host_last_error = host.glowcap_host_last_error;
+pub const glowcap_host_clear_last_error = host.glowcap_host_clear_last_error;
 
-pub const pancake_host_session_open_dialed_locator = session_lifecycle.pancake_host_session_open_dialed_locator;
-pub const pancake_host_session_open_accepted = session_lifecycle.pancake_host_session_open_accepted;
-pub const pancake_host_session_close = session_lifecycle.pancake_host_session_close;
-pub const pancake_host_session_close_progress = session_lifecycle.pancake_host_session_close_progress;
-pub const pancake_host_session_lifecycle_state = session_lifecycle.pancake_host_session_lifecycle_state;
-pub const pancake_host_session_release = session_lifecycle.pancake_host_session_release;
-pub const pancake_host_session_is_open = session_lifecycle.pancake_host_session_is_open;
-pub const pancake_host_session_profile = session_lifecycle.pancake_host_session_profile;
-pub const pancake_host_session_transport_name = session_lifecycle.pancake_host_session_transport_name;
-pub const pancake_host_session_trace_id = session_lifecycle.pancake_host_session_trace_id;
-pub const pancake_host_session_feed = session_pump.pancake_host_session_feed;
-pub const pancake_host_session_feed_bytes = session_pump.pancake_host_session_feed_bytes;
-pub const pancake_host_session_feed_packet = session_pump.pancake_host_session_feed_packet;
-pub const pancake_host_session_resume_feed = session_pump.pancake_host_session_resume_feed;
-pub const pancake_host_session_take_packet = session_pump.pancake_host_session_take_packet;
-pub const pancake_host_session_take_outbound = session_pump.pancake_host_session_take_outbound;
-pub const pancake_host_session_publish = session.pancake_host_session_publish;
-pub const pancake_host_session_spawn = session.pancake_host_session_spawn;
-pub const pancake_host_session_fetch = session.pancake_host_session_fetch;
-pub const pancake_host_session_enliven = session.pancake_host_session_enliven;
-pub const pancake_host_enliven = host.pancake_host_enliven;
-pub const pancake_host_enliven_for_version = host.pancake_host_enliven_for_version;
-pub const pancake_host_fetch_at = host.pancake_host_fetch_at;
-pub const pancake_host_set_trace = host.pancake_host_set_trace;
-pub const pancake_host_set_trace_queue = host.pancake_host_set_trace_queue;
-pub const pancake_host_next_trace = host.pancake_host_next_trace;
-pub const pancake_host_resolver_fulfill = host.pancake_host_resolver_fulfill;
-pub const pancake_host_resolver_break = host.pancake_host_resolver_break;
-pub const pancake_host_session_listen = session.pancake_host_session_listen;
-pub const pancake_host_session_send = session.pancake_host_session_send;
-pub const pancake_host_session_tell = session.pancake_host_session_tell;
-pub const pancake_host_vow_send = session.pancake_host_vow_send;
-pub const pancake_host_vow_tell = session.pancake_host_vow_tell;
-pub const pancake_host_vow_release = session.pancake_host_vow_release;
-pub const pancake_host_vow_index = session.pancake_host_vow_index;
-pub const pancake_host_vow_untag = session.pancake_host_vow_untag;
-pub const pancake_host_vow_get = session.pancake_host_vow_get;
-pub const pancake_host_session_published_ref = session.pancake_host_session_published_ref;
-pub const pancake_host_session_break_far_vows = session.pancake_host_session_break_far_vows;
-pub const pancake_host_session_transport_closed = session.pancake_host_session_transport_closed;
-pub const pancake_host_session_set_exporter_location = session.pancake_host_session_set_exporter_location;
-pub const pancake_host_session_last_abort = session.pancake_host_session_last_abort;
-pub const pancake_host_session_partner_abort = session.pancake_host_session_partner_abort;
-pub const pancake_host_session_partner_identity = session.pancake_host_session_partner_identity;
-pub const pancake_host_session_bind_verified_channel_key = session.pancake_host_session_bind_verified_channel_key;
+pub const glowcap_host_session_open_dialed_locator = session_lifecycle.glowcap_host_session_open_dialed_locator;
+pub const glowcap_host_session_open_accepted = session_lifecycle.glowcap_host_session_open_accepted;
+pub const glowcap_host_session_close = session_lifecycle.glowcap_host_session_close;
+pub const glowcap_host_session_close_progress = session_lifecycle.glowcap_host_session_close_progress;
+pub const glowcap_host_session_lifecycle_state = session_lifecycle.glowcap_host_session_lifecycle_state;
+pub const glowcap_host_session_release = session_lifecycle.glowcap_host_session_release;
+pub const glowcap_host_session_is_open = session_lifecycle.glowcap_host_session_is_open;
+pub const glowcap_host_session_profile = session_lifecycle.glowcap_host_session_profile;
+pub const glowcap_host_session_transport_name = session_lifecycle.glowcap_host_session_transport_name;
+pub const glowcap_host_session_trace_id = session_lifecycle.glowcap_host_session_trace_id;
+pub const glowcap_host_session_feed = session_pump.glowcap_host_session_feed;
+pub const glowcap_host_session_feed_bytes = session_pump.glowcap_host_session_feed_bytes;
+pub const glowcap_host_session_feed_packet = session_pump.glowcap_host_session_feed_packet;
+pub const glowcap_host_session_resume_feed = session_pump.glowcap_host_session_resume_feed;
+pub const glowcap_host_session_take_packet = session_pump.glowcap_host_session_take_packet;
+pub const glowcap_host_session_take_outbound = session_pump.glowcap_host_session_take_outbound;
+pub const glowcap_host_session_publish = session.glowcap_host_session_publish;
+pub const glowcap_host_session_spawn = session.glowcap_host_session_spawn;
+pub const glowcap_host_session_fetch = session.glowcap_host_session_fetch;
+pub const glowcap_host_session_enliven = session.glowcap_host_session_enliven;
+pub const glowcap_host_enliven = host.glowcap_host_enliven;
+pub const glowcap_host_enliven_for_version = host.glowcap_host_enliven_for_version;
+pub const glowcap_host_fetch_at = host.glowcap_host_fetch_at;
+pub const glowcap_host_set_trace = host.glowcap_host_set_trace;
+pub const glowcap_host_set_trace_queue = host.glowcap_host_set_trace_queue;
+pub const glowcap_host_next_trace = host.glowcap_host_next_trace;
+pub const glowcap_host_resolver_fulfill = host.glowcap_host_resolver_fulfill;
+pub const glowcap_host_resolver_break = host.glowcap_host_resolver_break;
+pub const glowcap_host_session_listen = session.glowcap_host_session_listen;
+pub const glowcap_host_session_send = session.glowcap_host_session_send;
+pub const glowcap_host_session_tell = session.glowcap_host_session_tell;
+pub const glowcap_host_vow_send = session.glowcap_host_vow_send;
+pub const glowcap_host_vow_tell = session.glowcap_host_vow_tell;
+pub const glowcap_host_vow_release = session.glowcap_host_vow_release;
+pub const glowcap_host_vow_index = session.glowcap_host_vow_index;
+pub const glowcap_host_vow_untag = session.glowcap_host_vow_untag;
+pub const glowcap_host_vow_get = session.glowcap_host_vow_get;
+pub const glowcap_host_session_published_ref = session.glowcap_host_session_published_ref;
+pub const glowcap_host_session_break_far_vows = session.glowcap_host_session_break_far_vows;
+pub const glowcap_host_session_transport_closed = session.glowcap_host_session_transport_closed;
+pub const glowcap_host_session_set_exporter_location = session.glowcap_host_session_set_exporter_location;
+pub const glowcap_host_session_last_abort = session.glowcap_host_session_last_abort;
+pub const glowcap_host_session_partner_abort = session.glowcap_host_session_partner_abort;
+pub const glowcap_host_session_partner_identity = session.glowcap_host_session_partner_identity;
+pub const glowcap_host_session_bind_verified_channel_key = session.glowcap_host_session_bind_verified_channel_key;
 
-pub const pancake_host_turn_forward = turn.pancake_host_turn_forward;
-pub const pancake_host_turn_session = turn.pancake_host_turn_session;
-pub const pancake_host_turn_defer = turn.pancake_host_turn_defer;
-pub const pancake_host_turn_send = turn.pancake_host_turn_send;
-pub const pancake_host_turn_tell = turn.pancake_host_turn_tell;
-pub const pancake_host_turn_spawn = turn.pancake_host_turn_spawn;
-pub const pancake_host_turn_break = turn.pancake_host_turn_break;
+pub const glowcap_host_turn_forward = turn.glowcap_host_turn_forward;
+pub const glowcap_host_turn_session = turn.glowcap_host_turn_session;
+pub const glowcap_host_turn_defer = turn.glowcap_host_turn_defer;
+pub const glowcap_host_turn_send = turn.glowcap_host_turn_send;
+pub const glowcap_host_turn_tell = turn.glowcap_host_turn_tell;
+pub const glowcap_host_turn_spawn = turn.glowcap_host_turn_spawn;
+pub const glowcap_host_turn_break = turn.glowcap_host_turn_break;
 
-pub const pancake_host_pump_drain = pump.pancake_host_pump_drain;
+pub const glowcap_host_pump_drain = pump.glowcap_host_pump_drain;
 
 /// The annotated symbol inventory (crossing semantics per export) the
 /// binding FFI-table generators reflect from — see `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
 pub const contract_layouts = [_]shared.archive_contract.Layout{
-    shared.archive_contract.layout("PANCAKE_HOST_ACTION", PancakeHostAction),
-    shared.archive_contract.layout("PANCAKE_HOST_PUMP_HOOKS", PancakeHostPumpHooks),
-    shared.archive_contract.layout("PANCAKE_SESSION_LIMIT_OPTIONS", PancakeSessionLimitOptions),
-    shared.archive_contract.cOnlyLayout("PANCAKE_DIAL_PLAN", PancakeDialPlan),
-    shared.archive_contract.layout("PANCAKE_PARTNER_IDENTITY", PancakePartnerIdentity),
-    shared.archive_contract.layout("PANCAKE_TRACE_EVENT", PancakeTraceEvent),
+    shared.archive_contract.layout("GLOWCAP_HOST_ACTION", GlowcapHostAction),
+    shared.archive_contract.layout("GLOWCAP_HOST_PUMP_HOOKS", GlowcapHostPumpHooks),
+    shared.archive_contract.layout("GLOWCAP_SESSION_LIMIT_OPTIONS", GlowcapSessionLimitOptions),
+    shared.archive_contract.cOnlyLayout("GLOWCAP_DIAL_PLAN", GlowcapDialPlan),
+    shared.archive_contract.layout("GLOWCAP_PARTNER_IDENTITY", GlowcapPartnerIdentity),
+    shared.archive_contract.layout("GLOWCAP_TRACE_EVENT", GlowcapTraceEvent),
 };
 
 /// Exact reflected callable/layout identity for the byte-fed Host archive.
-pub const PANCAKE_HOST_ARCHIVE_FINGERPRINT = shared.archive_contract.fingerprint(
+pub const GLOWCAP_HOST_ARCHIVE_FINGERPRINT = shared.archive_contract.fingerprint(
     "host",
     @This(),
     .{ shared.contract_layouts, contract_layouts },
 );
 
-pub export fn pancake_host_archive_fingerprint() u64 {
-    return PANCAKE_HOST_ARCHIVE_FINGERPRINT;
+pub export fn glowcap_host_archive_fingerprint() u64 {
+    return GLOWCAP_HOST_ARCHIVE_FINGERPRINT;
 }
 
-/// Zig-facing one-loop drain helpers over `pancake_host_next_action`
+/// Zig-facing one-loop drain helpers over `glowcap_host_next_action`
 /// (ADR-0072 fifth amendment). Not a C export — the pull-queue stays
 /// normative; bindings and tests thin onto this instead of hand-rolling
 /// the action switch.

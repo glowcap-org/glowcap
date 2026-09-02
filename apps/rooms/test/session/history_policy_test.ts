@@ -6,7 +6,7 @@ import { RoomsRuntimeIssues } from "../../session/issues.ts";
 import type { LiveDirectory } from "../../session/live.ts";
 import type { Message } from "../../lib/room/client.ts";
 import { ALL_ARCHIVE_RECORDS, type ErasableArchiveBackend, MemoryArchiveBackend } from "../../lib/archive/protocol.ts";
-import type { Runtime } from "@pancake/runtime";
+import type { Runtime } from "@glowcap/runtime";
 import { assertEquals } from "../assert.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 
@@ -89,7 +89,7 @@ Deno.test("a file-only room line records durable bytes without retaining its liv
 				name: "diagram.png",
 				mime: "image/png",
 				size: 80,
-				blob: {} as import("@pancake/runtime").Ref,
+				blob: {} as import("@glowcap/runtime").Ref,
 				width: 4,
 				height: 2,
 			}],

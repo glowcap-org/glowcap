@@ -76,7 +76,7 @@ const matrix = [_]Cell{
     .{ .binding = .ts, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.ts", .fence = "ts" } } },
 
     // The browser runtime owns WebSocket connectors for tcp/keyed-tcp and an
-    // iroh relay connector. @pancake/relay's keyed/noise connector and the
+    // iroh relay connector. @glowcap/relay's keyed/noise connector and the
     // WebRTC connector are browser-safe. noise-tcp still needs a raw socket.
     .{ .binding = .browser, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "browser/tcp.ts", .fence = "ts" } } },
     .{ .binding = .browser, .transport = .keyed_tcp, .dial = .{ .supported = true, .example = .{ .file = "browser/keyed-tcp.ts", .fence = "ts" } } },

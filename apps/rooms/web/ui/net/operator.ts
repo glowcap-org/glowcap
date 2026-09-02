@@ -33,7 +33,7 @@ import { invalidateOperations } from "../ops/invalidation.ts";
 import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
 import { type HeldDirectoryCapability, releaseHeldCapability } from "./held_capability.ts";
 import { OperatorRefreshQueue } from "../ops/operator_refresh.ts";
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 type OperatorFilter = { search: string; referenceKind: OperatorReferenceKind | null };
 
 interface HeldOperator extends HeldDirectoryCapability {

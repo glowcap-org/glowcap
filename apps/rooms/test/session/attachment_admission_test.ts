@@ -1,4 +1,4 @@
-import { type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { ROOMS_SESSION_FILES, ROOMS_SESSION_REFILE } from "../../lib/session/client.ts";
 import { ROOMS_SESSION_ARCHIVED_ATTACHMENT } from "../../lib/session/client.ts";
 import { READ } from "../../lib/protocol.ts";

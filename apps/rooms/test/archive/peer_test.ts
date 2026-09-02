@@ -2,7 +2,7 @@
 // Host seed, publication entropy, and state directory must reproduce one
 // sturdyref, and a v1/Syrup client must redeem it after the process restarts.
 
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import {
 	ALL_ARCHIVE_RECORDS,
 	type ArchiveLine,
@@ -33,7 +33,7 @@ function startPeer(directory: string, port: number): Deno.ChildProcess {
 			`--allow-read=${ROOT},${directory}`,
 			`--allow-write=${directory}`,
 			"--allow-net=127.0.0.1",
-			"--allow-env=PANCAKE_LIB_DIR",
+			"--allow-env=GLOWCAP_LIB_DIR",
 			PEER,
 			`--state=${directory}`,
 			"--transport=tcp",

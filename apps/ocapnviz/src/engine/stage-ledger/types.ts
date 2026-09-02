@@ -4,7 +4,7 @@
  * the shape of an entry and the functions that name a side or a wire.
  */
 
-import { PANCAKE_PROFILE, type PeerProfile } from "../../schema/topology.ts";
+import { GLOWCAP_PROFILE, type PeerProfile } from "../../schema/topology.ts";
 import type { SessionSide } from "../../schema/session-end.ts";
 
 /** A live incarnation of a peer. `stageId` is the timeline entity id
@@ -120,20 +120,20 @@ export function sideOf(row: LiveWire, key: string): SessionSide {
 }
 
 /** What one observation says about its own reporting end: the producer's
- * own statement, and failing that pancake when the session negotiated the
- * profile only pancake speaks.
+ * own statement, and failing that glowcap when the session negotiated the
+ * profile only glowcap speaks.
  *
  * The two arms are the two things `LedgerNames.learnProfile` reads, applied
  * to the end the reporting producer occupies. A statement wins over the
  * inference because it is the stronger claim: a producer naming itself
- * something that cannot speak `pancake-next` is a producer contradicting
+ * something that cannot speak `glowcap-next` is a producer contradicting
  * itself, and the viewer repeats what it was told rather than correcting it. */
 export function selfProfileOf(opts?: {
 	selfProfile?: PeerProfile;
-	pancakePrivateProfile?: boolean;
+	glowcapPrivateProfile?: boolean;
 }): PeerProfile | undefined {
 	if (opts?.selfProfile !== undefined) return opts.selfProfile;
-	return opts?.pancakePrivateProfile === true ? PANCAKE_PROFILE : undefined;
+	return opts?.glowcapPrivateProfile === true ? GLOWCAP_PROFILE : undefined;
 }
 
 /** The name an observation's edge is keyed on: the wire, which both

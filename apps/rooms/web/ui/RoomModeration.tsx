@@ -6,7 +6,7 @@ import { Confirm } from "./Confirm.tsx";
 import { useRoomsSession } from "./controller/session.ts";
 import { useConversationMembers } from "./hooks.ts";
 import { Said } from "./Said.tsx";
-import type { IrcBridgeRow, RoomConv, Standing } from "./types.ts";
+import type { AdministeredBridge, RoomConv, Standing } from "./types.ts";
 
 function membersToModerate(members: ReadonlyMap<string, Standing>, you: string): string[] {
 	return [...members]
@@ -23,7 +23,7 @@ export function RoomModeration(
 		conv: RoomConv;
 		you: string;
 		available: boolean;
-		administeredBridge: IrcBridgeRow | null;
+		administeredBridge: AdministeredBridge | null;
 	},
 ) {
 	const session = useRoomsSession();
@@ -36,6 +36,7 @@ export function RoomModeration(
 	const [unbridgeWhy, setUnbridgeWhy] = useState("");
 	const canRemoveMembers = available && conv.grants.has("steward");
 	if (!canRemoveMembers && administeredBridge === null) return null;
+	const bridgeBadge = conv.bridge?.badge ?? "Bridge";
 	const targets = membersToModerate(members, you);
 	const confirming = asking !== null && targets.includes(asking) ? asking : null;
 	return (
@@ -100,23 +101,24 @@ export function RoomModeration(
 			)}
 			{administeredBridge !== null && (
 				<>
-					<h3 className="well-title overline" id="convcardBridgeModerationTitle">IRC bridge</h3>
+					<h3 className="well-title overline" id="convcardBridgeModerationTitle">{bridgeBadge} bridge</h3>
 					<div className="group well" role="group" aria-labelledby="convcardBridgeModerationTitle">
 						<dl className="dirfacts">
-							<dt>Channel</dt>
-							<dd>{administeredBridge.network}/{administeredBridge.channel}</dd>
+							<dt>Link</dt>
+							<dd>{administeredBridge.connectionId}/{administeredBridge.leaseId}</dd>
 							<dt>Authority</dt>
-							<dd>IRC gateway capability held by this session</dd>
+							<dd>{bridgeBadge} gateway capability held by this session</dd>
 						</dl>
 						<p className="hint" id="convcardUnbridgeHint">
-							Unbridging closes every IRC seat and removes this room from the directory. The IRC channel
-							itself stays as it is.
+							Unbridging closes every {bridgeBadge}{" "}
+							seat and removes this room from the directory. The linked conversation itself stays as it
+							is.
 						</p>
 						{confirmUnbridge
 							? (
 								<Confirm
-									label="Unbridge this room from IRC"
-									say="Unbridge this room? Every IRC seat closes and the room leaves the directory."
+									label={`Unbridge this room from ${bridgeBadge}`}
+									say="Unbridge this room? Every seat closes and the room leaves the directory."
 									keep="Keep bridge"
 									commit={unbridging ? "Unbridging…" : "Unbridge room"}
 									commitId="convcardUnbridgeConfirm"
@@ -125,7 +127,10 @@ export function RoomModeration(
 									onCommit={() => {
 										setUnbridging(true);
 										setUnbridgeWhy("");
-										void session.partIrc(administeredBridge.network, administeredBridge.channel)
+										void session.removeBridgeLease(
+											administeredBridge.connectionId,
+											administeredBridge.leaseId,
+										)
 											.then((refused) => setUnbridgeWhy(refused))
 											.finally(() => setUnbridging(false));
 									}}
@@ -138,7 +143,7 @@ export function RoomModeration(
 										variant="quiet"
 										onClick={() => setConfirmUnbridge(true)}
 									>
-										Unbridge from IRC…
+										Unbridge from {bridgeBadge}…
 									</Button>
 								</div>
 							)}

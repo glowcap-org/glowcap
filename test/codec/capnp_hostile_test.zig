@@ -5,10 +5,10 @@
 //! duplicated locator hints — every arm a typed refusal, never a panic.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const capnp = pancake.ocapn.codec.capnp;
+const model = glowcap.ocapn.model;
+const capnp = glowcap.ocapn.codec.capnp;
 const wire = capnp.wire;
 
 test "a promise reference with derived data is refused instead of flattened" {
@@ -37,7 +37,7 @@ test "a promise reference with derived data is refused instead of flattened" {
     // non-null value is unsupported for the promise arm; a zero-length list
     // pointer is sufficient to prove the decoder checks presence, not payload.
     std.mem.writeInt(u64, bytes[(start + 2) * 8 ..][0..8], 1, .little);
-    const hostile = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    const hostile = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
     try std.testing.expectError(error.UnsupportedReference, capnp.decodeBody(hostile));
     try std.testing.expectError(error.UnsupportedReference, capnp.decodeOwned(allocator, hostile));
 }
@@ -83,7 +83,7 @@ test "Cap'n Proto rejects invalid UTF-8 String and Symbol values without allocat
         defer std.testing.allocator.free(bytes);
         const offset = std.mem.indexOf(u8, bytes, needle) orelse return error.TestUnexpectedResult;
         bytes[offset] = 0xff;
-        const view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+        const view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
         try std.testing.expectError(capnp.Error.MalformedFrame, capnp.decodeBody(view));
         try std.testing.expectError(capnp.Error.MalformedFrame, capnp.decodeOwned(std.testing.allocator, view));
     }
@@ -115,7 +115,7 @@ test "a Struct with duplicate keys is refused on the live view path" {
     defer allocator.free(buf);
     const second_key = std.mem.indexOf(u8, buf, "k2") orelse return error.TestUnexpectedResult;
     @memcpy(buf[second_key .. second_key + 2], "k1");
-    const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
+    const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
     // `decodeBody` runs the eager traversal-budget charge pass (the remote-DoS
     // bound), which walks every argument once to spend the per-frame budget —
@@ -164,7 +164,7 @@ test "the Cap'n Proto encoder refuses a Struct carrying a duplicate key" {
 test "a Struct with descending keys is refused: decode requires the encoder's ascending order" {
     const allocator = std.testing.allocator;
 
-    // pancake's capnp encoder emits struct keys sorted ascending by raw bytes
+    // glowcap's capnp encoder emits struct keys sorted ascending by raw bytes
     // (`canonicalStructOrder`), so decode requires strictly ascending keys —
     // one comparison per key, not an all-pairs scan an attacker could drive to
     // n². A distinct-but-descending pair is non-canonical and refused, exactly
@@ -187,7 +187,7 @@ test "a Struct with descending keys is refused: decode requires the encoder's as
     defer allocator.free(buf);
     const first_key = std.mem.indexOf(u8, buf, "k1") orelse return error.TestUnexpectedResult;
     @memcpy(buf[first_key .. first_key + 2], "k3");
-    const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
+    const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
     // As with the duplicate-key case, the eager charge pass in `decodeBody`
     // enforces the strictly-ascending-key rule at the parse boundary, so a
@@ -198,7 +198,7 @@ test "a Struct with descending keys is refused: decode requires the encoder's as
 
 test "decode rejects a byte-shaped frame" {
     const allocator = std.testing.allocator;
-    const view = pancake.foundation.FrameView{ .bytes = "not capnp", .shape = .byte };
+    const view = glowcap.foundation.FrameView{ .bytes = "not capnp", .shape = .byte };
     try std.testing.expectError(error.InvalidFrameShape, capnp.decodeOwned(allocator, view));
 }
 
@@ -207,7 +207,7 @@ test "decode rejects a truncated frame" {
     // Header claims a 4-word segment, but no segment words follow.
     var bytes: [8]u8 = undefined;
     std.mem.writeInt(u64, &bytes, @as(u64, 4) << 32, .little);
-    const view = pancake.foundation.FrameView{ .bytes = &bytes, .shape = .word };
+    const view = glowcap.foundation.FrameView{ .bytes = &bytes, .shape = .word };
     try std.testing.expectError(error.Truncated, capnp.decodeOwned(allocator, view));
 }
 
@@ -216,7 +216,7 @@ test "decode rejects a multi-segment frame" {
     // segment-count − 1 = 1 (i.e. two segments) in the low u32.
     var bytes: [8]u8 = undefined;
     std.mem.writeInt(u64, &bytes, 1, .little);
-    const view = pancake.foundation.FrameView{ .bytes = &bytes, .shape = .word };
+    const view = glowcap.foundation.FrameView{ .bytes = &bytes, .shape = .word };
     try std.testing.expectError(error.UnsupportedSegmentCount, capnp.decodeOwned(allocator, view));
 }
 
@@ -313,7 +313,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
                 const buf = try allocator.dupe(u8, original);
                 defer allocator.free(buf);
                 buf[i] = corruption;
-                const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
+                const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
                 if (capnp.decodeOwned(allocator, view)) |decoded| {
                     model.freeMessage(allocator, decoded);
@@ -546,7 +546,7 @@ test "a locator carrying the same hint name twice is refused" {
     const second = std.mem.indexOf(u8, bytes, "direct-addresses2") orelse
         return error.TestUnexpectedResult;
     bytes[second + "direct-addresses".len] = '1';
-    const view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    const view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
     try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, view));
 }
 
@@ -570,7 +570,7 @@ test "a Cap'n Proto locator cannot carry false and non-empty hints" {
 
     const bytes = try allocator.dupe(u8, frame.bytes());
     defer allocator.free(bytes);
-    const mutable_view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    const mutable_view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
     const message_view = try capnp.decodeMessageView(mutable_view);
     const locator = (try message_view.reader.followStruct(message_view.body, 2)) orelse
         return error.TestUnexpectedResult;
@@ -578,10 +578,10 @@ test "a Cap'n Proto locator cannot carry false and non-empty hints" {
     std.mem.writeInt(u64, data_word, std.mem.readInt(u64, data_word, .little) | 1, .little);
 
     const body = try capnp.decodeBody(mutable_view);
-    var s = pancake.ocapn.session.Session.initNegotiating(allocator);
+    var s = glowcap.ocapn.session.Session.initNegotiating(allocator);
     defer s.deinit();
     try std.testing.expectError(
-        pancake.ocapn.session.Error.MalformedMessage,
+        glowcap.ocapn.session.Error.MalformedMessage,
         s.recordRecvView(body),
     );
     try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, mutable_view));
@@ -598,7 +598,7 @@ test "a composite tag wearing a non-struct pointer kind is refused" {
 
     const bytes = try allocator.dupe(u8, frame.bytes());
     defer allocator.free(bytes);
-    const mutable_view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    const mutable_view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
     const message_view = try capnp.decodeMessageView(mutable_view);
     // The args list is deliver's pointer field 1; its content begins with the
     // struct-pointer-shaped tag word this test corrupts.

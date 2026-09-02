@@ -29,8 +29,8 @@ services:
       # a debian base (see rooms.Dockerfile). Source and .so arrive as runtime mounts.
       context: .
       dockerfile: rooms.Dockerfile
-    image: pancake-rooms:local
-    container_name: pancake-rooms
+    image: glowcap-rooms:local
+    container_name: glowcap-rooms
     working_dir: /repo
     # serve.ts serves the page and /relay WebSocket on 8000, spawns the iroh room
     # server, and publishes GET /locator for CapTP peers. The browser peer dials
@@ -49,52 +49,52 @@ services:
       - --transport=iroh
     environment:
       # Where the binding finds the prebuilt shared libraries (load.ts's first rung).
-      PANCAKE_LIB_DIR: /libs
+      GLOWCAP_LIB_DIR: /libs
       DENO_DIR: /deno-dir
       # One room authority across child and container restarts. This keeps the
       # iroh endpoint id and every issued durable room link stable.
-      PANCAKE_ROOMS_STATE: /state
+      GLOWCAP_ROOMS_STATE: /state
       # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-peer / cross-container).
-      PANCAKE_ROOMS_REACHABILITY: discovery
+      GLOWCAP_ROOMS_REACHABILITY: discovery
       # Browser-to-browser WebRTC uses the application's public STUN default.
       # Empty means host candidates only; a comma-separated STUN list replaces it.
-      # PANCAKE_ROOMS_ICE_SERVERS: ""
+      # GLOWCAP_ROOMS_ICE_SERVERS: ""
       # A credential issuer gives restrictive-NAT peers short-lived TURN reach.
       # The bearer token stays in this server; browsers receive only temporary
       # username/password rows from GET /ice. Blank keeps the STUN-only posture.
-      PANCAKE_ROOMS_TURN_CREDENTIALS_URL: ${PANCAKE_ROOMS_TURN_CREDENTIALS_URL:-}
-      PANCAKE_ROOMS_TURN_BEARER_TOKEN: ${PANCAKE_ROOMS_TURN_BEARER_TOKEN:-}
-      PANCAKE_ROOMS_TURN_TTL_SECONDS: ${PANCAKE_ROOMS_TURN_TTL_SECONDS:-86400}
+      GLOWCAP_ROOMS_TURN_CREDENTIALS_URL: ${GLOWCAP_ROOMS_TURN_CREDENTIALS_URL:-}
+      GLOWCAP_ROOMS_TURN_BEARER_TOKEN: ${GLOWCAP_ROOMS_TURN_BEARER_TOKEN:-}
+      GLOWCAP_ROOMS_TURN_TTL_SECONDS: ${GLOWCAP_ROOMS_TURN_TTL_SECONDS:-86400}
       # Every operator capability, on by default: each swiss number persists in
       # the state volume and prints in the logs; comment one out to withhold
       # that authority from this deployment. Read them any time with
       #   ./compose.sh exec rooms deno run --allow-read --allow-env --no-lock \
       #     /repo/apps/rooms/server/capabilities.ts
       # Same as starting with --diagnostics: mint inspect.
-      PANCAKE_ROOMS_DIAGNOSTICS: "1"
+      GLOWCAP_ROOMS_DIAGNOSTICS: "1"
       # Same as --admin-listeners: mint the listener-admin capability.
-      PANCAKE_ROOMS_ADMIN_LISTENERS: "1"
+      GLOWCAP_ROOMS_ADMIN_LISTENERS: "1"
       # Same as --operator: mint the server-wide authority that gives and
       # revokes room stewardships.
-      PANCAKE_ROOMS_OPERATOR: "1"
+      GLOWCAP_ROOMS_OPERATOR: "1"
       # Same as --peering: mint the directory-peering capability.
-      PANCAKE_ROOMS_PEERING: "1"
+      GLOWCAP_ROOMS_PEERING: "1"
       # Same as --viz: serve the live timeline endpoint (default port 9300;
-      # PANCAKE_ROOMS_VIZ_PORT only changes the port) and mint the viz
+      # GLOWCAP_ROOMS_VIZ_PORT only changes the port) and mint the viz
       # capability it requires of every socket.
-      PANCAKE_ROOMS_VIZ: "1"
+      GLOWCAP_ROOMS_VIZ: "1"
       # Same as --irc: mint the IRC gateway capability.
-      PANCAKE_ROOMS_IRC: "1"
+      GLOWCAP_ROOMS_IRC: "1"
       # Same as --history: listed rooms keep their last lines in the state
       # volume and serve them to members who join later.
-      PANCAKE_ROOMS_HISTORY: "1"
+      GLOWCAP_ROOMS_HISTORY: "1"
       # Same as --storage=: one destination whose shape picks where kept
       # lines persist. Empty keeps the state volume's files. To use the
       # managed database below instead, bring it up with
       #   ./compose.sh --profile storage-db up -d
       # and set this to its URL, e.g.
       #   postgres://rooms:${STORAGE_DB_PASSWORD}@rooms-storage-db:5432/rooms
-      PANCAKE_ROOMS_STORAGE: ${PANCAKE_ROOMS_STORAGE:-}
+      GLOWCAP_ROOMS_STORAGE: ${GLOWCAP_ROOMS_STORAGE:-}
     volumes:
       # The TypeScript source and the prebuilt .so, both read-only mounts — neither
       # is baked into the image. Build the .so in the dev container first (above).
@@ -127,8 +127,8 @@ services:
   # into the page's explicit session-establishment form. The page's existing
   # relay can dial this iroh identity without a published container port.
   rooms-session:
-    image: pancake-rooms:local
-    container_name: pancake-rooms-session
+    image: glowcap-rooms:local
+    container_name: glowcap-rooms-session
     working_dir: /repo
     command:
       - run
@@ -143,16 +143,16 @@ services:
       - --allow-read=/repo,/libs,/session-state,/run/rooms-session
       - --allow-write=/session-state,/run/rooms-session
       - --allow-net
-      - --allow-env=PANCAKE_LIB_DIR,PANCAKE_ROOMS_SESSION_STATE,PANCAKE_ROOMS_SESSION_TRANSPORT,PANCAKE_ROOMS_SESSION_REACHABILITY
+      - --allow-env=GLOWCAP_LIB_DIR,GLOWCAP_ROOMS_SESSION_STATE,GLOWCAP_ROOMS_SESSION_TRANSPORT,GLOWCAP_ROOMS_SESSION_REACHABILITY
       - --no-lock
       - apps/rooms/session/main.ts
       - --readiness-file=/run/rooms-session/admin.sturdyref
     environment:
-      PANCAKE_LIB_DIR: /libs
+      GLOWCAP_LIB_DIR: /libs
       DENO_DIR: /deno-dir
-      PANCAKE_ROOMS_SESSION_STATE: /session-state
-      PANCAKE_ROOMS_SESSION_TRANSPORT: iroh
-      PANCAKE_ROOMS_SESSION_REACHABILITY: discovery
+      GLOWCAP_ROOMS_SESSION_STATE: /session-state
+      GLOWCAP_ROOMS_SESSION_TRANSPORT: iroh
+      GLOWCAP_ROOMS_SESSION_REACHABILITY: discovery
     volumes:
       - ../../../..:/repo:ro
       - ../../../../zig-out/lib:/libs:ro
@@ -191,7 +191,7 @@ services:
       - rooms-net
 
 networks:
-  # Shared fabric with the pancake devcontainer: a bot there reaches this
+  # Shared fabric with the glowcap devcontainer: a bot there reaches this
   # container's internal CapTP over this network. Fixed name, external so both
   # compose projects use the one network (create it once with
   # `docker network create rooms-net`).

@@ -4,7 +4,7 @@
 // Live tables live on `RoomLiveIndex`. This file names the rows, not the
 // inventory that holds them.
 
-import { type Ref, type Session } from "@pancake/runtime";
+import { type Ref, type Session } from "@glowcap/runtime";
 import type { RoomPolicy } from "../lib/room/policy.ts";
 import type { RoomMembershipKind } from "../lib/room/membership.ts";
 
@@ -195,7 +195,7 @@ export interface BridgeRoomEntry {
 	name: string;
 	origin: string;
 	proof: "bridge";
-	bridge: { roomBehavior(): import("@pancake/runtime").Behavior };
+	bridge: { roomBehavior(): import("@glowcap/runtime").Behavior };
 }
 
 export type PublicRoomEntry = LocalRoomEntry | ForeignRoomEntry | BridgeRoomEntry;

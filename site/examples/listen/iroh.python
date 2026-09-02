@@ -1,5 +1,5 @@
-from pancake import Argument
-from pancake.iroh import IrohConfig, Reachability, listen
+from glowcap import Argument
+from glowcap.iroh import IrohConfig, Reachability, listen
 
 # This listener is named by its node id. Partners can dial it from anywhere.
 async with await listen(IrohConfig(Reachability.DISCOVERY)) as server:

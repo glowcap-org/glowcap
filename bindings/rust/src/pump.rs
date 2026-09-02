@@ -1,10 +1,10 @@
 //! The byte-fed embedder pump choreography the [`Session`](crate::Session)
 //! drives: read raw bytes off the transport, hand them to the core's stream
-//! delimiter (`pancake_host_session_feed_bytes`, which owns framing), drain the
-//! host's action queue, and write what `pancake_host_session_take_outbound`
+//! delimiter (`glowcap_host_session_feed_bytes`, which owns framing), drain the
+//! host's action queue, and write what `glowcap_host_session_take_outbound`
 //! drains. CapTP verbs, hosting, and vows stay on `Session`; this module owns
 //! the conn byte path (handshake, serve loop, feed, flush, feed-refusal, EOF /
-//! `pancake_host_session_transport_closed`).
+//! `glowcap_host_session_transport_closed`).
 
 use std::rc::Rc;
 
@@ -102,7 +102,7 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 		shared.closing.set(true);
 		let message = b"connection closed";
 		let reported = check_host(unsafe {
-			ffi::pancake_host_session_transport_closed(shared.ptr.get(), message.as_ptr(), message.len())
+			ffi::glowcap_host_session_transport_closed(shared.ptr.get(), message.as_ptr(), message.len())
 		});
 		if outcome.is_ok() {
 			outcome = reported;
@@ -134,7 +134,7 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 		}
 		let _deliver = DeliverGuard::enter(shared);
 		let rc = unsafe {
-			ffi::pancake_host_session_feed_bytes(
+			ffi::glowcap_host_session_feed_bytes(
 				shared.ptr.get(),
 				if chunk.is_empty() {
 					std::ptr::null()
@@ -169,7 +169,7 @@ async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
 			return Ok(());
 		}
 		let _deliver = DeliverGuard::enter(shared);
-		let rc = unsafe { ffi::pancake_host_session_resume_feed(shared.ptr.get()) };
+		let rc = unsafe { ffi::glowcap_host_session_resume_feed(shared.ptr.get()) };
 		drop(_deliver);
 		crate::finalizer::drain();
 		shared.host.note_close_activity();
@@ -220,8 +220,8 @@ fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 	if shared.released.get() {
 		return Ok(None);
 	}
-	let mut raw: sys::PancakeLastAbort = unsafe { core::mem::zeroed() };
-	let rc = unsafe { ffi::pancake_host_session_last_abort(shared.ptr.get(), &mut raw) };
+	let mut raw: sys::GlowcapLastAbort = unsafe { core::mem::zeroed() };
+	let rc = unsafe { ffi::glowcap_host_session_last_abort(shared.ptr.get(), &mut raw) };
 	if rc == sys::WOULD_BLOCK {
 		return Ok(None); // no abort recorded
 	}
@@ -272,11 +272,11 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		if shared.released.get() {
 			return Ok(());
 		}
-		let mut raw: sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
+		let mut raw: sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
 		let mut prefix = [0u8; sys::HOST_OUTBOUND_PREFIX_CAP];
 		let mut prefix_len = 0usize;
 		let rc = unsafe {
-			ffi::pancake_host_session_take_outbound(
+			ffi::glowcap_host_session_take_outbound(
 				shared.ptr.get(),
 				&mut raw,
 				prefix.as_mut_ptr(),
@@ -366,7 +366,7 @@ impl Drop for TornOnDrop<'_> {
 
 // Holds one drained managed frame across the awaited transport write and
 // releases it after — the zero-copy outbound path.
-struct FrameGuard(sys::PancakeManagedFrame);
+struct FrameGuard(sys::GlowcapManagedFrame);
 
 impl FrameGuard {
 	fn bytes(&self) -> &[u8] {
@@ -380,6 +380,6 @@ impl FrameGuard {
 
 impl Drop for FrameGuard {
 	fn drop(&mut self) {
-		unsafe { sys::pancake_managed_frame_release(&mut self.0) };
+		unsafe { sys::glowcap_managed_frame_release(&mut self.0) };
 	}
 }

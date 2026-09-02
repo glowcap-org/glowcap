@@ -5,12 +5,12 @@
 ;; provider, and server surface. This module owns the readiness loop and raw
 ;; byte-channel endpoint; it contains no application-facing selection policy.
 ;;
-;; Mirrors the à-la-carte archive split (ADR-0059): `pancake.rkt` is the core
-;; (libpancake_ocapn), and each transport is its own composable module —
-;; `pancake-tcp.rkt`, `pancake-inproc.rkt`, and this one. This module is
-;; libpancake_net_transport_iroh's binding, the optional encrypted-QUIC netlayer.
+;; Mirrors the à-la-carte archive split (ADR-0059): `glowcap.rkt` is the core
+;; (libglowcap_ocapn), and each transport is its own composable module —
+;; `glowcap-tcp.rkt`, `glowcap-inproc.rkt`, and this one. This module is
+;; libglowcap_net_transport_iroh's binding, the optional encrypted-QUIC netlayer.
 ;; Its private loader (`private/ffi-iroh.rkt`) opens ONLY the iroh companion
-;; (`zig build iroh-abi`, needs cargo) — which exports only `pancake_iroh_*` —
+;; (`zig build iroh-abi`, needs cargo) — which exports only `glowcap_iroh_*` —
 ;; and builds an `async-transport` over it through the transport seam
 ;; (`private/seam.rkt`); the core calls come from there. Everything above the
 ;; pump — vat, session-* verbs, events — is the core's; only the transport differs.
@@ -57,7 +57,7 @@
     (bytes->immutable-bytes
      (or seed (host-seed (driver-loop-host lp)))))
   (unless (= (bytes-length seed*) 32)
-    (raise-pancake 'iroh-adopt-loop! ERR-INVALID-ARGUMENT
+    (raise-glowcap 'iroh-adopt-loop! ERR-INVALID-ARGUMENT
                    "the iroh provider seed must be 32 bytes"))
   (define-values (netlayer package close!)
     (iroh-loop-provider-parts config seed*))
@@ -107,7 +107,7 @@
 ;; arms it at construction), so this only stands up the fd-parking thread.
 (define (make-iroh-loop netlayer)
   (define lp (iroh-loop netlayer (make-hash) (make-hash) 1 (make-semaphore 0) (make-semaphore 0) #f #f #f
-                        (malloc _PancakeIrohReadyEvent DRAIN-READY-CAP 'atomic-interior)
+                        (malloc _GlowcapIrohReadyEvent DRAIN-READY-CAP 'atomic-interior)
                         (box #f)))
   (set-iroh-loop-thread!
    lp
@@ -144,7 +144,7 @@
      (case (car result)
        [(ok) (cdr result)]
        [(error) (raise (cdr result))]
-       [else (raise-pancake 'iroh ERR-CLOSED "iroh loop closed")]))
+       [else (raise-glowcap 'iroh ERR-CLOSED "iroh loop closed")]))
    (lambda ()
      (unless completed?
        (set-dial-waiter-abandoned?! w #t)
@@ -222,8 +222,8 @@
       [(= n 0) #t]
       [else
        (for ([i (in-range n)])
-         (define rec (ptr-ref buf _PancakeIrohReadyEvent i))
-         (dispatch! lp (PancakeIrohReadyEvent-subject rec) (PancakeIrohReadyEvent-events rec)))
+         (define rec (ptr-ref buf _GlowcapIrohReadyEvent i))
+         (dispatch! lp (GlowcapIrohReadyEvent-subject rec) (GlowcapIrohReadyEvent-events rec)))
        (if (= n DRAIN-READY-CAP) (drain) #t)])))
 
 ;; The dedicated readiness thread: park on the netlayer's readiness fd, and on
@@ -310,11 +310,11 @@
          (cond
            [(= rc OK)
             (when (= n 0)
-              (raise-pancake 'iroh ERR-IO "iroh try-write admitted zero bytes for a non-empty tail"))
+              (raise-glowcap 'iroh ERR-IO "iroh try-write admitted zero bytes for a non-empty tail"))
             (loop (+ offset n))]
            [(= rc WOULD-BLOCK)
             (if (conn-waiters-closed? w)
-                (raise-pancake 'iroh ERR-CLOSED "connection closed while writing")
+                (raise-glowcap 'iroh ERR-CLOSED "connection closed while writing")
                 (begin (semaphore-wait (conn-waiters-writable w)) (loop offset)))]
            [else (check/iroh rc)])))
      (void))
@@ -376,7 +376,7 @@
 ;; recorded, exactly as a runtime TCP dial does. Delegates to the
 ;; node-keyed dial with a fresh host rather than keying the session
 ;; independently of the host it builds.
-;; Discovery-posture dial retry (ADR-0082): lockstep with PANCAKE_DISCOVERY_DIAL_*.
+;; Discovery-posture dial retry (ADR-0082): lockstep with GLOWCAP_DISCOVERY_DIAL_*.
 (define DISCOVERY-DIAL-RETRY-S (/ DISCOVERY-DIAL-RETRY-MS 1000.0))
 
 ;; Dial, retrying only under a propagating-discovery posture (DISCOVERY and
@@ -396,7 +396,7 @@
       (with-handlers ([(lambda (e) (not (exn:break? e)))
                        (lambda (e)
                          (define code
-                           (cond [(exn:fail:pancake? e) (exn:fail:pancake-code e)]
+                           (cond [(exn:fail:glowcap? e) (exn:fail:glowcap-code e)]
                                  [else #f]))
                          (if (and retry?
                                   (eqv? code ERR-IO)
@@ -526,7 +526,7 @@
 ;;
 ;; Nothing runs over the bytes here, exactly what a consumer with its own
 ;; protocol needs: a foreign CapTP — a Spritely Goblins vat, over a netlayer
-;; written for it — frames them its own way. The keyed pancake server below is
+;; written for it — frames them its own way. The keyed glowcap server below is
 ;; the other consumer, and it is this endpoint plus a CapTP host.
 (struct iroh-endpoint (netlayer loop reachability))
 
@@ -582,7 +582,7 @@
        (values (iroh-loop-transport lp conn #f #f) (conn-verified-remote conn))]
       [(= rc WOULD-BLOCK)
        (if (iroh-loop-accept-closed? lp)
-           (raise-pancake who ERR-CLOSED "server closed")
+           (raise-glowcap who ERR-CLOSED "server closed")
            (begin (semaphore-wait (iroh-loop-accept-sema lp)) (loop)))]
       [else (check/iroh rc)])))
 

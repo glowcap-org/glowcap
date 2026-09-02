@@ -17,7 +17,7 @@ import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 
-const STATE_FILE = "pancake-rooms-state.json";
+const STATE_FILE = "glowcap-rooms-state.json";
 
 export function SessionDataModal(
 	{ open, onClose, sharedSession, canAdminister }: {

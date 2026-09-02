@@ -5,16 +5,16 @@
 //! spawns, and ADR-0074's grant-on-first-marshal each ride one test.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
-const net = pancake.net;
-const syrup = pancake.ocapn.codec.syrup;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
+const net = glowcap.net;
+const syrup = glowcap.ocapn.codec.syrup;
+const crypto = glowcap.foundation.crypto;
 
 const ip = std.Io.net;
 
@@ -182,7 +182,7 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
     const greeter = try cv.fetch("greeter");
     const promise = try cv.send(greeter, .{
         .verb = "greet",
-        .args = &.{.{ .string = "pancake" }},
+        .args = &.{.{ .string = "glowcap" }},
     });
     var state = ReplyState{};
     try cv.on(promise, .{ .ctx = &state, .func = onGreeting });
@@ -210,7 +210,7 @@ fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
     defer arena_state.deinit();
 
     const greeter = try session.fetch("greeter");
-    const settled = try session.call(greeter, "greet", &.{.{ .string = "pancake" }}, arena_state.allocator());
+    const settled = try session.call(greeter, "greet", &.{.{ .string = "glowcap" }}, arena_state.allocator());
     switch (settled) {
         .fulfilled => |arg| {
             try std.testing.expect(arg == .string);
@@ -290,12 +290,12 @@ fn dialUriOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var tcp_resident = pancake.net.tcp.plain.Resident{ .io = io };
+    var tcp_resident = glowcap.net.tcp.plain.Resident{ .io = io };
     var cv = try driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, uri, .ephemeral, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
-    const promise = try cv.send(greeter, .{ .verb = "greet", .args = &.{.{ .string = "pancake" }} });
+    const promise = try cv.send(greeter, .{ .verb = "greet", .args = &.{.{ .string = "glowcap" }} });
     var state = ReplyState{};
     try cv.on(promise, .{ .ctx = &state, .func = onGreeting });
     while (!state.done) {
@@ -487,7 +487,7 @@ fn callAbortedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocat
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
-    const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "pancake" }} }, arena_state.allocator());
+    const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "glowcap" }} }, arena_state.allocator());
     switch (settled) {
         .fulfilled, .give => return error.UnexpectedFulfillment,
         .broken => |reason| try std.testing.expectEqualStrings(abort_diagnostic, reason),
@@ -524,7 +524,7 @@ test "connectUri fails closed on a URI whose transport has no registered residen
     var read_buf: [256]u8 = undefined;
     var write_buf: [256]u8 = undefined;
 
-    var tcp_resident = pancake.net.tcp.plain.Resident{ .io = io };
+    var tcp_resident = glowcap.net.tcp.plain.Resident{ .io = io };
 
     // A syntactically valid URI naming a transport the slice does not host:
     // the dial refuses rather than silently falling back to tcp.

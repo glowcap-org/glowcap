@@ -1,20 +1,20 @@
-//! pancake as the three-party handoff **exporter**, against live Goblins.
+//! glowcap as the three-party handoff **exporter**, against live Goblins.
 //!
 //! The third role, and the one that had no cross-implementation proof.
-//! `goblins-handoff` has pancake redeem a give Goblins minted; `goblins-gift`
-//! has pancake mint a give Goblins redeems. Neither has a live Goblins pair
-//! deposit into and withdraw from a *pancake* gift registry, so pancake
+//! `goblins-handoff` has glowcap redeem a give Goblins minted; `goblins-gift`
+//! has glowcap mint a give Goblins redeems. Neither has a live Goblins pair
+//! deposit into and withdraw from a *glowcap* gift registry, so glowcap
 //! answering `deposit-gift` and `withdraw-gift` for somebody else's
 //! implementation rested on the upstream suite and an in-tree scenario.
 //!
-//!   Exporter (pancake)   publishes a greeter, answers deposit and withdraw
+//!   Exporter (glowcap)   publishes a greeter, answers deposit and withdraw
 //!   Gifter  (Goblins)    enlivens that greeter, publishes an introducer over it
 //!   Recipient (Goblins)  enlivens the introducer, asks for the greeter, and
-//!                        receives a give naming pancake — which it can only
-//!                        use by dialing pancake and presenting a receive
+//!                        receives a give naming glowcap — which it can only
+//!                        use by dialing glowcap and presenting a receive
 //!
 //! What makes this a real proof rather than a shape: the recipient's greeting
-//! can only arrive if pancake accepted Alice's `deposit-gift` over one session
+//! can only arrive if glowcap accepted Alice's `deposit-gift` over one session
 //! and served Carol's `withdraw-gift` over a *different* one, re-resolving the
 //! gifted bootstrap capability against the withdrawing session. If either verb
 //! mis-answers, Carol's call never lands and this driver fails.
@@ -22,24 +22,24 @@
 //! Run: `zig build goblins-exporter` (needs racket + the goblins collection).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const tcp = glowcap.net.tcp;
 
 const host_addr = "127.0.0.1";
-const default_pancake_port: u16 = 22140;
+const default_glowcap_port: u16 = 22140;
 const frame_cap: usize = 1 << 16;
 const gifter_script = "conformance/goblins-peer/racket/exporter-gifter-host.rkt";
 const recipient_script = "conformance/goblins-peer/racket/gift-recipient.rkt";
 /// The swissnum Alice enlivens. Goblins takes the swiss as raw bytes, so this
-/// is the name pancake publishes under.
-const greeter_swiss = "pancakeExportGreeterSwissnum0001";
+/// is the name glowcap publishes under.
+const greeter_swiss = "glowcapExportGreeterSwissnum0001";
 const introducer_swiss = "introducerSwissnum0123456789ABCD";
 const deadline_ms: u64 = 60_000;
 
@@ -73,7 +73,7 @@ const Greeter = struct {
         if (args.len != 1 or args[0] != .string) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(
             ht.turn.arena,
-            "Hello {s}, I'm the pancake exporter, primed with {s}!",
+            "Hello {s}, I'm the glowcap exporter, primed with {s}!",
             .{ args[0].string, self.mark[0..self.mark_len] },
         ) };
     }
@@ -137,19 +137,19 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.gpa;
 
-    const pancake_port = try harness.parsePortFlag(init.minimal.args, "goblins-exporter", default_pancake_port, .{
+    const glowcap_port = try harness.parsePortFlag(init.minimal.args, "goblins-exporter", default_glowcap_port, .{
         .max = 65533,
         .note = " (alice binds port+1, carol port+2)",
     });
     var alice_port_buf: [8]u8 = undefined;
-    const alice_port_str = try std.fmt.bufPrint(&alice_port_buf, "{d}", .{pancake_port + 1});
+    const alice_port_str = try std.fmt.bufPrint(&alice_port_buf, "{d}", .{glowcap_port + 1});
     var carol_port_buf: [8]u8 = undefined;
-    const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{pancake_port + 2});
-    var pancake_designator_buf: [32]u8 = undefined;
-    const pancake_designator = try std.fmt.bufPrint(&pancake_designator_buf, "{s}:{d}", .{ host_addr, pancake_port });
+    const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{glowcap_port + 2});
+    var glowcap_designator_buf: [32]u8 = undefined;
+    const glowcap_designator = try std.fmt.bufPrint(&glowcap_designator_buf, "{s}:{d}", .{ host_addr, glowcap_port });
 
     var bind_buf: [32]u8 = undefined;
-    const bind = try std.fmt.bufPrint(&bind_buf, "{s}:{d}", .{ host_addr, pancake_port });
+    const bind = try std.fmt.bufPrint(&bind_buf, "{s}:{d}", .{ host_addr, glowcap_port });
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = bind }, .ephemeral, opts);
@@ -164,16 +164,16 @@ pub fn main(init: std.process.Init) !void {
         serving.await(io) catch {};
     }
 
-    std.debug.print("goblins-exporter: pancake exporting greeter swiss={s} on {s}\n", .{ greeter_swiss, pancake_designator });
+    std.debug.print("goblins-exporter: glowcap exporting greeter swiss={s} on {s}\n", .{ greeter_swiss, glowcap_designator });
 
-    // Alice enlivens pancake's greeter and publishes an introducer over it.
+    // Alice enlivens glowcap's greeter and publishes an introducer over it.
     const hosted = try goblins_child.spawnHostAwaitSwiss(
         io,
         allocator,
         init.environ_map,
         "goblins-exporter",
         "introducer",
-        &.{ gifter_script, alice_port_str, pancake_designator, greeter_swiss },
+        &.{ gifter_script, alice_port_str, glowcap_designator, greeter_swiss },
     );
     var alice = hosted.child;
     var alice_reaped = false;
@@ -197,8 +197,8 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    // Carol enlivens Alice's introducer, receives the give naming pancake, and
-    // must reach pancake directly to use it.
+    // Carol enlivens Alice's introducer, receives the give naming glowcap, and
+    // must reach glowcap directly to use it.
     var carol = try std.process.spawn(io, .{
         .argv = &.{
             goblins_child.racket_path,
@@ -225,7 +225,7 @@ pub fn main(init: std.process.Init) !void {
     alice.kill(io);
     alice_reaped = true;
     std.debug.print(
-        "goblins-exporter OK: a live Goblins pair deposited into and withdrew from pancake's gift registry, reaching the exact primed actor across an alias replacement\n",
+        "goblins-exporter OK: a live Goblins pair deposited into and withdrew from glowcap's gift registry, reaching the exact primed actor across an alias replacement\n",
         .{},
     );
 }

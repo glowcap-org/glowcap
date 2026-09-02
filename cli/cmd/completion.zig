@@ -57,8 +57,8 @@ fn emitWith(em: *Emitter, root: *const Command, shell: Shell) !void {
 
 fn emitBash(em: *Emitter, root: *const Command) !void {
     try em.writeAll(
-        \\# pancake bash completion — eval "$(pancake completion bash)"
-        \\_pancake() {
+        \\# glowcap bash completion — eval "$(glowcap completion bash)"
+        \\_glowcap() {
         \\  local cur prev
         \\  COMPREPLY=()
         \\  cur="${COMP_WORDS[COMP_CWORD]}"
@@ -74,8 +74,8 @@ fn emitBash(em: *Emitter, root: *const Command) !void {
         \\  done
         \\
         \\  local cmds flags
-        \\  cmds="$(_pancake_cmds "${path[@]}")"
-        \\  flags="$(_pancake_flags "${path[@]}")"
+        \\  cmds="$(_glowcap_cmds "${path[@]}")"
+        \\  flags="$(_glowcap_flags "${path[@]}")"
         \\
         \\  if [[ "$cur" == -* ]]; then
         \\    COMPREPLY=( $(compgen -W "$flags" -- "$cur") )
@@ -85,16 +85,16 @@ fn emitBash(em: *Emitter, root: *const Command) !void {
         \\}
         \\
     );
-    try emitCaseTables(em, root, "complete -F _pancake pancake\n");
+    try emitCaseTables(em, root, "complete -F _glowcap glowcap\n");
 }
 
-/// The `_pancake_cmds` / `_pancake_flags` case tables bash and zsh share; only
+/// The `_glowcap_cmds` / `_glowcap_flags` case tables bash and zsh share; only
 /// the registration line at the tail differs per shell.
 fn emitCaseTables(em: *Emitter, root: *const Command, register: []const u8) !void {
-    try em.writeAll("_pancake_cmds() {\n  case \"$*\" in\n");
+    try em.writeAll("_glowcap_cmds() {\n  case \"$*\" in\n");
     try writeCmdCases(em, root, &.{});
     try em.writeAll("  esac\n}\n\n");
-    try em.writeAll("_pancake_flags() {\n  case \"$*\" in\n");
+    try em.writeAll("_glowcap_flags() {\n  case \"$*\" in\n");
     try writeFlagCases(em, root, &.{}, root.flags);
     try em.writeAll("  esac\n}\n\n");
     try em.writeAll(register);
@@ -103,9 +103,9 @@ fn emitCaseTables(em: *Emitter, root: *const Command, register: []const u8) !voi
 fn emitZsh(em: *Emitter, root: *const Command) !void {
     // Same tree-derived case tables as bash; zsh wrapper builds the path from $words.
     try em.writeAll(
-        \\# pancake zsh completion — eval "$(pancake completion zsh)"
-        \\#compdef pancake
-        \\_pancake() {
+        \\# glowcap zsh completion — eval "$(glowcap completion zsh)"
+        \\#compdef glowcap
+        \\_glowcap() {
         \\  local cur="${words[CURRENT]}"
         \\  local -a path
         \\  local i
@@ -116,8 +116,8 @@ fn emitZsh(em: *Emitter, root: *const Command) !void {
         \\    esac
         \\  done
         \\  local cmds_str flags_str
-        \\  cmds_str="$(_pancake_cmds "${path[@]}")"
-        \\  flags_str="$(_pancake_flags "${path[@]}")"
+        \\  cmds_str="$(_glowcap_cmds "${path[@]}")"
+        \\  flags_str="$(_glowcap_flags "${path[@]}")"
         \\  local -a cmds flags
         \\  cmds=(${=cmds_str})
         \\  flags=(${=flags_str})
@@ -129,7 +129,7 @@ fn emitZsh(em: *Emitter, root: *const Command) !void {
         \\}
         \\
     );
-    try emitCaseTables(em, root, "compdef _pancake pancake\n");
+    try emitCaseTables(em, root, "compdef _glowcap glowcap\n");
 }
 
 fn pathKey(parts: []const []const u8, buf: []u8) []const u8 {
@@ -221,18 +221,18 @@ fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8, r
 
 fn emitFish(em: *Emitter, root: *const Command) !void {
     var help_buf: [256]u8 = undefined;
-    try em.writeAll("# pancake fish completion — pancake completion fish | source\n");
-    try em.writeAll("complete -c pancake -f\n");
+    try em.writeAll("# glowcap fish completion — glowcap completion fish | source\n");
+    try em.writeAll("complete -c glowcap -f\n");
     // Persistent root flags are emitted once, unguarded, so fish offers them in
     // every context; per-node lines below carry only the node's own flags.
     // Derived, so a new persistent flag lands here the day it lands in the tree.
     for (root.flags) |f| {
         if (!f.persistent) continue;
-        try em.writeAll("complete -c pancake");
+        try em.writeAll("complete -c glowcap");
         try writeFishFlagSpec(em, f, &help_buf);
         try em.writeAll("\n");
     }
-    try em.writeAll("complete -c pancake -l help -s h -d 'Help'\n");
+    try em.writeAll("complete -c glowcap -l help -s h -d 'Help'\n");
     try writeFishNode(em, root, &.{});
     try em.writeAll("\n");
 }
@@ -266,10 +266,10 @@ fn writeFishNode(em: *Emitter, cmd: *const Command, path: []const []const u8) !v
         for (cmd.children) |c| {
             if (c.hidden_from_help) continue;
             const d = fishEscape(c.short_help, &help_buf);
-            try em.writeFmt("complete -c pancake -n '__fish_use_subcommand' -a '{s}' -d '{s}'\n", .{ c.name, d });
+            try em.writeFmt("complete -c glowcap -n '__fish_use_subcommand' -a '{s}' -d '{s}'\n", .{ c.name, d });
         }
     } else if (cmd.children.len > 0 or cmd.flags.len > 0) {
-        try em.writeAll("complete -c pancake -n '");
+        try em.writeAll("complete -c glowcap -n '");
         for (path, 0..) |p, i| {
             if (i > 0) try em.writeAll("; and ");
             try em.writeFmt("__fish_seen_subcommand_from {s}", .{p});

@@ -1,10 +1,10 @@
 //! Fixture-byte comparison and little byte builders the Syrup suite shares.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 
-pub fn expectFixtureBytes(name: []const u8, frame: pancake.foundation.Frame) !void {
+pub fn expectFixtureBytes(name: []const u8, frame: glowcap.foundation.Frame) !void {
     const fixture = protocol_oracle.fixtureByName(name).?;
     try std.testing.expectEqualSlices(u8, fixture.bytes(), frame.bytes());
 }

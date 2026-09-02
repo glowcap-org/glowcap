@@ -1,4 +1,4 @@
-//! Agent file verbs and dispatch for `pancake app rooms-peer`.
+//! Agent file verbs and dispatch for `glowcap app rooms-peer`.
 const std = @import("std");
 const exit_codes = @import("../../exit_codes.zig");
 const log = @import("../../operability/log.zig");
@@ -338,9 +338,9 @@ fn buildStatus(
 // --- main -------------------------------------------------------------------
 
 const usage_text =
-    \\pancake app rooms-peer — join a pancake chat room as a background peer and answer messages.
+    \\glowcap app rooms-peer — join a glowcap chat room as a background peer and answer messages.
     \\
-    \\Usage: pancake app rooms-peer <verb> [flags]
+    \\Usage: glowcap app rooms-peer <verb> [flags]
     \\       rooms-peer <verb> [flags]          (install alias)
     \\
     \\  start   --nick NICK --dir DIR [--room ROOM] [--locator LOC] [--identity PATH]
@@ -354,7 +354,7 @@ const usage_text =
     \\`--dm PEER` sends a direct message off-room. The peer reuses a live reply
     \\capability or asks the room directory to introduce the target on first contact.
     \\Example:
-    \\  pancake app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room general
+    \\  glowcap app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room general
     \\
 ;
 
@@ -375,7 +375,7 @@ pub fn verbExit(err: anyerror) ?u8 {
     };
 }
 
-/// Tree-dispatch entry (`pancake app rooms-peer <verb>`). Usage JSON → 2; operational soft fail → 1.
+/// Tree-dispatch entry (`glowcap app rooms-peer <verb>`). Usage JSON → 2; operational soft fail → 1.
 pub fn runVerb(init: std.process.Init, verb: []const u8, flags: Flags) !u8 {
     dispatchVerb(init, verb, flags) catch |err| {
         if (verbExit(err)) |code| return code;

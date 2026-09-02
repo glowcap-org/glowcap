@@ -6,14 +6,14 @@ const shared = @import("c_abi_shared");
 
 pub fn code(kind: driver_core.HostFailure.Kind) i32 {
     return switch (kind) {
-        .invalid_argument => shared.PANCAKE_ERR_INVALID_ARGUMENT,
-        .not_found => shared.PANCAKE_ERR_NOT_FOUND,
-        .would_block => shared.PANCAKE_ERR_WOULD_BLOCK,
-        .closed => shared.PANCAKE_ERR_CLOSED,
-        .session => shared.PANCAKE_ERR_SESSION,
-        .codec => shared.PANCAKE_ERR_CODEC,
-        .frame_too_large => shared.PANCAKE_ERR_FRAME_TOO_LARGE,
-        .internal => shared.PANCAKE_ERR_INTERNAL,
+        .invalid_argument => shared.GLOWCAP_ERR_INVALID_ARGUMENT,
+        .not_found => shared.GLOWCAP_ERR_NOT_FOUND,
+        .would_block => shared.GLOWCAP_ERR_WOULD_BLOCK,
+        .closed => shared.GLOWCAP_ERR_CLOSED,
+        .session => shared.GLOWCAP_ERR_SESSION,
+        .codec => shared.GLOWCAP_ERR_CODEC,
+        .frame_too_large => shared.GLOWCAP_ERR_FRAME_TOO_LARGE,
+        .internal => shared.GLOWCAP_ERR_INTERNAL,
     };
 }
 

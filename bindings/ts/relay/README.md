@@ -1,6 +1,6 @@
-# @pancake/relay
+# @glowcap/relay
 
-The byte-transparent relay a pancake embedder runs so a peer that cannot open a socket itself, such
+The byte-transparent relay a glowcap embedder runs so a peer that cannot open a socket itself, such
 as a browser, can hold a CapTP session with another peer. The relay forwards the raw session bytes
 without parsing them, so the keyed or Noise handshake and session authority run end to end and the
 relay holds no capability. The contract every runtime's relay obeys is
@@ -15,7 +15,7 @@ and the same five shapes appear in every language's relay.
 
 1. **A raw byte channel** to the target — `read() → Uint8Array | null`,
    `write(bytes) → Promise<void>`, `close() → Promise<void>` (one idempotent release barrier): the `RelayChannel` type. For an iroh
-   target it comes from `@pancake/iroh`'s `dialLocatorForRelay`; for a TCP target it is the
+   target it comes from `@glowcap/iroh`'s `dialLocatorForRelay`; for a TCP target it is the
    runtime's own socket.
 2. **The pump**, `relayBytes(source, sink, channel, config, closeSource)`: moves bytes between the
    two legs with pair-atomic teardown, an idle timeout, a byte cap, and awaited-write backpressure.
@@ -29,7 +29,7 @@ and the same five shapes appear in every language's relay.
    relay dispatches on which query parameter the browser set — `?to=host:port` opens a socket,
    `?locator=<uri>` an iroh channel — and deliberately stays dependency-light, reading no locator
    grammar and loading iroh only on the `?locator=` path (a `source-check` gate holds that lazy load).
-   Routing classification through the shared core `pancake_host_plan_dial` would link the capability
+   Routing classification through the shared core `glowcap_host_plan_dial` would link the capability
    core for one bit the parameter already carries, so only the production rooms relay
    (`apps/rooms/web/relay.ts`) does that, to keep its SSRF allow-list in lockstep with the dial it
    admits (ADR-0086).
@@ -39,9 +39,9 @@ and the same five shapes appear in every language's relay.
 ## Usage
 
 ```ts
-import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@pancake/abi";
-import { webSocketRelay } from "@pancake/relay";
-import { dialLocatorForRelay, Reachability } from "@pancake/iroh";
+import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@glowcap/abi";
+import { webSocketRelay } from "@glowcap/relay";
+import { dialLocatorForRelay, Reachability } from "@glowcap/iroh";
 
 // Inside the runtime's WebSocket-upgrade handler, once the app has admitted the
 // target, hand the accepted socket and a far-side dial to the pump:
@@ -92,7 +92,7 @@ the byte channel.
 ## Scaling
 
 The relay holds no CapTP session state, so one more relayed connection costs only runtime and socket
-overhead, not pancake buffers. `zig build relay-scaling` (`test/scaling_bench.ts`) measures that cost the
+overhead, not glowcap buffers. `zig build relay-scaling` (`test/scaling_bench.ts`) measures that cost the
 way `bench-peer-scaling` measures the core's: it stands up the real reference relay, opens thousands
 of live relayed connections through it, and divides the resident-memory delta by the count. The
 figure is about 80 KiB per connection, so a host serves tens of thousands of connections per

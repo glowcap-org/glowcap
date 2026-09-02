@@ -1,6 +1,6 @@
 ---
 .title = "Racket",
-.description = "Use pancake from Racket with native values, green threads, and a Goblins-shaped actor API tested against a Goblins vat.",
+.description = "Use glowcap from Racket with native values, green threads, and a Goblins-shaped actor API tested against a Goblins vat.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -8,9 +8,9 @@
 
 The Racket binding gives you a Goblins-shaped `Runtime` and `session` API with native
 values
-([`pancake.rkt`](https://github.com/jimisaacs/pancake/blob/main/bindings/racket/pancake.rkt)).
-The transport modules are `pancake-iroh.rkt`, `pancake-onion.rkt`,
-`pancake-relay.rkt`, `pancake-tcp.rkt`, and `pancake-inproc.rkt`. The
+([`glowcap.rkt`](https://github.com/jimisaacs/glowcap/blob/main/bindings/racket/glowcap.rkt)).
+The transport modules are `glowcap-iroh.rkt`, `glowcap-onion.rkt`,
+`glowcap-relay.rkt`, `glowcap-tcp.rkt`, and `glowcap-inproc.rkt`. The
 [Bindings]($link.page('bindings')) page covers install,
 and [modules]($link.page('modules')) has the actor vocabulary.
 
@@ -24,8 +24,8 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-iroh.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-iroh.rkt")
 >
 > ;; IROH-REACH-DISCOVERY resolves a bare iroh node ID without an address hint.
 > (define node-id "<64 lowercase hex characters from the server>")
@@ -37,7 +37,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **noise-tcp**
 > ```scheme
-> (require "pancake.rkt" "pancake-tcp.rkt")
+> (require "glowcap.rkt" "glowcap-tcp.rkt")
 >
 > ;; Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -47,7 +47,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **noise-relay**
 > ```scheme
-> (require "pancake.rkt" "pancake-relay.rkt")
+> (require "glowcap.rkt" "glowcap-relay.rkt")
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -58,9 +58,9 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **onion**
 > ```scheme
-> (require "pancake.rkt" "pancake-onion.rkt")
+> (require "glowcap.rkt" "glowcap-onion.rkt")
 >
-> ;; pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+> ;; glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > (define partner (onion-locator "<56-character onion service id>"))
 > (define runtime
 >   (open-runtime #:providers
@@ -68,7 +68,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **keyed-tcp**
 > ```scheme
-> (require "pancake.rkt" "pancake-tcp.rkt")
+> (require "glowcap.rkt" "glowcap-tcp.rkt")
 >
 > ;; Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -78,7 +78,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **keyed-relay**
 > ```scheme
-> (require "pancake.rkt" "pancake-relay.rkt")
+> (require "glowcap.rkt" "glowcap-relay.rkt")
 >
 > ;; The key names the peer; the hint names the relay that can reach it.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -89,7 +89,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > ```
 > **tcp**
 > ```scheme
-> (require "pancake.rkt" "pancake-tcp.rkt")
+> (require "glowcap.rkt" "glowcap-tcp.rkt")
 >
 > ;; Plain TCP uses a cleartext host and port.
 > (define partner (tcp-locator "127.0.0.1" 9099))
@@ -112,7 +112,7 @@ From here, the CapTP workflow is the same for every transport:
 
 The CapTP verbs stay the same across tabs. What changes is the locator helper
 and whether CapTP rides cleartext or Noise. The iroh tab needs
-`pancake-iroh.rkt` and a discovery-reachable node id.
+`glowcap-iroh.rkt` and a discovery-reachable node id.
 
 # Hosting the other half
 
@@ -126,8 +126,8 @@ survives a restart; iroh binds a node id instead of a host and port.
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-iroh.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-iroh.rkt")
 >
 > ;; This listener is named by its node id. Partners can dial it from anywhere.
 > (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))
@@ -137,8 +137,8 @@ survives a restart; iroh binds a node id instead of a host and port.
 > ```
 > **noise-tcp**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-tcp.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-tcp.rkt")
 >
 > ;; Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -149,8 +149,8 @@ survives a restart; iroh binds a node id instead of a host and port.
 > ```
 > **noise-relay**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-relay.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-relay.rkt")
 >
 > ;; Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -164,9 +164,9 @@ survives a restart; iroh binds a node id instead of a host and port.
 > ```
 > **onion**
 > ```scheme
-> (require "pancake.rkt" "pancake-onion.rkt")
+> (require "glowcap.rkt" "glowcap-onion.rkt")
 >
-> ;; pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+> ;; glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > (define server (listen-onion #:socks "/run/tor/socks"
 >                              #:control "/run/tor/control"))
 > (printf "~a\n" (onion-server-uri server)) ; hand this locator to partners
@@ -176,8 +176,8 @@ survives a restart; iroh binds a node id instead of a host and port.
 > ```
 > **keyed-tcp**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-tcp.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-tcp.rkt")
 >
 > ;; Key designator, cleartext CapTP. Persist the seed to keep the same key.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -188,8 +188,8 @@ survives a restart; iroh binds a node id instead of a host and port.
 > ```
 > **tcp**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-tcp.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-tcp.rkt")
 >
 > ;; Plain TCP binds the host and port you choose.
 > (define server (listen "127.0.0.1" 9099))
@@ -215,7 +215,7 @@ From here, the CapTP workflow is the same for every transport:
 
 # A Goblins-style actor API
 
-The verbs follow Goblins. The vat and the wire are pancake, so an existing
+The verbs follow Goblins. The vat and the wire are glowcap, so an existing
 Goblins program will not run unchanged. You define an actor constructor with
 `(define (^name bcom arg ...) ...)`, return its `methods` behavior, and then
 `spawn` it. You call it near with `$`, send it eventually with `<-` or `<-np`,
@@ -236,7 +236,7 @@ runs a callback when the vow (Goblins's word for a promise) settles.
 [Concepts]($link.page('concepts')) covers the CapTP ideas.
 
 The complete API lives in the
-[Racket binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/racket/README.md).
+[Racket binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/racket/README.md).
 Among the four bindings, only Racket keeps Goblins's verbs, so the
-[rooms chat client](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/clients/racket/room-client.rkt)
+[rooms chat client](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/clients/racket/room-client.rkt)
 reads almost like Goblins code.

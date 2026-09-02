@@ -1,7 +1,7 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const net = pancake.net;
+const net = glowcap.net;
 
 test "cancelable operation interrupts blocking I/O before retirement" {
     const allocator = std.testing.allocator;

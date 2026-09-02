@@ -1,7 +1,7 @@
 // Durable room entrances: reconstruct the live room lazily, without making
 // the published capability retain an empty membership aggregate.
 
-import { type Argument, type Behavior, currentSession, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, type Session } from "@glowcap/runtime";
 import { NO_SUCH_ROOM, RoomError } from "../lib/errors.ts";
 import { isManagedRoomId } from "../lib/limits.ts";
 import { OPEN_ROOM_POLICY, PRIVATE_ROOM_POLICY } from "../lib/room/policy.ts";

@@ -111,7 +111,7 @@ export type BaseTimelineEvent = {
 	 * build has never heard of and the stage draws it under that name. */
 	a_profile?: unknown;
 	/** `ocapn.session-opened`: the negotiated CapTP profile, spelled the way
-	 * the handshake spells it (`"1.0"` / `"pancake-next"`), because a trace
+	 * the handshake spells it (`"1.0"` / `"glowcap-next"`), because a trace
 	 * reports on the wire. The feed is JSON, so this reaches the reader as
 	 * unknown until the reader proves it is a string. Absent from a producer
 	 * that predates the field. */

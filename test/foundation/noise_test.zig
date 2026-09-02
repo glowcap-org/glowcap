@@ -14,10 +14,10 @@
 //! extracted by exact `protocol_name` match with every field verbatim.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const crypto = pancake.foundation.crypto;
-const noise = pancake.foundation.noise;
+const crypto = glowcap.foundation.crypto;
+const noise = glowcap.foundation.noise;
 
 const vector_json = @embedFile("noise_vectors/cacophony_xk_25519_chachapoly_blake2s.json");
 

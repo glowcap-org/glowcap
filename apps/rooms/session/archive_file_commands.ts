@@ -1,6 +1,6 @@
 // Lazy archived-file readers issued through a durable Rooms session.
 
-import { type Argument, type Behavior, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, type Session } from "@glowcap/runtime";
 import { parseArchiveRecord } from "../lib/archive/protocol.ts";
 import { ROOMS_SESSION_ARCHIVED_ATTACHMENT } from "../lib/session/client.ts";
 import { BLOB_CHUNK } from "../lib/limits.ts";

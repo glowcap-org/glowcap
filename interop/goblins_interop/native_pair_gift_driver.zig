@@ -1,28 +1,28 @@
-//! Live three-party handoff where *two* of the three vats are pancake, and the
+//! Live three-party handoff where *two* of the three vats are glowcap, and the
 //! two profiles that produces are the point.
 //!
-//! Every other live handoff driver here puts one pancake peer among two Goblins
+//! Every other live handoff driver here puts one glowcap peer among two Goblins
 //! vats, so every session in the run is the v1.0 Syrup baseline and the
 //! question this one asks cannot come up. The cast here is the one
 //! `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts` draws:
 //!
-//!   Exporter (pancake)  publishes a giftable greeter and listens.
-//!   Gifter   (pancake)  dials the exporter, fetches the greeter, and
+//!   Exporter (glowcap)  publishes a giftable greeter and listens.
+//!   Gifter   (glowcap)  dials the exporter, fetches the greeter, and
 //!                       publishes an introducer that hands it out.
 //!   Carol    (Goblins)  dials the gifter's introducer, redeems the give it
 //!                       answers with, dials the exporter directly, and calls
 //!                       the greeter there.
 //!
-//! Both pancake hosts prefer `pancake-next` over Cap'n Proto. The session
+//! Both glowcap hosts prefer `glowcap-next` over Cap'n Proto. The session
 //! between them settles there, because both ends can. Carol's two sessions
 //! settle on the baseline, because she speaks nothing else, and neither
-//! pancake host is told in advance which kind of peer is dialing. Before
-//! per-session negotiation this run could not exist: a native pancake exporter
+//! glowcap host is told in advance which kind of peer is dialing. Before
+//! per-session negotiation this run could not exist: a native glowcap exporter
 //! refused a Goblins dial outright, so proving a handoff across the two
 //! required giving up the native session entirely.
 //!
 //! What the handoff itself has to survive is that split. The give is minted on
-//! the Cap'n Proto session between the pancake pair and redeemed on Carol's
+//! the Cap'n Proto session between the glowcap pair and redeemed on Carol's
 //! Syrup session to the exporter, which is the case `codec.signed` exists for:
 //! a signed envelope is Syrup whatever each session negotiated, so the two
 //! ends verify the same bytes.
@@ -31,16 +31,16 @@
 //! `zig build goblins-native-pair-gift`, not in the in-tree check.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const crypto = pancake.foundation.crypto;
-const driver = pancake.driver;
-const net = pancake.net;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const crypto = glowcap.foundation.crypto;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const tcp = glowcap.net.tcp;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -53,11 +53,11 @@ const frame_cap: usize = 1 << 16;
 const recipient_script = "conformance/goblins-peer/racket/gift-recipient.rkt";
 const exporter_peer = @import("native_pair_exporter.zig");
 const greeter_swiss = exporter_peer.greeter_swiss;
-const exporter_exe_path = "zig-out/bin/pancake-native-pair-exporter";
+const exporter_exe_path = "zig-out/bin/glowcap-native-pair-exporter";
 const introducer_swiss = "introducer";
 const deadline_ms: u64 = 60_000;
 
-/// The profile both pancake hosts ask for. Neither gets it on every session,
+/// The profile both glowcap hosts ask for. Neither gets it on every session,
 /// and that mismatch is what the run is about.
 fn nativeOptions() Host.Options {
     var o = Host.Options.withFrameCap(frame_cap);
@@ -224,8 +224,8 @@ pub fn main(init: std.process.Init) !void {
     try run(io, allocator, init.environ_map, carol_port_str);
 
     std.debug.print(
-        "goblins-native-pair-gift OK: the pancake pair held a pancake-next Cap'n Proto session while live Goblins " ++
-            "redeemed a give across two baseline sessions, reaching the pancake exporter directly\n",
+        "goblins-native-pair-gift OK: the glowcap pair held a glowcap-next Cap'n Proto session while live Goblins " ++
+            "redeemed a give across two baseline sessions, reaching the glowcap exporter directly\n",
         .{},
     );
 }
@@ -236,7 +236,7 @@ fn run(
     environ_map: *std.process.Environ.Map,
     carol_port_str: []const u8,
 ) !void {
-    // ── The pancake exporter, as its own process ────────────────────────────
+    // ── The glowcap exporter, as its own process ────────────────────────────
     // One completion loop per process: the gifter's loop and this main task's
     // polling are already two schedulable things, and a third made the run's
     // outcome depend on how they interleaved. The peers talk over a real
@@ -255,9 +255,9 @@ fn run(
     var exporter_reader = exporter_out.readerStreaming(io, &exporter_reader_buf);
     var exporter_bound_buf: [128]u8 = undefined;
     const exporter_bound = try readExporterAddress(io, &exporter_reader, &exporter_bound_buf);
-    std.debug.print("goblins-native-pair-gift: pancake exporter on {s}\n", .{exporter_bound});
+    std.debug.print("goblins-native-pair-gift: glowcap exporter on {s}\n", .{exporter_bound});
 
-    // ── The pancake gifter ──────────────────────────────────────────────────
+    // ── The glowcap gifter ──────────────────────────────────────────────────
     var gifter_seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&gifter_seed) catch return error.HandshakeEntropyFailed;
     var gifter_session_root: [crypto.SEED_BYTES]u8 = undefined;
@@ -317,7 +317,7 @@ fn run(
 
     // ── Goblins Carol ───────────────────────────────────────────────────────
     std.debug.print(
-        "goblins-native-pair-gift: pancake gifter publishing introducer swiss={s} on {s}\n",
+        "goblins-native-pair-gift: glowcap gifter publishing introducer swiss={s} on {s}\n",
         .{ introducer_swiss, gifter_bound },
     );
     var carol = try std.process.spawn(io, .{

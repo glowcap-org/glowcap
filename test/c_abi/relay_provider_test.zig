@@ -3,7 +3,7 @@
 //! made accidentally correct by a higher adapter.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const c = @import("c_abi_shared");
 const relay_archive = @import("c_abi_net_transport_relay");
 const ws_relay = @import("../support/ws_relay.zig");
@@ -42,29 +42,29 @@ fn serveUpgradesUntilClose(io: std.Io, server: *std.Io.net.Server, count: usize)
 
 test "relay C configuration validates its version and trust before construction" {
     const url = "ws://127.0.0.1:1/relay";
-    var runtime: ?*relay_archive.PancakeRelayRuntime = @ptrFromInt(@alignOf(usize));
+    var runtime: ?*relay_archive.GlowcapRelayRuntime = @ptrFromInt(@alignOf(usize));
 
     var config = copiedTrustConfig(url);
     config.abi_version += 1;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        relay_archive.pancake_relay_runtime_new(&config, &runtime),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        relay_archive.glowcap_relay_runtime_new(&config, &runtime),
     );
     try std.testing.expectEqual(null, runtime);
 
     config = copiedTrustConfig(url);
     config.struct_size -= 1;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        relay_archive.pancake_relay_runtime_new(&config, &runtime),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        relay_archive.glowcap_relay_runtime_new(&config, &runtime),
     );
     try std.testing.expectEqual(null, runtime);
 
     config = copiedTrustConfig(url);
-    config.trust = relay_archive.PANCAKE_RELAY_TRUST_SYSTEM;
+    config.trust = relay_archive.GLOWCAP_RELAY_TRUST_SYSTEM;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        relay_archive.pancake_relay_runtime_new(&config, &runtime),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        relay_archive.glowcap_relay_runtime_new(&config, &runtime),
     );
     try std.testing.expectEqual(null, runtime);
 
@@ -72,8 +72,8 @@ test "relay C configuration validates its version and trust before construction"
     config.trust_pem = null;
     config.trust_pem_len = 0;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        relay_archive.pancake_relay_runtime_new(&config, &runtime),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        relay_archive.glowcap_relay_runtime_new(&config, &runtime),
     );
     try std.testing.expectEqual(null, runtime);
 }
@@ -86,21 +86,21 @@ test "relay C runtime copies PEM trust and reports its immutable load result" {
     var config = copiedTrustConfig(url);
     config.trust_pem = pem.ptr;
     config.trust_pem_len = pem.len;
-    var runtime: ?*relay_archive.PancakeRelayRuntime = null;
+    var runtime: ?*relay_archive.GlowcapRelayRuntime = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_new(&config, &runtime),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_new(&config, &runtime),
     );
     defer std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_release(runtime, null, 0, null),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_release(runtime, null, 0, null),
     ) catch unreachable;
 
     @memset(pem, 0);
-    var summary: relay_archive.PancakeRelayTrustSummary = .{};
+    var summary: relay_archive.GlowcapRelayTrustSummary = .{};
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_trust_summary(runtime, &summary),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_trust_summary(runtime, &summary),
     );
     try std.testing.expectEqual(@as(usize, 1), summary.loaded);
     try std.testing.expectEqual(@as(usize, 0), summary.skipped_by_engine);
@@ -115,48 +115,48 @@ test "relay provider equivalence includes the immutable trust snapshot" {
     other_config.trust_pem = tls_server_pem.ptr;
     other_config.trust_pem_len = tls_server_pem.len;
 
-    var first_runtime: ?*relay_archive.PancakeRelayRuntime = null;
-    var same_runtime: ?*relay_archive.PancakeRelayRuntime = null;
-    var other_runtime: ?*relay_archive.PancakeRelayRuntime = null;
+    var first_runtime: ?*relay_archive.GlowcapRelayRuntime = null;
+    var same_runtime: ?*relay_archive.GlowcapRelayRuntime = null;
+    var other_runtime: ?*relay_archive.GlowcapRelayRuntime = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_new(&first_config, &first_runtime),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_new(&first_config, &first_runtime),
     );
     defer std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_release(first_runtime, null, 0, null),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_release(first_runtime, null, 0, null),
     ) catch unreachable;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_new(&same_config, &same_runtime),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_new(&same_config, &same_runtime),
     );
     defer std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_release(same_runtime, null, 0, null),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_release(same_runtime, null, 0, null),
     ) catch unreachable;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_new(&other_config, &other_runtime),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_new(&other_config, &other_runtime),
     );
     defer std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_release(other_runtime, null, 0, null),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_release(other_runtime, null, 0, null),
     ) catch unreachable;
 
-    var first_provider: c.PancakeTransportProvider = undefined;
-    var same_provider: c.PancakeTransportProvider = undefined;
-    var other_provider: c.PancakeTransportProvider = undefined;
+    var first_provider: c.GlowcapTransportProvider = undefined;
+    var same_provider: c.GlowcapTransportProvider = undefined;
+    var other_provider: c.GlowcapTransportProvider = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_transport_provider(first_runtime, &first_provider),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_transport_provider(first_runtime, &first_provider),
     );
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_transport_provider(same_runtime, &same_provider),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_transport_provider(same_runtime, &same_provider),
     );
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_transport_provider(other_runtime, &other_provider),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_transport_provider(other_runtime, &other_provider),
     );
     try std.testing.expectEqual(
         @as(u8, 1),
@@ -198,54 +198,54 @@ test "relay C provider preserves the final tail until explicit connection releas
         .{server.socket.address.getPort()},
     );
     const config = copiedTrustConfig(url);
-    var runtime: ?*relay_archive.PancakeRelayRuntime = null;
+    var runtime: ?*relay_archive.GlowcapRelayRuntime = null;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_new(&config, &runtime),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_new(&config, &runtime),
     );
     defer std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_release(runtime, null, 0, null),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_release(runtime, null, 0, null),
     ) catch unreachable;
 
-    var provider: c.PancakeTransportProvider = undefined;
+    var provider: c.GlowcapTransportProvider = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_transport_provider(runtime, &provider),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_transport_provider(runtime, &provider),
     );
     const table = keyedTable(provider);
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x63)),
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x63)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
-    const locator: c.PancakeLocatorView = .{
-        .abi_version = c.PANCAKE_LOCATOR_VIEW_ABI_VERSION,
-        .struct_size = @sizeOf(c.PancakeLocatorView),
+    const locator: c.GlowcapLocatorView = .{
+        .abi_version = c.GLOWCAP_LOCATOR_VIEW_ABI_VERSION,
+        .struct_size = @sizeOf(c.GlowcapLocatorView),
         .transport = transport.ptr,
         .transport_len = transport.len,
         .designator = &designator,
         .designator_len = designator.len,
         .hints = null,
         .hint_count = 0,
-        .hint_wire_form = c.PANCAKE_HINTS_MAP,
+        .hint_wire_form = c.GLOWCAP_HINTS_MAP,
     };
 
     const request_id: u64 = 77;
     var failure = c.transport_provider.emptyProviderFailure();
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
+        c.GLOWCAP_OK,
         table.start_connect.?(table.ctx, request_id, &locator, null, &failure),
     );
 
-    var records: [8]c.PancakeMultiplexedReadyEvent = undefined;
+    var records: [8]c.GlowcapMultiplexedReadyEvent = undefined;
     var early_subject: u64 = 0;
     var early_events: u32 = 0;
     var connect_ready = false;
     var rounds: usize = 0;
     while (!connect_ready and rounds < 400) : (rounds += 1) {
         for (try drain(table, &records)) |event| {
-            if (event.subject == request_id and event.events == c.PANCAKE_MULTIPLEXED_EV_CONNECT)
+            if (event.subject == request_id and event.events == c.GLOWCAP_MULTIPLEXED_EV_CONNECT)
                 connect_ready = true
             else {
                 early_subject = event.subject;
@@ -259,14 +259,14 @@ test "relay C provider preserves the final tail until explicit connection releas
     var conn: u64 = 0;
     failure = c.transport_provider.emptyProviderFailure();
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
+        c.GLOWCAP_OK,
         table.finish_connect.?(table.ctx, request_id, &conn, &failure),
     );
 
     while (!upgraded.load(.acquire)) try std.Io.sleep(io, .fromMilliseconds(1), .real);
     var tail: [4]u8 = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_MULTIPLEXED_WOULD_BLOCK,
+        c.GLOWCAP_MULTIPLEXED_WOULD_BLOCK,
         table.try_read.?(table.ctx, conn, &tail, tail.len),
     );
     table.conn_take_failure.?(table.ctx, conn, &failure);
@@ -275,14 +275,14 @@ test "relay C provider preserves the final tail until explicit connection releas
 
     var connection_events: u32 = if (early_subject == conn) early_events else 0;
     rounds = 0;
-    while (connection_events & c.PANCAKE_MULTIPLEXED_EV_READABLE == 0 and rounds < 400) : (rounds += 1) {
+    while (connection_events & c.GLOWCAP_MULTIPLEXED_EV_READABLE == 0 and rounds < 400) : (rounds += 1) {
         for (try drain(table, &records)) |event| {
             if (event.subject == conn) connection_events |= event.events;
         }
-        if (connection_events & c.PANCAKE_MULTIPLEXED_EV_READABLE == 0)
+        if (connection_events & c.GLOWCAP_MULTIPLEXED_EV_READABLE == 0)
             try std.Io.sleep(io, .fromMilliseconds(5), .real);
     }
-    try std.testing.expect(connection_events & c.PANCAKE_MULTIPLEXED_EV_READABLE != 0);
+    try std.testing.expect(connection_events & c.GLOWCAP_MULTIPLEXED_EV_READABLE != 0);
 
     try std.testing.expectEqual(@as(isize, tail.len), table.try_read.?(table.ctx, conn, &tail, tail.len));
     try std.testing.expectEqualStrings("tail", &tail);
@@ -301,14 +301,14 @@ test "relay C provider preserves the final tail until explicit connection releas
     // claims and removes that exact tombstone. Neither result may reappear at
     // final provider release.
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_WOULD_BLOCK,
+        c.GLOWCAP_ERR_WOULD_BLOCK,
         table.conn_close.?(table.ctx, conn, &failure),
     );
     var close_ready = false;
     rounds = 0;
     while (!close_ready and rounds < 400) : (rounds += 1) {
         for (try drain(table, &records)) |event| {
-            if (event.subject == conn and event.events & c.PANCAKE_MULTIPLEXED_EV_CLOSED != 0)
+            if (event.subject == conn and event.events & c.GLOWCAP_MULTIPLEXED_EV_CLOSED != 0)
                 close_ready = true;
         }
         if (!close_ready) try std.Io.sleep(io, .fromMilliseconds(5), .real);
@@ -316,12 +316,12 @@ test "relay C provider preserves the final tail until explicit connection releas
     try std.testing.expect(close_ready);
     failure = c.transport_provider.emptyProviderFailure();
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
+        c.GLOWCAP_OK,
         table.conn_close.?(table.ctx, conn, &failure),
     );
     try std.testing.expectEqual(@as(i32, 0), failure.result);
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
+        c.GLOWCAP_OK,
         table.conn_close.?(table.ctx, conn, &failure),
     );
     try server_future.await(io);
@@ -348,45 +348,45 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
         .{server.socket.address.getPort()},
     );
     const config = copiedTrustConfig(url);
-    var runtime: ?*relay_archive.PancakeRelayRuntime = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, relay_archive.pancake_relay_runtime_new(&config, &runtime));
+    var runtime: ?*relay_archive.GlowcapRelayRuntime = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, relay_archive.glowcap_relay_runtime_new(&config, &runtime));
     defer std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_release(runtime, null, 0, null),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_release(runtime, null, 0, null),
     ) catch unreachable;
 
-    var provider: c.PancakeTransportProvider = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, relay_archive.pancake_relay_transport_provider(runtime, &provider));
+    var provider: c.GlowcapTransportProvider = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_OK, relay_archive.glowcap_relay_transport_provider(runtime, &provider));
     const table = keyedTable(provider);
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x64)),
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x64)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
-    const locator: c.PancakeLocatorView = .{
-        .abi_version = c.PANCAKE_LOCATOR_VIEW_ABI_VERSION,
-        .struct_size = @sizeOf(c.PancakeLocatorView),
+    const locator: c.GlowcapLocatorView = .{
+        .abi_version = c.GLOWCAP_LOCATOR_VIEW_ABI_VERSION,
+        .struct_size = @sizeOf(c.GlowcapLocatorView),
         .transport = transport.ptr,
         .transport_len = transport.len,
         .designator = &designator,
         .designator_len = designator.len,
         .hints = null,
         .hint_count = 0,
-        .hint_wire_form = c.PANCAKE_HINTS_MAP,
+        .hint_wire_form = c.GLOWCAP_HINTS_MAP,
     };
     const request_id: u64 = 78;
     var failure = c.transport_provider.emptyProviderFailure();
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
+        c.GLOWCAP_OK,
         table.start_connect.?(table.ctx, request_id, &locator, null, &failure),
     );
 
-    var records: [8]c.PancakeMultiplexedReadyEvent = undefined;
+    var records: [8]c.GlowcapMultiplexedReadyEvent = undefined;
     var ready = false;
     var rounds: usize = 0;
     while (!ready and rounds < 400) : (rounds += 1) {
         for (try drain(table, &records)) |event| {
-            if (event.subject == request_id and event.events & c.PANCAKE_MULTIPLEXED_EV_CONNECT != 0)
+            if (event.subject == request_id and event.events & c.GLOWCAP_MULTIPLEXED_EV_CONNECT != 0)
                 ready = true;
         }
         if (!ready) try std.Io.sleep(io, .fromMilliseconds(5), .real);
@@ -395,21 +395,21 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
 
     // The first call transfers cancellation without joining the driver. The
     // second EV_CONNECT is the operation's joined teardown recipient.
-    try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_connect.?(table.ctx, request_id, &failure));
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_connect.?(table.ctx, request_id, &failure));
     ready = false;
     rounds = 0;
     while (!ready and rounds < 400) : (rounds += 1) {
         for (try drain(table, &records)) |event| {
-            if (event.subject == request_id and event.events & c.PANCAKE_MULTIPLEXED_EV_CONNECT != 0)
+            if (event.subject == request_id and event.events & c.GLOWCAP_MULTIPLEXED_EV_CONNECT != 0)
                 ready = true;
         }
         if (!ready) try std.Io.sleep(io, .fromMilliseconds(5), .real);
     }
     try std.testing.expect(ready);
     failure = c.transport_provider.emptyProviderFailure();
-    try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_connect.?(table.ctx, request_id, &failure));
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_connect.?(table.ctx, request_id, &failure));
     try std.testing.expectEqual(@as(i32, 0), failure.result);
-    try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_connect.?(table.ctx, request_id, &failure));
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_connect.?(table.ctx, request_id, &failure));
     try server_future.await(io);
 }
 
@@ -435,28 +435,28 @@ test "relay C listener cancellation and stop each settle through the route id" {
     var config = copiedTrustConfig(relay_url);
     config.register_url = register_url.ptr;
     config.register_url_len = register_url.len;
-    var runtime: ?*relay_archive.PancakeRelayRuntime = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, relay_archive.pancake_relay_runtime_new(&config, &runtime));
+    var runtime: ?*relay_archive.GlowcapRelayRuntime = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, relay_archive.glowcap_relay_runtime_new(&config, &runtime));
     defer std.testing.expectEqual(
-        c.PANCAKE_OK,
-        relay_archive.pancake_relay_runtime_release(runtime, null, 0, null),
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_release(runtime, null, 0, null),
     ) catch unreachable;
 
-    var provider: c.PancakeTransportProvider = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, relay_archive.pancake_relay_transport_provider(runtime, &provider));
+    var provider: c.GlowcapTransportProvider = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_OK, relay_archive.glowcap_relay_transport_provider(runtime, &provider));
     const table = keyedTable(provider);
-    const identity = pancake.foundation.crypto.SecretKey.fromSeed(
-        @as([pancake.foundation.crypto.SEED_BYTES]u8, @splat(0x65)),
+    const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
+        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x65)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
-    var records: [8]c.PancakeMultiplexedReadyEvent = undefined;
+    var records: [8]c.GlowcapMultiplexedReadyEvent = undefined;
 
     const routes = [_]u64{ 81, 82 };
     for (routes, 0..) |route_id, index| {
-        var result = std.mem.zeroes(c.PancakeListenResult);
+        var result = std.mem.zeroes(c.GlowcapListenResult);
         var failure = c.transport_provider.emptyProviderFailure();
-        try std.testing.expectEqual(c.PANCAKE_OK, table.listen.?(
+        try std.testing.expectEqual(c.GLOWCAP_OK, table.listen.?(
             table.ctx,
             route_id,
             transport.ptr,
@@ -467,13 +467,13 @@ test "relay C listener cancellation and stop each settle through the route id" {
             &result,
             &failure,
         ));
-        try std.testing.expectEqual(c.PANCAKE_LISTEN_PENDING, result.state);
+        try std.testing.expectEqual(c.GLOWCAP_LISTEN_PENDING, result.state);
 
         var ready = false;
         var rounds: usize = 0;
         while (!ready and rounds < 400) : (rounds += 1) {
             for (try drain(table, &records)) |event| {
-                if (event.subject == route_id and event.events & c.PANCAKE_MULTIPLEXED_EV_LISTEN != 0)
+                if (event.subject == route_id and event.events & c.GLOWCAP_MULTIPLEXED_EV_LISTEN != 0)
                     ready = true;
             }
             if (!ready) try std.Io.sleep(io, .fromMilliseconds(5), .real);
@@ -482,21 +482,21 @@ test "relay C listener cancellation and stop each settle through the route id" {
 
         var listener: ?*anyopaque = null;
         if (index == 0) {
-            try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_listen.?(table.ctx, route_id, &failure));
+            try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_listen.?(table.ctx, route_id, &failure));
         } else {
             try std.testing.expectEqual(
-                c.PANCAKE_OK,
+                c.GLOWCAP_OK,
                 table.finish_listen.?(table.ctx, route_id, &listener, &failure),
             );
             try std.testing.expect(listener != null);
-            try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, table.stop_listen.?(listener, &failure));
+            try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, table.stop_listen.?(listener, &failure));
         }
 
         ready = false;
         rounds = 0;
         while (!ready and rounds < 400) : (rounds += 1) {
             for (try drain(table, &records)) |event| {
-                if (event.subject == route_id and event.events & c.PANCAKE_MULTIPLEXED_EV_LISTEN != 0)
+                if (event.subject == route_id and event.events & c.GLOWCAP_MULTIPLEXED_EV_LISTEN != 0)
                     ready = true;
             }
             if (!ready) try std.Io.sleep(io, .fromMilliseconds(5), .real);
@@ -504,12 +504,12 @@ test "relay C listener cancellation and stop each settle through the route id" {
         try std.testing.expect(ready);
         failure = c.transport_provider.emptyProviderFailure();
         if (index == 0)
-            try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_listen.?(table.ctx, route_id, &failure))
+            try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_listen.?(table.ctx, route_id, &failure))
         else
-            try std.testing.expectEqual(c.PANCAKE_OK, table.stop_listen.?(listener, &failure));
+            try std.testing.expectEqual(c.GLOWCAP_OK, table.stop_listen.?(listener, &failure));
         try std.testing.expectEqual(@as(i32, 0), failure.result);
         if (index == 0)
-            try std.testing.expectEqual(c.PANCAKE_OK, table.cancel_listen.?(table.ctx, route_id, &failure));
+            try std.testing.expectEqual(c.GLOWCAP_OK, table.cancel_listen.?(table.ctx, route_id, &failure));
     }
     try server_future.await(io);
 }

@@ -93,7 +93,7 @@ pub const Served = struct {
     /// sockets, feeds inbound frames with `feedBorrowed`, and drains outbound
     /// with `takeOutbound`; `deinit` frees only this Port. The caller owns the
     /// Vat passed to the drive methods. This is the driving mode the C ABI's
-    /// `libpancake_host` and a browser ride.
+    /// `libglowcap_host` and a browser ride.
     pub fn over(allocator: std.mem.Allocator, peer: *engine.Peer) Served {
         return .{ .port = actors.Port.init(allocator, peer) };
     }
@@ -428,7 +428,7 @@ pub const Served = struct {
     /// Ask the partner how `target` settles, returning a vow for that
     /// settlement (CapTP `op:listen`, ADR-0095). In 1.0, `target` may be a far
     /// promise or live far object; a live object answers immediately. In
-    /// pancake-next, `target` must be a far promise because shortening and
+    /// glowcap-next, `target` must be a far promise because shortening and
     /// settling are promise-only. This is how an introducing session's proxy
     /// for a third party's promise (ADR-0009) is waited on: the notification
     /// comes back as a resolve on the vow's answer, so a give arriving in it is

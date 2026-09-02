@@ -21,7 +21,7 @@
   (define (apply-view! view)
     (call-with-host (session-host c)
       (lambda ()
-        (check/host (pancake_host_session_set_exporter_location
+        (check/host (glowcap_host_session_set_exporter_location
                      (session-ptr c) view)))))
   (if loc (call-with-locator-view loc apply-view!) (apply-view! #f)))
 
@@ -46,23 +46,23 @@
   (guard-open 'session-partner-identity c)
   (call-with-host (session-host c)
     (lambda ()
-      (define out (make-PancakePartnerIdentity #f 0 #f 0 #f 0 0))
-      (check/host (pancake_host_session_partner_identity (session-ptr c) out))
+      (define out (make-GlowcapPartnerIdentity #f 0 #f 0 #f 0 0))
+      (check/host (glowcap_host_session_partner_identity (session-ptr c) out))
       (partner-identity
-       (bytes<-c (PancakePartnerIdentity-session-key out)
-                 (PancakePartnerIdentity-session-key-len out))
+       (bytes<-c (GlowcapPartnerIdentity-session-key out)
+                 (GlowcapPartnerIdentity-session-key-len out))
        (bytes->string/utf-8
-        (bytes<-c (PancakePartnerIdentity-designator out)
-                  (PancakePartnerIdentity-designator-len out))
+        (bytes<-c (GlowcapPartnerIdentity-designator out)
+                  (GlowcapPartnerIdentity-designator-len out))
         #\uFFFD)
-       (bytes<-c (PancakePartnerIdentity-locator-record out)
-                 (PancakePartnerIdentity-locator-record-len out))
-       (provenance<-abi (PancakePartnerIdentity-provenance out))))))
+       (bytes<-c (GlowcapPartnerIdentity-locator-record out)
+                 (GlowcapPartnerIdentity-locator-record-len out))
+       (provenance<-abi (GlowcapPartnerIdentity-provenance out))))))
 
 ;; Testify what proved this connection's far end, when your own transport proved
 ;; one.
 ;;
-;; pancake does not open your sockets, so it cannot see what opening them
+;; glowcap does not open your sockets, so it cannot see what opening them
 ;; established. An iroh connection completes only with the holder of the node id
 ;; you dialed or accepted, and that is a stronger fact than anything a partner
 ;; can claim about itself, but only you hold it. Pass the node id here and
@@ -82,5 +82,5 @@
   (define raw (string->bytes/utf-8 designator))
   (call-with-host (session-host c)
     (lambda ()
-      (check/host (pancake_host_session_bind_verified_channel_key
+      (check/host (glowcap_host_session_bind_verified_channel_key
                    (session-ptr c) (pin-immobile raw) (bytes-length raw))))))

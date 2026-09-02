@@ -1,5 +1,5 @@
-(require "pancake.rkt"
-         "pancake-iroh.rkt")
+(require "glowcap.rkt"
+         "glowcap-iroh.rkt")
 
 ;; This listener is named by its node id. Partners can dial it from anywhere.
 (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))

@@ -1,4 +1,4 @@
-# pancake — Codex Overlay
+# glowcap — Codex Overlay
 
 Codex reads [AGENTS.md](../AGENTS.md) for repository instructions and loads
 project skills directly from [`.agents/skills`](../.agents/skills). There is no

@@ -22,7 +22,7 @@ function buildFiveMessageDoc(): TimelineDocument {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 				position: { x: -100, y: 0 },
 			},
 			{
@@ -178,7 +178,7 @@ function buildLooseAEndDoc(): TimelineDocument {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "bob",
-				profile: "pancake",
+				profile: "glowcap",
 				position: { x: 100, y: 0 },
 			},
 			{
@@ -263,14 +263,14 @@ Deno.test("a message on a claimed session flies along the drawn wire", () => {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "carol",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "j-alice",
 				t: 0,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 				designator: "10.0.0.1",
 			},
 			// Two sessions on the pair so the fan is real and the lane is bowed.

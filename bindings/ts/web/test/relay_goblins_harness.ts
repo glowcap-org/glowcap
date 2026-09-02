@@ -1,4 +1,4 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 // The live Goblins leg of the relay proof. A wasm browser peer holds a keyed
 // OCapN session with a real Spritely Goblins vat when its WebSocket routes
 // through the byte-transparent Deno reference relay to the vat's TCP port.
@@ -16,7 +16,7 @@ import * as tcp from "@pancake/tcp";
 // Needs `racket` + `goblins` on PATH; `zig build goblins-relay`. The vat's
 // fixed port defaults to 22160; `--port=N` (from -Dport=N) moves it.
 
-import { init } from "@pancake/web";
+import { init } from "@glowcap/web";
 import { fail, kill, readToken, ROOT, WASM } from "./relay_harness_common.ts";
 
 let goblinsPort = 22160;

@@ -12,8 +12,8 @@ import {
 	LIFECYCLE_TERMINATING,
 	PENDING_CANCEL,
 	PENDING_FINISH,
-} from "@pancake/abi";
-import { PancakeError } from "./errors.ts";
+} from "@glowcap/abi";
+import { GlowcapError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
 
 /** What explicit close does with operations admitted before its barrier.
@@ -45,7 +45,7 @@ export function lifecycleClosed(raw: number): boolean {
 		case LIFECYCLE_CLOSED:
 			return true;
 		default:
-			throw new PancakeError(INTERNAL, `pancake ABI returned unknown lifecycle state ${raw}`);
+			throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown lifecycle state ${raw}`);
 	}
 }
 
@@ -62,7 +62,7 @@ export function encodeCloseOptions(options: CloseOptions = {}): Uint8Array {
 		graceMs !== undefined && graceMs !== null &&
 		(!Number.isInteger(graceMs) || graceMs < 0 || graceMs > CLOSE_MAX_GRACE_MS)
 	) {
-		throw new PancakeError(INVALID_ARGUMENT, `graceMs must be an integer from 0 through ${CLOSE_MAX_GRACE_MS}`);
+		throw new GlowcapError(INVALID_ARGUMENT, `graceMs must be an integer from 0 through ${CLOSE_MAX_GRACE_MS}`);
 	}
 	const out = new Uint8Array(L.CLOSE_OPTIONS_SIZE);
 	const view = new DataView(out.buffer);

@@ -11,7 +11,7 @@ usage() {
 	echo "       $0 capacity [ACTIVE_MEMBER_NICK...]" >&2
 	echo "       $0 spin --room ROOM --locator URL --lead NICK MEMBER [MEMBER...]" >&2
 	echo "       $0 speak-policy [--lead NICK]" >&2
-	echo "PANCAKE_ROOMS_TEAM_MAX_BOTS (default 4) includes the lead." >&2
+	echo "GLOWCAP_ROOMS_TEAM_MAX_BOTS (default 4) includes the lead." >&2
 	exit 2
 }
 
@@ -112,7 +112,7 @@ DURABLE TASK (harness): You are a Task subagent, not a one-shot. Emitting a fina
 answer / "standing by" / "tick armed — done" COMPLETES this Task while CapTP peer
 stays up and orphans the wake loop (zombie). That is harness death, not a CLI bug.
 Session ends only when lead/human says stop (or lead hard-kicks).
-WAKE LOOP: foreground-wait \`pancake app rooms-peer tick --dir ${dir} --wait 120\`
+WAKE LOOP: foreground-wait \`glowcap app rooms-peer tick --dir ${dir} --wait 120\`
 (block until return — do NOT background-arm then end your turn). Drain order:
 (1) human channel=dm — real --dm replies in your own voice; never canned ack /
 bash tick.sh; (2) human channel=room — if @you answer; else optional content-free
@@ -137,7 +137,7 @@ start_peer() {
 	local dir="/tmp/rooms-peer-${nick}"
 	mkdir -p "$dir"
 	# rooms-peer start prints JSON on stdout — keep spin's stdout to one ready line.
-	pancake app rooms-peer start \
+	glowcap app rooms-peer start \
 		--nick "$nick" \
 		--dir "$dir" \
 		--room "$room" \
@@ -148,7 +148,7 @@ peer_joined_registered() {
 	local nick=$1
 	local dir="/tmp/rooms-peer-${nick}"
 	local line
-	line=$(pancake app rooms-peer status --dir "$dir" 2>/dev/null || echo '{"ok":false}')
+	line=$(glowcap app rooms-peer status --dir "$dir" 2>/dev/null || echo '{"ok":false}')
 	[[ "$line" == *'"peer":"up"'* ]] || return 1
 	[[ "$line" == *'"status":"joined"'* ]] || return 1
 	[[ "$line" == *'"registered":true'* ]] || return 1
@@ -199,15 +199,15 @@ run_spin() {
 		usage
 	fi
 
-	local max=${PANCAKE_ROOMS_TEAM_MAX_BOTS:-4}
+	local max=${GLOWCAP_ROOMS_TEAM_MAX_BOTS:-4}
 	local used=$((1 + ${#members[@]}))
 	if [[ "$used" -gt "$max" ]]; then
-		echo "{\"ok\":false,\"error\":\"over_cap\",\"detail\":\"1 lead + ${#members[@]} members > PANCAKE_ROOMS_TEAM_MAX_BOTS=$max\"}" >&2
+		echo "{\"ok\":false,\"error\":\"over_cap\",\"detail\":\"1 lead + ${#members[@]} members > GLOWCAP_ROOMS_TEAM_MAX_BOTS=$max\"}" >&2
 		exit 1
 	fi
 
-	if ! command -v pancake >/dev/null 2>&1; then
-		echo "pancake not on PATH; run: zig build && export PATH=\"\$PWD/zig-out/bin:\$PATH\"" >&2
+	if ! command -v glowcap >/dev/null 2>&1; then
+		echo "glowcap not on PATH; run: zig build && export PATH=\"\$PWD/zig-out/bin:\$PATH\"" >&2
 		exit 1
 	fi
 
@@ -281,9 +281,9 @@ export PATH="${PWD}/zig-out/bin:${PATH}"
 
 case "$verb" in
 capacity)
-	max=${PANCAKE_ROOMS_TEAM_MAX_BOTS:-4}
+	max=${GLOWCAP_ROOMS_TEAM_MAX_BOTS:-4}
 	if ! [[ "$max" =~ ^[1-9][0-9]*$ ]]; then
-		echo "{\"ok\":false,\"error\":\"PANCAKE_ROOMS_TEAM_MAX_BOTS must be a positive integer\"}" >&2
+		echo "{\"ok\":false,\"error\":\"GLOWCAP_ROOMS_TEAM_MAX_BOTS must be a positive integer\"}" >&2
 		exit 2
 	fi
 	members=$#
@@ -322,8 +322,8 @@ status | stop | health)
 	;;
 esac
 
-if ! command -v pancake >/dev/null 2>&1; then
-	echo "pancake not on PATH; run: zig build && export PATH=\"\$PWD/zig-out/bin:\$PATH\"" >&2
+if ! command -v glowcap >/dev/null 2>&1; then
+	echo "glowcap not on PATH; run: zig build && export PATH=\"\$PWD/zig-out/bin:\$PATH\"" >&2
 	exit 1
 fi
 
@@ -337,10 +337,10 @@ for nick in "$@"; do
 	fi
 	case "$verb" in
 	status | stop)
-		pancake app rooms-peer "$verb" --dir "$dir" || ec=1
+		glowcap app rooms-peer "$verb" --dir "$dir" || ec=1
 		;;
 	health)
-		line=$(pancake app rooms-peer status --dir "$dir" 2>/dev/null || echo '{"ok":false,"peer":"down"}')
+		line=$(glowcap app rooms-peer status --dir "$dir" 2>/dev/null || echo '{"ok":false,"peer":"down"}')
 		class=$(classify "$line")
 		raw=$(json_escape "$line")
 		echo "{\"nick\":\"${nick}\",\"dir\":\"${dir}\",\"class\":\"${class}\",\"status\":${raw}}"

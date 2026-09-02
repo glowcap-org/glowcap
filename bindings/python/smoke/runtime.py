@@ -7,21 +7,21 @@ from __future__ import annotations
 import asyncio
 from contextvars import ContextVar
 
-import pancake._loop as _loop_module
-from pancake._lifecycle import _close_options
-from pancake._errors import _retain_cleanup_failure, _retain_terminal_failure
-from pancake._server import _rollback_listener_construction
+import glowcap._loop as _loop_module
+from glowcap._lifecycle import _close_options
+from glowcap._errors import _retain_cleanup_failure, _retain_terminal_failure
+from glowcap._server import _rollback_listener_construction
 
-from pancake import (
+from glowcap import (
     tcp,
     Locator,
     Host,
-    PancakeError,
+    GlowcapError,
     PendingWork,
     Runtime,
 )
-from pancake._transport import Connector, Provider
-from pancake._constants import (
+from glowcap._transport import Connector, Provider
+from glowcap._constants import (
     ERR_CLOSED,
     ERR_INVALID_ARGUMENT,
     ERR_INTERNAL,
@@ -88,7 +88,7 @@ async def _connector_install_is_transactional() -> None:
     try:
         try:
             host.install_connectors((first, second))
-        except PancakeError:
+        except GlowcapError:
             pass
         else:
             raise AssertionError("conflicting connector set was accepted")
@@ -101,7 +101,7 @@ async def _connector_install_is_transactional() -> None:
 
 async def _cancelled_dial_does_not_report_failure() -> None:
     """Core-selected cancellation is acknowledged only by the CANCEL_DIAL arm."""
-    import pancake._dial as dial_module
+    import glowcap._dial as dial_module
 
     started = asyncio.Event()
     failures = 0
@@ -132,12 +132,12 @@ async def _cancelled_dial_does_not_report_failure() -> None:
         started.set()
         await asyncio.Event().wait()
 
-    original_pending = dial_module._host.pancake_host_pending_dial
-    original_failed = dial_module._host.pancake_host_dial_failed
+    original_pending = dial_module._host.glowcap_host_pending_dial
+    original_failed = dial_module._host.glowcap_host_dial_failed
     original_clone = dial_module._OwnedLocator.__dict__["clone_view"]
     original_dial = dial_module.dial_exporter
-    dial_module._host.pancake_host_pending_dial = pending_dial
-    dial_module._host.pancake_host_dial_failed = dial_failed
+    dial_module._host.glowcap_host_pending_dial = pending_dial
+    dial_module._host.glowcap_host_dial_failed = dial_failed
     setattr(
         dial_module._OwnedLocator,
         "clone_view",
@@ -156,16 +156,16 @@ async def _cancelled_dial_does_not_report_failure() -> None:
             raise AssertionError("dial cancellation did not propagate")
         assert failures == 0, "cancelled dial reported dial_failed"
     finally:
-        dial_module._host.pancake_host_pending_dial = original_pending
-        dial_module._host.pancake_host_dial_failed = original_failed
+        dial_module._host.glowcap_host_pending_dial = original_pending
+        dial_module._host.glowcap_host_dial_failed = original_failed
         setattr(dial_module._OwnedLocator, "clone_view", original_clone)
         dial_module.dial_exporter = original_dial
 
 
 async def _driver_completion_preserves_failure_category() -> None:
-    from pancake import _constants
-    from pancake._host_action_gen import Fail
-    from pancake._loop import DriverLoop, LoopEvent
+    from glowcap import _constants
+    from glowcap._host_action_gen import Fail
+    from glowcap._loop import DriverLoop, LoopEvent
 
     loop = DriverLoop.__new__(DriverLoop)
     loop._wrapper = None
@@ -187,7 +187,7 @@ async def _driver_completion_preserves_failure_category() -> None:
     )
     try:
         await failure
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == _constants.ERR_CLOSED, error
     else:
         raise AssertionError("failed driver completion resolved successfully")
@@ -196,8 +196,8 @@ async def _driver_completion_preserves_failure_category() -> None:
 async def _runtime_open_is_transactional() -> None:
     """Failed Runtime setup releases only resources it already owns."""
 
-    original_take_host = _loop_module._driver.pancake_driver_take_host
-    original_host_release = _loop_module._host.pancake_host_release
+    original_take_host = _loop_module._driver.glowcap_driver_take_host
+    original_host_release = _loop_module._host.glowcap_host_release
     release_calls = 0
 
     def refuse_take_host(_host, _options, _out) -> int:
@@ -209,23 +209,23 @@ async def _runtime_open_is_transactional() -> None:
         assert original_host_release(raw) == 0
         return ERR_IO
 
-    _loop_module._driver.pancake_driver_take_host = refuse_take_host
-    _loop_module._host.pancake_host_release = release_then_report_failure
+    _loop_module._driver.glowcap_driver_take_host = refuse_take_host
+    _loop_module._host.glowcap_host_release = release_then_report_failure
     try:
         try:
             _loop_module.DriverLoop.open()
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
             assert error.secondary_count == 1, error.secondary
             assert len(error.secondary) == 1, error.secondary
-            assert isinstance(error.secondary[0], PancakeError), error.secondary
+            assert isinstance(error.secondary[0], GlowcapError), error.secondary
             assert error.secondary[0].code == ERR_IO, error.secondary
         else:
             raise AssertionError("failed driver adoption opened a loop")
         assert release_calls == 1, release_calls
     finally:
-        _loop_module._driver.pancake_driver_take_host = original_take_host
-        _loop_module._host.pancake_host_release = original_host_release
+        _loop_module._driver.glowcap_driver_take_host = original_take_host
+        _loop_module._host.glowcap_host_release = original_host_release
 
     async with Host() as managed_host:
         assert not managed_host.released
@@ -239,7 +239,7 @@ async def _runtime_open_is_transactional() -> None:
     retryable = await Runtime.open(connector=connector)
     try:
         await retryable.close(grace=1)
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == ERR_INVALID_ARGUMENT, error
     else:
         raise AssertionError("Runtime accepted grace for cancel close")
@@ -251,7 +251,7 @@ async def _runtime_open_is_transactional() -> None:
     ):
         try:
             await operation()
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_CLOSED, error
         else:
             raise AssertionError("closed Runtime admitted another operation")
@@ -262,7 +262,7 @@ async def _runtime_open_is_transactional() -> None:
         assert maximum.grace_ms == 0xFFFF_FFFF
         try:
             await grace_host.close(PendingWork.FINISH, grace=10**10_000)
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         else:
             raise AssertionError("Host accepted a grace value outside the C range")
@@ -274,20 +274,20 @@ async def _runtime_open_is_transactional() -> None:
     original_close = Host.close
     created: list[Host] = []
     adopted_host = None
-    setup_failure = PancakeError(
+    setup_failure = GlowcapError(
         ERR_INVALID_ARGUMENT, "synthetic connector install failure"
     )
     cleanup_failure = RuntimeError("synthetic failed-open cleanup failure")
 
-    retained_primary = PancakeError(ERR_INVALID_ARGUMENT, "synthetic primary")
-    retained_cleanup = PancakeError(ERR_IO, "synthetic cleanup")
+    retained_primary = GlowcapError(ERR_INVALID_ARGUMENT, "synthetic primary")
+    retained_cleanup = GlowcapError(ERR_IO, "synthetic cleanup")
     assert _retain_cleanup_failure(retained_primary, retained_cleanup) is retained_primary
     assert retained_primary.secondary == (retained_cleanup,)
     assert retained_primary.secondary_count == 1
 
-    rollback_primary = PancakeError(ERR_INVALID_ARGUMENT, "listener setup failed")
-    listener_cleanup = PancakeError(ERR_IO, "listener cleanup failed")
-    loop_cleanup = PancakeError(ERR_INTERNAL, "loop cleanup failed")
+    rollback_primary = GlowcapError(ERR_INVALID_ARGUMENT, "listener setup failed")
+    listener_cleanup = GlowcapError(ERR_IO, "listener cleanup failed")
+    loop_cleanup = GlowcapError(ERR_INTERNAL, "loop cleanup failed")
     cleanup_order: list[str] = []
 
     class FailedListener:
@@ -330,7 +330,7 @@ async def _runtime_open_is_transactional() -> None:
         setattr(Host, "close", fail_after_close)
         try:
             await runtime
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error is setup_failure, "Runtime replaced its setup failure"
         else:
             raise AssertionError("failed connector installation opened a Runtime")
@@ -348,7 +348,7 @@ async def _runtime_open_is_transactional() -> None:
         adopted = Runtime.open(adopt_host=adopted_host, connector=connector)
         try:
             await adopted
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         else:
             raise AssertionError("failed adopted connector installation opened a Runtime")
@@ -361,19 +361,19 @@ async def _runtime_open_is_transactional() -> None:
             await adopted_host.close()
 
     async def fail_provider(_loop) -> None:
-        raise PancakeError(ERR_INVALID_ARGUMENT, "synthetic provider install failure")
+        raise GlowcapError(ERR_INVALID_ARGUMENT, "synthetic provider install failure")
 
     created_provider_loop = None
 
     async def fail_created_provider(loop) -> None:
         nonlocal created_provider_loop
         created_provider_loop = loop
-        raise PancakeError(ERR_INVALID_ARGUMENT, "synthetic provider install failure")
+        raise GlowcapError(ERR_INVALID_ARGUMENT, "synthetic provider install failure")
 
     created_runtime = Runtime.open(provider=Provider(fail_created_provider))
     try:
         await created_runtime
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == ERR_INVALID_ARGUMENT, error
     else:
         raise AssertionError("failed provider installation opened a Runtime")
@@ -382,7 +382,7 @@ async def _runtime_open_is_transactional() -> None:
     for _ in range(2):
         try:
             await created_runtime.close()
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         else:
             raise AssertionError("failed Runtime close forgot its opening failure")
@@ -423,7 +423,7 @@ async def _runtime_open_is_transactional() -> None:
     try:
         try:
             await runtime
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         else:
             raise AssertionError("failed provider installation opened a Runtime")
@@ -437,14 +437,14 @@ async def _runtime_open_is_transactional() -> None:
         if not supplied.released:
             await supplied.close()
 
-    from pancake._loop import DriverLoop
+    from glowcap._loop import DriverLoop
 
     installer_called = False
 
     async def fail_existing_install(_loop) -> None:
         nonlocal installer_called
         installer_called = True
-        raise PancakeError(ERR_INVALID_ARGUMENT, "synthetic existing-loop install failure")
+        raise GlowcapError(ERR_INVALID_ARGUMENT, "synthetic existing-loop install failure")
 
     existing_host = Host()
     existing_loop = DriverLoop.take_host(existing_host)
@@ -455,7 +455,7 @@ async def _runtime_open_is_transactional() -> None:
     try:
         try:
             await runtime
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         else:
             raise AssertionError("failed existing-loop provider installation opened a Runtime")

@@ -1,7 +1,7 @@
 ---
 name: community-review
 description: >-
-  Use before a real community review invite, or when asked to review pancake
+  Use before a real community review invite, or when asked to review glowcap
   from OCapN, Goblins, or FLOSS-reception concerns. Never name real people. Not
   for general refactoring (smell-annihilation) or implementation without a
   review ask.
@@ -38,8 +38,8 @@ respect ([doc-voice](../../rules/doc-voice.md)).
    [`docs/roadmap.md`](../../../docs/roadmap.md) or
    [`docs/boundaries.md`](../../../docs/boundaries.md).
 
-Live CapTP while reviewing: [pancake-mcp](../pancake-mcp/SKILL.md) ·
-[pancake-cli](../pancake-cli/SKILL.md) — not a throwaway Zig dialer.
+Live CapTP while reviewing: [glowcap-mcp](../glowcap-mcp/SKILL.md) ·
+[glowcap-cli](../glowcap-cli/SKILL.md) — not a throwaway Zig dialer.
 
 ## Lenses
 
@@ -48,7 +48,7 @@ Live CapTP while reviewing: [pancake-mcp](../pancake-mcp/SKILL.md) ·
 Review as someone steeped in the public OCapN protocol materials and suite, not as
 any named person.
 
-**Cares about:** CapTP wire semantics; upstream suite modules pancake runs; oracle
+**Cares about:** CapTP wire semantics; upstream suite modules glowcap runs; oracle
 arms; claim scope matching evidence; session / GC / handoff / sturdyref / passable
 edges; [`SECURITY.md`](../../../SECURITY.md) invariants.
 
@@ -88,15 +88,15 @@ the Goblins interop claim.
 
 ### `provenance`
 
-Review as a FLOSS contributor who has just learned how pancake is built and is
+Review as a FLOSS contributor who has just learned how glowcap is built and is
 deciding whether to take it seriously. This lens runs **first**: a reviewer who
 bounces here never reaches the wire.
 
-The positions are public and settled, and pancake argues with neither:
+The positions are public and settled, and glowcap argues with neither:
 
 - **Codeberg** bans projects that "mostly consist of
   code written by 'generative AI'-tools" (Terms of Use § 2 (1) 7, member vote,
-  July 2026). pancake falls within that wording. The
+  July 2026). glowcap falls within that wording. The
   [announcement](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html)
   also lists projects written and maintained with heavy LLM use among those that
   may no longer be welcome. Do not argue the rule down to a narrower reading
@@ -105,7 +105,7 @@ The positions are public and settled, and pancake argues with neither:
   comments, because review is how it grows contributors.
 - **OCapN** requires specifications, suite, official tooling, and surrounding
   communication to be human-authored; generated issues and pull requests are
-  rejected. pancake's implementation may use agents; its messages to OCapN
+  rejected. glowcap's implementation may use agents; its messages to OCapN
   may not.
 
 **Cares about:**
@@ -114,7 +114,7 @@ The positions are public and settled, and pancake argues with neither:
    states how the project is built, in the open, without spin. Every sentence in
    it is checkable. Concealment is the failure mode that ends the conversation.
    Commit trailers corroborate assistance; they are not the project's identity.
-   A first-read page that hides the disclosure, or that describes pancake as
+   A first-read page that hides the disclosure, or that describes glowcap as
    AI-written rather than maintainer-directed and AI-assisted, is worse than
    useless.
 2. **Nothing generated leaks upstream.** No LLM-written patch, issue, or comment

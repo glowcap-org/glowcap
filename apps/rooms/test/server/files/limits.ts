@@ -34,7 +34,7 @@ import {
 	within,
 	withServer,
 } from "../../support/rooms_server.ts";
-import { Argument, Ref } from "@pancake/runtime";
+import { Argument, Ref } from "@glowcap/runtime";
 roomsTest("a room refuses a post's own trailing args, an oversize file, and a short upload", async () => {
 	await withServer(async (port) => {
 		const session = await dial(loopbackTcpDesignator(port));

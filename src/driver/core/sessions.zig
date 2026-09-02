@@ -47,14 +47,14 @@ const DialSource = union(enum) { mint: void, over: *engine.Peer };
 /// is encoded before this returns; the embedder drains it with `takeOutbound`
 /// (a flush action is queued) and drives the handshake byte-fed. URI holders
 /// parse first (`model.uri.parsePeer`) — same spine as
-/// `pancake_host_session_open_dialed_locator`. The locator is borrowed for
+/// `glowcap_host_session_open_dialed_locator`. The locator is borrowed for
 /// the call. The loop-fed bridge adopts with `openDialedOver` after
 /// `Loop.dialLocator` completes; this path mints the peer.
 pub fn openDialedLocator(self: *Host, locator: model.PeerLocator) !*HostSession {
     // Knowledge is recorded whenever the handed form carries it, whatever
     // this host's own profile: a baseline hello stamps nothing regardless,
-    // and the give path still wants to know a partner is pancake (ADR-0118).
-    const knows = engine.Peer.dialedLocatorIdentifiesPancake(locator);
+    // and the give path still wants to know a partner is glowcap (ADR-0118).
+    const knows = engine.Peer.dialedLocatorIdentifiesGlowcap(locator);
     return openDialedKnowing(self, .mint, locator.transport, locator.designator, knows);
 }
 
@@ -88,7 +88,7 @@ pub fn openDialedOver(
     peer: *engine.Peer,
     locator: model.PeerLocator,
 ) !*HostSession {
-    const knows = engine.Peer.dialedLocatorIdentifiesPancake(locator);
+    const knows = engine.Peer.dialedLocatorIdentifiesGlowcap(locator);
     return openDialedKnowing(self, .{ .over = peer }, locator.transport, locator.designator, knows);
 }
 
@@ -112,11 +112,11 @@ pub fn openDialedKnowing(
     source: DialSource,
     transport: []const u8,
     partner_designator: []const u8,
-    partner_known_pancake: bool,
+    partner_known_glowcap: bool,
 ) !*HostSession {
     try self.refuseReentry();
     try self.admitApplicationOperation();
-    return openDialedCommitted(self, source, transport, partner_designator, partner_known_pancake, null);
+    return openDialedCommitted(self, source, transport, partner_designator, partner_known_glowcap, null);
 }
 
 fn openDialedCommitted(
@@ -124,7 +124,7 @@ fn openDialedCommitted(
     source: DialSource,
     transport: []const u8,
     partner_designator: []const u8,
-    partner_known_pancake: bool,
+    partner_known_glowcap: bool,
     demanded_partner_key: ?crypto.PeerKey,
 ) !*HostSession {
     const advertised = try requireAcceptableLocator(self);
@@ -141,7 +141,7 @@ fn openDialedCommitted(
     };
     // Before the hello: the stamp reads this when it assembles the signed
     // location (ADR-0118).
-    if (partner_known_pancake) session.served.port.peer.noteKnownPancakePartner();
+    if (partner_known_glowcap) session.served.port.peer.noteKnownGlowcapPartner();
     if (profile.sealed_channel) {
         attachSealedChannel(self, session, .initiator) catch |err| {
             failOpen(self, session);
@@ -259,7 +259,7 @@ pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []
 fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiator, responder }) !void {
     var ephemeral_seed: [crypto.SEED_BYTES]u8 = undefined;
     defer std.crypto.secureZero(u8, &ephemeral_seed);
-    var hasher = std.crypto.hash.Blake3.initKdf("pancake noise ephemeral v1", .{});
+    var hasher = std.crypto.hash.Blake3.initKdf("glowcap noise ephemeral v1", .{});
     hasher.update(&session.session_seed);
     hasher.final(&ephemeral_seed);
     var identity = self.node.secretKey();
@@ -359,7 +359,7 @@ pub fn helloAndEnroll(self: *Host, session: *HostSession, advertised: model.Peer
 
 /// The accepted-open tail. On onion alone, an acceptor configured for an
 /// upgraded profile defers its hello until the initiator's arrives, because
-/// only that hello can say whether the partner is pancake and therefore
+/// only that hello can say whether the partner is glowcap and therefore
 /// which preference ours may state (ADR-0118); the before-serve hook
 /// answers it (`Host.hostBeforeServe`). A default-profile acceptor gains
 /// nothing from waiting — its answer is bare either way — so it keeps the

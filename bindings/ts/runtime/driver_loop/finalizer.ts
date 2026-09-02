@@ -20,7 +20,7 @@ function releaseDriverLoopFinalizerState(state: DriverLoopFinalizerState): void 
 	traceDrainHost(hostRaw);
 	const outcome = driverCall(
 		"driver-loop.finalizer.release",
-		(out) => loopS.pancake_driver_release(state.handle, out),
+		(out) => loopS.glowcap_driver_release(state.handle, out),
 	);
 	const rc = outcome.code;
 	if (outcome.error !== null) {

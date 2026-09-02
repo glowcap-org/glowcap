@@ -86,7 +86,7 @@ Deno.test("the title's close mark asks to leave a room without leaving yet", () 
 	store.openDir(projection, directory, "home-dir");
 	const conv = store.ensureRoom(projection, directory, "lobby");
 	store.switchTo(projection, conv.key);
-	store.showAboutConv(projection, "irc", true);
+	store.showAboutConv(projection, "bridge", true);
 	assert(projection.get().aboutConv, "asking to leave did not open the conversation card");
 	assert(projection.get().aboutConvLeave === true, "the conversation card did not open already asking");
 	assert(projection.get().aboutConvPane === "about", "asking to leave opened a pane other than about");

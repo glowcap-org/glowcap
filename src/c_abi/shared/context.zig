@@ -7,16 +7,16 @@ const failure_diagnostics = @import("failure_diagnostics.zig");
 /// Host allocation callbacks must be thread-safe. The surface deliberately
 /// omits `realloc`: both callbacks receive the exact allocation size and the
 /// adapter never asks an opaque allocator to preserve alignment while moving.
-pub const PancakeAllocFn = *const fn (user_data: ?*anyopaque, size: usize, alignment: usize) callconv(.c) ?*anyopaque;
-pub const PancakeFreeFn = *const fn (user_data: ?*anyopaque, ptr: ?*anyopaque, size: usize, alignment: usize) callconv(.c) void;
+pub const GlowcapAllocFn = *const fn (user_data: ?*anyopaque, size: usize, alignment: usize) callconv(.c) ?*anyopaque;
+pub const GlowcapFreeFn = *const fn (user_data: ?*anyopaque, ptr: ?*anyopaque, size: usize, alignment: usize) callconv(.c) void;
 
-pub const PancakeAllocator = extern struct {
-    alloc: ?PancakeAllocFn,
-    free: ?PancakeFreeFn,
+pub const GlowcapAllocator = extern struct {
+    alloc: ?GlowcapAllocFn,
+    free: ?GlowcapFreeFn,
     user_data: ?*anyopaque,
 };
 
-pub const PancakeContext = opaque {};
+pub const GlowcapContext = opaque {};
 
 /// Library-owned policy used by constructors without an explicit Context.
 pub const library_allocator = if (builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)
@@ -25,8 +25,8 @@ else
     std.heap.smp_allocator;
 
 pub const ContextAllocator = struct {
-    alloc_fn: PancakeAllocFn,
-    free_fn: PancakeFreeFn,
+    alloc_fn: GlowcapAllocFn,
+    free_fn: GlowcapFreeFn,
     user_data: ?*anyopaque,
 
     const vtable: std.mem.Allocator.VTable = .{
@@ -111,7 +111,7 @@ pub const Context = struct {
     }
 };
 
-pub fn fromOpaque(context: ?*PancakeContext) ?*Context {
+pub fn fromOpaque(context: ?*GlowcapContext) ?*Context {
     const ptr = context orelse return null;
     return @ptrCast(@alignCast(ptr));
 }

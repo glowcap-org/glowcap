@@ -1,5 +1,5 @@
 // C-ABI value projection: encode a native `Argument` into the C ABI's flat
-// `PancakeArgument` structs and decode them back. The one place the ABI struct
+// `GlowcapArgument` structs and decode them back. The one place the ABI struct
 // layout is spelled: every size and field offset comes from the active layout
 // `L`, and pointer-width fields go through its width-aware accessors, so the
 // same body projects the 64-bit dlopen targets and the wasm32 browser module.
@@ -30,8 +30,8 @@ import {
 	ARG_VOID,
 	INTERNAL,
 	UNSUPPORTED_VALUE,
-} from "@pancake/abi";
-import { PancakeError } from "./errors.ts";
+} from "@glowcap/abi";
+import { GlowcapError } from "./errors.ts";
 import { type Argument, isReference, Kw, PSet, PStruct, Ref, refFromId, Sym, Tagged } from "./value.ts";
 
 const EMPTY_ARGS = new Uint8Array(0);
@@ -40,7 +40,7 @@ const TEXT_DECODER = new TextDecoder();
 
 function writeReference(dv: DataView, off: number, ref: Ref): void {
 	if (ref.released) {
-		throw new Error("pancake: this capability was released and is no longer usable");
+		throw new Error("glowcap: this capability was released and is no longer usable");
 	}
 	dv.setBigUint64(off + L.REF_ID_OFF, ref.id, true);
 }
@@ -124,7 +124,7 @@ function encodeArg(
 		L.setPtr(dv, off + L.ARG_ITEMS_OFF, ffi.pointerOf(child));
 		L.setUsize(dv, off + L.ARG_ITEMS_LEN_OFF, arg.entries.length * 2);
 	} else {
-		throw new PancakeError(UNSUPPORTED_VALUE, "unsupported argument value");
+		throw new GlowcapError(UNSUPPORTED_VALUE, "unsupported argument value");
 	}
 
 	function writeItems(kind: number, items: Argument[]): void {
@@ -144,7 +144,7 @@ function encodeStructEntries(
 	const dv = new DataView(buf.buffer);
 	entries.forEach(([key, value], i) => {
 		if (typeof key !== "string") {
-			throw new PancakeError(UNSUPPORTED_VALUE, "Struct entries must be String/value pairs");
+			throw new GlowcapError(UNSUPPORTED_VALUE, "Struct entries must be String/value pairs");
 		}
 		encodeArg(dv, i * 2 * L.ARG_SIZE, key, keep);
 		encodeArg(dv, (i * 2 + 1) * L.ARG_SIZE, value, keep);
@@ -210,16 +210,16 @@ export function readArg(view: DataView, off: number): Argument {
 				L.getUsize(view, off + L.ARG_ITEMS_LEN_OFF),
 			);
 		default:
-			throw new PancakeError(
+			throw new GlowcapError(
 				INTERNAL,
-				`pancake ABI returned unknown argument kind ${kind}`,
+				`glowcap ABI returned unknown argument kind ${kind}`,
 			);
 	}
 }
 
 function readStruct(ptrValue: Ptr, len: bigint): PStruct {
 	if (len % 2n !== 0n) {
-		throw new PancakeError(INTERNAL, "pancake ABI returned an odd Struct item count");
+		throw new GlowcapError(INTERNAL, "glowcap ABI returned an odd Struct item count");
 	}
 	if (ptrValue === NULL || len === 0n) return new PStruct([]);
 	const count = Number(len);
@@ -228,7 +228,7 @@ function readStruct(ptrValue: Ptr, len: bigint): PStruct {
 	for (let i = 0; i < count; i += 2) {
 		const key = readArg(view, i * L.ARG_SIZE);
 		if (typeof key !== "string") {
-			throw new PancakeError(INTERNAL, "pancake ABI returned a non-String Struct key");
+			throw new GlowcapError(INTERNAL, "glowcap ABI returned a non-String Struct key");
 		}
 		entries.push([key, readArg(view, (i + 1) * L.ARG_SIZE)]);
 	}

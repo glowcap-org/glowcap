@@ -1,10 +1,10 @@
 #lang racket/base
 ;; Internal: the byte-fed embedder pump choreography over the host
-;; (libpancake_host, ADR-0072 / ADR-0079).
+;; (libglowcap_host, ADR-0072 / ADR-0079).
 ;;
 ;; Owns the connection byte path the embedder contract leaves to the binding:
 ;; the keyed handshake, read raw bytes off the transport, hand them to the
-;; core's stream delimiter (`pancake_host_session_feed_bytes`, which owns framing),
+;; core's stream delimiter (`glowcap_host_session_feed_bytes`, which owns framing),
 ;; write what `take_outbound` drains, the feed-refusal path (`last_abort` /
 ;; abort), and the EOF teardown that `transport_closed` reports to the core.
 ;; The CapTP surface stays in the `private/session` module family; the host
@@ -221,7 +221,7 @@
 
 ;; ── The bounded wait ──────────────────────────────────────────────────────────
 ;; How long a partner has to finish the keyed handshake once its byte channel
-;; is open. The value itself is the C ABI's (`PANCAKE_HANDSHAKE_TIMEOUT_MS`),
+;; is open. The value itself is the C ABI's (`GLOWCAP_HANDSHAKE_TIMEOUT_MS`),
 ;; arriving through `constants.rkt`, so the four bindings promise one number
 ;; rather than four. Something finite is the point: an unbounded CapTP wait is
 ;; a hang rather than a slow success.
@@ -248,15 +248,15 @@
 
 ;; The typed cause of this CapTP session's most recent local dispatch failure, or
 ;; #f — the host counterpart of the Zig `Peer.lastAbort`, read through the
-;; shared `PancakeLastAbort` layout. Feed-refusal owns the reader; Session
+;; shared `GlowcapLastAbort` layout. Feed-refusal owns the reader; Session
 ;; re-exports the name for dogfood/plumbing.
 (define (session-last-abort c)
   (call-with-host
    (session-host c)
    (lambda ()
      (guard-open 'session-last-abort c)
-     (define out (make-PancakeLastAbort 0 0 #f 0 #f 0 #f 0 #f 0 #f 0 0))
-     (define rc (pancake_host_session_last_abort (session-ptr c) out))
+     (define out (make-GlowcapLastAbort 0 0 #f 0 #f 0 #f 0 #f 0 #f 0 0))
+     (define rc (glowcap_host_session_last_abort (session-ptr c) out))
      (cond
        [(= rc WOULD-BLOCK) #f]
        [else (check/host rc) (abort-info<-c out)]))))
@@ -264,13 +264,13 @@
 ;; Host FFI for breaking far vows parked on `c`. Caller owns the
 ;; `with-session-drain` window so queued completions drain in order.
 (define (break-far-vows-bytes! c bs)
-  (check/host (pancake_host_session_break_far_vows
+  (check/host (glowcap_host_session_break_far_vows
                (session-ptr c) (pin-immobile bs) (bytes-length bs))))
 
 ;; Host FFI for reporting that `c` lost its transport. Caller owns the
 ;; `with-session-drain` window so terminal FAIL completions drain in order.
 (define (transport-closed-bytes! c bs)
-  (check/host (pancake_host_session_transport_closed
+  (check/host (glowcap_host_session_transport_closed
                (session-ptr c) (pin-immobile bs) (bytes-length bs))))
 
 ;; Pop transport-ready prefix/payload vectors on `c` into its pending-writes
@@ -294,7 +294,7 @@
             (let ([mf (session-outbound-frame c)]
                   [prefix (session-outbound-prefix c)])
               (define-values (rc prefix-len)
-                (pancake_host_session_take_outbound
+                (glowcap_host_session_take_outbound
                  (session-ptr c) mf prefix (bytes-length prefix)))
               (cond
                 [(= rc WOULD-BLOCK) (if queued? 'queued-drained 'empty)]
@@ -304,9 +304,9 @@
                    (dynamic-wind
                     void
                     (lambda ()
-                      (bytes<-c (PancakeManagedFrame-bytes mf)
-                                (PancakeManagedFrame-len mf)))
-                    (lambda () (pancake_managed_frame_release mf))))
+                      (bytes<-c (GlowcapManagedFrame-bytes mf)
+                                (GlowcapManagedFrame-len mf)))
+                    (lambda () (glowcap_managed_frame_release mf))))
                  (if (pending-writes-put-pair!
                       (session-pending-writes c)
                       (subbytes prefix 0 prefix-len)
@@ -350,7 +350,7 @@
            (unless (eq? status 'empty) (batch-loop))))))))
 
 ;; Feed freshly read bytes into the host through the core's stream delimiter
-;; (`pancake_host_session_feed_bytes`): the session's codec splits each
+;; (`glowcap_host_session_feed_bytes`): the session's codec splits each
 ;; complete frame off the front — both codecs, both frame shapes, the frame
 ;; cap enforced during the scan — and dispatches it (behavior and settle
 ;; callbacks fire inside), then the actions the dispatch queued drain. The
@@ -378,7 +378,7 @@
           (define buf (pin-immobile got))
           (define rc
             (parameterize ([current-deliver-owner c])
-              (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))
+              (glowcap_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))
           (host-drain-parked-releases! m)
           (cond
             [(= rc OK)
@@ -406,7 +406,7 @@
           (guard-open 'session-serve c)
           (define rc
             (parameterize ([current-deliver-owner c])
-              (pancake_host_session_resume_feed (session-ptr c))))
+              (glowcap_host_session_resume_feed (session-ptr c))))
           (host-drain-parked-releases! m)
           (cond
             [(= rc OK)
@@ -441,7 +441,7 @@
                      (set! diagnostics (cons error diagnostics)))])
     (drain-outbound! c))
   (define base
-    (if msg (format "pancake error ~a: ~a" rc msg) (format "pancake error ~a" rc)))
+    (if msg (format "glowcap error ~a: ~a" rc msg) (format "glowcap error ~a" rc)))
   (define detail
     (if (null? diagnostics)
         base
@@ -455,7 +455,7 @@
                       (reverse diagnostics))
                  "; "))))
   (define failure
-    (exn:fail:pancake
+    (exn:fail:glowcap
      (if abort
          (format "~a [~a~a: ~a]" detail (abort-info-domain abort)
                  (if (abort-info-kind abort) (format " ~a" (abort-info-kind abort)) "")
@@ -563,9 +563,9 @@
   (set-box! (async-connection-serve-hook ac) void)
   (define (raise-closed)
     (raise-session-wire-failure! c)
-    (raise-pancake who ERR-CLOSED "~a" (or closed-message "connection closed")))
+    (raise-glowcap who ERR-CLOSED "~a" (or closed-message "connection closed")))
   (define (raise-timed-out)
-    (raise-pancake who ERR-TIMEOUT "~a" (or timeout-message "the wait timed out")))
+    (raise-glowcap who ERR-TIMEOUT "~a" (or timeout-message "the wait timed out")))
   (define (run-reader)
     (define deferred (box no-drain-effects))
     (dynamic-wind

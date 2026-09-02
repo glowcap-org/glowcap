@@ -1,6 +1,6 @@
 // Durable, attenuated session grants and their publication lifecycle.
 
-import { DURABLE_SWISS_ENTROPY_BYTES, type Session } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES, type Session } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import {
 	type RoomsSessionFacet,
@@ -329,7 +329,7 @@ export class DurableRoomsSessionGrants {
 		// consequence of policy, so narrowing a grant would silently mint a
 		// different link and the old one would die at the next restart. That was
 		// the whole reason a grant's access could not be changed at all.
-		const material = encoder.encode(`pancake Rooms session grant\u0000${grant.id}`);
+		const material = encoder.encode(`glowcap Rooms session grant\u0000${grant.id}`);
 		const digest = new Uint8Array(await crypto.subtle.sign("HMAC", this.#hmacKey, material));
 		const entropy = digest.slice(0, DURABLE_SWISS_ENTROPY_BYTES);
 		const swiss = this.#publisher.publish(grant, entropy, () => this.active(grant.id));

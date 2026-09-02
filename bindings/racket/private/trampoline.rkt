@@ -2,7 +2,7 @@
 ;; Internal: the bridge between the vat's local actors and the byte-fed host's
 ;; wire hosting — one actor, two doors. An actor spawned through a session
 ;; lives in the Racket vat as a closure cell; this module builds the
-;; `PancakeHostBehavior` trampoline the host invokes on each wire deliver, hosts
+;; `GlowcapHostBehavior` trampoline the host invokes on each wire deliver, hosts
 ;; spawn/publish mint (`register-hosted-actor!`), and owns the ADR-0064 proxy
 ;; behavior constructors. The trampoline reads the actor's CURRENT closure out
 ;; of its cell per call (via `run-turn`), never capturing it, so `bcom` and
@@ -13,9 +13,9 @@
 ;; trampoline returns, so the marshalled reply's buffers are retained in
 ;; `last-reply-keep` across the return (overwritten by the next reply — the
 ;; previous one has long been copied). A raised error crosses the boundary
-;; through `pancake_host_turn_break`, which settles the answer broken with the
+;; through `glowcap_host_turn_break`, which settles the answer broken with the
 ;; actor's own words — a bare non-OK return would flatten "Revoked" into a
-;; generic reason. A `forward` return maps onto `pancake_host_turn_forward`
+;; generic reason. A `forward` return maps onto `glowcap_host_turn_forward`
 ;; (the caretaker/attenuator primitive): a local target composes in Racket, a
 ;; far target defers the answer onto the forwarded send's vow.
 
@@ -42,9 +42,9 @@
 (provide (all-defined-out))
 
 ;; The turn context while a hosted actor's trampoline runs: the opaque
-;; `PancakeHostTurn*`, owning Host, and optional public ingress Session, or #f
+;; `GlowcapHostTurn*`, owning Host, and optional public ingress Session, or #f
 ;; outside any turn. `session-spawn`/`session-caretaker` read it to pick the
-;; turn-time spawn (`pancake_host_turn_spawn`) over the top-level one, which
+;; turn-time spawn (`glowcap_host_turn_spawn`) over the top-level one, which
 ;; the host refuses inside a callback; the pump reads it to defer action
 ;; drains to the enclosing verb's unwind.
 (define current-turn (make-parameter #f))
@@ -71,19 +71,19 @@
 ;; run, so by the time this is overwritten the previous reply is long copied.
 (define last-reply-keep (box #f))
 
-;; Marshal `value` into the host's out-reply slot and return PANCAKE_OK.
+;; Marshal `value` into the host's out-reply slot and return GLOWCAP_OK.
 (define (write-reply! value out-reply)
   (define keep (box '()))
   (define c-arg (arg->c value keep))
   (set-box! last-reply-keep (cons c-arg keep))
-  (memcpy out-reply c-arg (ctype-sizeof _PancakeArgument))
+  (memcpy out-reply c-arg (ctype-sizeof _GlowcapArgument))
   OK)
 
 ;; Break this turn's answer with the actor's own diagnostic and return the code
 ;; the trampoline should hand back (OK: the break already settled the answer).
 (define (turn-break! turn msg)
   (define bs (string->bytes/utf-8 msg))
-  (define rc (pancake_host_turn_break turn (pin-immobile bs) (bytes-length bs)))
+  (define rc (glowcap_host_turn_break turn (pin-immobile bs) (bytes-length bs)))
   (if (= rc OK) OK rc))
 
 ;; An inbound deliver's wire verb as the Racket method symbol: a leading OCapN
@@ -121,7 +121,7 @@
         (define-values (aptr acnt) (args->c (forward-args chased) keep))
         ;; The host writes a placeholder reply and lets the real answer ride
         ;; the forwarded send's vow; buffers stay pinned until it returns.
-        (define rc (pancake_host_turn_forward turn (ref->c target)
+        (define rc (glowcap_host_turn_forward turn (ref->c target)
                                               (pin-immobile mb) (bytes-length mb)
                                               aptr acnt out-reply))
         ;; Buffers nested inside `aptr` are reachable only through `keep`,
@@ -150,7 +150,7 @@
   ;; A callback can arrive on an internal redeemed session with no public
   ;; wrapper. The turn still supplies exact Host identity; per-session policy
   ;; exists only when the Host registry already owns a wrapper.
-  (define-values (session-rc session-ptr*) (pancake_host_turn_session turn))
+  (define-values (session-rc session-ptr*) (glowcap_host_turn_session turn))
   (check/host session-rc)
   (define owner (if (session? carrier) (session-host carrier) carrier))
   (define arriving
@@ -166,7 +166,7 @@
     [(broken) (turn-break! turn (exn->message (cdr outcome)))]
     [else (settle-turn-reply arriving v turn (cdr outcome) out-reply)]))
 
-;; The PancakeHostBehavior for a vat actor: each wire
+;; The GlowcapHostBehavior for a vat actor: each wire
 ;; deliver runs the actor's current cell through `run-turn` (so `bcom` and
 ;; time-travel apply) with the vat current, exactly as a local `$` would.
 (define (make-actor-trampoline v actor-id)
@@ -175,7 +175,7 @@
                         (lambda (method args)
                           (run-turn (actor-ref v actor-id) method args)))))
 
-;; The PancakeHostBehavior for a host-wide giftable (`host-publish-giftable`):
+;; The GlowcapHostBehavior for a host-wide giftable (`host-publish-giftable`):
 ;; one behavior closure hosted once under a Host-wide alias. It is bound to no
 ;; Racket vat; the core Host Vat projects it onto sessions as needed. The
 ;; behavior lives in a cell here so a `bcom` return still swaps it; a `forward`
@@ -197,7 +197,7 @@
 ;; turn-time form the host allows where the top-level spawn is latched. Returns
 ;; opaque capability.
 (define (turn-spawn-ref! turn trampoline)
-  (define-values (rc capability) (pancake_host_turn_spawn turn trampoline #f #f))
+  (define-values (rc capability) (glowcap_host_turn_spawn turn trampoline #f #f))
   (check/host rc)
   capability)
 
@@ -219,7 +219,7 @@
                 #:closed-message (format "connection closed before ~a settled" label)))
   (define r (unbox result))
   (if (eq? (car r) 'broken)
-      (raise-pancake who ERR-BROKEN "~a broke: ~a" label (cdr r))
+      (raise-glowcap who ERR-BROKEN "~a broke: ~a" label (cdr r))
       (cdr r)))
 
 ;; The awaiting loop for a send whose target resolved to a local actor: the
@@ -321,15 +321,15 @@
                [name
                 (define nb (string->bytes/utf-8 name))
                 (define-values (rc p)
-                  (pancake_host_session_publish (session-ptr c) (pin-immobile nb) (bytes-length nb)
+                  (glowcap_host_session_publish (session-ptr c) (pin-immobile nb) (bytes-length nb)
                                              tramp #f #f))
                 (check/host rc)
                 p]
                [else
-                (define-values (rc p) (pancake_host_session_spawn (session-ptr c) tramp #f #f))
+                (define-values (rc p) (glowcap_host_session_spawn (session-ptr c) tramp #f #f))
                 (check/host rc)
                 p])))])))
-  (define id (PancakeReference-id capability))
+  (define id (GlowcapReference-id capability))
   (bind-export! v actor id)
   (make-ref/internal id))
 
@@ -364,7 +364,7 @@
 ;; clear the live flag and drop the revocables row. Idempotent.
 (define (revoke-caretaker! c proxy)
   (unless (ref? proxy)
-    (raise-pancake 'session-revoke! ERR-INVALID-ARGUMENT
+    (raise-glowcap 'session-revoke! ERR-INVALID-ARGUMENT
                    "revoke target is not a caretaker proxy: ~a" proxy))
   (define revocables (vat-revocables (session-vat c)))
   (define live (hash-ref revocables (ref-id proxy) #f))

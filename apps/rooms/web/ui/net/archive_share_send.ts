@@ -3,7 +3,7 @@
 // Live `handArchive` dies with its session. Durable `offerArchive` carries a
 // Host publication the archive peer can revoke independently.
 
-import { retainSecondaryFailure } from "@pancake/runtime";
+import { retainSecondaryFailure } from "@glowcap/runtime";
 import * as store from "../store.ts";
 import {
 	archiveConversationIdentity,

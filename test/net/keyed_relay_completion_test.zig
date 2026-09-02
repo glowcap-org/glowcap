@@ -6,10 +6,10 @@
 //! lives beside this file in `keyed_relay_completion_wire_test.zig`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const admission = @import("../support/keyed_relay_admission.zig");
 
-const net = pancake.net;
+const net = glowcap.net;
 const keyed_relay = net.relay;
 
 const Io = std.Io;
@@ -21,11 +21,16 @@ const deinitAdmissionBackend = admission.deinitAdmissionBackend;
 const startUpgradeRelay = admission.startUpgradeRelay;
 const openAdmissionRelay = admission.openAdmissionRelay;
 
-const keyed_relay_connection_state_bytes: usize = 248;
+/// Stated under runtime safety, where each of the three `std.ArrayList(u8)`
+/// headers (`upgrade_buf`, `raw_in`, `ws_out`) carries std's one-word
+/// `pointer_stability` lock.
+const keyed_relay_connection_state_bytes: usize = 272;
 const keyed_relay_pending_dial_state_bytes: usize = 3896;
 const keyed_relay_resolver_job_state_bytes: usize = 1136;
 
 test "keyed-relay completion connection state has a measured footprint" {
+    try std.testing.expectEqual(@as(usize, 8), AdmissionBackend.parallel_address_attempts);
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
     try std.testing.expectEqual(keyed_relay_connection_state_bytes, AdmissionBackend.connection_state_bytes);
     try std.testing.expectEqual(
         keyed_relay_pending_dial_state_bytes,
@@ -35,7 +40,6 @@ test "keyed-relay completion connection state has a measured footprint" {
         keyed_relay_resolver_job_state_bytes,
         AdmissionBackend.resolver_job_state_bytes,
     );
-    try std.testing.expectEqual(@as(usize, 8), AdmissionBackend.parallel_address_attempts);
 }
 
 test "keyed-relay completion rejects send staging too small for control frames" {
@@ -78,7 +82,7 @@ test "keyed-relay completion preserves clear connect cause and carrier phase" {
 
     _ = try backend.startDial(8, .{ .keyed_relay = .{ .designator = &designator, .relay = null } });
     const internal_ud = backend.platform.pending_connect.?.user_data;
-    var chain = pancake.foundation.FailureChain.init(error.NetworkUnreachable);
+    var chain = glowcap.foundation.FailureChain.init(error.NetworkUnreachable);
     chain.note(error.ResolverCleanupFailed);
     backend.platform.pending_connect = .{
         .user_data = internal_ud,

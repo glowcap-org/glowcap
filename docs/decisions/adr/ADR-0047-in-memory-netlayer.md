@@ -12,7 +12,7 @@ superseded_by: []
 
 > **Amendment (2026-06-12):** this resident was renamed `memory` to `inproc`
 > (transport symbol, `net.inproc`, `src/net/transport/inproc.zig`, and the
-> `pancake_inproc_*` C ABI family). "memory" named the substrate, not the
+> `glowcap_inproc_*` C ABI family). "memory" named the substrate, not the
 > behavior, and read as "about memory" in a systems library; `inproc` names what
 > it is (an in-process transport) and keeps the C family prefix equal to the
 > `.inproc` designator a consumer writes. The decision below is unchanged; read
@@ -79,7 +79,7 @@ wait.
   Rejected for this purpose: the contract is a byte stream, and iroh: the real
   next resident: is also a byte stream (QUIC streams), so a byte-stream
   in-process resident validates the shape iroh will actually use. A frame
-  transport would test a contract pancake does not have.
+  transport would test a contract glowcap does not have.
 - **Generalize the contract to admit frame transports now.** Rejected as
   premature: no shipped or planned transport needs it (iroh is stream-shaped),
   and adding a second contract shape before a consumer needs it is the kind of

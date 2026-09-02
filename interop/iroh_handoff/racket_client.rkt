@@ -27,8 +27,8 @@
 ;; Needs `racket` plus the iroh ABI companion library (`zig build iroh-abi`); run
 ;; via `zig build racket-iroh-handoff`.
 
-(require "../../bindings/racket/pancake.rkt"
-         "../../bindings/racket/pancake-iroh.rkt"
+(require "../../bindings/racket/glowcap.rkt"
+         "../../bindings/racket/glowcap-iroh.rkt"
          "../_common/racket/helpers.rkt")
 
 (define NAME "racket-iroh-carol")

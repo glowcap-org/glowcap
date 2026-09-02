@@ -4,7 +4,7 @@
   width="760"
   height="280"
   role="img"
-  aria-label="Two interop situations. Talking to a Goblins peer, pancake speaks the canonical dialect, CapTP 1.0 over Syrup, the interop floor. Talking to another pancake peer, both ends can choose pancake's native profile and the Cap'n Proto codec, and still drop to 1.0 over Syrup."
+  aria-label="Two interop situations. Talking to a Goblins peer, glowcap speaks the canonical dialect, CapTP 1.0 over Syrup, the interop floor. Talking to another glowcap peer, both ends can choose glowcap's native profile and the Cap'n Proto codec, and still drop to 1.0 over Syrup."
 >
   <defs>
     <marker
@@ -77,7 +77,7 @@
     text-anchor="middle"
     class="node"
     fill="var(--accent-deep, #a4560c)"
-  >pancake</text>
+  >glowcap</text>
   <rect
     x="220"
     y="92"
@@ -159,7 +159,7 @@
     text-anchor="middle"
     class="ptitle"
     fill="var(--accent-deep, #a4560c)"
-  >Talking to another pancake</text>
+  >Talking to another glowcap</text>
   <text
     x="568"
     y="66"
@@ -183,7 +183,7 @@
     text-anchor="middle"
     class="node"
     fill="var(--accent-deep, #a4560c)"
-  >pancake</text>
+  >glowcap</text>
   <rect
     x="596"
     y="92"
@@ -200,7 +200,7 @@
     text-anchor="middle"
     class="node"
     fill="var(--accent-deep, #a4560c)"
-  >pancake</text>
+  >glowcap</text>
 
   <path
     d="M544 106 L 586 106"
@@ -241,7 +241,7 @@
     text-anchor="middle"
     class="result"
     fill="var(--accent-deep, #a4560c)"
-  >pancake-next &#183; Cap'n Proto</text>
+  >glowcap-next &#183; Cap'n Proto</text>
   <text
     x="568"
     y="242"

@@ -4,7 +4,7 @@
 <main id="content">
 	<article class="prose">
 		<h1 :text="$page.title"></h1>
-		<p>pancake is one library, but it reads as a stack of small modules. Each
+		<p>glowcap is one library, but it reads as a stack of small modules. Each
 		one rests on the modules below it and may import only downward, so a
 		layer's name tells you what it owns before you open the file. The teal
 		band is the sans-io protocol core. The neutral band is the local actor

@@ -100,8 +100,8 @@ def main() -> int:
                     social += f'<meta property="og:url" content="{base}/{loc}">'
                 if 'property="og:image"' not in rewritten:
                     social += (
-                        f'<meta property="og:image" content="{base}/pancake-goblin-512.png">'
-                        '<meta property="og:image:alt" content="The pancake mascot: a smiling stack of pancakes with a pat of butter.">'
+                        f'<meta property="og:image" content="{base}/glowcap-goblin-512.png">'
+                        '<meta property="og:image:alt" content="The glowcap mascot: a smiling stack of pancakes with a pat of butter.">'
                     )
                 rewritten = rewritten.replace(
                     head_close,

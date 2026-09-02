@@ -1,4 +1,4 @@
-//! Room-session lifecycle for the `pancake app rooms-peer` daemon: one union
+//! Room-session lifecycle for the `glowcap app rooms-peer` daemon: one union
 //! for the phases the peer walks (down, dialing, joining, abandoning, joined)
 //! and the pure transition helpers `maintain` and the vow callbacks share.
 //! Wire calls (dial, close, flush, state.json writes) stay in `peer.zig`; this

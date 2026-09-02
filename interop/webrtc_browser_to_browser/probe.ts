@@ -2,8 +2,8 @@
 
 // One browser peer for the WebRTC browser-to-browser proof (ADR-0089 phase 6).
 // Two browser tabs run this, one as `?role=offerer` and one as `?role=answerer`.
-// Each bundles `@pancake/web` (the wasm Host); the answerer drives
-// `@pancake/webrtc` (`RtcPeer`) directly, while the offerer opens a managed
+// Each bundles `@glowcap/web` (the wasm Host); the answerer drives
+// `@glowcap/webrtc` (`RtcPeer`) directly, while the offerer opens a managed
 // Runtime with the WebRTC connector and dials the bare
 // `ocapn://<key>.webrtc` locator, so the dial executor owns the whole bring-up
 // — offer, answer, trickled candidates, channel adoption, keyed handshake. The signaling relay only
@@ -16,9 +16,9 @@
 // `webrtc-signaling-captp`); here it is a plain byte relay so the proof is
 // deno-only and needs no room.
 
-import { init } from "@pancake/web";
-import { connector, locator, RtcPeer } from "@pancake/webrtc";
-import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
+import { init } from "@glowcap/web";
+import { connector, locator, RtcPeer } from "@glowcap/webrtc";
+import { DESIGNATOR_SCHEME_KEY } from "@glowcap/abi";
 
 const GREETING = "hello browser to browser over webrtc";
 
@@ -50,7 +50,7 @@ let resolveRemoteId!: (designator: string) => void;
 const remoteId = new Promise<string>((res) => (resolveRemoteId = res));
 
 async function main(): Promise<void> {
-	const stack = await init({ wasm: fetch("/pancake_host.wasm") });
+	const stack = await init({ wasm: fetch("/glowcap_host.wasm") });
 
 	const ws = new WebSocket(
 		`ws://${location.host}/signal?role=${offerer ? "offerer" : "answerer"}`,

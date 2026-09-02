@@ -262,7 +262,7 @@ export function PeerSelect(
  *  shortlist rather than a domain: a peer's profile is any non-empty
  *  string, so a feed or an imported document can hand a picker
  *  something `PROFILE_OPTIONS` never named, and a select left to its
- *  own devices would report it as "pancake" while the chip beside it
+ *  own devices would report it as "glowcap" while the chip beside it
  *  and the stage both showed the truth.
  *
  *  Nothing is added when the value is already offered, so a closed

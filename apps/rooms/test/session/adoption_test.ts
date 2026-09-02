@@ -7,7 +7,7 @@ function refused(work: () => Promise<unknown>): Promise<boolean> {
 }
 
 Deno.test("a new session accepts one initial workspace and keeps that fact across restart", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-adoption-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-adoption-" });
 	try {
 		const state = await openSessionState(directory);
 		assertEquals(state.workspaceAdoption, "available");
@@ -28,7 +28,7 @@ Deno.test("a new session accepts one initial workspace and keeps that fact acros
 });
 
 Deno.test("an ordinary empty checkpoint closes initial workspace adoption", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-established-empty-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-established-empty-" });
 	try {
 		const state = await openSessionState(directory);
 		assertEquals(await state.replace("establish-empty", 0, emptyRoomsSessionState()), 1);
@@ -43,7 +43,7 @@ Deno.test("an ordinary empty checkpoint closes initial workspace adoption", asyn
 });
 
 Deno.test("an older prerelease session envelope refuses without rewriting", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-old-envelope-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-old-envelope-" });
 	try {
 		await openSessionState(directory);
 		const path = `${directory}/session.json`;
@@ -60,7 +60,7 @@ Deno.test("an older prerelease session envelope refuses without rewriting", asyn
 });
 
 Deno.test("session storage refuses workspace adoption after a checkpoint revision", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-adoption-conflict-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-adoption-conflict-" });
 	try {
 		const state = await openSessionState(directory);
 		await state.replace("checkpoint", 0, emptyRoomsSessionState());

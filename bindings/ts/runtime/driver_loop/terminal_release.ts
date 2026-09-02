@@ -1,4 +1,4 @@
-import { PancakeError, retainSecondaryFailure } from "../errors.ts";
+import { GlowcapError, retainSecondaryFailure } from "../errors.ts";
 import { deferFinalizerRetry, type FinalizerRetry } from "../finalizer_retry.ts";
 import type { DriverCallOutcome } from "../internal/driver_failure.ts";
 import { releaseConsumed } from "../lifecycle.ts";
@@ -11,7 +11,7 @@ type RetryScheduler = (retry: FinalizerRetry) => void;
  * One safe boundary claims one attempt; another refusal requeues the same
  * identity, while a consumed result commits wrapper retirement exactly once. */
 export class TerminalDriverRelease {
-	readonly failure: PancakeError;
+	readonly failure: GlowcapError;
 	readonly #attempt: ReleaseAttempt;
 	readonly #commit: ReleaseCommit;
 	readonly #schedule: RetryScheduler;
@@ -20,7 +20,7 @@ export class TerminalDriverRelease {
 	#refusalRetained = false;
 
 	constructor(
-		failure: PancakeError,
+		failure: GlowcapError,
 		attempt: ReleaseAttempt,
 		commit: ReleaseCommit,
 		initialOutcome?: DriverCallOutcome,

@@ -14,7 +14,7 @@ amended_by: []
 
 ## Context
 
-Pancake has several ways to preserve failures that cannot be returned. Rust
+Glowcap has several ways to preserve failures that cannot be returned. Rust
 keeps an implicit-failure journal. Python has separate journals for trace,
 transport, and finalizer failures. Racket retains finalizer and trace failures
 through different APIs. TypeScript attaches later failures to error objects and
@@ -57,7 +57,7 @@ count to the new head, so a consumer cannot mistake the surviving suffix for a
 complete history. Claiming is atomic and ordered: a claimed record cannot
 reappear, and insufficient caller storage does not consume it.
 
-An explicit `PancakeContext` owns native diagnostic storage and is retained by
+An explicit `GlowcapContext` owns native diagnostic storage and is retained by
 each Host built in it. The Context also assigns monotonically increasing,
 nonzero lifecycle identities; zero means that no durable owner exists. These
 identities are stable only within that Context, so two Hosts sharing one queue
@@ -78,7 +78,7 @@ Context queue; bounding record count alone is not bounded diagnostic storage.
 
 Bindings translate the schema into one idiomatic diagnostic API. They do not
 create separate public journals by source. Process owners may drain, log, or
-export records according to their own policy. Pancake assigns no fatal policy
+export records according to their own policy. Glowcap assigns no fatal policy
 and the absence or failure of a diagnostic consumer changes no protocol or API
 outcome.
 

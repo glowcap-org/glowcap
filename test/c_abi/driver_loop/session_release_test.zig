@@ -8,7 +8,7 @@ const std = @import("std");
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ws_relay = @import("../../support/ws_relay.zig");
 
 const harness = @import("harness.zig");
@@ -71,9 +71,9 @@ test "driver close preserves delivered session handles until explicit release" {
     defer owned_server.deinit();
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     const owned_client = try newLoop(0x46);
     defer owned_client.deinit();
@@ -85,33 +85,33 @@ test "driver close preserves delivered session handles until explicit release" {
     var server_seen = Drained{};
     var rounds: usize = 0;
     while ((client_seen.dialed_session == null or server_seen.accepted_session == null) and rounds < 2_000) : (rounds += 1) {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
     }
     try std.testing.expect(client_seen.dialed_session != null);
     try std.testing.expect(server_seen.accepted_session != null);
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cd.pancake_host_session_break_far_vows(client_seen.dialed_session, "stale embedder", 14),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cd.glowcap_host_session_break_far_vows(client_seen.dialed_session, "stale embedder", 14),
     );
 
-    try expectOk(cdrv.pancake_driver_close(client, &close_cancel));
-    try expectOk(cdrv.pancake_driver_close(server, &close_cancel));
-    try expectStep(cdrv.pancake_driver_step(client, 0));
-    try expectStep(cdrv.pancake_driver_step(server, 0));
+    try expectOk(cdrv.glowcap_driver_close(client, &close_cancel));
+    try expectOk(cdrv.glowcap_driver_close(server, &close_cancel));
+    try expectStep(cdrv.glowcap_driver_step(client, 0));
+    try expectStep(cdrv.glowcap_driver_step(server, 0));
     try drainEvents(client, &client_seen);
     try drainEvents(server, &server_seen);
 
     var state: u32 = undefined;
-    try expectOk(cdrv.pancake_driver_lifecycle_state(client, &state));
-    try std.testing.expectEqual(cd.PANCAKE_LIFECYCLE_CLOSED, state);
-    try expectOk(cdrv.pancake_driver_lifecycle_state(server, &state));
-    try std.testing.expectEqual(cd.PANCAKE_LIFECYCLE_CLOSED, state);
+    try expectOk(cdrv.glowcap_driver_lifecycle_state(client, &state));
+    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_CLOSED, state);
+    try expectOk(cdrv.glowcap_driver_lifecycle_state(server, &state));
+    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_CLOSED, state);
 
-    try expectOk(cdrv.pancake_driver_session_release(client, client_seen.dialed_session));
-    try expectOk(cdrv.pancake_driver_session_release(server, server_seen.accepted_session));
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
 }
 
 test "driver retirement preserves claimed sessions and owns the final release transition" {
@@ -119,9 +119,9 @@ test "driver retirement preserves claimed sessions and owns the final release tr
     defer owned_server.deinit();
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     const owned_client = try newLoop(0x66);
     defer owned_client.deinit();
@@ -133,35 +133,35 @@ test "driver retirement preserves claimed sessions and owns the final release tr
     var server_seen = Drained{};
     var rounds: usize = 0;
     while ((client_seen.dialed_session == null or server_seen.accepted_session == null) and rounds < 2_000) : (rounds += 1) {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
     }
     try std.testing.expect(client_seen.dialed_session != null);
     try std.testing.expect(server_seen.accepted_session != null);
 
-    try expectOk(cdrv.pancake_driver_retire(server));
+    try expectOk(cdrv.glowcap_driver_retire(server));
     var state: u32 = undefined;
-    try expectOk(cdrv.pancake_driver_lifecycle_state(server, &state));
-    try std.testing.expectEqual(cd.PANCAKE_LIFECYCLE_ACTIVE, state);
+    try expectOk(cdrv.glowcap_driver_lifecycle_state(server, &state));
+    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_ACTIVE, state);
 
     var refused_listener: u64 = 0;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_CLOSED,
-        cdrv.pancake_driver_listen(server, "tcp", 3, "127.0.0.1:0", 11, null, &refused_listener),
+        c.GLOWCAP_ERR_CLOSED,
+        cdrv.glowcap_driver_listen(server, "tcp", 3, "127.0.0.1:0", 11, null, &refused_listener),
     );
 
-    try expectOk(cdrv.pancake_driver_session_release(server, server_seen.accepted_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
     rounds = 0;
     while (rounds < 2_000) : (rounds += 1) {
         try drainEvents(server, &server_seen);
-        try expectOk(cdrv.pancake_driver_lifecycle_state(server, &state));
-        if (state == cd.PANCAKE_LIFECYCLE_CLOSED) break;
-        try expectStep(cdrv.pancake_driver_step(server, 0));
+        try expectOk(cdrv.glowcap_driver_lifecycle_state(server, &state));
+        if (state == cd.GLOWCAP_LIFECYCLE_CLOSED) break;
+        try expectStep(cdrv.glowcap_driver_step(server, 0));
     }
-    try std.testing.expectEqual(cd.PANCAKE_LIFECYCLE_CLOSED, state);
-    try expectOk(cdrv.pancake_driver_session_release(client, client_seen.dialed_session));
+    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_CLOSED, state);
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
 }
 
 test "driver session close reaches its transport barrier without closing the loop" {
@@ -169,9 +169,9 @@ test "driver session close reaches its transport barrier without closing the loo
     defer owned_server.deinit();
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     const owned_client = try newLoop(0x48);
     defer owned_client.deinit();
@@ -183,25 +183,25 @@ test "driver session close reaches its transport barrier without closing the loo
     var server_seen = Drained{};
     var rounds: usize = 0;
     while ((client_seen.dialed_session == null or server_seen.accepted_session == null) and rounds < 2_000) : (rounds += 1) {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
         try drainEvents(server, &server_seen);
     }
     const client_session = client_seen.dialed_session orelse return error.DialNeverOpened;
     const server_session = server_seen.accepted_session orelse return error.AcceptNeverOpened;
 
-    try expectOk(cdrv.pancake_driver_session_close(client, client_session, &close_cancel));
+    try expectOk(cdrv.glowcap_driver_session_close(client, client_session, &close_cancel));
     var state: u32 = undefined;
-    try expectOk(cdrv.pancake_driver_session_lifecycle_state(client, client_session, &state));
-    try std.testing.expectEqual(cd.PANCAKE_LIFECYCLE_TERMINATING, state);
-    try expectStep(cdrv.pancake_driver_step(client, 0));
-    try expectOk(cdrv.pancake_driver_session_lifecycle_state(client, client_session, &state));
-    try std.testing.expectEqual(cd.PANCAKE_LIFECYCLE_CLOSED, state);
+    try expectOk(cdrv.glowcap_driver_session_lifecycle_state(client, client_session, &state));
+    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_TERMINATING, state);
+    try expectStep(cdrv.glowcap_driver_step(client, 0));
+    try expectOk(cdrv.glowcap_driver_session_lifecycle_state(client, client_session, &state));
+    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_CLOSED, state);
     try drainEvents(client, &client_seen);
 
-    try expectOk(cdrv.pancake_driver_lifecycle_state(client, &state));
-    try std.testing.expectEqual(cd.PANCAKE_LIFECYCLE_ACTIVE, state);
-    try expectOk(cdrv.pancake_driver_session_release(client, client_session));
-    try expectOk(cdrv.pancake_driver_session_release(server, server_session));
+    try expectOk(cdrv.glowcap_driver_lifecycle_state(client, &state));
+    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_ACTIVE, state);
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_session));
 }

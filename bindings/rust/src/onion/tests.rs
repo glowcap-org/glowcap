@@ -21,7 +21,7 @@ fn fake_control(listener: TcpListener) -> String {
 }
 
 /// As `fake_control`, and when `forward` is given, send the forward target the
-/// `ADD_ONION` named down it. That target is the local endpoint pancake bound
+/// `ADD_ONION` named down it. That target is the local endpoint glowcap bound
 /// and told the daemon about, exactly what a test needs to stand in for Tor
 /// forwarding a circuit.
 fn fake_control_reporting(listener: TcpListener, forward: Option<std::sync::mpsc::Sender<String>>) -> String {

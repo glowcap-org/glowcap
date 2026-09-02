@@ -7,11 +7,11 @@
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../zig-out/lib/", import.meta.url).pathname;
-const ACTOR_SWISS = "pancakeActorSwissnumABCDEFGH1234";
-const DIALER = "conformance/goblins-peer/racket/pancake-actor-call.rkt";
+const ACTOR_SWISS = "glowcapActorSwissnumABCDEFGH1234";
+const DIALER = "conformance/goblins-peer/racket/glowcap-actor-call.rkt";
 const EXPECTED = 'DIAL OK: "Hello from a binding host: world"';
 const installedArchiveEnv = {
-	PANCAKE_LIB_DIR: LIB_DIR,
+	GLOWCAP_LIB_DIR: LIB_DIR,
 	...(Deno.build.os === "darwin" ? { DYLD_LIBRARY_PATH: LIB_DIR } : { LD_LIBRARY_PATH: LIB_DIR }),
 };
 

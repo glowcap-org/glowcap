@@ -6,11 +6,11 @@
 // loop, the browser-shaped restart, and timeouts that escalate from their
 // own waking step.
 
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 
-import { DESIGNATOR_SCHEME_ADDRESS, INVALID_ARGUMENT, TIMEOUT } from "@pancake/abi";
+import { DESIGNATOR_SCHEME_ADDRESS, INVALID_ARGUMENT, TIMEOUT } from "@glowcap/abi";
 import { connectTcp, listenTcp, type NetConn } from "../../runtime/internal/seam.ts";
-import { bareLocator, Host, PancakeError, Runtime, Session, Sym } from "../../runtime/mod.ts";
+import { bareLocator, GlowcapError, Host, Runtime, Session, Sym } from "../../runtime/mod.ts";
 
 import { _connectIroh, IrohNetlayer, Reachability } from "../../iroh/impl.ts";
 import { NULL } from "../../runtime/internal/ffi/runtime.ts";
@@ -80,11 +80,11 @@ export async function run(managed: Runtime): Promise<void> {
 	// Bind policy and reachability are different facts. A wildcard address needs
 	// an explicit dialable advertisement; the native driver owns admission.
 	{
-		let wildcardError: PancakeError | null = null;
+		let wildcardError: GlowcapError | null = null;
 		try {
 			await tcp.listen("0.0.0.0", 0);
 		} catch (error) {
-			if (error instanceof PancakeError) wildcardError = error;
+			if (error instanceof GlowcapError) wildcardError = error;
 		}
 		assert(
 			wildcardError?.code === INVALID_ARGUMENT,
@@ -183,7 +183,7 @@ export async function run(managed: Runtime): Promise<void> {
 				await dialing;
 				throw new Error("an aborted iroh endpoint open continued into dialing");
 			} catch (error) {
-				assert(error instanceof PancakeError, "iroh open abort lost its typed error");
+				assert(error instanceof GlowcapError, "iroh open abort lost its typed error");
 			}
 			assert(released, "iroh open abort did not release the constructed endpoint");
 		} finally {
@@ -441,7 +441,7 @@ export async function run(managed: Runtime): Promise<void> {
 			() => {},
 		);
 
-		let timedOut: PancakeError | null = null;
+		let timedOut: GlowcapError | null = null;
 		try {
 			await using timeoutRuntime = await Runtime.open({
 				providers: [tcp.provider()],
@@ -449,7 +449,7 @@ export async function run(managed: Runtime): Promise<void> {
 			});
 			await timeoutRuntime.connect(tcp.locator("127.0.0.1", listener.port));
 		} catch (err) {
-			if (err instanceof PancakeError) timedOut = err;
+			if (err instanceof GlowcapError) timedOut = err;
 		}
 		assert(
 			timedOut !== null && timedOut.code === TIMEOUT,

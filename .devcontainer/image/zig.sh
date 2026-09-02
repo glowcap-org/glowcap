@@ -12,7 +12,7 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}" checksums
+glowcap_devcontainer_init "${dir}" checksums
 
 case "$(uname -s)-$(uname -m)" in
     Linux-x86_64) triple="x86_64-linux" ;;
@@ -31,10 +31,10 @@ if [[ "${ZIG_VERSION}" == *-dev.* ]]; then
 else
     url="https://ziglang.org/download/${ZIG_VERSION}/${tarball}"
 fi
-tmp="$(mktemp -d -t pancake-zig-install-XXXXXX)"
+tmp="$(mktemp -d -t glowcap-zig-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
 
-pancake_fetch_verified "${url}" "${tmp}/${tarball}" "$(zig_sha256)"
+glowcap_fetch_verified "${url}" "${tmp}/${tarball}" "$(zig_sha256)"
 
 install_dir="${ZIG_INSTALL_DIR:-/opt/zig}"
 mkdir -p "${install_dir}"

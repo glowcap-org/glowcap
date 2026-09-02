@@ -115,14 +115,14 @@ Deno.test("attributing an end attaches it, and keeps the session's span", () => 
 			t: 0,
 			kind: "peer-joined",
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "e2",
 			t: 0,
 			kind: "peer-joined",
 			peerId: "bob",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "e4",
@@ -182,7 +182,7 @@ Deno.test("a peer that departs AND goes unobserved ends at the first of the two"
 			t: 0,
 			kind: "peer-joined",
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{ id: "e2", t: 30, kind: "peer-left", peerId: "alice" },
 		{ id: "e3", t: 20, kind: "peer-unobserved", peerId: "alice" },
@@ -207,7 +207,7 @@ Deno.test("a peer's identifier comes from the join that drew it", () => {
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "joined-as",
 		},
 		{
@@ -215,7 +215,7 @@ Deno.test("a peer's identifier comes from the join that drew it", () => {
 			kind: "peer-joined",
 			t: 5,
 			peerId: "nobody",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 	] as TimelineEvent[]);
 	const peers = projectFromObservations(doc).entities?.peers;

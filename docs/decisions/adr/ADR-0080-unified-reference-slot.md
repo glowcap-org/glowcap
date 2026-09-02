@@ -15,7 +15,7 @@ superseded_by: []
 CapTP names four reference kinds: a near export (a capability this vat hosts), a
 far import (a capability a partner hosts), a promise (a value not yet known), and
 an answer (the settled result of a pipelined call). Every implementation, Goblins
-included, and pancake today, carries these as four tables. `ExportTable`,
+included, and glowcap today, carries these as four tables. `ExportTable`,
 `ImportTable`, `SlotTable`, `AnswerTable`: with four sets of GC, resolution, and
 pipelining rules. The special cases multiply: pipelining is a separate path,
 resolution is written per kind, three-party handoff re-derives references from

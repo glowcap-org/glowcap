@@ -8,8 +8,8 @@
 // question, and answering one with another is how a room ends up opened against
 // the wrong server.
 
-import type { WebRuntime } from "@pancake/web";
-import type { Locator } from "@pancake/runtime";
+import type { WebRuntime } from "@glowcap/web";
+import type { Locator } from "@glowcap/runtime";
 import { roomsLocator } from "../../../lib/locator.ts";
 import { roomsPeerAuthority } from "../../../lib/routes.ts";
 import type { RoomsPageContext } from "../page.ts";

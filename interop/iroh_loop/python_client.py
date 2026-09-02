@@ -3,7 +3,7 @@ served from one readiness loop (ADR-0057), the Python sibling of the Zig
 ``zig build iroh-loop`` gate.
 
 The iroh netlayer has one I/O model — an event-driven readiness loop. This gate
-proves it through the binding: one Python :class:`pancake.iroh.IrohServer` runs a
+proves it through the binding: one Python :class:`glowcap.iroh.IrohServer` runs a
 single :class:`_IrohLoop` that registers the endpoint's readiness fd with the
 asyncio event loop and serves every accepted connection's peer from that one
 loop. Many clients dial it at once, each over its own iroh endpoint, fetch the
@@ -31,8 +31,8 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Runtime, TRANSPORT_IROH, format_peer_uri  # noqa: E402
-from pancake.iroh import (  # noqa: E402
+from glowcap import Runtime, TRANSPORT_IROH, format_peer_uri  # noqa: E402
+from glowcap.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
     dial_locator_for_relay,

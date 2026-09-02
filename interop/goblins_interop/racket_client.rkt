@@ -1,5 +1,5 @@
 #lang racket
-;; Live interop proof for the Racket binding: a peer built on `libpancake`'s C
+;; Live interop proof for the Racket binding: a peer built on `libglowcap`'s C
 ;; ABI holds a *keyed* OCapN conversation with a real Spritely Goblins vat over
 ;; TCP — driven through the *same* `connect`/`enliven`/`send` application surface
 ;; the cross-language demos use, so what is proven against a real Goblins vat is
@@ -14,8 +14,8 @@
 ;; shape a field projects out of. Needs `racket` + `goblins`;
 ;; `zig build racket-goblins-interop`.
 
-(require "../../bindings/racket/pancake.rkt"
-         "../../bindings/racket/pancake-tcp.rkt"
+(require "../../bindings/racket/glowcap.rkt"
+         "../../bindings/racket/glowcap-tcp.rkt"
          "../_common/racket/helpers.rkt")
 
 (define HOST "127.0.0.1")
@@ -26,7 +26,7 @@
 (define HOST-SCRIPT "conformance/goblins-peer/racket/goblins-host.rkt")
 ;; The Struct-returning record cap goblins-host.rkt publishes for the `op:get`
 ;; leg, at the swiss-num it hardcodes (the echo cap owns the NDJSON `swiss` line).
-(define RECORD-SWISS "pancakeRecordSwissnumABCDEF12345")
+(define RECORD-SWISS "glowcapRecordSwissnumABCDEF12345")
 
 (define-values (proc proc-out proc-in proc-err)
   (subprocess #f #f #f RACKET HOST-SCRIPT HOST (number->string PORT)))
@@ -54,16 +54,16 @@
     (unless (equal? reply (list expected))
       (error 'racket-goblins-interop
              "echo returned ~v, expected ~v" reply (list expected))))
-  (assert-echoed (session-send session echo (string->symbol "") #"pancake-ping")
-                 #"pancake-ping")
+  (assert-echoed (session-send session echo (string->symbol "") #"glowcap-ping")
+                 #"glowcap-ping")
 
   (define again (session-enliven session sturdyref))
   (unless (and (ref? echo) (ref? again)
                (= (ref-id echo) (ref-id again)))
     (error 'racket-goblins-interop
            "repeat enliven did not return the same Host identity (dedup miss)"))
-  (assert-echoed (session-send session again (string->symbol "") #"pancake-ping-again")
-                 #"pancake-ping-again")
+  (assert-echoed (session-send session again (string->symbol "") #"glowcap-ping-again")
+                 #"glowcap-ping-again")
   (printf "racket-goblins-interop: repeat enliven same Host identity (dedup), second call resolved\n")
 
   ;; `session-get` pipelines an `op:get` against a still-pending answer, and a
@@ -74,7 +74,7 @@
   ;; the unsettled call answer and the two differing values pin which field was
   ;; asked for.
   (define record (session-fetch session RECORD-SWISS))
-  (define made (session-send-promise session record (string->symbol "") "pancake-get"))
+  (define made (session-send-promise session record (string->symbol "") "glowcap-get"))
   (define name-vow (session-get session made "name"))
   (define kind-vow (session-get session made "kind"))
   (define (assert-projected vow field expected)
@@ -82,7 +82,7 @@
     (unless (equal? got expected)
       (error 'racket-goblins-interop
              "op:get on ~v projected ~v, expected ~v" field got expected)))
-  (assert-projected name-vow "name" "pancake-get")
+  (assert-projected name-vow "name" "glowcap-get")
   (assert-projected kind-vow "kind" "record")
   (printf "racket-goblins-interop: op:get projected name and kind out of goblins' Struct reply\n")
 

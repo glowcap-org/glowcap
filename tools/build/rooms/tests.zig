@@ -262,7 +262,7 @@ pub fn register(ctx: Context) *std.Build.Step {
 
     const server_step = ctx.b.step("rooms-server-test", "Run the hermetic Rooms server and UI contract tests (needs deno)");
     const archive = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, command);
-    archive.setEnvironmentVariable("PANCAKE_LIB_DIR", lib_dir);
+    archive.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
     archive.addArgs(archive_files);
     archive.step.dependOn(&cache.step);
     dependOnRuntimeArchives(&archive.step, ctx, false);
@@ -274,7 +274,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     var previous: ?*std.Build.Step = null;
     for (batches) |files| {
         const batch = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, command);
-        batch.setEnvironmentVariable("PANCAKE_LIB_DIR", lib_dir);
+        batch.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
         batch.addArgs(files);
         batch.step.dependOn(&cache.step);
         if (previous) |prior| batch.step.dependOn(prior);

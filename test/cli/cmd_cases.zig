@@ -68,7 +68,7 @@ const fixture_children = [_]Command{
 };
 
 const fixture_root: Command = .{
-    .name = "pancake",
+    .name = "glowcap",
     .short_help = "fixture root",
     .flags = &fixture_root_flags,
     .children = &fixture_children,
@@ -122,7 +122,7 @@ test "a diagnostic longer than the line buffer truncates visibly, never vanishes
     const long = @as([600]u8, @splat('x'));
     cli.log.err(threaded.io(), "{s}", .{long});
     const diags = cli.log.test_capture.captured();
-    try std.testing.expect(std.mem.startsWith(u8, diags, "pancake: error: xxx"));
+    try std.testing.expect(std.mem.startsWith(u8, diags, "glowcap: error: xxx"));
     try std.testing.expect(std.mem.endsWith(u8, diags, " [truncated]\n"));
 }
 
@@ -247,7 +247,7 @@ test "every persistent root flag completes on child nodes in bash zsh fish" {
         // Fish carries persistent flags as one unguarded global line each
         // (offered in every context); per-node lines stay own-flags only.
         var fbuf: [80]u8 = undefined;
-        const fish_global = try std.fmt.bufPrint(&fbuf, "complete -c pancake -l {s} ", .{f.long});
+        const fish_global = try std.fmt.bufPrint(&fbuf, "complete -c glowcap -l {s} ", .{f.long});
         try std.testing.expect(std.mem.indexOf(u8, fish, fish_global) != null);
         var nbuf: [64]u8 = undefined;
         const fish_node_flag = try std.fmt.bufPrint(&nbuf, "-l {s}", .{f.long});
@@ -273,7 +273,7 @@ test "missing dial locator is usage" {
 }
 
 test "a flag does not swallow the next flag as its value" {
-    // `pancake --identity --json init` used to read `--json` as the identity
+    // `glowcap --identity --json init` used to read `--json` as the identity
     // path. It wrote a key to a file literally named `--json`, left a
     // `--json.lock` beside it, dropped the flag the user actually typed, and
     // exited zero. Nothing in that sequence told them anything was wrong.

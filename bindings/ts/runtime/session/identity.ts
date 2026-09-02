@@ -2,8 +2,8 @@
 // leaf is internal module structure; session.ts intentionally re-exports only
 // the consumer-facing declarations.
 
-import { DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT, DURABLE_PROVENANCE_UNAUTHENTICATED, INTERNAL } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT, DURABLE_PROVENANCE_UNAUTHENTICATED, INTERNAL } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 
 /** What a CapTP handshake reports about its partner, as
  * {@link Session.partnerIdentity} returns it.
@@ -62,6 +62,6 @@ export function provenanceFromAbi(raw: number): DurableProvenance {
 		case DURABLE_PROVENANCE_UNAUTHENTICATED:
 			return "unauthenticated";
 		default:
-			throw new PancakeError(INTERNAL, `pancake ABI returned unknown durable provenance ${raw}`);
+			throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown durable provenance ${raw}`);
 	}
 }

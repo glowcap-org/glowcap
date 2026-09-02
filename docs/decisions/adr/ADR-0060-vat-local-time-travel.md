@@ -14,15 +14,15 @@ amended_by: [ADR-0096, ADR-0101]
 
 ## Context
 
-The vision wants applications built on pancake the way they are built on
+The vision wants applications built on glowcap the way they are built on
 Goblins, and Goblins demonstrates time-travel: `snapshot-whactormap`
 (`conformance/spritely-goblins/upstream/goblins/core.rkt:734`) copies the
 actormap spine and shares behavior values by reference, and `hasheq->whactormap`
 restores an old revision. That is safe in Goblins only because behaviors are
 immutable and the runtime is garbage-collected.
 
-pancake's `Vat` (ADR-0036) took the opposite state choice: an actor's mutable
-`self` _is_ its state, copied by nothing. That choice is why pancake pays no
+glowcap's `Vat` (ADR-0036) took the opposite state choice: an actor's mutable
+`self` _is_ its state, copied by nothing. That choice is why glowcap pays no
 per-turn immutability tax and runs no GC: but it also means a snapshot cannot
 simply share a live state pointer, because a later in-place mutation would
 corrupt the snapshot. This ADR settles how the vat gains Goblins-grade local

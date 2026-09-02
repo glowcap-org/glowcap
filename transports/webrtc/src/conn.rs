@@ -6,7 +6,7 @@ use super::*;
 /// Stable endpoint-scoped identity carried by readiness records. Returns zero
 /// for an invalid handle; live peers are always nonzero.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_id(peer: *const PancakeWebrtcPeer) -> usize {
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_id(peer: *const GlowcapWebrtcPeer) -> usize {
 	catch_unwind(AssertUnwindSafe(|| {
 		peer.as_ref().map(|peer| peer.shared.id).unwrap_or(0)
 	}))
@@ -17,7 +17,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_id(peer: *const PancakeWebr
 /// signaling/ICE/DTLS/SCTP establishment is still in progress, `CLOSED` after
 /// clean close, or `ERR` after setup failure.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_is_open(peer: *const PancakeWebrtcPeer) -> i32 {
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_is_open(peer: *const GlowcapWebrtcPeer) -> i32 {
 	catch_unwind(AssertUnwindSafe(|| {
 		let peer = match peer.as_ref() {
 			Some(peer) => peer,
@@ -44,8 +44,8 @@ pub(crate) fn open_result(gate: &OpenGate) -> i32 {
 /// EOF, `WOULD_BLOCK` when no packet is buffered yet, `BUFFER_TOO_SMALL` when
 /// the packet remains queued for a larger buffer, or `ERR` on invalid input.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_receive_packet(
-	peer: *mut PancakeWebrtcPeer,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_receive_packet(
+	peer: *mut GlowcapWebrtcPeer,
 	buf: *mut u8,
 	len: usize,
 ) -> isize {
@@ -77,8 +77,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_receive_packet(
 /// entering the async runtime. `WOULD_BLOCK` means no sidecar capacity is
 /// available, so re-arm on `EV_WRITABLE` and retry the same packet.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_send_packet(
-	peer: *mut PancakeWebrtcPeer,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
+	peer: *mut GlowcapWebrtcPeer,
 	buf: *const u8,
 	len: usize,
 ) -> isize {
@@ -118,7 +118,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_send_packet(
 /// # Safety
 /// `peer` must be a live pointer from `peer_new`.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_close(peer: *mut PancakeWebrtcPeer) {
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_close(peer: *mut GlowcapWebrtcPeer) {
 	let peer = match peer.as_ref() {
 		Some(peer) => peer,
 		None => return,
@@ -143,7 +143,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_close(peer: *mut PancakeWeb
 /// # Safety
 /// `peer` must have come from `peer_new` and not been freed; null is ignored.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_free(peer: *mut PancakeWebrtcPeer) {
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_free(peer: *mut GlowcapWebrtcPeer) {
 	if peer.is_null() {
 		return;
 	}

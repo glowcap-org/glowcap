@@ -1,6 +1,6 @@
 // Runtime custody for room capabilities handed to a durable session.
 
-import { type Ref, type Session } from "@pancake/runtime";
+import { type Ref, type Session } from "@glowcap/runtime";
 import { MAX_PENDING_INVITES } from "../lib/limits.ts";
 import { linkRoomReference } from "../lib/room/client.ts";
 import { settleCapabilityCleanup } from "../lib/capability_cleanup.ts";

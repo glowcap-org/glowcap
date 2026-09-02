@@ -4,7 +4,7 @@
 ;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
 ;; (part of `check`) fails when this is stale.
 ;;
-;; The raw `ffi/unsafe` table of libpancake_net_transport_tcp. The
+;; The raw `ffi/unsafe` table of libglowcap_net_transport_tcp. The
 ;; hand-written sibling (`ffi-tcp.rkt`) owns the prose and re-provides this
 ;; module. The blocking rows (`#:blocking?`) park the calling thread on the
 ;; socket; the mark keeps the runtime GC-cooperative during the park.
@@ -15,54 +15,54 @@
          "ffi-tcp-types.rkt"
          "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
-                     pancake_tcp_netlayer_new*
-                     pancake_tcp_listen*
-                     pancake_tcp_listener_port*
-                     pancake_tcp_listener_readiness_fd*))
+                     glowcap_tcp_netlayer_new*
+                     glowcap_tcp_listen*
+                     glowcap_tcp_listener_port*
+                     glowcap_tcp_listener_readiness_fd*))
 
-(define tcp-lib (open-pancake-archive "pancake_net_transport_tcp"))
+(define tcp-lib (open-glowcap-archive "glowcap_net_transport_tcp"))
 
-(define-ffi-definer define-pancake-tcp tcp-lib)
+(define-ffi-definer define-glowcap-tcp tcp-lib)
 
-(define-pancake-tcp pancake_tcp_archive_fingerprint (_fun -> _uint64))
-(define-pancake-tcp pancake_tcp_last_error (_fun _pointer _size -> _size))
-(define-pancake-tcp pancake_tcp_netlayer_new*
-  (_fun (_or-null _PancakeTcpConfig-pointer) _pointer -> _int32)
-  #:c-id pancake_tcp_netlayer_new)
-(define pancake_tcp_netlayer_new (wrap-out1 pancake_tcp_netlayer_new* _pointer #f))
-(define-pancake-tcp pancake_tcp_transport_provider
-  (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))
-(define-pancake-tcp pancake_tcp_netlayer_shutdown (_fun _pointer -> _void))
-(define-pancake-tcp pancake_tcp_netlayer_release (_fun #:blocking? #t _pointer -> _void))
-(define-pancake-tcp pancake_tcp_connect*
-  (_fun #:blocking? #t _pointer _pointer _size _uint16 (_or-null _PancakeTcpStreamOptions-pointer) _uint32 _size _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_tcp_connect)
-(define-pancake-tcp pancake_tcp_listen*
+(define-glowcap-tcp glowcap_tcp_archive_fingerprint (_fun -> _uint64))
+(define-glowcap-tcp glowcap_tcp_last_error (_fun _pointer _size -> _size))
+(define-glowcap-tcp glowcap_tcp_netlayer_new*
+  (_fun (_or-null _GlowcapTcpConfig-pointer) _pointer -> _int32)
+  #:c-id glowcap_tcp_netlayer_new)
+(define glowcap_tcp_netlayer_new (wrap-out1 glowcap_tcp_netlayer_new* _pointer #f))
+(define-glowcap-tcp glowcap_tcp_transport_provider
+  (_fun _pointer (_or-null _GlowcapTransportProvider-pointer) -> _int32))
+(define-glowcap-tcp glowcap_tcp_netlayer_shutdown (_fun _pointer -> _void))
+(define-glowcap-tcp glowcap_tcp_netlayer_release (_fun #:blocking? #t _pointer -> _void))
+(define-glowcap-tcp glowcap_tcp_connect*
+  (_fun #:blocking? #t _pointer _pointer _size _uint16 (_or-null _GlowcapTcpStreamOptions-pointer) _uint32 _size _pointer _pointer _size _pointer -> _int32)
+  #:c-id glowcap_tcp_connect)
+(define-glowcap-tcp glowcap_tcp_listen*
   (_fun _pointer _pointer _size _uint16 _pointer -> _int32)
-  #:c-id pancake_tcp_listen)
-(define pancake_tcp_listen (wrap-out1 pancake_tcp_listen* _pointer #f))
-(define-pancake-tcp pancake_tcp_listener_port*
+  #:c-id glowcap_tcp_listen)
+(define glowcap_tcp_listen (wrap-out1 glowcap_tcp_listen* _pointer #f))
+(define-glowcap-tcp glowcap_tcp_listener_port*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_tcp_listener_port)
-(define pancake_tcp_listener_port (wrap-out1 pancake_tcp_listener_port* _uint16 0))
-(define-pancake-tcp pancake_tcp_listener_readiness_fd*
+  #:c-id glowcap_tcp_listener_port)
+(define glowcap_tcp_listener_port (wrap-out1 glowcap_tcp_listener_port* _uint16 0))
+(define-glowcap-tcp glowcap_tcp_listener_readiness_fd*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_tcp_listener_readiness_fd)
-(define pancake_tcp_listener_readiness_fd (wrap-out1 pancake_tcp_listener_readiness_fd* _int32 0))
-(define-pancake-tcp pancake_tcp_accept*
-  (_fun #:blocking? #t _pointer (_or-null _PancakeTcpStreamOptions-pointer) _uint32 _size _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_tcp_accept)
-(define-pancake-tcp pancake_tcp_conn_read_frame*
-  (_fun #:blocking? #t _pointer (_or-null _PancakeManagedFrame-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_tcp_conn_read_frame)
-(define-pancake-tcp pancake_tcp_conn_write_frame*
-  (_fun #:blocking? #t _pointer (_or-null _PancakeFrame-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_tcp_conn_write_frame)
-(define-pancake-tcp pancake_tcp_conn_shutdown (_fun _pointer -> _int32))
-(define-pancake-tcp pancake_tcp_conn_release*
+  #:c-id glowcap_tcp_listener_readiness_fd)
+(define glowcap_tcp_listener_readiness_fd (wrap-out1 glowcap_tcp_listener_readiness_fd* _int32 0))
+(define-glowcap-tcp glowcap_tcp_accept*
+  (_fun #:blocking? #t _pointer (_or-null _GlowcapTcpStreamOptions-pointer) _uint32 _size _pointer _pointer _size _pointer -> _int32)
+  #:c-id glowcap_tcp_accept)
+(define-glowcap-tcp glowcap_tcp_conn_read_frame*
+  (_fun #:blocking? #t _pointer (_or-null _GlowcapManagedFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_tcp_conn_read_frame)
+(define-glowcap-tcp glowcap_tcp_conn_write_frame*
+  (_fun #:blocking? #t _pointer (_or-null _GlowcapFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_tcp_conn_write_frame)
+(define-glowcap-tcp glowcap_tcp_conn_shutdown (_fun _pointer -> _int32))
+(define-glowcap-tcp glowcap_tcp_conn_release*
   (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_tcp_conn_release)
-(define-pancake-tcp pancake_tcp_listener_shutdown (_fun _pointer -> _void))
-(define-pancake-tcp pancake_tcp_listener_release (_fun #:blocking? #t _pointer -> _void))
+  #:c-id glowcap_tcp_conn_release)
+(define-glowcap-tcp glowcap_tcp_listener_shutdown (_fun _pointer -> _void))
+(define-glowcap-tcp glowcap_tcp_listener_release (_fun #:blocking? #t _pointer -> _void))
 
-(require-archive-fingerprint! 'tcp pancake_tcp_archive_fingerprint TCP-ARCHIVE-FINGERPRINT)
+(require-archive-fingerprint! 'tcp glowcap_tcp_archive_fingerprint TCP-ARCHIVE-FINGERPRINT)

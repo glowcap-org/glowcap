@@ -1,6 +1,6 @@
 // Durable document schema for one Rooms session checkpoint and retry ledger.
 
-import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { emptyRoomsSessionState, RoomsSessionStateSchema } from "../lib/rooms_state.ts";
 import { RoomsSessionWorkspaceAdoptionSchema } from "../lib/session/adoption.ts";

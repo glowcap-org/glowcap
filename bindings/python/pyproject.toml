@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pancake-python"
+name = "glowcap-python"
 version = "0.1.0"
-description = "Python ctypes binding for the pancake C ABI archives (codec-neutral CapTP core for OCapN)."
+description = "Python ctypes binding for the glowcap C ABI archives (codec-neutral CapTP core for OCapN)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -18,15 +18,15 @@ dependencies = []
 rendezvous = ["websockets"]
 
 [tool.setuptools.packages.find]
-# The binding is the `pancake` package: the core plus one submodule per transport
+# The binding is the `glowcap` package: the core plus one submodule per transport
 # (`tcp`, `inproc`, `iroh`), mirroring the à-la-carte C ABI archives. Its internal
 # per-archive FFI loaders (`_ffi_ocapn`, `_ffi_tcp`, `_ffi_inproc`, `_ffi_iroh`) and
 # the ABI constants (`_constants`) ship inside it. `zig_smoke.py` is the dogfood
 # runner, executed directly rather than installed. Discovery is one recursive
 # authority for private ownership packages such as `_host`, `_driver`, `_loop`,
 # and `_session`; an explicit top-level-only list silently omitted them from wheels.
-include = ["pancake*"]
+include = ["glowcap*"]
 
 [tool.setuptools.package-data]
 # Ship the PEP 561 marker so type checkers read the inline annotations.
-pancake = ["py.typed", "c-abi-resolve.json"]
+glowcap = ["py.typed", "c-abi-resolve.json"]

@@ -12,7 +12,7 @@ import {
 	Ref,
 	type Session,
 	TRANSPORT_WEBRTC,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import { isUriLocator } from "../lib/locator.ts";
 import {
 	INTRODUCTION_PENDING,

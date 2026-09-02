@@ -6,12 +6,12 @@ const engine = @import("engine");
 const result = @import("result.zig");
 const last_error = @import("last_error.zig");
 
-const PANCAKE_ERR_NULL_POINTER = result.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = result.PANCAKE_ERR_INVALID_ARGUMENT;
-const PANCAKE_ERR_SESSION = result.PANCAKE_ERR_SESSION;
-const PANCAKE_ERR_CODEC = result.PANCAKE_ERR_CODEC;
-const PANCAKE_ERR_INTERNAL = result.PANCAKE_ERR_INTERNAL;
-const PANCAKE_ERR_UNSUPPORTED_VALUE = result.PANCAKE_ERR_UNSUPPORTED_VALUE;
+const GLOWCAP_ERR_NULL_POINTER = result.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = result.GLOWCAP_ERR_INVALID_ARGUMENT;
+const GLOWCAP_ERR_SESSION = result.GLOWCAP_ERR_SESSION;
+const GLOWCAP_ERR_CODEC = result.GLOWCAP_ERR_CODEC;
+const GLOWCAP_ERR_INTERNAL = result.GLOWCAP_ERR_INTERNAL;
+const GLOWCAP_ERR_UNSUPPORTED_VALUE = result.GLOWCAP_ERR_UNSUPPORTED_VALUE;
 const setLastError = last_error.set;
 
 // ── Typed OCapN value vocabulary ─────────────────────────────────────────────
@@ -19,49 +19,49 @@ const setLastError = last_error.set;
 // The fixed-layout reference/argument structs and Host marshalling traversal
 // live in this leaf so every archive and binding shares one layout. The ocapn root
 // (`src/c_abi/ocapn/mod.zig`) re-exports the names so `tools/gen/header/ocapn.zig`'s
-// reflection emits them into `pancake_ocapn.h`; the transport archives include
+// reflection emits them into `glowcap_ocapn.h`; the transport archives include
 // that one header on the C side.
 
-pub const PANCAKE_ARG_INTEGER: u32 = 0;
-pub const PANCAKE_ARG_FLOAT64: u32 = 1;
-pub const PANCAKE_ARG_BOOLEAN: u32 = 2;
-pub const PANCAKE_ARG_BYTES: u32 = 3;
-pub const PANCAKE_ARG_STRING: u32 = 4;
-pub const PANCAKE_ARG_SYMBOL: u32 = 5;
-pub const PANCAKE_ARG_VOID: u32 = 6;
-pub const PANCAKE_ARG_REFERENCE: u32 = 7;
-pub const PANCAKE_ARG_LIST: u32 = 8;
+pub const GLOWCAP_ARG_INTEGER: u32 = 0;
+pub const GLOWCAP_ARG_FLOAT64: u32 = 1;
+pub const GLOWCAP_ARG_BOOLEAN: u32 = 2;
+pub const GLOWCAP_ARG_BYTES: u32 = 3;
+pub const GLOWCAP_ARG_STRING: u32 = 4;
+pub const GLOWCAP_ARG_SYMBOL: u32 = 5;
+pub const GLOWCAP_ARG_VOID: u32 = 6;
+pub const GLOWCAP_ARG_REFERENCE: u32 = 7;
+pub const GLOWCAP_ARG_LIST: u32 = 8;
 /// A `set` reuses `items`; a `tagged` reuses `bytes` (the tag) and `items` (the
 /// value list); a `keyword` reuses `bytes`.
-pub const PANCAKE_ARG_SET: u32 = 9;
-pub const PANCAKE_ARG_TAGGED: u32 = 10;
-pub const PANCAKE_ARG_KEYWORD: u32 = 11;
+pub const GLOWCAP_ARG_SET: u32 = 9;
+pub const GLOWCAP_ARG_TAGGED: u32 = 10;
+pub const GLOWCAP_ARG_KEYWORD: u32 = 11;
 /// An arbitrary-precision OCapN Integer outside `int64_t`: `bytes`/`bytes_len`
 /// carry the canonical decimal magnitude (ASCII digits, no leading zero) and
 /// `boolean` carries the sign (1 = negative). A magnitude that fits `int64_t`
-/// belongs in `PANCAKE_ARG_INTEGER` and is refused here.
-pub const PANCAKE_ARG_BIG_INTEGER: u32 = 12;
+/// belongs in `GLOWCAP_ARG_INTEGER` and is refused here.
+pub const GLOWCAP_ARG_BIG_INTEGER: u32 = 12;
 /// An OCapN Struct. `items` is an even-length sequence of alternating
 /// `_STRING` keys and values. Keys must be unique. The alternating tree keeps
 /// the C waist recursive without adding a second mutually-recursive ABI type.
-pub const PANCAKE_ARG_STRUCT: u32 = 13;
+pub const GLOWCAP_ARG_STRUCT: u32 = 13;
 /// An OCapN Error value. `bytes`/`bytes_len` carry its message. This is a
-/// fulfilled value; `PANCAKE_RESOLUTION_BREAK` remains the rejected outcome.
-pub const PANCAKE_ARG_ERROR: u32 = 14;
+/// fulfilled value; `GLOWCAP_RESOLUTION_BREAK` remains the rejected outcome.
+pub const GLOWCAP_ARG_ERROR: u32 = 14;
 
-pub const PANCAKE_RESOLUTION_FULFILL: u32 = 0;
-pub const PANCAKE_RESOLUTION_BREAK: u32 = 1;
+pub const GLOWCAP_RESOLUTION_FULFILL: u32 = 0;
+pub const GLOWCAP_RESOLUTION_BREAK: u32 = 1;
 /// The answer fulfilled to a three-party handoff (ADR-0009/ADR-0100): the
 /// resolution carries a `desc:handoff-give` the recipient must redeem against
-/// the named exporter rather than an immediate value. `PancakeResolve.handoff`
+/// the named exporter rather than an immediate value. `GlowcapResolve.handoff`
 /// carries the verbatim give and the exporter's dialable locator.
-pub const PANCAKE_RESOLUTION_HANDOFF: u32 = 2;
+pub const GLOWCAP_RESOLUTION_HANDOFF: u32 = 2;
 
-/// An opaque capability identity owned by one `PancakeHost`. The integer has no
+/// An opaque capability identity owned by one `GlowcapHost`. The integer has no
 /// wire meaning and cannot be combined with a caller-selected session. Equal
 /// ids name the same Host capability; the C issuer keeps ids distinct across
 /// Hosts and never reuses a retired id.
-pub const PancakeReference = extern struct {
+pub const GlowcapReference = extern struct {
     id: u64,
 };
 
@@ -78,21 +78,21 @@ pub const PancakeReference = extern struct {
 /// children in `items`; its count is therefore always even. On a projected
 /// (received) value the pointers alias the
 /// owning arena and are valid until the matching `*_release`.
-pub const PancakeArgument = extern struct {
+pub const GlowcapArgument = extern struct {
     kind: u32,
     boolean: u32,
     integer: i64,
     float64: f64,
     bytes: ?[*]const u8,
     bytes_len: usize,
-    reference: PancakeReference,
-    items: ?[*]const PancakeArgument,
+    reference: GlowcapReference,
+    items: ?[*]const GlowcapArgument,
     items_len: usize,
 };
 
-pub const zero_reference: PancakeReference = .{ .id = 0 };
-pub const zero_argument: PancakeArgument = .{
-    .kind = PANCAKE_ARG_VOID,
+pub const zero_reference: GlowcapReference = .{ .id = 0 };
+pub const zero_argument: GlowcapArgument = .{
+    .kind = GLOWCAP_ARG_VOID,
     .boolean = 0,
     .integer = 0,
     .float64 = 0,
@@ -119,38 +119,38 @@ pub const MarshalError = error{ UnsupportedValue, InvalidArgument, NullPointer, 
 /// failures (allocation, …) report `INTERNAL`.
 pub fn feedErrorToCode(err: anyerror) i32 {
     return switch (engine.abort_projection.classify(err).domain) {
-        .codec => PANCAKE_ERR_CODEC,
-        .session => PANCAKE_ERR_SESSION,
-        .foreign => PANCAKE_ERR_INTERNAL,
+        .codec => GLOWCAP_ERR_CODEC,
+        .session => GLOWCAP_ERR_SESSION,
+        .foreign => GLOWCAP_ERR_INTERNAL,
     };
 }
 
 pub fn marshalErrorToCode(err: MarshalError) i32 {
     setLastError("C argument: {s}", .{@errorName(err)});
     return switch (err) {
-        error.UnsupportedValue => PANCAKE_ERR_UNSUPPORTED_VALUE,
-        error.InvalidArgument => PANCAKE_ERR_INVALID_ARGUMENT,
-        error.NullPointer => PANCAKE_ERR_NULL_POINTER,
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        error.UnsupportedValue => GLOWCAP_ERR_UNSUPPORTED_VALUE,
+        error.InvalidArgument => GLOWCAP_ERR_INVALID_ARGUMENT,
+        error.NullPointer => GLOWCAP_ERR_NULL_POINTER,
+        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
     };
 }
 
-/// `PancakeLastAbort.domain`: which layer classified the failure. Codec is a
+/// `GlowcapLastAbort.domain`: which layer classified the failure. Codec is a
 /// decode/encode malformation, session is a state-machine refusal, foreign is
 /// a host-internal failure (allocation, …).
-pub const PANCAKE_ABORT_DOMAIN_CODEC: u32 = 0;
-pub const PANCAKE_ABORT_DOMAIN_SESSION: u32 = 1;
-pub const PANCAKE_ABORT_DOMAIN_FOREIGN: u32 = 2;
+pub const GLOWCAP_ABORT_DOMAIN_CODEC: u32 = 0;
+pub const GLOWCAP_ABORT_DOMAIN_SESSION: u32 = 1;
+pub const GLOWCAP_ABORT_DOMAIN_FOREIGN: u32 = 2;
 
 /// The typed cause of a peer's most recent local dispatch failure, projected
 /// to C — the ABI counterpart of `engine.Peer.lastAbort`. `domain` is a
-/// `PANCAKE_ABORT_DOMAIN_*` value. When `has_kind` is nonzero, `kind_name`
+/// `GLOWCAP_ABORT_DOMAIN_*` value. When `has_kind` is nonzero, `kind_name`
 /// is the wire name of the projected `op:abort` kind (e.g. "MalformedFrame");
 /// when zero, the failure projected no abort (a closed session, an allocation
 /// failure). All byte views are process-static — read them, never free them.
 /// Declared in this leaf so the ocapn peer family and the byte-fed driver
-/// family (`pancake_host_session_last_abort`) share it by layout.
-pub const PancakeLastAbort = extern struct {
+/// family (`glowcap_host_session_last_abort`) share it by layout.
+pub const GlowcapLastAbort = extern struct {
     domain: u32,
     has_kind: u32,
     kind_name: ?[*]const u8,
@@ -169,16 +169,16 @@ pub const PancakeLastAbort = extern struct {
     secondary_error_count: u32,
 };
 
-/// Project an `engine.AbortInfo` into the C `PancakeLastAbort`. Every view
+/// Project an `engine.AbortInfo` into the C `GlowcapLastAbort`. Every view
 /// written is process-static.
-pub fn lastAbortToC(info: engine.AbortInfo) PancakeLastAbort {
+pub fn lastAbortToC(info: engine.AbortInfo) GlowcapLastAbort {
     const abort_delivery_error_name = if (info.abort_delivery_error) |err| @errorName(err) else null;
     const secondary_error_name = if (info.secondary_error) |err| @errorName(err) else null;
     return .{
         .domain = switch (info.domain) {
-            .codec => PANCAKE_ABORT_DOMAIN_CODEC,
-            .session => PANCAKE_ABORT_DOMAIN_SESSION,
-            .foreign => PANCAKE_ABORT_DOMAIN_FOREIGN,
+            .codec => GLOWCAP_ABORT_DOMAIN_CODEC,
+            .session => GLOWCAP_ABORT_DOMAIN_SESSION,
+            .foreign => GLOWCAP_ABORT_DOMAIN_FOREIGN,
         },
         .has_kind = if (info.kind != null) 1 else 0,
         .kind_name = if (info.kind) |k| k.wireName().ptr else null,
@@ -202,7 +202,7 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
 }
 
 /// Depth bound on a host-supplied argument tree. A foreign caller could nest
-/// `PancakeArgument` lists/sets/tagged values arbitrarily deep and overflow the
+/// `GlowcapArgument` lists/sets/tagged values arbitrarily deep and overflow the
 /// native stack inside `argumentFromC`, exactly as a hostile wire frame could in
 /// the codec. Derived from the session's default `max_nesting_depth`, so the
 /// marshal boundary and the codec refuse at the same depth by construction.
@@ -216,7 +216,7 @@ pub fn argumentFromCWith(
     ref_ctx: anytype,
     comptime ref_from_c: anytype,
     arena: std.mem.Allocator,
-    c_arg: PancakeArgument,
+    c_arg: GlowcapArgument,
     depth: usize,
     comptime own_bytes: bool,
 ) (MarshalError || RefError)!model.Argument {
@@ -236,43 +236,43 @@ fn valueFromCImpl(
     ref_ctx: anytype,
     comptime ref_from_c: anytype,
     arena: std.mem.Allocator,
-    c_arg: PancakeArgument,
+    c_arg: GlowcapArgument,
     depth: usize,
     comptime own_bytes: bool,
 ) (MarshalError || RefError)!Output {
     if (depth > max_marshal_depth) return error.UnsupportedValue;
     const next = depth + 1;
     return switch (c_arg.kind) {
-        PANCAKE_ARG_INTEGER => .{ .integer = c_arg.integer },
-        PANCAKE_ARG_FLOAT64 => .{ .float64 = c_arg.float64 },
-        PANCAKE_ARG_BOOLEAN => .{ .boolean = c_arg.boolean != 0 },
-        PANCAKE_ARG_BYTES => .{ .bytes = try leafFromC(arena, c_arg, own_bytes) },
-        PANCAKE_ARG_STRING => .{ .string = try leafFromC(arena, c_arg, own_bytes) },
-        PANCAKE_ARG_SYMBOL => .{ .symbol = try leafFromC(arena, c_arg, own_bytes) },
-        PANCAKE_ARG_ERROR => .{ .@"error" = .{ .message = try leafFromC(arena, c_arg, own_bytes) } },
-        PANCAKE_ARG_VOID => .{ .void = {} },
-        PANCAKE_ARG_REFERENCE => switch (reference_field) {
+        GLOWCAP_ARG_INTEGER => .{ .integer = c_arg.integer },
+        GLOWCAP_ARG_FLOAT64 => .{ .float64 = c_arg.float64 },
+        GLOWCAP_ARG_BOOLEAN => .{ .boolean = c_arg.boolean != 0 },
+        GLOWCAP_ARG_BYTES => .{ .bytes = try leafFromC(arena, c_arg, own_bytes) },
+        GLOWCAP_ARG_STRING => .{ .string = try leafFromC(arena, c_arg, own_bytes) },
+        GLOWCAP_ARG_SYMBOL => .{ .symbol = try leafFromC(arena, c_arg, own_bytes) },
+        GLOWCAP_ARG_ERROR => .{ .@"error" = .{ .message = try leafFromC(arena, c_arg, own_bytes) } },
+        GLOWCAP_ARG_VOID => .{ .void = {} },
+        GLOWCAP_ARG_REFERENCE => switch (reference_field) {
             .reference => .{ .reference = try ref_from_c(ref_ctx, c_arg.reference) },
             .capability => .{ .capability = try ref_from_c(ref_ctx, c_arg.reference) },
         },
-        PANCAKE_ARG_LIST => .{ .list = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
-        PANCAKE_ARG_SET => .{ .set = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
-        PANCAKE_ARG_TAGGED => .{ .tagged = .{
+        GLOWCAP_ARG_LIST => .{ .list = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
+        GLOWCAP_ARG_SET => .{ .set = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
+        GLOWCAP_ARG_TAGGED => .{ .tagged = .{
             .tag = try leafFromC(arena, c_arg, own_bytes),
             .value = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes),
         } },
-        PANCAKE_ARG_KEYWORD => .{ .keyword = try leafFromC(arena, c_arg, own_bytes) },
-        PANCAKE_ARG_BIG_INTEGER => blk: {
+        GLOWCAP_ARG_KEYWORD => .{ .keyword = try leafFromC(arena, c_arg, own_bytes) },
+        GLOWCAP_ARG_BIG_INTEGER => blk: {
             const big = model.BigInteger{
                 .negative = c_arg.boolean != 0,
                 .digits = try leafFromC(arena, c_arg, own_bytes),
             };
             // Fail closed at the boundary, like the codecs: leading zeros,
-            // non-digits, or a magnitude that belongs in PANCAKE_ARG_INTEGER.
+            // non-digits, or a magnitude that belongs in GLOWCAP_ARG_INTEGER.
             if (!big.isCanonical()) break :blk error.UnsupportedValue;
             break :blk .{ .big_integer = big };
         },
-        PANCAKE_ARG_STRUCT => .{ .@"struct" = try structFromCImpl(
+        GLOWCAP_ARG_STRUCT => .{ .@"struct" = try structFromCImpl(
             Output,
             reference_field,
             RefError,
@@ -295,7 +295,7 @@ fn structFromCImpl(
     ref_ctx: anytype,
     comptime ref_from_c: anytype,
     arena: std.mem.Allocator,
-    items: ?[*]const PancakeArgument,
+    items: ?[*]const GlowcapArgument,
     len: usize,
     depth: usize,
     comptime own_bytes: bool,
@@ -307,7 +307,7 @@ fn structFromCImpl(
     const out = try arena.alloc(Entry, len / 2);
     for (out, 0..) |*entry, i| {
         const key_arg = p[i * 2];
-        if (key_arg.kind != PANCAKE_ARG_STRING) return error.UnsupportedValue;
+        if (key_arg.kind != GLOWCAP_ARG_STRING) return error.UnsupportedValue;
         const key = try leafFromC(arena, key_arg, own_bytes);
         for (out[0..i]) |prior| {
             if (std.mem.eql(u8, prior.key, key)) return error.UnsupportedValue;
@@ -332,7 +332,7 @@ fn structFromCImpl(
 
 /// A leaf's byte slice: borrowed from the C argument, or duped into `arena`
 /// when the caller asked for owned bytes.
-fn leafFromC(arena: std.mem.Allocator, c_arg: PancakeArgument, comptime own_bytes: bool) MarshalError![]const u8 {
+fn leafFromC(arena: std.mem.Allocator, c_arg: GlowcapArgument, comptime own_bytes: bool) MarshalError![]const u8 {
     const borrowed = try sliceFromC(c_arg.bytes, c_arg.bytes_len);
     return if (own_bytes) try arena.dupe(u8, borrowed) else borrowed;
 }
@@ -342,7 +342,7 @@ pub fn argsFromCWith(
     ref_ctx: anytype,
     comptime ref_from_c: anytype,
     arena: std.mem.Allocator,
-    items: ?[*]const PancakeArgument,
+    items: ?[*]const GlowcapArgument,
     len: usize,
     depth: usize,
     comptime own_bytes: bool,
@@ -359,7 +359,7 @@ pub fn valuesFromCWith(
     ref_ctx: anytype,
     comptime ref_from_c: anytype,
     arena: std.mem.Allocator,
-    items: ?[*]const PancakeArgument,
+    items: ?[*]const GlowcapArgument,
     len: usize,
     depth: usize,
     comptime own_bytes: bool,
@@ -374,7 +374,7 @@ fn valuesFromCImpl(
     ref_ctx: anytype,
     comptime ref_from_c: anytype,
     arena: std.mem.Allocator,
-    items: ?[*]const PancakeArgument,
+    items: ?[*]const GlowcapArgument,
     len: usize,
     depth: usize,
     comptime own_bytes: bool,
@@ -393,60 +393,60 @@ pub fn argumentToCWith(
     comptime ref_to_c: anytype,
     arena: std.mem.Allocator,
     arg: model.Argument,
-) (MarshalError || RefError)!PancakeArgument {
+) (MarshalError || RefError)!GlowcapArgument {
     var c_arg = zero_argument;
     switch (arg) {
         .integer => |v| {
-            c_arg.kind = PANCAKE_ARG_INTEGER;
+            c_arg.kind = GLOWCAP_ARG_INTEGER;
             c_arg.integer = v;
         },
         .float64 => |v| {
-            c_arg.kind = PANCAKE_ARG_FLOAT64;
+            c_arg.kind = GLOWCAP_ARG_FLOAT64;
             c_arg.float64 = v;
         },
         .boolean => |v| {
-            c_arg.kind = PANCAKE_ARG_BOOLEAN;
+            c_arg.kind = GLOWCAP_ARG_BOOLEAN;
             c_arg.boolean = if (v) 1 else 0;
         },
         .bytes => |b| {
-            c_arg.kind = PANCAKE_ARG_BYTES;
+            c_arg.kind = GLOWCAP_ARG_BYTES;
             c_arg.bytes = b.ptr;
             c_arg.bytes_len = b.len;
         },
         .string => |b| {
-            c_arg.kind = PANCAKE_ARG_STRING;
+            c_arg.kind = GLOWCAP_ARG_STRING;
             c_arg.bytes = b.ptr;
             c_arg.bytes_len = b.len;
         },
         .symbol => |b| {
-            c_arg.kind = PANCAKE_ARG_SYMBOL;
+            c_arg.kind = GLOWCAP_ARG_SYMBOL;
             c_arg.bytes = b.ptr;
             c_arg.bytes_len = b.len;
         },
         .@"error" => |reason| {
-            c_arg.kind = PANCAKE_ARG_ERROR;
+            c_arg.kind = GLOWCAP_ARG_ERROR;
             c_arg.bytes = reason.message.ptr;
             c_arg.bytes_len = reason.message.len;
         },
-        .void => c_arg.kind = PANCAKE_ARG_VOID,
+        .void => c_arg.kind = GLOWCAP_ARG_VOID,
         .reference => |r| {
-            c_arg.kind = PANCAKE_ARG_REFERENCE;
+            c_arg.kind = GLOWCAP_ARG_REFERENCE;
             c_arg.reference = try ref_to_c(ref_ctx, r);
         },
         .list => |items| {
-            c_arg.kind = PANCAKE_ARG_LIST;
+            c_arg.kind = GLOWCAP_ARG_LIST;
             const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, items);
             c_arg.items = arr.ptr;
             c_arg.items_len = arr.len;
         },
         .set => |items| {
-            c_arg.kind = PANCAKE_ARG_SET;
+            c_arg.kind = GLOWCAP_ARG_SET;
             const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, items);
             c_arg.items = arr.ptr;
             c_arg.items_len = arr.len;
         },
         .tagged => |tagged| {
-            c_arg.kind = PANCAKE_ARG_TAGGED;
+            c_arg.kind = GLOWCAP_ARG_TAGGED;
             c_arg.bytes = tagged.tag.ptr;
             c_arg.bytes_len = tagged.tag.len;
             const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, tagged.value);
@@ -454,22 +454,22 @@ pub fn argumentToCWith(
             c_arg.items_len = arr.len;
         },
         .keyword => |keyword| {
-            c_arg.kind = PANCAKE_ARG_KEYWORD;
+            c_arg.kind = GLOWCAP_ARG_KEYWORD;
             c_arg.bytes = keyword.ptr;
             c_arg.bytes_len = keyword.len;
         },
         .big_integer => |big| {
-            c_arg.kind = PANCAKE_ARG_BIG_INTEGER;
+            c_arg.kind = GLOWCAP_ARG_BIG_INTEGER;
             c_arg.boolean = if (big.negative) 1 else 0;
             c_arg.bytes = big.digits.ptr;
             c_arg.bytes_len = big.digits.len;
         },
         .@"struct" => |entries| {
-            c_arg.kind = PANCAKE_ARG_STRUCT;
-            const arr = try arena.alloc(PancakeArgument, entries.len * 2);
+            c_arg.kind = GLOWCAP_ARG_STRUCT;
+            const arr = try arena.alloc(GlowcapArgument, entries.len * 2);
             for (entries, 0..) |entry, i| {
                 var key = zero_argument;
-                key.kind = PANCAKE_ARG_STRING;
+                key.kind = GLOWCAP_ARG_STRING;
                 key.bytes = entry.key.ptr;
                 key.bytes_len = entry.key.len;
                 arr[i * 2] = key;
@@ -493,8 +493,8 @@ pub fn argsToCWith(
     comptime ref_to_c: anytype,
     arena: std.mem.Allocator,
     args: []const model.Argument,
-) (MarshalError || RefError)![]PancakeArgument {
-    const out = try arena.alloc(PancakeArgument, args.len);
+) (MarshalError || RefError)![]GlowcapArgument {
+    const out = try arena.alloc(GlowcapArgument, args.len);
     for (args, 0..) |arg, i| out[i] = try argumentToCWith(RefError, ref_ctx, ref_to_c, arena, arg);
     return out;
 }

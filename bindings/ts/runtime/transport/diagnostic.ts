@@ -1,5 +1,5 @@
-import { OK } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { OK } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import { outUsize } from "../internal/seam.ts";
 
 const ERROR_BYTES = 257;
@@ -33,7 +33,7 @@ export class NativeDiagnostic {
 		const detail = copied === 0
 			? `${operation}: ${this.#family} transport call failed (code ${code})`
 			: decoder.decode(this.#bytes.subarray(0, copied));
-		throw new PancakeError(code, detail);
+		throw new GlowcapError(code, detail);
 	}
 }
 

@@ -1,4 +1,4 @@
-//! The pancake exporter half of `native_pair_gift_driver.zig`, as its own
+//! The glowcap exporter half of `native_pair_gift_driver.zig`, as its own
 //! process.
 //!
 //! It is a separate process for the same reason every Goblins peer in this
@@ -9,20 +9,20 @@
 //! over a real socket either way.
 //!
 //! Publishes a giftable greeter, prints `EXPORTER LISTENING <host:port>`, and
-//! serves until killed. It prefers `pancake-next` over Cap'n Proto, which it
+//! serves until killed. It prefers `glowcap-next` over Cap'n Proto, which it
 //! gets on the gifter's dial and does not get on the Goblins redeem — the
 //! split the driver asserts.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const crypto = pancake.foundation.crypto;
-const driver = pancake.driver;
-const net = pancake.net;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const crypto = glowcap.foundation.crypto;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const tcp = glowcap.net.tcp;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -30,7 +30,7 @@ const TcpBridge = driver.Bridge(net.TcpLoop);
 
 const host_addr = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
-pub const greeter_swiss = "pancakeNativePairGreeterSwiss001";
+pub const greeter_swiss = "glowcapNativePairGreeterSwiss001";
 pub const listening_prefix = "EXPORTER LISTENING ";
 
 /// Answers with the name it was called with, so the driver can tell a reply
@@ -42,7 +42,7 @@ const Greeter = struct {
         if (msg.args.len != 1 or msg.args[0] != .string) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(
             turn.arena,
-            "Hello {s}, I'm the pancake exporter reached across the profile split!",
+            "Hello {s}, I'm the glowcap exporter reached across the profile split!",
             .{msg.args[0].string},
         ) };
     }

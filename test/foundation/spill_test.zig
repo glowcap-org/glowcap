@@ -8,9 +8,9 @@
 //! neither is covered by the struct-size gates, because all of it is heap.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const Spill = pancake.foundation.Spill;
+const Spill = glowcap.foundation.Spill;
 
 test "a small straddle costs a small buffer, not a fixed floor" {
     const allocator = std.testing.allocator;

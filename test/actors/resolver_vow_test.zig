@@ -6,10 +6,10 @@
 //! its own top-level event.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const cross_peer = @import("../support/cross_peer.zig");
@@ -133,7 +133,7 @@ test "breakVow fires the listener broken with the caller's reason, borrowed" {
 
 test "a served behavior defers its answer onto a resolver vow; the partner hears the later settle" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
@@ -206,7 +206,7 @@ test "a served behavior defers its answer onto a resolver vow; the partner hears
 
 test "a settle from inside a turn refuses, and the refusal crosses the wire as the handler's break" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
@@ -286,7 +286,7 @@ test "forwardVow refuses a local frame, and an unsettled deferral leaks nothing 
         // A served deferral that never settles: the forward context and the
         // resolver row are reclaimed at teardown (std.testing.allocator
         // fails the test on any leak).
-        var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+        var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
         defer pair.deinit();
         var host_vat = actors.Vat.init(allocator);
         defer host_vat.deinit();
@@ -328,7 +328,7 @@ test "forwardVow refuses a local frame, and an unsettled deferral leaks nothing 
 
 test "forwardVow checks vows that are settled or already observed" {
     const allocator = std.testing.allocator;
-    var peers = try pancake.ocapn.engine.pairing.paired(allocator);
+    var peers = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer peers.deinit();
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();

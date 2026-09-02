@@ -43,14 +43,14 @@ function laneChips(
 
 /** The chip a session's edge actually carries, measured from the metrics the
  *  renderer sets it in rather than from a remembered size. `capnp ·
- *  pancake-next` is the widest of the four codec-and-version pairs, so it is
+ *  glowcap-next` is the widest of the four codec-and-version pairs, so it is
  *  the pair that has to clear.
  *
  *  Read through `pillSize` on purpose: raising `EDGE_CHIP_LABEL.fontPx` or its
  *  padding grows the chips this file separates, and the angle sweep below then
  *  fails on the stride that no longer clears them, instead of passing over
  *  chips that now overlap on screen. */
-const WIDEST_CHIP = "capnp · pancake-next";
+const WIDEST_CHIP = "capnp · glowcap-next";
 const CHIP = pillSize(WIDEST_CHIP.length, EDGE_CHIP_LABEL, true);
 const CHIP_WIDTH = CHIP.width;
 const CHIP_HEIGHT = CHIP.height;

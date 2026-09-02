@@ -1,9 +1,9 @@
-import { connector, locator, type SignalingAuthority } from "@pancake/webrtc";
-import { init } from "@pancake/web";
+import { connector, locator, type SignalingAuthority } from "@glowcap/webrtc";
+import { init } from "@glowcap/web";
 
 declare const signaling: SignalingAuthority;
 const web = await init({
-	wasm: fetch("/pancake_host.wasm"),
+	wasm: fetch("/glowcap_host.wasm"),
 	connectors: [connector(signaling)],
 });
 await using runtime = web.runtime;

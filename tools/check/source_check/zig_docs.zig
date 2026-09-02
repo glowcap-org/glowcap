@@ -241,7 +241,7 @@ test "checkSpan flags a method no src/ file declares" {
     try checkSpan(gpa, &violations, &declared, "src/net/connection.zig", 29, "net.FrameStream.drive");
     try std.testing.expectEqual(@as(usize, 2), violations.items.len);
 
-    try checkSpan(gpa, &violations, &declared, "src/net/connection.zig", 30, "pancake.net.FrameStream.readFrame");
+    try checkSpan(gpa, &violations, &declared, "src/net/connection.zig", 30, "glowcap.net.FrameStream.readFrame");
     try std.testing.expectEqual(@as(usize, 2), violations.items.len);
 }
 

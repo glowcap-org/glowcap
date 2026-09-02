@@ -5,7 +5,7 @@ use super::*;
 #[cfg(any(feature = "tcp", feature = "iroh"))]
 use crate::driver_event::decode as decode_event;
 #[cfg(any(feature = "tcp", feature = "iroh"))]
-use crate::sys::driver::PancakeDriverEvent;
+use crate::sys::driver::GlowcapDriverEvent;
 #[cfg(feature = "tcp")]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "tcp")]
@@ -22,7 +22,7 @@ fn driver_loop_default_frame_cap_uses_generated_abi_constant() {
 #[cfg(any(feature = "tcp", feature = "iroh"))]
 #[test]
 fn unknown_native_event_and_completion_kinds_are_returned_failures() {
-	let mut event: PancakeDriverEvent = unsafe { core::mem::zeroed() };
+	let mut event: GlowcapDriverEvent = unsafe { core::mem::zeroed() };
 	event.kind = u32::MAX;
 	let error = decode_event(&event).err().expect("unknown event is rejected");
 	assert_eq!(error.code(), sys::ERR_INTERNAL);
@@ -202,7 +202,7 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 	let locator_uri = crate::uri::format_peer_locator("tcp", &designator, "").unwrap();
 	let locator = crate::uri::parse_locator(&locator_uri).unwrap();
 	let operation_id = lp.dial(&locator, None).unwrap();
-	let mut session: *mut ffi_host::PancakeHostSession = core::ptr::null_mut();
+	let mut session: *mut ffi_host::GlowcapHostSession = core::ptr::null_mut();
 	'dial: for _ in 0..1000 {
 		for event in lp.step(20).unwrap().unwrap_or_default() {
 			match event {
@@ -224,7 +224,7 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 
 	let mut vow = 0u64;
 	let name = b"nobody-home";
-	let rc = unsafe { ffi_host::pancake_host_session_fetch(session, name.as_ptr(), name.len(), &mut vow) };
+	let rc = unsafe { ffi_host::glowcap_host_session_fetch(session, name.as_ptr(), name.len(), &mut vow) };
 	assert_eq!(rc, sys::OK);
 	let mut broke = false;
 	'fetch: for _ in 0..1000 {
@@ -362,7 +362,7 @@ fn iroh_provider_dials_live() {
 				let locator_uri = crate::uri::format_peer_locator("iroh", &node_id, "").map_err(|e| e.to_string())?;
 				let locator = crate::uri::parse_locator(&locator_uri).map_err(|e| e.to_string())?;
 				let operation_id = lp.dial(&locator, None).map_err(|e| e.to_string())?;
-				let mut session: *mut ffi_host::PancakeHostSession = core::ptr::null_mut();
+				let mut session: *mut ffi_host::GlowcapHostSession = core::ptr::null_mut();
 				'dial: for _ in 0..2000 {
 					for event in lp.step(20).map_err(|e| e.to_string())?.unwrap_or_default() {
 						match event {
@@ -388,7 +388,7 @@ fn iroh_provider_dials_live() {
 				}
 				let mut vow = 0u64;
 				let name = b"greeter";
-				let rc = unsafe { ffi_host::pancake_host_session_fetch(session, name.as_ptr(), name.len(), &mut vow) };
+				let rc = unsafe { ffi_host::glowcap_host_session_fetch(session, name.as_ptr(), name.len(), &mut vow) };
 				if rc != sys::OK {
 					return Err(format!("fetch refused: {rc}"));
 				}

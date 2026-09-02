@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import ctypes
 
-import pancake
-import pancake._driver.finalizer as _driver_finalizer
-import pancake._loop as _loop_module
-from pancake import Host, PancakeError
-from pancake._constants import ERR_INTERNAL, ERR_INVALID_ARGUMENT, ERR_IO
-from pancake._ffi_driver import _DriverFailure
-from pancake._loop import DriverLoop
+import glowcap
+import glowcap._driver.finalizer as _driver_finalizer
+import glowcap._loop as _loop_module
+from glowcap import Host, GlowcapError
+from glowcap._constants import ERR_INTERNAL, ERR_INVALID_ARGUMENT, ERR_IO
+from glowcap._ffi_driver import _DriverFailure
+from glowcap._loop import DriverLoop
 
 
 def _write_failure(out, code: int, name) -> int:
@@ -25,7 +25,7 @@ def _write_failure(out, code: int, name) -> int:
 async def _refused_live_release_retries_at_public_boundary() -> None:
     host = Host()
     loop = DriverLoop.take_host(host)
-    original_release = _loop_module._driver.pancake_driver_release
+    original_release = _loop_module._driver.glowcap_driver_release
     refusal_name = ctypes.create_string_buffer(b"RefusedLiveDriverRelease")
     attempts = 0
 
@@ -36,11 +36,11 @@ async def _refused_live_release_retries_at_public_boundary() -> None:
             return _write_failure(out, ERR_INVALID_ARGUMENT, refusal_name)
         return original_release(_handle, out)
 
-    _loop_module._driver.pancake_driver_release = refuse_once
+    _loop_module._driver.glowcap_driver_release = refuse_once
     try:
         try:
             await host.close()
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         else:
             raise AssertionError("driver release refusal disappeared from Host.close")
@@ -66,14 +66,14 @@ async def _refused_live_release_retries_at_public_boundary() -> None:
         await another.close()
         assert attempts == 2, "completed release remained in the retry queue"
     finally:
-        _loop_module._driver.pancake_driver_release = original_release
+        _loop_module._driver.glowcap_driver_release = original_release
 
 
 async def _deferred_consuming_failure_retires_once_and_stays_ordered() -> None:
-    pancake.take_runtime_failures()
+    glowcap.take_runtime_failures()
     host = Host()
     loop = DriverLoop.take_host(host)
-    original_release = _loop_module._driver.pancake_driver_release
+    original_release = _loop_module._driver.glowcap_driver_release
     refusal_name = ctypes.create_string_buffer(b"RefusedLiveDriverRelease")
     consumed_name = ctypes.create_string_buffer(b"ConsumedLiveDriverRelease")
     attempts = 0
@@ -86,7 +86,7 @@ async def _deferred_consuming_failure_retires_once_and_stays_ordered() -> None:
         assert original_release(_handle, out) == 0
         return _write_failure(out, ERR_IO, consumed_name)
 
-    _loop_module._driver.pancake_driver_release = refuse_then_consume
+    _loop_module._driver.glowcap_driver_release = refuse_then_consume
     try:
         loop._fail_background(RuntimeError("live driver failed"))
         boundary = Host()
@@ -99,7 +99,7 @@ async def _deferred_consuming_failure_retires_once_and_stays_ordered() -> None:
             ERR_IO,
         ]
         assert _driver_finalizer._pending_driver_finalizer_retry_count() == 0
-        assert not pancake.take_runtime_failures(), (
+        assert not glowcap.take_runtime_failures(), (
             "live terminal ownership leaked into process finalizer diagnostics"
         )
 
@@ -107,7 +107,7 @@ async def _deferred_consuming_failure_retires_once_and_stays_ordered() -> None:
         await another.close()
         assert attempts == 2, "consumed release retried a dangling driver"
     finally:
-        _loop_module._driver.pancake_driver_release = original_release
+        _loop_module._driver.glowcap_driver_release = original_release
 
 
 def run() -> None:

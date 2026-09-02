@@ -15,8 +15,8 @@ use core::ffi::c_uint;
 use crate::sys::host as ffi;
 use crate::{arg_from_sys, Argument, Error, Result};
 
-/// `PancakeHostAction.kind` — mirrors `PANCAKE_HOST_ACTION_*` in
-/// `pancake_host.h`.
+/// `GlowcapHostAction.kind` — mirrors `GLOWCAP_HOST_ACTION_*` in
+/// `glowcap_host.h`.
 pub const HOST_ACTION_DIAL: c_uint = 0;
 pub const HOST_ACTION_FLUSH: c_uint = 1;
 pub const HOST_ACTION_NEED_GIFT_ID: c_uint = 2;
@@ -27,8 +27,8 @@ pub const HOST_ACTION_RESUME: c_uint = 6;
 pub const HOST_ACTION_CANCEL_DIAL: c_uint = 7;
 
 /// One popped embedder action, every borrowed view lifted to owned
-/// Rust values (a SETTLE's `PancakeArgument` included) before the next
-/// `pancake_host_next_action` call can free them.
+/// Rust values (a SETTLE's `GlowcapArgument` included) before the next
+/// `glowcap_host_next_action` call can free them.
 pub enum HostAction {
 	Dial {
 		ticket: u64,
@@ -60,10 +60,10 @@ pub enum HostAction {
 	},
 }
 
-/// Decode a filled `PancakeHostAction` into an owned `HostAction`.
+/// Decode a filled `GlowcapHostAction` into an owned `HostAction`.
 /// An unknown ABI discriminant is a returned internal failure, never a
 /// process panic.
-pub fn decode(raw: &ffi::PancakeHostAction) -> Result<HostAction> {
+pub fn decode(raw: &ffi::GlowcapHostAction) -> Result<HostAction> {
 	let view = |ptr: *const u8, len: usize| -> String {
 		if ptr.is_null() || len == 0 {
 			String::new()
@@ -102,7 +102,7 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> Result<HostAction> {
 		},
 		kind => return Err(Error::with_detail(
 			crate::sys::ERR_INTERNAL,
-			format!("pancake ABI returned unknown host action kind {kind}"),
+			format!("glowcap ABI returned unknown host action kind {kind}"),
 		)),
 	})
 }

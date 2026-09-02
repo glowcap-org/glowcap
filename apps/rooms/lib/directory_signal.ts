@@ -5,8 +5,8 @@
 // the directory's exchange admission. `Directory` owns the session and the
 // local-ref table; this table owns only the exchanges.
 
-import { currentSession, Ref, retainSecondaryFailure } from "@pancake/runtime";
-import type { Session } from "@pancake/runtime";
+import { currentSession, Ref, retainSecondaryFailure } from "@glowcap/runtime";
+import type { Session } from "@glowcap/runtime";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "./argument_custody.ts";
 import { MAX_SIGNAL_CANDIDATE, MAX_SIGNAL_ID, MAX_SIGNAL_SDP, utf8Fits } from "./limits.ts";
 import {

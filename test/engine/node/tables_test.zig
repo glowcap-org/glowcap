@@ -3,18 +3,22 @@
 //! per-registration export ranges, and the handoff scheduler's wakes.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesAllocator;
 
 const Node = engine.Node;
 
 test "Node action extraction preserves the inline Node footprint" {
-    try std.testing.expectEqual(@as(usize, 928), @sizeOf(Node));
+    // Stated under runtime safety, where each embedded `std.ArrayList` header
+    // carries std's one-word `pointer_stability` lock: 24 of these bytes, and
+    // each hash map carries one more.
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    try std.testing.expectEqual(@as(usize, 952), @sizeOf(Node));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));
 }
 
@@ -474,7 +478,7 @@ test "handoff changes wake only receivers dependent on the changed gifter" {
     // dependency immediately; waiting for `removePeer` would leave gifts live.
     const gifter_a_peer = node.peer(gifter_a).?;
     try gifter_a_peer.session_state.transitionToOpen();
-    const abort = try pancake.ocapn.codec.syrup.encodeMessage(allocator, .{ .abort = .{
+    const abort = try glowcap.ocapn.codec.syrup.encodeMessage(allocator, .{ .abort = .{
         .kind = .graceful_shutdown,
         .message = "done",
     } });

@@ -6,7 +6,7 @@
 
 /// Default inbound frame cap (1 MiB). SessionLimits uses this for
 /// `max_frame_bytes`; the driver C ABI publishes the same value as
-/// `PANCAKE_DEFAULT_FRAME_CAP` so bindings stop hardcoding the shift.
+/// `GLOWCAP_DEFAULT_FRAME_CAP` so bindings stop hardcoding the shift.
 const default_max_frame_bytes: usize = 1 << 20;
 
 pub const SessionLimits = struct {

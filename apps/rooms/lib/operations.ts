@@ -7,8 +7,8 @@
 // What each capability answers differs; how one is taken does not, so that
 // flow lives here once.
 
-import type { Ref, Session } from "@pancake/runtime";
-import { retainCleanupFailures } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
+import { retainCleanupFailures } from "@glowcap/runtime";
 import { parseRoomsSturdyref } from "./locator.ts";
 
 /** The Host publication name printed by this directory.

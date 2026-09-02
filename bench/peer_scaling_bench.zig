@@ -27,12 +27,12 @@ const std = @import("std");
 
 const live = @import("peer_scaling/live.zig");
 const report = @import("peer_scaling/report.zig");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const model = pancake.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
 
 /// A trivial published capability, so the `served` scenario's vat holds one live
 /// actor cell, the per-connection state a loop-driven host (ADR-0057) carries
@@ -220,7 +220,7 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
     // bounded partner-abort retention), so sizing the bare `Vat` would
     // under-count the real slot.
     //
-    // The `completion.Loop` wrapper (`Conn`) adds 128 bytes of its own slot
+    // The `completion.Loop` wrapper (`Conn`) adds 144 bytes of its own slot
     // bookkeeping on top of this — the outbound queue's two `ArrayList` headers,
     // the spill header, the link pair the free, starved, and parked lists share,
     // and the in-flight and app-context words — held inline in `conns[]` and
@@ -250,7 +250,7 @@ pub fn main(init: std.process.Init) !void {
     // Match the allocator used by the production C context and the other
     // concurrent benches. Giving every session the page allocator turns each
     // small protocol allocation into page-granular RSS and measures allocator
-    // fragmentation rather than Pancake's live state.
+    // fragmentation rather than Glowcap's live state.
     const backing = std.heap.smp_allocator;
 
     // `--smoke` (used by `zig build check`) runs a tiny sample and skips the

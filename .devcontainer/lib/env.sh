@@ -11,12 +11,12 @@
 # must not undergo Compose interpolation. Compose treats `\'` inside a
 # single-quoted value as a literal quote; keep that one escape form here so the
 # writer and reader cannot drift.
-pancake_devcontainer_env_quote_value() {
+glowcap_devcontainer_env_quote_value() {
     local value="$1" quote="'" escaped="\\'"
     printf "'%s'\n" "${value//${quote}/${escaped}}"
 }
 
-pancake_devcontainer_env_unquote_value() {
+glowcap_devcontainer_env_unquote_value() {
     local value="$1"
     case "${value}" in
         \'*\')
@@ -31,10 +31,10 @@ pancake_devcontainer_env_unquote_value() {
 # Read one plain KEY=value assignment from the checkout-local Compose env file.
 # The committed example owns this deliberately small form; the last declaration
 # wins, matching Compose. The optional third argument is the absent/empty value.
-pancake_devcontainer_env_value() {
+glowcap_devcontainer_env_value() {
     local root="$1" variable="$2" fallback="${3:-}" value
     value="$(sed -n "s/^${variable}=//p" "${root}/.env" 2>/dev/null | tail -1)"
-    value="$(pancake_devcontainer_env_unquote_value "${value}")"
+    value="$(glowcap_devcontainer_env_unquote_value "${value}")"
     if [[ -z "${value}" ]]; then
         value="${fallback}"
     fi
@@ -54,11 +54,11 @@ pancake_devcontainer_env_value() {
 # them has to agree: a file whose ports came from two different offsets is not
 # something to guess about, so it is reported and left alone. A file carrying
 # no ports at all is not an outgrown .env, and ordinary validation owns it.
-pancake_devcontainer_complete_env() {
+glowcap_devcontainer_complete_env() {
     local root="$1" variable base value offset seen_offset="" missing="" missing_count=0
     [[ -e "${root}/.env" ]] || return 0
     while IFS=: read -r variable base; do
-        value="$(pancake_devcontainer_env_value "${root}" "${variable}")"
+        value="$(glowcap_devcontainer_env_value "${root}" "${variable}")"
         if [[ -z "${value}" ]]; then
             missing="${missing}${variable}:${base} "
             missing_count=$((missing_count + 1))
@@ -75,7 +75,7 @@ pancake_devcontainer_complete_env() {
             echo "devcontainer: set them by hand, or remove the file and run: bash .devcontainer/bin/configure.sh --port-offset <n>" >&2
             return 1
         fi
-    done <<< "$(pancake_devcontainer_port_rows)"
+    done <<< "$(glowcap_devcontainer_port_rows)"
     [[ "${missing_count}" -gt 0 ]] || return 0
     if [[ -z "${seen_offset}" ]]; then
         return 0
@@ -94,10 +94,10 @@ pancake_devcontainer_complete_env() {
 
 # Compose gives an exported host variable precedence over `.env`. Refuse a
 # different inherited value so validation and execution cannot see two states.
-pancake_devcontainer_validate_effective_env() {
+glowcap_devcontainer_validate_effective_env() {
     local root="$1" variable configured inherited
     while IFS= read -r variable; do
-        configured="$(pancake_devcontainer_env_value "${root}" "${variable}")"
+        configured="$(glowcap_devcontainer_env_value "${root}" "${variable}")"
         if [[ -z "${configured}" ]]; then
             echo "devcontainer: ${variable} is missing from ${root}/.env" >&2
             echo "devcontainer: run: bash .devcontainer/bin/configure.sh, which adds what the table has gained" >&2
@@ -111,26 +111,26 @@ pancake_devcontainer_validate_effective_env() {
                 return 1
             fi
         fi
-    done < <(pancake_devcontainer_compose_variables)
+    done < <(glowcap_devcontainer_compose_variables)
 }
 
 # Materialize the ignored Compose environment from Git-owned checkout facts.
 # The primary checkout has the canonical ports. A linked checkout must choose
 # an explicit offset because guessing an available host port would race Docker
 # and silently couple independent worktrees.
-pancake_devcontainer_configure_env() {
+glowcap_devcontainer_configure_env() {
     local root="$1" offset="${2:-}" requested_egress="${3:-}"
     local checkout kind name common_dir decimal_offset egress temp_file variable base
 
     if [[ -e "${root}/.env" ]]; then
-        pancake_devcontainer_complete_env "${root}" || return
-        pancake_devcontainer_validate_checkout_env "${root}" >/dev/null || return
+        glowcap_devcontainer_complete_env "${root}" || return
+        glowcap_devcontainer_validate_checkout_env "${root}" >/dev/null || return
         echo "configure.sh: ${root}/.env is complete; its values are left as they are" >&2
         return 0
     fi
 
     checkout="$(cd "${root}/.." && pwd -P)" || return
-    kind="$(pancake_devcontainer_worktree_kind "${checkout}")" || return
+    kind="$(glowcap_devcontainer_worktree_kind "${checkout}")" || return
     if [[ "${kind}" == primary ]]; then
         name=main
         [[ -n "${offset}" ]] || offset=0
@@ -142,7 +142,7 @@ pancake_devcontainer_configure_env() {
             return 1
         fi
     fi
-    pancake_devcontainer_validate_worktree_name "${name}" "worktree directory" || return
+    glowcap_devcontainer_validate_worktree_name "${name}" "worktree directory" || return
 
     case "${offset}" in
         '' | *[!0-9]* )
@@ -160,7 +160,7 @@ pancake_devcontainer_configure_env() {
             echo "configure.sh: --port-offset makes ${variable} exceed 65535" >&2
             return 1
         fi
-    done <<< "$(pancake_devcontainer_port_rows)"
+    done <<< "$(glowcap_devcontainer_port_rows)"
 
     common_dir="$(git -C "${checkout}" rev-parse --path-format=absolute --git-common-dir)" || return
     case "${common_dir}" in
@@ -172,18 +172,18 @@ pancake_devcontainer_configure_env() {
     if [[ -n "${requested_egress}" ]]; then
         egress="${requested_egress}"
     else
-        egress="$(pancake_devcontainer_default_egress_network "${name}")"
+        egress="$(glowcap_devcontainer_default_egress_network "${name}")"
     fi
-    pancake_devcontainer_validate_network_name "${egress}" EGRESS_NET || return
+    glowcap_devcontainer_validate_network_name "${egress}" EGRESS_NET || return
 
     temp_file="$(mktemp "${root}/.env.tmp.XXXXXX")" || return
     chmod 600 "${temp_file}"
     {
-        printf 'PANCAKE_WORKTREE=%s\n' "${name}"
-        printf 'PANCAKE_GIT_COMMON_DIR=%s\n' "$(pancake_devcontainer_env_quote_value "${common_dir}")"
+        printf 'GLOWCAP_WORKTREE=%s\n' "${name}"
+        printf 'GLOWCAP_GIT_COMMON_DIR=%s\n' "$(glowcap_devcontainer_env_quote_value "${common_dir}")"
         while IFS=: read -r variable base; do
             printf '%s=%s\n' "${variable}" "$((base + decimal_offset))"
-        done <<< "$(pancake_devcontainer_port_rows)"
+        done <<< "$(glowcap_devcontainer_port_rows)"
         printf 'EGRESS_NET=%s\n' "${egress}"
     } > "${temp_file}"
 
@@ -207,10 +207,10 @@ pancake_devcontainer_configure_env() {
 # Refuse malformed or duplicate host bindings before Compose reaches Docker.
 # Port availability is still Docker's authority because checking then binding
 # separately would introduce a race.
-pancake_devcontainer_validate_host_ports() {
+glowcap_devcontainer_validate_host_ports() {
     local root="$1" variable base value decimal seen="" prior
     while IFS=: read -r variable base; do
-        value="$(pancake_devcontainer_env_value "${root}" "${variable}")"
+        value="$(glowcap_devcontainer_env_value "${root}" "${variable}")"
         case "${value}" in
             '' | *[!0-9]* )
                 echo "devcontainer: ${variable} must be a decimal port" >&2
@@ -233,19 +233,19 @@ pancake_devcontainer_validate_host_ports() {
             fi
         done
         seen="${seen} ${decimal}"
-    done <<< "$(pancake_devcontainer_port_rows)"
+    done <<< "$(glowcap_devcontainer_port_rows)"
 }
 
 # One complete acceptance path for the checkout-local Compose environment.
 # Callers receive the validated worktree name and do not restate the sequence.
-pancake_devcontainer_validate_checkout_env() {
+glowcap_devcontainer_validate_checkout_env() {
     local root="$1" worktree_name egress
-    pancake_devcontainer_validate_effective_env "${root}" || return
-    worktree_name="$(pancake_devcontainer_worktree_name "${root}")" || return
-    pancake_devcontainer_validate_worktree "${root}" "${worktree_name}" || return
-    pancake_devcontainer_validate_git_common_dir "${root}" || return
-    pancake_devcontainer_validate_host_ports "${root}" || return
-    egress="$(pancake_devcontainer_env_value "${root}" EGRESS_NET)"
-    pancake_devcontainer_validate_network_name "${egress}" EGRESS_NET || return
+    glowcap_devcontainer_validate_effective_env "${root}" || return
+    worktree_name="$(glowcap_devcontainer_worktree_name "${root}")" || return
+    glowcap_devcontainer_validate_worktree "${root}" "${worktree_name}" || return
+    glowcap_devcontainer_validate_git_common_dir "${root}" || return
+    glowcap_devcontainer_validate_host_ports "${root}" || return
+    egress="$(glowcap_devcontainer_env_value "${root}" EGRESS_NET)"
+    glowcap_devcontainer_validate_network_name "${egress}" EGRESS_NET || return
     printf '%s\n' "${worktree_name}"
 }

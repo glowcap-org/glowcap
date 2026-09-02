@@ -14,8 +14,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * report; the hub's end is attached because the hub publishes
  * its own trace of the same session and the two agree on the OCapN
  * Session ID. `tcp` itself proves nothing about who answered.
- * Both peers run pancake, so this session settles on Cap'n Proto over
- * pancake-next. That is the pairing a pancake fleet configures
+ * Both peers run glowcap, so this session settles on Cap'n Proto over
+ * glowcap-next. That is the pairing a glowcap fleet configures
  * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
@@ -29,7 +29,7 @@ export const lookUpByName = TimelineDocument.parse({
 		"dct:title": "02 · Look up a service by name",
 		"dct:description":
 			"A client knows one name, \"thermostat\", and nothing else about the server. It asks the server's bootstrap object for that name and gets a live reference back. No application code on the server runs at all: the session's own registry answers.",
-		"dct:creator": "pancake project",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: { "prov:wasAttributedTo": AGENT },
@@ -41,7 +41,7 @@ export const lookUpByName = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9201",
 			label: "Client",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9201",
 		},
 		{
@@ -50,7 +50,7 @@ export const lookUpByName = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9202",
 			label: "Home hub",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9202",
 		},
 		{

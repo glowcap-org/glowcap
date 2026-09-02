@@ -57,10 +57,10 @@
 // one wire is two rows here, and a viewer drawing them one at a time would
 // invent the same learning sequence a live feed genuinely goes through.
 
-import * as tcp from "@pancake/tcp";
-import { currentSession, Host, Ref, Session, TRANSPORT_TCP, webSocketChannel } from "@pancake/runtime";
-import type { TraceEvent } from "@pancake/runtime";
-import { DESIGNATOR_SCHEME_ADDRESS } from "@pancake/abi";
+import * as tcp from "@glowcap/tcp";
+import { currentSession, Host, Ref, Session, TRANSPORT_TCP, webSocketChannel } from "@glowcap/runtime";
+import type { TraceEvent } from "@glowcap/runtime";
+import { DESIGNATOR_SCHEME_ADDRESS } from "@glowcap/abi";
 import { throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 import { VIZ_CAP_PARAM, VIZ_PUBLISH_PATH, VIZ_REFUSED_CLOSE_CODE } from "../lib/viz_publish.ts";
 import { observeCloseFailure, observeSettledFailures, releaseRefusedCapability } from "./viz/lifecycle.ts";

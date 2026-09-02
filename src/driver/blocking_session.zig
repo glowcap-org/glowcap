@@ -445,10 +445,10 @@ pub fn connectVia(
             return error.InvalidAddress;
         peer.demandPartnerDurableKey(expected);
     }
-    // The handed pancake form of an onion address is partner knowledge on
+    // The handed glowcap form of an onion address is partner knowledge on
     // this tier exactly as on the Host tiers (ADR-0118): recorded before the
     // hello below, so the stamp may state a configured preference.
-    if (engine.Peer.dialedLocatorIdentifiesPancake(locator)) peer.noteKnownPancakePartner();
+    if (engine.Peer.dialedLocatorIdentifiesGlowcap(locator)) peer.noteKnownGlowcapPartner();
     const conn = try nl.dial(
         peer,
         locator,

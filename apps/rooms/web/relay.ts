@@ -4,9 +4,9 @@
 // a browser that holds an inbound socket here (`bridgeRendezvous`, ADR-0088). The
 // bytes are never parsed, so the keyed OCapN session rides through end to end.
 //
-// The relay never enumerates transports itself: `@pancake/runtime`'s
+// The relay never enumerates transports itself: `@glowcap/runtime`'s
 // `classifyRelayTarget` routes the target locator through the core
-// `pancake_host_plan_dial`, the same classifier the handoff redeem-dial uses, so
+// `glowcap_host_plan_dial`, the same classifier the handoff redeem-dial uses, so
 // this relay sorts a locator exactly as every other runtime's relay does
 // (ADR-0086).
 
@@ -19,8 +19,8 @@ import {
 	relayFailureLogger,
 	Rendezvous,
 	webSocketRelay,
-} from "@pancake/relay";
-import { BINDING_RELAY_MAX_BYTES_PER_SESSION, BINDING_RELAY_TCP_DIAL_TIMEOUT_MS } from "@pancake/abi";
+} from "@glowcap/relay";
+import { BINDING_RELAY_MAX_BYTES_PER_SESSION, BINDING_RELAY_TCP_DIAL_TIMEOUT_MS } from "@glowcap/abi";
 import { type RelayTarget } from "./relay_target.ts";
 
 export { isRendezvousDesignator };
@@ -35,17 +35,17 @@ export { isRendezvousDesignator };
 // by that. Resources stay bounded by `maxRelaySessions` and the ping/pong reclaim.
 const idleTimeoutMs = 0;
 // Instantaneous memory is bounded by the WebSocket send-buffer backpressure in
-// @pancake/relay; this per-session byte total is only a runaway backstop over the
+// @glowcap/relay; this per-session byte total is only a runaway backstop over the
 // session's life, set far above any real chat session's traffic so a peer sitting
 // in a room for hours is never dropped mid-conversation.
 const maxBytesPerSession = BINDING_RELAY_MAX_BYTES_PER_SESSION;
 const tcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS;
-// The admission caps are a deployment knob, not pancake's scale claim. Each live
+// The admission caps are a deployment knob, not glowcap's scale claim. Each live
 // relayed session costs the relay two file descriptors (the browser WebSocket and
 // the socket it forwards to); each held cold-dial registration costs one. So the
 // real ceiling is the host's own open-file limit, and an operator sizes the relay
 // to its host by raising that limit (systemd LimitNOFILE, or ulimit) and setting
-// PANCAKE_RELAY_MAX_SESSIONS / PANCAKE_RELAY_MAX_REGISTRATIONS to match.
+// GLOWCAP_RELAY_MAX_SESSIONS / GLOWCAP_RELAY_MAX_REGISTRATIONS to match.
 //
 // The default is a safe floor, not the relay's capacity. The relay cannot read
 // its own descriptor limit under its scoped permissions (Deno gates /proc behind
@@ -54,7 +54,7 @@ const tcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS;
 // listener, the room dials, and stdio. The relay itself holds thousands of
 // connections per GiB at about 80 KiB each, measured by `zig build relay-scaling`
 // (bindings/ts/relay/test/scaling_bench.ts), so a real deployment raises these well
-// past the floor. The cap is host policy, not pancake's scale claim: the core's
+// past the floor. The cap is host policy, not glowcap's scale claim: the core's
 // ~2 KiB-per-session budget is a property of the sans-io engine, this one of the
 // host the relay runs on.
 const POSIX_DEFAULT_FD_SOFT_LIMIT = 1024;
@@ -74,14 +74,14 @@ function envCap(name: string): number | null {
 // each) an equal share of the descriptor budget, which lands registrations at
 // twice the session cap.
 const usableFds = Math.floor(POSIX_DEFAULT_FD_SOFT_LIMIT * 0.85);
-const maxRelaySessions = envCap("PANCAKE_RELAY_MAX_SESSIONS") ??
+const maxRelaySessions = envCap("GLOWCAP_RELAY_MAX_SESSIONS") ??
 	Math.max(16, Math.floor(usableFds / 4));
-const maxRegistrations = envCap("PANCAKE_RELAY_MAX_REGISTRATIONS") ??
+const maxRegistrations = envCap("GLOWCAP_RELAY_MAX_REGISTRATIONS") ??
 	Math.max(32, Math.floor(usableFds / 2));
 // Browser peers normally hold two sockets ready. Four leaves room for a
 // reconnect overlap without letting one claimed identity consume the global
 // descriptor budget.
-const maxRegistrationsPerIdentity = envCap("PANCAKE_RELAY_MAX_REGISTRATIONS_PER_IDENTITY") ?? 4;
+const maxRegistrationsPerIdentity = envCap("GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY") ?? 4;
 
 // Live relay sessions, counted from capacity admission until the relay's
 // pair-atomic teardown finishes (dial failures included).

@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 
 import { rtcChannel } from "../channel.ts";
-import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@pancake/abi";
+import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@glowcap/abi";
 import { assertDeepEquals } from "../../dogfood/assert.ts";
 
 class FakeDataChannel extends EventTarget {

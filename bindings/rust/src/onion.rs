@@ -1,12 +1,12 @@
 //! The blocking Tor onion transport (the `onion` feature).
 //!
-//! This module wraps `libpancake_net_transport_onion` — the `pancake_onion_*`
+//! This module wraps `libglowcap_net_transport_onion` — the `glowcap_onion_*`
 //! archive that the `onion` Cargo feature links (ADR-0059). `onion` is the one
 //! netlayer the OCapN draft standardizes, and the one upstream Spritely Goblins
-//! ships, so it is where a pancake peer and a Goblins vat meet on ground neither
+//! ships, so it is where a glowcap peer and a Goblins vat meet on ground neither
 //! invented.
 //!
-//! **pancake starts no Tor.** A [`Netlayer`] is built from a [`Config`] naming
+//! **glowcap starts no Tor.** A [`Netlayer`] is built from a [`Config`] naming
 //! where an already-running daemon listens: its SOCKS endpoint to dial, and its
 //! control endpoint to host. Each is an absolute Unix socket path or a
 //! `host:port`. A netlayer with no control endpoint can dial and cannot host, and
@@ -25,8 +25,8 @@
 //! at a time, and the frame methods block. Every call that reaches Tor blocks,
 //! and a circuit takes seconds rather than milliseconds.
 //!
-//! Errors from a `pancake_onion_*` call route through the transport archive's own
-//! thread-local last-error (`pancake_onion_last_error`), never the ocapn family's
+//! Errors from a `glowcap_onion_*` call route through the transport archive's own
+//! thread-local last-error (`glowcap_onion_last_error`), never the ocapn family's
 //! [`last_error`](crate::last_error).
 
 use core::marker::PhantomData;
@@ -53,17 +53,17 @@ pub fn locator(service_id: &str) -> Locator {
 }
 
 error_slot!(
-	// Like the core `check`, but for `pancake_onion_*` calls: snapshot the onion
+	// Like the core `check`, but for `glowcap_onion_*` calls: snapshot the onion
 	// transport's own thread-local last-error.
 	fn check_onion;
 	fn onion_last_error;
-	ffi::pancake_onion_last_error
+	ffi::glowcap_onion_last_error
 );
 
 fn require_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"onion",
-		unsafe { ffi::pancake_onion_archive_fingerprint() },
+		unsafe { ffi::glowcap_onion_archive_fingerprint() },
 		crate::abi_constants::ONION_ARCHIVE_FINGERPRINT,
 	)
 }
@@ -89,7 +89,7 @@ pub enum Auth<'a> {
 ///
 /// `socks` is required. Everything else is optional, and the defaults are the
 /// dial-only posture: no control endpoint, so no hosting; no stored key, so a
-/// fresh service; no forward endpoint, so a loopback port pancake binds and
+/// fresh service; no forward endpoint, so a loopback port glowcap binds and
 /// reports to Tor.
 #[derive(Debug, Clone)]
 pub struct Config<'a> {
@@ -141,20 +141,20 @@ impl<'a> Config<'a> {
 		self
 	}
 
-	/// Name the local endpoint Tor should forward to, instead of letting pancake
+	/// Name the local endpoint Tor should forward to, instead of letting glowcap
 	/// bind a loopback port.
 	pub fn with_forward(mut self, forward: &'a str) -> Config<'a> {
 		self.forward = forward;
 		self
 	}
 
-	fn to_c(&self) -> ffi::PancakeOnionConfig {
+	fn to_c(&self) -> ffi::GlowcapOnionConfig {
 		let (auth_kind, secret): (core::ffi::c_uint, &[u8]) = match self.auth {
 			Auth::None => (ffi::ONION_AUTH_NONE, &[]),
 			Auth::Cookie(bytes) => (ffi::ONION_AUTH_COOKIE, bytes),
 			Auth::Password(text) => (ffi::ONION_AUTH_PASSWORD, text.as_bytes()),
 		};
-		ffi::PancakeOnionConfig {
+		ffi::GlowcapOnionConfig {
 			socks: self.socks.as_ptr(),
 			socks_len: self.socks.len(),
 			control_endpoint: self.control.as_ptr(),
@@ -251,14 +251,14 @@ fn ensure_loop_provider(lp: &Rc<crate::driver_loop::LoopShared>, config: &Config
 /// Connections and listeners borrow it, so neither can outlive the netlayer
 /// that produced it. The context lifetime also pins context-backed storage.
 pub struct Netlayer<'ctx> {
-	raw: *mut ffi::PancakeOnionNetlayer,
+	raw: *mut ffi::GlowcapOnionNetlayer,
 	listener_close_failure: Arc<Mutex<Option<Error>>>,
 	_ctx: PhantomData<&'ctx Context>,
 }
 
 /// A live onion service and the control session that keeps it published.
 pub struct Listener<'a> {
-	raw: *mut ffi::PancakeOnionListener,
+	raw: *mut ffi::GlowcapOnionListener,
 	id: [u8; ffi::ONION_SERVICE_ID_LEN],
 	id_len: usize,
 	key: [u8; ffi::ONION_SERVICE_KEY_CAP],
@@ -269,7 +269,7 @@ pub struct Listener<'a> {
 
 /// A blocking onion connection. The frame methods block and drop closes it.
 pub struct Connection<'a> {
-	raw: *mut ffi::PancakeOnionConn,
+	raw: *mut ffi::GlowcapOnionConn,
 	_nl: PhantomData<&'a ()>,
 }
 

@@ -60,15 +60,15 @@ pub fn partnerSessionKey(self: *const Session) ?[]const u8 {
     return self.partner_session_key;
 }
 
-/// Whether this partner is known to be pancake by any signal: the dial- or
-/// mirror-minted knowledge (`Session.partner_known_pancake`, ADR-0118), or a
+/// Whether this partner is known to be glowcap by any signal: the dial- or
+/// mirror-minted knowledge (`Session.partner_known_glowcap`, ADR-0118), or a
 /// hello that stated a non-baseline preference on any transport — only
-/// pancake stamps the `pancake/*` hints. The give path reads this for the
-/// recipient: a known-pancake recipient keeps the exporter's profile-hinted
+/// glowcap stamps the `glowcap/*` hints. The give path reads this for the
+/// recipient: a known-glowcap recipient keeps the exporter's profile-hinted
 /// location and can upgrade its redeem session; anyone else gets the
 /// dialable bare form.
-pub fn partnerKnownPancake(self: *const Session) bool {
-    return self.partner_known_pancake or
+pub fn partnerKnownGlowcap(self: *const Session) bool {
+    return self.partner_known_glowcap or
         !std.meta.eql(self.partner_preference, model.Preference.baseline);
 }
 

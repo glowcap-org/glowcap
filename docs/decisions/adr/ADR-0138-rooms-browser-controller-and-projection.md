@@ -16,7 +16,7 @@ amended_by: []
 
 The browser exposed one `Peer` context containing presentation actions, session establishment, local and attached
 workspace commands, file custody, directory queries, and operator administration. That value was stable, but its name
-conflicted with pancake's CapTP vocabulary and its shape hid ownership. The attached adapter copied browser-only actions
+conflicted with glowcap's CapTP vocabulary and its shape hid ownership. The attached adapter copied browser-only actions
 out of the local implementation before replacing the session-dependent actions.
 
 The page projection used a correct immutable external store, but React subscribed to its complete snapshot at the

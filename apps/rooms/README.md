@@ -1,6 +1,6 @@
 # Rooms
 
-Rooms is a small chat application built on pancake. Open a room, invite a few
+Rooms is a small chat application built on glowcap. Open a room, invite a few
 people, and exchange messages in a browser or terminal. The same room can hold
 clients written in Zig, Rust, Python, Racket, and TypeScript.
 
@@ -293,7 +293,7 @@ room. A browser tab or native process can also open a new direct line through
 relay rendezvous. The published locator carries its relay route, so the dialer
 need not use the same deployment fallback. Browser-to-browser WebRTC uses
 Cloudflare's public STUN service by default so peers on different ordinary NATs
-can discover a direct path. `PANCAKE_ROOMS_ICE_SERVERS=""` disables outside ICE
+can discover a direct path. `GLOWCAP_ROOMS_ICE_SERVERS=""` disables outside ICE
 infrastructure, and a comma-separated STUN list selects another discovery
 service. A deployment may also configure a server-side TURN credential issuer;
 Rooms gives each new WebRTC connection short-lived relay credentials without
@@ -336,7 +336,7 @@ joins two independently driven peers:
 zig build demo-rooms-onion
 ```
 
-It needs `tor`, Deno, and outbound network access. pancake itself still starts
+It needs `tor`, Deno, and outbound network access. glowcap itself still starts
 no daemon; the demo harness owns the Tor process and passes its endpoints into
 the onion provider package.
 
@@ -349,10 +349,10 @@ zig build rooms-web-onion
 ```
 
 It needs `tor` and Deno. The web supervisor starts a private Tor of its own, or
-uses a running one when `PANCAKE_ONION_SOCKS` and `PANCAKE_ONION_CONTROL` name
+uses a running one when `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL` name
 its endpoints. The page prints an `ocapn://….onion` locator; give Tor some
 seconds to publish it before a peer outside dials it, while this page's own
-tabs reach the room at once. Set `PANCAKE_ROOMS_STATE` to keep the onion
+tabs reach the room at once. Set `GLOWCAP_ROOMS_STATE` to keep the onion
 address across restarts, since the service key lives in that directory.
 [Developing and operating Rooms](developing.md) has the operating detail.
 
@@ -372,7 +372,7 @@ also true when you put the TCP room on your local network, which
 
 To watch the iroh room and its direct messages on the live timeline, turn the
 visualizer on when you start the browser UI. The supervised room server serves
-the timeline endpoint on port 9300 (`PANCAKE_ROOMS_VIZ_PORT` picks a different
+the timeline endpoint on port 9300 (`GLOWCAP_ROOMS_VIZ_PORT` picks a different
 one), mints the viz capability, and prints a `ROOMS-VIZ-LISTENING` sturdyref.
 Give that capability to the [ocapnviz](../ocapnviz/) viewer in Live mode:
 
@@ -405,7 +405,7 @@ needs the public internet, so it is opt-in.
 For a terminal conversation over iroh, the same encrypted path as the browser:
 
 ```sh
-pancake app rooms-peer
+glowcap app rooms-peer
 ```
 
 [`docs/cli.md`](../../docs/cli.md) has the flags. The Deno client over loopback
@@ -434,14 +434,14 @@ racket -y conformance/goblins-peer/racket/rooms-chat.rkt \
 ```
 
 Direct messages reach it too, and they are the same three-party handoff as
-between two pancake members: the room introduces you, and the line then runs
+between two glowcap members: the room introduces you, and the line then runs
 between your browser and the vat with the room carrying none of it. Nothing in
 Goblins was changed to allow that. Over iroh it needs no setup; over cleartext
 TCP the browser's relay will not open a socket to an address a page named, so
 name the vat to it when you start the server:
 
 ```sh
-PANCAKE_RELAY_TCP_PEERS=127.0.0.1:9200 zig build rooms-web-tcp
+GLOWCAP_RELAY_TCP_PEERS=127.0.0.1:9200 zig build rooms-web-tcp
 racket -y conformance/goblins-peer/racket/rooms-chat.rkt \
   127.0.0.1:9099 general goblins-carol 9200
 ```
@@ -453,7 +453,7 @@ The vat can answer anybody who messages it, and it can start a conversation of
 its own with `/dm`. Which members that reaches depends on the locator snapshot
 they publish. Both `goblins-rooms-dm` and `goblins-rooms-dm-iroh` cover the two
 Goblins-facing directions: a browser redeems the vat's introduction, then the
-vat redeems a native pancake member's introduction.
+vat redeems a native glowcap member's introduction.
 
 [Developing and operating Rooms](developing.md) walks through watching that
 happen alongside the browser UI.

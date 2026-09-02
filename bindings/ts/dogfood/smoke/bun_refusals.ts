@@ -1,21 +1,21 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
 
-import { PancakeError } from "../../runtime/mod.ts";
+import { GlowcapError } from "../../runtime/mod.ts";
 import { Netlayer as TcpNetlayer } from "../../tcp/transport.ts";
-import { Netlayer as InprocNetlayer } from "@pancake/inproc";
+import { Netlayer as InprocNetlayer } from "@glowcap/inproc";
 
 import { _connectIroh } from "../../iroh/impl.ts";
 
 import { assert } from "./support.ts";
 
 export async function run(): Promise<void> {
-	let listenerRefusal: PancakeError | null = null;
+	let listenerRefusal: GlowcapError | null = null;
 	try {
 		await tcp.listen("127.0.0.1", 0);
 	} catch (error) {
-		if (error instanceof PancakeError) listenerRefusal = error;
+		if (error instanceof GlowcapError) listenerRefusal = error;
 	}
 	assert(
 		listenerRefusal?.code === INVALID_ARGUMENT &&

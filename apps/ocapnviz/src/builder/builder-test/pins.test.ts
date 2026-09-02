@@ -91,13 +91,13 @@ engineTest("a peer pinned by its joining observation unpins too", () => {
 	const e = new Engine(TimelineDocument.parse({
 		id: "joined-pin",
 		duration: 10000,
-		entities: { peers: { carol: { profile: "pancake" } } },
+		entities: { peers: { carol: { profile: "glowcap" } } },
 		events: [{
 			id: "p1",
 			t: 0,
 			kind: "peer-joined",
 			peerId: "carol",
-			profile: "pancake",
+			profile: "glowcap",
 			position: PIN_A,
 		}],
 	}));

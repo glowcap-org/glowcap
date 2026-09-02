@@ -4,11 +4,11 @@
 // this is stale.
 //
 // Typed HostAction + decode for the TypeScript binding. Kind constant
-// values live in `@pancake/abi`; struct offsets come from the active
+// values live in `@glowcap/abi`; struct offsets come from the active
 // layout `L` (the 64-bit mirror, or the wasm32 descriptor under the
 // browser adapter). This file owns the discriminant union and the
 // layout walk that copies borrowed views out before the next
-// `pancake_host_next_action` frees them.
+// `glowcap_host_next_action` frees them.
 
 import { L } from "./layout.ts";
 import {
@@ -22,11 +22,11 @@ import {
 	HOST_ACTION_SETTLE,
 	INTERNAL,
 	INVALID_ARGUMENT,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import type { Ptr } from "./ffi/runtime.ts";
 import { readBytes } from "./seam.ts";
 import { readArg } from "../abi_value.ts";
-import { PancakeError } from "../errors.ts";
+import { GlowcapError } from "../errors.ts";
 import type { Argument } from "../value.ts";
 
 const utf8Decoder = new TextDecoder();
@@ -34,7 +34,7 @@ const utf8Decoder = new TextDecoder();
 /** One popped embedder action, a discriminated union over the action
  * kind so each arm carries exactly the fields the C struct fills for
  * it. Every borrowed view is copied out (and a SETTLE's value lifted)
- * before the next `pancake_host_next_action` call can free them. */
+ * before the next `glowcap_host_next_action` call can free them. */
 export type HostAction =
 	| { kind: typeof HOST_ACTION_DIAL; ticket: bigint; routeIndex: bigint }
 	| { kind: typeof HOST_ACTION_FLUSH; session: Ptr }
@@ -45,7 +45,7 @@ export type HostAction =
 	| { kind: typeof HOST_ACTION_RESUME }
 	| { kind: typeof HOST_ACTION_CANCEL_DIAL; ticket: bigint; routeIndex: bigint };
 
-/** Decode a filled `PancakeHostAction` buffer into an owned HostAction. */
+/** Decode a filled `GlowcapHostAction` buffer into an owned HostAction. */
 export function decodeHostAction(dv: DataView): HostAction {
 	const kind = dv.getUint32(L.HOST_ACTION_KIND_OFF, true);
 	const ticket = dv.getBigUint64(L.HOST_ACTION_TICKET_OFF, true);
@@ -80,9 +80,9 @@ export function decodeHostAction(dv: DataView): HostAction {
 		case HOST_ACTION_CANCEL_DIAL:
 			return { kind, ticket, routeIndex: L.getUsize(dv, L.HOST_ACTION_ROUTE_INDEX_OFF) };
 		default:
-			throw new PancakeError(
+			throw new GlowcapError(
 				INTERNAL,
-				`pancake ABI returned unknown host action kind ${kind}`,
+				`glowcap ABI returned unknown host action kind ${kind}`,
 			);
 	}
 }
@@ -132,7 +132,7 @@ export async function dispatchHostAction(
 		default: {
 			const _exhaustive: never = action;
 			void _exhaustive;
-			throw new PancakeError(INVALID_ARGUMENT, "unknown host action");
+			throw new GlowcapError(INVALID_ARGUMENT, "unknown host action");
 		}
 	}
 }

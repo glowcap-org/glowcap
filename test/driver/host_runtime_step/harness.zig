@@ -3,13 +3,13 @@
 //! completion sink, and the dial recorder every staged-dial scenario reads.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const support_actors = @import("../../support/actors.zig");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
 const driver_core = driver.core;
-const net = pancake.net;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const frame_cap = 8192;

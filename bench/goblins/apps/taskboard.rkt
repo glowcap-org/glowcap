@@ -1,11 +1,11 @@
 #lang racket/base
-;; S3: a task board mirroring pancake's cross-language demos. The board's `create`
+;; S3: a task board mirroring glowcap's cross-language demos. The board's `create`
 ;; mints a task capability; the task supports `assign`, `complete`, and `status`.
 ;; One client unit creates a task and drives it through assign -> complete ->
 ;; status, exercising a returned capability invoked several times over the wire.
 ;;
 ;; Status is carried as bytes, not a Racket symbol: an OCapN symbol round-trips as
-;; a native symbol on Goblins but as the binding's `sym` struct on pancake, so a
+;; a native symbol on Goblins but as the binding's `sym` struct on glowcap, so a
 ;; symbol result would not compare equal across substrates. Bytes are bytes on
 ;; both, keeping the result — and therefore the check — substrate-agnostic.
 (require "../dispatch.rkt")
@@ -20,7 +20,7 @@
       ;; and `complete` become a new behavior carrying the updated state. That
       ;; keeps the state where the vat can see it, so a time-travel snapshot
       ;; captures and can rewind it, boxes would hide it. Identical observable
-      ;; behavior on every backend (`bcom` is the same on Goblins and pancake).
+      ;; behavior on every backend (`bcom` is the same on Goblins and glowcap).
       (define (task bcom state who)
         (dispatch
          (list

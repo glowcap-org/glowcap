@@ -18,7 +18,7 @@
 //! hears every outcome. An in-process Zig consumer may instead register a
 //! borrowed one-shot listener with `vowOn`, which keeps that vow's settlement
 //! zero-copy and off the queue. The `driver.Bridge` is one such embedder (a
-//! completion loop over this core, ADR-0076); the C ABI's `libpancake_host`
+//! completion loop over this core, ADR-0076); the C ABI's `libglowcap_host`
 //! is another (byte-fed from a binding-owned loop).
 //!
 //! One thread drives one host. The node tables, the CapTP session map, the vow
@@ -74,7 +74,7 @@ pub const SessionReleaseError = host_errors.SessionReleaseError;
 /// Domain separator for session-seed derivation, so a root can never yield
 /// bytes that collide with another use of the same key material.
 /// `pub` for the Host-core siblings, not for embedders. Host-core internal.
-pub const session_seed_domain = "pancake session-key v1";
+pub const session_seed_domain = "glowcap session-key v1";
 
 pub const PeerProvenance = enum { verified, dial_target, assertion_only };
 
@@ -204,7 +204,7 @@ pub const Host = struct {
     /// its bound instead of enlarging every Host.
     pending_vow_count: u32 = 0,
     /// The live trace tap (`trace.zig`), or null. Installed by the embedder
-    /// through `setTrace` / the C `pancake_host_set_trace`; with none every
+    /// through `setTrace` / the C `glowcap_host_set_trace`; with none every
     /// emit site is one null check.
     trace_sink: ?trace.Sink = null,
 

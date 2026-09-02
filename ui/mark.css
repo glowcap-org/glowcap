@@ -1,4 +1,4 @@
-/* The pancake mark and its one landing. Shared by rooms and the documentation
+/* The glowcap mark and its one landing. Shared by rooms and the documentation
    site. The rooms boot screen's loop lives in boot.css and replays these same
    pieces; the rules here own the pieces themselves, the hover replay, and the
    logotype lockup. */
@@ -115,10 +115,10 @@
 	}
 }
 
-/* The logotype lockup: "pancake" and an optional small-caps product name, one
+/* The logotype lockup: "glowcap" and an optional small-caps product name, one
    drawn unit. Every metric here is a fixed pixel, on purpose — the lockup
    used to borrow the global type ramp, and each ramp tweak silently knocked
-   the caps off pancake's lowercase body. A logotype is not typography; it is
+   the caps off glowcap's lowercase body. A logotype is not typography; it is
    a drawing whose parts may never move relative to each other. Colours stay
    tokens so the lockup themes; sizes, gaps, and the optical lift do not.
    The caps size is tuned against the title's x-height band by eye and pinned
@@ -129,7 +129,6 @@
 	align-items: baseline;
 	justify-content: center;
 	min-width: 0;
-	overflow: hidden;
 	font-weight: 800;
 	/* The lockup's own drawing, not a step on the chrome ramp: this file's
 	   opening line is that a logotype is not typography, and these two sizes
@@ -156,7 +155,7 @@
 	letter-spacing: 1.56px;
 	text-transform: uppercase;
 	color: var(--accent-ink);
-	/* Baseline-true: the caps share pancake's baseline, feet level, the
+	/* Baseline-true: the caps share glowcap's baseline, feet level, the
 	   classic logotype seat. Every lifted variant — centred on the x-height
 	   band, then a half pixel under it — still read as floating. */
 }

@@ -1,7 +1,7 @@
 //! OCapN locator URIs, the core grammar, for the safe Rust surface.
 //!
 //! The `ocapn://<designator>.<transport>[?hints]` form is core OCapN vocabulary,
-//! defined once in libpancake_ocapn's `pancake_uri_*` / `pancake_locator_*` surface, so
+//! defined once in libglowcap_ocapn's `glowcap_uri_*` / `glowcap_locator_*` surface, so
 //! the Rust binding hand-rolls no percent codec and reaches the same grammar a
 //! TCP-only consumer does. [`parse_locator`] copies every borrowed view into an
 //! owned [`Locator`] before releasing the handle; [`format_peer_uri`] and
@@ -89,8 +89,8 @@ impl Locator {
 /// error's message) for a malformed URI.
 pub fn parse_locator(uri: &str) -> Result<Locator> {
 	let bytes = uri.as_bytes();
-	let mut raw: *mut sys::PancakeLocator = core::ptr::null_mut();
-	check(unsafe { sys::pancake_uri_parse_peer(bytes.as_ptr(), bytes.len(), &mut raw) })?;
+	let mut raw: *mut sys::GlowcapLocator = core::ptr::null_mut();
+	check(unsafe { sys::glowcap_uri_parse_peer(bytes.as_ptr(), bytes.len(), &mut raw) })?;
 	OwnedLocator::adopt(raw)?.value()
 }
 
@@ -98,12 +98,12 @@ pub fn parse_locator(uri: &str) -> Result<Locator> {
 /// recovering its swissnum.
 pub fn parse_sturdyref(uri: &str, captp_version: CaptpVersion) -> Result<SturdyRef> {
 	let bytes = uri.as_bytes();
-	let mut raw: *mut sys::PancakeSturdyRef = core::ptr::null_mut();
-	check(unsafe { sys::pancake_uri_parse_sturdyref(captp_version.to_c(), bytes.as_ptr(), bytes.len(), &mut raw) })?;
+	let mut raw: *mut sys::GlowcapSturdyRef = core::ptr::null_mut();
+	check(unsafe { sys::glowcap_uri_parse_sturdyref(captp_version.to_c(), bytes.as_ptr(), bytes.len(), &mut raw) })?;
 	OwnedSturdyRef::adopt(raw)?.value()
 }
 
-pub(crate) struct OwnedLocator(*mut sys::PancakeLocator);
+pub(crate) struct OwnedLocator(*mut sys::GlowcapLocator);
 
 impl OwnedLocator {
 	pub(crate) fn new(locator: &Locator) -> Result<Self> {
@@ -113,7 +113,7 @@ impl OwnedLocator {
 		};
 		let mut raw = core::ptr::null_mut();
 		check(unsafe {
-			sys::pancake_locator_new(
+			sys::glowcap_locator_new(
 				locator.transport.as_ptr(),
 				locator.transport.len(),
 				locator.designator.as_ptr(),
@@ -127,16 +127,16 @@ impl OwnedLocator {
 			let rc = unsafe {
 				match value {
 					HintValue::String(value) => {
-						sys::pancake_locator_add_string(owned.0, name.as_ptr(), name.len(), value.as_ptr(), value.len())
+						sys::glowcap_locator_add_string(owned.0, name.as_ptr(), name.len(), value.as_ptr(), value.len())
 					}
 					HintValue::Bytes(value) => {
-						sys::pancake_locator_add_bytes(owned.0, name.as_ptr(), name.len(), value.as_ptr(), value.len())
+						sys::glowcap_locator_add_bytes(owned.0, name.as_ptr(), name.len(), value.as_ptr(), value.len())
 					}
 					HintValue::Boolean(value) => {
-						sys::pancake_locator_add_boolean(owned.0, name.as_ptr(), name.len(), u8::from(*value))
+						sys::glowcap_locator_add_boolean(owned.0, name.as_ptr(), name.len(), u8::from(*value))
 					}
 					HintValue::Integer(value) => {
-						sys::pancake_locator_add_integer(owned.0, name.as_ptr(), name.len(), *value)
+						sys::glowcap_locator_add_integer(owned.0, name.as_ptr(), name.len(), *value)
 					}
 				}
 			};
@@ -145,7 +145,7 @@ impl OwnedLocator {
 		Ok(owned)
 	}
 
-	pub(crate) fn adopt(raw: *mut sys::PancakeLocator) -> Result<Self> {
+	pub(crate) fn adopt(raw: *mut sys::GlowcapLocator) -> Result<Self> {
 		if raw.is_null() {
 			return Err(Error::with_detail(
 				sys::ERR_INVALID_ARGUMENT,
@@ -155,15 +155,15 @@ impl OwnedLocator {
 		Ok(Self(raw))
 	}
 
-	pub(crate) fn clone_view(view: *const sys::PancakeLocatorView) -> Result<Self> {
+	pub(crate) fn clone_view(view: *const sys::GlowcapLocatorView) -> Result<Self> {
 		let mut raw = core::ptr::null_mut();
-		check(unsafe { sys::pancake_locator_clone(view, &mut raw) })?;
+		check(unsafe { sys::glowcap_locator_clone(view, &mut raw) })?;
 		Self::adopt(raw)
 	}
 
-	pub(crate) fn borrow_view(&self) -> Result<*const sys::PancakeLocatorView> {
+	pub(crate) fn borrow_view(&self) -> Result<*const sys::GlowcapLocatorView> {
 		let mut view = core::ptr::null();
-		check(unsafe { sys::pancake_locator_borrow_view(self.0, &mut view) })?;
+		check(unsafe { sys::glowcap_locator_borrow_view(self.0, &mut view) })?;
 		Ok(view)
 	}
 
@@ -191,8 +191,8 @@ impl OwnedLocator {
 		}
 
 		unsafe fn field(
-			raw: *mut sys::PancakeLocator,
-			accessor: unsafe extern "C" fn(*mut sys::PancakeLocator, *mut *const u8, *mut usize) -> c_int,
+			raw: *mut sys::GlowcapLocator,
+			accessor: unsafe extern "C" fn(*mut sys::GlowcapLocator, *mut *const u8, *mut usize) -> c_int,
 		) -> Result<String> {
 			let mut ptr = core::ptr::null();
 			let mut len = 0;
@@ -201,11 +201,11 @@ impl OwnedLocator {
 		}
 
 		let mut count = 0;
-		check(unsafe { sys::pancake_locator_hint_count(self.0, &mut count) })?;
+		check(unsafe { sys::glowcap_locator_hint_count(self.0, &mut count) })?;
 		let mut hints = BTreeMap::new();
 		for index in 0..count {
-			let mut hint: sys::PancakeLocatorHintView = unsafe { core::mem::zeroed() };
-			check(unsafe { sys::pancake_locator_hint_at(self.0, index, &mut hint) })?;
+			let mut hint: sys::GlowcapLocatorHintView = unsafe { core::mem::zeroed() };
+			check(unsafe { sys::glowcap_locator_hint_at(self.0, index, &mut hint) })?;
 			let name = unsafe { text(hint.name, hint.name_len)? };
 			let value = match hint.kind {
 				sys::HINT_STRING => HintValue::String(unsafe { text(hint.bytes, hint.bytes_len)? }),
@@ -223,7 +223,7 @@ impl OwnedLocator {
 		}
 
 		let mut raw_wire_form = 0;
-		check(unsafe { sys::pancake_locator_hint_wire_form(self.0, &mut raw_wire_form) })?;
+		check(unsafe { sys::glowcap_locator_hint_wire_form(self.0, &mut raw_wire_form) })?;
 		let hint_wire_form = match raw_wire_form {
 			sys::HINTS_MAP => HintWireForm::Map,
 			sys::HINTS_BOOLEAN_FALSE => HintWireForm::BooleanFalse,
@@ -236,18 +236,18 @@ impl OwnedLocator {
 		};
 
 		Ok(Locator {
-			transport: unsafe { field(self.0, sys::pancake_locator_transport)? },
-			designator: unsafe { field(self.0, sys::pancake_locator_designator)? },
+			transport: unsafe { field(self.0, sys::glowcap_locator_transport)? },
+			designator: unsafe { field(self.0, sys::glowcap_locator_designator)? },
 			hints,
 			hint_wire_form,
 		})
 	}
 }
 
-struct OwnedSturdyRef(*mut sys::PancakeSturdyRef);
+struct OwnedSturdyRef(*mut sys::GlowcapSturdyRef);
 
 impl OwnedSturdyRef {
-	fn adopt(raw: *mut sys::PancakeSturdyRef) -> Result<Self> {
+	fn adopt(raw: *mut sys::GlowcapSturdyRef) -> Result<Self> {
 		if raw.is_null() {
 			return Err(Error::with_detail(
 				sys::ERR_INVALID_ARGUMENT,
@@ -259,12 +259,12 @@ impl OwnedSturdyRef {
 
 	fn value(&self) -> Result<SturdyRef> {
 		let mut view = core::ptr::null();
-		check(unsafe { sys::pancake_sturdyref_borrow_locator(self.0, &mut view) })?;
+		check(unsafe { sys::glowcap_sturdyref_borrow_locator(self.0, &mut view) })?;
 		let locator = OwnedLocator::clone_view(view)?.value()?;
 
 		let mut ptr = core::ptr::null();
 		let mut len = 0;
-		check(unsafe { sys::pancake_sturdyref_swissnum(self.0, &mut ptr, &mut len) })?;
+		check(unsafe { sys::glowcap_sturdyref_swissnum(self.0, &mut ptr, &mut len) })?;
 		let swissnum = if len == 0 {
 			Vec::new()
 		} else if ptr.is_null() {
@@ -281,13 +281,13 @@ impl OwnedSturdyRef {
 
 impl Drop for OwnedSturdyRef {
 	fn drop(&mut self) {
-		unsafe { sys::pancake_sturdyref_release(self.0) };
+		unsafe { sys::glowcap_sturdyref_release(self.0) };
 	}
 }
 
 impl Drop for OwnedLocator {
 	fn drop(&mut self) {
-		unsafe { sys::pancake_locator_release(self.0) };
+		unsafe { sys::glowcap_locator_release(self.0) };
 	}
 }
 
@@ -362,7 +362,7 @@ fn format_uri(
 	let mut cap: usize = 0;
 	let rc = unsafe {
 		if let Some((swiss, captp_version)) = swissnum {
-			sys::pancake_uri_format_sturdyref(
+			sys::glowcap_uri_format_sturdyref(
 				captp_version.to_c(),
 				t.as_ptr(),
 				t.len(),
@@ -380,7 +380,7 @@ fn format_uri(
 				&mut cap,
 			)
 		} else {
-			sys::pancake_uri_format_peer(
+			sys::glowcap_uri_format_peer(
 				t.as_ptr(),
 				t.len(),
 				d.as_ptr(),
@@ -407,7 +407,7 @@ fn format_uri(
 		let mut out_len: usize = 0;
 		let rc = unsafe {
 			if let Some((swiss, captp_version)) = swissnum {
-				sys::pancake_uri_format_sturdyref(
+				sys::glowcap_uri_format_sturdyref(
 					captp_version.to_c(),
 					t.as_ptr(),
 					t.len(),
@@ -425,7 +425,7 @@ fn format_uri(
 					&mut out_len,
 				)
 			} else {
-				sys::pancake_uri_format_peer(
+				sys::glowcap_uri_format_peer(
 					t.as_ptr(),
 					t.len(),
 					d.as_ptr(),
@@ -484,14 +484,14 @@ pub fn format_locator_uri(locator: &Locator) -> Result<String> {
 }
 
 /// Split a bare designator as `host:port` through the core grammar
-/// (`pancake_designator_host_port`). Prefer this over minting a peer URI
+/// (`glowcap_designator_host_port`). Prefer this over minting a peer URI
 /// just to call [`parse_locator`].
 pub fn designator_host_port(designator: &str) -> Result<(String, u16)> {
 	let mut host_ptr: *const c_uchar = core::ptr::null();
 	let mut host_len: usize = 0;
 	let mut port: u16 = 0;
 	check(unsafe {
-		sys::pancake_designator_host_port(
+		sys::glowcap_designator_host_port(
 			designator.as_ptr(),
 			designator.len(),
 			&mut host_ptr,
@@ -507,13 +507,13 @@ pub fn encode_peer_locator(locator: &Locator) -> Result<Vec<u8>> {
 	let owned = OwnedLocator::new(locator)?;
 	let mut out: *mut u8 = core::ptr::null_mut();
 	let mut out_len: usize = 0;
-	check(unsafe { sys::pancake_locator_record_encode(owned.borrow_view()?, &mut out, &mut out_len) })?;
+	check(unsafe { sys::glowcap_locator_record_encode(owned.borrow_view()?, &mut out, &mut out_len) })?;
 	let bytes = if out.is_null() || out_len == 0 {
 		Vec::new()
 	} else {
 		unsafe { core::slice::from_raw_parts(out, out_len) }.to_vec()
 	};
-	unsafe { sys::pancake_locator_record_bytes_release(out, out_len) };
+	unsafe { sys::glowcap_locator_record_bytes_release(out, out_len) };
 	Ok(bytes)
 }
 

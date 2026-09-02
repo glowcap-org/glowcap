@@ -5,7 +5,7 @@
 import { type SaslPlainCredentials, validateIrcNick, validateSaslPlain } from "../registration.ts";
 
 export const IRC_BRIDGE_USAGE =
-	"usage: zig build rooms-irc-bridge -- --network=libera --channel=#ocapn --irc-host=irc.libera.chat --irc-port=6697 --irc-nick=pancake-rooms --mode=read-only|two-way --sasl-account=ACCOUNT --bind=127.0.0.1 --announce-host=HOST --port=0 --tls=true";
+	"usage: zig build rooms-irc-bridge -- --network=libera --channel=#ocapn --irc-host=irc.libera.chat --irc-port=6697 --irc-nick=glowcap-rooms --mode=read-only|two-way --sasl-account=ACCOUNT --bind=127.0.0.1 --announce-host=HOST --port=0 --tls=true";
 
 export interface IrcBridgeConfig {
 	readonly network: string;
@@ -51,7 +51,7 @@ export function parseIrcBridgeConfig(
 	const channel = option("channel", "#ocapn");
 	const ircHost = option("irc-host", "irc.libera.chat");
 	const ircPort = portOption("irc-port", option("irc-port", "6697"), false);
-	const ircNick = option("irc-nick", "pancake-rooms");
+	const ircNick = option("irc-nick", "glowcap-rooms");
 	const mode = option("mode", "read-only");
 	if (mode !== "read-only" && mode !== "two-way") throw new Error("--mode must be read-only or two-way");
 	const bind = option("bind", "127.0.0.1");
@@ -67,8 +67,8 @@ export function parseIrcBridgeConfig(
 		if (!tls) throw new Error("two-way IRC requires TLS so SASL PLAIN credentials are not exposed");
 		const account = supplied.get("sasl-account");
 		if (account === undefined) throw new Error("two-way IRC requires --sasl-account=ACCOUNT");
-		const password = getenv("PANCAKE_ROOMS_IRC_SASL_PASSWORD");
-		if (password === undefined) throw new Error("two-way IRC requires PANCAKE_ROOMS_IRC_SASL_PASSWORD");
+		const password = getenv("GLOWCAP_ROOMS_IRC_SASL_PASSWORD");
+		if (password === undefined) throw new Error("two-way IRC requires GLOWCAP_ROOMS_IRC_SASL_PASSWORD");
 		sasl = { account, password };
 		validateSaslPlain(sasl);
 	} else if (supplied.has("sasl-account")) {

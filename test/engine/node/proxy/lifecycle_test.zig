@@ -1,12 +1,12 @@
 //! Logical-close and aggregate-teardown ownership for committed promise proxies.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 const Node = engine.Node;
 
 const openKeyedSessionWithCounterpart = @import("../harness.zig").openKeyedSessionWithCounterpart;

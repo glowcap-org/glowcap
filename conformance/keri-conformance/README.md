@@ -2,7 +2,7 @@
 
 Small KERI fixture verifier for the accountability worked example. It checks
 committed KEL/Episode fixtures with a Python oracle; it does not define
-pancake's wire protocol and it does not introduce KERI into the Zig core.
+glowcap's wire protocol and it does not introduce KERI into the Zig core.
 
 ## Files
 

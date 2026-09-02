@@ -4,7 +4,7 @@ import { assert, assertEquals } from "@std/assert";
 import { LiveFeed, type LivePeerFactory } from "../connection.ts";
 import { startLiveMode } from "../mode.ts";
 import type { TimelineEvent } from "../../timeline.ts";
-import type { PancakeWebModule } from "../pancake-web-api.ts";
+import type { GlowcapWebModule } from "../glowcap-web-api.ts";
 
 Deno.test("connect: an invalid sturdyref is reported, not thrown", () => {
 	const feed = new LiveFeed("w");
@@ -214,7 +214,7 @@ Deno.test({
 });
 
 const browserWasm = new URL(
-	"../../../../../../zig-out/wasm/pancake_host.wasm",
+	"../../../../../../zig-out/wasm/glowcap_host.wasm",
 	import.meta.url,
 );
 let browserWasmExists = true;
@@ -253,7 +253,7 @@ Deno.test({
 				publish: string;
 			};
 			const registry = globalThis as Record<symbol, unknown>;
-			const adapterKey = Symbol.for("pancake.runtime.adapter");
+			const adapterKey = Symbol.for("glowcap.runtime.adapter");
 			assertEquals(
 				registry[adapterKey],
 				undefined,
@@ -264,12 +264,12 @@ Deno.test({
 			wasmObjectUrl = URL.createObjectURL(
 				new Blob([wasm], { type: "application/wasm" }),
 			);
-			(globalThis as { __OCV_PANCAKE_WASM_URL?: string })
-				.__OCV_PANCAKE_WASM_URL = wasmObjectUrl;
-			const webModuleName: string = "@pancake/web";
+			(globalThis as { __OCV_GLOWCAP_WASM_URL?: string })
+				.__OCV_GLOWCAP_WASM_URL = wasmObjectUrl;
+			const webModuleName: string = "@glowcap/web";
 			(globalThis as {
-				__OCV_PANCAKE_WEB_LOADER?: () => Promise<PancakeWebModule>;
-			}).__OCV_PANCAKE_WEB_LOADER = () => import(webModuleName) as unknown as Promise<PancakeWebModule>;
+				__OCV_GLOWCAP_WEB_LOADER?: () => Promise<GlowcapWebModule>;
+			}).__OCV_GLOWCAP_WEB_LOADER = () => import(webModuleName) as unknown as Promise<GlowcapWebModule>;
 
 			let connected!: () => void;
 			const didConnect = new Promise<void>((resolve) => connected = resolve);
@@ -325,10 +325,10 @@ Deno.test({
 		} finally {
 			publisher?.close();
 			feed?.disconnect();
-			delete (globalThis as { __OCV_PANCAKE_WASM_URL?: string })
-				.__OCV_PANCAKE_WASM_URL;
-			delete (globalThis as { __OCV_PANCAKE_WEB_LOADER?: unknown })
-				.__OCV_PANCAKE_WEB_LOADER;
+			delete (globalThis as { __OCV_GLOWCAP_WASM_URL?: string })
+				.__OCV_GLOWCAP_WASM_URL;
+			delete (globalThis as { __OCV_GLOWCAP_WEB_LOADER?: unknown })
+				.__OCV_GLOWCAP_WEB_LOADER;
 			if (wasmObjectUrl !== null) URL.revokeObjectURL(wasmObjectUrl);
 			reader.releaseLock();
 			try {

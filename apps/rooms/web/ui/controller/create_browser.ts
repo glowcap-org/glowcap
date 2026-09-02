@@ -59,7 +59,7 @@ export function createRoomsBrowserController(
 			}
 			store.showAboutConv(projection, pane, askingLeave);
 		},
-		manageIrcIdentity: () => store.showAboutConv(projection, "irc"),
+		manageBridgeIdentity: () => store.showAboutConv(projection, "bridge"),
 		closeAboutConversation: () => store.closeAboutConv(projection),
 		showError: (detail) => store.showErrorDetail(projection, detail),
 		closeError: () => store.closeErrorDetail(projection),

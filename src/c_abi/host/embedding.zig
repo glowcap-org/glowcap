@@ -1,4 +1,4 @@
-//! Zig-only ownership bridge from `libpancake_host` to the sibling driver.
+//! Zig-only ownership bridge from `libglowcap_host` to the sibling driver.
 //!
 //! The C handle remains owned by this archive. This leaf gives the driver one
 //! transactional claim over transport/action draining and projects the few
@@ -36,38 +36,38 @@ pub const ClaimError = error{HostAlreadyOwned};
 /// Claim the C handle's transport/action-drain ownership for a native driver
 /// construction. `HostRuntime.initWithCore` validates whether the core itself
 /// can transfer; rollback restores this token if it cannot.
-pub fn claimForDriver(handle: ?*c.PancakeHost) ClaimError!?DriverClaim {
+pub fn claimForDriver(handle: ?*c.GlowcapHost) ClaimError!?DriverClaim {
     const inst = common.instanceFrom(handle) orelse return null;
     if (inst.drive_owner != .embedder) return error.HostAlreadyOwned;
     inst.drive_owner = .driver;
     return .{ .inst = inst };
 }
 
-pub fn releaseFromDriver(handle: *c.PancakeHost) ?anyerror {
+pub fn releaseFromDriver(handle: *c.GlowcapHost) ?anyerror {
     return common.releaseFromDriver(handle);
 }
 
 /// The C handle a core session projects as; the driver archive's events carry
-/// sessions in the same handle vocabulary every `pancake_host_*` verb takes.
-pub fn sessionHandle(hs: *driver_core.HostSession) *c.PancakeHostSession {
+/// sessions in the same handle vocabulary every `glowcap_host_*` verb takes.
+pub fn sessionHandle(hs: *driver_core.HostSession) *c.GlowcapHostSession {
     return @ptrCast(hs);
 }
 
-pub fn sessionFrom(raw: ?*c.PancakeHostSession) ?*driver_core.HostSession {
+pub fn sessionFrom(raw: ?*c.GlowcapHostSession) ?*driver_core.HostSession {
     return common.sessionFrom(raw);
 }
 
 /// Project one taken settled/failed completion onto the C action shape, with
 /// the byte-fed queue's exact lifetime sentence: one scratch reset per pop,
 /// then the projection allocates its views there. The caller serializes this
-/// with `pancake_host_next_action` on the one driving thread (a loop-tier
+/// with `glowcap_host_next_action` on the one driving thread (a loop-tier
 /// consumer does not drain the byte-fed queue).
 pub fn projectCompletion(
-    handle: ?*c.PancakeHost,
+    handle: ?*c.GlowcapHost,
     action: driver_core.HostAction,
-    slot: *c.PancakeHostAction,
+    slot: *c.GlowcapHostAction,
 ) i32 {
-    const inst = common.instanceFrom(handle) orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    const inst = common.instanceFrom(handle) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     _ = inst.completion_scratch.reset(.{ .retain_with_limit = common.steady_scratch_bytes });
     return common.projectCompletionInto(inst, action, slot);
 }

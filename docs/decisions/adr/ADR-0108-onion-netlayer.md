@@ -3,7 +3,7 @@ id: ADR-0108
 status: accepted
 date: 2026-08-05
 tags: [net, netlayer, onion, tor, transport, identity, goblins, interop]
-decision: "pancake gains the `onion` netlayer, the one transport the OCapN draft standardizes, so a pancake peer and a real Goblins vat hold a session over Tor. It is a pure Zig resident that speaks SOCKS5 and the Tor control protocol to a Tor daemon the deployment already runs, with no sidecar and no spawned process. The service id is an address designator, not a durable key, because that is the only shape a Goblins onion peer can dial and be dialed by."
+decision: "glowcap gains the `onion` netlayer, the one transport the OCapN draft standardizes, so a glowcap peer and a real Goblins vat hold a session over Tor. It is a pure Zig resident that speaks SOCKS5 and the Tor control protocol to a Tor daemon the deployment already runs, with no sidecar and no spawned process. The service id is an address designator, not a durable key, because that is the only shape a Goblins onion peer can dial and be dialed by."
 supersedes: []
 superseded_by: []
 amends: []
@@ -31,7 +31,7 @@ amended_by: [ADR-0118]
 ## Context
 
 `onion` is the only netlayer the OCapN draft actually specifies. Every other
-transport in this tree, including the two production ones, is either pancake's
+transport in this tree, including the two production ones, is either glowcap's
 own or a convention. The draft's `Netlayers.md` names three things and nothing
 else: the designator is "the Service ID that is provided when generating the
 hidden service", the transport symbol is `onion`, and hints are unused. It then
@@ -42,10 +42,10 @@ Upstream Spritely Goblins implements exactly that, and it ships only two
 netlayers: `onion` and an in-process `fake` used by its tests. It ships no TCP
 netlayer at all. The TCP and iroh netlayers this repository dials in its live
 checks were both written here, in `conformance/goblins-peer/racket/`. So the one
-transport where a Goblins vat and a pancake peer can meet on ground neither of
-them invented is the one pancake does not implement.
+transport where a Goblins vat and a glowcap peer can meet on ground neither of
+them invented is the one glowcap does not implement.
 
-pancake's URI parser already produces the right shape. It splits a locator's
+glowcap's URI parser already produces the right shape. It splits a locator's
 host on the last dot, so `ocapn://<serviceid>.onion` yields the transport
 `onion` and the designator `<serviceid>`, and `test/model/uri_test.zig` has
 pinned that since before there was anything to dial. The gap is a netlayer, not
@@ -89,7 +89,7 @@ of 62, the `<serviceid>.onion` text, and the port 9045 as a big-endian short. It
 check is the regular expression for a version 3 address, fifty-five base32
 characters followed by the letter `d`. Framing above the stream is raw Syrup
 with no length prefix, through the same `read-write-procs` its other netlayers
-use, so pancake's existing frame stream carries it unchanged.
+use, so glowcap's existing frame stream carries it unchanged.
 
 Two details constrain the design directly. First, `connect-to` matches
 `(ocapn-node 'onion designator #f)`, so a locator carrying any hints falls
@@ -114,7 +114,7 @@ expecting one to be running.
 
 ## Decision
 
-pancake gains an `onion` netlayer resident that speaks SOCKS5 and the Tor control
+glowcap gains an `onion` netlayer resident that speaks SOCKS5 and the Tor control
 protocol to a Tor daemon the deployment runs. There is no sidecar crate, no
 spawned process, and no new dependency. It is an ordinary transport archive
 installed by product composition, and `onion` becomes a first-class transport
@@ -138,14 +138,14 @@ Five pieces carry it.
   ([ADR-0043](ADR-0043-netlayer-contract.md)) The resident dials and accepts
   byte streams exactly as `net.tcp` does. Bytes reaching CapTP are the ordinary
   Syrup frame stream, so nothing above `net` learns a new shape. Tor forwards the
-  service's virtual port to a local endpoint pancake binds, so the accept side
+  service's virtual port to a local endpoint glowcap binds, so the accept side
   reuses the existing socket path rather than inventing one.
 - **Undetached service lifetime.** A listener owns the control connection that
   created its service. Releasing the listener closes that connection, which is
   Tor's withdrawal boundary for an undetached service. Destruction sends no
   `DEL_ONION` request and waits for no daemon reply.
-- **A transport archive.** `libpancake_net_transport_onion` under
-  `src/c_abi/net_transport/onion/`, exporting only its own `pancake_onion_*`
+- **A transport archive.** `libglowcap_net_transport_onion` under
+  `src/c_abi/net_transport/onion/`, exporting only its own `glowcap_onion_*`
   symbol family and reusing `c_abi/shared` by layout, per
   [ADR-0059](ADR-0059-composable-c-abi-archives.md). Like every independently
   materialized transport provider archive, its build row is `.graph = false`
@@ -180,52 +180,52 @@ as the transport label. The virtual port is 9045 and the key type is
 `ED25519-V3`, both fixed by the draft and neither exposed as a setting, because
 a peer that changed either could no longer meet any other implementation.
 
-**An onion locator pancake hands out carries no hints.** This is not a style
+**An onion locator glowcap hands out carries no hints.** This is not a style
 choice. The pinned Goblins `connect-to` matches a node whose hints are false, so
 a hinted onion locator is undialable by the peer this record exists to reach.
-Its `ocapn-node` contract admits only `#f` or a string where pancake writes a
+Its `ocapn-node` contract admits only `#f` or a string where glowcap writes a
 dictionary, and `structs-urls.rkt` says in as many words that hints are not
 supported. The URI projection, the handoff give's exporter locator, the
 sturdyref form, and **the hello's own `acceptable_location`** all emit a bare
 `ocapn://<serviceid>.onion`.
 
 That last one is the case worth naming, because it is the one that costs
-something. The profile hints in `model.transport` (`pancake/captp-version`,
-`pancake/codec`, `pancake/features`) ride the locator a hello signs, and that is
+something. The profile hints in `model.transport` (`glowcap/captp-version`,
+`glowcap/codec`, `glowcap/features`) ride the locator a hello signs, and that is
 the only place either end states a preference. Omitting them on onion means an
 onion session settles the `1.0` baseline on every axis, **including between two
-pancake peers**, and there is no second channel to recover it: a peer cannot know
-its partner is pancake until the hellos have already been exchanged.
+glowcap peers**, and there is no second channel to recover it: a peer cannot know
+its partner is glowcap until the hellos have already been exchanged.
 
 Sending them anyway would work against the pinned Goblins today, because its
 unmarshaller builds the struct without the contract check and its one comparison,
 `same-node-location?`, ignores hints outright. It would break the moment upstream
 writes the dial back its own source says is still to come, since that path dials
 the claimed location and `connect-to` refuses hints. A hazard that fires later,
-remotely, on somebody else's release is worse than a profile pancake does not
-need over this transport: onion exists here to reach Goblins, and two pancake
-peers that want `pancake-next` have `iroh`.
+remotely, on somebody else's release is worse than a profile glowcap does not
+need over this transport: onion exists here to reach Goblins, and two glowcap
+peers that want `glowcap-next` have `iroh`.
 
 A designator that is not a well-formed version 3 address is refused before any
-socket is opened. Version 2 addresses are gone from the Tor network and pancake
+socket is opened. Version 2 addresses are gone from the Tor network and glowcap
 does not accept their shape.
 
 ### Reaching Tor: a daemon the deployment runs
 
-pancake talks to an existing Tor over its SOCKS and control endpoints. It does
+glowcap talks to an existing Tor over its SOCKS and control endpoints. It does
 not embed Tor, does not spawn one, and does not supervise one. A netlayer
 constructed against endpoints nothing is listening on fails loudly at
 construction rather than at the first dial.
 
 This is the "no hidden runtime" principle applied literally. A background daemon
-pancake started, kept alive, and restarted would be a runtime the library owns
+glowcap started, kept alive, and restarted would be a runtime the library owns
 and the application cannot see. A daemon the deployment configures is the
 opposite: it is named in the config struct, its lifetime belongs to whoever
 started it, and its absence is an error the caller reads.
 
 It is also what makes the Goblins check possible at all. Goblins and the pinned
 suite both speak this exact protocol to the same kind of daemon, so one Tor on
-one machine serves a pancake peer and a Goblins vat at once, and the two meet on
+one machine serves a glowcap peer and a Goblins vat at once, and the two meet on
 the live network with no shim between them.
 
 Control authentication supports the three forms a real `torrc` produces: none,
@@ -259,7 +259,7 @@ Five facts, then the verdict.
    identity, which is the whole point of the network. Version 3 client
    authorization exists and would change this; it is a separate deployment
    mechanism and is out of scope below.
-4. pancake does not perform step 2 itself. It asks the local Tor to connect and
+4. glowcap does not perform step 2 itself. It asks the local Tor to connect and
    reads a success reply, so the proof is delegated to that daemon and to the
    socket reaching it. iroh's node id proof is delegated too, to the crate inside
    the sidecar. The difference is a process boundary rather than a library
@@ -289,13 +289,13 @@ described-versus-built rule says not to ship a mechanism whose only description
 is its own header.
 
 `partnerDurableProvenance` therefore answers `unauthenticated` for every onion
-session, including a pancake pair. The current provenance type accepts the
+session, including a glowcap pair. The current provenance type accepts the
 Ed25519 key form used by iroh and WebRTC, not an Onion service id. An onion
 session thus has unreported Tor service authentication over a strongly
 encrypted and anonymized channel.
 
 **Where the strength does surface.** `matchSturdyrefPeer` takes its address arm
-for `onion`, and on a session pancake dialed it compares the sturdyref's
+for `onion`, and on a session glowcap dialed it compares the sturdyref's
 designator against the address it asked for and answers `dial_target`. On `tcp`
 that answer means the operating system routed the connection somewhere. On
 `onion` it means Tor's rendezvous handshake proved the far end holds the key the
@@ -304,14 +304,14 @@ transport rather than in the enumeration. On an accepted session the arm answers
 `assertion_only` under the assertion-only policy, which is the honest report of
 fact 3.
 
-**Why not make it a key transport.** The Onion service id is not pancake's
+**Why not make it a key transport.** The Onion service id is not glowcap's
 Ed25519 key designator format. Treating it as one would conflate two identity
 grammars and still would not authenticate an inbound client's self-declared
 Onion location. The resident can expose Tor's service proof through a distinct
 typed channel fact when policy needs it; no CapTP hint is required.
 
 **The inbound claim is unverified, and that is a finding, not a secret.** Any
-party can open a circuit to a pancake onion service and claim any onion
+party can open a circuit to a glowcap onion service and claim any onion
 designator in its hello. Goblins has the identical hole, and its own source
 carries the note that a dial back is still to be written. The migration order
 records it under `conformance/ocapn-findings/`, beside the other pinned-source
@@ -323,7 +323,7 @@ The transport takes one configuration struct, passed by pointer, following the
 shape the iroh endpoint config established. The caller zero-initializes the whole
 struct and fills the fields it sets, so a field added later reads as zero rather
 than as stack contents. The meaning of every field is documented once, on the
-`PancakeOnionConfig` declaration in `src/c_abi/net_transport/onion/mod.zig`, and
+`GlowcapOnionConfig` declaration in `src/c_abi/net_transport/onion/mod.zig`, and
 the resident and all four bindings mirror the struct and point at that one place.
 
 Present from the first version:
@@ -336,7 +336,7 @@ Present from the first version:
   password.
 - The service key to restore, in the exact form the control protocol returned
   it. Empty asks for a fresh service.
-- The local endpoint Tor forwards the virtual port to. Empty means pancake binds
+- The local endpoint Tor forwards the virtual port to. Empty means glowcap binds
   a loopback port and reports it.
 - A connect budget in milliseconds, with zero meaning the built-in default. A Tor
   circuit takes seconds to tens of seconds, so this default is far larger than a
@@ -355,7 +355,7 @@ on principle above.
 
 ## Scope (what this does not decide)
 
-- **pancake does not run Tor.** No embedded implementation, no spawned process,
+- **glowcap does not run Tor.** No embedded implementation, no spawned process,
   no supervision, and no bundled binary. A deployment without a Tor daemon has no
   onion transport.
 - **Version 3 client authorization is not implemented.** It is the mechanism
@@ -371,7 +371,7 @@ on principle above.
   preference cannot ride an onion locator. Raising it needs a channel for the
   preference that is not the locator, which is new wire surface and a separate
   record.
-- **An onion locator that also names a durable key is not decided.** A pancake
+- **An onion locator that also names a durable key is not decided.** A glowcap
   pair over Tor could in principle carry a durable identity in a hint and attest
   it, which would raise provenance above unauthenticated. That is new wire
   surface, the pinned Goblins refuses hints on its dial path, and this record
@@ -385,7 +385,7 @@ on principle above.
 - **No onion-specific handoff shape.** A three-party handoff over onion uses the
   ordinary give and withdrawal, with the exporter locator carrying a bare onion
   address. Nothing about the descriptors changes.
-- **No anonymity claim about pancake itself.** Tor hides network location. It
+- **No anonymity claim about glowcap itself.** Tor hides network location. It
   does nothing about what an application puts in a message, about traffic volume
   and timing, or about a peer that reveals itself at the capability layer.
 
@@ -404,7 +404,7 @@ on principle above.
   hosting is stable, an Arti sidecar behind this same resident contract is the
   answer, and nothing above `net` changes.
 - **Spawn and supervise a Tor process, as the upstream OCapN suite does with
-  `stem`.** Rejected: it is a hidden runtime, it makes pancake responsible for a
+  `stem`.** Rejected: it is a hidden runtime, it makes glowcap responsible for a
   daemon's lifetime and log, and it hands a library the job of writing a
   `torrc`. The suite is a test harness and can afford it; a library cannot.
 - **Dial only, with no control protocol.** Rejected: an onion locator names a
@@ -424,7 +424,7 @@ on principle above.
   sturdyref, including the one the draft uses as its own example.
 - **Make the virtual port configurable.** Rejected: 9045 is normative, and a
   setting produces only peers that cannot find each other.
-- **Reuse pancake's node key as the onion service key, so one key is the
+- **Reuse glowcap's node key as the onion service key, so one key is the
   address and the signing identity.** This is what ADR-0055 did for iroh, and it
   is tempting. Rejected: it forbids reusing a service key an operator already
   has, and it changes no verdict anyway, because the claim on the wire is still
@@ -436,7 +436,7 @@ The byte, control, identity, provider, and completion checks use fake daemons
 and need no network. The interoperation, upstream, and Rooms proofs use live Tor
 and remain opt-in, the same split `iroh-reachability` carries.
 
-1. **The SOCKS bytes match the peers pancake must meet.** An in-tree fake proxy
+1. **The SOCKS bytes match the peers glowcap must meet.** An in-tree fake proxy
    asserts the exact request: version 5 with one method and no authentication,
    then connect with address type 3, a length of 62, the `<serviceid>.onion`
    text, and 9045 as a big-endian short. Compared against `onion-socks.rkt` and
@@ -444,23 +444,23 @@ and remain opt-in, the same split `iroh-reachability` carries.
 2. **The control exchange matches.** A fake control endpoint asserts the
    authenticate step in all three forms, the create and the restore `ADD_ONION`
    requests, and the parsing of the service id and key out of the reply.
-3. **An onion locator pancake emits carries no hints.** Asserted on all four
+3. **An onion locator glowcap emits carries no hints.** Asserted on all four
    forms — the projected URI, the give's exporter locator, the sturdyref, and the
    hello's `acceptable_location` — because the pinned Goblins dial path refuses
    anything else. The `acceptable_location` case carries its own assertion that
    no profile hint rides an onion hello, so a later change that adds one to
-   recover `pancake-next` fails here and has to re-read the reasoning first.
+   recover `glowcap-next` fails here and has to re-read the reasoning first.
 4. **A restored service keeps its address.** `zig build onion-interop` passes
    the stored key to a fresh child process, observes the same service id, then
    fetches and calls an object through a sturdyref recorded before the restart.
-5. **Two pancake peers hold a session over real Tor**, through the handshake to
+5. **Two glowcap peers hold a session over real Tor**, through the handshake to
    an open session and a bootstrap fetch round trip.
-6. **A real Goblins vat and a pancake peer hold a session over Tor, in both
+6. **A real Goblins vat and a glowcap peer hold a session over Tor, in both
    directions**, with the Goblins side running unmodified upstream `onion.rkt`
    and both sides sharing one daemon. This is the item the record exists for, and
-   the direction that matters most is the Goblins vat dialing pancake, because
+   the direction that matters most is the Goblins vat dialing glowcap, because
    that is the one an identity decision could quietly have broken.
-7. **The upstream OCapN suite runs against a pancake onion peer** through its
+7. **The upstream OCapN suite runs against a glowcap onion peer** through its
    own onion netlayer. `zig build ocapn-conformance-onion` passes all 23
    portable tests and the separate strict abort probe for invalid signatures,
    invalid versions, and pre-setup abort connection closure. The harness waits
@@ -468,7 +468,7 @@ and remain opt-in, the same split `iroh-reachability` carries.
    upstream `ADD_ONION` path returns before descriptor publication.
 8. **The identity verdict is asserted, not assumed.** One scenario reports
    unauthenticated provenance on an onion session and a dial-target sturdyref
-   match on a session pancake dialed, so a later change that quietly promotes
+   match on a session glowcap dialed, so a later change that quietly promotes
    either one fails.
 9. **The completion and application paths use the same provider.** `zig build
    onion-loop` covers the native completion adapter, `zig build bindings-onion`
@@ -490,7 +490,7 @@ This objection is the strongest one, and the answer is a narrower claim, not a
 denial.
 
 **"Depending on an external daemon is a hidden runtime wearing a different
-coat."** It is the opposite. pancake starts nothing, keeps nothing alive, and
+coat."** It is the opposite. glowcap starts nothing, keeps nothing alive, and
 names both endpoints in a config struct the caller fills. A missing daemon is an
 error at construction. What would be hidden is the version that spawns Tor
 quietly and manages it, which is exactly the alternative this record rejects.
@@ -521,15 +521,15 @@ same posture `iroh-reachability` has held since ADR-0055.
 
 - `net` gains a Unix-stream endpoint arm it does not have today, which the SOCKS
   and control clients both need, and which a Unix forward target would also use.
-- The archive set gains `libpancake_net_transport_onion` with the same source
+- The archive set gains `libglowcap_net_transport_onion` with the same source
   dependency posture as TCP. Like every transport provider archive, it remains
   outside the layer DAG and is installed into a transport-empty generic driver
   by product composition. It links no foreign code.
 - `zig build check` grows a header check and the fake-daemon check, and still
   needs no network, no Tor, and no cargo.
 - An onion session runs the `1.0` profile in both directions, so `onion` is the
-  one transport in the tree over which two pancake peers cannot reach
-  `pancake-next`. `docs/boundaries.md` carries the row.
+  one transport in the tree over which two glowcap peers cannot reach
+  `glowcap-next`. `docs/boundaries.md` carries the row.
 - Each binding gains a config mirror, a high-level Session listener, and a
   generated FFI row, held by the existing `gen-binding-*` checks.
 - The transport tables in the architecture rule, `site/content/transports.smd`,

@@ -1,15 +1,15 @@
-# pancake and Goblins benchmark
+# glowcap and Goblins benchmark
 
 This benchmark runs one Racket application in three series:
-[Spritely Goblins](https://spritely.institute/goblins/), pancake's Racket
-binding, and the same pancake binding with time travel enabled. It compares
+[Spritely Goblins](https://spritely.institute/goblins/), glowcap's Racket
+binding, and the same glowcap binding with time travel enabled. It compares
 latency, throughput, connection setup, and server memory.
 
 The harness holds the application source, call shape, and loopback transport
 constant. The runtimes and protocol implementations still differ, so read the
 [methodology and caveats](METHODOLOGY.md) before interpreting a gap.
 
-To compare client-language overhead against one fixed pancake host instead,
+To compare client-language overhead against one fixed glowcap host instead,
 use [`zig build bench-langs`](../langs/README.md).
 
 ## Run it
@@ -64,7 +64,7 @@ magnitude comparison, not a precise allocation count.
 
 ## Snapshot and restore
 
-Snapshot measurement is separate because pancake does not expose local
+Snapshot measurement is separate because glowcap does not expose local
 snapshot and restore through the C ABI used by the shared harness.
 
 ```sh
@@ -74,7 +74,7 @@ racket bench/goblins/snapshot.rkt
 
 Both commands sweep actor count and bytes per actor. The observed scaling
 supports the expected O(objects) snapshot shape and no payload-byte copying;
-it does not, by itself, prove the implementation mechanism. pancake snapshots
+it does not, by itself, prove the implementation mechanism. glowcap snapshots
 are opt-in per actor and use copy-on-write after a snapshot. Goblins shares
 immutable behaviors through its runtime.
 
@@ -85,8 +85,8 @@ immutable behaviors through its runtime.
 | `apps/` | Shared S0–S3 applications |
 | `dispatch.rkt` | Substrate-independent method tables |
 | `backend-goblins.rkt` | Goblins backend and TCP netlayer |
-| `backend-pancake.rkt` | pancake Racket-binding backend |
-| `backend-pancake-tt.rkt` | pancake backend with time travel enabled |
+| `backend-glowcap.rkt` | glowcap Racket-binding backend |
+| `backend-glowcap-tt.rkt` | glowcap backend with time travel enabled |
 | `metrics.rkt` | Percentiles, throughput, and RSS sampling |
 | `server.rkt`, `client.rkt` | Per-run processes |
 | `bench.rkt` | Orchestration and comparison |

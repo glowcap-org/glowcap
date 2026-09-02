@@ -26,7 +26,7 @@ export class CapabilitySetEvents implements CapabilitySetEventSource {
 	constructor() {
 		this.#channel = typeof BroadcastChannel === "undefined"
 			? null
-			: new BroadcastChannel("pancake-rooms-capability-set");
+			: new BroadcastChannel("glowcap-rooms-capability-set");
 		this.#channel?.addEventListener("message", this.#receive);
 	}
 

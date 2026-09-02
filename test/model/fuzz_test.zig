@@ -26,9 +26,9 @@
 //! locator that writes but does not re-parse would slip between the two.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const uri = pancake.ocapn.model.uri;
+const uri = glowcap.ocapn.model.uri;
 
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it

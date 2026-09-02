@@ -4,12 +4,12 @@ use super::*;
 // `Stream` drops. No sidecar call ever parks on the connection (the loop's
 // only blocking call touches the endpoint), so releasing it never races a parked
 // read — the teardown hazard the thread-per-connection path had.
-pub(super) struct ConnPtr(pub(super) *mut PancakeIrohConn);
+pub(super) struct ConnPtr(pub(super) *mut GlowcapIrohConn);
 
 // SAFETY: `Send` is required — an `Stream` moves between threads (the relay
 // pumps one inside `tokio::spawn` tasks on a multithreaded runtime), so
-// `pancake_iroh_conn_try_read`/`try_write` run on whichever thread polls it and
-// `Drop`'s `pancake_iroh_conn_release` on whichever thread drops it, not the
+// `glowcap_iroh_conn_try_read`/`try_write` run on whichever thread polls it and
+// `Drop`'s `glowcap_iroh_conn_release` on whichever thread drops it, not the
 // thread that dialed. That FFI use is defined because the sidecar connection is
 // internally synchronized (mutex-guarded stream state over iroh's `Send + Sync`
 // connection), and the pointer is single-owner (one `Stream` field), so the
@@ -20,7 +20,7 @@ unsafe impl Send for ConnPtr {}
 
 impl Drop for ConnPtr {
 	fn drop(&mut self) {
-		unsafe { ffi::pancake_iroh_conn_release(self.0) };
+		unsafe { ffi::glowcap_iroh_conn_release(self.0) };
 	}
 }
 
@@ -73,7 +73,7 @@ impl IrohLoop {
 	/// dispatcher task. The loop is already armed (the netlayer arms it at
 	/// construction), so this only stands up the reactor side.
 	pub(super) fn start(netlayer: Arc<NetlayerRaw>) -> Result<Arc<IrohLoop>> {
-		let raw_fd: RawFd = unsafe { ffi::pancake_iroh_netlayer_readiness_fd(netlayer.raw) };
+		let raw_fd: RawFd = unsafe { ffi::glowcap_iroh_netlayer_readiness_fd(netlayer.raw) };
 		if raw_fd < 0 {
 			return Err(Error::with_transport_detail(sys::ERR_IO, iroh_last_error()));
 		}
@@ -104,7 +104,7 @@ impl IrohLoop {
 	}
 
 	pub(super) fn register(&self, conn: usize) {
-		let key = unsafe { ffi::pancake_iroh_conn_id(conn as *mut PancakeIrohConn) };
+		let key = unsafe { ffi::glowcap_iroh_conn_id(conn as *mut GlowcapIrohConn) };
 		lock_iroh(&self.state, "iroh-loop-state-lock-poison")
 			.conns
 			.insert(key, ConnSlot::default());
@@ -128,7 +128,7 @@ impl IrohLoop {
 			.dials
 			.insert(request_id, sender);
 		let rc = unsafe {
-			ffi::pancake_iroh_netlayer_start_connect(
+			ffi::glowcap_iroh_netlayer_start_connect(
 				self.netlayer.raw,
 				request_id,
 				node_id.as_ptr(),
@@ -190,18 +190,18 @@ impl IrohLoop {
 	// to its waiter (collected, woken after the lock is released).
 	fn drain(&self) {
 		let nl = self.netlayer.raw;
-		let mut buf = [PancakeIrohReadyEvent { subject: 0, events: 0 }; DRAIN_READY_CAP];
+		let mut buf = [GlowcapIrohReadyEvent { subject: 0, events: 0 }; DRAIN_READY_CAP];
 		loop {
 			let mut count: usize = 0;
 			let rc =
-				unsafe { ffi::pancake_iroh_netlayer_drain_ready(nl, buf.as_mut_ptr(), DRAIN_READY_CAP, &mut count) };
+				unsafe { ffi::glowcap_iroh_netlayer_drain_ready(nl, buf.as_mut_ptr(), DRAIN_READY_CAP, &mut count) };
 			if rc != sys::OK || count == 0 {
 				break;
 			}
 			for ev in buf.iter().take(count) {
-				if ev.events & PANCAKE_IROH_EV_CONNECT != 0 {
-					let mut conn: *mut PancakeIrohConn = core::ptr::null_mut();
-					let rc = unsafe { ffi::pancake_iroh_netlayer_finish_connect(nl, ev.subject, &mut conn) };
+				if ev.events & GLOWCAP_IROH_EV_CONNECT != 0 {
+					let mut conn: *mut GlowcapIrohConn = core::ptr::null_mut();
+					let rc = unsafe { ffi::glowcap_iroh_netlayer_finish_connect(nl, ev.subject, &mut conn) };
 					let result = if rc == sys::OK {
 						Ok(conn as usize)
 					} else {
@@ -215,10 +215,10 @@ impl IrohLoop {
 						// this sole terminal event retires it. If delivery finds
 						// the receiver gone, reclaim a successful connection here.
 						if let Err(Ok(abandoned_conn)) = sender.send(result) {
-							unsafe { ffi::pancake_iroh_conn_release(abandoned_conn as *mut PancakeIrohConn) };
+							unsafe { ffi::glowcap_iroh_conn_release(abandoned_conn as *mut GlowcapIrohConn) };
 						}
 					} else if rc == sys::OK {
-						unsafe { ffi::pancake_iroh_conn_release(conn) };
+						unsafe { ffi::glowcap_iroh_conn_release(conn) };
 					}
 					continue;
 				}
@@ -276,7 +276,7 @@ impl IrohLoop {
 			.collect();
 		for request_id in requests {
 			unsafe {
-				ffi::pancake_iroh_netlayer_cancel_connect(self.netlayer.raw, request_id);
+				ffi::glowcap_iroh_netlayer_cancel_connect(self.netlayer.raw, request_id);
 			}
 		}
 		self.wake_all_closed();
@@ -347,7 +347,7 @@ impl ReadyWakers {
 // Route one readiness record to its waiter (collected, woken after the lock is
 // released). An accept record carries a null connection.
 fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut ReadyWakers) {
-	if events & PANCAKE_IROH_EV_ACCEPT != 0 {
+	if events & GLOWCAP_IROH_EV_ACCEPT != 0 {
 		// Record the pending accept first, then wake the byte-fed channel waiter;
 		// the count survives a wake that races waiter registration.
 		st.accept_pending += 1;
@@ -355,14 +355,14 @@ fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut Ready
 		return;
 	}
 	if let Some(slot) = st.conns.get_mut(&conn_key) {
-		if events & PANCAKE_IROH_EV_CLOSED != 0 {
+		if events & GLOWCAP_IROH_EV_CLOSED != 0 {
 			slot.closed = true;
 		}
-		if events & (PANCAKE_IROH_EV_READABLE | PANCAKE_IROH_EV_CLOSED) != 0 {
+		if events & (GLOWCAP_IROH_EV_READABLE | GLOWCAP_IROH_EV_CLOSED) != 0 {
 			slot.readable = true;
 			wakers.push(slot.read_waker.take());
 		}
-		if events & (PANCAKE_IROH_EV_WRITABLE | PANCAKE_IROH_EV_CLOSED) != 0 {
+		if events & (GLOWCAP_IROH_EV_WRITABLE | GLOWCAP_IROH_EV_CLOSED) != 0 {
 			slot.writable = true;
 			wakers.push(slot.write_waker.take());
 		}
@@ -423,7 +423,7 @@ mod tests {
 		dispatch(
 			&mut state,
 			9,
-			PANCAKE_IROH_EV_READABLE | PANCAKE_IROH_EV_WRITABLE,
+			GLOWCAP_IROH_EV_READABLE | GLOWCAP_IROH_EV_WRITABLE,
 			&mut wakers,
 		);
 

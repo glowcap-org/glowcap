@@ -38,7 +38,7 @@ modules.
 - **The codec root is the one bilingual surface.** `mod.zig` re-exports both
   codecs under the unchanged public names; `dispatch.zig` and `registry.zig`
   import both to route by `model.CodecId`. A consumer-supplied codec still
-  arrives through `pub const pancake_codecs` in the root file (ADR-0026) and is
+  arrives through `pub const glowcap_codecs` in the root file (ADR-0026) and is
   equally invisible to the built-ins.
 - **All three build graphs carry the same wiring** (host, cross-compile
   full-library, cross-compile sans-io core), so the boundary holds on every
@@ -46,7 +46,7 @@ modules.
 
 ## Scope (what this does not decide)
 
-- The public `pancake.ocapn.codec` namespace is unchanged; module names are
+- The public `glowcap.ocapn.codec` namespace is unchanged; module names are
   internal vocabulary (ADR-0040).
 - Which codecs exist and how they negotiate. ADR-0003, ADR-0026.
 

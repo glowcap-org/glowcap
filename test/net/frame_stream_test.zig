@@ -8,17 +8,17 @@
 //! as malformed), including when it assembled in the spill.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const net = glowcap.net;
 
 const zero_pubkey = @as([32]u8, @splat(0));
 const zero_sig = @as([64]u8, @splat(0));
 const max_frame = 4096;
 
-fn startSessionFrame(allocator: std.mem.Allocator, codec_id: model.CodecId) !pancake.foundation.Frame {
+fn startSessionFrame(allocator: std.mem.Allocator, codec_id: model.CodecId) !glowcap.foundation.Frame {
     return codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
@@ -37,7 +37,7 @@ fn startSessionFrameWithDesignator(
     allocator: std.mem.Allocator,
     codec_id: model.CodecId,
     designator: []const u8,
-) !pancake.foundation.Frame {
+) !glowcap.foundation.Frame {
     return codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,

@@ -3,7 +3,7 @@
 // same validation and passable rows a tab export or standalone peer serves;
 // MemoryArchiveBackend proves the storage/revision contract behind both.
 
-import type { Argument, Behavior } from "@pancake/runtime";
+import type { Argument, Behavior } from "@glowcap/runtime";
 import {
 	ALL_ARCHIVE_RECORDS,
 	ARCHIVE_PUT,

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# pancake devcontainer pins, versions and canonical paths. Sourced, never run;
+# glowcap devcontainer pins, versions and canonical paths. Sourced, never run;
 # every variable is consumed by the scripts that source this file.
 # shellcheck disable=SC2034
 # Install, verify, Dockerfile ENV, and devcontainer.json must stay aligned.
@@ -12,10 +12,10 @@
 # machine the image builds on. `update-pins.sh check` reports it like any other
 # dependency and `test/env-sync.sh` holds both Dockerfiles to the value here.
 DEBIAN_BASE_TAG="trixie-slim"
-DEBIAN_BASE_DIGEST="sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258"
+DEBIAN_BASE_DIGEST="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
 
 # --- Zig ---
-ZIG_VERSION="0.17.0-dev.1857+3c46da14d"
+ZIG_VERSION="0.17.0-dev.1963+e00c6c439"
 # ZLS currently refuses the pinned Zig 0.17 compiler. Keep its upstream source
 # pin recorded for update checks, but do not build or advertise it until
 # upstream supports this compiler generation.
@@ -26,15 +26,15 @@ ZLS_SOURCE_SHA256="621bbf0eddfcd909499338767a6d48941a9ab3d6fd3302ce72f0ccf3ebba4
 
 # --- Rust (C ABI dogfood) ---
 RUST_VERSION="1.98.0"
-RUSTUP_INIT_VERSION="1.29.0"
+RUSTUP_INIT_VERSION="1.29.1"
 
 # --- JavaScript / TypeScript dogfood ---
-DENO_VERSION="2.9.5"
+DENO_VERSION="2.9.6"
 # Multi-architecture index for `denoland/deno:bin-${DENO_VERSION}`, used by the
 # toolchain-free Rooms image. The Deno bump stages version, digest, Dockerfile,
 # and release-asset checksums as one transaction.
-DENO_IMAGE_DIGEST="sha256:0d1262facd139e815217c001945eb822c7a78584cf660142c34a6b53effec1aa"
-NODE_VERSION="26.7.0"
+DENO_IMAGE_DIGEST="sha256:4cf0029b9aeeeed5efcbb71828737f0d7c8c8a20072df960e51a5679ef0d21ba"
+NODE_VERSION="26.8.1"
 BUN_VERSION="1.4.0"
 
 # --- Playwright (the browser proofs' Chromium) ---
@@ -45,20 +45,20 @@ BUN_VERSION="1.4.0"
 PLAYWRIGHT_VERSION="1.62.1"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.12.5"
+UV_VERSION="0.12.9"
 OCAPN_CONFORMANCE_PYTHON="3.12.14"
 SERENA_AGENT_VERSION="1.7.0"
 SERENA_PYTHON="3.13"
-CLAUDE_CODE_VERSION="2.1.241"
-OPENCODE_VERSION="1.18.21"
-CODEX_VERSION="0.149.0"
+CLAUDE_CODE_VERSION="2.1.258"
+OPENCODE_VERSION="1.18.26"
+CODEX_VERSION="0.152.1"
 # Cursor publishes the agent CLI as one dated build per platform. The version
 # string is the whole path segment (date and commit), so it is copied verbatim
 # into the download URL rather than composed from parts.
-CURSOR_AGENT_VERSION="2026.08.11-e8db854"
+CURSOR_AGENT_VERSION="2026.08.31-4057e58"
 
 # --- Host side (not in the image; used by up.sh when no CLI is installed) ---
-DEVCONTAINER_CLI_VERSION="0.88.0"
+DEVCONTAINER_CLI_VERSION="0.89.0"
 
 # --- Racket / Spritely Goblins ---
 RACKET_VERSION="9.3"
@@ -77,12 +77,12 @@ CRYPTO_LIB_FFI_PATCHED_SHA256="cd80e435a91fa187a4f1772226604be318b6d791219bd7dc7
 # --- Paths (image build vs container open) ---
 RUSTUP_HOME="/usr/local/rustup"
 CARGO_HOME_IMAGE="/usr/local/cargo"
-# Shared with the host at ~/.cache/pancake (same layout in the container).
-PANCAKE_CACHE_DIR="/home/vscode/.cache/pancake"
-CARGO_HOME_RUNTIME="${PANCAKE_CACHE_DIR}/cargo"
+# Shared with the host at ~/.cache/glowcap (same layout in the container).
+GLOWCAP_CACHE_DIR="/home/vscode/.cache/glowcap"
+CARGO_HOME_RUNTIME="${GLOWCAP_CACHE_DIR}/cargo"
 DENO_INSTALL="/usr/local"
 # Shared tool downloads: Zig global, Deno, npm, pip, bun, uv, zls.
-CACHE_ROOT="${PANCAKE_CACHE_DIR}/tool"
+CACHE_ROOT="${GLOWCAP_CACHE_DIR}/tool"
 DENO_DIR="${CACHE_ROOT}/deno"
 NPM_CACHE_DIR="${CACHE_ROOT}/npm"
 PIP_CACHE_DIR="${CACHE_ROOT}/pip"
@@ -91,11 +91,11 @@ ZIG_CACHE_DIR="${CACHE_ROOT}/zig"
 BUN_CACHE_DIR="${CACHE_ROOT}/bun"
 BUN_INSTALL_CACHE_DIR="${BUN_CACHE_DIR}/install"
 # Per-worktree Zig local cache and extracted packages:
-# work/<PANCAKE_WORKTREE>/zig-local and zig-pkg at runtime.
-WORK_CACHE_DIR="${PANCAKE_CACHE_DIR}/work"
-PLTUSERHOME="/opt/pancake-racket-userhome"
+# work/<GLOWCAP_WORKTREE>/zig-local and zig-pkg at runtime.
+WORK_CACHE_DIR="${GLOWCAP_CACHE_DIR}/work"
+PLTUSERHOME="/opt/glowcap-racket-userhome"
 # Playwright's default download directory is ~/.cache/ms-playwright, which is
-# outside the pancake cache bind, so a browser landing there would vanish with
+# outside the glowcap cache bind, so a browser landing there would vanish with
 # the container. Browsers belong to the image: root installs them once and
 # every user reads them.
 PLAYWRIGHT_BROWSERS_PATH="/usr/local/share/ms-playwright"

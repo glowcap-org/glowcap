@@ -1,7 +1,7 @@
 // The authority returned for a line its author may still change or withdraw.
 
-import { Ref, type Session } from "@pancake/runtime";
-import type { Argument } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
+import type { Argument } from "@glowcap/runtime";
 import type { AttachmentSource } from "./attachment.ts";
 import { sendWithAttachments } from "./attachment.ts";
 import { ask } from "./ask.ts";

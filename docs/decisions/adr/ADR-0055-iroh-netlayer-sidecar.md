@@ -3,7 +3,7 @@ id: ADR-0055
 status: accepted
 date: 2026-06-11
 tags: [net, netlayer, iroh, transport, identity]
-decision: "The iroh netlayer is a Rust sidecar: a separate staticlib crate (transports/iroh) wraps the iroh crate behind a narrow C ABI with explicit blocking calls for the blocking resident and one readiness fd for evented dial, accept, and stream I/O. One Zig resident (net/transport/iroh.zig) implements both the ADR-0043 Netlayer contract and the completion backend over that seam. libpancake and the core stay pure Zig; only the iroh build steps need cargo. The iroh NodeId is the locator designator under the transport symbol `iroh`; the live proof is a pancake-to-pancake keyed session over real iroh endpoints."
+decision: "The iroh netlayer is a Rust sidecar: a separate staticlib crate (transports/iroh) wraps the iroh crate behind a narrow C ABI with explicit blocking calls for the blocking resident and one readiness fd for evented dial, accept, and stream I/O. One Zig resident (net/transport/iroh.zig) implements both the ADR-0043 Netlayer contract and the completion backend over that seam. libglowcap and the core stay pure Zig; only the iroh build steps need cargo. The iroh NodeId is the locator designator under the transport symbol `iroh`; the live proof is a glowcap-to-glowcap keyed session over real iroh endpoints."
 supersedes: []
 superseded_by: []
 ---
@@ -26,7 +26,7 @@ question first: where does the Rust boundary sit?
 
 **A sidecar staticlib, never a core dependency.** A new crate at
 `transports/iroh/` wraps the iroh endpoint behind a narrow, hand-written C ABI
-(`pancake_iroh_sidecar_*`): create an endpoint (owning its tokio runtime behind
+(`glowcap_iroh_sidecar_*`): create an endpoint (owning its tokio runtime behind
 the opaque handle), read its node id and direct addresses, and drive one
 bidirectional QUIC stream per connection. Explicitly named blocking calls serve
 the blocking resident. Request-correlated connect completion, accept, and
@@ -34,7 +34,7 @@ stream readiness share one endpoint readiness fd for completion consumers. The
 Zig side is the supported `src/net/transport/iroh.zig` facade over an internal
 `iroh/` package: `sidecar.zig` owns those externs and `resident.zig` implements
 the ADR-0043 `Netlayer` contract, pinning its concrete stream wrappers exactly
-as `net.tcp` does. `libpancake`, the core layers, and every existing gate remain pure Zig;
+as `net.tcp` does. `libglowcap`, the core layers, and every existing gate remain pure Zig;
 the `iroh-*` build steps require cargo on PATH and run as sibling steps, the
 same posture as `rust-dogfood`.
 
@@ -54,10 +54,10 @@ registry, `BlockingSession` above). ADR-0057 adapts the sidecar's single
 endpoint readiness fd into the completion loop. An evented caller never
 offloads a blocking dial merely to regain an async surface.
 
-**The proof is live.** `zig build iroh-interop` runs two pancake peers over real
+**The proof is live.** `zig build iroh-interop` runs two glowcap peers over real
 iroh endpoints on loopback: relay-less, dialed by node id with direct address
 hints: through the keyed handshake to an open session and a bootstrap fetch
-round-trip. The ALPN is `ocapn/pancake/1`.
+round-trip. The ALPN is `ocapn/glowcap/1`.
 
 **Amendment (2026-06-12): iroh reaches the bindings as a separate public C ABI
 artifact.** Exposing iroh to the language bindings needs a C ABI, and folding it
@@ -89,16 +89,16 @@ ABI, consumed only by `src/net/transport/iroh/sidecar.zig`) and a public frame-l
 two link into
 one library without colliding. They are split by prefix and by artifact name:
 
-- The **private seam** is `pancake_iroh_sidecar_*`, declared in
-  `transports/iroh/include/pancake_iroh_sidecar.h` and emitted by the staticlib
-  `libpancake_iroh_sidecar.a` (the `[lib] name` in
+- The **private seam** is `glowcap_iroh_sidecar_*`, declared in
+  `transports/iroh/include/glowcap_iroh_sidecar.h` and emitted by the staticlib
+  `libglowcap_iroh_sidecar.a` (the `[lib] name` in
   `transports/iroh/Cargo.toml`).
-- The **public ABI** is `pancake_iroh_netlayer_*` / `pancake_iroh_conn_*`,
+- The **public ABI** is `glowcap_iroh_netlayer_*` / `glowcap_iroh_conn_*`,
   declared in the generated header and shipped in the optional iroh archive
   (composed and named per [ADR-0059](ADR-0059-composable-c-abi-archives.md)).
 
 The three hand-written copies of the seam (Rust definitions, the seam header,
-the Zig externs) are held to one shape by the `pancake_iroh_sidecar_` ABI parity
+the Zig externs) are held to one shape by the `glowcap_iroh_sidecar_` ABI parity
 check in `tools/check/source_check.zig`. Nothing about the transport's behavior changed;
 this is a naming boundary that makes the private/public split legible and
 link-safe.
@@ -109,8 +109,8 @@ by `zig build iroh-interop`, which gained a deterministic proof for each:
 
 - **Discovery / relays.** The endpoint takes a configurable, no-default
   `Reachability` (`direct`, `discovery`, `discovery_no_relay`,
-  `local_discovery`): a `u32` on `pancake_iroh_sidecar_endpoint_new` and the
-  public `pancake_iroh_netlayer_*`, surfaced as the `Reachability` enum /
+  `local_discovery`): a `u32` on `glowcap_iroh_sidecar_endpoint_new` and the
+  public `glowcap_iroh_netlayer_*`, surfaced as the `Reachability` enum /
   `IROH-REACH-*` constants in all four bindings. The gate dials by node id
   **alone** through the `local_discovery` address book (no direct-address
   hints); the public-internet posture (`discovery`) is the same path against n0
@@ -144,13 +144,13 @@ authoritative, deterministic iroh gate.
 
 - **Goblins interop over iroh** was out of scope here: Goblins ships no
   netlayer of its own, so this ADR proved the bring-your-own-netlayer contract
-  pancake-to-pancake. It has since been written — an iroh netlayer for Goblins
+  glowcap-to-glowcap. It has since been written — an iroh netlayer for Goblins
   in `conformance/goblins-peer/racket/`, over the Racket binding's byte-channel
   surface — and `zig build goblins-iroh` holds a live session across it. The
   OCapN conversation it carries is the same one the TCP gates prove.
 - **Key unification, peer discovery, and durable identity** shipped: see the
   2026-06-12 "identity-and-discovery capstones" amendment above. (Relays and
-  hole-punching themselves are sidecar-internal; pancake's part is the
+  hole-punching themselves are sidecar-internal; glowcap's part is the
   configurable posture, which landed.)
 - **A completion-loop integration** for QUIC streams is not decided _here_; it
   shipped as [ADR-0057](ADR-0057-iroh-completion-loop-bridge.md): the
@@ -158,7 +158,7 @@ authoritative, deterministic iroh gate.
   model.
 - **The sidecar-versus-native tradeoff has a named flip condition.** A
   dependency this large is acceptable for an optional resident; it is not
-  acceptable for a core product. If the encrypted channel becomes pancake's
+  acceptable for a core product. If the encrypted channel becomes glowcap's
   primary shipped transport (rather than one resident among several) the
   native-path question reopens, and two external facts gate its feasibility:
   iroh's relay and discovery protocols stabilizing into something a second
@@ -174,14 +174,14 @@ authoritative, deterministic iroh gate.
 - **iroh-ffi / UniFFI bindings**: rejected: the generated surface is shaped for
   mobile app consumers, not for a netlayer contract; a hand-rolled ABI of under
   a dozen functions is smaller than the glue UniFFI would generate.
-- **Rust inside `libpancake`**: rejected outright: it would put cargo into
+- **Rust inside `libglowcap`**: rejected outright: it would put cargo into
   every consumer's build and contradict the boring-artifact contract
-  (`libpancake.a`, `libpancake.so`, `pancake.h`, pure Zig).
+  (`libglowcap.a`, `libglowcap.so`, `glowcap.h`, pure Zig).
 
 ## Consequences
 
 - New surfaces: `transports/iroh/` (Cargo.toml pinned to iroh `=1.0.2`,
-  `src/lib.rs`, `include/pancake_iroh_sidecar.h`), the supported
+  `src/lib.rs`, `include/glowcap_iroh_sidecar.h`), the supported
   `src/net/transport/iroh.zig` facade and internal `iroh/` package,
   and the `iroh-lib` / `iroh-interop` build steps wired into `ci/gates.sh`.
 - The README's "the shipped channel is cleartext TCP" boundary changes the day

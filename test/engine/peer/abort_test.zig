@@ -3,13 +3,13 @@
 //! cannot lose the close, and a promise-cycle consequence stays local.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const codec = pancake.ocapn.codec;
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
+const codec = glowcap.ocapn.codec;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
 const peer_fixture = @import("../../support/peer_fixture.zig");
 
 const harness = @import("harness.zig");

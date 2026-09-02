@@ -16,7 +16,7 @@ export interface BootCapDef {
 	flag: string;
 	/** The flag's env twin, set to `1`. */
 	env: string;
-	/** The file under `PANCAKE_ROOMS_STATE` its swiss persists in. */
+	/** The file under `GLOWCAP_ROOMS_STATE` its swiss persists in. */
 	file: string;
 	/** The flush-left token line the swiss prints under. */
 	token: string;
@@ -30,7 +30,7 @@ export const BOOT_CAPS = {
 	adminListeners: {
 		id: "listeners",
 		flag: "--admin-listeners",
-		env: "PANCAKE_ROOMS_ADMIN_LISTENERS",
+		env: "GLOWCAP_ROOMS_ADMIN_LISTENERS",
 		file: "admin-listeners",
 		token: "ROOMS-ADMIN-LISTENERS",
 		label: "admin-listeners",
@@ -38,7 +38,7 @@ export const BOOT_CAPS = {
 	diagnostics: {
 		id: "diagnostics",
 		flag: "--diagnostics",
-		env: "PANCAKE_ROOMS_DIAGNOSTICS",
+		env: "GLOWCAP_ROOMS_DIAGNOSTICS",
 		file: "diagnostics",
 		token: "ROOMS-DIAGNOSTICS",
 		label: "diagnostics",
@@ -46,7 +46,7 @@ export const BOOT_CAPS = {
 	irc: {
 		id: "irc",
 		flag: "--irc",
-		env: "PANCAKE_ROOMS_IRC",
+		env: "GLOWCAP_ROOMS_IRC",
 		file: "irc",
 		token: "ROOMS-IRC",
 		label: "irc",
@@ -54,7 +54,7 @@ export const BOOT_CAPS = {
 	operator: {
 		id: "operator",
 		flag: "--operator",
-		env: "PANCAKE_ROOMS_OPERATOR",
+		env: "GLOWCAP_ROOMS_OPERATOR",
 		file: "operator",
 		token: "ROOMS-OPERATOR",
 		label: "operator",
@@ -62,7 +62,7 @@ export const BOOT_CAPS = {
 	peering: {
 		id: "peering",
 		flag: "--peering",
-		env: "PANCAKE_ROOMS_PEERING",
+		env: "GLOWCAP_ROOMS_PEERING",
 		file: "peering",
 		token: "ROOMS-PEERING",
 		label: "peering",
@@ -70,7 +70,7 @@ export const BOOT_CAPS = {
 	viz: {
 		id: "viz",
 		flag: "--viz",
-		env: "PANCAKE_ROOMS_VIZ",
+		env: "GLOWCAP_ROOMS_VIZ",
 		file: "viz",
 		token: "ROOMS-VIZ",
 		label: "viz",

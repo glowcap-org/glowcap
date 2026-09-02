@@ -8,10 +8,10 @@ capabilities behind the `/ops` page. [Developing Rooms](developing.md) covers te
 ## Watching the room live
 
 The room server can broadcast its own protocol activity as a timeline the [ocapnviz](../ocapnviz/) viewer draws. Start
-the server with `--viz` (or `PANCAKE_ROOMS_VIZ=1`), switch the viewer to **Live**, and point the Source sturdyref field
-at the printed `ROOMS-VIZ-LISTENING` capability. The endpoint serves on port 9300; `PANCAKE_ROOMS_VIZ_PORT` changes that
+the server with `--viz` (or `GLOWCAP_ROOMS_VIZ=1`), switch the viewer to **Live**, and point the Source sturdyref field
+at the printed `ROOMS-VIZ-LISTENING` capability. The endpoint serves on port 9300; `GLOWCAP_ROOMS_VIZ_PORT` changes that
 default and enables nothing on its own. Enabling also mints the viz capability: one swiss number, persisted under
-`PANCAKE_ROOMS_STATE` and printed as a `ROOMS-VIZ` token line, which the endpoint requires of every socket — reading the
+`GLOWCAP_ROOMS_STATE` and printed as a `ROOMS-VIZ` token line, which the endpoint requires of every socket — reading the
 timeline and writing traces into it alike. The sturdyref carries that swiss as its swissnum, so the viewer needs nothing
 beyond the announcement:
 
@@ -22,7 +22,7 @@ deno run --allow-ffi --allow-net --allow-read --allow-env \
 
 Entering Live connects to the feed. Press **Record** to capture: every session the room accepts, every message in either
 direction, and every close draws on the stage from that moment. **Stop** hands the capture to Play, where it replays
-like any other recording. The stream is the same versioned timeline schema `pancake griddle run` prints.
+like any other recording. The stream is the same versioned timeline schema `glowcap griddle run` prints.
 
 Direct messages never go through the room, so each member also publishes its own trace to the same viz endpoint. A
 browser tab reaches it through its own page origin: `/viz` and `/publish` on the web server carry the socket to the
@@ -47,12 +47,12 @@ zig build rooms-web-tcp -Dviz
 ```
 
 The supervisor keeps one room identity across child crashes. A child that had been serving and then died comes straight
-back; one that exits the moment it starts, which is what a taken port or an unreachable state directory looks like, is
+back; one that exits the moment it starts, the shape of a taken port or an unreachable state directory, is
 restarted more slowly each time up to half a minute, so the line it printed about why stays readable instead of
 scrolling past under copies of itself.
 
-Its development default is a private temporary `PANCAKE_ROOMS_STATE` directory that lives as long as `serve.ts`. Set
-`PANCAKE_ROOMS_STATE` yourself when identity, issued room links, public topics, operator-added listeners, and IRC bridge
+Its development default is a private temporary `GLOWCAP_ROOMS_STATE` directory that lives as long as `serve.ts`. Set
+`GLOWCAP_ROOMS_STATE` yourself when identity, issued room links, public topics, operator-added listeners, and IRC bridge
 choices must survive restarting the web supervisor. The container deployment does this with its `rooms-state` volume.
 Rooms has no released persistence predecessor. The current `rooms.json` uses version one and refuses every other shape
 without rewriting it. Delete stale development state explicitly before starting a peer built against a replaced
@@ -67,14 +67,16 @@ Source field that sturdyref.
 
 ## The IRC gateway
 
-`--irc` (or `PANCAKE_ROOMS_IRC=1`) mints an operator capability and prints it as `ROOMS-IRC`. Its `openIrcNetwork`
-method retains a named network configuration and returns a connection capability. The connection may have no channels;
-in that state it remains manageable without opening a socket. Calling `joinIrc` on the connection stands a channel
-beside the native rooms. Readers enter, list, and watch it like any other room, and IRC members appear as `irc/<nick>`.
-Calling `partIrc` removes only that channel. Parting the final channel closes the shared feed transport but retains the
-network capability; `closeIrcNetwork` deletes the network and every channel beneath it. Either removal ends each live
-Rooms membership before another send can be admitted. Recreating the same named bridge mints a fresh publication
-generation, and durable sessions rebind that saved conversation only after the directory advertises the replacement.
+`--irc` (or `GLOWCAP_ROOMS_IRC=1`) mints an operator capability and prints it as `ROOMS-IRC`. The gateway describes
+itself as an ordinary bridge gateway, so the Operations pane draws it without knowing IRC: a form to open a connection
+(an IRC network), a form to add a lease under one (a channel), and the connections it currently holds. Opening a
+connection retains a named network configuration. The connection may have no channels, and in that state it stays
+manageable without opening a socket. Adding a channel stands it beside the native rooms. Readers enter, list, and watch
+it like any other room, and IRC members appear as `irc/<nick>`. Removing a channel takes down only that channel.
+Parting the last one closes the shared feed transport but keeps the network, and closing the connection deletes the
+network and every channel beneath it. Either removal ends each live Rooms membership before another send can be
+admitted. Recreating the same named bridge mints a fresh publication generation, and durable sessions rebind that saved
+conversation only after the directory advertises the replacement.
 
 One shared IRC connection per configured network carries the feed whenever at least one channel enacts it. Members are
 IRC citizens through one identity connection per network. Subscribing adds that channel to the connection under the
@@ -99,10 +101,10 @@ and the channel leases beneath each one without exposing passwords.
 
 ## Storage and room history
 
-Storage is something the operator grants the server, off by default. `--history` (or `PANCAKE_ROOMS_HISTORY=1`) turns
+Storage is something the operator grants the server, off by default. `--history` (or `GLOWCAP_ROOMS_HISTORY=1`) turns
 retention on: each listed room keeps its last lines and answers them to any member who asks; the browser asks on
 entering a room whose log is empty and stands the answer under a divider that names the room as the keeper. Where kept
-lines persist is one separate value, `--storage=` (or `PANCAKE_ROOMS_STORAGE`), whose shape picks the implementation
+lines persist is one separate value, `--storage=` (or `GLOWCAP_ROOMS_STORAGE`), whose shape picks the implementation
 inside `server/storage.ts`: a `postgres://` URL opens the managed-database backend, any other scheme is refused out
 loud, a plain value is a directory for the JSONL file backend, and naming nothing keeps the default: the state directory
 when one exists, memory for the life of the process otherwise. Naming a destination is itself a retention statement, so
@@ -110,7 +112,7 @@ it also turns retention on; a destination that cannot be opened is a startup ref
 a silent fall back. No backend name appears above `storage.ts`, and retention semantics — how many lines, when a copy is
 forgotten — live in `history.ts` alone, so a backend can never disagree about policy. The database walk is pinned
 in-tree against RFC 7677's vector and a scripted fixture; `test/storage/postgres_live_test.ts` runs the same round
-trip against a real database whenever `PANCAKE_ROOMS_STORAGE_LIVE_URL` names a disposable one, and reports itself
+trip against a real database whenever `GLOWCAP_ROOMS_STORAGE_LIVE_URL` names a disposable one, and reports itself
 ignored otherwise. File lines retain only their captions. Refiling changes that kept caption, and withdrawing or
 refiling to an empty line removes it; file bytes remain under the attachment store's separate bounds and never enter
 room history.
@@ -227,7 +229,7 @@ member back. `/kick` and the card's confirmed action ask a member out through th
 ask directly, the room reads why the leave that follows happened, and no ban is minted, so the person can walk straight
 back in. A ban needs an identity to hold against a name, and a nick is not one.
 
-`--operator` (or `PANCAKE_ROOMS_OPERATOR=1`) mints the separate `ROOMS-OPERATOR` capability. It is the recovery root for
+`--operator` (or `GLOWCAP_ROOMS_OPERATOR=1`) mints the separate `ROOMS-OPERATOR` capability. It is the recovery root for
 management and moderation on every local room this server owns, including private rooms by opaque durable identity.
 Active IRC bridges also appear, but their bridge source issues and revokes their moderator capability. Peered rooms
 remain with their remote source and do not appear. A live native room exposes a stable, non-bearer
@@ -257,7 +259,7 @@ occupy the bounded watcher table.
 
 ## Operations capabilities
 
-Swiss numbers persist under `PANCAKE_ROOMS_STATE`, one file per capability, and
+Swiss numbers persist under `GLOWCAP_ROOMS_STATE`, one file per capability, and
 `deno run --allow-read --allow-env apps/rooms/server/capabilities.ts` prints the token lines for whatever that directory
 holds — the same lines the boot block prints, readable any time after startup.
 
@@ -330,7 +332,7 @@ the producer; a shared session publishes from the session process. The peering f
 the listing lasts until explicit revoke or this directory connection ends. Help, from the icon in the Settings header,
 says what a swiss number is. Turning a toggle off drops that capability, and a reconnect drops the session-fetched
 capabilities the same way; the visualizer capability lives on the endpoint socket and survives a directory reconnect. A
-respawn of the same `PANCAKE_ROOMS_STATE` republishes the same swiss numbers, so the printed names keep answering.
+respawn of the same `GLOWCAP_ROOMS_STATE` republishes the same swiss numbers, so the printed names keep answering.
 
 ```sh
 zig build rooms-web -Ddiagnostics
@@ -346,7 +348,7 @@ instead of spawning its own child, and tracing follows however that orphan was s
 does not print a swiss number from this supervisor's empty state directory — it would name a capability nothing on the
 attached server answers. Kill stray servers first when the `ROOMS-VIZ-LISTENING` line doesn't appear.
 
-`PANCAKE_ROOMS_VIZ_PORT=0` takes whatever port is free, and the announce line names the one it bound. A browser tab
+`GLOWCAP_ROOMS_VIZ_PORT=0` takes whatever port is free, and the announce line names the one it bound. A browser tab
 cannot find an endpoint chosen that way, because the port is picked inside the room server and the page is served by
 another process. Keep a fixed port when you want members' direct messages on the timeline, or open the page with
 `?viz=ws://127.0.0.1:<port>/` (the same override the Visualizer pane holds once the capability is taken) — and in every

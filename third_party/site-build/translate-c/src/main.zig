@@ -174,6 +174,10 @@ fn translate(
                 .arch_os_abi = rest,
             });
             try aro_args.append(arena, arg);
+        } else if (mem.cutPrefix(u8, arg, "-mcpu=")) |rest| {
+            try aro_args.ensureUnusedCapacity(arena, 2);
+            aro_args.appendAssumeCapacity("-mcpu");
+            aro_args.appendAssumeCapacity(rest);
         } else if (mem.cutPrefix(u8, arg, "-o=")) |rest| {
             try aro_args.ensureUnusedCapacity(arena, 2);
             aro_args.appendAssumeCapacity("-o");

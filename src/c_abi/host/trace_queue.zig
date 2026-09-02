@@ -1,14 +1,14 @@
 //! The drained half of the live trace: a bounded ring an embedder pops from,
 //! for embedders that cannot hand the library a C function pointer.
 //!
-//! `pancake_host_set_trace` reports each fact through a callback, which is
+//! `glowcap_host_set_trace` reports each fact through a callback, which is
 //! what a native embedder wants — synchronous, allocation-free, and exact.
 //! A browser cannot take that seam: the wasm module admits exactly the fixed
 //! behavior and hosted-retirement callback imports (`zig build
 //! wasm-import-check` holds that set), so a trace callback has nowhere to land.
 //! What such an embedder already does have is the action queue: the host
 //! surfaces its effects as rows the embedder drains on its own schedule
-//! (`pancake_host_next_action`). This is the same shape for the same reason.
+//! (`glowcap_host_next_action`). This is the same shape for the same reason.
 //!
 //! It is a separate queue from the action queue, and deliberately so. An
 //! action is a promise the host must keep, so the action FIFO reserves
@@ -36,7 +36,7 @@ const Slot = struct {
     kind: u32 = 0,
     session: u64 = 0,
     outbound: u8 = 0,
-    provenance: u32 = c.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED,
+    provenance: u32 = c.GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED,
     codec: u32 = 0,
     captp_version: u32 = 0,
     /// Byte counts, in payload order: designator, transport, session id,
@@ -56,7 +56,7 @@ const Slot = struct {
     /// what lets a consumer fold two observers' sightings of one message
     /// together, and clipping it would defeat that exactly when payload
     /// capture is turned down.
-    digest: [c.PANCAKE_TRACE_DIGEST_BYTES]u8 = @splat(0),
+    digest: [c.GLOWCAP_TRACE_DIGEST_BYTES]u8 = @splat(0),
 };
 
 /// A fixed ring of captured trace records.
@@ -125,7 +125,7 @@ pub const TraceQueue = struct {
         }.copy;
         switch (event) {
             .session_open => |open| {
-                slot.kind = c.PANCAKE_TRACE_SESSION_OPEN;
+                slot.kind = c.GLOWCAP_TRACE_SESSION_OPEN;
                 slot.session = open.session.int();
                 slot.provenance = common.provenanceToC(open.provenance);
                 slot.codec = shared.codecToC(open.codec);
@@ -135,7 +135,7 @@ pub const TraceQueue = struct {
                 slot.session_id_len = take(buf, &used, open.session_id);
             },
             .message => |msg| {
-                slot.kind = c.PANCAKE_TRACE_MESSAGE;
+                slot.kind = c.GLOWCAP_TRACE_MESSAGE;
                 slot.session = msg.session.int();
                 slot.outbound = @intFromBool(msg.outbound);
                 slot.verb_len = take(buf, &used, msg.verb);
@@ -144,7 +144,7 @@ pub const TraceQueue = struct {
                 slot.frame_len = take(buf, &used, msg.frame);
             },
             .session_close => |close| {
-                slot.kind = c.PANCAKE_TRACE_SESSION_CLOSE;
+                slot.kind = c.GLOWCAP_TRACE_SESSION_CLOSE;
                 slot.session = close.session.int();
             },
         }
@@ -156,8 +156,8 @@ pub const TraceQueue = struct {
     /// Fill `out` from the oldest captured record and drop it from the ring.
     /// The byte views point into this queue's payload block and stay valid
     /// until the next pop overwrites that window, the same until-the-next-pop
-    /// borrow `pancake_host_next_action` carries. False when empty.
-    pub fn pop(self: *TraceQueue, out: *c.PancakeTraceEvent) bool {
+    /// borrow `glowcap_host_next_action` carries. False when empty.
+    pub fn pop(self: *TraceQueue, out: *c.GlowcapTraceEvent) bool {
         if (self.len == 0) return false;
         const index = self.head;
         const slot = self.slots[index];

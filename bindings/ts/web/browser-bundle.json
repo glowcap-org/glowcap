@@ -1,16 +1,16 @@
 {
 	"//": "The browser-adapter base config. It maps the runtime FFI subpath to the wasm adapter's stem-only resolver, keeping the native archive cascade out of a browser graph. The node:net and bun:ffi stubs cover adapters a bundler may discover through the dynamic import even though the injected web adapter never selects them. Applications extend this config and add their own dependencies.",
 	"imports": {
-		"@pancake/web": "./mod.ts",
-		"@pancake/runtime": "../runtime/mod.ts",
-		"@pancake/runtime/websocket": "../runtime/websocket.ts",
-		"@pancake/runtime/ffi": "./browser_ffi.ts",
-		"@pancake/runtime/transport": "../runtime/transport.ts",
-		"@pancake/relay": "../relay/mod.ts",
-		"@pancake/iroh": "./browser_iroh_stub.ts",
-		"@pancake/iroh/internal": "./browser_iroh_stub.ts",
-		"@pancake/webrtc": "../webrtc/mod.ts",
-		"@pancake/webrtc/channel": "../webrtc/channel.ts",
+		"@glowcap/web": "./mod.ts",
+		"@glowcap/runtime": "../runtime/mod.ts",
+		"@glowcap/runtime/websocket": "../runtime/websocket.ts",
+		"@glowcap/runtime/ffi": "./browser_ffi.ts",
+		"@glowcap/runtime/transport": "../runtime/transport.ts",
+		"@glowcap/relay": "../relay/mod.ts",
+		"@glowcap/iroh": "./browser_iroh_stub.ts",
+		"@glowcap/iroh/internal": "./browser_iroh_stub.ts",
+		"@glowcap/webrtc": "../webrtc/mod.ts",
+		"@glowcap/webrtc/channel": "../webrtc/channel.ts",
 		"node:net": "./browser_ffi_stubs.ts",
 		"bun:ffi": "./browser_ffi_stubs.ts"
 	}

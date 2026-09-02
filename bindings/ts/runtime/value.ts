@@ -33,8 +33,8 @@ import {
 	IROH_REACH_LOCAL_DISCOVERY,
 	NATIVE_CAPTP_VERSION as ABI_NATIVE_CAPTP_VERSION,
 	NATIVE_CODEC as ABI_NATIVE_CODEC,
-} from "@pancake/abi";
-import { PancakeError } from "./errors.ts";
+} from "@glowcap/abi";
+import { GlowcapError } from "./errors.ts";
 
 /** Tag a string so it marshals as an OCapN symbol rather than a string. */
 export class Sym {
@@ -88,7 +88,7 @@ export type Argument =
 export type Codec = "syrup" | "capnp";
 
 /** The CapTP profile a session speaks (ADR-0003): `v1_0` is the interop floor
- * a Goblins vat and the upstream suite speak, `next` the pancake-to-pancake
+ * a Goblins vat and the upstream suite speak, `next` the glowcap-to-glowcap
  * track that `Offer.native` prefers together with Cap'n Proto. A `Host`
  * advertises its preference in signed locator hints and the session settles
  * the pair with its partner. */
@@ -111,23 +111,23 @@ export function codecFromId(codec: number, source = "generated default"): Codec 
 	if (codec === CODEC_SYRUP) return "syrup";
 	if (codec === CODEC_CAPNP) return "capnp";
 	if (source === "generated default") {
-		throw new TypeError(`pancake ABI generated unknown default codec ${String(codec)}`);
+		throw new TypeError(`glowcap ABI generated unknown default codec ${String(codec)}`);
 	}
-	throw new PancakeError(INTERNAL, `pancake ABI returned unknown ${source} codec ${String(codec)}`);
+	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown ${source} codec ${String(codec)}`);
 }
 
 export function captpVersionFromId(version: number, source = "generated default"): CaptpVersion {
 	if (version === CAPTP_V1_0) return "v1_0";
 	if (version === CAPTP_NEXT) return "next";
 	if (source === "generated default") {
-		throw new TypeError(`pancake ABI generated unknown default CapTP version ${String(version)}`);
+		throw new TypeError(`glowcap ABI generated unknown default CapTP version ${String(version)}`);
 	}
-	throw new PancakeError(INTERNAL, `pancake ABI returned unknown ${source} CapTP version ${String(version)}`);
+	throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown ${source} CapTP version ${String(version)}`);
 }
 
 export function sessionProfileFromAbi(captpVersion: number, codec: number, features: number): SessionProfile {
 	if (!Number.isInteger(features) || features < 0 || features > MAX_U32 || (features & ~FEATURE_FULL) !== 0) {
-		throw new PancakeError(INTERNAL, `pancake ABI returned unknown session feature mask ${String(features)}`);
+		throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown session feature mask ${String(features)}`);
 	}
 	return {
 		captpVersion: captpVersionFromId(captpVersion, "session"),
@@ -238,9 +238,9 @@ export function featureMask(features: FeatureSet): number {
  * - `LocalDiscovery`: in-process address book (tests / same process).
  *
  * The type lives in the core so `connect` and `Host` name the posture without a
- * runtime dependency on the optional `@pancake/iroh` package (which re-exports
- * this enum); the members read the generated `@pancake/abi` mirror of
- * `libpancake_net_transport_iroh`, so they cannot drift from the C ABI. A `tcp`
+ * runtime dependency on the optional `@glowcap/iroh` package (which re-exports
+ * this enum); the members read the generated `@glowcap/abi` mirror of
+ * `libglowcap_net_transport_iroh`, so they cannot drift from the C ABI. A `tcp`
  * locator ignores it. */
 export enum Reachability {
 	Direct = IROH_REACH_DIRECT,

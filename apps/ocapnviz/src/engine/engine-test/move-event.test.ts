@@ -108,7 +108,7 @@ engineTest("move-event slides a peer's renames with the peer", () => {
 				t: 100,
 				kind: "peer-joined",
 				peerId: "127.0.0.1:0",
-				profile: "pancake",
+				profile: "glowcap",
 				label: "127.0.0.1:0",
 			},
 			{
@@ -149,7 +149,7 @@ engineTest("move-event slides a whole peer earlier", () => {
 				t: 1100,
 				kind: "peer-joined",
 				peerId: "x",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "p2",
@@ -182,7 +182,7 @@ engineTest("move-event refuses a rename dragged before its peer joins", () => {
 				t: 1000,
 				kind: "peer-joined",
 				peerId: "x",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "p2",

@@ -9,10 +9,10 @@
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const driver = pancake.driver;
-const crypto = pancake.foundation.crypto;
+const driver = glowcap.driver;
+const crypto = glowcap.foundation.crypto;
 
 /// The published greeter: answers `greet(name)` with a greeting built in the
 /// turn's arena, which outlives the reply encode and nothing more.
@@ -36,20 +36,20 @@ fn host(server: *driver.Server) !void {
 /// The client half, the README's Quick Start snippet, verbatim.
 fn client(io: std.Io, allocator: std.mem.Allocator, peer_key: []const u8, address: []const u8) !void {
     // Noise_XK seals the CapTP stream and proves the dialed key.
-    var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
-    const netlayers = [_]pancake.net.netlayer.Netlayer{noise_resident.netlayer()};
-    var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
-    const partner = pancake.net.tcp.noise.locator(peer_key, address, &hint_storage);
+    var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
+    var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
+    const partner = glowcap.net.tcp.noise.locator(peer_key, address, &hint_storage);
 
-    const session = try pancake.driver.connect(
+    const session = try glowcap.driver.connect(
         allocator,
         &netlayers,
         partner,
         .ephemeral,
         // Never leave a network wait unbounded.
         .{
-            .handshake = pancake.driver.default_handshake_budget,
-            .settle = pancake.driver.default_settle_budget,
+            .handshake = glowcap.driver.default_handshake_budget,
+            .settle = glowcap.driver.default_settle_budget,
         },
     );
     defer session.deinit();
@@ -75,7 +75,7 @@ pub fn main(init: std.process.Init) !void {
 
     const seed = @as([32]u8, @splat(7));
     const secret = crypto.SecretKey.fromSeed(seed);
-    var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
+    var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
         noise_resident.netlayer(),
@@ -94,7 +94,7 @@ pub fn main(init: std.process.Init) !void {
     @memcpy(key_buf[0..advertised.designator.len], advertised.designator);
     const peer_key = key_buf[0..advertised.designator.len];
     var addr_buf: [64]u8 = undefined;
-    const advertised_addr = pancake.net.netlayer.directAddrHint(advertised.hints) orelse
+    const advertised_addr = glowcap.net.netlayer.directAddrHint(advertised.hints) orelse
         return error.MissingBoundAddress;
     if (advertised_addr.len > addr_buf.len) return error.DesignatorUnavailable;
     @memcpy(addr_buf[0..advertised_addr.len], advertised_addr);

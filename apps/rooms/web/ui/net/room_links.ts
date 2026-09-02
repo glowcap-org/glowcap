@@ -1,7 +1,7 @@
 // Durable room links on an already-open directory session.
 
 import * as store from "../store.ts";
-import { PublicationNotFound, type Ref } from "@pancake/runtime";
+import { PublicationNotFound, type Ref } from "@glowcap/runtime";
 import { roomCalledAs } from "../../../lib/room/client.ts";
 import { roomAuthorityToken } from "../../../lib/room/authority.ts";
 import { joinedForLink, roomLinkDestination } from "../joining.ts";

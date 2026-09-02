@@ -1,13 +1,13 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 // Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
 // refusal, and same-seed-fresh-port restart — the Deno sibling of
 // `test/driver/keyed_tcp_restart_test.zig`.
 //
-// Needs deno and the installed pancake archives; run via
+// Needs deno and the installed glowcap archives; run via
 // `zig build deno-keyed-tcp-restart`.
 
-import { type Locator, Runtime } from "@pancake/runtime";
-import type { Server } from "@pancake/tcp";
+import { type Locator, Runtime } from "@glowcap/runtime";
+import type { Server } from "@glowcap/tcp";
 
 const GREETING = "hello from the keyed listener";
 const SEED_HAPPY = new Uint8Array(32).fill(0x71);

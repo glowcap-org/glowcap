@@ -4,7 +4,7 @@
 // one carries its own deadline and its own sentence for what did not answer.
 // One helper, so no call site invents a different wait or a vaguer reason.
 
-import type { Argument, Ref, Session } from "@pancake/runtime";
+import type { Argument, Ref, Session } from "@glowcap/runtime";
 import { answerWithin } from "./deadline.ts";
 import { REQUEST_TIMEOUT_MS } from "./limits.ts";
 

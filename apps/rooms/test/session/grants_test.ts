@@ -1,4 +1,4 @@
-import { DURABLE_SWISS_ENTROPY_BYTES, type Session } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES, type Session } from "@glowcap/runtime";
 import { assertEquals } from "../assert.ts";
 import { type RoomsSessionGrantPublisher, type RoomsSessionGrantRecord } from "../../session/grants.ts";
 import { MAX_ACTIVE_SESSION_GRANTS } from "../../lib/limits.ts";
@@ -48,7 +48,7 @@ class FakePublisher implements RoomsSessionGrantPublisher {
 }
 
 Deno.test("opening a durable grant ledger has no publication effect", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-grants-open-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-grants-open-" });
 	try {
 		const publisher = new FakePublisher();
 		publisher.beforePublish = () => {
@@ -62,7 +62,7 @@ Deno.test("opening a durable grant ledger has no publication effect", async () =
 });
 
 Deno.test("durable session grants persist before publication and retry by exact id", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-grants-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-grants-" });
 	try {
 		const publisher = new FakePublisher();
 		publisher.beforePublish = () => {
@@ -86,7 +86,7 @@ Deno.test("durable session grants persist before publication and retry by exact 
 });
 
 Deno.test("durable session grants restore the same sturdyref and tombstone revocation", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-grants-restart-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-grants-restart-" });
 	try {
 		const firstPublisher = new FakePublisher();
 		const first = await openSessionGrants(directory, ROOT_ENTROPY, firstPublisher);
@@ -120,7 +120,7 @@ Deno.test("durable session grants restore the same sturdyref and tombstone revoc
 });
 
 Deno.test("durable session grant admission is bounded and malformed state refuses startup", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-grants-bound-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-grants-bound-" });
 	try {
 		const grants = await openSessionGrants(directory, ROOT_ENTROPY, new FakePublisher());
 		for (let at = 1; at <= MAX_ACTIVE_SESSION_GRANTS; at += 1) {
@@ -145,7 +145,7 @@ Deno.test("durable session grant admission is bounded and malformed state refuse
 });
 
 Deno.test("durable grant publication failures remain retryable and revocation cleanup cannot hide commit", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-grants-failure-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-grants-failure-" });
 	try {
 		const publisher = new FakePublisher();
 		const grants = await openSessionGrants(directory, ROOT_ENTROPY, publisher);

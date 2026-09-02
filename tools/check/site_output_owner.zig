@@ -7,7 +7,7 @@
 
 const std = @import("std");
 
-const marker_name = ".pancake-site";
+const marker_name = ".glowcap-site";
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.arena.allocator();

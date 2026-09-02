@@ -14,7 +14,7 @@
 
 import * as store from "../store.ts";
 import { type Attachment, fetchBlob } from "../../../lib/attachment.ts";
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import type { Room } from "../../../lib/room/client.ts";
 import { BLOB_EXPIRED, roomErrorOf } from "../../../lib/errors.ts";
 import type { Item, ViewerDirection } from "../types.ts";

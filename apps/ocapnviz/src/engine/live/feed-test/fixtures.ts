@@ -10,7 +10,7 @@ import type { TimelineEvent } from "../../timeline.ts";
 import {
 	type BuiltinCaptpVersion,
 	CAPTP_VERSION_WIRE,
-	PANCAKE_PROFILE,
+	GLOWCAP_PROFILE,
 	type PeerProfile,
 } from "../../../schema/topology.ts";
 import { endpointNodeId } from "../../../schema/session-end.ts";
@@ -88,8 +88,8 @@ export function opened(
 	 *
 	 * `profile` is what the producer STATES it runs, and it is left off by
 	 * default because that is what the wire looks like when a producer says
-	 * nothing. A test that means "a pancake host is reporting this" says so,
-	 * the way a pancake binding says so on every record it publishes. */
+	 * nothing. A test that means "a glowcap host is reporting this" says so,
+	 * the way a glowcap binding says so on every record it publishes. */
 	opts: { captp?: BuiltinCaptpVersion; profile?: PeerProfile } = {},
 ): BaseTimelineEvent {
 	return {
@@ -122,9 +122,9 @@ export const ROOM_WIRE_1 = wireName("c");
 export const ROOM_WIRE_2 = wireName("d");
 export const DM_WIRE = wireName("e");
 
-/** Every producer here is a pancake host and says so on every record, which
+/** Every producer here is a glowcap host and says so on every record, which
  * is what the bindings do and therefore what the endpoint actually carries. */
-export const SAYS_PANCAKE = { profile: PANCAKE_PROFILE } as const;
+export const SAYS_GLOWCAP = { profile: GLOWCAP_PROFILE } as const;
 
 const accepting: BaseTimelineEvent[] = [
 	opened(
@@ -134,7 +134,7 @@ const accepting: BaseTimelineEvent[] = [
 		"127.0.0.1:0",
 		ROOM_WIRE_1,
 		false,
-		SAYS_PANCAKE,
+		SAYS_GLOWCAP,
 	),
 	opened(
 		2,
@@ -143,7 +143,7 @@ const accepting: BaseTimelineEvent[] = [
 		"127.0.0.1:0",
 		ROOM_WIRE_2,
 		false,
-		SAYS_PANCAKE,
+		SAYS_GLOWCAP,
 	),
 	opened(
 		4,
@@ -152,7 +152,7 @@ const accepting: BaseTimelineEvent[] = [
 		"127.0.0.1:0",
 		DM_WIRE,
 		false,
-		SAYS_PANCAKE,
+		SAYS_GLOWCAP,
 	),
 ];
 const naming: BaseTimelineEvent[] = [
@@ -163,7 +163,7 @@ const naming: BaseTimelineEvent[] = [
 		"rooms-key",
 		ROOM_WIRE_1,
 		true,
-		SAYS_PANCAKE,
+		SAYS_GLOWCAP,
 	),
 	opened(
 		3,
@@ -172,7 +172,7 @@ const naming: BaseTimelineEvent[] = [
 		"rooms-key",
 		ROOM_WIRE_2,
 		true,
-		SAYS_PANCAKE,
+		SAYS_GLOWCAP,
 	),
 	opened(
 		5,
@@ -181,7 +181,7 @@ const naming: BaseTimelineEvent[] = [
 		"tab2-key",
 		DM_WIRE,
 		true,
-		SAYS_PANCAKE,
+		SAYS_GLOWCAP,
 	),
 ];
 

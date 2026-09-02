@@ -1,6 +1,6 @@
-import { OK } from "@pancake/abi";
+import { OK } from "@glowcap/abi";
 import { Context, recordCallerlessFailure, releaseContext } from "../context.ts";
-import { hostLastError, PancakeError } from "../errors.ts";
+import { GlowcapError, hostLastError } from "../errors.ts";
 import { deferFinalizerRetry, type FinalizerRetry } from "../finalizer_retry.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
@@ -35,12 +35,12 @@ export function releaseHostState(
 	transferRefusal = !checked,
 ): void {
 	if (state.raw === NULL) return;
-	const rc = hostS.pancake_host_release(state.raw);
+	const rc = hostS.glowcap_host_release(state.raw);
 	if (rc === OK) {
 		retireHostFinalizerState(state);
 		return;
 	}
-	const failure = new PancakeError(rc, hostLastError() ?? `native Host release failed (code ${rc})`);
+	const failure = new GlowcapError(rc, hostLastError() ?? `native Host release failed (code ${rc})`);
 	const consumed = releaseConsumed(rc);
 	if (!checked && !state.releaseFailureReported && state.context != null) {
 		state.releaseFailureReported = true;

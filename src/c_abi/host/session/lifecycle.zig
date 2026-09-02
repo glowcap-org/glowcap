@@ -16,71 +16,71 @@ const sessionFrom = common.sessionFrom;
 const instOf = common.instOf;
 const errToCode = common.errToCode;
 
-const PancakeHost = c.PancakeHost;
-const PancakeHostSession = c.PancakeHostSession;
+const GlowcapHost = c.GlowcapHost;
+const GlowcapHostSession = c.GlowcapHostSession;
 
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
-const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
-const PANCAKE_ERR_CLOSED = shared.PANCAKE_ERR_CLOSED;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
+const GLOWCAP_ERR_CLOSED = shared.GLOWCAP_ERR_CLOSED;
 
 fn sessionCloseOutcomeCode(inst: *const common.Instance, session: *const driver_core.HostSession) i32 {
     const delivered = inst.core.sessionCloseActionDelivered(session);
     return if (inst.core.sessionCloseOutcome(session, delivered) == .timed_out)
-        shared.PANCAKE_ERR_TIMEOUT
+        shared.GLOWCAP_ERR_TIMEOUT
     else
-        PANCAKE_OK;
+        GLOWCAP_OK;
 }
 
 fn projectSessionLifecycle(inst: *const common.Instance, session: *const driver_core.HostSession) u32 {
     const delivered = inst.core.sessionCloseActionDelivered(session);
     return switch (inst.core.sessionCloseOutcome(session, delivered)) {
-        .closed, .timed_out => c.PANCAKE_LIFECYCLE_CLOSED,
+        .closed, .timed_out => c.GLOWCAP_LIFECYCLE_CLOSED,
         .pending => switch (session.lifecyclePhase()) {
-            .active => c.PANCAKE_LIFECYCLE_ACTIVE,
-            .finishing => c.PANCAKE_LIFECYCLE_FINISHING,
-            .cancel_pending => c.PANCAKE_LIFECYCLE_TERMINATING,
-            .terminating => c.PANCAKE_LIFECYCLE_TERMINATING,
+            .active => c.GLOWCAP_LIFECYCLE_ACTIVE,
+            .finishing => c.GLOWCAP_LIFECYCLE_FINISHING,
+            .cancel_pending => c.GLOWCAP_LIFECYCLE_TERMINATING,
+            .terminating => c.GLOWCAP_LIFECYCLE_TERMINATING,
         },
     };
 }
 
 fn progressSessionCloses(inst: *common.Instance, now_ms: i64) i32 {
     inst.core.progressSessionCloses(now_ms) catch |err| return errToCode(err);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Seal application admission for one session and begin or escalate its
 /// terminal close. The caller supplies time; the core retains the deadline and
 /// owns escalation while the embedder keeps driving bytes.
-pub export fn pancake_host_session_close(
-    raw: ?*PancakeHostSession,
-    options: ?*const c.PancakeCloseOptions,
+pub export fn glowcap_host_session_close(
+    raw: ?*GlowcapHostSession,
+    options: ?*const c.GlowcapCloseOptions,
     now_ms: i64,
 ) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
-    if (!common.embedderOwnsDrive(inst, "session_close")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "session_close")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const policy = c.parseCloseOptions(options) catch |err| return c.closeOptionsErrorCode("host", err);
     inst.core.beginSessionClose(session, policy, now_ms) catch |err| return errToCode(err);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Apply the caller's current monotonic time to one byte-fed session close.
-pub export fn pancake_host_session_close_progress(
-    raw: ?*PancakeHostSession,
+pub export fn glowcap_host_session_close_progress(
+    raw: ?*GlowcapHostSession,
     now_ms: i64,
     out_state: ?*u32,
 ) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
-    if (!common.embedderOwnsDrive(inst, "session_close_progress")) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const slot = out_state orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "session_close_progress")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    const slot = out_state orelse return GLOWCAP_ERR_NULL_POINTER;
     const rc = progressSessionCloses(inst, now_ms);
-    if (rc != PANCAKE_OK) return rc;
+    if (rc != GLOWCAP_OK) return rc;
     slot.* = projectSessionLifecycle(inst, session);
     return sessionCloseOutcomeCode(inst, session);
 }
@@ -88,12 +88,12 @@ pub export fn pancake_host_session_close_progress(
 /// Observe one byte-fed session's owner lifecycle. CLOSED means the retryable
 /// close action crossed its delivery boundary; release remains separate and
 /// frees the retained shell.
-pub export fn pancake_host_session_lifecycle_state(raw: ?*PancakeHostSession, out_state: ?*u32) i32 {
+pub export fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, out_state: ?*u32) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
-    if (!common.embedderOwnsDrive(inst, "session_lifecycle_state")) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const slot = out_state orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "session_lifecycle_state")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    const slot = out_state orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = projectSessionLifecycle(inst, session);
     return sessionCloseOutcomeCode(inst, session);
 }
@@ -105,7 +105,7 @@ pub export fn pancake_host_session_lifecycle_state(raw: ?*PancakeHostSession, ou
 /// durable key, while route hints carry no semantics here because the
 /// caller's dial executor spent them realizing the channel. A DIAL action
 /// carries only `ticket` — borrow the pending view with
-/// `pancake_host_pending_dial` and pass it back here after opening the
+/// `glowcap_host_pending_dial` and pass it back here after opening the
 /// channel. The host retains its own dial default for the locator's
 /// transport first, never displacing an advertised locator the embedder
 /// explicitly selected, so a bare client host dials without publishing
@@ -116,28 +116,28 @@ pub export fn pancake_host_session_lifecycle_state(raw: ?*PancakeHostSession, ou
 /// through the new session. Sealed sessions derive their Noise ephemeral from
 /// the Host's unique per-session seed under a separate KDF domain; callers do
 /// not branch on transport policy or supply per-open entropy.
-/// `*out_session` is host-owned; release with `pancake_host_session_release`.
-pub export fn pancake_host_session_open_dialed_locator(
-    host: ?*PancakeHost,
-    locator: ?*const shared.PancakeLocatorView,
-    out_session: ?*?*PancakeHostSession,
+/// `*out_session` is host-owned; release with `glowcap_host_session_release`.
+pub export fn glowcap_host_session_open_dialed_locator(
+    host: ?*GlowcapHost,
+    locator: ?*const shared.GlowcapLocatorView,
+    out_session: ?*?*GlowcapHostSession,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "session_open_dialed_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const slot = out_session orelse return PANCAKE_ERR_NULL_POINTER;
-    const view = locator orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "session_open_dialed_locator")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
+    const view = locator orelse return GLOWCAP_ERR_NULL_POINTER;
     var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = shared.locator_adapter.BorrowedLocator.init(inst.allocator, view, &hint_stack) catch |err| {
         if (err == error.OutOfMemory) return errToCode(err);
         shared.setLastError("host: session_open_dialed_locator received an invalid locator view", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
     };
     defer borrowed.deinit(inst.allocator);
     inst.core.ensureAdvertisedLocator(borrowed.value.transport) catch |err| return errToCode(err);
     const session = inst.core.openDialedLocator(borrowed.value) catch |err| return errToCode(err);
     slot.* = @ptrCast(session);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Mint the accepting half of a session over the connection the embedder's
@@ -146,13 +146,13 @@ pub export fn pancake_host_session_open_dialed_locator(
 /// signing designator for a key transport; the accepted local address for an
 /// address transport), and the host retains that locator without displacing an
 /// acceptable location the embedder already selected: an explicit
-/// `pancake_host_set_advertised_locator` is deployment policy and wins, and
+/// `glowcap_host_set_advertised_locator` is deployment policy and wins, and
 /// the accept-derived locator becomes the selection only when there is none.
 /// The session signs the selected snapshot even when it names another
 /// transport. Sealed-channel entropy follows the dialed half's Host-owned
 /// derivation.
-pub export fn pancake_host_session_open_accepted(
-    host: ?*PancakeHost,
+pub export fn glowcap_host_session_open_accepted(
+    host: ?*GlowcapHost,
     transport: ?[*]const u8,
     transport_len: usize,
     designator_scheme: u32,
@@ -160,27 +160,27 @@ pub export fn pancake_host_session_open_accepted(
     server_designator_len: usize,
     accepted_local_addr: ?[*]const u8,
     accepted_local_addr_len: usize,
-    out_session: ?*?*PancakeHostSession,
+    out_session: ?*?*GlowcapHostSession,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "session_open_accepted")) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const slot = out_session orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "session_open_accepted")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
     const transport_bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     const sd = shared.sliceFromC(server_designator, server_designator_len) catch |err| return shared.marshalErrorToCode(err);
     const la = shared.sliceFromC(accepted_local_addr, accepted_local_addr_len) catch |err| return shared.marshalErrorToCode(err);
     const scheme: model.transport.DesignatorScheme = switch (designator_scheme) {
-        c.PANCAKE_DESIGNATOR_SCHEME_ADDRESS => .address,
-        c.PANCAKE_DESIGNATOR_SCHEME_KEY => .key,
+        c.GLOWCAP_DESIGNATOR_SCHEME_ADDRESS => .address,
+        c.GLOWCAP_DESIGNATOR_SCHEME_KEY => .key,
         else => {
-            shared.setLastError("host: session_open_accepted designator_scheme is not a PANCAKE_DESIGNATOR_SCHEME_* value", .{});
-            return PANCAKE_ERR_INVALID_ARGUMENT;
+            shared.setLastError("host: session_open_accepted designator_scheme is not a GLOWCAP_DESIGNATOR_SCHEME_* value", .{});
+            return GLOWCAP_ERR_INVALID_ARGUMENT;
         },
     };
     inst.core.ensureAcceptAdvertisedLocator(scheme, sd, la, transport_bytes) catch |err| return errToCode(err);
     const session = inst.core.openAcceptedAdvertised(transport_bytes) catch |err| return errToCode(err);
     slot.* = @ptrCast(session);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Release one session: its still-parked far vows break (their FAIL
@@ -191,21 +191,21 @@ pub export fn pancake_host_session_open_accepted(
 /// success. Targeted handoff wake work remains queued across allocator pressure;
 /// another cleanup failure condemns surviving sessions because retrying this
 /// consumed handle would be invalid.
-pub export fn pancake_host_session_release(raw: ?*PancakeHostSession) i32 {
+pub export fn glowcap_host_session_release(raw: ?*GlowcapHostSession) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return PANCAKE_OK;
+    const session = sessionFrom(raw) orelse return GLOWCAP_OK;
     const inst = instOf(session.host);
-    if (!common.embedderOwnsDrive(inst, "session_release")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "session_release")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     inst.core.releaseSession(session) catch |err| {
         const code = errToCode(err);
         shared.setLastError("host: session_release: {s}", .{@errorName(err)});
         return code;
     };
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Nonzero once the keyed handshake has completed and the session is open.
-pub export fn pancake_host_session_is_open(raw: ?*PancakeHostSession) i32 {
+pub export fn glowcap_host_session_is_open(raw: ?*GlowcapHostSession) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return 0;
     return if (session.sessionOpen()) 1 else 0;
@@ -213,54 +213,54 @@ pub export fn pancake_host_session_is_open(raw: ?*PancakeHostSession) i32 {
 
 /// Read the complete profile this session settled with its partner. All three
 /// outputs are required and written together. Before the keyed handshake opens,
-/// no settled profile exists and the call returns `PANCAKE_ERR_WOULD_BLOCK`;
-/// after the CapTP session becomes terminal it returns `PANCAKE_ERR_CLOSED`.
-pub export fn pancake_host_session_profile(
-    raw: ?*PancakeHostSession,
+/// no settled profile exists and the call returns `GLOWCAP_ERR_WOULD_BLOCK`;
+/// after the CapTP session becomes terminal it returns `GLOWCAP_ERR_CLOSED`.
+pub export fn glowcap_host_session_profile(
+    raw: ?*GlowcapHostSession,
     out_captp_version: ?*u32,
     out_codec: ?*u32,
     out_features: ?*u32,
 ) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    const version = out_captp_version orelse return PANCAKE_ERR_NULL_POINTER;
-    const codec = out_codec orelse return PANCAKE_ERR_NULL_POINTER;
-    const features = out_features orelse return PANCAKE_ERR_NULL_POINTER;
-    if (session.isTerminating()) return PANCAKE_ERR_CLOSED;
+    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const version = out_captp_version orelse return GLOWCAP_ERR_NULL_POINTER;
+    const codec = out_codec orelse return GLOWCAP_ERR_NULL_POINTER;
+    const features = out_features orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (session.isTerminating()) return GLOWCAP_ERR_CLOSED;
     const profile = session.settledProfile() orelse
-        return if (session.sessionClosed()) PANCAKE_ERR_CLOSED else PANCAKE_ERR_WOULD_BLOCK;
+        return if (session.sessionClosed()) GLOWCAP_ERR_CLOSED else GLOWCAP_ERR_WOULD_BLOCK;
     version.* = shared.captpVersionToC(profile.captp_version);
     codec.* = shared.codecToC(profile.codec);
     features.* = shared.featureSetToC(profile.features);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Borrow the actual netlayer symbol this session was opened through. Both
 /// outputs are required and remain valid until the session is released.
-pub export fn pancake_host_session_transport_name(
-    raw: ?*PancakeHostSession,
+pub export fn glowcap_host_session_transport_name(
+    raw: ?*GlowcapHostSession,
     out_name: ?*?[*]const u8,
     out_name_len: ?*usize,
 ) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    const name = out_name orelse return PANCAKE_ERR_NULL_POINTER;
-    const len = out_name_len orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const name = out_name orelse return GLOWCAP_ERR_NULL_POINTER;
+    const len = out_name_len orelse return GLOWCAP_ERR_NULL_POINTER;
     name.* = session.transport.ptr;
     len.* = session.transport.len;
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-/// The id the live trace names this session's rows by (`PancakeTraceEvent`'s
+/// The id the live trace names this session's rows by (`GlowcapTraceEvent`'s
 /// `session`), so an embedder can annotate the same session a trace consumer
 /// is watching. Stable for the session's life and never reused by this host.
-pub export fn pancake_host_session_trace_id(
-    raw: ?*PancakeHostSession,
+pub export fn glowcap_host_session_trace_id(
+    raw: ?*GlowcapHostSession,
     out_id: ?*u64,
 ) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    const out = out_id orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const out = out_id orelse return GLOWCAP_ERR_NULL_POINTER;
     out.* = session.peer_handle.int();
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }

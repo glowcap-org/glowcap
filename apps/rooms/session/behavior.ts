@@ -7,7 +7,7 @@ import {
 	Ref,
 	retainSecondaryFailure,
 	type Session,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import {
 	accessOf,
 	mayInteract,

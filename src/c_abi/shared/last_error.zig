@@ -46,12 +46,12 @@ pub fn setChain(prefix: []const u8, failure: foundation.FailureChain) void {
 
 pub fn failInternal(comptime operation: []const u8, cause: anyerror) i32 {
     set(operation ++ ": {s}", .{@errorName(cause)});
-    return result.PANCAKE_ERR_INTERNAL;
+    return result.GLOWCAP_ERR_INTERNAL;
 }
 
 pub fn failIo(comptime operation: []const u8, cause: anyerror) i32 {
     set(operation ++ ": {s}", .{@errorName(cause)});
-    return result.PANCAKE_ERR_IO;
+    return result.GLOWCAP_ERR_IO;
 }
 
 /// Copy the calling thread's last error, NUL-terminating when `cap > 0`, and

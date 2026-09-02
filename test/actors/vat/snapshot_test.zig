@@ -4,10 +4,10 @@
 //! old revisions old, and an actor id is never reissued after restore.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const cross_peer = @import("../../support/cross_peer.zig");

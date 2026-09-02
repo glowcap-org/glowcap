@@ -3,7 +3,7 @@
 const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 
-/// Pancake's default and native profiles have one semantic owner in the model
+/// Glowcap's default and native profiles have one semantic owner in the model
 /// and one C ABI projection. Bindings translate the generated ids into
 /// host-language option values; they do not choose either tuple themselves.
 pub const rows: []const Ban = &.{
@@ -18,13 +18,13 @@ pub const rows: []const Ban = &.{
         .where = .{ .file = "src/c_abi/shared/profile.zig" },
         .kind = .require,
         .needles = &.{
-            "PANCAKE_DEFAULT_CODEC: u32 = codecToC(model.Preference.default_offer.codec)",
-            "PANCAKE_DEFAULT_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.default_offer.captp_version)",
-            "PANCAKE_DEFAULT_FEATURES: u32 = featureSetToC(model.Preference.default_offer.features)",
-            "PANCAKE_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec)",
-            "PANCAKE_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version)",
-            "PANCAKE_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec)",
-            "PANCAKE_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version)",
+            "GLOWCAP_DEFAULT_CODEC: u32 = codecToC(model.Preference.default_offer.codec)",
+            "GLOWCAP_DEFAULT_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.default_offer.captp_version)",
+            "GLOWCAP_DEFAULT_FEATURES: u32 = featureSetToC(model.Preference.default_offer.features)",
+            "GLOWCAP_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec)",
+            "GLOWCAP_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version)",
+            "GLOWCAP_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec)",
+            "GLOWCAP_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version)",
         },
         .check = "default-profile",
         .why = "the C ABI default profile constants must project model.Preference.default_offer instead of carrying a parallel tuple",
@@ -33,13 +33,13 @@ pub const rows: []const Ban = &.{
         .where = .{ .file = "tools/gen/binding/constants.zig" },
         .kind = .require,
         .needles = &.{
-            "con(\"DEFAULT_CODEC\", c.PANCAKE_DEFAULT_CODEC",
-            "con(\"DEFAULT_CAPTP_VERSION\", c.PANCAKE_DEFAULT_CAPTP_VERSION",
-            "con(\"DEFAULT_FEATURES\", c.PANCAKE_DEFAULT_FEATURES",
-            "con(\"INTEROP_CODEC\", c.PANCAKE_INTEROP_CODEC",
-            "con(\"INTEROP_CAPTP_VERSION\", c.PANCAKE_INTEROP_CAPTP_VERSION",
-            "con(\"NATIVE_CODEC\", c.PANCAKE_NATIVE_CODEC",
-            "con(\"NATIVE_CAPTP_VERSION\", c.PANCAKE_NATIVE_CAPTP_VERSION",
+            "con(\"DEFAULT_CODEC\", c.GLOWCAP_DEFAULT_CODEC",
+            "con(\"DEFAULT_CAPTP_VERSION\", c.GLOWCAP_DEFAULT_CAPTP_VERSION",
+            "con(\"DEFAULT_FEATURES\", c.GLOWCAP_DEFAULT_FEATURES",
+            "con(\"INTEROP_CODEC\", c.GLOWCAP_INTEROP_CODEC",
+            "con(\"INTEROP_CAPTP_VERSION\", c.GLOWCAP_INTEROP_CAPTP_VERSION",
+            "con(\"NATIVE_CODEC\", c.GLOWCAP_NATIVE_CODEC",
+            "con(\"NATIVE_CAPTP_VERSION\", c.GLOWCAP_NATIVE_CAPTP_VERSION",
         },
         .check = "default-profile",
         .why = "generated binding constants must include the C-owned default profile tuple",
@@ -48,13 +48,13 @@ pub const rows: []const Ban = &.{
         .where = .{ .file = "tools/gen/binding/ts_abi.zig" },
         .kind = .require,
         .needles = &.{
-            "k(\"DEFAULT_CODEC\", \"PANCAKE_DEFAULT_CODEC\")",
-            "k(\"DEFAULT_CAPTP_VERSION\", \"PANCAKE_DEFAULT_CAPTP_VERSION\")",
-            "k(\"DEFAULT_FEATURES\", \"PANCAKE_DEFAULT_FEATURES\")",
-            "k(\"INTEROP_CODEC\", \"PANCAKE_INTEROP_CODEC\")",
-            "k(\"INTEROP_CAPTP_VERSION\", \"PANCAKE_INTEROP_CAPTP_VERSION\")",
-            "k(\"NATIVE_CODEC\", \"PANCAKE_NATIVE_CODEC\")",
-            "k(\"NATIVE_CAPTP_VERSION\", \"PANCAKE_NATIVE_CAPTP_VERSION\")",
+            "k(\"DEFAULT_CODEC\", \"GLOWCAP_DEFAULT_CODEC\")",
+            "k(\"DEFAULT_CAPTP_VERSION\", \"GLOWCAP_DEFAULT_CAPTP_VERSION\")",
+            "k(\"DEFAULT_FEATURES\", \"GLOWCAP_DEFAULT_FEATURES\")",
+            "k(\"INTEROP_CODEC\", \"GLOWCAP_INTEROP_CODEC\")",
+            "k(\"INTEROP_CAPTP_VERSION\", \"GLOWCAP_INTEROP_CAPTP_VERSION\")",
+            "k(\"NATIVE_CODEC\", \"GLOWCAP_NATIVE_CODEC\")",
+            "k(\"NATIVE_CAPTP_VERSION\", \"GLOWCAP_NATIVE_CAPTP_VERSION\")",
         },
         .check = "default-profile",
         .why = "the TypeScript ABI generator must mirror the C-owned default profile tuple",
@@ -97,7 +97,7 @@ pub const rows: []const Ban = &.{
         .why = "default profile initializers use model.Preference.default_offer; baseline is only negotiation fallback vocabulary",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_abi_value.py" },
+        .where = .{ .file = "bindings/python/glowcap/_abi_value.py" },
         .kind = .require,
         .needles = &.{
             "_DEFAULT_CODEC = _codec_name(_abi.DEFAULT_CODEC)",
@@ -113,14 +113,14 @@ pub const rows: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/pancake/_host/__init__.py",
-            "bindings/python/pancake/_loop/__init__.py",
-            "bindings/python/pancake/_dial.py",
-            "bindings/python/pancake/_tcp_listen.py",
-            "bindings/python/pancake/_iroh_async.py",
-            "bindings/python/pancake/inproc.py",
-            "bindings/python/pancake/tcp.py",
-            "bindings/python/pancake/onion.py",
+            "bindings/python/glowcap/_host/__init__.py",
+            "bindings/python/glowcap/_loop/__init__.py",
+            "bindings/python/glowcap/_dial.py",
+            "bindings/python/glowcap/_tcp_listen.py",
+            "bindings/python/glowcap/_iroh_async.py",
+            "bindings/python/glowcap/inproc.py",
+            "bindings/python/glowcap/tcp.py",
+            "bindings/python/glowcap/onion.py",
         } },
         .kind = .forbid,
         .needles = &.{
@@ -133,7 +133,7 @@ pub const rows: []const Ban = &.{
         .why = "Python constructor defaults come from generated C ABI defaults, not host-local literals",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host/__init__.py" },
+        .where = .{ .file = "bindings/python/glowcap/_host/__init__.py" },
         .kind = .require,
         .needles = &.{
             "profile: Optional[str] = None",

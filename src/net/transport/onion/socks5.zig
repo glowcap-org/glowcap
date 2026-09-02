@@ -1,6 +1,6 @@
 //! The SOCKS5 client that reaches an onion service through a local Tor.
 //!
-//! Every byte here is dictated by the peers pancake must meet, so the module
+//! Every byte here is dictated by the peers glowcap must meet, so the module
 //! builds and parses bytes and performs no I/O. The two implementations it has
 //! to agree with are the pinned Goblins
 //! (`conformance/spritely-goblins/upstream/goblins/ocapn/netlayer/onion-socks.rkt`)
@@ -26,7 +26,7 @@ pub const virtual_port: u16 = 9045;
 pub const service_id_len = 56;
 
 /// The `.onion` suffix the SOCKS request carries after the service id. The
-/// transport label in a locator supplies it, so pancake stores the designator
+/// transport label in a locator supplies it, so glowcap stores the designator
 /// without it and appends it here.
 pub const onion_suffix = ".onion";
 

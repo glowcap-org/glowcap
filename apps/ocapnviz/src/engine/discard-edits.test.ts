@@ -59,7 +59,7 @@ const source = {
 			t: 0,
 			kind: "peer-joined",
 			peerId: "a",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "e2",
@@ -104,7 +104,7 @@ engineTest("a discard puts the whole document back", () => {
 	const e = freshEngine();
 	e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 5, y: 6 },
 	});
 	e.dispatch({
@@ -186,7 +186,7 @@ engineTest("a discard empties the history it swept past", () => {
 	const e = freshEngine();
 	e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 1, y: 2 },
 	});
 	e.dispatch({ kind: "update-peer", peerId: "b", patch: { label: "Bee" } });
@@ -205,7 +205,7 @@ engineTest("undo all reaches the same place and keeps the way back", () => {
 	const e = freshEngine();
 	e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 1, y: 2 },
 	});
 	e.dispatch({ kind: "update-peer", peerId: "b", patch: { label: "Bee" } });
@@ -297,7 +297,7 @@ engineTest("a discard re-seeks, so the world agrees with the document", () => {
 	e.seekTo(0);
 	const added = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 3, y: 4 },
 	});
 	assert(added !== undefined);

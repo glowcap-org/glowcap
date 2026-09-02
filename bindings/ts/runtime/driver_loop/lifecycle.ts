@@ -17,8 +17,8 @@
 // trampolines fire inside it; provider starts are nonblocking, and readiness
 // drives connect completion and CapTP handshakes through later steps.
 
-import { OK, TIMEOUT } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { OK, TIMEOUT } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import { checkDriver, driverCall, driverLastError } from "../internal/driver_failure.ts";
 import { loopS } from "../internal/ffi/driver.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
@@ -62,7 +62,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		}
 		if (this._closing != null) return this._closing;
 		this._closeRequested = true;
-		checkDriver(loopS.pancake_driver_retire(this._h));
+		checkDriver(loopS.glowcap_driver_retire(this._h));
 		// Retire changes what a step can conclude while a close driver may
 		// already be parked; wake it so it re-reads progress.
 		this._wrapper.signalCloseActivity();
@@ -73,7 +73,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 	}
 
 	protected _beginClose(encoded: Uint8Array): void {
-		checkDriver(loopS.pancake_driver_close(this._h, encoded));
+		checkDriver(loopS.glowcap_driver_close(this._h, encoded));
 		// The close call escalates pending-work policy and may install a new
 		// finite deadline while a close driver is already parked without a
 		// timer; wake it so it re-reads the wait budget.
@@ -82,7 +82,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 
 	protected _closeState(): { readonly closed: boolean; readonly timedOut: boolean } {
 		const out = new Uint8Array(4);
-		const rc = loopS.pancake_driver_lifecycle_state(this._h, ab(out));
+		const rc = loopS.glowcap_driver_lifecycle_state(this._h, ab(out));
 		if (rc !== OK && rc !== TIMEOUT) checkDriver(rc);
 		return {
 			closed: lifecycleClosed(new DataView(out.buffer).getUint32(0, true)),
@@ -90,7 +90,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		};
 	}
 
-	/** Re-arm the loop's one clock from pancake's complete pending-work
+	/** Re-arm the loop's one clock from glowcap's complete pending-work
 	 * deadline. No operation kind is interpreted here: deadline policy and
 	 * arbitration stay native, while JavaScript owns only `setTimeout`. */
 	protected _rearmProgressClock(): void {
@@ -139,7 +139,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 			this._parkStop = true;
 			let wakeFailure: unknown | null = null;
 			try {
-				await loopS.pancake_driver_wake(this._h);
+				await loopS.glowcap_driver_wake(this._h);
 			} catch (error) {
 				// The bounded park still exits and must be joined before release;
 				// retain the wake refusal and report it after that ownership barrier.
@@ -152,12 +152,12 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 			const handle = this._h;
 			const releaseOutcome = driverCall(
 				"driver-loop.close.release",
-				(out) => loopS.pancake_driver_release(handle, out),
+				(out) => loopS.glowcap_driver_release(handle, out),
 			);
 			const releaseResult = releaseOutcome.code;
 			if (!releaseConsumed(releaseResult)) {
 				this._failBackgroundWithRelease(
-					releaseOutcome.error ?? new PancakeError(releaseResult, "driver loop release was refused"),
+					releaseOutcome.error ?? new GlowcapError(releaseResult, "driver loop release was refused"),
 					releaseOutcome,
 				);
 				throw this._terminalFailure;
@@ -173,7 +173,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 			if (releaseOutcome.error !== null) throw releaseOutcome.error;
 			if (wakeFailure !== null) throw wakeFailure;
 			if (timedOut) {
-				throw new PancakeError(TIMEOUT, "finish close exhausted its grace period");
+				throw new GlowcapError(TIMEOUT, "finish close exhausted its grace period");
 			}
 		} catch (error) {
 			this._failBackground(error);
@@ -192,7 +192,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		// may therefore invoke a hosted behavior before this call returns.
 		const prior = enterDeliver(this._wrapper);
 		try {
-			checkDriver(loopS.pancake_driver_session_serve(this._h, ptr));
+			checkDriver(loopS.glowcap_driver_session_serve(this._h, ptr));
 		} finally {
 			exitDeliver(prior);
 		}
@@ -207,7 +207,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 			this._unclaimedSessions.delete(ptr);
 			return;
 		}
-		checkDriver(loopS.pancake_driver_session_release(this._h, ptr));
+		checkDriver(loopS.glowcap_driver_session_release(this._h, ptr));
 		this._unclaimedSessions.delete(ptr);
 		// The release just recorded the session's terminal trace facts, and an
 		// idle loop runs no next step to flush them; drain here so a close is
@@ -221,7 +221,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 	/** Resolve and claim the exporter session named by one Host capability. */
 	claimReferenceExporter(reference: Uint8Array): Ptr | null {
 		const out = new Uint8Array(8);
-		checkDriver(loopS.pancake_driver_claim_reference_exporter(this._h, ab(reference), ab(out)));
+		checkDriver(loopS.glowcap_driver_claim_reference_exporter(this._h, ab(reference), ab(out)));
 		const ptr = outPointer(out);
 		return ptr === NULL ? null : ptr;
 	}
@@ -236,7 +236,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		const created = waiter == null;
 		if (waiter == null) {
 			let resolve!: () => void;
-			let reject!: (error: PancakeError) => void;
+			let reject!: (error: GlowcapError) => void;
 			const promise = new Promise<void>((ok, fail) => {
 				resolve = ok;
 				reject = fail;
@@ -245,11 +245,11 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 			this._sessionCloses.set(ptr, waiter);
 		}
 		try {
-			checkDriver(loopS.pancake_driver_session_close(this._h, ptr, encoded));
+			checkDriver(loopS.glowcap_driver_session_close(this._h, ptr, encoded));
 		} catch (error) {
 			if (!created) return Promise.reject(error);
 			this._sessionCloses.delete(ptr);
-			waiter.reject(error as PancakeError);
+			waiter.reject(error as GlowcapError);
 			return waiter.promise;
 		}
 		// The close call escalates pending-work policy and may install a new
@@ -272,7 +272,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		waiter: {
 			readonly promise: Promise<void>;
 			readonly resolve: () => void;
-			readonly reject: (error: PancakeError) => void;
+			readonly reject: (error: GlowcapError) => void;
 		},
 	): Promise<void> {
 		try {
@@ -289,7 +289,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		} catch (error) {
 			if (this._sessionCloses.get(ptr) === waiter) {
 				this._sessionCloses.delete(ptr);
-				waiter.reject(error as PancakeError);
+				waiter.reject(error as GlowcapError);
 			}
 		}
 	}
@@ -298,15 +298,15 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		const waiter = this._sessionCloses.get(ptr);
 		if (waiter == null) return;
 		const out = new Uint8Array(4);
-		const rc = loopS.pancake_driver_session_lifecycle_state(this._h, ptr, ab(out));
+		const rc = loopS.glowcap_driver_session_lifecycle_state(this._h, ptr, ab(out));
 		if (rc !== OK && rc !== TIMEOUT) {
 			this._sessionCloses.delete(ptr);
-			waiter.reject(new PancakeError(rc, driverLastError() ?? undefined));
+			waiter.reject(new GlowcapError(rc, driverLastError() ?? undefined));
 			return;
 		}
 		if (!lifecycleClosed(new DataView(out.buffer).getUint32(0, true))) return;
 		this._sessionCloses.delete(ptr);
-		if (rc === TIMEOUT) waiter.reject(new PancakeError(TIMEOUT, "finish close exhausted its grace period"));
+		if (rc === TIMEOUT) waiter.reject(new GlowcapError(TIMEOUT, "finish close exhausted its grace period"));
 		else waiter.resolve();
 	}
 }

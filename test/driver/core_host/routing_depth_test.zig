@@ -2,13 +2,13 @@
 //! destination before any vow, operation, or route consequence can begin.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 const host_pair = @import("../../support/host_pair.zig");
 
-const model = pancake.ocapn.model;
-const core = pancake.driver.core;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const core = glowcap.driver.core;
+const actors = glowcap.actors;
 
 const LocalActor = struct {
     pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Message) !model.Argument {

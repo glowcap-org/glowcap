@@ -6,19 +6,19 @@
 // breaks the rest, a closing turn unwinds to the typed CLOSED, and claims
 // stop at what was proved.
 
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 
 import {
 	durableIdentityAuthenticated,
 	encodePeerLocator,
+	GlowcapError,
 	Host,
-	PancakeError,
 	Ref,
 	Runtime,
 	VowBroken,
 } from "../../runtime/mod.ts";
 import { Netlayer as TcpNetlayer } from "../../tcp/transport.ts";
-import { Netlayer as InprocNetlayer } from "@pancake/inproc";
+import { Netlayer as InprocNetlayer } from "@glowcap/inproc";
 
 import { _connectIroh } from "../../iroh/impl.ts";
 
@@ -26,9 +26,9 @@ import { assert, eqBytes, ok } from "./support.ts";
 
 export async function run(managed: Runtime): Promise<void> {
 	// The native TCP transport is its own composable module
-	// (`@pancake/tcp/transport`, riding libpancake_net_transport_tcp). Bind a
+	// (`@glowcap/tcp/transport`, riding libglowcap_net_transport_tcp). Bind a
 	// listener, dial it, accept the peer, and shuttle one whole frame through the
-	// `pancake_tcp_*` endpoints intact. This is the Deno application path.
+	// `glowcap_tcp_*` endpoints intact. This is the Deno application path.
 	{
 		using net = new TcpNetlayer();
 		using listener = net.listen("127.0.0.1", 0);
@@ -45,7 +45,7 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// The in-process transport is its own composable module
-	// (`./transport/inproc.ts`, riding libpancake_net_transport_inproc): the
+	// (`./transport/inproc.ts`, riding libglowcap_net_transport_inproc): the
 	// socket-free sibling of TCP, two peers in one process wired by pipes. Bind a
 	// listener on a string designator, dial it, accept, and shuttle one whole
 	// frame, no kernel transport and no fd.
@@ -257,7 +257,7 @@ export async function run(managed: Runtime): Promise<void> {
 				session.publish("svc", (verb) => {
 					if (verb === "reenter") {
 						// A driving verb inside the turn: the latch refuses it and the
-						// thrown PancakeError's words become the broken answer.
+						// thrown GlowcapError's words become the broken answer.
 						session.publish("nested", () => null);
 						return "unreachable";
 					}
@@ -324,11 +324,11 @@ export async function run(managed: Runtime): Promise<void> {
 				session.host.pendingReleaseCount() === 0,
 				"mid-turn close: parked release drained after the turn",
 			);
-			let closed: PancakeError | null = null;
+			let closed: GlowcapError | null = null;
 			try {
 				await session.send(me, "die");
 			} catch (err) {
-				if (err instanceof PancakeError) closed = err;
+				if (err instanceof GlowcapError) closed = err;
 			}
 			assert(
 				closed !== null && /closed/i.test(closed.message),
@@ -474,7 +474,7 @@ export async function run(managed: Runtime): Promise<void> {
 							transport: "tcp",
 							designator: `127.0.0.1:${port}`,
 							hints: new Map([
-								["pancake/features", "pipelining,handoff,wire_delta,sturdyref,untag"],
+								["glowcap/features", "pipelining,handoff,wire_delta,sturdyref,untag"],
 							]),
 							hintWireForm: "map",
 						}),
@@ -492,5 +492,5 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("the handshake reports a verified session identity and its signed locator claim");
 	}
 
-	ok("drove OCapN through the idiomatic pancake API");
+	ok("drove OCapN through the idiomatic glowcap API");
 }

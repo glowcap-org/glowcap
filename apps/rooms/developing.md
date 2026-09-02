@@ -22,7 +22,7 @@ zig build demo-rooms -Dport=9099 -Dattach=true
 ## Serving on a LAN
 
 The TCP room binds loopback by default. Two knobs open it to a local network, as flags on the web supervisor or as env
-vars on the room server (`PANCAKE_ROOMS_BIND` and `PANCAKE_ROOMS_ANNOUNCE_HOST`; a flag is forwarded to the server as
+vars on the room server (`GLOWCAP_ROOMS_BIND` and `GLOWCAP_ROOMS_ANNOUNCE_HOST`; a flag is forwarded to the server as
 its env var, and setting the env vars directly keeps working):
 
 ```sh
@@ -59,14 +59,14 @@ Transparency logs, so choose the Tailscale machine name with that disclosure in 
 
 `zig build rooms-web-onion` publishes the room directory as a Tor onion service (`--transport=onion` on `serve.ts`)
 while the page itself is still served over HTTP as usual. The supervisor starts a private Tor under a temporary
-directory and stops it with the process; set `PANCAKE_ONION_SOCKS` and `PANCAKE_ONION_CONTROL` to use a Tor you already
+directory and stops it with the process; set `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL` to use a Tor you already
 run (it needs an open control endpoint, which a distribution's Tor does not ship by default).
 
 Three things are worth knowing before reaching for it:
 
-- The onion address is the service key, and the room server keeps that key as `onion-key` in `PANCAKE_ROOMS_STATE`. The
+- The onion address is the service key, and the room server keeps that key as `onion-key` in `GLOWCAP_ROOMS_STATE`. The
   development default is a temporary state directory, so the address lives as long as the supervisor; set
-  `PANCAKE_ROOMS_STATE` when the address must survive restarting it.
+  `GLOWCAP_ROOMS_STATE` when the address must survive restarting it.
 - Tor returns the address before publishing its descriptor, so a peer outside may need retries for some seconds after
   the `ROOMS-SERVER-LISTENING` line. This page's own tabs are unaffected: the relay carries an admitted onion target to
   the service's local forward endpoint (the room port on loopback), the same bytes a circuit would deliver there. The
@@ -76,10 +76,10 @@ Three things are worth knowing before reaching for it:
 
 ## Bringing a Spritely Goblins vat into the room
 
-Every peer described so far is a pancake peer, and a room of pancake peers uses pancake's own wire profile. A
+Every peer described so far is a glowcap peer, and a room of glowcap peers uses glowcap's own wire profile. A
 [Spritely Goblins](https://spritely.institute/goblins/) vat speaks the OCapN v1.0 baseline instead, and it can join the
 same room: each connection settles its own profile from what the two ends offer, so the Goblins member arrives on the
-baseline while the pancake members keep talking to each other on the native one.
+baseline while the glowcap members keep talking to each other on the native one.
 
 Watching that happen takes three terminals and a browser.
 
@@ -92,7 +92,7 @@ it is an adapter for Goblins rather than a transport shipped by Goblins itself. 
 zig build rooms-web-tcp -Dviz
 ```
 
-Open `http://localhost:8000`, enter the room `general`, and pick a nickname. That is your pancake member.
+Open `http://localhost:8000`, enter the room `general`, and pick a nickname. That is your glowcap member.
 
 In a second terminal, start the viewer, switch the top bar to **Live**, and give the Source field the
 `ROOMS-VIZ-LISTENING` sturdyref:
@@ -109,7 +109,7 @@ racket -y conformance/goblins-peer/racket/rooms-chat.rkt \
 ```
 
 This is a chat terminal like `clients/deno/chat.ts`, except that the peer on the other end of it is a Goblins vat rather
-than a pancake one. It takes the same commands — `/list`, `/open <name>`, `/enter <name>`, `/leave`, `/help` — and
+than a glowcap one. It takes the same commands — `/list`, `/open <name>`, `/enter <name>`, `/leave`, `/help` — and
 Ctrl-D quits. Anything else you type is a line in the room. The trailing `9200` is the port the vat's own netlayer
 binds, which is where other members reach it privately.
 
@@ -117,7 +117,7 @@ What you type appears in the browser, what the browser types appears here, and o
 labeled `goblins-carol` and drawn on `syrup/v1_0` while yours stays on `capnp/next`: one room, two implementations, each
 connection on the profile its own two ends could agree on.
 
-`zig build goblins-rooms` runs the same meeting without the browser and checks it: a scripted Goblins vat and a pancake
+`zig build goblins-rooms` runs the same meeting without the browser and checks it: a scripted Goblins vat and a glowcap
 client exchange lines in one room, and the server's own trace has to show the two profiles. The scripted member is
 `conformance/goblins-peer/racket/rooms-member.rkt`, next door to the interactive one.
 
@@ -132,7 +132,7 @@ Over cleartext TCP this needs one thing from the server. The browser reaches eve
 will not open a cleartext socket to an address a page named, so start the server with the vat's own address listed:
 
 ```sh
-PANCAKE_RELAY_TCP_PEERS=127.0.0.1:9200 zig build rooms-web-tcp
+GLOWCAP_RELAY_TCP_PEERS=127.0.0.1:9200 zig build rooms-web-tcp
 ```
 
 Over iroh there is nothing to list: an iroh destination has to be a peer holding the key it is named by, and the relay
@@ -151,8 +151,8 @@ The main scenarios are:
 | `zig build demo-rooms-dm`                | A room introduces two TCP members, which then message off-room.                                                                           | Deno.                                                |
 | `zig build demo-rooms-dm-iroh`           | The same handoff across three iroh endpoints with explicit hints.                                                                         | Deno and Cargo.                                      |
 | `zig build demo-rooms-dm-iroh-discovery` | Handoff using a node id resolved through public n0 discovery.                                                                             | Deno, Cargo, and internet access.                    |
-| `zig build goblins-rooms`                | A real Goblins vat and a pancake client hold one room, on different wire profiles.                                                        | Deno, Racket, and the `goblins` collection.          |
-| `zig build goblins-rooms-dm`             | A browser and a real Goblins vat hold a direct message off-room over TCP, and the vat starts one of its own with a native pancake member. | Deno, Racket, `goblins`, and Playwright Chromium.    |
+| `zig build goblins-rooms`                | A real Goblins vat and a glowcap client hold one room, on different wire profiles.                                                        | Deno, Racket, and the `goblins` collection.          |
+| `zig build goblins-rooms-dm`             | A browser and a real Goblins vat hold a direct message off-room over TCP, and the vat starts one of its own with a native glowcap member. | Deno, Racket, `goblins`, and Playwright Chromium.    |
 | `zig build goblins-rooms-dm-iroh`        | Both Goblins-facing DM directions over encrypted iroh QUIC: the vat exports to the browser, then redeems a native member's introduction.  | Cargo, Deno, Racket, `goblins`, Playwright Chromium. |
 | `zig build rooms-web`                    | Browser peer and iroh room, the ordinary way to run the UI.                                                                               | Deno and Cargo.                                      |
 | `zig build rooms-web-iroh`               | The same UI, named by transport.                                                                                                          | Deno and Cargo.                                      |
@@ -222,7 +222,7 @@ Each client also accepts the `ocapn://…` locator printed by an iroh server.
 
 ## Browser peer and relay
 
-The page loads the WebAssembly `@pancake/web` Host. It is an OCapN peer: it dials the directory, holds room
+The page loads the WebAssembly `@glowcap/web` Host. It is an OCapN peer: it dials the directory, holds room
 capabilities, hosts inbox objects, and redeems introductions itself.
 
 A browser cannot open raw TCP or iroh sockets, so `web/serve.ts` exposes a WebSocket byte relay:
@@ -400,11 +400,11 @@ line they belong to, with the commitment last; only a card's own foot fills the 
 ends its label with an ellipsis and opens a `Confirm` inline: one sentence saying what will be lost, then the way out and
 a red commitment, so a leave, a delete, or a revoke can never wear the same button as a join. Opening one moves focus
 onto the way out, Escape is the way out and stays inside the card, and keeping hands focus back to the act that asked. A
-list of things the surface knows about is `entries`, each with a head (name, a short fact, the acts at the line's end) and its longer facts
+list of things the surface knows about is `entries` (`entries.css`), each with a head (name, a short fact, the acts at the line's end) and its longer facts
 under it. A door to another card is a `launch` row: a mark, a name and one sentence, and the act at the end. Sections
 are an overline title over a `well`. Session setup, the Session, Holdings, and Network tabs, the room and directory
-cards, and every Operations pane are built from these and nothing else, which is what keeps a form in one of them
-looking like a form in the rest.
+cards, and every Operations pane are built from these and nothing else, so a form in one of them looks like a form in
+the rest.
 
 A form that takes a pasted capability opens a card of its own rather than standing on the tab that owns the subject.
 The Session and Holdings tabs are written that way: each card says who keeps data or authority and offers the acts that
@@ -421,8 +421,8 @@ building the row, which only a row on the asked-for page pays. A count is theref
 matches rather than the length of what was sent, and a search over a hundred thousand rooms costs a hundred thousand
 string tests instead of a hundred thousand member lists. `server/operator/inventory.ts` gives every category the same
 face — the wire row, and the act that retires it where one exists — so the search, the paging, and the bulk retire are
-written once. The bulk retire is bounded per call and answers how many rows still match, which is what makes a sweep
-over a very large inventory interruptible and its progress real.
+written once. The bulk retire is bounded per call and answers how many rows still match, so a sweep over a very large
+inventory can be interrupted without losing its real progress.
 
 `RoomsBrowserController` owns presentation and establishment before a session exists. After establishment,
 `RoomsSessionController` supplies either the local or attached implementation of Rooms commands. Both are stable React
@@ -479,7 +479,7 @@ While that card is the workarea, the rail's room panel is a second view of it: o
 destination, all read from the card's own answers and all changed from either side. Picking a directory on the panel's
 line writes the card's locator exactly as typing in the panel's field writes the card's room name, so the panel's line,
 the card's field and the card's stripe move together because all three read that one answer. Those picks are edits and
-file no act, which is what lets them leave every other answer standing; an act would supersede the one the reader is
+file no act, so they leave every other answer standing; an act would supersede the one the reader is
 answering and take what they had typed under it away. The last row of that menu is the way to an address this tab does
 not hold, and both surfaces offer the same one: on the card it puts the caret in the field the menu hangs from, and from
 the panel, which has nowhere to type an address, it hands that same field over.
@@ -535,7 +535,7 @@ an upload capability is the whole authority to fill that file, so `write` never 
 The room hosts the bytes rather than relaying a reference to the sender's own blob. Sender-hosted media reads as the
 purer capability story until you follow it: the recipient must dial the sender, which a browser tab cannot answer
 without per-viewer WebRTC signaling, and the picture dies when the tab closes. Room-hosted media works for every client
-and outlives the poster, which is what a chat application means by posting a picture. The cost is that the server has
+and outlives the poster: that is what a chat application means by posting a picture. The cost is that the server has
 ceilings to keep.
 
 `MAX_SERVER_ATTACHMENT_BYTES` bounds held media across every room, evicting the oldest file anywhere; the per-room

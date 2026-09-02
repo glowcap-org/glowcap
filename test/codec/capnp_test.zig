@@ -1,8 +1,8 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const capnp = pancake.ocapn.codec.capnp;
+const model = glowcap.ocapn.model;
+const capnp = glowcap.ocapn.codec.capnp;
 const wire = capnp.wire;
 
 test "struct pointer round-trips offset and section sizes (both signs)" {
@@ -34,7 +34,7 @@ test "op:gc-answers round-trips through the Cap'n Proto codec" {
     defer frame.deinit();
 
     // A Cap'n Proto frame is word-shaped and a whole number of 8-byte words.
-    try std.testing.expectEqual(pancake.foundation.FrameShape.word, frame.view().shape);
+    try std.testing.expectEqual(glowcap.foundation.FrameShape.word, frame.view().shape);
     try std.testing.expectEqual(@as(usize, 0), frame.bytes().len % wire.WORD_BYTES);
 
     const decoded = try capnp.decodeOwned(allocator, frame.view());
@@ -218,7 +218,7 @@ fn expectRoundTrip(message: model.Message) !void {
     const allocator = std.testing.allocator;
     var frame0 = try capnp.encodeMessage(allocator, message);
     defer frame0.deinit();
-    try std.testing.expectEqual(pancake.foundation.FrameShape.word, frame0.view().shape);
+    try std.testing.expectEqual(glowcap.foundation.FrameShape.word, frame0.view().shape);
     try std.testing.expectEqual(@as(usize, 0), frame0.bytes().len % wire.WORD_BYTES);
 
     const owned1 = try capnp.decodeOwned(allocator, frame0.view());

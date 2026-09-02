@@ -7,7 +7,7 @@
 /// `try_read` and `try_write` return this when the operation cannot make
 /// progress without blocking. Distinct from 0 (clean end of stream on read; a
 /// full window's zero-byte write) and -1 (a dead connection). The iroh
-/// sidecar's `PANCAKE_IROH_WOULD_BLOCK` is the same value, so its trampolines
+/// sidecar's `GLOWCAP_IROH_WOULD_BLOCK` is the same value, so its trampolines
 /// pass results through unchanged.
 pub const would_block: isize = -2;
 

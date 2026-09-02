@@ -2,7 +2,7 @@
 slug: first-impression
 title: First impression
 summary: >-
-  The first code sample, first tab, and first recipe are what pancake is. If
+  The first code sample, first tab, and first recipe are what glowcap is. If
   they are the testing adapter or the smallest walk, the page is presenting
   the scaffold as the product.
 ---
@@ -11,7 +11,7 @@ summary: >-
 
 You read a public surface the way a stranger does: you stop at the first code
 sample, the first tab, the first command, and the first sentence of a family.
-That lead is a fact about pancake, not a teaching trick. If it is the testing
+That lead is a fact about glowcap, not a teaching trick. If it is the testing
 transport, the historically first implementation, or the smallest walk that
 made the API easy to type, the page is showing the scaffold we used to get
 here, not the thing itself.
@@ -47,7 +47,7 @@ into the lead and let the testing path sit where it belongs.
 - Marketing words used instead of moving the real path first.
 - Leading with `tcp`, `keyed-tcp`, or `inproc` on a public first-read.
 - Implementation-order lists (tcp, then Noise, then iroh) on a landing page.
-- Asking the reader to skip the first example in order to see pancake.
+- Asking the reader to skip the first example in order to see glowcap.
 
 ## What good looks like
 

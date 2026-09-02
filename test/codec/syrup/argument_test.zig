@@ -3,10 +3,10 @@
 //! the neutral Args iterator walking every arm.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
 
@@ -62,10 +62,10 @@ test "a Struct with duplicate keys is refused" {
 test "a Struct with keys out of canonical order is refused" {
     // Canonical Syrup orders dictionary entries by the fully-encoded key,
     // lowest octets first (conformance/syrup/upstream/draft-specification.md
-    // § Sorting Algorithm), and every encoder pancake faces emits that order:
+    // § Sorting Algorithm), and every encoder glowcap faces emits that order:
     // the upstream Racket Syrup encoder Goblins and the fixture generator use
     // (impls/racket/syrup/syrup.rkt), the upstream conformance suite's Python
-    // encoder (contrib/syrup.py), and pancake's own writeStruct (ADR-0046).
+    // encoder (contrib/syrup.py), and glowcap's own writeStruct (ADR-0046).
     // `{1"b…1"a…}` spells the same struct as `{1"a…1"b…}`, so a lenient read
     // would admit two wire spellings of one message, refused like a
     // non-canonical length digit. The ascending-key check is also what refuses
@@ -132,7 +132,7 @@ test "Syrup refuses to encode a Struct carrying a duplicate key" {
 test "Syrup refuses to encode a Set carrying a duplicate element" {
     // Symmetric refusal (ADR-0003): the decoder rejects a set with a duplicate
     // element, so the encoder must not emit one — otherwise a model with a
-    // duplicate-element set would encode locally and pancake's own decoder would
+    // duplicate-element set would encode locally and glowcap's own decoder would
     // reject it. Refused at encode with UnsupportedArgument, like a duplicate key.
     const allocator = std.testing.allocator;
     const target = model.Reference{ .far = .{ .import_position = .from(7) } };
@@ -285,7 +285,7 @@ test "neutral Args iterator walks the codec backing in one forward pass" {
 test "Syrup carries a big integer argument byte-identical to the upstream Racket encoder" {
     const allocator = std.testing.allocator;
     // The fixture is a Racket bignum (2^100) serialized by the upstream Syrup
-    // encoder; pancake's `big_integer` arm must produce the same frame, and
+    // encoder; glowcap's `big_integer` arm must produce the same frame, and
     // decode the fixture back to the same model value (ADR-0049).
     const big = model.Argument{ .big_integer = .{
         .negative = false,

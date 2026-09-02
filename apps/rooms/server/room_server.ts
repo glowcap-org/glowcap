@@ -4,7 +4,7 @@
 // aggregate owns application state shared by those sessions. Every inventory
 // that used to live on a module is an explicit resident of this graph.
 
-import { type Host, type Session } from "@pancake/runtime";
+import { type Host, type Session } from "@glowcap/runtime";
 import { DIRECTORY } from "../lib/protocol.ts";
 import type { RoomServerContext } from "./context.ts";
 import { directoryBehavior } from "./directory_behavior.ts";

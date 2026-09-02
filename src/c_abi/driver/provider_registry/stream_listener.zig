@@ -18,8 +18,8 @@ const Adapter = stream.Adapter;
 const listenerRestorationOutcome = owner_mod.listenerRestorationOutcome;
 const failureChainFromProvider = owner_mod.failureChainFromProvider;
 const providerFailureIsEmpty = owner_mod.providerFailureIsEmpty;
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 
 const ListenerBox = struct {
     adapter: *Adapter,
@@ -33,7 +33,7 @@ fn of(ctx: *anyopaque) *Adapter {
 fn closeListenerHandle(self: *Adapter, handle: *anyopaque) ?net.netlayer.ListenerCloseFailure {
     var report = shared.transport_provider.emptyProviderFailure();
     const code = self.table.listener_close.?(self.table.ctx, handle, &report);
-    if (code == PANCAKE_OK) {
+    if (code == GLOWCAP_OK) {
         if (providerFailureIsEmpty(report)) return null;
         self.owner.failContract("stream listener close reported failure data on success");
         self.owner.retainContradictoryReport(report, null);
@@ -72,7 +72,7 @@ pub fn listen(
     } else &.{};
     var result = validation.emptyListenResult();
     var report = shared.transport_provider.emptyProviderFailure();
-    var options_storage: shared.PancakeTransportOperationOptions = undefined;
+    var options_storage: shared.GlowcapTransportOperationOptions = undefined;
     const code = self.table.listen.?(
         self.table.ctx,
         config.designator.ptr,
@@ -83,7 +83,7 @@ pub fn listen(
         &result,
         &report,
     );
-    if (code == PANCAKE_OK and !providerFailureIsEmpty(report)) {
+    if (code == GLOWCAP_OK and !providerFailureIsEmpty(report)) {
         var failure = net.netlayer.ListenFailure.init(error.ProviderContract);
         var cleanup_chain: ?foundation.FailureChain = null;
         if (result.listener) |listener| {
@@ -100,7 +100,7 @@ pub fn listen(
         self.owner.retainContradictoryReport(report, cleanup_chain);
         return .{ .failed = failure };
     }
-    if (code != PANCAKE_OK) {
+    if (code != GLOWCAP_OK) {
         var failure = failureChainFromProvider(code, report) catch blk: {
             self.owner.failContract("stream listen returned an invalid structured failure");
             break :blk net.netlayer.ListenFailure.init(error.ProviderContract);
@@ -116,7 +116,7 @@ pub fn listen(
         return .{ .failed = failure };
     }
     return switch (result.state) {
-        shared.PANCAKE_LISTEN_READY => blk: {
+        shared.GLOWCAP_LISTEN_READY => blk: {
             const listener = result.listener orelse {
                 var failure = net.netlayer.ListenFailure.init(error.BindFailed);
                 if (result.attempt) |attempt| {
@@ -139,7 +139,7 @@ pub fn listen(
                 .failed => |failure| .{ .failed = failure },
             };
         },
-        shared.PANCAKE_LISTEN_PENDING => blk: {
+        shared.GLOWCAP_LISTEN_PENDING => blk: {
             const attempt = result.attempt orelse {
                 var failure = net.netlayer.ListenFailure.init(error.BindFailed);
                 if (result.listener) |listener| {
@@ -188,7 +188,7 @@ fn finishListen(
     var handle: ?*anyopaque = null;
     var report = shared.transport_provider.emptyProviderFailure();
     const code = self.table.finish_listen.?(attempt, &handle, &report);
-    if (code == PANCAKE_OK and !providerFailureIsEmpty(report)) {
+    if (code == GLOWCAP_OK and !providerFailureIsEmpty(report)) {
         var failure = net.netlayer.ListenFailure.init(error.ProviderContract);
         var cleanup_chain: ?foundation.FailureChain = null;
         if (handle) |listener| {
@@ -201,7 +201,7 @@ fn finishListen(
         self.owner.retainContradictoryReport(report, cleanup_chain);
         return .{ .failed = failure };
     }
-    if (code != PANCAKE_OK) {
+    if (code != GLOWCAP_OK) {
         var failure = failureChainFromProvider(code, report) catch blk: {
             self.owner.failContract("stream listener finish returned an invalid structured failure");
             break :blk net.netlayer.ListenFailure.init(error.ProviderContract);
@@ -236,7 +236,7 @@ fn listenerOf(ctx: *anyopaque) *ListenerBox {
 
 fn acceptClassification(code: i32) net.netlayer.AcceptError {
     return switch (code) {
-        shared.PANCAKE_ERR_INTERNAL => error.OutOfMemory,
+        shared.GLOWCAP_ERR_INTERNAL => error.OutOfMemory,
         else => error.ConnectionLost,
     };
 }
@@ -245,7 +245,7 @@ pub fn listenerAcceptOutcome(ctx: *anyopaque, peer: *engine.Peer, bufs: net.netl
     const box = listenerOf(ctx);
     var handle: ?*anyopaque = null;
     var fd: i32 = -1;
-    var report = std.mem.zeroes(shared.PancakeProviderFailure);
+    var report = std.mem.zeroes(shared.GlowcapProviderFailure);
     const code = box.adapter.table.accept.?(
         box.adapter.table.ctx,
         box.handle,
@@ -253,7 +253,7 @@ pub fn listenerAcceptOutcome(ctx: *anyopaque, peer: *engine.Peer, bufs: net.netl
         &fd,
         &report,
     );
-    if (code != PANCAKE_OK) {
+    if (code != GLOWCAP_OK) {
         var chain = failureChainFromProvider(code, report) catch blk: {
             box.adapter.owner.failContract("stream accept returned an invalid failure report");
             break :blk foundation.FailureChain.init(error.ProviderContract);
@@ -294,17 +294,17 @@ pub fn listenerAcceptOutcome(ctx: *anyopaque, peer: *engine.Peer, bufs: net.netl
     };
 }
 
-fn listenerWaitOutcome(ctx: *anyopaque, timeout_ms: i32, callback: shared.transport_provider.PancakeStreamListenerWaitFn) net.netlayer.AcceptReadinessOutcome {
+fn listenerWaitOutcome(ctx: *anyopaque, timeout_ms: i32, callback: shared.transport_provider.GlowcapStreamListenerWaitFn) net.netlayer.AcceptReadinessOutcome {
     const box = listenerOf(ctx);
-    var report = std.mem.zeroes(shared.PancakeProviderFailure);
+    var report = std.mem.zeroes(shared.GlowcapProviderFailure);
     const code = callback(box.adapter.table.ctx, box.handle, timeout_ms, &report);
-    if (code == PANCAKE_OK or code == PANCAKE_ERR_WOULD_BLOCK) {
+    if (code == GLOWCAP_OK or code == GLOWCAP_ERR_WOULD_BLOCK) {
         if (!providerFailureIsEmpty(report)) {
             box.adapter.owner.failContract("stream listener wait reported failure on success");
             box.adapter.owner.retainContradictoryReport(report, null);
             return .{ .failed = .init(error.ConnectionLost) };
         }
-        return .{ .ready = code == PANCAKE_OK };
+        return .{ .ready = code == GLOWCAP_OK };
     }
     const chain = failureChainFromProvider(code, report) catch {
         box.adapter.owner.failContract("stream listener wait returned an invalid failure report");

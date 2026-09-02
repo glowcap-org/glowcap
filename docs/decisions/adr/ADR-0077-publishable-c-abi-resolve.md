@@ -15,7 +15,7 @@ superseded_by: []
 Bindings will ship to language package registries (crates.io, PyPI, npm/JSR,
 the Racket catalog) and may later live in separate source repos. A consumer of
 a published package has no Zig checkout, no `zig-out/lib`, and no
-`include/pancake_ocapn.h`. Collapsing download into a monorepo shell script
+`include/glowcap_ocapn.h`. Collapsing download into a monorepo shell script
 (`tools/c-abi/fetch-c-abi.sh`) that every binding shells out to is DRY for in-tree
 dogfoods and wrong for that publish surface: the script is not in the package
 tarball, `/bin/sh` is not a Windows contract, and Deno's permission model
@@ -30,8 +30,8 @@ package-local metadata.
 1. **`bindings/c-abi-resolve.json` is the machine contract** for URL templates,
    cache layout, markers, and `abi_version`. Identical copies ship inside each
    binding package path listed in `package_copies`; `tools/check/source_check.zig` fails
-   if any copy drifts from the canonical file or from `PANCAKE_VERSION_*` in
-   `include/pancake_ocapn.h`. Env truthy values are the fixed set `1` / `true` /
+   if any copy drifts from the canonical file or from `GLOWCAP_VERSION_*` in
+   `include/glowcap_ocapn.h`. Env truthy values are the fixed set `1` / `true` /
    `yes` in each loader (not a contract field). Env *names* live in
    `bindings/PACKAGING.md`. Host target triples for release-pack are `{arch}-{os}`
    with zig names; `tools/c-abi/c-abi-host-aliases.json` lists host aliases and is
@@ -42,23 +42,23 @@ package-local metadata.
    linux + macos until a Windows matrix leg exists.
 
 2. **Cascade order** (configure first, never download on that path):
-   `PANCAKE_LIB_DIR`, then abi-versioned cache, then optional discovered pancake
+   `GLOWCAP_LIB_DIR`, then abi-versioned cache, then optional discovered glowcap
    checkout's `zig-out/lib`, then bare library name / link-search fallthrough.
 
 3. **Download is language-native** inside each binding (Rust `build.rs`, Python
    urllib+tarfile, TypeScript curl/tar with Deno permission degradation, Racket
    curl/tar). Soft-fail when no release exists yet (in-tree dogfoods use
-   `zig-out`); `PANCAKE_STRICT=1` fail-closes. `tools/c-abi/fetch-c-abi.sh` is an
+   `zig-out`); `GLOWCAP_STRICT=1` fail-closes. `tools/c-abi/fetch-c-abi.sh` is an
    **operator** tool only: bindings must not require it.
 
-4. **Version pin:** prefer `include/pancake_ocapn.h` when a pancake checkout is
+4. **Version pin:** prefer `include/glowcap_ocapn.h` when a glowcap checkout is
    discoverable (in-tree dogfood); otherwise use the package-shipped
-   `abi_version` from the contract. Cache base prefers `PANCAKE_CACHE_DIR`, then
-   `$XDG_CACHE_HOME/pancake/c-abi`, then `~/.cache/pancake/c-abi`, then the
+   `abi_version` from the contract. Cache base prefers `GLOWCAP_CACHE_DIR`, then
+   `$XDG_CACHE_HOME/glowcap/c-abi`, then `~/.cache/glowcap/c-abi`, then the
    process temp dir.
 
 5. **Native-ABI download hygiene** (required of every fetch port):
-   - HTTPS-only release base (`PANCAKE_ALLOW_INSECURE=1` is the only escape).
+   - HTTPS-only release base (`GLOWCAP_ALLOW_INSECURE=1` is the only escape).
    - Require `SHA256SUMS` and verify the exact tarball entry before extract
      (never install unverified bytes; do not rely on `--ignore-missing`).
    - Extract only the `lib/` prefix; reject path traversal, absolute paths, and
@@ -97,10 +97,10 @@ package-local metadata.
   build.rs, Racket FFI load time) make a shared library the wrong shape;
   `tools/c-abi/c-abi-resolve-cases.json` is the drift apex instead.
 - Windows release-pack is blocked today: `release-pack` is a Unix `sh` script,
-  `linkIrohSidecar` hardcodes `libpancake_iroh_sidecar.a`, TCP still uses
+  `linkIrohSidecar` hardcodes `libglowcap_iroh_sidecar.a`, TCP still uses
   posix paths that fail `x86_64-windows-gnu` cross-builds, and there is no
   IOCP completion backend. Until those land, `release_pack_names.oses`
-  excludes windows and consumers use `PANCAKE_LIB_DIR` or in-tree `zig-out`.
+  excludes windows and consumers use `GLOWCAP_LIB_DIR` or in-tree `zig-out`.
 - A tagged archive release is accepted only after `check.yml` succeeds for the
   exact release commit. The release workflow gives every final tarball and the
   combined `SHA256SUMS` a GitHub artifact attestation before publishing them;
@@ -110,13 +110,13 @@ package-local metadata.
 - `releases_published` in `c-abi-resolve.json` is the consumer-availability
   valve for hosted C archives: when false, loaders and
   `tools/c-abi/fetch-c-abi.sh` skip the release download unless
-  `PANCAKE_DOWNLOAD=1`. It is not publication authorization. A matching version
+  `GLOWCAP_DOWNLOAD=1`. It is not publication authorization. A matching version
   tag on an exact commit with a successful `check.yml` run authorizes the
   release workflow to attest and publish the archives; only after those assets
   can be downloaded and verified does a separate commit set
   `releases_published` true. Hygiene and security refusals (non-HTTPS without a
   typed escape, checksum miss, zip-slip / link members) always fail closed;
-  `PANCAKE_STRICT` only hardens soft network/tooling failures.
+  `GLOWCAP_STRICT` only hardens soft network/tooling failures.
   `zig build c-abi-extract-check` (part of `check`) runs each port's own
   validator against hostile fixtures in tree: zip-slip, symlink, an owner
   field shaped like a date to move a naive parser's column guess, and a

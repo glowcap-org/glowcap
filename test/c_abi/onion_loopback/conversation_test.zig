@@ -4,12 +4,12 @@
 //! and the listen out-parameter length query.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const c = @import("c_abi");
 const co = @import("c_abi_net_transport_onion");
-const model = pancake.ocapn.model;
-const onion = pancake.net.onion;
+const model = glowcap.ocapn.model;
+const onion = glowcap.net.onion;
 const c_abi_loopback = @import("../../support/c_abi_loopback.zig");
 const handshake = @import("../../support/handshake.zig");
 const fake = @import("../../support/onion_fake_daemon.zig");
@@ -42,15 +42,15 @@ const HeldDial = struct {
 };
 
 const ParkedOnionRead = struct {
-    conn: *co.PancakeOnionConn,
+    conn: *co.GlowcapOnionConn,
     started: std.atomic.Value(bool) = .init(false),
-    result: i32 = c.PANCAKE_OK,
+    result: i32 = c.GLOWCAP_OK,
 
     fn run(self: *ParkedOnionRead) void {
-        var frame: c.PancakeManagedFrame = undefined;
+        var frame: c.GlowcapManagedFrame = undefined;
         self.started.store(true, .release);
-        self.result = co.pancake_onion_conn_read_frame(self.conn, &frame, null, 0, null);
-        if (self.result == c.PANCAKE_OK) c.pancake_managed_frame_release(&frame);
+        self.result = co.glowcap_onion_conn_read_frame(self.conn, &frame, null, 0, null);
+        if (self.result == c.GLOWCAP_OK) c.glowcap_managed_frame_release(&frame);
     }
 };
 
@@ -70,7 +70,7 @@ fn serveDialedPeer(daemon: *fake.Daemon, allocator: std.mem.Allocator) anyerror!
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
 
-    var conn = pancake.net.Connection.init(
+    var conn = glowcap.net.Connection.init(
         daemon.io,
         &peer,
         &reader.interface,
@@ -90,7 +90,7 @@ fn serveDialedPeer(daemon: *fake.Daemon, allocator: std.mem.Allocator) anyerror!
 }
 
 /// A transport handle over a stream the test closes itself.
-fn borrowedHandle(reader: *std.Io.net.Stream.Reader) pancake.net.Connection.Transport {
+fn borrowedHandle(reader: *std.Io.net.Stream.Reader) glowcap.net.Connection.Transport {
     return .{
         .ctx = reader,
         .close_fn = struct {
@@ -120,12 +120,12 @@ test "c-abi onion connect: handshake to open + bootstrap fetch round-trip" {
 
     var server = try io.concurrent(serveDialedPeer, .{ daemon, allocator });
 
-    var conn: ?*co.PancakeOnionConn = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_connect(
+    var conn: ?*co.GlowcapOnionConn = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_connect(
         netlayer_ptr,
         service_id.ptr,
         service_id.len,
-        c.PANCAKE_CODEC_SYRUP,
+        c.GLOWCAP_CODEC_SYRUP,
         frame_cap,
         &conn,
         null,
@@ -142,13 +142,13 @@ test "c-abi onion connect: handshake to open + bootstrap fetch round-trip" {
     // success diagnostic explicitly.
     var release_diagnostic: [64]u8 = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NULL_POINTER,
-        co.pancake_onion_conn_release(conn_ptr, &release_diagnostic, release_diagnostic.len, null),
+        c.GLOWCAP_ERR_NULL_POINTER,
+        co.glowcap_onion_conn_release(conn_ptr, &release_diagnostic, release_diagnostic.len, null),
     );
     var release_diagnostic_len: usize = std.math.maxInt(usize);
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        co.pancake_onion_conn_release(
+        c.GLOWCAP_OK,
+        co.glowcap_onion_conn_release(
             conn_ptr,
             &release_diagnostic,
             release_diagnostic.len,
@@ -185,12 +185,12 @@ test "c-abi onion connection shutdown wakes a native read before release" {
         _ = held.await(io) catch {};
     }
 
-    var conn: ?*co.PancakeOnionConn = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_connect(
+    var conn: ?*co.GlowcapOnionConn = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_connect(
         netlayer,
         service_id.ptr,
         service_id.len,
-        c.PANCAKE_CODEC_SYRUP,
+        c.GLOWCAP_CODEC_SYRUP,
         frame_cap,
         &conn,
         null,
@@ -203,10 +203,10 @@ test "c-abi onion connection shutdown wakes a native read before release" {
     var read = try io.concurrent(ParkedOnionRead.run, .{&parked});
     try wait.untilFlag(io, 5_000, &parked.started);
 
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_conn_shutdown(conn.?));
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_conn_shutdown(conn.?));
     read.await(io);
-    try std.testing.expect(parked.result != c.PANCAKE_OK);
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_conn_release(conn.?, null, 0, null));
+    try std.testing.expect(parked.result != c.GLOWCAP_OK);
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_conn_release(conn.?, null, 0, null));
 }
 
 test "c-abi onion accept: a forwarded circuit carries a session" {
@@ -222,12 +222,12 @@ test "c-abi onion accept: a forwarded circuit carries a session" {
     const netlayer_ptr = try netlayerFor(daemon);
     defer releaseOnionNetlayer(netlayer_ptr);
 
-    var id_buf: [co.PANCAKE_ONION_SERVICE_ID_LEN]u8 = undefined;
+    var id_buf: [co.GLOWCAP_ONION_SERVICE_ID_LEN]u8 = undefined;
     var id_len: usize = 0;
-    var key_buf: [co.PANCAKE_ONION_SERVICE_KEY_CAP]u8 = undefined;
+    var key_buf: [co.GLOWCAP_ONION_SERVICE_KEY_CAP]u8 = undefined;
     var key_len: usize = 0;
-    var listener: ?*co.PancakeOnionListener = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listen(
+    var listener: ?*co.GlowcapOnionListener = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_listen(
         netlayer_ptr,
         &id_buf,
         id_buf.len,
@@ -243,9 +243,9 @@ test "c-abi onion accept: a forwarded circuit carries a session" {
     const listener_ptr = listener.?;
     defer releaseOnionListener(listener_ptr);
 
-    // The id is the one the daemon reported, not one pancake chose, and the key
+    // The id is the one the daemon reported, not one glowcap chose, and the key
     // is what would restore the same address later.
-    try std.testing.expectEqual(co.PANCAKE_ONION_SERVICE_ID_LEN, id_len);
+    try std.testing.expectEqual(co.GLOWCAP_ONION_SERVICE_ID_LEN, id_len);
     try std.testing.expectEqualStrings(service_id, id_buf[0..id_len]);
     try std.testing.expectEqualStrings(fake.service_key, key_buf[0..key_len]);
 
@@ -282,7 +282,7 @@ fn dialForwardTarget(io: std.Io, allocator: std.mem.Allocator, target: []const u
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 
-    var conn = pancake.net.Connection.init(
+    var conn = glowcap.net.Connection.init(
         io,
         &peer,
         &reader.interface,
@@ -305,21 +305,21 @@ test "c-abi onion listen queries its out-parameter lengths without a buffer" {
     var daemon = try fake.Daemon.start(allocator, io);
     defer daemon.stop();
 
-    var netlayer: ?*co.PancakeOnionNetlayer = null;
-    var config: co.PancakeOnionConfig = .{};
+    var netlayer: ?*co.GlowcapOnionNetlayer = null;
+    var config: co.GlowcapOnionConfig = .{};
     config.socks = daemon.socksText().ptr;
     config.socks_len = daemon.socksText().len;
     config.control_endpoint = daemon.controlText().ptr;
     config.control_endpoint_len = daemon.controlText().len;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_new(&config, &netlayer));
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_netlayer_new(&config, &netlayer));
     const netlayer_ptr = netlayer.?;
     defer releaseOnionNetlayer(netlayer_ptr);
 
     // A null buffer with a length slot asks how much room the value needs, so a
     // caller can size its storage without hardcoding the constant.
     var id_len: usize = 0;
-    var listener: ?*co.PancakeOnionListener = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listen(
+    var listener: ?*co.GlowcapOnionListener = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_listen(
         netlayer_ptr,
         null,
         0,
@@ -333,13 +333,13 @@ test "c-abi onion listen queries its out-parameter lengths without a buffer" {
         null,
     ));
     defer releaseOnionListener(listener.?);
-    try std.testing.expectEqual(co.PANCAKE_ONION_SERVICE_ID_LEN, id_len);
+    try std.testing.expectEqual(co.GLOWCAP_ONION_SERVICE_ID_LEN, id_len);
 
     // A buffer too small for the id is the caller's error, and the listener is not
     // left behind: a second listen on the same daemon still succeeds.
     var tiny: [8]u8 = undefined;
-    var second: ?*co.PancakeOnionListener = null;
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, co.pancake_onion_listen(
+    var second: ?*co.GlowcapOnionListener = null;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, co.glowcap_onion_listen(
         netlayer_ptr,
         &tiny,
         tiny.len,

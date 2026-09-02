@@ -141,7 +141,7 @@ pub fn mint(
     const exporter_session_location = exporter.session_state.partnerLocatorRaw() orelse
         return error.RouteNotLowerable;
     const policy: engine.handoff_gifter.RecipientLocatorPolicy = .{
-        .known_pancake = recipient.session_state.partnerKnownPancake(),
+        .known_glowcap = recipient.session_state.partnerKnownGlowcap(),
         .route_vocabulary = recipient.session_state.captp_version == .next and
             recipient.session_state.features.multi_location,
         .session_transport = Internal.sessionTransport(self, recipient_peer),

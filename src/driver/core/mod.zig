@@ -60,7 +60,7 @@ pub const default_loop_local_turn_budget = served.default_loop_local_turn_budget
 
 // The byte-fed multi-session CapTP host core (ADR-0072): the node's decisions
 // executed with no socket (see `host.zig`). `driver.Bridge` and
-// the C ABI's `libpancake_host` are its embedders.
+// the C ABI's `libglowcap_host` are its embedders.
 pub const Host = host.Host;
 pub const HostSession = host.HostSession;
 pub const HostAction = host_action.HostAction;

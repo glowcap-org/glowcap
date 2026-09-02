@@ -6,7 +6,7 @@
 // that widened the page), and only a real layout engine can measure them.
 //
 // The autodoc under reference/api/ is covered too: its viewer is Zig's, but
-// what overflowed there in practice was pancake's own module doc prose (an
+// what overflowed there in practice was glowcap's own module doc prose (an
 // unbreakable run of slash-joined code spans), which is exactly this
 // repository's to fix. A failure there wants a doc-comment fix first and an
 // upstream-viewer diagnosis second.
@@ -28,7 +28,7 @@ if (!siteRoot) {
 	Deno.exit(2);
 }
 
-// The site is built for a /pancake/ base URL, so serve it under that prefix.
+// The site is built for a /glowcap/ base URL, so serve it under that prefix.
 const types: Record<string, string> = {
 	".html": "text/html; charset=utf-8",
 	".css": "text/css",
@@ -41,8 +41,8 @@ const types: Record<string, string> = {
 const server = Deno.serve({ port: 0, onListen: () => {} }, async (req) => {
 	const url = new URL(req.url);
 	let path = decodeURIComponent(url.pathname);
-	if (!path.startsWith("/pancake/")) return new Response("not found", { status: 404 });
-	path = path.slice("/pancake".length);
+	if (!path.startsWith("/glowcap/")) return new Response("not found", { status: 404 });
+	path = path.slice("/glowcap".length);
 	if (path.endsWith("/")) path += "index.html";
 	try {
 		const body = await Deno.readFile(siteRoot + path);
@@ -59,7 +59,7 @@ const base = `http://127.0.0.1:${server.addr.port}`;
 const pages: string[] = [];
 async function walk(dir: string, rel: string): Promise<void> {
 	for await (const entry of Deno.readDir(dir)) {
-		if (!entry.isDirectory && entry.name === "index.html") pages.push(`/pancake${rel}/`);
+		if (!entry.isDirectory && entry.name === "index.html") pages.push(`/glowcap${rel}/`);
 		if (entry.isDirectory) {
 			await walk(`${dir}/${entry.name}`, `${rel}/${entry.name}`);
 		}

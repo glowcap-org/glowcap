@@ -1,4 +1,4 @@
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import { ALL_ARCHIVE_RECORDS, readArchive } from "../../lib/archive/protocol.ts";
 import { roomsAddress, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
@@ -18,7 +18,7 @@ function startPeer(directory: string, port: number): Deno.ChildProcess {
 			`--allow-read=${ROOT},${directory}`,
 			`--allow-write=${directory}`,
 			"--allow-net=127.0.0.1",
-			"--allow-env=PANCAKE_LIB_DIR",
+			"--allow-env=GLOWCAP_LIB_DIR",
 			PEER,
 			`--state=${directory}`,
 			"--transport=tcp",
@@ -31,7 +31,7 @@ function startPeer(directory: string, port: number): Deno.ChildProcess {
 }
 
 roomsTest("durable Rooms archive custody validates, orders, and drains selected authority", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-archive-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-archive-" });
 	const peer = startPeer(directory, freePort());
 	try {
 		const link = await announcedSturdyref(peer, "ROOMS-ARCHIVE-LISTENING", "archive peer");

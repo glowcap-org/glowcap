@@ -1,10 +1,10 @@
-//! `pancake griddle` — the simulator / timeline family.
+//! `glowcap griddle` — the simulator / timeline family.
 //!
 //! `run` drives a whole CapTP conversation under a seeded schedule and prints
 //! its timeline as NDJSON: the same seed replays byte for byte, and a
 //! different seed interleaves the links differently while reaching the same
 //! outcome. The simulator itself is `sim.zig`; this node owns the argv shape
-//! and locks the brand — CapTP verbs stay under `pancake ocapn` / `repl`.
+//! and locks the brand — CapTP verbs stay under `glowcap ocapn` / `repl`.
 //! The viewer for this timeline is `apps/ocapnviz/`, which imports a run
 //! through its `scripts/griddle-import.ts`.
 const std = @import("std");
@@ -16,12 +16,12 @@ const argv = @import("../argv.zig");
 const sim = @import("sim.zig");
 
 const status_text =
-    \\pancake griddle: simulator / timeline family.
+    \\glowcap griddle: simulator / timeline family.
     \\
     \\  run   deterministic CapTP simulation, timeline as NDJSON on stdout
     \\
     \\Pipe a run into apps/ocapnviz to watch it. CapTP verbs stay under
-    \\`pancake ocapn` and `pancake repl`.
+    \\`glowcap ocapn` and `glowcap repl`.
     \\
     \\See docs/cli.md.
     \\
@@ -37,10 +37,10 @@ fn runHelp(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
     _ = parsed;
     try argv.writeStdout(ctx.io,
         \\Usage:
-        \\  pancake griddle run [--seed N] [--scenario NAME]
+        \\  glowcap griddle run [--seed N] [--scenario NAME]
         \\                      [--latency] [--partition-at TICK]
-        \\  pancake griddle status
-        \\  pancake griddle help
+        \\  glowcap griddle status
+        \\  glowcap griddle help
         \\
         \\Deterministic CapTP simulation. `run` prints a timeline as NDJSON,
         \\one event per line; the same seed replays exactly.
@@ -110,7 +110,7 @@ const griddle_children = [_]Command{
     },
     .{
         .name = "help",
-        .short_help = "Help for pancake griddle",
+        .short_help = "Help for glowcap griddle",
         .run = runHelp,
     },
 };

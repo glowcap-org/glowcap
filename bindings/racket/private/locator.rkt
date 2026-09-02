@@ -1,9 +1,9 @@
 #lang racket/base
 ;; Internal: the OCapN locator URI grammar. `parse-locator` and
-;; `format-peer-uri` render through libpancake_ocapn's `pancake_uri_*` /
-;; `pancake_locator_*` surface, so this binding hand-rolls no percent codec, and
+;; `format-peer-uri` render through libglowcap_ocapn's `glowcap_uri_*` /
+;; `glowcap_locator_*` surface, so this binding hand-rolls no percent codec, and
 ;; copy every borrowed view into Racket strings before releasing the handle.
-;; `pancake.rkt` re-provides these on the public surface.
+;; `glowcap.rkt` re-provides these on the public surface.
 
 (require ffi/unsafe
          "constants.rkt"
@@ -15,7 +15,7 @@
 
 ;; ── OCapN locator URIs ───────────────────────────────────────────────────────
 ;; The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN
-;; vocabulary, defined once in libpancake_ocapn's `pancake_uri_*` / `pancake_locator_*`
+;; vocabulary, defined once in libglowcap_ocapn's `glowcap_uri_*` / `glowcap_locator_*`
 ;; surface, so this binding hand-rolls no percent codec. `parse-locator` copies
 ;; every borrowed view into Racket strings before releasing the handle;
 ;; `format-peer-uri` renders through the same grammar.
@@ -39,7 +39,7 @@
 (define (parse-locator uri)
   (define ub (string->bytes/utf-8 uri))
   (define sbuf (pin-immobile ub))
-  (define-values (rc loc) (pancake_uri_parse_peer sbuf (bytes-length ub)))
+  (define-values (rc loc) (glowcap_uri_parse_peer sbuf (bytes-length ub)))
   (check rc)
   (call-with-owned-locator-handle loc owned-locator->locator))
 
@@ -48,7 +48,7 @@
 (define (parse-sturdyref uri #:captp-version captp-version)
   (define ub (string->bytes/utf-8 uri))
   (define-values (rc handle)
-    (pancake_uri_parse_sturdyref
+    (glowcap_uri_parse_sturdyref
      (captp-version-id captp-version)
      (pin-immobile ub)
      (bytes-length ub)))
@@ -56,13 +56,13 @@
   (dynamic-wind
    void
    (lambda ()
-     (define-values (locator-rc view) (pancake_sturdyref_borrow_locator handle))
+     (define-values (locator-rc view) (glowcap_sturdyref_borrow_locator handle))
      (check locator-rc)
-     (define-values (swiss-rc ptr len) (pancake_sturdyref_swissnum handle))
+     (define-values (swiss-rc ptr len) (glowcap_sturdyref_swissnum handle))
      (check swiss-rc)
      (sturdyref (clone-locator-view view)
                 (if (or (not ptr) (= len 0)) #"" (bytes<-c ptr len))))
-   (lambda () (pancake_sturdyref_release handle))))
+   (lambda () (glowcap_sturdyref_release handle))))
 
 ;; ── Owned OCapN locators ────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@
   (define transport (string->bytes/utf-8 (locator-transport loc)))
   (define designator (string->bytes/utf-8 (locator-designator loc)))
   (define-values (rc handle)
-    (pancake_locator_new
+    (glowcap_locator_new
      (pin-immobile transport) (bytes-length transport)
      (pin-immobile designator) (bytes-length designator)
      (locator-wire-form (locator-hint-wire-form loc))))
@@ -96,75 +96,75 @@
          (cond
            [(string? value)
             (define bytes (string->bytes/utf-8 value))
-            (pancake_locator_add_string handle name-ptr name-len
+            (glowcap_locator_add_string handle name-ptr name-len
                                         (pin-immobile bytes) (bytes-length bytes))]
            [(bytes? value)
-            (pancake_locator_add_bytes handle name-ptr name-len
+            (glowcap_locator_add_bytes handle name-ptr name-len
                                        (pin-immobile value) (bytes-length value))]
            [(boolean? value)
-            (pancake_locator_add_boolean handle name-ptr name-len (if value 1 0))]
+            (glowcap_locator_add_boolean handle name-ptr name-len (if value 1 0))]
            [(and (exact-integer? value) (<= (- (expt 2 63)) value (sub1 (expt 2 63))))
-            (pancake_locator_add_integer handle name-ptr name-len value)]
+            (glowcap_locator_add_integer handle name-ptr name-len value)]
            [else
             (raise-arguments-error 'call-with-owned-locator
                                    "unsupported locator hint value"
                                    "name" name "value" value)]))
        (check hint-rc))
      (proc handle))
-   (lambda () (pancake_locator_release handle))))
+   (lambda () (glowcap_locator_release handle))))
 
 (define (call-with-owned-locator-handle handle proc)
   (dynamic-wind void (lambda () (proc handle))
-                (lambda () (pancake_locator_release handle))))
+                (lambda () (glowcap_locator_release handle))))
 
 (define (call-with-locator-view value proc)
   (call-with-owned-locator
    value
    (lambda (handle)
-     (define-values (rc view) (pancake_locator_borrow_view handle))
+     (define-values (rc view) (glowcap_locator_borrow_view handle))
      (check rc)
      (proc view))))
 
 (define (clone-locator-view view)
-  (define-values (rc handle) (pancake_locator_clone view))
+  (define-values (rc handle) (glowcap_locator_clone view))
   (check rc)
   (call-with-owned-locator-handle handle owned-locator->locator))
 
 ;; Copy an owned OCapN handle into an ordinary Racket locator. The caller
 ;; retains and releases the handle; this function retains no native views.
 (define (owned-locator->locator handle)
-  (define-values (count-rc count) (pancake_locator_hint_count handle))
+  (define-values (count-rc count) (glowcap_locator_hint_count handle))
   (check count-rc)
   (define hints
     (for/hash ([index (in-range count)])
-      (define hint (make-PancakeLocatorHintView #f 0 0 #f 0 0 0))
-      (check (pancake_locator_hint_at handle index hint))
+      (define hint (make-GlowcapLocatorHintView #f 0 0 #f 0 0 0))
+      (check (glowcap_locator_hint_at handle index hint))
       (define name
         (bytes->string/utf-8
-         (bytes<-c (PancakeLocatorHintView-name hint)
-                   (PancakeLocatorHintView-name-len hint)) #\uFFFD))
+         (bytes<-c (GlowcapLocatorHintView-name hint)
+                   (GlowcapLocatorHintView-name-len hint)) #\uFFFD))
       (define value
-        (case (PancakeLocatorHintView-kind hint)
+        (case (GlowcapLocatorHintView-kind hint)
           [(1) (bytes->string/utf-8
-                (bytes<-c (PancakeLocatorHintView-bytes hint)
-                          (PancakeLocatorHintView-bytes-len hint)) #\uFFFD)]
-          [(2) (bytes<-c (PancakeLocatorHintView-bytes hint)
-                         (PancakeLocatorHintView-bytes-len hint))]
-          [(3) (not (zero? (PancakeLocatorHintView-boolean-value hint)))]
-          [(4) (PancakeLocatorHintView-integer-value hint)]
-          [else (raise-pancake 'owned-locator->locator ERR-INVALID-ARGUMENT
+                (bytes<-c (GlowcapLocatorHintView-bytes hint)
+                          (GlowcapLocatorHintView-bytes-len hint)) #\uFFFD)]
+          [(2) (bytes<-c (GlowcapLocatorHintView-bytes hint)
+                         (GlowcapLocatorHintView-bytes-len hint))]
+          [(3) (not (zero? (GlowcapLocatorHintView-boolean-value hint)))]
+          [(4) (GlowcapLocatorHintView-integer-value hint)]
+          [else (raise-glowcap 'owned-locator->locator ERR-INVALID-ARGUMENT
                                "OCapN returned an unknown locator hint kind")]))
       (values name value)))
-  (define-values (wire-rc wire) (pancake_locator_hint_wire_form handle))
+  (define-values (wire-rc wire) (glowcap_locator_hint_wire_form handle))
   (check wire-rc)
   (locator
-   (locator-field pancake_locator_transport handle)
-   (locator-field pancake_locator_designator handle)
+   (locator-field glowcap_locator_transport handle)
+   (locator-field glowcap_locator_designator handle)
    hints
    (case wire
      [(0) 'map]
      [(1) 'boolean-false]
-     [else (raise-pancake 'owned-locator->locator ERR-INVALID-ARGUMENT
+     [else (raise-glowcap 'owned-locator->locator ERR-INVALID-ARGUMENT
                           "OCapN returned an unknown locator hint wire form")])))
 
 (define (format-locator-uri loc)
@@ -217,12 +217,12 @@
     (begin0
       (if swissnum
           (let ([sbuf (pin-immobile swissnum)])
-            (pancake_uri_format_sturdyref
+            (glowcap_uri_format_sturdyref
              (captp-version-id captp-version)
              tbuf (bytes-length tb) dbuf (bytes-length db)
              sbuf (bytes-length swissnum)
              key-ptrs key-lens val-ptrs val-lens n buf cap))
-          (pancake_uri_format_peer tbuf (bytes-length tb) dbuf (bytes-length db)
+          (glowcap_uri_format_peer tbuf (bytes-length tb) dbuf (bytes-length db)
                                    key-ptrs key-lens val-ptrs val-lens n
                                    buf cap))
       ;; The cblocks carry only the pinned hint buffers' raw addresses, which
@@ -248,20 +248,20 @@
   (call-with-locator-view
    loc
    (lambda (view)
-     (define-values (rc ptr len) (pancake_locator_record_encode view))
+     (define-values (rc ptr len) (glowcap_locator_record_encode view))
      (check rc)
      (define out (bytes<-c ptr len))
-     (pancake_locator_record_bytes_release ptr len)
+     (glowcap_locator_record_bytes_release ptr len)
      out)))
 
 ;; Split a bare designator as host:port through the core grammar
-;; (`pancake_designator_host_port`). Prefer this over minting a peer URI
+;; (`glowcap_designator_host_port`). Prefer this over minting a peer URI
 ;; just to call `parse-locator`.
 (define (designator-host-port designator)
   (define db (string->bytes/utf-8 designator))
   (define dbuf (pin-immobile db))
   (define-values (rc hptr hlen hport)
-    (pancake_designator_host_port dbuf (bytes-length db)))
+    (glowcap_designator_host_port dbuf (bytes-length db)))
   (check rc)
   (values (if (or (not hptr) (= hlen 0))
               ""

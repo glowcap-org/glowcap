@@ -1,5 +1,5 @@
-import type { Argument } from "@pancake/runtime";
-import { keyed } from "@pancake/tcp";
+import type { Argument } from "@glowcap/runtime";
+import { keyed } from "@glowcap/tcp";
 
 // Key designator, cleartext CapTP. Reuse a 32-byte seed to keep the same key.
 const seed = crypto.getRandomValues(new Uint8Array(32));

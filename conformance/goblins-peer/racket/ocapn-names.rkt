@@ -13,7 +13,7 @@
 ;;
 ;; Both names are spelled here so a trace this vat publishes calls a session
 ;; what every other OCapN implementation calls it. The test submodule holds that
-;; against pancake's own known answers.
+;; against glowcap's own known answers.
 
 (require crypto
          crypto/libcrypto
@@ -49,7 +49,7 @@
   (require rackunit
            (only-in file/sha1 hex-string->bytes))
 
-  ;; The two Ed25519 public keys pancake's `test/foundation/crypto_test.zig`
+  ;; The two Ed25519 public keys glowcap's `test/foundation/crypto_test.zig`
   ;; pins, and the Public Identifier and Session ID it computes from them. The
   ;; names have to agree byte for byte or a session watched from both ends draws
   ;; as two.

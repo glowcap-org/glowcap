@@ -1,4 +1,4 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 // Live three-party handoff with the Deno binding as the recipient (Carol),
 // proving the binding redeems a `desc:handoff-give` transparently — the same
 // `connect`/`fetch`/`send` application surface the demos use, no bespoke handoff
@@ -13,13 +13,13 @@ import * as tcp from "@pancake/tcp";
 //      directly (keyed with the *same* identity Alice saw), withdraws the gift,
 //      and resolves the send to an ordinary capability — the app never sees the
 //      give or the second connection.
-//   3. `send(greeter, "", ["pancake-carol"])`. The bytes go straight to Bob;
+//   3. `send(greeter, "", ["glowcap-carol"])`. The bytes go straight to Bob;
 //      the reply must carry the name back, proving data integrity end to end.
 //
 // Needs `racket` plus the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-handoff`.
 
-import { Ref, Runtime } from "@pancake/runtime";
+import { Ref, Runtime } from "@glowcap/runtime";
 import { fail, readSwiss } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -83,8 +83,8 @@ try {
 	// Call the greeter. The send routes straight to Bob (the exporter); the reply
 	// must echo the name we sent, so the handoff proves data integrity, not just
 	// choreography.
-	const reply = await session.send(greeter, "", ["pancake-carol"]);
-	if (typeof reply !== "string" || !reply.includes("pancake-carol")) {
+	const reply = await session.send(greeter, "", ["glowcap-carol"]);
+	if (typeof reply !== "string" || !reply.includes("glowcap-carol")) {
 		fail(
 			"deno-goblins-handoff",
 			`greeter reply did not carry the name back: ${JSON.stringify(reply)}`,

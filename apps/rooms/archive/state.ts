@@ -5,7 +5,7 @@
 // restart would produce a locator that looks familiar while answering a
 // different capability (or vice versa).
 
-import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { readBoundedText } from "../lib/durable_file.ts";
 import { fixedHex } from "../lib/schema.ts";

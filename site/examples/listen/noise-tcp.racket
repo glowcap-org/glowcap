@@ -1,5 +1,5 @@
-(require "pancake.rkt"
-         "pancake-tcp.rkt")
+(require "glowcap.rkt"
+         "glowcap-tcp.rkt")
 
 ;; Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.

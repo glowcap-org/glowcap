@@ -1,12 +1,12 @@
 ---
 .title = "Onion: the standardized OCapN transport",
-.description = "An onion service carries a pancake session over Tor, and it is the one netlayer the OCapN draft standardizes and upstream Goblins ships.",
+.description = "An onion service carries a glowcap session over Tor, and it is the one netlayer the OCapN draft standardizes and upstream Goblins ships.",
 .date = .date("2026-08-08T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-An onion service carries a pancake session over
+An onion service carries a glowcap session over
 [Tor](https://www.torproject.org/). A peer is named by a version 3 service id,
 the 56 base32 characters in `ocapn://<serviceid>.onion`. Bytes travel a Tor
 circuit: encrypted, with both ends' network location hidden.
@@ -19,15 +19,15 @@ transport; both follow the draft. `zig build goblins-onion` is the live check.
 
 # A Tor you already run
 
-A deployment runs a Tor daemon; pancake talks to it. You give the netlayer two
+A deployment runs a Tor daemon; glowcap talks to it. You give the netlayer two
 endpoints, each an absolute Unix socket path or a `host:port`:
 
-- the **SOCKS endpoint**, which pancake dials through, and
-- the **control endpoint**, which pancake asks for a service when it hosts.
+- the **SOCKS endpoint**, which glowcap dials through, and
+- the **control endpoint**, which glowcap asks for a service when it hosts.
 
 Leave the control endpoint out and the netlayer can dial but not host; it says
 so rather than reporting an address nothing can reach. The control endpoint may
-want a cookie file's bytes or a password; pancake sends either.
+want a cookie file's bytes or a password; glowcap sends either.
 
 Hosting mints a version 3 service and reports the service id partners dial, plus
 the key that restores that address after a restart. Store the key and pass it
@@ -45,22 +45,22 @@ service id to reach.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Dial through the same SOCKS endpoint the listener named.
->     var onion_resident = pancake.net.onion.Resident{ .io = io, .config = .{
+>     var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
 >         .socks = "/run/tor/socks",
 >     } };
->     const netlayers = [_]pancake.net.netlayer.Netlayer{onion_resident.netlayer()};
->     const partner = pancake.net.onion.locator("<56-character onion service id>");
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{onion_resident.netlayer()};
+>     const partner = glowcap.net.onion.locator("<56-character onion service id>");
 > ```
 > **TypeScript**
 > ```ts
-> import { locator, provider } from "@pancake/onion";
-> import { Runtime } from "@pancake/runtime";
+> import { locator, provider } from "@glowcap/onion";
+> import { Runtime } from "@glowcap/runtime";
 >
-> // pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+> // glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > const partner = locator("<56-character onion service id>");
 >
 > await using runtime = await Runtime.open({
@@ -69,9 +69,9 @@ service id to reach.
 > ```
 > **Python**
 > ```python
-> from pancake import Runtime, onion
+> from glowcap import Runtime, onion
 >
-> # pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+> # glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > partner = onion.locator("<56-character onion service id>")
 >
 > async with Runtime.open(
@@ -80,10 +80,10 @@ service id to reach.
 > ```
 > **Rust**
 > ```rust
-> use pancake::onion::{self, Config};
-> use pancake::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::onion::{self, Config};
+> use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
-> // pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+> // glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > let partner = onion::locator("<56-character onion service id>");
 > let runtime = Runtime::open(RuntimeConfig::providers([onion::provider(
 > 	Config::dial_only("/run/tor/socks"),
@@ -92,9 +92,9 @@ service id to reach.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt" "pancake-onion.rkt")
+> (require "glowcap.rkt" "glowcap-onion.rkt")
 >
-> ;; pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+> ;; glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > (define partner (onion-locator "<56-character onion service id>"))
 > (define runtime
 >   (open-runtime #:providers
@@ -118,15 +118,15 @@ Applications normally use `Session`.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     // pancake starts no Tor. Name an already-running daemon's SOCKS and control endpoints.
->     var onion_resident = pancake.net.onion.Resident{ .io = io, .config = .{
+>     // glowcap starts no Tor. Name an already-running daemon's SOCKS and control endpoints.
+>     var onion_resident = glowcap.net.onion.Resident{ .io = io, .config = .{
 >         .socks = "/run/tor/socks",
 >         .control_endpoint = "/run/tor/control",
 >     } };
->     const server = try pancake.driver.listen(
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         onion_resident.netlayer(),
 >         .{ .designator = "" },
@@ -135,7 +135,7 @@ Applications normally use `Session`.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // hand this locator to partners
 >
@@ -150,10 +150,10 @@ Applications normally use `Session`.
 > ```
 > **TypeScript**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { listen } from "@pancake/onion";
+> import type { Argument } from "@glowcap/runtime";
+> import { listen } from "@glowcap/onion";
 >
-> // pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+> // glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > await using server = await listen({
 > 	socks: "/run/tor/socks",
 > 	control: "/run/tor/control",
@@ -162,18 +162,18 @@ Applications normally use `Session`.
 > ```
 > **Python**
 > ```python
-> from pancake import Argument, onion
+> from glowcap import Argument, onion
 >
-> # pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+> # glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > async with await onion.listen("/run/tor/socks", control="/run/tor/control") as server:
 >     service_key = server.service_key  # persist securely to restore this service
 > ```
 > **Rust**
 > ```rust
-> use pancake::onion::{self, Auth, Config};
-> use pancake::Argument;
+> use glowcap::onion::{self, Auth, Config};
+> use glowcap::Argument;
 >
-> // pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+> // glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > let config = Config::dial_only("/run/tor/socks")
 >     .with_control("/run/tor/control", Auth::None);
 > let server = onion::listen(config, onion::ListenOptions::default()).await?;
@@ -181,9 +181,9 @@ Applications normally use `Session`.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt" "pancake-onion.rkt")
+> (require "glowcap.rkt" "glowcap-onion.rkt")
 >
-> ;; pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+> ;; glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > (define server (listen-onion #:socks "/run/tor/socks"
 >                              #:control "/run/tor/control"))
 > (printf "~a\n" (onion-server-uri server)) ; hand this locator to partners
@@ -207,7 +207,7 @@ dialed it. CapTP does not decide what a caller may do by asking who called; the
 caller either holds the reference or it does not.
 
 Three-party handoff is the exception: it keys on the location a peer declared,
-and an accepted circuit has nothing to check that declaration against. pancake
+and an accepted circuit has nothing to check that declaration against. glowcap
 reports such a location as unproven. Only code that authenticated an end-to-end
 channel may report a proved peer. An
 [iroh]($link.page('transports/iroh')) session can, because QUIC authenticated
@@ -216,23 +216,23 @@ the node id.
 # Bare onion locators
 
 The service id already says where to dial, so the locator carries nothing
-else. The Goblins release pancake pins cannot dial an onion locator that
+else. The Goblins release glowcap pins cannot dial an onion locator that
 carries hints, even though the OCapN locator rules say hints never change
-which peer an address names. Every onion locator pancake sends inside the
-protocol is the bare form, and any hints on a locator pancake receives are
+which peer an address names. Every onion locator glowcap sends inside the
+protocol is the bare form, and any hints on a locator glowcap receives are
 ignored rather than refused.
 
 The hello can still carry a profile. Hints are how a peer states a preferred
 wire profile, and live Goblins accepts a hinted hello and ignores it.
-`zig build goblins-onion` probes that on every run. Two pancake peers over
-Tor can therefore settle `pancake-next`. The dialer states its preference
-when it was handed the pancake form of the address. An acceptor configured
+`zig build goblins-onion` probes that on every run. Two glowcap peers over
+Tor can therefore settle `glowcap-next`. The dialer states its preference
+when it was handed the glowcap form of the address. An acceptor configured
 for the upgrade waits for that hello and answers with the same preference.
 A peer on the default profile, and every session with a Goblins vat, settles
 the baseline.
-[ADR-0108](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0108-onion-netlayer.md)
+[ADR-0108](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0108-onion-netlayer.md)
 records the locator rule.
-[ADR-0118](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0118-onion-profile-by-knowledge.md)
+[ADR-0118](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0118-onion-profile-by-knowledge.md)
 records the profile-by-knowledge amendment.
 
 [Choosing a transport]($link.page('transports/choosing')) puts onion beside the

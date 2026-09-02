@@ -1,6 +1,6 @@
 #lang racket/base
 ;; The live timeline producer: a veneer over the native tap. The core is the
-;; one owner of the facts — `pancake_host_set_trace` reports every session's
+;; one owner of the facts — `glowcap_host_set_trace` reports every session's
 ;; open (with the partner's designator, the wire name both peers of the
 ;; session derive, whether a durable identity verified the name, and the codec
 ;; the handshake actually negotiated), every
@@ -36,10 +36,10 @@
 ;; names it by, so one peer stays one node in a feed several producers share.
 (define self-label (box #f))
 ;; What this producer answers when a record asks what it runs. A constant and
-;; not an option: the host behind this binding is a pancake host, and an
+;; not an option: the host behind this binding is a glowcap host, and an
 ;; application naming itself something else would put a claim on the wire that
 ;; nothing here could stand behind. It is stated rather than left implicit
-;; because this schema is not pancake's alone — the Goblins conformance peer
+;; because this schema is not glowcap's alone — the Goblins conformance peer
 ;; publishes the same records — so a consumer cannot read an implementation off
 ;; the fact that a record arrived, and a host that says nothing is honestly
 ;; unknown to it. Each of the four bindings states the word itself, because it
@@ -48,7 +48,7 @@
 ;; source-check` (`checkTraceViewerVocabulary`) holds all four against each other,
 ;; against the viewer that reads them, and against the Goblins publisher, which
 ;; states a different word and must keep stating it.
-(define self-profile "pancake")
+(define self-profile "glowcap")
 (define t0 (box 0))
 ;; Every live Host is held weakly beside its cookie, designator, and
 ;; binding-owned installer. The weak owner keeps this registry from
@@ -109,13 +109,13 @@
   (cond
     [(= codec CODEC-CAPNP) "capnp"]
     [(= codec CODEC-SYRUP) "syrup"]
-    [else (error 'pancake "ABI returned unknown trace codec: ~a" codec)]))
+    [else (error 'glowcap "ABI returned unknown trace codec: ~a" codec)]))
 
 (define (captp-version<-abi version)
   (cond
-    [(= version CAPTP-NEXT) "pancake-next"]
+    [(= version CAPTP-NEXT) "glowcap-next"]
     [(= version CAPTP-V1-0) "1.0"]
-    [else (error 'pancake "ABI returned unknown trace CapTP version: ~a" version)]))
+    [else (error 'glowcap "ABI returned unknown trace CapTP version: ~a" version)]))
 
 (define (emit! row ev)
   (define s (unbox sink))
@@ -158,9 +158,9 @@
     ;; while every pointer field is still borrowed, then read the digest from
     ;; stable Racket-owned storage. Payload views are still copied below before
     ;; this callback returns.
-    (define event-storage (malloc _PancakeTraceEvent 'atomic-interior))
-    (memcpy event-storage borrowed-event (ctype-sizeof _PancakeTraceEvent))
-    (define ev (ptr-ref event-storage _PancakeTraceEvent))
+    (define event-storage (malloc _GlowcapTraceEvent 'atomic-interior))
+    (memcpy event-storage borrowed-event (ctype-sizeof _GlowcapTraceEvent))
+    (define ev (ptr-ref event-storage _GlowcapTraceEvent))
     (define cookie (if ctx (cast ctx _pointer _intptr) 0))
     (define row
       (with-registry
@@ -168,8 +168,8 @@
          (findf (lambda (candidate) (= (trace-host-cookie candidate) cookie))
                 (unbox hosts)))))
     (define session-id
-      (format "live-h~a-s~a" cookie (PancakeTraceEvent-session ev)))
-    (define kind (PancakeTraceEvent-kind ev))
+      (format "live-h~a-s~a" cookie (GlowcapTraceEvent-session ev)))
+    (define kind (GlowcapTraceEvent-kind ev))
     (define (endpoint-a)
       (with-registry
        (lambda ()
@@ -178,27 +178,27 @@
       [(= kind TRACE-SESSION-OPEN)
        ;; The OCapN Session ID, the one name both ends of this session
        ;; derive. Absent when the partner sent no session key.
-       (define session-id-value (view->string (PancakeTraceEvent-session-id ev)
-                                              (PancakeTraceEvent-session-id-len ev)))
+       (define session-id-value (view->string (GlowcapTraceEvent-session-id ev)
+                                              (GlowcapTraceEvent-session-id-len ev)))
        ;; The partner locator's OCapN Transport. Left out when the open
        ;; carried none, the way `session_id` and `op` are: a record says what
        ;; it knows, and an empty string is a third spelling of "nothing" that
        ;; every consumer would then have to know about.
-       (define transport (view->string (PancakeTraceEvent-transport ev)
-                                       (PancakeTraceEvent-transport-len ev)))
+       (define transport (view->string (GlowcapTraceEvent-transport ev)
+                                       (GlowcapTraceEvent-transport-len ev)))
        (define open-record
          (hasheq 'v 1 'sim_t_ns (now-ns) 'kind "ocapn.session-opened"
                  'session session-id
                  'a (endpoint-a)
                  'a_profile self-profile
-                 'b (or (view->string (PancakeTraceEvent-designator ev)
-                                      (PancakeTraceEvent-designator-len ev))
+                 'b (or (view->string (GlowcapTraceEvent-designator ev)
+                                      (GlowcapTraceEvent-designator-len ev))
                         "peer")
-                 'codec (codec<-abi (PancakeTraceEvent-codec ev))
+                 'codec (codec<-abi (GlowcapTraceEvent-codec ev))
                  'captp_version (captp-version<-abi
-                                  (PancakeTraceEvent-captp-version ev))
+                                  (GlowcapTraceEvent-captp-version ev))
                  'provenance (symbol->string
-                              (provenance<-abi (PancakeTraceEvent-provenance ev)))))
+                              (provenance<-abi (GlowcapTraceEvent-provenance ev)))))
        (define carried
          (if transport (hash-set open-record 'transport transport) open-record))
        (define labelled
@@ -209,15 +209,15 @@
                   (hash-set labelled 'session_id session-id-value)
                   labelled)))]
       [(= kind TRACE-MESSAGE)
-       (define op (view->string (PancakeTraceEvent-verb ev)
-                                (PancakeTraceEvent-verb-len ev)))
+       (define op (view->string (GlowcapTraceEvent-verb ev)
+                                (GlowcapTraceEvent-verb-len ev)))
        ;; The frame is borrowed for this call, so the payload copy happens
        ;; here or never: whole frame under the cap, head + true length
        ;; above it.
-       (define frame-ptr (PancakeTraceEvent-frame ev))
-       (define frame-len (PancakeTraceEvent-frame-len ev))
+       (define frame-ptr (GlowcapTraceEvent-frame ev))
+       (define frame-len (GlowcapTraceEvent-frame-len ev))
        (define frame-total-len
-         (let ([n (PancakeTraceEvent-frame-total-len ev)])
+         (let ([n (GlowcapTraceEvent-frame-total-len ev)])
            (if (zero? n) frame-len n)))
        (define (b64 n)
          (bytes->string/latin-1
@@ -229,13 +229,13 @@
        (define digest
          (apply string-append
                 (for/list ([i (in-range TRACE-DIGEST-BYTES)])
-                  (define h (number->string (array-ref (PancakeTraceEvent-digest ev) i) 16))
+                  (define h (number->string (array-ref (GlowcapTraceEvent-digest ev) i) 16))
                   (if (= 1 (string-length h)) (string-append "0" h) h))))
        (when row (emit! row (let* ([base (hasheq 'v 1 'sim_t_ns (now-ns)
                                    'kind "ocapn.message-decoded"
                                    'session session-id
                                    'digest digest
-                                   'outbound (not (zero? (PancakeTraceEvent-outbound ev))))]
+                                   'outbound (not (zero? (GlowcapTraceEvent-outbound ev))))]
                      [base (if op (hash-set base 'op op) base)])
                 (cond
                   [(zero? frame-total-len) base]
@@ -254,7 +254,7 @@
        (when row
          (emit! row (hasheq 'v 1 'sim_t_ns (now-ns) 'kind "ocapn.session-closed"
                             'session session-id)))]
-      [else (error 'pancake "ABI returned unknown trace event kind: ~a" kind)])))
+      [else (error 'glowcap "ABI returned unknown trace event kind: ~a" kind)])))
 
 ;; The SET half of the annotation channel: an application states which
 ;; partner a session carries, named for the same session row the tap names. A
@@ -271,7 +271,7 @@
                   (eq? owner (weak-box-value (trace-host-owner candidate))))
                 (unbox hosts)))))
     (when row
-      (define-values (rc id) (pancake_host_session_trace_id session-ptr))
+      (define-values (rc id) (glowcap_host_session_trace_id session-ptr))
       (when (zero? rc)
         (emit! row (hasheq 'v 1 'sim_t_ns (now-ns)
                        'kind "ocapn.session-meta"
@@ -280,7 +280,7 @@
 
 (define (callback!)
   (unless (unbox native-cb)
-    (set-box! native-cb (function-ptr on-native-event _PancakeTraceCallback)))
+    (set-box! native-cb (function-ptr on-native-event _GlowcapTraceCallback)))
   (unbox native-cb))
 
 (define (cookie->ctx cookie) (cast cookie _intptr _pointer))

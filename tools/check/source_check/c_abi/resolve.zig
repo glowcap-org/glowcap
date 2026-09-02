@@ -121,7 +121,7 @@ pub fn checkCAbiResolve(
     // the root — a divergent copy ships a different download cascade.
     const package_copies = [_][]const u8{
         "bindings/rust/c-abi-resolve.json",
-        "bindings/python/pancake/c-abi-resolve.json",
+        "bindings/python/glowcap/c-abi-resolve.json",
         "bindings/ts/runtime/internal/ffi/c-abi-resolve.json",
         "bindings/racket/private/c-abi-resolve.json",
     };
@@ -153,18 +153,18 @@ pub fn checkCAbiResolve(
 
     // Header macros must match the contract pin; user_agent embeds the same version.
     if (abi_version) |want| {
-        const header = root.readFileAlloc(io, "include/pancake_ocapn.h", gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "include/pancake_ocapn.h: failed to read for c-abi-resolve check with {s}", .{@errorName(err)});
+        const header = root.readFileAlloc(io, "include/glowcap_ocapn.h", gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "include/glowcap_ocapn.h: failed to read for c-abi-resolve check with {s}", .{@errorName(err)});
             return;
         };
         defer gpa.free(header);
-        const major = headerMacroU32(header, "PANCAKE_VERSION_MAJOR") orelse 0;
-        const minor = headerMacroU32(header, "PANCAKE_VERSION_MINOR") orelse 0;
-        const patch = headerMacroU32(header, "PANCAKE_VERSION_PATCH") orelse 0;
+        const major = headerMacroU32(header, "GLOWCAP_VERSION_MAJOR") orelse 0;
+        const minor = headerMacroU32(header, "GLOWCAP_VERSION_MINOR") orelse 0;
+        const patch = headerMacroU32(header, "GLOWCAP_VERSION_PATCH") orelse 0;
         var buf: [32]u8 = undefined;
         const got = std.fmt.bufPrint(&buf, "{d}.{d}.{d}", .{ major, minor, patch }) catch unreachable;
         if (!std.mem.eql(u8, got, want)) {
-            try appendViolation(gpa, violations, "{s}: `abi_version` `{s}` must match include/pancake_ocapn.h `{s}`", .{ contract_path, want, got });
+            try appendViolation(gpa, violations, "{s}: `abi_version` `{s}` must match include/glowcap_ocapn.h `{s}`", .{ contract_path, want, got });
         }
         if (getField(parsed.value, "user_agent")) |ua| {
             switch (ua) {
@@ -226,8 +226,8 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, readme, "ADR-0077") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must cite ADR-0077", .{});
     }
-    if (std.mem.indexOf(u8, readme, "PANCAKE_STRICT") == null) {
-        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `PANCAKE_STRICT`", .{});
+    if (std.mem.indexOf(u8, readme, "GLOWCAP_STRICT") == null) {
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `GLOWCAP_STRICT`", .{});
     }
     if (std.mem.indexOf(u8, readme, "releases_published") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `releases_published`", .{});
@@ -235,8 +235,8 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, readme, "PROVENANCE.md") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: release contents must document the packaged `PROVENANCE.md` disclosure", .{});
     }
-    if (std.mem.indexOf(u8, readme, "PANCAKE_DOWNLOAD") == null) {
-        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `PANCAKE_DOWNLOAD`", .{});
+    if (std.mem.indexOf(u8, readme, "GLOWCAP_DOWNLOAD") == null) {
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `GLOWCAP_DOWNLOAD`", .{});
     }
 
     if (std.mem.indexOf(u8, readme, "c-abi-host-aliases") == null and
@@ -335,13 +335,13 @@ pub fn checkCAbiResolve(
     defer gpa.free(release_smoke);
     for ([_][]const u8{
         "sha256sum -c SHA256SUMS",
-        "pancake_abi_version",
-        "pancake_ocapn_archive_fingerprint",
-        "pancake_host_archive_fingerprint",
-        "pancake_driver_archive_fingerprint",
-        "pancake_%s_archive_fingerprint",
-        "static manifest omits libpancake_ocapn",
-        "shared manifest omits libpancake_ocapn",
+        "glowcap_abi_version",
+        "glowcap_ocapn_archive_fingerprint",
+        "glowcap_host_archive_fingerprint",
+        "glowcap_driver_archive_fingerprint",
+        "glowcap_%s_archive_fingerprint",
+        "static manifest omits libglowcap_ocapn",
+        "shared manifest omits libglowcap_ocapn",
         "repo_root=",
         ". \"$repo_root/tools/c-abi/archive-hygiene.sh\"",
         "archive_hygiene_check",
@@ -351,7 +351,7 @@ pub fn checkCAbiResolve(
         "zig cc",
         "write_consumer \"$workdir/static-$name-consumer.c\" \"$name\"",
         "shared-consumer",
-        "bin/pancake",
+        "bin/glowcap",
         "bin/rooms-peer",
     }) |marker| {
         if (std.mem.indexOf(u8, release_smoke, marker) == null) {

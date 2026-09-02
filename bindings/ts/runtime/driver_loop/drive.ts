@@ -17,8 +17,8 @@
 // trampolines fire inside it; provider starts are nonblocking, and readiness
 // drives connect completion and CapTP handshakes through later steps.
 
-import { HOST_ACTION_FAIL, HOST_ACTION_SETTLE, INTERNAL, INVALID_ARGUMENT, OK, WOULD_BLOCK } from "@pancake/abi";
-import { PancakeError, vowFailure } from "../errors.ts";
+import { HOST_ACTION_FAIL, HOST_ACTION_SETTLE, INTERNAL, INVALID_ARGUMENT, OK, WOULD_BLOCK } from "@glowcap/abi";
+import { GlowcapError, vowFailure } from "../errors.ts";
 import { decodeDriverEvent, type LoopEvent } from "../internal/driver_event.ts";
 import { addDriverProvider, checkDriver, driverFailureError } from "../internal/driver_failure.ts";
 import { loopS } from "../internal/ffi/driver.ts";
@@ -44,10 +44,10 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 		let registered = false;
 		const register = (packageBytes: Uint8Array): void => {
 			if (!active || registered) {
-				throw new PancakeError(INVALID_ARGUMENT, "provider registrar is no longer active");
+				throw new GlowcapError(INVALID_ARGUMENT, "provider registrar is no longer active");
 			}
 			addDriverProvider(
-				(provider, out) => loopS.pancake_driver_add_provider(this._h, provider, out),
+				(provider, out) => loopS.glowcap_driver_add_provider(this._h, provider, out),
 				packageBytes,
 			);
 			registered = true;
@@ -55,7 +55,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 		try {
 			prepare(register);
 			if (!registered) {
-				throw new PancakeError(
+				throw new GlowcapError(
 					INVALID_ARGUMENT,
 					"provider installer registered no package",
 				);
@@ -70,7 +70,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 		this._guardHandle();
 		const name = utf8Encoder.encode(transport);
 		const present = new Uint8Array(1);
-		checkDriver(loopS.pancake_driver_has_transport(
+		checkDriver(loopS.glowcap_driver_has_transport(
 			this._h,
 			ab(name),
 			BigInt(name.length),
@@ -87,7 +87,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 		this._guardHandle();
 		if (this._parkExited != null) return;
 		const out = new Uint8Array(4);
-		checkDriver(loopS.pancake_driver_readiness_fd(this._h, ab(out)));
+		checkDriver(loopS.glowcap_driver_readiness_fd(this._h, ab(out)));
 		const fd = new DataView(out.buffer).getInt32(0, true);
 		const dup = duplicateReadinessDescriptor(fd);
 		this._parkExited = joinParker(this, dup, (error) => this._failBackground(error));
@@ -109,7 +109,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 	 * current poll returns and its set rebuilds. Binding-internal. */
 	parkWake(): void {
 		if (this._released) return;
-		void loopS.pancake_driver_wake(this._h).catch((error: unknown) => {
+		void loopS.glowcap_driver_wake(this._h).catch((error: unknown) => {
 			this._failBackground(error);
 		});
 	}
@@ -170,7 +170,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 				const prev = host != null ? enterDeliver(host) : null;
 				let rc: number;
 				try {
-					rc = loopS.pancake_driver_step(this._h, 0);
+					rc = loopS.glowcap_driver_step(this._h, 0);
 				} finally {
 					if (host != null) exitDeliver(prev);
 				}
@@ -200,7 +200,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 		const out: LoopEvent[] = [];
 		const buf = new Uint8Array(L.DRIVER_EVENT_SIZE);
 		while (true) {
-			const rc = loopS.pancake_driver_next_event(this._h, ab(buf));
+			const rc = loopS.glowcap_driver_next_event(this._h, ab(buf));
 			if (rc === WOULD_BLOCK) return out;
 			checkDriver(rc);
 			out.push(decodeDriverEvent(buf));
@@ -257,7 +257,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 					if (waiters == null || queue == null) {
 						this._unclaimedSessions.set(event.session, { kind: "open" });
 						this.nativeSessionRelease(event.session);
-						throw new PancakeError(
+						throw new GlowcapError(
 							INTERNAL,
 							`accepted session names unknown listener ${event.listener}`,
 						);
@@ -309,7 +309,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 	protected _settleListener(
 		listener: bigint,
 		waiter: ListenerWaiter,
-		result: { ready: true } | { error: PancakeError },
+		result: { ready: true } | { error: GlowcapError },
 	): void {
 		if (this._pendingListeners.get(listener) !== waiter) return;
 		this._pendingListeners.delete(listener);

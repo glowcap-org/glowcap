@@ -103,7 +103,7 @@ Deno.test("an update states exactly the properties written onto it", () => {
 Deno.test("a property's track round-trips onto a definition", () => {
 	for (const property of PEER_PROPERTIES) {
 		const spec = PEER_TRAJECTORY[property];
-		const bare: PeerDefinition = { profile: "pancake" };
+		const bare: PeerDefinition = { profile: "glowcap" };
 		assertEquals(spec.track(bare), undefined, `${property}: no track yet`);
 
 		const value = sampleValue(spec);

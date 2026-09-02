@@ -10,7 +10,7 @@
 // `Directory` — never inside it.
 
 import { Directory, Room } from "./room/client.ts";
-import type { Ref } from "@pancake/runtime";
+import type { Ref } from "@glowcap/runtime";
 import { NO_ROOM_MANAGERS, NO_SUCH_ROOM, ROOM_EXISTS } from "./errors.ts";
 import { roomErrorOf } from "./errors.ts";
 import { dialDirectory, type RoomsRuntime } from "./locator.ts";

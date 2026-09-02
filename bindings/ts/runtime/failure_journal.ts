@@ -1,4 +1,4 @@
-import { DEFAULT_FAILURE_CAPACITY, DEFAULT_FAILURE_PAYLOAD_CAP, OK, TIMEOUT } from "@pancake/abi";
+import { DEFAULT_FAILURE_CAPACITY, DEFAULT_FAILURE_PAYLOAD_CAP, OK, TIMEOUT } from "@glowcap/abi";
 
 export type FailureLayer = "core" | "driver" | "transport" | "binding" | "application-observer";
 export type FailureScope = "process" | "context" | "host" | "session" | "listener" | "transport" | "operation";

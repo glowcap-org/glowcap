@@ -1,7 +1,7 @@
 #lang racket/base
 ;; generate.rkt — Regenerate the Syrup byte-fixture corpus.
 ;;
-;; Each builder below hand-constructs the record structure pancake's Syrup
+;; Each builder below hand-constructs the record structure glowcap's Syrup
 ;; codec produces for the corresponding `model.Message`, then serializes it
 ;; through the upstream Racket Syrup encoder (the `syrup` collection the
 ;; devcontainer installs) and writes one .bin per fixture to the directory
@@ -30,7 +30,7 @@
 
 ;; <op:deliver <desc:export 7> [b"hello"] 42 #f>.
 ;;
-;; Field 4 (resolve-me-desc) is pancake-shape divergent, pancake
+;; Field 4 (resolve-me-desc) is glowcap-shape divergent, glowcap
 ;; always emits #f (Syrup wire compatibility).
 (define (op-deliver-minimal)
   (record* 'op:deliver
@@ -41,8 +41,8 @@
 
 ;; <op:resolve 42 <resolve:break <error "target unreachable">>>.
 ;;
-;; The <op:resolve …> envelope is pancake-shape (Syrup wire compatibility).
-;; The <error …> payload label is pancake-pinned pending upstream
+;; The <op:resolve …> envelope is glowcap-shape (Syrup wire compatibility).
+;; The <error …> payload label is glowcap-pinned pending upstream
 ;; ocapn/ocapn#142.
 (define (op-resolve-break)
   (record* 'op:resolve
@@ -92,12 +92,12 @@
 ;; desc:* reference operands. `to-desc` may be `desc:answer`
 ;; (pipelining target case) or `desc:export` (local-export target
 ;; case). `listen-desc` is `desc:import-object` or
-;; `desc:import-promise` per the spec; pancake's encoder emits
+;; `desc:import-promise` per the spec; glowcap's encoder emits
 ;; `desc:import-object` for `Reference::Near` listener arguments
 ;; via the standard payload-position perspective flip.
 ;;
 ;; V1.0 accepts this omitted third operand only as settling-only
-;; compatibility with the earlier OCapN text. Pancake canonically emits the
+;; compatibility with the earlier OCapN text. Glowcap canonically emits the
 ;; Goblins three-operand form below. Next always carries its integer mode.
 (define (op-listen-promise-target)
   (record* 'op:listen
@@ -107,7 +107,7 @@
 ;; <op:listen <desc:export 5> <desc:import-object 9>>.
 ;;
 ;; Wire-shape fixture for an export-target listen. CapTP fires the listener
-;; immediately when the target is already settled, and pancake's engine does
+;; immediately when the target is already settled, and glowcap's engine does
 ;; that for a live object export (ADR-0007; a bare promise export refuses).
 ;; This fixture locks the Syrup bytes; the firing behavior is covered by the
 ;; engine scenarios and by `goblins-interop`'s export-listen leg.
@@ -151,7 +151,7 @@
 ;; ('fulfill <value>) or ('break <reason>). The fulfill callback is
 ;; shape-identical to the existing `op_deliver.bin` fixture. The break
 ;; reason is not always a `desc:error`: Goblins marshals a thrown
-;; exception as a record, which pancake renders to the break message
+;; exception as a record, which glowcap renders to the break message
 ;; (see `resolutionFromResolverCallback` in src/ocapn/engine/mod.zig).
 (define (op-deliver-v1-0-with-resolve-me-desc)
   (record* 'op:deliver
@@ -197,7 +197,7 @@
 
 ;; <op:abort "VersionMismatch: peer requested 2.0">.
 ;;
-;; ADR-0008 typed-reason wire projection: pancake's
+;; ADR-0008 typed-reason wire projection: glowcap's
 ;; AbortReasonKind taxonomy emits the spec-strict single-string
 ;; op:abort with a "<KindName>: <message>" prefix on V1_0 syrup.
 ;; Goblins-canonical wire stays a single string; the typed-kind
@@ -248,7 +248,7 @@
 ;; `op:deliver to=<desc:export 7> args=[<arg>] answer-pos=42 #f`
 ;; shape for each new `Argument` variant ADR-0021 added. Mirrors the
 ;; sibling Python builders; pin direction is "both reference encoders
-;; agree, pancake must match." A regression on a specific variant's
+;; agree, glowcap must match." A regression on a specific variant's
 ;; wire shape surfaces against its dedicated fixture.
 
 (define (op-deliver-one-arg arg)
@@ -267,7 +267,7 @@
   (op-deliver-one-arg 1.5))
 
 ;; 2^100, a Racket bignum, encoded by the upstream Syrup encoder as the
-;; canonical decimal digits. Pins pancake's `big_integer` arm (ADR-0049)
+;; canonical decimal digits. Pins glowcap's `big_integer` arm (ADR-0049)
 ;; against the same arbitrary-precision value Goblins would marshal.
 (define (op-deliver-arg-big-integer)
   (op-deliver-one-arg 1267650600228229401496703205376))
@@ -284,7 +284,7 @@
   (op-deliver-one-arg (record* 'kw 'name)))
 
 ;; #1 2 3 $, Goblins (set 1 2 3) per ADR-0021. The Racket `set`
-;; serializer canonical-sorts on emit (matching pancake's encoder).
+;; serializer canonical-sorts on emit (matching glowcap's encoder).
 (define (op-deliver-arg-set)
   (op-deliver-one-arg (set 1 2 3)))
 
@@ -310,10 +310,10 @@
               (list 'r (subbytes sig-64 0 32))
               (list 's (subbytes sig-64 32 64)))))
 
-;; <ocapn-peer transport designator hints> matching pancake's
+;; <ocapn-peer transport designator hints> matching glowcap's
 ;; `locator_to_syrup` output for empty hints. Empty hints emit an
 ;; empty hash table (matching the OCapN Python conformance suite and
-;; pancake's own encoder); a prior revision used `#f` and diverged
+;; glowcap's own encoder); a prior revision used `#f` and diverged
 ;; from upstream, breaking `op:start-session` signature verification.
 (define (ocapn-peer-no-hints transport designator)
   (record* 'ocapn-peer (string->symbol transport) designator (hash)))
@@ -366,7 +366,7 @@
 ;; Receiver invokes `withdraw-gift` on the Exporter's bootstrap
 ;; object (<desc:export 0>) carrying a desc:sig-envelope-wrapped
 ;; desc:handoff-receive certificate as the second op:deliver arg.
-;; The argument is pancake's `Argument::Handoff` variant; on the
+;; The argument is glowcap's `Argument::Handoff` variant; on the
 ;; wire it is the spec-canonical envelope itself (no extra
 ;; wrapper). Inner field bytes match `signed-handoff-receive` so a
 ;; single parity assertion covers both shapes' cross-impl bytes;
@@ -395,7 +395,7 @@
 ;; Goblins's `(define-recordable-struct op:get (receiver-desc
 ;; field-name new-answer-pos))` and the parallel `op:index` at
 ;; `goblins/ocapn/captp.rkt:98-104`. Field-projection / list-index
-;; carrying a fresh answer-pos for the result promise; pancake's
+;; carrying a fresh answer-pos for the result promise; glowcap's
 ;; encoder produces the spec-canonical 3-operand shape.
 
 ;; <op:get <desc:export 7> "name" 11+>.
@@ -446,7 +446,7 @@
 ;; (`['public-key ['ecc ['curve 'Ed25519] ['flags 'eddsa] ['q q]]]`),
 ;; the locator the receiver would dial to reach this peer, and the
 ;; signature over `<my-location $acceptable-location>` as a gcrypt
-;; sig-val s-expression. Pancake's `Message::StartSession` emits the
+;; sig-val s-expression. Glowcap's `Message::StartSession` emits the
 ;; same shape via `peer_key_to_syrup` / `locator_to_syrup` /
 ;; `signature_to_syrup` — fixture confirms cross-impl byte parity.
 ;;
@@ -454,7 +454,7 @@
 ;; $loc>` Syrup-canonical bytes (Goblins's verification path at
 ;; `captp.rkt:1454-1457`). The signature byte pattern below
 ;; (`#xCC`) is a fixture placeholder — real handshake bytes are
-;; generated by `pancake-session::handshake`'s per-session Ed25519
+;; generated by `glowcap-session::handshake`'s per-session Ed25519
 ;; signer.
 (define (op-start-session-v1-0)
   (record* 'op:start-session

@@ -9,7 +9,7 @@
 ;;
 ;; Lazy-require breaks the session ↔ dial cycle: dial lazy-requires session
 ;; for serve / drain choreography and session/close for terminal close; the
-;; public barrel (`pancake.rkt`) requires dial directly.
+;; public barrel (`glowcap.rkt`) requires dial directly.
 
 (require ffi/unsafe
          racket/lazy-require
@@ -68,35 +68,35 @@
     (raise-argument-error 'connect "byte-connector?" connector))
   (define transport (locator-transport loc))
   (unless (byte-connector-supports? connector transport)
-    (raise-pancake 'connect ERR-INVALID-ARGUMENT
+    (raise-glowcap 'connect ERR-INVALID-ARGUMENT
                    "the supplied connector does not advertise transport \"~a\""
                    transport))
   ((byte-connector-realize connector) m loc handshake-timeout-ms))
 
 (define (check-runtime-host-options adopted-host seed profile codec captp-version features)
   (when (and adopted-host seed)
-    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                    "#:adopt-host and #:seed are mutually exclusive"))
   (define-values (selected-codec selected-captp-version)
     (host-profile-values 'open-runtime profile codec captp-version))
   (when (and adopted-host profile
              (or (not (eq? selected-codec (host-codec adopted-host)))
                  (not (eq? selected-captp-version (host-captp-version adopted-host)))))
-    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                    "#:profile ~a conflicts with the adopted Host" profile))
   (when (and adopted-host codec (not (eq? codec (host-codec adopted-host))))
-    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                    "#:codec ~a conflicts with the Host's ~a"
                    codec (host-codec adopted-host)))
   (when (and adopted-host captp-version
              (not (eq? captp-version (host-captp-version adopted-host))))
-    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                    "#:captp-version ~a conflicts with the Host's ~a"
                    captp-version (host-captp-version adopted-host)))
   (when (and adopted-host features
              (not (= (feature-mask features)
                      (feature-mask (host-features adopted-host)))))
-    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                    "#:features ~a conflicts with the Host's ~a"
                    features (host-features adopted-host))))
 
@@ -121,7 +121,7 @@
   (for* ([value (in-list values)]
          [transport (in-list (transports-of value))])
     (when (hash-ref seen transport #f)
-      (raise-pancake who ERR-INVALID-ARGUMENT
+      (raise-glowcap who ERR-INVALID-ARGUMENT
                      "Runtime composition repeats transport \"~a\""
                      transport))
     (hash-set! seen transport #t)))
@@ -141,7 +141,7 @@
                       #:handshake-timeout-ms
                       [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (when (eq? (and providers #t) (and connectors #t))
-    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                    "supply exactly one of #:providers or #:connectors"))
   (check-runtime-host-options adopted-host seed profile codec captp-version features)
   (define m (runtime-host-for adopted-host seed profile codec captp-version features))
@@ -170,7 +170,7 @@
                         byte-connector-transports 'byte-connector)
      (when (host-loop-of m)
        (unless adopted-host (host-close! m))
-       (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+       (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                       "a native-loop Host cannot be transferred to a connector Runtime"))
      ;; Validate the complete registry before mutating the Host, so installation
      ;; is transactional even when the caller supplied it.
@@ -178,7 +178,7 @@
             [transport (in-list (byte-connector-transports connector))])
        (when (host-connector-for m transport)
          (unless adopted-host (host-close! m))
-         (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+         (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                         "Host already has a connector for transport \"~a\""
                         transport)))
      (for ([connector (in-list connectors)])
@@ -195,11 +195,11 @@
      (loop-connect-session mode loc options)]
     [else
      (when options
-       (raise-pancake 'runtime-connect ERR-INVALID-ARGUMENT
+       (raise-glowcap 'runtime-connect ERR-INVALID-ARGUMENT
                       "operation options are not supported by this connector Runtime"))
      (define connector (host-connector-for (runtime-host rt) transport))
      (unless connector
-       (raise-pancake 'runtime-connect ERR-INVALID-ARGUMENT
+       (raise-glowcap 'runtime-connect ERR-INVALID-ARGUMENT
                       "Runtime has no connector for transport \"~a\""
                       transport))
      (dial-byte-fed connector (runtime-host rt) loc
@@ -224,7 +224,7 @@
     [(host-connector-for m transport)
      (dial-byte-fed (host-connector-for m transport) m loc handshake-timeout-ms)]
     [else
-     (raise-pancake 'connect ERR-INVALID-ARGUMENT
+     (raise-glowcap 'connect ERR-INVALID-ARGUMENT
                     "Host has no explicit connector for transport \"~a\""
                     transport)]))
 
@@ -263,7 +263,7 @@
                       (lambda (e)
                         (set! failure (exn->message e)))])
        (define-values (rc locator-handle)
-         (pancake_host_pending_dial (host-ptr m) ticket route-index))
+         (glowcap_host_pending_dial (host-ptr m) ticket route-index))
        (check/host rc)
        (define loc (call-with-owned-locator-handle locator-handle owned-locator->locator))
        (set! c (dial-exporter m loc))

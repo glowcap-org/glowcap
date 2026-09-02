@@ -30,7 +30,7 @@ pub fn register(
     // runs this per platform on a version tag and attaches the tarballs to the
     // release, the hosted upstream the bindings' find leg resolves against.
     const release_tarball = b.fmt(
-        "pancake-c-v{d}.{d}.{d}-{s}-{s}.tar.gz",
+        "glowcap-c-v{d}.{d}.{d}-{s}-{s}.tar.gz",
         .{
             abi_version.major,                abi_version.minor,              abi_version.patch,
             @tagName(target.result.cpu.arch), @tagName(target.result.os.tag),

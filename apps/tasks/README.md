@@ -1,6 +1,6 @@
 # Tasks
 
-Tasks is a shared board built on pancake. Clients add work, mark it done, list
+Tasks is a shared board built on glowcap. Clients add work, mark it done, list
 the board, and receive changes as they happen.
 
 Try it in two terminals. Start the server:

@@ -3,10 +3,10 @@
 //! fields, and single-byte corruption anywhere in a frame failing loudly.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
 
@@ -40,7 +40,7 @@ test "Syrup rejects invalid UTF-8 String and Symbol values without allocating" {
         "<10'op:deliver<11'desc:export7+>[1'\xff]ff>",
     };
     for (malformed_frames) |bytes| {
-        const view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .byte };
+        const view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .byte };
         try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(view));
         try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeOwned(std.testing.allocator, view));
     }
@@ -57,7 +57,7 @@ test "Syrup rejects invalid UTF-8 String and Symbol values without allocating" {
 
 test "Syrup decodes an unrecognised captp-version rather than calling the frame malformed" {
     // `fromWireString` matches only `wireString` spellings (`1.0`,
-    // `pancake-next`), so the former lenient `ocapn-1.0` alias is not one.
+    // `glowcap-next`), so the former lenient `ocapn-1.0` alias is not one.
     //
     // But an unrecognised token is a well-formed frame naming a version this
     // build does not speak, and saying "malformed frame" about it both misleads
@@ -74,10 +74,10 @@ test "Syrup decodes an unrecognised captp-version rather than calling the frame 
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
         "<10'ocapn-peer3'tcp9\"127.0.0.1f>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     const body = try syrup.decodeBody(view);
     try std.testing.expectEqual(
-        @as(?pancake.ocapn.model.CaptpVersion, null),
+        @as(?glowcap.ocapn.model.CaptpVersion, null),
         body.start_session.captp_version,
     );
 }
@@ -85,7 +85,7 @@ test "Syrup decodes an unrecognised captp-version rather than calling the frame 
 test "a session refuses an unrecognised captp-version as a version mismatch" {
     // The other half of the split above: the decoder reported, this decides.
     const allocator = std.testing.allocator;
-    var peer = pancake.ocapn.engine.Peer.initNegotiating(allocator);
+    var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.verify_partner_handshake = false;
 
@@ -94,25 +94,25 @@ test "a session refuses an unrecognised captp-version as a version mismatch" {
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
         "<10'ocapn-peer3'tcp9\"127.0.0.1f>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     try std.testing.expectError(
-        pancake.ocapn.session.Error.CaptpVersionMismatch,
+        glowcap.ocapn.session.Error.CaptpVersionMismatch,
         peer.recvBorrowed(view),
     );
 }
 
 test "Syrup decode refuses duplicate feature hints as a noncanonical dictionary" {
     const allocator = std.testing.allocator;
-    var peer = pancake.ocapn.engine.Peer.initNegotiating(allocator);
+    var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.verify_partner_handshake = false;
 
     const frame_bytes: []const u8 =
         "<16'op:start-session3\"1.0" ++
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
-        "<10'ocapn-peer3'tcp9\"127.0.0.1{16\"pancake/features0\"16\"pancake/features10\"pipelining}>" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1{16\"glowcap/features0\"16\"glowcap/features10\"pipelining}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     try std.testing.expectError(
         syrup.Error.MalformedFrame,
         syrup.decodeBody(view),
@@ -127,7 +127,7 @@ test "Syrup locator hints reject string and symbol spellings of one name" {
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
         "<10'ocapn-peer3'tcp9\"127.0.0.1{1\"a1\"x1'a1\"y}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(view));
 }
 
@@ -137,19 +137,19 @@ test "Syrup locator hints require string keys" {
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
         "<10'ocapn-peer3'tcp9\"127.0.0.1{1'a1\"x}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(view));
 }
 
 test "a session refuses malformed reserved profile hints on the borrowed start-session path" {
     const allocator = std.testing.allocator;
     const hint_maps = [_][]const u8{
-        "{21\"pancake/captp-version7\"ocapn-2}",
-        "{13\"pancake/codec3:bad}",
-        "{16\"pancake/features[1+]}",
+        "{21\"glowcap/captp-version7\"ocapn-2}",
+        "{13\"glowcap/codec3:bad}",
+        "{16\"glowcap/features[1+]}",
     };
     inline for (hint_maps) |hint_map| {
-        var peer = pancake.ocapn.engine.Peer.initNegotiating(allocator);
+        var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
         defer peer.deinit();
         peer.verify_partner_handshake = false;
 
@@ -158,9 +158,9 @@ test "a session refuses malformed reserved profile hints on the borrowed start-s
             "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
             "<10'ocapn-peer3'tcp9\"127.0.0.1" ++ hint_map ++ ">" ++
             "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-        const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+        const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
         try std.testing.expectError(
-            pancake.ocapn.session.Error.MalformedMessage,
+            glowcap.ocapn.session.Error.MalformedMessage,
             peer.recvBorrowed(view),
         );
         try std.testing.expect(!peer.session_state.handshake_remote_received);
@@ -180,7 +180,7 @@ test "Syrup decodes a start-session whose location carries non-empty hints" {
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
         "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.14\"port5\"52833}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     const body = try syrup.decodeBody(view);
     try std.testing.expect(body == .start_session);
     try std.testing.expectEqualStrings("127.0.0.1", body.start_session.acceptable_location.designator);
@@ -431,7 +431,7 @@ test "borrowed start-session decode refuses noncanonical hint order" {
 }
 
 test "Syrup decode rejects non-byte frame shape" {
-    const frame = pancake.foundation.FrameView{
+    const frame = glowcap.foundation.FrameView{
         .bytes = "<8'op:abort13\"shutting down>",
         .shape = .word,
     };
@@ -532,7 +532,7 @@ test "Syrup: corrupting any byte of a frame stays total: typed error or message,
                 const buf = try allocator.dupe(u8, original);
                 defer allocator.free(buf);
                 buf[i] = corruption;
-                const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .byte };
+                const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .byte };
 
                 if (syrup.decodeOwned(allocator, view)) |decoded| {
                     model.freeMessage(allocator, decoded);

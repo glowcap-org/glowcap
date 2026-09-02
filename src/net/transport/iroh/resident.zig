@@ -47,18 +47,18 @@ const ConnSource = struct {
     conn: *CConn,
 
     pub fn readSome(self: ConnSource, dest: []u8) Io.Reader.Error!usize {
-        const n = sidecar.pancake_iroh_sidecar_conn_read(self.conn, dest.ptr, dest.len);
+        const n = sidecar.glowcap_iroh_sidecar_conn_read(self.conn, dest.ptr, dest.len);
         if (n == 0) return error.EndOfStream;
         if (n < 0) return error.ReadFailed;
         return @intCast(n);
     }
 
     pub fn writeAll(self: ConnSource, bytes: []const u8) Io.Writer.Error!void {
-        if (sidecar.pancake_iroh_sidecar_conn_write(self.conn, bytes.ptr, bytes.len) < 0) return error.WriteFailed;
+        if (sidecar.glowcap_iroh_sidecar_conn_write(self.conn, bytes.ptr, bytes.len) < 0) return error.WriteFailed;
     }
 
     pub fn flush(self: ConnSource) Io.Writer.Error!void {
-        if (sidecar.pancake_iroh_sidecar_conn_flush(self.conn) != 0) return error.WriteFailed;
+        if (sidecar.glowcap_iroh_sidecar_conn_flush(self.conn) != 0) return error.WriteFailed;
     }
 };
 
@@ -72,7 +72,7 @@ const IrohContext = struct {
     conn: *CConn,
 
     pub fn closeStream(self: IrohContext) void {
-        sidecar.pancake_iroh_sidecar_conn_free(self.conn);
+        sidecar.glowcap_iroh_sidecar_conn_free(self.conn);
     }
 };
 
@@ -87,7 +87,7 @@ fn irohStreamCreate(allocator: std.mem.Allocator, conn: *CConn, bufs: Buffers) s
 /// durable only after the last fallible stream allocation, so a refused
 /// connection cannot leave a phantom channel proof on `peer`.
 pub fn adoptOwnedConn(io: Io, peer: *engine.Peer, conn: *CConn, bufs: Buffers) (error{ConnectionLost} || std.mem.Allocator.Error)!Connection {
-    errdefer sidecar.pancake_iroh_sidecar_conn_free(conn);
+    errdefer sidecar.glowcap_iroh_sidecar_conn_free(conn);
     const remote_key = connRemoteKey(conn) orelse return error.ConnectionLost;
     const stream = try irohStreamCreate(peer.allocator, conn, bufs);
     peer.bindVerifiedChannelKey(remote_key);
@@ -117,7 +117,7 @@ pub const Resident = struct {
     /// `idle_timeout_ms` bounds how long a connection survives without a packet
     /// from the far end. A connection whose peer was killed rather than
     /// closed ends here. 0 keeps the sidecar's default. The C ABI's
-    /// `PancakeIrohConfig` is the authority on what to set it to and why.
+    /// `GlowcapIrohConfig` is the authority on what to set it to and why.
     pub const Config = struct {
         reachability: Reachability,
         connect_timeout_ms: u64 = 0,
@@ -140,7 +140,7 @@ pub const Resident = struct {
             .idle_timeout_ms = config.idle_timeout_ms,
             .worker_threads = config.worker_threads,
         };
-        const endpoint = sidecar.pancake_iroh_sidecar_endpoint_new(secret_seed, &c_config) orelse return error.EndpointBindFailed;
+        const endpoint = sidecar.glowcap_iroh_sidecar_endpoint_new(secret_seed, &c_config) orelse return error.EndpointBindFailed;
         return .{ .io = io, .endpoint = endpoint, .reachability = config.reachability };
     }
 
@@ -149,13 +149,13 @@ pub const Resident = struct {
     /// still releases the handle. The shutdown lever for a host whose accept
     /// loop parks on another thread.
     pub fn close(self: *Resident) void {
-        sidecar.pancake_iroh_sidecar_endpoint_close(self.endpoint);
+        sidecar.glowcap_iroh_sidecar_endpoint_close(self.endpoint);
     }
 
     /// Close the endpoint and its runtime. Every connection minted from this
     /// resident must already be closed.
     pub fn deinit(self: *Resident) error{SidecarTeardownFailed}!void {
-        if (sidecar.pancake_iroh_sidecar_endpoint_free(self.endpoint) != 0) return error.SidecarTeardownFailed;
+        if (sidecar.glowcap_iroh_sidecar_endpoint_free(self.endpoint) != 0) return error.SidecarTeardownFailed;
     }
 
     /// This resident as a `Netlayer`. `self` must outlive every connection
@@ -173,7 +173,7 @@ pub const Resident = struct {
     /// connection that could not be established is `NetworkUnreachable`, and a
     /// connection that came up then failed is `ConnectionLost` (ADR-0081). The
     /// returned `*CConn` is owned by the caller, freed with
-    /// `sidecar.pancake_iroh_sidecar_conn_free`.
+    /// `sidecar.glowcap_iroh_sidecar_conn_free`.
     fn dialRawConn(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*CConn {
         // Canonical node-id shape is owned by `DialResolver.resolve` before the
         // blocking `residentDial` reaches here. This path owns reachability
@@ -183,7 +183,7 @@ pub const Resident = struct {
         // the network. A discovery endpoint resolves the partner by id.
         if (direct_addrs.len == 0 and !locators.resolvesById(self.reachability)) return error.InvalidAddress;
         var code: i32 = 0;
-        if (sidecar.pancake_iroh_sidecar_connect_blocking(
+        if (sidecar.glowcap_iroh_sidecar_connect_blocking(
             self.endpoint,
             designator.ptr,
             designator.len,
@@ -207,7 +207,7 @@ pub const Resident = struct {
     /// id-sized, so a short buffer is unrepresentable; an empty return means
     /// the sidecar faulted.
     pub fn nodeId(self: *const Resident, out: *[node_id_len]u8) []const u8 {
-        const n = sidecar.pancake_iroh_sidecar_endpoint_node_id(self.endpoint, out, out.len);
+        const n = sidecar.glowcap_iroh_sidecar_endpoint_node_id(self.endpoint, out, out.len);
         if (n != @as(isize, @intCast(out.len))) return out[0..0];
         return out[0..@intCast(n)];
     }
@@ -224,7 +224,7 @@ pub const Resident = struct {
     /// value a partner dials with. An endpoint with no direct addresses
     /// yields an empty slice; a short buffer reports the exact required size.
     pub fn directAddrs(self: *const Resident, out: []u8) DirectAddrsError!DirectAddrsResult {
-        const n = sidecar.pancake_iroh_sidecar_endpoint_direct_addrs(self.endpoint, out.ptr, out.len);
+        const n = sidecar.glowcap_iroh_sidecar_endpoint_direct_addrs(self.endpoint, out.ptr, out.len);
         if (n < 0) return error.SidecarFailed;
         const required: usize = @intCast(n);
         if (required > out.len) return .{ .too_small = required };
@@ -278,13 +278,13 @@ pub const Resident = struct {
     /// the readiness channel exists. Idempotent. Returns false if the sidecar
     /// could not arm the acceptor (e.g. the self-pipe failed).
     pub fn enableLoop(self: *Resident) bool {
-        return sidecar.pancake_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) == 0;
+        return sidecar.glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) == 0;
     }
 
     /// The endpoint's single read-only OS-level readiness fd, registered once
     /// with the host's poller. Readable whenever the ready queue has records.
     pub fn readinessFd(self: *Resident) i32 {
-        return sidecar.pancake_iroh_sidecar_endpoint_readiness_fd(self.endpoint);
+        return sidecar.glowcap_iroh_sidecar_endpoint_readiness_fd(self.endpoint);
     }
 
     /// Clear the fd's coalesced wake bytes, then drain pending readiness records
@@ -292,15 +292,15 @@ pub const Resident = struct {
     /// that order here makes a lost-wakeup ordering error unavailable to callers.
     /// Each record's `conn` is a `*CConn` as an integer, or 0 for an accept.
     pub fn drainReady(self: *Resident, out: []ReadyEvent) isize {
-        return sidecar.pancake_iroh_sidecar_endpoint_drain_ready(self.endpoint, out.ptr, out.len);
+        return sidecar.glowcap_iroh_sidecar_endpoint_drain_ready(self.endpoint, out.ptr, out.len);
     }
 
     /// Claim one accepted connection, already switched to non-blocking, or null
     /// when none is pending (`WOULD_BLOCK`) or the transition failed.
     pub fn loopTryAccept(self: *Resident) ?*anyopaque {
-        const conn = sidecar.pancake_iroh_sidecar_endpoint_try_accept(self.endpoint) orelse return null;
-        if (sidecar.pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, conn) != 0) {
-            sidecar.pancake_iroh_sidecar_conn_free(conn);
+        const conn = sidecar.glowcap_iroh_sidecar_endpoint_try_accept(self.endpoint) orelse return null;
+        if (sidecar.glowcap_iroh_sidecar_conn_set_nonblocking(self.endpoint, conn) != 0) {
+            sidecar.glowcap_iroh_sidecar_conn_free(conn);
             return null;
         }
         return conn;
@@ -311,7 +311,7 @@ pub const Resident = struct {
     pub fn loopStartConnectResolved(self: *Resident, request_id: usize, designator: []const u8, direct_addrs: []const u8) (net.netlayer.DialError || error{WouldBlock})!void {
         if (request_id == 0) return error.InvalidAddress;
         if (direct_addrs.len == 0 and !locators.resolvesById(self.reachability)) return error.InvalidAddress;
-        return switch (sidecar.pancake_iroh_sidecar_endpoint_start_connect(
+        return switch (sidecar.glowcap_iroh_sidecar_endpoint_start_connect(
             self.endpoint,
             request_id,
             designator.ptr,
@@ -332,11 +332,11 @@ pub const Resident = struct {
     /// readiness surface. The caller owns the returned handle.
     pub fn loopFinishConnect(self: *Resident, request_id: usize) net.netlayer.DialError!*anyopaque {
         var conn: ?*CConn = null;
-        return switch (sidecar.pancake_iroh_sidecar_endpoint_finish_connect(self.endpoint, request_id, &conn)) {
+        return switch (sidecar.glowcap_iroh_sidecar_endpoint_finish_connect(self.endpoint, request_id, &conn)) {
             0 => blk: {
                 const ready_conn = conn orelse return error.ConnectionLost;
-                if (sidecar.pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, ready_conn) != 0) {
-                    sidecar.pancake_iroh_sidecar_conn_free(ready_conn);
+                if (sidecar.glowcap_iroh_sidecar_conn_set_nonblocking(self.endpoint, ready_conn) != 0) {
+                    sidecar.glowcap_iroh_sidecar_conn_free(ready_conn);
                     return error.ConnectionLost;
                 }
                 break :blk ready_conn;
@@ -351,7 +351,7 @@ pub const Resident = struct {
     /// Request cancellation while leaving the terminal row for an explicit
     /// `loopFinishConnect`. This is the low-level iroh C API's two-phase edge.
     pub fn loopRequestConnectCancel(self: *Resident, request_id: usize) void {
-        _ = sidecar.pancake_iroh_sidecar_endpoint_cancel_connect(self.endpoint, request_id);
+        _ = sidecar.glowcap_iroh_sidecar_endpoint_cancel_connect(self.endpoint, request_id);
     }
 
     /// Cancel and consume one evented dial. Multiplexed-resident adapters use
@@ -364,7 +364,7 @@ pub const Resident = struct {
 
     pub fn loopConnId(self: *const Resident, conn: *const anyopaque) usize {
         _ = self;
-        return sidecar.pancake_iroh_sidecar_conn_id(@ptrCast(conn));
+        return sidecar.glowcap_iroh_sidecar_conn_id(@ptrCast(conn));
     }
 
     /// Non-blocking read of raw bytes from a loop connection into `buf`:
@@ -373,7 +373,7 @@ pub const Resident = struct {
     /// bytes itself (the peer's stream-input path), the same shape `tcp` uses.
     pub fn loopTryRead(self: *Resident, conn: *anyopaque, buf: []u8) isize {
         _ = self;
-        return sidecar.pancake_iroh_sidecar_conn_try_read(@ptrCast(conn), buf.ptr, buf.len);
+        return sidecar.glowcap_iroh_sidecar_conn_try_read(@ptrCast(conn), buf.ptr, buf.len);
     }
 
     /// Non-blocking write of raw bytes to a loop connection: the count
@@ -382,14 +382,14 @@ pub const Resident = struct {
     /// (advance and resubmit the tail).
     pub fn loopTryWrite(self: *Resident, conn: *anyopaque, buf: []const u8) isize {
         _ = self;
-        return sidecar.pancake_iroh_sidecar_conn_try_write(@ptrCast(conn), buf.ptr, buf.len);
+        return sidecar.glowcap_iroh_sidecar_conn_try_write(@ptrCast(conn), buf.ptr, buf.len);
     }
 
     /// Close and free a loop connection handle. After this the handle is dead;
     /// any later readiness record naming it routes to nothing.
     pub fn loopConnClose(self: *Resident, conn: *anyopaque) void {
         _ = self;
-        sidecar.pancake_iroh_sidecar_conn_free(@ptrCast(conn));
+        sidecar.glowcap_iroh_sidecar_conn_free(@ptrCast(conn));
     }
 
     /// The key QUIC verified for the far end of a loop connection, or null
@@ -397,7 +397,7 @@ pub const Resident = struct {
     /// transport proof of ADR-0105 at the loop surface, for a host that drives
     /// the loop itself: the blocking accept and dial paths above assert it to
     /// their peer directly, while a loop host (`iroh.Backend`, or a language
-    /// binding through `pancake_iroh_conn_remote_node_id`) owns the connection
+    /// binding through `glowcap_iroh_conn_remote_node_id`) owns the connection
     /// and has to ask.
     pub fn loopConnRemoteKey(self: *const Resident, conn: *const anyopaque) ?crypto.PeerKey {
         _ = self;
@@ -412,7 +412,7 @@ pub const loop_would_block: isize = would_block;
 
 /// Readiness event bits a `ReadyEvent.events` carries, re-exported for hosts
 /// that drive `drainReady` (the C ABI). Mirrors the sidecar header's
-/// `PANCAKE_IROH_EV_*`.
+/// `GLOWCAP_IROH_EV_*`.
 pub const loop_ev_readable: u32 = ev_readable;
 pub const loop_ev_writable: u32 = ev_writable;
 pub const loop_ev_closed: u32 = ev_closed;
@@ -548,7 +548,7 @@ fn waitForConnection(box: *ListenerBox, timeout_ms: i32) net.netlayer.AcceptErro
             break :blk @intCast(@min(@as(i64, accept_cancel_poll_ms), @as(i64, timeout_ms) - elapsed));
         };
         var code: i32 = 0;
-        box.stashed = sidecar.pancake_iroh_sidecar_accept_timeout(box.resident.endpoint, slice_ms, &code);
+        box.stashed = sidecar.glowcap_iroh_sidecar_accept_timeout(box.resident.endpoint, slice_ms, &code);
         if (box.stashed != null) return true;
         // Only a completed bounded wait is retryable. Endpoint close and every
         // other sidecar failure are terminal; treating their null handle as a
@@ -605,7 +605,7 @@ fn listenerClose(ctx: *anyopaque) ?net.netlayer.ListenerCloseFailure {
     box.stopping.store(true, .release);
     box.operation_gate.lockUncancelable(box.resident.io);
     box.operation_gate.unlock(box.resident.io);
-    if (box.stashed) |conn| sidecar.pancake_iroh_sidecar_conn_free(conn);
+    if (box.stashed) |conn| sidecar.glowcap_iroh_sidecar_conn_free(conn);
     box.allocator.destroy(box);
     return null;
 }

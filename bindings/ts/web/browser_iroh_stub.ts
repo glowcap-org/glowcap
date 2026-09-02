@@ -1,11 +1,11 @@
-// Browser arm of @pancake/iroh: iroh is a native-only transport, so a browser
+// Browser arm of @glowcap/iroh: iroh is a native-only transport, so a browser
 // dial rides a byte relay instead of QUIC. `browser-bundle.json` maps
-// `@pancake/iroh` (and `/internal`) here; the runtime's one dial path
+// `@glowcap/iroh` (and `/internal`) here; the runtime's one dial path
 // (`dial.ts`'s peer-id arm) lands in `_connectIroh`, which opens a WebSocket
 // to the relay `init({ relayUrl })` named and drives the ordinary handshake
 // over it. The relay only moves bytes; session authority stays end to end.
 
-import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@pancake/abi";
+import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@glowcap/abi";
 import { webSocketChannel } from "../runtime/websocket.ts";
 import { _relayUrl } from "./mod.ts";
 
@@ -18,7 +18,7 @@ import { _relayUrl } from "./mod.ts";
 const RELAY_FAR_DIAL_ALLOWANCE_MS = DISCOVERY_DIAL_MAX_ATTEMPTS * DISCOVERY_DIAL_RETRY_MS;
 
 const NATIVE_ONLY =
-	"pancake web: iroh is a native-only transport; a browser needs init({ relayUrl }) naming a byte relay to dial it";
+	"glowcap web: iroh is a native-only transport; a browser needs init({ relayUrl }) naming a byte relay to dial it";
 
 const unavailable = (): never => {
 	throw new Error(NATIVE_ONLY);
@@ -72,7 +72,7 @@ export async function _connectIroh(
 ): Promise<unknown> {
 	const relayUrl = _relayUrl();
 	if (relayUrl === null) throw new Error(NATIVE_ONLY);
-	const runtimeApi = await import("@pancake/runtime");
+	const runtimeApi = await import("@glowcap/runtime");
 	const hints = new Map<string, string>();
 	if (directAddresses.length > 0) {
 		hints.set(runtimeApi.HINT_DIRECT_ADDRESSES, directAddresses);
@@ -81,7 +81,7 @@ export async function _connectIroh(
 	const url = relayUrl(locator);
 	const ws = new WebSocket(url);
 	await new Promise<void>((resolve, reject) => {
-		const onError = () => reject(new Error(`pancake web: relay WebSocket failed: ${url}`));
+		const onError = () => reject(new Error(`glowcap web: relay WebSocket failed: ${url}`));
 		ws.addEventListener("error", onError, { once: true });
 		ws.addEventListener("open", () => {
 			ws.removeEventListener("error", onError);

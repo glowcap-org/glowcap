@@ -171,7 +171,7 @@ fn readiness_coalesces_bits_per_stable_peer() {
 	readiness.signal(7, EV_OPEN | EV_WRITABLE);
 	readiness.signal(9, EV_READABLE);
 
-	let mut events = [PancakeWebrtcReadyEvent { subject: 0, events: 0 }; 2];
+	let mut events = [GlowcapWebrtcReadyEvent { subject: 0, events: 0 }; 2];
 	assert_eq!(readiness.drain(&mut events), 2);
 	assert_eq!(events[0].subject, 7);
 	assert_eq!(events[0].events, EV_CANDIDATE | EV_OPEN | EV_WRITABLE);
@@ -196,7 +196,7 @@ fn signaling_and_driver_readiness_are_independent_subscriptions() {
 	let driver = shared.endpoint.driver_readiness().unwrap();
 
 	shared.endpoint.signal(7, EV_CANDIDATE | EV_OPEN);
-	let mut event = [PancakeWebrtcReadyEvent { subject: 0, events: 0 }];
+	let mut event = [GlowcapWebrtcReadyEvent { subject: 0, events: 0 }];
 	assert_eq!(signaling.drain(&mut event), 1);
 	assert_eq!(event[0].events, EV_CANDIDATE | EV_OPEN);
 	assert_eq!(driver.drain(&mut event), 1);
@@ -213,7 +213,7 @@ fn a_full_self_pipe_is_already_a_readable_wakeup() {
 	let mut byte = [0u8; 1];
 	let mut reader = &readiness.reader;
 	assert_eq!(reader.read(&mut byte).unwrap(), 1);
-	let mut event = [PancakeWebrtcReadyEvent { subject: 0, events: 0 }];
+	let mut event = [GlowcapWebrtcReadyEvent { subject: 0, events: 0 }];
 	assert_eq!(readiness.drain(&mut event), 1);
 	assert_eq!(event[0].events, EV_READABLE);
 }
@@ -354,7 +354,7 @@ fn terminal_event_is_published_exactly_once_even_after_a_drain() {
 	let shared = test_shared(7, inbound.clone(), open.clone(), drained, readiness.clone());
 
 	publish_peer_closed(&shared);
-	let mut events = [PancakeWebrtcReadyEvent { subject: 0, events: 0 }];
+	let mut events = [GlowcapWebrtcReadyEvent { subject: 0, events: 0 }];
 	assert_eq!(readiness.drain(&mut events), 1);
 	assert_eq!(events[0].subject, 7);
 	assert_eq!(events[0].events, EV_CLOSED);
@@ -519,20 +519,20 @@ fn generated_signal_text_has_the_same_hard_cap() {
 
 #[test]
 fn peer_release_joins_its_close_at_endpoint_release() {
-	let config = PancakeWebrtcEndpointConfig {
+	let config = GlowcapWebrtcEndpointConfig {
 		ice_servers: std::ptr::null(),
 		ice_server_count: 0,
 		include_loopback_candidates: 1,
 		worker_threads: 1,
 	};
-	let endpoint = pancake_webrtc_sidecar_endpoint_new(&config);
+	let endpoint = glowcap_webrtc_sidecar_endpoint_new(&config);
 	assert!(!endpoint.is_null());
-	let peer = unsafe { pancake_webrtc_sidecar_peer_new(endpoint, 1) };
+	let peer = unsafe { glowcap_webrtc_sidecar_peer_new(endpoint, 1) };
 	assert!(!peer.is_null());
 	unsafe {
-		pancake_webrtc_sidecar_conn_close(peer);
-		pancake_webrtc_sidecar_peer_free(peer);
-		assert_eq!(pancake_webrtc_sidecar_endpoint_free(endpoint), OK);
+		glowcap_webrtc_sidecar_conn_close(peer);
+		glowcap_webrtc_sidecar_peer_free(peer);
+		assert_eq!(glowcap_webrtc_sidecar_endpoint_free(endpoint), OK);
 	}
 }
 

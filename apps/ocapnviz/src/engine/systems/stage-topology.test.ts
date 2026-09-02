@@ -27,14 +27,14 @@ function reconnectDoc(): TimelineDocument {
 						t: 0,
 						kind: "peer-joined",
 						peerId: "rooms",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "p2",
 						t: 0,
 						kind: "peer-joined",
 						peerId: "alice",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "s0",
@@ -112,7 +112,7 @@ Deno.test("a document-declared peer arrives and leaves on its own timing", () =>
 		entities: {
 			peers: {
 				authored: {
-					profile: "pancake",
+					profile: "glowcap",
 					timing: {
 						start: { value: 100, explicit: true },
 						duration: { value: 400, explicit: true },
@@ -143,7 +143,7 @@ Deno.test("a session the walk has not reached does not stand at t=0", () => {
 						t: 0,
 						kind: "peer-joined",
 						peerId: "rooms",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "s1",

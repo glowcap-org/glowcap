@@ -5,10 +5,10 @@
 //! Regenerate fixtures: `zig build gen-capnp-fixtures`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const capnp = pancake.ocapn.codec.capnp;
+const model = glowcap.ocapn.model;
+const capnp = glowcap.ocapn.codec.capnp;
 
 const Fixture = struct {
     name: []const u8,
@@ -103,7 +103,7 @@ test "Cap'n Proto golden fixtures: decode accepts committed bytes" {
     for (fixtures()) |f| {
         const storage = try allocator.alignedAlloc(u8, .fromByteUnits(8), f.bytes.len);
         @memcpy(storage, f.bytes);
-        var frame = try pancake.foundation.Frame.initOwned(
+        var frame = try glowcap.foundation.Frame.initOwned(
             allocator,
             storage,
             .word,

@@ -21,7 +21,7 @@ function declaredAndObservedDoc(
 		entities: {
 			peers: {
 				authored: {
-					profile: "pancake",
+					profile: "glowcap",
 					...(timing !== undefined
 						? {
 							timing: {
@@ -46,14 +46,14 @@ function declaredAndObservedDoc(
 						t: 0,
 						kind: "peer-joined",
 						peerId: "carol",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "j-bob",
 						t: 0,
 						kind: "peer-joined",
 						peerId: "bob",
-						profile: "pancake",
+						profile: "glowcap",
 					},
 					{
 						id: "o-s",
@@ -163,7 +163,7 @@ layoutTest(
 					t: 0,
 					kind: "peer-joined",
 					peerId: "a",
-					profile: "pancake",
+					profile: "glowcap",
 					position: { x: 0, y: 0 },
 				},
 				{

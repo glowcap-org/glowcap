@@ -2,14 +2,14 @@
 //! contract as tcp and inproc, carried by the Rust sidecar (ADR-0055).
 //!
 //! The wire is iroh: each `Resident` owns one iroh endpoint (created through
-//! the C ABI in `transports/iroh/include/pancake_iroh_sidecar.h`, implemented
-//! by the `libpancake_iroh_sidecar.a` staticlib), and every connection is one
+//! the C ABI in `transports/iroh/include/glowcap_iroh_sidecar.h`, implemented
+//! by the `libglowcap_iroh_sidecar.a` staticlib), and every connection is one
 //! bidirectional QUIC stream presented as the same reader/writer pair the other
 //! residents produce. The transport symbol is `iroh`; the locator designator
 //! is the endpoint id, and direct socket addresses ride
 //! `hint_direct_addresses`.
 //!
-//! This facade is deliberately not reachable from the default `pancake`
+//! This facade is deliberately not reachable from the default `glowcap`
 //! module graph. The private extern declarations reachable through it resolve
 //! only when the iroh sidecar is linked, so the dedicated iroh build steps
 //! compile this as their supported consumer surface. Internal leaves use `pub`

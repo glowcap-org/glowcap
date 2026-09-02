@@ -31,8 +31,8 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}" checksums
-pancake_require_devcontainer "update-pins"
+glowcap_devcontainer_init "${dir}" checksums
+glowcap_require_devcontainer "update-pins"
 
 # This script's own modules, one per subject. They live in lib/ with the rest of
 # the sourced shell and stay out of mod.sh, the way launcher.sh does, because
@@ -95,17 +95,17 @@ display_version() {
 run_check() {
     local status=0 dep var pinned latest verdict
     printf '%-18s %-26s %-26s %s\n' DEP PINNED LATEST VERDICT
-    for dep in ${PANCAKE_PINS_DEPS}; do
-        var="$(pancake_pins_dep_var "${dep}")"
+    for dep in ${GLOWCAP_PINS_DEPS}; do
+        var="$(glowcap_pins_dep_var "${dep}")"
         pinned="${!var}"
-        latest="$(pancake_pins_latest_version "${dep}" 2>/dev/null)" || latest=""
+        latest="$(glowcap_pins_latest_version "${dep}" 2>/dev/null)" || latest=""
         if [[ -z "${latest}" ]]; then
             verdict="upstream query failed"
             status=2
         elif [[ "${latest}" == "${pinned}" ]]; then
             verdict="current"
         else
-            verdict="update available ($(pancake_pins_dep_class "${dep}")); gate: $(pancake_pins_dep_gate "${dep}")"
+            verdict="update available ($(glowcap_pins_dep_class "${dep}")); gate: $(glowcap_pins_dep_gate "${dep}")"
             [[ "${status}" -eq 2 ]] || status=1
         fi
         printf '%-18s %-26s %-26s %s\n' "${dep}" \
@@ -133,23 +133,23 @@ run_bump() {
     local dep var pinned latest class changed="" gates="" deno_image_digest=""
     # The staged paths stay global: the EXIT trap fires after this function's
     # locals are gone, and a moved file is a harmless rm -f no-op.
-    staged_pins="$(mktemp -t pancake-pins-XXXXXX)"
-    staged_sums="$(mktemp -t pancake-checksums-XXXXXX)"
-    pancake_pins_staged_companions=()
+    staged_pins="$(mktemp -t glowcap-pins-XXXXXX)"
+    staged_sums="$(mktemp -t glowcap-checksums-XXXXXX)"
+    glowcap_pins_staged_companions=()
     trap 'rm -f "${staged_pins:-}" "${staged_sums:-}" \
-        $(printf "%s\n" "${pancake_pins_staged_companions[@]:-}" | cut -f2)' EXIT
+        $(printf "%s\n" "${glowcap_pins_staged_companions[@]:-}" | cut -f2)' EXIT
     cp "${dir}/pins.sh" "${staged_pins}"
     cp "${dir}/checksums.sh" "${staged_sums}"
 
     for dep in "$@"; do
-        var="$(pancake_pins_dep_var "${dep}")"
-        class="$(pancake_pins_dep_class "${dep}")"
+        var="$(glowcap_pins_dep_var "${dep}")"
+        class="$(glowcap_pins_dep_class "${dep}")"
         if [[ "${class}" == manual ]]; then
-            pancake_pins_manual_procedure "${dep}"
+            glowcap_pins_manual_procedure "${dep}"
             return 1
         fi
         pinned="${!var}"
-        latest="$(pancake_pins_latest_version "${dep}")"
+        latest="$(glowcap_pins_latest_version "${dep}")"
         if [[ -z "${latest}" ]]; then
             echo "update-pins: ${dep}: upstream query failed" >&2
             return 2
@@ -159,31 +159,31 @@ run_bump() {
             continue
         fi
         if [[ "${dep}" == zig ]]; then
-            pancake_pins_stage_zls_source "${staged_pins}" "$(pancake_pins_latest_version zls)"
+            glowcap_pins_stage_zls_source "${staged_pins}" "$(glowcap_pins_latest_version zls)"
         fi
         if [[ "${dep}" == zls ]]; then
-            pancake_pins_stage_zls_source "${staged_pins}" "${latest}"
+            glowcap_pins_stage_zls_source "${staged_pins}" "${latest}"
             changed="${changed}${changed:+, }${dep} ${pinned} -> ${latest}"
-            gates="${gates}  - $(pancake_pins_dep_gate "${dep}")"$'\n'
+            gates="${gates}  - $(glowcap_pins_dep_gate "${dep}")"$'\n'
             echo "${dep}: ${pinned} -> ${latest}"
             continue
         fi
         if [[ "${dep}" == deno ]]; then
-            deno_image_digest="$(pancake_pins_docker_hub_index_digest denoland/deno "bin-${latest}")"
+            deno_image_digest="$(glowcap_pins_docker_hub_index_digest denoland/deno "bin-${latest}")"
             if ! [[ "${deno_image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
                 echo "update-pins: deno image index is not a SHA-256: '${deno_image_digest}'" >&2
                 return 1
             fi
-            pancake_pins_stage_companions \
+            glowcap_pins_stage_companions \
                 "${dep}" "${pinned}" "${latest}" "${DENO_IMAGE_DIGEST}" "${deno_image_digest}"
-            pancake_pins_replace_line "${staged_pins}" DENO_IMAGE_DIGEST "${deno_image_digest}"
+            glowcap_pins_replace_line "${staged_pins}" DENO_IMAGE_DIGEST "${deno_image_digest}"
         else
-            pancake_pins_stage_companions "${dep}" "${pinned}" "${latest}"
+            glowcap_pins_stage_companions "${dep}" "${pinned}" "${latest}"
         fi
-        pancake_pins_replace_line "${staged_pins}" "${var}" "${latest}"
-        pancake_pins_refresh_hashes "${dep}" "${latest}" "${staged_sums}"
+        glowcap_pins_replace_line "${staged_pins}" "${var}" "${latest}"
+        glowcap_pins_refresh_hashes "${dep}" "${latest}" "${staged_sums}"
         changed="${changed}${changed:+, }${dep} ${pinned} -> ${latest}"
-        gates="${gates}  - $(pancake_pins_dep_gate "${dep}")"$'\n'
+        gates="${gates}  - $(glowcap_pins_dep_gate "${dep}")"$'\n'
         echo "${dep}: ${pinned} -> ${latest}"
     done
 
@@ -202,20 +202,20 @@ run_bump() {
         source "${staged_sums}"
         # shellcheck disable=SC1090
         source "${staged_pins}"
-        pancake_devcontainer_validate_pins
+        glowcap_devcontainer_validate_pins
     )
     # pins.sh lands last, so everything a version implies is already in place
     # when the version itself arrives. An interrupted bump leaves inert future
     # hashes and companion files one step ahead of the pin, which env-sync.sh
     # reports; the reverse would be a version whose hash and Dockerfiles still
     # name the old release.
-    pancake_pins_install "${staged_sums}" "${dir}/checksums.sh"
+    glowcap_pins_install "${staged_sums}" "${dir}/checksums.sh"
     local companion relative staged
-    for companion in "${pancake_pins_staged_companions[@]}"; do
+    for companion in "${glowcap_pins_staged_companions[@]}"; do
         IFS=$'\t' read -r relative staged <<< "${companion}"
-        pancake_pins_install "${staged}" "$(pancake_pins_companion_source "${relative}")"
+        glowcap_pins_install "${staged}" "$(glowcap_pins_companion_source "${relative}")"
     done
-    pancake_pins_install "${staged_pins}" "${dir}/pins.sh"
+    glowcap_pins_install "${staged_pins}" "${dir}/pins.sh"
 
     echo
     echo "pins updated: ${changed}"
@@ -235,12 +235,12 @@ case "${1:-check}" in
         }
         if [[ "$1" == --safe ]]; then
             safe_deps=()
-            for dep in ${PANCAKE_PINS_DEPS}; do
-                [[ "$(pancake_pins_dep_class "${dep}")" == safe ]] && safe_deps+=("${dep}")
+            for dep in ${GLOWCAP_PINS_DEPS}; do
+                [[ "$(glowcap_pins_dep_class "${dep}")" == safe ]] && safe_deps+=("${dep}")
             done
             run_bump "${safe_deps[@]}"
         else
-            for dep in "$@"; do pancake_pins_dep_var "${dep}" >/dev/null || exit 2; done
+            for dep in "$@"; do glowcap_pins_dep_var "${dep}" >/dev/null || exit 2; done
             run_bump "$@"
         fi
         ;;

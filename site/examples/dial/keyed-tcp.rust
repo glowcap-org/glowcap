@@ -1,4 +1,4 @@
-use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 // Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 let peer_key = "<64 lowercase hex characters from the server>";

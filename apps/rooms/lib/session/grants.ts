@@ -1,6 +1,6 @@
 // Client protocol for live and durable Rooms session grants.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { ask } from "../ask.ts";
 import { MAX_SESSION_GRANT_LABEL, MAX_SESSION_GRANT_NOTE } from "../limits.ts";

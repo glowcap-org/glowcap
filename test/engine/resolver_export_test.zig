@@ -10,11 +10,11 @@
 //! ordinary calls).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
 
 /// Both negotiated profiles carry the listen notification, so the probe is
 /// exercised on each.

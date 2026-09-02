@@ -1,14 +1,14 @@
 # Third-party code in this repository
 
-pancake's own code is licensed under Apache-2.0; see LICENSE-APACHE.
-Some files here are not pancake's, and their notices travel with them.
+glowcap's own code is licensed under Apache-2.0; see LICENSE-APACHE.
+Some files here are not glowcap's, and their notices travel with them.
 
 ## `test/foundation/noise_vectors/cacophony_xk_25519_chachapoly_blake2s.json`
 
 This test fixture is one exact protocol entry extracted from the
 Snow project's vendored Cacophony vector corpus. Its source URL and digest are
 recorded beside the consuming test. Snow offers the corpus under Apache-2.0 or
-MIT; pancake redistributes this extracted entry under the MIT option.
+MIT; glowcap redistributes this extracted entry under the MIT option.
 
 MIT License
 
@@ -63,8 +63,8 @@ archive from the Mbed TLS project, verifies the SHA-256 digest recorded in
 `tools/deps/fetch-mbedtls.sh`, and compiles only the private TLS/X.509/crypto
 source subset. The downloaded source is not committed to this repository or
 used by the default build. Mbed TLS and its TF-PSA-Crypto subtree are offered
-under Apache-2.0 or GPL-2.0-or-later; Pancake selects the Apache-2.0 option.
-The complete license remains in the verified archive as `LICENSE`; Pancake's
+under Apache-2.0 or GPL-2.0-or-later; Glowcap selects the Apache-2.0 option.
+The complete license remains in the verified archive as `LICENSE`; Glowcap's
 copy of Apache-2.0 is `LICENSE-APACHE`.
 
 ## `third_party/libvaxis/`

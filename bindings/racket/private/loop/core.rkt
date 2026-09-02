@@ -58,16 +58,16 @@
 ;; ── Errors ───────────────────────────────────────────────────────────────────
 
 ;; The driver archive's own thread-local last-error slot, symbol-disjoint from
-;; the `pancake_host_*` family's even though one library carries both.
-(define (driver-last-error) (read-last-error pancake_driver_last_error))
+;; the `glowcap_host_*` family's even though one library carries both.
+(define (driver-last-error) (read-last-error glowcap_driver_last_error))
 (define (check/driver code) (check-with code driver-last-error))
 
 ;; ── The loop ─────────────────────────────────────────────────────────────────
 
 ;; One stepping native loop over one multi-session host. `handle` is the
-;; PancakeDriverLoop*; `host` is the adopted wrapper `host` whose
+;; GlowcapDriverLoop*; `host` is the adopted wrapper `host` whose
 ;; `driver-loop` field points back here; `event-buf` is the one reused
-;; `_PancakeDriverEvent` pop
+;; `_GlowcapDriverEvent` pop
 ;; target (views die at the next pop, so decode copies out immediately);
 ;; `dials` maps an admitted operation's id to its waiter; `listeners` owns the
 ;; setup event and accepted-session queue for each listener; `closed-ptrs` records a
@@ -190,7 +190,7 @@
     (call/driver-failure
      'driver-add-provider
      (lambda (out)
-       (pancake_driver_add_provider (driver-loop-handle lp) package out))))
+       (glowcap_driver_add_provider (driver-loop-handle lp) package out))))
   (when failure (raise failure))
   (void))
 
@@ -198,7 +198,7 @@
   (define name (string->bytes/utf-8 transport))
   (define present (make-bytes 1 0))
   (check/driver
-   (pancake_driver_has_transport
+   (glowcap_driver_has_transport
     (driver-loop-handle lp) name (bytes-length name) present))
   (not (zero? (bytes-ref present 0))))
 
@@ -208,7 +208,7 @@
 ;; loop steps whenever native work is ready, with no verb in flight.
 (define (driver-loop-start! lp)
   (unless (driver-loop-fd lp)
-    (define-values (rc fd) (pancake_driver_readiness_fd (driver-loop-handle lp)))
+    (define-values (rc fd) (glowcap_driver_readiness_fd (driver-loop-handle lp)))
     (check/driver rc)
     (set-driver-loop-fd! lp fd)
     (set-driver-loop-park-thread! lp (thread (lambda () (park-run lp))))))
@@ -233,7 +233,7 @@
       (when (loop-running? lp)
         (define sema (unsafe-file-descriptor->semaphore fd 'read))
         (unless sema
-          (error 'pancake-loop "the loop readiness fd cannot be registered for polling"))
+          (error 'glowcap-loop "the loop readiness fd cannot be registered for polling"))
         (define stop (semaphore-peek-evt (driver-loop-stop-sema lp)))
         (define progress (host-progress-evt m))
         ;; Snapshot progress before testing the queue. An enqueue before the
@@ -259,7 +259,7 @@
   (cond
     [(or (inside-turn?) (not (loop-running? lp))) no-drain-effects]
     [else
-     (with-handlers ([exn:fail:pancake? raise-loop-drive])
+     (with-handlers ([exn:fail:glowcap? raise-loop-drive])
        ;; Before a kicked step: parked releases first (a behavior that closed
        ;; its session mid-turn parked the C free), so the step never runs a
        ;; wire the binding has already condemned.
@@ -270,7 +270,7 @@
              ;; The step is the deliver: behaviors fire inside it, and the
              ;; trampoline latches their turns to this loop's wrapper host
              ;; through the carrier.
-             (define rc (pancake_driver_step (driver-loop-handle lp) 0))
+             (define rc (glowcap_driver_step (driver-loop-handle lp) 0))
              (cond
                [(= rc WOULD-BLOCK) (reverse acc)]
                [else
@@ -293,42 +293,42 @@
 (struct driver-event-completion (action) #:transparent)
 
 (define (decode-driver-event ev)
-  (define kind (PancakeDriverEvent-kind ev))
+  (define kind (GlowcapDriverEvent-kind ev))
   (cond
     [(= kind DRIVER-EVENT-OPENED)
-     (driver-event-opened (PancakeDriverEvent-operation-id ev)
-                          (PancakeDriverEvent-session ev))]
+     (driver-event-opened (GlowcapDriverEvent-operation-id ev)
+                          (GlowcapDriverEvent-session ev))]
     [(= kind DRIVER-EVENT-OPEN-FAILED)
      (driver-event-open-failed
-      (PancakeDriverEvent-operation-id ev)
+      (GlowcapDriverEvent-operation-id ev)
       (driver-failure<-event ev))]
     [(= kind DRIVER-EVENT-LISTENER-READY)
-     (driver-event-listener-ready (PancakeDriverEvent-listener-id ev))]
+     (driver-event-listener-ready (GlowcapDriverEvent-listener-id ev))]
     [(= kind DRIVER-EVENT-LISTENER-FAILED)
      (driver-event-listener-failed
-      (PancakeDriverEvent-listener-id ev)
+      (GlowcapDriverEvent-listener-id ev)
       (driver-failure<-event ev))]
     [(= kind DRIVER-EVENT-ACCEPTED)
-     (driver-event-accepted (PancakeDriverEvent-listener-id ev)
-                            (PancakeDriverEvent-session ev))]
+     (driver-event-accepted (GlowcapDriverEvent-listener-id ev)
+                            (GlowcapDriverEvent-session ev))]
     [(= kind DRIVER-EVENT-SESSION-CLOSED)
      (driver-event-session-closed
-      (PancakeDriverEvent-session ev)
-      (and (not (= (PancakeDriverEvent-primary-result ev) OK))
+      (GlowcapDriverEvent-session ev)
+      (and (not (= (GlowcapDriverEvent-primary-result ev) OK))
            (driver-failure<-event ev)))]
     [(= kind DRIVER-EVENT-COMPLETION)
      (driver-event-completion (host-decode-action!
-                               (PancakeDriverEvent-action ev) arg<-c))]
+                               (GlowcapDriverEvent-action ev) arg<-c))]
     [else
-     (raise-pancake 'pancake-loop ERR-INTERNAL
+     (raise-glowcap 'glowcap-loop ERR-INTERNAL
                     "ABI returned unknown loop event kind ~a" kind)]))
 
-;; Drain `pancake_driver_next_event` until WOULD-BLOCK, decoding each borrowed
+;; Drain `glowcap_driver_next_event` until WOULD-BLOCK, decoding each borrowed
 ;; C record before the next pop invalidates its views.
 (define (pop-events-onto! lp acc)
   (define ev (driver-loop-event-buf lp))
   (let loop ([acc acc])
-    (define rc (pancake_driver_next_event (driver-loop-handle lp) ev))
+    (define rc (glowcap_driver_next_event (driver-loop-handle lp) ev))
     (cond
       [(= rc WOULD-BLOCK) acc]
       [else
@@ -377,7 +377,7 @@
             ;; contract makes this unreachable after an orderly listener
             ;; drain; release and fail loudly if routing state regresses.
             (loop-session-release! lp ptr)
-            (raise-pancake 'pancake-loop ERR-INTERNAL
+            (raise-glowcap 'glowcap-loop ERR-INTERNAL
                            "accepted session names unknown listener ~a"
                            (driver-event-accepted-listener-id e))])
          fires]
@@ -453,7 +453,7 @@
     'resume (lambda (_a) (completion-kind-error 'resume)))))
 
 (define (completion-kind-error kind)
-  (raise-pancake 'pancake-loop ERR-INVALID-ARGUMENT
+  (raise-glowcap 'glowcap-loop ERR-INVALID-ARGUMENT
                  "a loop COMPLETION event carried a ~a action" kind))
 
 (define (settle-dial-waiter! lp operation-id outcome)
@@ -471,14 +471,14 @@
   (cond
     [(not options) #f]
     [(transport-operation-options? options)
-     (make-PancakeTransportOperationOptions
+     (make-GlowcapTransportOperationOptions
       (transport-operation-options-data options)
       (transport-operation-options-size options))]
     [else
      (raise-argument-error who "transport-operation-options?" options)]))
 
 (define (listener-closed-exn who)
-  (exn:fail:pancake
+  (exn:fail:glowcap
    (format "~a: listener closed during setup" who)
    (current-continuation-marks)
    ERR-CLOSED
@@ -525,7 +525,7 @@
 ;; applies it.
 (define (loop-step-wait-ms lp)
   (define-values (rc wait-ms)
-    (pancake_driver_step_wait_ms (driver-loop-handle lp)))
+    (glowcap_driver_step_wait_ms (driver-loop-handle lp)))
   (check/driver rc)
   wait-ms)
 
@@ -535,11 +535,11 @@
 ;; touching them.
 (define (loop-session-release! lp ptr)
   (when (loop-native-live? lp)
-    (check/driver (pancake_driver_session_release (driver-loop-handle lp) ptr))
+    (check/driver (glowcap_driver_session_release (driver-loop-handle lp) ptr))
     (hash-remove! (driver-loop-closed-ptrs lp) (session-key ptr))))
 
 (define (loop-claim-reference-exporter lp reference)
   (define-values (rc ptr)
-    (pancake_driver_claim_reference_exporter (driver-loop-handle lp) reference))
+    (glowcap_driver_claim_reference_exporter (driver-loop-handle lp) reference))
   (check/driver rc)
   ptr)

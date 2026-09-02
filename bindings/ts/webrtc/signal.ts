@@ -1,4 +1,4 @@
-import { WEBRTC_MAX_SIGNAL_BYTES } from "@pancake/abi";
+import { WEBRTC_MAX_SIGNAL_BYTES } from "@glowcap/abi";
 
 export function assertSignalBytes(kind: string, text: string): string {
 	if (!fitsUtf8ByteCap(text, WEBRTC_MAX_SIGNAL_BYTES)) {

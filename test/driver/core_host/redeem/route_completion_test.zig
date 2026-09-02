@@ -2,12 +2,12 @@
 //! identity requirements, and route-advice publication after withdrawal.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const crypto = glowcap.foundation.crypto;
 const Host = driver.core.Host;
 
 const harness = @import("../harness.zig");

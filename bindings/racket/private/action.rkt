@@ -1,8 +1,8 @@
 #lang racket/base
 ;; Internal: host action execute over the byte-fed host
-;; (libpancake_host, ADR-0072 / ADR-0079).
+;; (libglowcap_host, ADR-0072 / ADR-0079).
 ;;
-;; Owns the shared C drain (`pancake_host_pump_drain`) with sync park-only
+;; Owns the shared C drain (`glowcap_host_pump_drain`) with sync park-only
 ;; hooks, then honors each parked arm (`drain-host-actions!`). The CapTP surface
 ;; stays in the `private/session` module family; far-vow handles live in
 ;; `private/promise.rkt`; the dial executor lives in `private/dial.rkt`; the
@@ -42,7 +42,7 @@
 (struct dial-worker (thread cancelled?))
 
 ;; ── Park ──────────────────────────────────────────────────────────────────────
-;; Run `pancake_host_pump_drain` with park-only arms; return decoded actions
+;; Run `glowcap_host_pump_drain` with park-only arms; return decoded actions
 ;; in queue order. Views are copied inside `host-decode-action!` before the
 ;; next pop frees them. Caller holds the host lock; arms must not await.
 (define (park-host-actions! m)
@@ -58,11 +58,11 @@
       (when out-progressed
         (ptr-set! out-progressed _uint32 1))
       OK))
-  (define arm-cb (function-ptr arm _PancakeHostPumpArmFn))
-  (define hooks (make-PancakeHostPumpHooks #f arm-cb arm-cb arm-cb arm-cb arm-cb))
-  (define-values (rc _drained yielded) (pancake_host_pump_drain (host-ptr m) hooks))
+  (define arm-cb (function-ptr arm _GlowcapHostPumpArmFn))
+  (define hooks (make-GlowcapHostPumpHooks #f arm-cb arm-cb arm-cb arm-cb arm-cb))
+  (define-values (rc _drained yielded) (glowcap_host_pump_drain (host-ptr m) hooks))
   (when callback-failure
-    (raise-pancake 'pancake ERR-INTERNAL
+    (raise-glowcap 'glowcap ERR-INTERNAL
                    "ABI returned an invalid host action: ~a"
                    callback-failure))
   (check/host rc)
@@ -157,7 +157,7 @@
           (call-with-host
            m
            (lambda ()
-             (check/host (pancake_host_dial_cancelled (host-ptr m) ticket route-index)))))
+             (check/host (glowcap_host_dial_cancelled (host-ptr m) ticket route-index)))))
         fires)))
     'need-gift-id
     (lambda (act)
@@ -189,9 +189,9 @@
 ;; completion always finds its box.
 (define (drain-host-actions! m)
   ;; A loop-adopted host (ADR-0112) has no byte-fed pump: the loop executes
-  ;; transport-shaped actions inside `pancake_driver_step` and forwards the
+  ;; transport-shaped actions inside `glowcap_driver_step` and forwards the
   ;; application-visible ones as events, so the drain is one bracketed step
-  ;; plus the event dispatch, and `pancake_host_pump_drain` never runs
+  ;; plus the event dispatch, and `glowcap_host_pump_drain` never runs
   ;; beside it.
   (define lp (host-loop-of m))
   (if lp
@@ -232,7 +232,7 @@
 ;; host progress event before the progress check (the pump-until idiom, so a
 ;; verb landing between the check and the wait still wakes this loop), then
 ;; park on that snapshot or on the nearest FINISH grace deadline from
-;; `pancake_host_close_wait_ms`. A wait of -1 means no finite deadline is
+;; `glowcap_host_close_wait_ms`. A wait of -1 means no finite deadline is
 ;; pending: only host activity (a feed, a drain, a settle, an escalation)
 ;; can advance terminal progress, so the loop parks on activity alone.
 (define (drive-host-close! m)
@@ -246,7 +246,7 @@
        m
        (lambda ()
          (define-values (rc lifecycle)
-           (pancake_host_close_progress (host-ptr m) (monotonic-ms)))
+           (glowcap_host_close_progress (host-ptr m) (monotonic-ms)))
          (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/host rc))
          (set! close-code rc)
          (set! state lifecycle)
@@ -256,7 +256,7 @@
          (define effects (drain-host-actions! m))
          (unless (lifecycle-closed? lifecycle)
            (define-values (wrc w)
-             (pancake_host_close_wait_ms (host-ptr m) (monotonic-ms)))
+             (glowcap_host_close_wait_ms (host-ptr m) (monotonic-ms)))
            (check/host wrc)
            (set! wait-ms w))
          effects)))

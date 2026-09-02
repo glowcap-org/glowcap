@@ -3,11 +3,11 @@
 //! listen/connect setup and instantiate `Harness(Transport)`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const c = @import("c_abi");
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
 const fetch_pump = @import("fetch_pump.zig");
 
 pub const frame_cap = 4096;
@@ -28,19 +28,19 @@ pub fn Harness(comptime Transport: type) type {
                 var frame = frame_value;
                 defer frame.deinit();
                 const bytes = frame.bytes();
-                var cf: c.PancakeFrame = .{
+                var cf: c.GlowcapFrame = .{
                     .bytes = bytes.ptr,
                     .len = bytes.len,
-                    .shape = c.PANCAKE_FRAME_SHAPE_BYTE,
+                    .shape = c.GLOWCAP_FRAME_SHAPE_BYTE,
                 };
-                if (Transport.writeFrame(conn, &cf) != c.PANCAKE_OK) return error.WriteFailed;
+                if (Transport.writeFrame(conn, &cf) != c.GLOWCAP_OK) return error.WriteFailed;
             }
 
-            var mf: c.PancakeManagedFrame = undefined;
+            var mf: c.GlowcapManagedFrame = undefined;
             const rc = Transport.readFrame(conn, &mf);
-            if (rc == c.PANCAKE_ERR_CLOSED) return .closed;
-            if (rc != c.PANCAKE_OK) return error.ReadFailed;
-            defer c.pancake_managed_frame_release(&mf);
+            if (rc == c.GLOWCAP_ERR_CLOSED) return .closed;
+            if (rc != c.GLOWCAP_OK) return error.ReadFailed;
+            defer c.glowcap_managed_frame_release(&mf);
 
             const bytes = (mf.bytes orelse return error.NullFrame)[0..mf.len];
             switch (try peer.recvStreamPrefix(bytes)) {
@@ -67,7 +67,7 @@ pub fn Harness(comptime Transport: type) type {
             _ = try peer.registerBootstrapCap("thermostat");
 
             var conn: ?Transport.Conn = null;
-            if (Transport.accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
+            if (Transport.accept(args.listener, c.GLOWCAP_CODEC_SYRUP, frame_cap, &conn) != c.GLOWCAP_OK)
                 return error.AcceptFailed;
             const conn_ptr = conn orelse return error.AcceptNull;
             defer Transport.releaseConn(conn_ptr);

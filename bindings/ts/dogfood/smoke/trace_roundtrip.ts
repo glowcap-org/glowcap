@@ -1,11 +1,11 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 import { Host, type Runtime } from "../../runtime/mod.ts";
 import { assert, ok } from "./support.ts";
 
 /** Prove the native trace veneer produces one coherent consumer timeline. */
 export async function runTraceRoundtrip(managed: Runtime): Promise<void> {
-	const { annotateSession, enableTrace } = await import("@pancake/runtime");
-	const events: import("@pancake/runtime").TraceEvent[] = [];
+	const { annotateSession, enableTrace } = await import("@glowcap/runtime");
+	const events: import("@glowcap/runtime").TraceEvent[] = [];
 	const traceFailure = new Error("trace sink failure must stay observer-only");
 	const uninstall = enableTrace((event) => {
 		events.push(event);
@@ -53,9 +53,9 @@ export async function runTraceRoundtrip(managed: Runtime): Promise<void> {
 		"opens carry the negotiated codec and the application's display label",
 	);
 	// A consumer must not infer an implementation merely because a record
-	// arrived, so a pancake host states its profile in words.
+	// arrived, so a glowcap host states its profile in words.
 	assert(
-		opened.every((event) => event.a_profile === "pancake"),
+		opened.every((event) => event.a_profile === "glowcap"),
 		"an open states the implementation this producer runs",
 	);
 	// Identity and label are separate facts. `a` is the host's own key

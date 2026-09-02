@@ -1,4 +1,4 @@
-//! Live real-internet iroh reachability (Milestone 1): two pancake peers
+//! Live real-internet iroh reachability (Milestone 1): two glowcap peers
 //! reach each other by node id ALONE over n0's public relay and DNS/pkarr
 //! discovery with no direct-address hints and no in-process address book.
 //!
@@ -32,13 +32,13 @@
 //! that seam. The single-process form proves everything reachable from one host.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const net = glowcap.net;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over the public internet";
@@ -63,8 +63,8 @@ const hostOnce = harness.AcceptServeOne(
 /// which is exactly why this step is opt-in and never part of the in-tree check.
 const publish_settle_ms: u64 = 8_000;
 // Discovery dial budget: lockstep with `driver.DialRetry` / ADR-0082
-// (`PANCAKE_DISCOVERY_DIAL_*`). Was 5s×12; unified to the binding budget.
-// Attempt/backoff values are read from `pancake.driver.discovery_*` inside
+// (`GLOWCAP_DISCOVERY_DIAL_*`). Was 5s×12; unified to the binding budget.
+// Attempt/backoff values are read from `glowcap.driver.discovery_*` inside
 // `callByIdOnlyRetrying` so this file cannot drift from the policy owner.
 
 /// Dial by id alone, retrying while discovery has not yet resolved the partner.
@@ -81,20 +81,20 @@ fn callByIdOnlyRetrying(
     // (ADR-0082). This harness owns `std.Io` sleep, so it applies the same
     // classifier inline rather than remapping CapTP faults (e.g. WrongReply)
     // onto DialError.
-    const max = pancake.driver.discovery_max_attempts;
-    const retry_ms = pancake.driver.discovery_retry_ms;
+    const max = glowcap.driver.discovery_max_attempts;
+    const retry_ms = glowcap.driver.discovery_retry_ms;
     var attempt: u32 = 1;
     while (true) : (attempt += 1) {
         if (callByIdOnly(netlayers, server_id, allocator)) |_| {
             return;
         } else |err| {
             const transient = switch (err) {
-                error.InvalidAddress => pancake.driver.isTransientDialError(error.InvalidAddress),
-                error.ConnectionRefused => pancake.driver.isTransientDialError(error.ConnectionRefused),
-                error.NetworkUnreachable => pancake.driver.isTransientDialError(error.NetworkUnreachable),
-                error.TimedOut => pancake.driver.isTransientDialError(error.TimedOut),
-                error.ConnectionLost => pancake.driver.isTransientDialError(error.ConnectionLost),
-                error.OutOfMemory => pancake.driver.isTransientDialError(error.OutOfMemory),
+                error.InvalidAddress => glowcap.driver.isTransientDialError(error.InvalidAddress),
+                error.ConnectionRefused => glowcap.driver.isTransientDialError(error.ConnectionRefused),
+                error.NetworkUnreachable => glowcap.driver.isTransientDialError(error.NetworkUnreachable),
+                error.TimedOut => glowcap.driver.isTransientDialError(error.TimedOut),
+                error.ConnectionLost => glowcap.driver.isTransientDialError(error.ConnectionLost),
+                error.OutOfMemory => glowcap.driver.isTransientDialError(error.OutOfMemory),
                 else => false,
             };
             if (!transient or attempt >= max) return err;
@@ -148,7 +148,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-reachability: drawing the server seed failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    const server_secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed);
+    const server_secret = glowcap.foundation.crypto.SecretKey.fromSeed(server_seed);
     var server = iroh.Resident.init(io, &server_seed, .{ .reachability = .discovery }) catch |err| {
         std.debug.print("iroh-reachability: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
@@ -191,5 +191,5 @@ pub fn main(init: std.process.Init) !void {
     try client_result;
     try host_result;
 
-    std.debug.print("iroh-reachability: OK, two pancake peers reached each other by node id alone over n0 relays + DNS/pkarr discovery, no direct-address hints\n", .{});
+    std.debug.print("iroh-reachability: OK, two glowcap peers reached each other by node id alone over n0 relays + DNS/pkarr discovery, no direct-address hints\n", .{});
 }

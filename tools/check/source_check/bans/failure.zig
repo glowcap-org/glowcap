@@ -12,8 +12,8 @@ pub const runtime_failure_journal_rows: []const Ban = &.{
         .where = .{ .file = "src/c_abi/ocapn/mod.zig" },
         .kind = .require,
         .needles = &.{
-            "PANCAKE_DEFAULT_FAILURE_CAPACITY = abi.default_failure_capacity",
-            "PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP = abi.default_failure_payload_cap",
+            "GLOWCAP_DEFAULT_FAILURE_CAPACITY = abi.default_failure_capacity",
+            "GLOWCAP_DEFAULT_FAILURE_PAYLOAD_CAP = abi.default_failure_payload_cap",
         },
         .check = "runtime-failure-journal",
         .why = "the C ABI projects the shared callerless-failure journal caps from c_abi_shared instead of restating the values",
@@ -22,8 +22,8 @@ pub const runtime_failure_journal_rows: []const Ban = &.{
         .where = .{ .file = "tools/gen/binding/constants.zig" },
         .kind = .require,
         .needles = &.{
-            "con(\"DEFAULT_FAILURE_CAPACITY\", c.PANCAKE_DEFAULT_FAILURE_CAPACITY",
-            "con(\"DEFAULT_FAILURE_PAYLOAD_CAP\", c.PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP",
+            "con(\"DEFAULT_FAILURE_CAPACITY\", c.GLOWCAP_DEFAULT_FAILURE_CAPACITY",
+            "con(\"DEFAULT_FAILURE_PAYLOAD_CAP\", c.GLOWCAP_DEFAULT_FAILURE_PAYLOAD_CAP",
         },
         .check = "runtime-failure-journal",
         .why = "generated binding constants mirror the C ABI's callerless-failure journal caps",
@@ -32,8 +32,8 @@ pub const runtime_failure_journal_rows: []const Ban = &.{
         .where = .{ .file = "tools/gen/binding/ts_abi.zig" },
         .kind = .require,
         .needles = &.{
-            "k(\"DEFAULT_FAILURE_CAPACITY\", \"PANCAKE_DEFAULT_FAILURE_CAPACITY\")",
-            "k(\"DEFAULT_FAILURE_PAYLOAD_CAP\", \"PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP\")",
+            "k(\"DEFAULT_FAILURE_CAPACITY\", \"GLOWCAP_DEFAULT_FAILURE_CAPACITY\")",
+            "k(\"DEFAULT_FAILURE_PAYLOAD_CAP\", \"GLOWCAP_DEFAULT_FAILURE_PAYLOAD_CAP\")",
         },
         .check = "runtime-failure-journal",
         .why = "the TypeScript ABI generator mirrors the C ABI's callerless-failure journal caps",
@@ -49,7 +49,7 @@ pub const runtime_failure_journal_rows: []const Ban = &.{
         .why = "TypeScript's runtime fallback journal consumes the generated C ABI diagnostic caps instead of carrying local literals",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_failure.py" },
+        .where = .{ .file = "bindings/python/glowcap/_failure.py" },
         .kind = .require,
         .needles = &.{
             "remaining = DEFAULT_FAILURE_PAYLOAD_CAP",
@@ -145,7 +145,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "Rust Host and driver final release share one ownership-boundary classification",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host/finalizer.py" },
+        .where = .{ .file = "bindings/python/glowcap/_host/finalizer.py" },
         .kind = .require,
         .needles = &.{
             "if not _release_consumed(rc):",
@@ -157,21 +157,21 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "Python retries only pre-commit Host final release refusal and retires consumed teardown outcomes",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host/__init__.py" },
+        .where = .{ .file = "bindings/python/glowcap/_host/__init__.py" },
         .kind = .require,
         .needles = &.{"cleanup = _release_unpublished_host(out, context)"},
         .check = "nonfatal-release-paths",
         .why = "Python retains construction rollback until Host publication commits",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host/lifecycle.py" },
+        .where = .{ .file = "bindings/python/glowcap/_host/lifecycle.py" },
         .kind = .require,
         .needles = &.{"def _track_session_retirement_failure(self, error: BaseException) -> None:"},
         .check = "nonfatal-release-paths",
         .why = "Python retains session cleanup at the Host close barrier",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_loop/__init__.py" },
+        .where = .{ .file = "bindings/python/glowcap/_loop/__init__.py" },
         .kind = .require,
         .needles = &.{
             "cleanup = _release_unpublished_host(host, context)",
@@ -181,7 +181,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "Python transfers loop construction and terminal release to one lease owner",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_loop/lifecycle.py" },
+        .where = .{ .file = "bindings/python/glowcap/_loop/lifecycle.py" },
         .kind = .require,
         .needles = &.{
             "self._release_owner.release(",
@@ -193,7 +193,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "Python's loop claims physical session cleanup only after native release consumption",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_driver/release.py" },
+        .where = .{ .file = "bindings/python/glowcap/_driver/release.py" },
         .kind = .require,
         .needles = &.{
             "consumed = _release_consumed(outcome.code)",
@@ -204,7 +204,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "Python retains refused live driver authority and completes its Host wrapper exactly once after a consuming retry",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_lifecycle.py" },
+        .where = .{ .file = "bindings/python/glowcap/_lifecycle.py" },
         .kind = .require,
         .needles = &.{"def _release_consumed(code: int) -> bool:"},
         .check = "nonfatal-release-paths",
@@ -265,7 +265,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
     .{
         .where = .{ .file = "bindings/rust/src/value.rs" },
         .kind = .forbid,
-        .needles = &.{"debug_assert!(false, \"unknown PancakeArgument kind"},
+        .needles = &.{"debug_assert!(false, \"unknown GlowcapArgument kind"},
         .check = "nonfatal-release-paths",
         .why = "unknown Rust argument discriminants must never panic in debug builds",
     },
@@ -273,8 +273,8 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .where = .{ .file = "bindings/rust/src/value.rs" },
         .kind = .require,
         .needles = &.{
-            "pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Result<Argument>",
-            "format!(\"pancake ABI returned unknown argument kind {other}\")",
+            "pub(crate) unsafe fn arg_from_sys(c: &sys::GlowcapArgument) -> Result<Argument>",
+            "format!(\"glowcap ABI returned unknown argument kind {other}\")",
         },
         .check = "nonfatal-release-paths",
         .why = "Rust recursively returns unknown native argument discriminants instead of panicking or substituting Void",
@@ -370,7 +370,7 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "a TypeScript clean EOF reports a refused transport-loss notification while an earlier serve failure remains primary",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_pump.py" },
+        .where = .{ .file = "bindings/python/glowcap/_pump.py" },
         .kind = .require,
         .needles = &.{
             "if failure is None and not was_closing:",
@@ -404,7 +404,7 @@ pub const binding_failure_surface: []const Ban = &.{
         .where = .{ .file = "bindings/ts/runtime/driver_loop/state.ts" },
         .kind = .require,
         .needles = &.{
-            "_terminalFailure: PancakeError | null",
+            "_terminalFailure: GlowcapError | null",
             "_failBackground(error: unknown): void",
             "this._wrapper.failPendingVows(failure);",
         },
@@ -421,7 +421,7 @@ pub const binding_failure_surface: []const Ban = &.{
     .{
         .where = .{ .file = "bindings/ts/runtime/trampoline.ts" },
         .kind = .require,
-        .needles = &.{"pancake_host_turn_session"},
+        .needles = &.{"glowcap_host_turn_session"},
         .check = "binding-failure-surface",
         .why = "TypeScript obtains callback session authority from the core turn",
     },
@@ -468,8 +468,8 @@ pub const binding_failure_surface: []const Ban = &.{
         } },
         .kind = .forbid,
         .needles = &.{
-            "error.OutOfMemory => PANCAKE_ERR_INTERNAL",
-            "catch return PANCAKE_ERR_INTERNAL",
+            "error.OutOfMemory => GLOWCAP_ERR_INTERNAL",
+            "catch return GLOWCAP_ERR_INTERNAL",
         },
         .check = "binding-failure-surface",
         .why = "an opaque C internal error must also publish an operation-specific last-error diagnostic",
@@ -478,8 +478,8 @@ pub const binding_failure_surface: []const Ban = &.{
         .where = .{ .tree = .{ .dir = "src/c_abi/net_transport", .suffixes = &.{".zig"} } },
         .kind = .forbid,
         .needles = &.{
-            "catch return PANCAKE_ERR_INTERNAL",
-            "orelse return PANCAKE_ERR_INTERNAL",
+            "catch return GLOWCAP_ERR_INTERNAL",
+            "orelse return GLOWCAP_ERR_INTERNAL",
         },
         .check = "binding-failure-surface",
         .why = "a transport C crossing must retain its operation and concrete cause before returning the generic internal code",
@@ -509,7 +509,7 @@ pub const binding_failure_surface: []const Ban = &.{
     .{
         .where = .{ .file = "bindings/ts/runtime/host/drive.ts" },
         .kind = .require,
-        .needles = &.{"failPendingVows(error: PancakeError): void"},
+        .needles = &.{"failPendingVows(error: GlowcapError): void"},
         .check = "binding-failure-surface",
         .why = "loop failure completes Host vows before wrapper teardown clears their table",
     },
@@ -521,7 +521,7 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "the TypeScript byte-fed action drain reports its first failed effect after finishing the already-popped batch",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_loop/__init__.py" },
+        .where = .{ .file = "bindings/python/glowcap/_loop/__init__.py" },
         .kind = .require,
         .needles = &.{
             "self._terminal_failure:",
@@ -533,14 +533,14 @@ pub const binding_failure_surface: []const Ban = &.{
         .why = "Python readiness callbacks and scheduled steps complete all waiters through one terminal loop failure",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_host/progress.py" },
+        .where = .{ .file = "bindings/python/glowcap/_host/progress.py" },
         .kind = .require,
         .needles = &.{"raise first_failure"},
         .check = "binding-failure-surface",
         .why = "the Python byte-fed action drain reports its first failed effect after finishing the already-popped batch",
     },
     .{
-        .where = .{ .tree = .{ .dir = "bindings/python/pancake/_loop", .suffixes = &.{".py"} } },
+        .where = .{ .tree = .{ .dir = "bindings/python/glowcap/_loop", .suffixes = &.{".py"} } },
         .kind = .forbid,
         .needles = &.{
             "self._aio.call_soon(self.step_now)",

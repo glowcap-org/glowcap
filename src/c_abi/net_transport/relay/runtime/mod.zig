@@ -25,17 +25,17 @@ const reactor_state = @import("../reactor/state.zig");
 const reactor = @import("../reactor/mod.zig");
 const runtime_lifecycle = @import("lifecycle.zig");
 
-const PANCAKE_OK = c.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_CLOSED = c.PANCAKE_ERR_CLOSED;
+const GLOWCAP_OK = c.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = c.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
 
 const multiplexed = c.multiplexed_transport;
 
-const EV_CLOSED = multiplexed.PANCAKE_MULTIPLEXED_EV_CLOSED;
-const EV_ACCEPT = multiplexed.PANCAKE_MULTIPLEXED_EV_ACCEPT;
-const EV_LISTEN = multiplexed.PANCAKE_MULTIPLEXED_EV_LISTEN;
+const EV_CLOSED = multiplexed.GLOWCAP_MULTIPLEXED_EV_CLOSED;
+const EV_ACCEPT = multiplexed.GLOWCAP_MULTIPLEXED_EV_ACCEPT;
+const EV_LISTEN = multiplexed.GLOWCAP_MULTIPLEXED_EV_LISTEN;
 
-const PancakeRelayConfig = contract.PancakeRelayConfig;
+const GlowcapRelayConfig = contract.GlowcapRelayConfig;
 const Profile = contract.Profile;
 const profile_count = contract.profile_count;
 const profileMetadata = contract.metadata;
@@ -47,10 +47,10 @@ pub const Payload = struct {
     references: std.atomic.Value(usize),
     native: native_relay.Provider,
     runtime: MultiplexedRuntime,
-    profile_abi: [profile_count]c.PancakeTransportProfile,
-    entries: [profile_count]c.PancakeTransportProviderEntry,
-    multiplexed_transport: c.PancakeMultiplexedTransport,
-    provider: c.PancakeTransportProvider,
+    profile_abi: [profile_count]c.GlowcapTransportProfile,
+    entries: [profile_count]c.GlowcapTransportProviderEntry,
+    multiplexed_transport: c.GlowcapMultiplexedTransport,
+    provider: c.GlowcapTransportProvider,
 
     pub fn io(self: *Payload) std.Io {
         return self.threaded.io();
@@ -64,17 +64,17 @@ pub const Payload = struct {
         self.multiplexed_transport = MultiplexedProjection.transport(&self.runtime);
         self.entries[@backingInt(Profile.keyed)] = .{
             .profile = &self.profile_abi[@backingInt(Profile.keyed)],
-            .execution_model = c.transport_provider.PANCAKE_TRANSPORT_EXEC_MULTIPLEXED,
+            .execution_model = c.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED,
             .implementation = &self.multiplexed_transport,
         };
         self.entries[@backingInt(Profile.noise)] = .{
             .profile = &self.profile_abi[@backingInt(Profile.noise)],
-            .execution_model = c.transport_provider.PANCAKE_TRANSPORT_EXEC_MULTIPLEXED,
+            .execution_model = c.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED,
             .implementation = &self.multiplexed_transport,
         };
         self.provider = .{
-            .abi_version = c.transport_provider.PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION,
-            .struct_size = @sizeOf(c.PancakeTransportProvider),
+            .abi_version = c.transport_provider.GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION,
+            .struct_size = @sizeOf(c.GlowcapTransportProvider),
             .entries = &self.entries,
             .entry_count = self.entries.len,
             .lease_ctx = self,
@@ -98,11 +98,11 @@ pub const Payload = struct {
         return runtime_lifecycle.release(self);
     }
 
-    pub fn transportProvider(self: *const Payload) c.PancakeTransportProvider {
+    pub fn transportProvider(self: *const Payload) c.GlowcapTransportProvider {
         return self.provider;
     }
 
-    pub fn trustSummary(self: *const Payload) contract.PancakeRelayTrustSummary {
+    pub fn trustSummary(self: *const Payload) contract.GlowcapRelayTrustSummary {
         return runtime_lifecycle.projectTrustSummary(self.native.trustSummary());
     }
 };
@@ -476,14 +476,14 @@ const MultiplexedProjection = multiplexed_projection.Projection(
     Reactor.failRuntime,
 );
 
-fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
+fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const payload: *Payload = @ptrCast(@alignCast(ctx orelse {
-        c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-        return PANCAKE_ERR_NULL_POINTER;
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+        return GLOWCAP_ERR_NULL_POINTER;
     }));
-    if (payload.retain()) return PANCAKE_OK;
-    c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
-    return PANCAKE_ERR_CLOSED;
+    if (payload.retain()) return GLOWCAP_OK;
+    c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
+    return GLOWCAP_ERR_CLOSED;
 }
 
 fn providerSameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(.c) u8 {
@@ -492,18 +492,18 @@ fn providerSameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(
     return @intFromBool(left.native.sameConfiguration(&right.native));
 }
 
-fn providerRelease(ctx: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
-    const payload: *Payload = @ptrCast(@alignCast(ctx orelse return PANCAKE_OK));
+fn providerRelease(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
+    const payload: *Payload = @ptrCast(@alignCast(ctx orelse return GLOWCAP_OK));
     if (payload.release()) |failure| {
         c.setLastErrorChain("relay provider release", failure);
         const code = failure_projection.release(failure.cause);
         return c.transport_provider.failProviderChain(out_failure, code, failure, failure_projection.release);
     }
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 pub fn create(
     allocator: std.mem.Allocator,
-    config: ?*const PancakeRelayConfig,
+    config: ?*const GlowcapRelayConfig,
     slot: *?*Payload,
 ) i32 {
     return runtime_lifecycle.create(Payload, allocator, config, slot);

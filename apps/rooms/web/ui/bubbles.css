@@ -437,7 +437,7 @@
    rail is a screen of its own and this opens it — but "is the rooms list up?" is
    the same question in both, so it is the same button and the same aria-pressed.
 
-   It wears the pancake mark rather than a drawn menu glyph, because the mark is
+   It wears the glowcap mark rather than a drawn menu glyph, because the mark is
    already three stacked bars: a hamburger that happens to be breakfast. The
    unread dot flags activity behind the rail while it is closed. */
 #backBtn {

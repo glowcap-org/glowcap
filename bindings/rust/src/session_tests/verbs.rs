@@ -133,7 +133,7 @@ async fn send_surfaces_the_partner_break_reason() {
 			let cap = session.fetch("svc").await.unwrap();
 			let err = session.send(&cap, "do", &[]).await.unwrap_err();
 			assert_eq!(err.message(), Some("nope: revoked"));
-			// A break is PANCAKE_ERR_BROKEN, not a transport or value error.
+			// A break is GLOWCAP_ERR_BROKEN, not a transport or value error.
 			assert_eq!(err.code(), crate::sys::ERR_BROKEN);
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
@@ -407,7 +407,7 @@ async fn detached_local_tell_forward_retains_its_exact_refusal() {
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
 			crate::host::check_host(unsafe {
-				ffi::pancake_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
+				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
 			.unwrap();
 

@@ -23,7 +23,7 @@ const NAMED_CHUNKS = [
 	"OpsPage-",
 	"KitchenBundle-",
 	"Listeners-",
-	"Irc-",
+	"Gateway-",
 	"Peering-",
 	"Viz-",
 	"Operator-",
@@ -141,9 +141,14 @@ const MAX_BOOT_GZIP_BYTES = 264_000;
 // route, and a nickname names the session holding it, your own included.
 // A thousand more for the room row that keeps one identity across a
 // publication backfill and the IRC identity acts on an attached view.
-const MAX_RETURNING_MINIFIED_BYTES = 1_143_000;
+// A thousand more so the shared bridge-form renderer honors a declared
+// second step on any action, primary and Enter included, instead of running
+// a destructive act on first press.
+const MAX_RETURNING_MINIFIED_BYTES = 1_144_000;
 // A thousand more compressed for the same two acts the minified raise names.
-const MAX_RETURNING_GZIP_BYTES = 367_000;
+// A thousand more compressed for the declared second step the minified raise
+// above names.
+const MAX_RETURNING_GZIP_BYTES = 368_000;
 const MAX_KITCHEN_BUNDLE_BYTES = 25_000;
 const MAX_OPS_BUNDLE_BYTES = 8_000;
 const MAX_SESSION_SETUP_BYTES = 8_000;
@@ -207,7 +212,7 @@ function namedSize(files: Map<string, Uint8Array>, prefix: string): number {
 }
 
 Deno.test("the Rooms browser bundle contains no host imports and stays within its payload budget", async () => {
-	const outdir = await Deno.makeTempDir({ prefix: "pancake-rooms-bundle-test-" });
+	const outdir = await Deno.makeTempDir({ prefix: "glowcap-rooms-bundle-test-" });
 	try {
 		const result = await new Deno.Command(Deno.execPath(), {
 			args: [

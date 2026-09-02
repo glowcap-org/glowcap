@@ -4,7 +4,7 @@
   width="720"
   height="320"
   role="img"
-  aria-label="pancake is one library held three ways: a Zig package that imports the core directly, a C ABI that C and FFI hosts call, and four bindings that wrap that same C ABI, all sharing one Zig core, so the surface you choose never changes what a session puts on the wire."
+  aria-label="glowcap is one library held three ways: a Zig package that imports the core directly, a C ABI that C and FFI hosts call, and four bindings that wrap that same C ABI, all sharing one Zig core, so the surface you choose never changes what a session puts on the wire."
 >
   <defs>
     <marker
@@ -74,7 +74,7 @@
     y="92"
     text-anchor="middle"
     class="sub"
-  >call pancake_ocapn.h</text>
+  >call glowcap_ocapn.h</text>
 
   <rect
     x="500"
@@ -138,7 +138,7 @@
     text-anchor="middle"
     class="core"
     fill="var(--teal-deep, #1b5f66)"
-  >pancake</text>
+  >glowcap</text>
   <text
     x="360"
     y="300"

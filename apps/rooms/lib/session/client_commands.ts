@@ -4,7 +4,7 @@
 // client's other half — snapshots, watching, reads, and file custody — is
 // `RoomsSessionClient`, which extends this.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import type { RoomsRoomJoinIntent, RoomsSessionState } from "../rooms_state.ts";
 import { sessionRevision } from "./revision.ts";

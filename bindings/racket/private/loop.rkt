@@ -22,11 +22,11 @@
 ;; Host hook installation — has loaded. Internal leaves expose transitions to
 ;; siblings; only this complete facade can mint a usable driver loop.
 (define (fresh-event-buf)
-  (make-PancakeDriverEvent
+  (make-GlowcapDriverEvent
    0 0 0 0 0 0 0 0 0 0 0 #f
-   (make-PancakeHostAction
+   (make-GlowcapHostAction
     0 0 0 #f
-    (make-PancakeArgument 0 0 0 0.0 #f 0 (make-PancakeReference 0) #f 0)
+    (make-GlowcapArgument 0 0 0 0.0 #f 0 (make-GlowcapReference 0) #f 0)
     #f 0 0)
    #f 0 #f 0))
 
@@ -43,13 +43,13 @@
                           #:settle-ms [settle-ms DRIVER-DEFAULT-SETTLE-MS]
                           #:host [supplied-host #f])
   (when (and supplied-host (host-loop-of supplied-host))
-    (raise-pancake 'open-driver-loop ERR-INVALID-ARGUMENT
+    (raise-glowcap 'open-driver-loop ERR-INVALID-ARGUMENT
                    "the supplied Host already belongs to a driver loop"))
   (define durable
     (bytes->immutable-bytes
      (or seed (and supplied-host (host-seed supplied-host)) (crypto-random-bytes 32))))
   (when (and supplied-host seed (not (bytes=? seed (host-seed supplied-host))))
-    (raise-pancake 'open-driver-loop ERR-INVALID-ARGUMENT
+    (raise-glowcap 'open-driver-loop ERR-INVALID-ARGUMENT
                    "the supplied Host seed conflicts with the loop seed"))
   (define m
     (or supplied-host
@@ -60,7 +60,7 @@
                  (make-hash) (make-hash) (make-hash)
                  (box 'open) #f (make-semaphore 0) #f #f))
   (define options
-    (make-PancakeDriverOptions DRIVER-OPTIONS-ABI-VERSION (ctype-sizeof _PancakeDriverOptions)
+    (make-GlowcapDriverOptions DRIVER-OPTIONS-ABI-VERSION (ctype-sizeof _GlowcapDriverOptions)
                                wire-buffer-bytes max-pending-opens
                                handshake-ms listener-setup-ms settle-ms))
   (define adopted? #f)
@@ -75,7 +75,7 @@
                      (raise (if cleanup (retain-cleanup-failure e cleanup) e)))])
     (parameterize-break #f
       (define-values (rc h)
-        (pancake_driver_take_host (host-ptr m) options))
+        (glowcap_driver_take_host (host-ptr m) options))
       (check/driver rc)
       (set-driver-loop-handle! lp h)
       (set-box! (host-driver-loop m) lp)

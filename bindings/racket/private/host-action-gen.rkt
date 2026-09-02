@@ -25,7 +25,7 @@
          host-decode-action!
          host-dispatch-action!)
 
-;; PancakeHostAction.kind — mirrors PANCAKE_HOST_ACTION_* in pancake_host.h.
+;; GlowcapHostAction.kind — mirrors GLOWCAP_HOST_ACTION_* in glowcap_host.h.
 (define HOST-ACTION-DIAL 0)
 (define HOST-ACTION-FLUSH 1)
 (define HOST-ACTION-NEED-GIFT-ID 2)
@@ -35,34 +35,34 @@
 (define HOST-ACTION-RESUME 6)
 (define HOST-ACTION-CANCEL-DIAL 7)
 
-;; Decode a filled PancakeHostAction cstruct into the list form the
+;; Decode a filled GlowcapHostAction cstruct into the list form the
 ;; drain switch matches: `(list 'dial …)`, `(list 'flush …)`, …
 ;; `arg<-c` is passed by the caller (from `abi-value.rkt`) so this module
 ;; stays require-acyclic with constants.rkt.
 (define (host-decode-action! a arg<-c)
-  (define kind (PancakeHostAction-kind a))
+  (define kind (GlowcapHostAction-kind a))
   (define (view->string ptr len) (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD))
   (cond
     [(= kind HOST-ACTION-DIAL)
-     (list 'dial (PancakeHostAction-ticket a) (PancakeHostAction-route-index a))]
+     (list 'dial (GlowcapHostAction-ticket a) (GlowcapHostAction-route-index a))]
     [(= kind HOST-ACTION-FLUSH)
-     (list 'flush (PancakeHostAction-session a))]
+     (list 'flush (GlowcapHostAction-session a))]
     [(= kind HOST-ACTION-NEED-GIFT-ID)
-     (list 'need-gift-id (PancakeHostAction-ticket a))]
+     (list 'need-gift-id (GlowcapHostAction-ticket a))]
     [(= kind HOST-ACTION-SETTLE)
      ;; `arg<-c` copies every byte payload into fresh Racket values, so the
      ;; outcome outlives the popped action's until-next-pop lifetime.
-     (list 'settle (PancakeHostAction-ticket a) (arg<-c (PancakeHostAction-value a)))]
+     (list 'settle (GlowcapHostAction-ticket a) (arg<-c (GlowcapHostAction-value a)))]
     [(= kind HOST-ACTION-FAIL)
-     (list 'fail (PancakeHostAction-ticket a) (PancakeHostAction-result a)
-           (view->string (PancakeHostAction-message a) (PancakeHostAction-message-len a)))]
+     (list 'fail (GlowcapHostAction-ticket a) (GlowcapHostAction-result a)
+           (view->string (GlowcapHostAction-message a) (GlowcapHostAction-message-len a)))]
     [(= kind HOST-ACTION-CLOSE)
-     (list 'close (PancakeHostAction-session a) (PancakeHostAction-result a))]
+     (list 'close (GlowcapHostAction-session a) (GlowcapHostAction-result a))]
     [(= kind HOST-ACTION-RESUME)
      (list 'resume)]
     [(= kind HOST-ACTION-CANCEL-DIAL)
-     (list 'cancel-dial (PancakeHostAction-ticket a) (PancakeHostAction-route-index a))]
-    [else (raise-pancake 'pancake ERR-INTERNAL
+     (list 'cancel-dial (GlowcapHostAction-ticket a) (GlowcapHostAction-route-index a))]
+    [else (raise-glowcap 'glowcap ERR-INTERNAL
                          "ABI returned unknown host action kind: ~a" kind)]))
 
 ;; Exhaustive dispatch over a decoded action list. `handlers` is a
@@ -73,5 +73,5 @@
   (define tag (car a))
   (define fn (hash-ref handlers tag #f))
   (unless fn
-    (error 'pancake "host-dispatch-action!: missing handler for ~a" tag))
+    (error 'glowcap "host-dispatch-action!: missing handler for ~a" tag))
   (fn a))

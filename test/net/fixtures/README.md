@@ -1,6 +1,6 @@
 # Native TLS fixtures
 
-These test-only certificates prove Pancake's native TLS carrier against a real
+These test-only certificates prove Glowcap's native TLS carrier against a real
 certificate chain. `tls_root.pem` is the private fixture authority;
 `tls_server.pem` is valid only for `localhost`, and `tls_server.key` is its
 non-production private key.
@@ -16,10 +16,10 @@ project fixtures.
 Generate a candidate without overwriting the current evidence:
 
 ```sh
-tools/check/generate-native-tls-fixture.sh /tmp/pancake-tls-fixture
-openssl x509 -in /tmp/pancake-tls-fixture/tls_root.pem \
+tools/check/generate-native-tls-fixture.sh /tmp/glowcap-tls-fixture
+openssl x509 -in /tmp/glowcap-tls-fixture/tls_root.pem \
   -noout -subject -issuer -dates -ext basicConstraints -ext keyUsage
-openssl x509 -in /tmp/pancake-tls-fixture/tls_server.pem \
+openssl x509 -in /tmp/glowcap-tls-fixture/tls_server.pem \
   -noout -subject -issuer -dates -ext subjectAltName -ext extendedKeyUsage
 ```
 

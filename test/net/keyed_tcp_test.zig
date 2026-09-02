@@ -10,13 +10,13 @@
 //! `test/driver/keyed_tcp_restart_test.zig`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const net = pancake.net;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const net = glowcap.net;
 
 test "key-addressed profiles build borrowed direct-address locators" {
     const designator = "0000000000000000000000000000000000000000000000000000000000000000";

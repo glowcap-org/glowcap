@@ -3,20 +3,20 @@
 //! failure settles its vow.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 const promise_capture = @import("../../support/capture.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const session_inspect = pancake.ocapn.session.inspect;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const session_inspect = glowcap.ocapn.session.inspect;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 const node_harness = @import("../../engine/node/harness.zig");
@@ -97,7 +97,7 @@ test "application-delivered give uses Host identity without fabricating wire row
 
     const signed = try signedGiveForLifecycleTest(allocator);
     defer allocator.free(signed);
-    const give = try pancake.ocapn.codec.signed.decodeGiveOwned(allocator, signed);
+    const give = try glowcap.ocapn.codec.signed.decodeGiveOwned(allocator, signed);
     defer model.freeHandoffGive(allocator, give);
 
     const exports_before = session_inspect.exportCount(&session.served.port.peer.session_state);
@@ -232,7 +232,7 @@ test "core host: an inline give becomes one nested promise identity and terminal
 
     const signed = try signedGiveForLifecycleTest(allocator);
     defer allocator.free(signed);
-    const give = try pancake.ocapn.codec.signed.decodeGiveOwned(allocator, signed);
+    const give = try glowcap.ocapn.codec.signed.decodeGiveOwned(allocator, signed);
     defer model.freeHandoffGive(allocator, give);
     var handoff: model.Handoff = .{ .give = give };
     const nested = [_]model.Argument{.{ .tagged = .{
@@ -329,7 +329,7 @@ test "core host: releasing queued promise operations cancels their exact ownersh
 
     const signed = try signedGiveForLifecycleTest(allocator);
     defer allocator.free(signed);
-    const give = try pancake.ocapn.codec.signed.decodeGiveOwned(allocator, signed);
+    const give = try glowcap.ocapn.codec.signed.decodeGiveOwned(allocator, signed);
     defer model.freeHandoffGive(allocator, give);
     var handoff: model.Handoff = .{ .give = give };
     var lift_arena = std.heap.ArenaAllocator.init(allocator);
@@ -442,7 +442,7 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
     while (try r_to_g.b.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
-        const body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(
+        const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
             r_to_g.b.served.port.peer.session_state.captp_version,
             frame.view(),
         );
@@ -488,7 +488,7 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
     const r_to_anchor = try openPair(allocator, &recipient, &anchor, "127.0.0.1:7113", &dials);
 
     // Listening to the Host-owned handoff promise observes redemption itself.
-    // When it becomes an object under pancake-next, no second object-listen may
+    // When it becomes an object under glowcap-next, no second object-listen may
     // be emitted: next permits listens only on promises.
     const readiness_vow = try recipient.queueListenToCapability(r_to_anchor.a, promise);
     var ready = CapturedRef{};

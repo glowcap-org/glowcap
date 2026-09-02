@@ -1,11 +1,11 @@
 ---
-description: "Zig pancake project values: explicit systems design, polished library surface, no hidden costs."
+description: "Zig glowcap project values: explicit systems design, polished library surface, no hidden costs."
 alwaysApply: true
 ---
 
-# pancake — Project Values
+# glowcap — Project Values
 
-pancake is a native Zig systems library for OCapN / CapTP. Keep the repository
+glowcap is a native Zig systems library for OCapN / CapTP. Keep the repository
 small, direct, and product-grade.
 
 The destination these values serve is [`docs/vision.md`](../../docs/vision.md).
@@ -47,9 +47,9 @@ the vision itself when a tradeoff between them is unclear.
 - **No hidden runtime.** The protocol core is deterministic, sync, and no-I/O.
   Adapters own host integration.
 - **Boring public surface.** The C ABI ships as a small declared set of
-  composable archives linked à la carte — `libpancake_ocapn`,
-  `libpancake_host`, optional `libpancake_driver`, and provider archives such
-  as `libpancake_net_transport_tcp` and `libpancake_net_transport_iroh` — each
+  composable archives linked à la carte — `libglowcap_ocapn`,
+  `libglowcap_host`, optional `libglowcap_driver`, and provider archives such
+  as `libglowcap_net_transport_tcp` and `libglowcap_net_transport_iroh` — each
   with its own header naming only the family it exports (ADR-0059, ADR-0112).
   The standalone provider header is shared vocabulary, not another runtime.
   Each archive
@@ -104,7 +104,7 @@ the vision itself when a tradeoff between them is unclear.
 
 Work toward a 1.0 where the shape feels inevitable: the networking library a
 competent reader would pick at this layer, not a polite CapTP port. A reader
-should not be able to imagine a cleaner one without breaking what pancake
+should not be able to imagine a cleaner one without breaking what glowcap
 protects (performance, architecture, cross-binding interop). Write that
 ambition as the work's shape. It is not a slogan for a first-read page.
 
@@ -139,7 +139,7 @@ Before adding setup, build, API, or documentation surface, ask:
 - Does this keep framework-shaped ambition (actors, the simulator) _above_ the
   sans-io core instead of pushing authority or I/O down into it?
 - Does this make `zig build`, `zig build check`, or first use simpler?
-- Does this preserve plain `pancake` artifact names?
+- Does this preserve plain `glowcap` artifact names?
 - Can a C consumer understand the ABI without knowing Zig?
 - Can a Zig consumer understand ownership without reading implementation code?
 - Would a hidden allocation, copy, runtime, or protocol authority decision

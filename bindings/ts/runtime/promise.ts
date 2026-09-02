@@ -5,13 +5,13 @@
 // (`sendFar`), and RemotePromise construction. Session owns CapTP verb
 // wrappers; trampoline owns Host-reference send·tell dispatch and local arms;
 // this module owns the handle type, remote-send/post-mint choreography, and
-// the projection FFI (`pancake_host_vow_*`).
+// the projection FFI (`glowcap_host_vow_*`).
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64 } from "./internal/seam.ts";
-import { INVALID_ARGUMENT } from "@pancake/abi";
-import { checkHost, FetchFailed, PancakeError, retainSecondaryFailure } from "./errors.ts";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
+import { checkHost, FetchFailed, GlowcapError, retainSecondaryFailure } from "./errors.ts";
 import { encodeArgs, refStruct } from "./abi_value.ts";
 import { type Argument, isReference, Ref } from "./value.ts";
 
@@ -55,7 +55,7 @@ function projectVow(
 ): bigint {
 	const out = new Uint8Array(8);
 	if (op === "index") {
-		checkHost(hostS.pancake_host_vow_index(
+		checkHost(hostS.glowcap_host_vow_index(
 			hostRaw,
 			source,
 			key as bigint,
@@ -63,7 +63,7 @@ function projectVow(
 		));
 	} else {
 		const bytes = utf8Encoder.encode(key as string);
-		const fn = op === "get" ? hostS.pancake_host_vow_get : hostS.pancake_host_vow_untag;
+		const fn = op === "get" ? hostS.glowcap_host_vow_get : hostS.glowcap_host_vow_untag;
 		checkHost(fn(
 			hostRaw,
 			source,
@@ -182,13 +182,13 @@ export function promiseFor(
  * to any value, not only a capability. */
 export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
 	const out = new Uint8Array(8);
-	checkHost(hostS.pancake_host_session_listen(h.ptr, ab(refStruct(target)), ab(out)));
+	checkHost(hostS.glowcap_host_session_listen(h.ptr, ab(refStruct(target)), ab(out)));
 	const vow = outU64(out);
 	return promiseFor(h, vow, false);
 }
 
 /** Far-send mint→`RemotePromise`: encode args, mint the host vow
- * (`pancake_host_session_send` / `pancake_host_vow_send`), register it, and
+ * (`glowcap_host_session_send` / `glowcap_host_vow_send`), register it, and
  * hand back `promiseFor`.
  * Local-hosted targets stay in Session (trampoline `sendLocal`). */
 export function sendFar(
@@ -205,7 +205,7 @@ export function sendFar(
 		// Promise pipelining: eventual-send to the unresolved answer. A local
 		// send's promise has no wire answer to pipeline against.
 		const sourceVow = target.farVow(h.hostOwner);
-		checkHost(hostS.pancake_host_vow_send(
+		checkHost(hostS.glowcap_host_vow_send(
 			h.hostRaw,
 			sourceVow,
 			ab(verbBytes),
@@ -215,7 +215,7 @@ export function sendFar(
 			ab(out),
 		));
 	} else {
-		checkHost(hostS.pancake_host_session_send(
+		checkHost(hostS.glowcap_host_session_send(
 			h.ptr,
 			ab(refStruct(target)),
 			ab(verbBytes),
@@ -268,7 +268,7 @@ export type PromiseState =
 	// at the answer before it settles (ADR-0050). Throwing instead put a
 	// synchronous failure channel on a promise-returning method, and a caller's
 	// `.catch` could not see it. Rust has carried this arm from the start.
-	| { readonly tag: "failed"; readonly error: PancakeError };
+	| { readonly tag: "failed"; readonly error: GlowcapError };
 
 export class RemotePromise extends Promise<Argument> {
 	readonly #state: PromiseState;
@@ -325,7 +325,7 @@ export class RemotePromise extends Promise<Argument> {
 	 * and projecting at it yields another failed handle carrying the same
 	 * reason, so a pipeline built behind a dead anchor fails where it is
 	 * awaited rather than where it was written. */
-	static failed(error: PancakeError): RemotePromise {
+	static failed(error: GlowcapError): RemotePromise {
 		// The begin thunk is what rejects, and it runs only on observation, so
 		// a handle nobody awaits is not an unhandled rejection. Projection is
 		// answered by `#projectOp` from the state, not by a thunk.
@@ -343,13 +343,13 @@ export class RemotePromise extends Promise<Argument> {
 		// generic local-send refusal, so a caller sees why the send never left.
 		if (this.#state.tag === "failed") throw this.#state.error;
 		if (this.#state.tag !== "far") {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				"this promise is await-only and has no remote pipeline target",
 			);
 		}
 		if (this.#state.hostOwner !== hostOwner) {
-			throw new PancakeError(INVALID_ARGUMENT, "this promise belongs to another Host");
+			throw new GlowcapError(INVALID_ARGUMENT, "this promise belongs to another Host");
 		}
 		return this.#state.vow;
 	}
@@ -361,7 +361,7 @@ export class RemotePromise extends Promise<Argument> {
 		// written, which is the difference between one `.catch` and none.
 		if (this.#state.tag === "failed") return RemotePromise.failed(this.#state.error);
 		if (this.#state.tag !== "far" || this.#project === undefined) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				"this promise is await-only and cannot be projected",
 			);

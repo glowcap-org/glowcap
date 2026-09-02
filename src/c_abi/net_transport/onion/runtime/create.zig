@@ -8,7 +8,7 @@ const state = @import("state.zig");
 
 pub fn create(
     allocator: std.mem.Allocator,
-    config: *const contract.PancakeOnionConfig,
+    config: *const contract.GlowcapOnionConfig,
     out: *?*state.Netlayer,
 ) i32 {
     const total = sumLengths(&.{
@@ -19,7 +19,7 @@ pub fn create(
         config.forward_len,
     }) orelse {
         c.setLastError("netlayer_new: copied configuration is too large", .{});
-        return c.PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     };
     const socks = viewOf(config.socks, config.socks_len) catch
         return invalid("netlayer_new: socks is null with a nonzero length");
@@ -33,9 +33,9 @@ pub fn create(
         return invalid("netlayer_new: service_key is null with a nonzero length");
     const forward = viewOf(config.forward, config.forward_len) catch
         return invalid("netlayer_new: forward is null with a nonzero length");
-    if (config.auth_kind > contract.PANCAKE_ONION_AUTH_PASSWORD) {
+    if (config.auth_kind > contract.GLOWCAP_ONION_AUTH_PASSWORD) {
         c.setLastError("netlayer_new: unknown auth_kind {d}", .{config.auth_kind});
-        return c.PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
 
     const payload = allocator.create(state.Netlayer) catch |err|
@@ -64,8 +64,8 @@ pub fn create(
             .socks = socks_copy,
             .control_endpoint = control_copy,
             .auth = switch (config.auth_kind) {
-                contract.PANCAKE_ONION_AUTH_COOKIE => .{ .cookie = secret_copy },
-                contract.PANCAKE_ONION_AUTH_PASSWORD => .{ .password = secret_copy },
+                contract.GLOWCAP_ONION_AUTH_COOKIE => .{ .cookie = secret_copy },
+                contract.GLOWCAP_ONION_AUTH_PASSWORD => .{ .password = secret_copy },
                 else => .none,
             },
             .service_key = key_copy,
@@ -80,12 +80,12 @@ pub fn create(
     };
     provider.init(payload);
     out.* = payload;
-    return c.PANCAKE_OK;
+    return c.GLOWCAP_OK;
 }
 
 fn invalid(message: []const u8) i32 {
     c.setLastError("{s}", .{message});
-    return c.PANCAKE_ERR_INVALID_ARGUMENT;
+    return c.GLOWCAP_ERR_INVALID_ARGUMENT;
 }
 
 fn viewOf(ptr: ?[*]const u8, len: usize) error{NullPointer}![]const u8 {

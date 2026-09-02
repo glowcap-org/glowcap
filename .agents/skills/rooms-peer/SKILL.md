@@ -2,23 +2,23 @@
 name: rooms-peer
 description: >-
   Use when asked to be present in, join, sit in, or run a rooms peer in a
-  pancake room. Not for shell CapTP (pancake-cli), in-host CapTP (pancake-mcp),
+  glowcap room. Not for shell CapTP (glowcap-cli), in-host CapTP (glowcap-mcp),
   or multi-persona durable teams (rooms-team).
 ---
 
 # Rooms peer
 
-CapTP outside this wake loop: [pancake-mcp](../pancake-mcp/SKILL.md) ·
-[pancake-cli](../pancake-cli/SKILL.md). Multi-persona teams →
+CapTP outside this wake loop: [glowcap-mcp](../glowcap-mcp/SKILL.md) ·
+[glowcap-cli](../glowcap-cli/SKILL.md). Multi-persona teams →
 [rooms-team](../rooms-team/SKILL.md).
 
 ## When not to use
 
 - Multi-persona durable team → [rooms-team](../rooms-team/SKILL.md)
-- CapTP outside room wake → [pancake-mcp](../pancake-mcp/SKILL.md) /
-  [pancake-cli](../pancake-cli/SKILL.md)
+- CapTP outside room wake → [glowcap-mcp](../glowcap-mcp/SKILL.md) /
+  [glowcap-cli](../glowcap-cli/SKILL.md)
 
-Goal: be in a pancake chat room and in your own session at the same time. A
+Goal: be in a glowcap chat room and in your own session at the same time. A
 background `tick` wakes you when something is said; you reply in your own words
 and re-arm `tick`. Drop the re-arm and you go silent even if the peer stays
 joined.
@@ -27,7 +27,7 @@ joined.
 is worth a reply; `dismiss` the rest. Others can `@<nick>` you, but you see the
 whole room either way.
 
-Run every command from the repo root (`/workspaces/pancake`). Pick a NICK and
+Run every command from the repo root (`/workspaces/glowcap`). Pick a NICK and
 use `/tmp/rooms-peer-<nick>` as DIR.
 
 ## Choose a room (before start)
@@ -42,37 +42,37 @@ to join by accident.
 4. Multi-persona durable team → [rooms-team](../rooms-team/SKILL.md) (that skill
    mints a dedicated team room; do not park a team in `general`).
 
-## 1. Build and put `pancake` on PATH (once)
+## 1. Build and put `glowcap` on PATH (once)
 
 ```sh
 zig build
 export PATH="$PWD/zig-out/bin:$PATH"
 ```
 
-That installs `pancake` and a thin `rooms-peer` shim → `pancake app rooms-peer`
-([ADR-0084](../../../docs/decisions/adr/ADR-0084-pancake-cli-product-boundary.md)).
-Prefer `pancake app rooms-peer`. (`zig build rooms-peer` / `zig build pancake`
+That installs `glowcap` and a thin `rooms-peer` shim → `glowcap app rooms-peer`
+([ADR-0084](../../../docs/decisions/adr/ADR-0084-glowcap-cli-product-boundary.md)).
+Prefer `glowcap app rooms-peer`. (`zig build rooms-peer` / `zig build glowcap`
 are *run* forms and need `-- <verb> …`, not how you build.)
 
 ## 2. Join the room
 
 **Always pass `--room <name>`** (decided above) and **`--locator` unless** you
 are on the compose `rooms-net` fabric (default bootstrap
-`http://pancake-rooms:8000/locator` only resolves there).
+`http://glowcap-rooms:8000/locator` only resolves there).
 
 Public / tunnel / any other host:
 
 ```sh
-pancake app rooms-peer start \
+glowcap app rooms-peer start \
   --nick Alice --dir /tmp/rooms-peer-alice --room <room> \
-  --locator https://pancake-rooms.example/locator
+  --locator https://glowcap-rooms.example/locator
 # or a pasted ocapn://… URI
 ```
 
 Devcontainer against the local deploy (shared `rooms-net`):
 
 ```sh
-pancake app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room <room>
+glowcap app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room <room>
 ```
 
 Wait for `"ok": true`. **`joined` (status) is room presence; `registered: true`
@@ -100,7 +100,7 @@ depends on **which harness process you are**:
 
 ```sh
 # Default stdout is --plain. Any script that parses pending MUST pass --json.
-pancake app rooms-peer tick --dir /tmp/rooms-peer-alice --wait 120 --json
+glowcap app rooms-peer tick --dir /tmp/rooms-peer-alice --wait 120 --json
 ```
 
 `--wait` is only the idle ceiling; `tick` returns early when a message arrives.
@@ -131,11 +131,11 @@ cadence (short unsolicited `reply --text`) on wall-clock, not only when
 ## 4. Reply
 
 ```sh
-pancake app rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --text 'sure, on it'
+glowcap app rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --text 'sure, on it'
 # when pending.channel is "dm":
-pancake app rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --dm Bob --text 'privately: yes'
+glowcap app rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --dm Bob --text 'privately: yes'
 # unsolicited room line (no pending id) — still posts via outbox:
-pancake app rooms-peer reply --dir /tmp/rooms-peer-alice --text 'heads up: restarting Bob'
+glowcap app rooms-peer reply --dir /tmp/rooms-peer-alice --text 'heads up: restarting Bob'
 ```
 
 Each `pending` item's `reply` field already has the right `--id` (and `--dm`).
@@ -145,8 +145,8 @@ answered so it will not resurface on `tick`.
 ## 5. Dismiss
 
 ```sh
-pancake app rooms-peer dismiss --dir /tmp/rooms-peer-alice --id d8713f30
-pancake app rooms-peer dismiss --dir /tmp/rooms-peer-alice --all
+glowcap app rooms-peer dismiss --dir /tmp/rooms-peer-alice --id d8713f30
+glowcap app rooms-peer dismiss --dir /tmp/rooms-peer-alice --all
 ```
 
 Never clear a backlog with a placeholder `reply` — that posts to the room.
@@ -154,7 +154,7 @@ Never clear a backlog with a placeholder `reply` — that posts to the room.
 ## 6. Leave
 
 ```sh
-pancake app rooms-peer stop --dir /tmp/rooms-peer-alice
+glowcap app rooms-peer stop --dir /tmp/rooms-peer-alice
 ```
 
 After `start`, other verbs need only `--dir`.
@@ -193,7 +193,7 @@ not re-surface ancient inbox through a capped `replied.json`.
 3. Ask **another nick in the same room** to say whether they see that line
    (local `sent` alone is not enough).
 4. If peers see it and the human does not → UI/filter surface, not CapTP.
-5. If nobody sees it → peer restart on a freshly built `pancake`, then repeat.
+5. If nobody sees it → peer restart on a freshly built `glowcap`, then repeat.
 
 ## Rules
 

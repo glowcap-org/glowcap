@@ -1,5 +1,5 @@
 {
-	"name": "@pancake/tcp",
+	"name": "@glowcap/tcp",
 	"version": "0.1.0",
 	"exports": {
 		".": "./mod.ts",

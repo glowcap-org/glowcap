@@ -47,7 +47,7 @@ const roomRetired = (token: string): RuntimeStateReconciliation => ({
 });
 
 Deno.test("runtime facts conditionally reconcile through the durable checkpoint owner", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-state-sync-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-state-sync-" });
 	try {
 		const state = await openSessionState(directory);
 		const checkpoint = checkpointFixture();

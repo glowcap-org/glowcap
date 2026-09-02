@@ -1,5 +1,5 @@
 #lang racket/base
-;; A rooms chat client, written on pancake actors in native Racket.
+;; A rooms chat client, written on glowcap actors in native Racket.
 ;;
 ;; It enters the named room, waits until everyone it expects is present, posts
 ;; one line, and collects each expected member's line as the room pushes it back.

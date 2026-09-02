@@ -18,7 +18,7 @@ pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    /// The public `pancake` module: the autodoc source and every Zig
+    /// The public `glowcap` module: the autodoc source and every Zig
     /// snippet's import.
     lib_mod: *std.Build.Module,
     /// The shared `model` layer instance the snippet assembler imports.
@@ -46,13 +46,13 @@ pub fn register(ctx: Context) Registered {
     const check_step = ctx.check_step;
 
     // ── API reference (autodoc) ──────────────────────────────────────────────
-    // Renders the public `pancake` module's generated documentation under
+    // Renders the public `glowcap` module's generated documentation under
     // zig-out/docs/. The site step ships this same artifact as the API
     // reference section, so the reference can never be hand-written prose. Built
-    // from the `pancake` root module but never installed, so the autodoc emit
+    // from the `glowcap` root module but never installed, so the autodoc emit
     // costs nothing on a default `zig build` and no umbrella artifact ships.
     const docs_lib = b.addLibrary(.{
-        .name = "pancake",
+        .name = "glowcap",
         .linkage = .static,
         .root_module = ctx.lib_mod,
     });
@@ -98,7 +98,7 @@ pub fn register(ctx: Context) Registered {
     // holds planned snippets to comment-only bodies. The iroh Zig tabs are
     // compiled beside the iroh resident module, and the relay Zig tabs beside
     // the native relay module, because those modules stay outside the default
-    // pancake graph.
+    // glowcap graph.
     // Walk the snippet dirs from the build root, not process cwd. `zig build`
     // from a subdirectory still loads this `build.zig`, and `Dir.cwd()` would
     // miss `site/examples/` and panic before any step ran. Later compile
@@ -149,7 +149,7 @@ pub fn register(ctx: Context) Registered {
         const name = b.fmt("site-example-{s}", .{snippet_path["site/examples/".len .. snippet_path.len - ".zig".len]});
         std.mem.replaceScalar(u8, name, '/', '-');
         common.addSiteZigExampleCompile(b, ctx.target, ctx.optimize, name, snippet_path, &.{
-            .{ .name = "pancake", .module = ctx.lib_mod },
+            .{ .name = "glowcap", .module = ctx.lib_mod },
         }, site_zig_examples_check);
     }
 
@@ -174,7 +174,7 @@ pub fn register(ctx: Context) Registered {
     // ── Documentation site (sibling of `check`) ──────────────────────────────
     // The public face under zig-out/site/: the Zine-rendered pages plus the
     // autodoc API reference under reference/api/. The autodoc-only step emits
-    // the public `pancake` module's reference under zig-out/docs/ from the
+    // the public `glowcap` module's reference under zig-out/docs/ from the
     // artifact built in the autodoc section above.
     const docs_step = b.step("docs", "Generate the Zig API reference (autodoc) under zig-out/docs/");
     docs_step.dependOn(&install_docs.step);
@@ -193,7 +193,7 @@ pub fn register(ctx: Context) Registered {
     render_site.setCwd(b.path("site"));
     render_site.has_side_effects = true;
 
-    // The reference section is the generated autodoc for the public `pancake`
+    // The reference section is the generated autodoc for the public `glowcap`
     // module, installed into the rendered site after Zine has written the pages.
     // The inner build clears generated site output before Zine renders; this
     // install then restores the generated reference at reference/api/.

@@ -4,7 +4,7 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libpancake_net_transport_relay`. The hand-written
+// The raw extern block of `libglowcap_net_transport_relay`. The hand-written
 // sibling (`relay.rs`) owns the config and opaque handle mirrors and
 // re-exports this block, so consumers keep their `sys::relay::*` paths.
 
@@ -12,35 +12,35 @@
 
 use core::ffi::{c_int, c_uchar};
 
-use super::ocapn::PancakeContext;
-use super::relay::{PancakeRelayConfig, PancakeRelayRuntime, PancakeRelayTrustSummary};
-use super::PancakeTransportProvider;
+use super::ocapn::GlowcapContext;
+use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime, GlowcapRelayTrustSummary};
+use super::GlowcapTransportProvider;
 
 extern "C" {
-	pub fn pancake_relay_archive_fingerprint() -> u64;
-	pub fn pancake_relay_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_relay_clear_last_error();
-	pub fn pancake_relay_runtime_new(
-		config: *const PancakeRelayConfig,
-		out_runtime: *mut *mut PancakeRelayRuntime,
+	pub fn glowcap_relay_archive_fingerprint() -> u64;
+	pub fn glowcap_relay_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_relay_clear_last_error();
+	pub fn glowcap_relay_runtime_new(
+		config: *const GlowcapRelayConfig,
+		out_runtime: *mut *mut GlowcapRelayRuntime,
 	) -> c_int;
-	pub fn pancake_relay_runtime_trust_summary(
-		runtime: *mut PancakeRelayRuntime,
-		out_summary: *mut PancakeRelayTrustSummary,
+	pub fn glowcap_relay_runtime_trust_summary(
+		runtime: *mut GlowcapRelayRuntime,
+		out_summary: *mut GlowcapRelayTrustSummary,
 	) -> c_int;
-	pub fn pancake_relay_transport_provider(
-		runtime: *mut PancakeRelayRuntime,
-		out_provider: *mut PancakeTransportProvider,
+	pub fn glowcap_relay_transport_provider(
+		runtime: *mut GlowcapRelayRuntime,
+		out_provider: *mut GlowcapTransportProvider,
 	) -> c_int;
-	pub fn pancake_relay_runtime_release(
-		runtime: *mut PancakeRelayRuntime,
+	pub fn glowcap_relay_runtime_release(
+		runtime: *mut GlowcapRelayRuntime,
 		out_error: *mut c_uchar,
 		error_cap: usize,
 		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_relay_runtime_new_in(
-		context: *mut PancakeContext,
-		config: *const PancakeRelayConfig,
-		out_runtime: *mut *mut PancakeRelayRuntime,
+	pub fn glowcap_relay_runtime_new_in(
+		context: *mut GlowcapContext,
+		config: *const GlowcapRelayConfig,
+		out_runtime: *mut *mut GlowcapRelayRuntime,
 	) -> c_int;
 }

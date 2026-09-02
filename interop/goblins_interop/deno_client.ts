@@ -1,5 +1,5 @@
-import * as tcp from "@pancake/tcp";
-// Live interop proof for the Deno binding: a peer built on `libpancake`'s C ABI
+import * as tcp from "@glowcap/tcp";
+// Live interop proof for the Deno binding: a peer built on `libglowcap`'s C ABI
 // holds a *keyed* OCapN conversation with a real Spritely Goblins vat over TCP —
 // driven through the *same* `connect`/`enliven`/`send` application surface the
 // cross-language demos use, so what is proven against a real Goblins vat is the
@@ -12,7 +12,7 @@ import * as tcp from "@pancake/tcp";
 // (cache hit, no second bootstrap). Needs `racket` + `goblins` on PATH;
 // `zig build deno-goblins-interop`.
 
-import { formatLocatorUri, Runtime } from "@pancake/runtime";
+import { formatLocatorUri, Runtime } from "@glowcap/runtime";
 import { fail, readSturdyrefPath } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -86,8 +86,8 @@ try {
 		}
 	};
 	assertEchoed(
-		await session.send(echo, "", [new TextEncoder().encode("pancake-ping")]),
-		"pancake-ping",
+		await session.send(echo, "", [new TextEncoder().encode("glowcap-ping")]),
+		"glowcap-ping",
 	);
 
 	const again = await session.enliven(sturdyref);
@@ -98,8 +98,8 @@ try {
 		);
 	}
 	assertEchoed(
-		await session.send(again, "", [new TextEncoder().encode("pancake-ping-again")]),
-		"pancake-ping-again",
+		await session.send(again, "", [new TextEncoder().encode("glowcap-ping-again")]),
+		"glowcap-ping-again",
 	);
 	console.log(
 		"deno-goblins-interop: repeat enliven same import (dedup), second call resolved",

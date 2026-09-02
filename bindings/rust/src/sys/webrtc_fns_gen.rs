@@ -4,95 +4,95 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libpancake_net_transport_webrtc`. The
+// The raw extern block of `libglowcap_net_transport_webrtc`. The
 // hand-written sibling (`webrtc.rs`) owns the opaque handles and readiness
 // record and re-exports this block, so consumers keep their
-// `sys::webrtc::pancake_webrtc_*` paths.
+// `sys::webrtc::glowcap_webrtc_*` paths.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uchar};
 
-use super::webrtc::{PancakeWebrtcConfig, PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};
-use super::PancakeTransportProvider;
+use super::webrtc::{GlowcapWebrtcConfig, GlowcapWebrtcNetlayer, GlowcapWebrtcPeer, GlowcapWebrtcReadyEvent};
+use super::GlowcapTransportProvider;
 
 extern "C" {
-	pub fn pancake_webrtc_archive_fingerprint() -> u64;
-	pub fn pancake_webrtc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_webrtc_netlayer_new(
-		config: *const PancakeWebrtcConfig,
-		out_netlayer: *mut *mut PancakeWebrtcNetlayer,
+	pub fn glowcap_webrtc_archive_fingerprint() -> u64;
+	pub fn glowcap_webrtc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn glowcap_webrtc_netlayer_new(
+		config: *const GlowcapWebrtcConfig,
+		out_netlayer: *mut *mut GlowcapWebrtcNetlayer,
 	) -> c_int;
-	pub fn pancake_webrtc_netlayer_readiness_fd(netlayer: *mut PancakeWebrtcNetlayer) -> c_int;
-	pub fn pancake_webrtc_netlayer_drain_ready(
-		netlayer: *mut PancakeWebrtcNetlayer,
-		out_events: *mut PancakeWebrtcReadyEvent,
+	pub fn glowcap_webrtc_netlayer_readiness_fd(netlayer: *mut GlowcapWebrtcNetlayer) -> c_int;
+	pub fn glowcap_webrtc_netlayer_drain_ready(
+		netlayer: *mut GlowcapWebrtcNetlayer,
+		out_events: *mut GlowcapWebrtcReadyEvent,
 		out_cap: usize,
 		out_count: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_netlayer_release(netlayer: *mut PancakeWebrtcNetlayer) -> c_int;
-	pub fn pancake_webrtc_peer_new(
-		netlayer: *mut PancakeWebrtcNetlayer,
+	pub fn glowcap_webrtc_netlayer_release(netlayer: *mut GlowcapWebrtcNetlayer) -> c_int;
+	pub fn glowcap_webrtc_peer_new(
+		netlayer: *mut GlowcapWebrtcNetlayer,
 		is_offerer: c_int,
-		out_peer: *mut *mut PancakeWebrtcPeer,
+		out_peer: *mut *mut GlowcapWebrtcPeer,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_authorize_remote(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_authorize_remote(
+		peer: *mut GlowcapWebrtcPeer,
 		designator: *const c_uchar,
 		designator_len: usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_create_offer(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_create_offer(
+		peer: *mut GlowcapWebrtcPeer,
 		out: *mut c_uchar,
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_create_answer(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_create_answer(
+		peer: *mut GlowcapWebrtcPeer,
 		out: *mut c_uchar,
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_set_remote_offer(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_set_remote_offer(
+		peer: *mut GlowcapWebrtcPeer,
 		sdp: *const c_uchar,
 		sdp_len: usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_set_remote_answer(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_set_remote_answer(
+		peer: *mut GlowcapWebrtcPeer,
 		sdp: *const c_uchar,
 		sdp_len: usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_add_remote_candidate(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_add_remote_candidate(
+		peer: *mut GlowcapWebrtcPeer,
 		cand: *const c_uchar,
 		cand_len: usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_next_local_candidate(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_next_local_candidate(
+		peer: *mut GlowcapWebrtcPeer,
 		out: *mut c_uchar,
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_id(peer: *mut PancakeWebrtcPeer) -> usize;
-	pub fn pancake_webrtc_peer_is_open(peer: *mut PancakeWebrtcPeer) -> c_int;
-	pub fn pancake_webrtc_peer_try_receive_packet(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_id(peer: *mut GlowcapWebrtcPeer) -> usize;
+	pub fn glowcap_webrtc_peer_is_open(peer: *mut GlowcapWebrtcPeer) -> c_int;
+	pub fn glowcap_webrtc_peer_try_receive_packet(
+		peer: *mut GlowcapWebrtcPeer,
 		buf: *mut c_uchar,
 		len: usize,
 		out_read: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_try_send_packet(
-		peer: *mut PancakeWebrtcPeer,
+	pub fn glowcap_webrtc_peer_try_send_packet(
+		peer: *mut GlowcapWebrtcPeer,
 		buf: *const c_uchar,
 		len: usize,
 		out_written: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_close(peer: *mut PancakeWebrtcPeer);
-	pub fn pancake_webrtc_peer_release(peer: *mut PancakeWebrtcPeer) -> c_int;
-	pub fn pancake_webrtc_transport_provider(
-		netlayer: *mut PancakeWebrtcNetlayer,
-		out_provider: *mut PancakeTransportProvider,
+	pub fn glowcap_webrtc_peer_close(peer: *mut GlowcapWebrtcPeer);
+	pub fn glowcap_webrtc_peer_release(peer: *mut GlowcapWebrtcPeer) -> c_int;
+	pub fn glowcap_webrtc_transport_provider(
+		netlayer: *mut GlowcapWebrtcNetlayer,
+		out_provider: *mut GlowcapTransportProvider,
 	) -> c_int;
-	pub fn pancake_webrtc_clear_last_error();
+	pub fn glowcap_webrtc_clear_last_error();
 }

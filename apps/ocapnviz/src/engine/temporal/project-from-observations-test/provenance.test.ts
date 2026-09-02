@@ -17,14 +17,14 @@ Deno.test("live: a late-arriving peer-left re-derives the derived span", () => {
 	// this is the projection defect that made live peers immortal.
 	const base = withEvents({
 		...emptyDoc(),
-		entities: { peers: { alice: { profile: "pancake" } } },
+		entities: { peers: { alice: { profile: "glowcap" } } },
 	}, [
 		{
 			id: "e1",
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 	]);
 	const once = projectFromObservations(base);
@@ -90,7 +90,7 @@ Deno.test("authored timing outranks observation growth", () => {
 		entities: {
 			peers: {
 				alice: {
-					profile: "pancake",
+					profile: "glowcap",
 					timing: {
 						start: { value: 99, explicit: true },
 						duration: { value: 11, explicit: true },
@@ -104,7 +104,7 @@ Deno.test("authored timing outranks observation growth", () => {
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{ id: "e2", kind: "peer-left", t: 30, peerId: "alice" },
 	]);
@@ -121,14 +121,14 @@ Deno.test("quiet re-projection keeps doc object identity", () => {
 	// though derived spans are re-derived each run.
 	const doc = withEvents({
 		...emptyDoc(),
-		entities: { peers: { alice: { profile: "pancake" } } },
+		entities: { peers: { alice: { profile: "glowcap" } } },
 	}, [
 		{
 			id: "e1",
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{ id: "e2", kind: "peer-left", t: 30, peerId: "alice" },
 	]);

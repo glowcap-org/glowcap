@@ -1,4 +1,4 @@
-const actors = @import("pancake").actors;
+const actors = @import("glowcap").actors;
 
 pub const NestedCallCapture = struct {
     text_buf: [128]u8 = undefined,

@@ -14,14 +14,14 @@ error_slot::error_slot!(
 	/// none is set. The host family and each transport keep their own slots, read
 	/// by their own family errors internally.
 	pub fn last_error;
-	sys::pancake_last_error
+	sys::glowcap_last_error
 );
 
-/// The linked `libpancake_ocapn`'s ABI version as `(major, minor, patch)`. Compare it
+/// The linked `libglowcap_ocapn`'s ABI version as `(major, minor, patch)`. Compare it
 /// against the header constants the binding was built against to detect skew.
 pub fn abi_version() -> (u32, u32, u32) {
 	let (mut major, mut minor, mut patch) = (0u32, 0u32, 0u32);
-	unsafe { sys::pancake_abi_version(&mut major, &mut minor, &mut patch) };
+	unsafe { sys::glowcap_abi_version(&mut major, &mut minor, &mut patch) };
 	(major, minor, patch)
 }
 
@@ -85,8 +85,8 @@ pub(crate) unsafe extern "C" fn free_trampoline(
 /// Shared native allocation policy retained by every high-level handle family
 /// that cannot express the borrow in its public type.
 pub(crate) struct ContextInner {
-	pub(crate) raw: *mut sys::PancakeContext,
-	// Kept alive (and freed after `pancake_context_release`) for the custom
+	pub(crate) raw: *mut sys::GlowcapContext,
+	// Kept alive (and freed after `glowcap_context_release`) for the custom
 	// allocator path; null for the default-allocator context.
 	allocator: *mut Box<dyn ContextAllocator>,
 }
@@ -113,13 +113,13 @@ impl Context {
 	pub fn with_allocator(allocator: Box<dyn ContextAllocator>) -> Result<Context> {
 		require_ocapn_archive()?;
 		let user_data = Box::into_raw(Box::new(allocator));
-		let c_allocator = sys::PancakeAllocator {
+		let c_allocator = sys::GlowcapAllocator {
 			alloc: alloc_trampoline,
 			free: free_trampoline,
 			user_data: user_data as *mut core::ffi::c_void,
 		};
-		let mut raw: *mut sys::PancakeContext = core::ptr::null_mut();
-		let rc = unsafe { sys::pancake_context_new_with_allocator(&c_allocator, &mut raw) };
+		let mut raw: *mut sys::GlowcapContext = core::ptr::null_mut();
+		let rc = unsafe { sys::glowcap_context_new_with_allocator(&c_allocator, &mut raw) };
 		if rc != sys::OK {
 			unsafe { drop(Box::from_raw(user_data)) };
 			return Err(Error::from_code(rc));
@@ -150,7 +150,7 @@ impl Context {
 	}
 
 	#[cfg(any(feature = "tcp", feature = "inproc", feature = "onion", feature = "relay"))]
-	pub(crate) fn raw(&self) -> *mut sys::PancakeContext {
+	pub(crate) fn raw(&self) -> *mut sys::GlowcapContext {
 		self.inner.raw
 	}
 
@@ -163,8 +163,8 @@ impl Context {
 impl ContextInner {
 	pub(crate) fn new() -> Result<Self> {
 		require_ocapn_archive()?;
-		let mut raw: *mut sys::PancakeContext = core::ptr::null_mut();
-		check(unsafe { sys::pancake_context_new(&mut raw) })?;
+		let mut raw: *mut sys::GlowcapContext = core::ptr::null_mut();
+		check(unsafe { sys::glowcap_context_new(&mut raw) })?;
 		Ok(Self {
 			raw,
 			allocator: core::ptr::null_mut(),
@@ -199,9 +199,9 @@ impl ContextInner {
 			FailureScope::Operation => abi_constants_gen::FAILURE_SCOPE_OPERATION,
 		};
 		let secondary = error.secondary.first();
-		let report = sys::PancakeFailureReport {
+		let report = sys::GlowcapFailureReport {
 			abi_version: 1,
-			struct_size: core::mem::size_of::<sys::PancakeFailureReport>(),
+			struct_size: core::mem::size_of::<sys::GlowcapFailureReport>(),
 			layer,
 			scope_kind: scope,
 			scope_id,
@@ -227,7 +227,7 @@ impl ContextInner {
 		// Recording is observational. If the preferred Context refuses its own
 		// diagnostic input, retain both facts in the bounded surviving queue
 		// without replacing the protocol or teardown outcome.
-		let rc = unsafe { sys::pancake_context_report_failure(self.raw, &report) };
+		let rc = unsafe { sys::glowcap_context_report_failure(self.raw, &report) };
 		if rc != sys::OK {
 			record_runtime_failure(runtime_layer, operation, error.clone());
 			record_runtime_failure(FailureLayer::Binding, "diagnostic.record", Error::from_code(rc));
@@ -235,10 +235,10 @@ impl ContextInner {
 	}
 
 	pub(crate) fn next_failure(&self) -> Result<Option<FailureEvent>> {
-		let mut event: sys::PancakeFailureEvent = unsafe { core::mem::zeroed() };
+		let mut event: sys::GlowcapFailureEvent = unsafe { core::mem::zeroed() };
 		let mut required = 0usize;
 		let first =
-			unsafe { sys::pancake_context_next_failure(self.raw, &mut event, core::ptr::null_mut(), 0, &mut required) };
+			unsafe { sys::glowcap_context_next_failure(self.raw, &mut event, core::ptr::null_mut(), 0, &mut required) };
 		if first == sys::WOULD_BLOCK {
 			return Ok(None);
 		}
@@ -248,7 +248,7 @@ impl ContextInner {
 		let mut payload = vec![0u8; required];
 		if first == sys::ERR_BUFFER_TOO_SMALL {
 			let rc = unsafe {
-				sys::pancake_context_next_failure(
+				sys::glowcap_context_next_failure(
 					self.raw,
 					&mut event,
 					payload.as_mut_ptr(),
@@ -266,14 +266,14 @@ impl ContextInner {
 			if ptr.is_null() {
 				return Err(Error::with_detail(
 					sys::ERR_INTERNAL,
-					format!("pancake ABI returned a null {field} with nonzero length"),
+					format!("glowcap ABI returned a null {field} with nonzero length"),
 				));
 			}
 			let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
 			let value = core::str::from_utf8(bytes).map_err(|_| {
 				Error::with_detail(
 					sys::ERR_INTERNAL,
-					format!("pancake ABI returned invalid UTF-8 in {field}"),
+					format!("glowcap ABI returned invalid UTF-8 in {field}"),
 				)
 			})?;
 			Ok(value.to_owned())
@@ -314,7 +314,7 @@ impl ContextInner {
 fn require_ocapn_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"ocapn",
-		unsafe { sys::pancake_ocapn_archive_fingerprint() },
+		unsafe { sys::glowcap_ocapn_archive_fingerprint() },
 		sys::OCAPN_ARCHIVE_FINGERPRINT,
 	)
 }
@@ -323,7 +323,7 @@ impl Drop for ContextInner {
 	fn drop(&mut self) {
 		// Release the context first — it frees its tables through the allocator —
 		// then drop the host allocator the trampolines borrowed.
-		unsafe { sys::pancake_context_release(self.raw) };
+		unsafe { sys::glowcap_context_release(self.raw) };
 		if !self.allocator.is_null() {
 			unsafe { drop(Box::from_raw(self.allocator)) };
 		}

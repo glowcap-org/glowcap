@@ -1,4 +1,4 @@
-import * as tcp from "@pancake/tcp";
+import * as tcp from "@glowcap/tcp";
 import process from "node:process";
 import { ensureRuntimeReady, Runtime } from "../runtime/mod.ts";
 import { ok, runtime } from "./smoke/support.ts";

@@ -83,7 +83,7 @@
             (call-with-host m
               (lambda ()
                 (define-values (rc ptr)
-                  (pancake_host_session_open_dialed_locator (host-ptr m) view))
+                  (glowcap_host_session_open_dialed_locator (host-ptr m) view))
                 (check/host rc)
                 (build-session m ptr transport time-travel?))))))
       ;; Before the first partner byte, which is the only window a realizer's
@@ -120,10 +120,10 @@
             (define spin (pin-immobile sb))
             (define lpin (pin-immobile lb))
             (unless designator-scheme
-              (raise-pancake 'establish-accepted-session ERR-INVALID-ARGUMENT
+              (raise-glowcap 'establish-accepted-session ERR-INVALID-ARGUMENT
                              "accepted byte-channel provider must declare its designator scheme"))
             (define-values (rc ptr)
-              (pancake_host_session_open_accepted (host-ptr m)
+              (glowcap_host_session_open_accepted (host-ptr m)
                                                    tpin (bytes-length tb)
                                                    designator-scheme
                                                    spin (bytes-length sb)

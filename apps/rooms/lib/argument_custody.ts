@@ -1,6 +1,6 @@
 // Capability-occurrence cleanup for application protocol arguments.
 
-import { type Argument, PSet, PStruct, Ref, retainSecondaryFailure, type Session, Tagged } from "@pancake/runtime";
+import { type Argument, PSet, PStruct, Ref, retainSecondaryFailure, type Session, Tagged } from "@glowcap/runtime";
 
 const NO_CAPABILITIES: ReadonlySet<Ref> = new Set();
 

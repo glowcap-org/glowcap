@@ -71,7 +71,7 @@ pub fn checkOracleCorpusRegistry(
 }
 
 /// The site's protocol cheatsheet (`site/content/protocol.smd`) is a living-state
-/// surface: it names every wire label pancake speaks — the `op:` messages, the
+/// surface: it names every wire label glowcap speaks — the `op:` messages, the
 /// `desc:` reference descriptors, and the `ocapn-` locator records that address a
 /// peer. The Syrup codec is the authority for that vocabulary — OCapN settles the
 /// wire as Syrup, so every such record label appears there as a string literal.
@@ -281,18 +281,18 @@ pub fn checkGeneratedStateIgnores(
     }
 }
 
-/// The one URL that names this repository. Everything that links to pancake —
+/// The one URL that names this repository. Everything that links to glowcap —
 /// the fetch line, the issue tracker, a deep link into a source file, an OCI
 /// image label — starts with this.
 ///
 /// It is declared once because it is one fact written across dozens of files,
-/// and because the project has already decided it may move again: pancake is on
+/// and because the project has already decided it may move again: glowcap is on
 /// GitHub deliberately (see `PROVENANCE.md`), and whether it stays is open. A
 /// move that lands in twenty-eight files and misses two leaves a reader
 /// following a dead link on the page that argues the project is careful, which
 /// is the worst possible place to be sloppy. Change this constant and the check
 /// below names every straggler.
-const repo_url = "https://github.com/jimisaacs/pancake";
+const repo_url = "https://github.com/jimisaacs/glowcap";
 
 /// Forge-specific deep-link syntax, which does not survive a move. Forgejo and
 /// Gitea spell a path into a branch `/src/branch/main/x`; GitHub spells it

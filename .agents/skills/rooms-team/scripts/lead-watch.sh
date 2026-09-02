@@ -33,8 +33,8 @@ else
 	ROSTER=(agentic-lead engineering-steward fresh-eyes)
 fi
 
-command -v pancake >/dev/null || {
-	echo "lead-watch: pancake not on PATH (build + export zig-out/bin)" >&2
+command -v glowcap >/dev/null || {
+	echo "lead-watch: glowcap not on PATH (build + export zig-out/bin)" >&2
 	exit 1
 }
 command -v python3 >/dev/null || {
@@ -122,7 +122,7 @@ PY
 while true; do
 	# Capture even on non-zero; a dead peer must not kill the pager loop.
 	set +e
-	OUT=$(pancake app rooms-peer tick --dir "$DIR" --wait 120 --json 2>&1)
+	OUT=$(glowcap app rooms-peer tick --dir "$DIR" --wait 120 --json 2>&1)
 	set -e
 	printf '%s\n' "$OUT" >|"$LAST_TICK"
 	emit_wake "$LAST_FP"

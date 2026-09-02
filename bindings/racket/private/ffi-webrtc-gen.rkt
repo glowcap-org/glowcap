@@ -4,7 +4,7 @@
 ;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
 ;; (part of `check`) fails when this is stale.
 ;;
-;; The keyed table of libpancake_net_transport_webrtc. The archive is
+;; The keyed table of libglowcap_net_transport_webrtc. The archive is
 ;; optional and loads lazily, so this module exports one table-building
 ;; function the hand-written sibling (`ffi-webrtc.rkt`) calls with the
 ;; opened library and the config cstruct pointer type it declares -- the
@@ -14,55 +14,55 @@
          "ffi-shared.rkt")
 (provide webrtc-ffi-table)
 
-(define (webrtc-ffi-table L _PancakeWebrtcConfig-pointer)
+(define (webrtc-ffi-table L _GlowcapWebrtcConfig-pointer)
   (hasheq
    'archive-fingerprint
-   (get-ffi-obj 'pancake_webrtc_archive_fingerprint L (_fun -> _uint64))
+   (get-ffi-obj 'glowcap_webrtc_archive_fingerprint L (_fun -> _uint64))
    'last-error
-   (get-ffi-obj 'pancake_webrtc_last_error L (_fun _pointer _size -> _size))
+   (get-ffi-obj 'glowcap_webrtc_last_error L (_fun _pointer _size -> _size))
    'netlayer-new
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_new L (_fun (_or-null _PancakeWebrtcConfig-pointer) _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_netlayer_new L (_fun (_or-null _GlowcapWebrtcConfig-pointer) _pointer -> _int32))
               _pointer #f)
    'netlayer-readiness-fd
-   (get-ffi-obj 'pancake_webrtc_netlayer_readiness_fd L (_fun _pointer -> _int32))
+   (get-ffi-obj 'glowcap_webrtc_netlayer_readiness_fd L (_fun _pointer -> _int32))
    'netlayer-drain-ready
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_drain_ready L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_netlayer_drain_ready L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'netlayer-release
-   (get-ffi-obj 'pancake_webrtc_netlayer_release L (_fun _pointer -> _int32))
+   (get-ffi-obj 'glowcap_webrtc_netlayer_release L (_fun _pointer -> _int32))
    'peer-new
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_new L (_fun #:blocking? #t _pointer _int32 _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_peer_new L (_fun #:blocking? #t _pointer _int32 _pointer -> _int32))
               _pointer #f)
    'peer-authorize-remote
-   (get-ffi-obj 'pancake_webrtc_peer_authorize_remote L (_fun _pointer _pointer _size -> _int32))
+   (get-ffi-obj 'glowcap_webrtc_peer_authorize_remote L (_fun _pointer _pointer _size -> _int32))
    'peer-create-offer
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_create_offer L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_peer_create_offer L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-create-answer
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_create_answer L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_peer_create_answer L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-set-remote-offer
-   (get-ffi-obj 'pancake_webrtc_peer_set_remote_offer L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
+   (get-ffi-obj 'glowcap_webrtc_peer_set_remote_offer L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
    'peer-set-remote-answer
-   (get-ffi-obj 'pancake_webrtc_peer_set_remote_answer L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
+   (get-ffi-obj 'glowcap_webrtc_peer_set_remote_answer L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
    'peer-add-remote-candidate
-   (get-ffi-obj 'pancake_webrtc_peer_add_remote_candidate L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
+   (get-ffi-obj 'glowcap_webrtc_peer_add_remote_candidate L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
    'peer-next-local-candidate
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_next_local_candidate L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_peer_next_local_candidate L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-id
-   (get-ffi-obj 'pancake_webrtc_peer_id L (_fun _pointer -> _size))
+   (get-ffi-obj 'glowcap_webrtc_peer_id L (_fun _pointer -> _size))
    'peer-is-open
-   (get-ffi-obj 'pancake_webrtc_peer_is_open L (_fun _pointer -> _int32))
+   (get-ffi-obj 'glowcap_webrtc_peer_is_open L (_fun _pointer -> _int32))
    'peer-try-receive-packet
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_try_receive_packet L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_peer_try_receive_packet L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-try-send-packet
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_try_send_packet L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_peer_try_send_packet L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-close
-   (get-ffi-obj 'pancake_webrtc_peer_close L (_fun _pointer -> _void))
+   (get-ffi-obj 'glowcap_webrtc_peer_close L (_fun _pointer -> _void))
    'peer-release
-   (get-ffi-obj 'pancake_webrtc_peer_release L (_fun _pointer -> _int32))
+   (get-ffi-obj 'glowcap_webrtc_peer_release L (_fun _pointer -> _int32))
    'transport-provider
-   (get-ffi-obj 'pancake_webrtc_transport_provider L (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))))
+   (get-ffi-obj 'glowcap_webrtc_transport_provider L (_fun _pointer (_or-null _GlowcapTransportProvider-pointer) -> _int32))))

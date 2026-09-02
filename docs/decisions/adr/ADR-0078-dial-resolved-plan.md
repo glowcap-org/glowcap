@@ -3,7 +3,7 @@ id: ADR-0078
 status: accepted
 date: 2026-07-12
 tags: [bindings, c-abi, dial, netlayer, layer-separation]
-decision: "A byte-fed embedder may resolve a dial through pancake_host_plan_dial and interpret its generic host_port, peer_id, signaling, or rendezvous result without re-deriving core policy. Native bindings do not project that plan: they pass typed locators through the generic driver to registered transport packages, which own locator interpretation and concrete I/O. The accept side resolves inside pancake_host_session_open_accepted: the embedder passes the provider-declared designator scheme and listener facts, and the Host derives, retains, and signs the locator itself, never displacing one the embedder explicitly published."
+decision: "A byte-fed embedder may resolve a dial through glowcap_host_plan_dial and interpret its generic host_port, peer_id, signaling, or rendezvous result without re-deriving core policy. Native bindings do not project that plan: they pass typed locators through the generic driver to registered transport packages, which own locator interpretation and concrete I/O. The accept side resolves inside glowcap_host_session_open_accepted: the embedder passes the provider-declared designator scheme and listener facts, and the Host derives, retains, and signs the locator itself, never displacing one the embedder explicitly published."
 supersedes: []
 superseded_by: []
 amended_by: [ADR-0112]
@@ -12,11 +12,11 @@ amended_by: [ADR-0112]
 # ADR-0078 Dial is a core-resolved plan; bindings are thin interpreters
 
 > **Native-provider amendment (ADR-0112).** The original binding projection
-> below was retired when `libpancake_driver` gained its provider seam. Native
+> below was retired when `libglowcap_driver` gained its provider seam. Native
 > bindings now pass a typed locator to the generic driver; each registered
 > transport package owns its locator interpretation and concrete I/O. The
-> generic binding runtimes therefore expose neither `PancakeDialPlan` nor its
-> shape, reach, and posture constants. `pancake_host_plan_dial` remains the
+> generic binding runtimes therefore expose neither `GlowcapDialPlan` nor its
+> shape, reach, and posture constants. `glowcap_host_plan_dial` remains the
 > right primitive for a direct byte-fed C embedder that owns the channel.
 
 ## Context
@@ -36,7 +36,7 @@ posture)` to a plan: `host_port`, `peer_id` with addresses and reach,
 `signaling`, or `rendezvous`, plus typed errors. `model.transport.Known`
 exhaustively maps transport symbols to those shapes. A plan tag names the host
 integration required, not which provider implements it. The resolver was
-exposed over the C ABI as `pancake_host_plan_dial` on the driver tier
+exposed over the C ABI as `glowcap_host_plan_dial` on the driver tier
 (ADR-0072), but no binding called it: each re-derived the same decisions.
 
 This engages the first principle that the correct path is the easy path, and
@@ -47,12 +47,12 @@ policy.
 ## Decision
 
 A byte-fed embedder's dial is a thin interpreter over the core resolver. It
-marshals posture policy, calls `pancake_host_plan_dial`, and executes the
+marshals posture policy, calls `glowcap_host_plan_dial`, and executes the
 returned integration shape. No such embedder needs to carry transport grammar,
 the hint rule, the reachability decision, or dial error strings.
 
 A native binding takes the provider path added by ADR-0112 instead. Its runtime
-passes the complete typed locator through `libpancake_driver`; the registered
+passes the complete typed locator through `libglowcap_driver`; the registered
 transport package interprets the locator and owns the concrete dial. Generic
 runtime code knows only providers and connectors, never concrete transports or
 the byte-fed plan vocabulary.
@@ -60,14 +60,14 @@ the byte-fed plan vocabulary.
 `connect` and handoff-redeem are one path. Both funnel through the same generic
 driver and registered provider; the connect side-door that opened inline is gone.
 A DIAL action carries only `ticket`; the binding clones the complete typed
-locator projected by `pancake_host_pending_dial` and resolves through
+locator projected by `glowcap_host_pending_dial` and resolves through
 `plan_dial` exactly as `connect` does: no URI re-parse and no discarded hint.
 
 For a direct byte-fed embedder, the resolved plan is the transitory type that
 crosses the ABI:
-`PancakeDialPlan`, a plain-data description of what to open. It is a reified
+`GlowcapDialPlan`, a plain-data description of what to open. It is a reified
 command, and the binding is its interpreter. The resolver and the C shim
-(`src/c_abi/driver/mod.zig`, `pancake_host_plan_dial`) own the policy and the
+(`src/c_abi/driver/mod.zig`, `glowcap_host_plan_dial`) own the policy and the
 error wording, so a binding surfaces the core's message and writes none of its
 own.
 
@@ -78,7 +78,7 @@ server_designator, accepted_local_addr)` it names the designator and
 direct-addresses hint an accepted session would sign. The provider declares
 the scheme when it registers; the Host never recovers semantics from a closed
 transport-name table. Unlike the dial plan, this resolver has no C export:
-`pancake_host_session_open_accepted` takes the listener facts directly, runs
+`glowcap_host_session_open_accepted` takes the listener facts directly, runs
 the resolver, and retains the result without displacing an advertised locator
 the embedder explicitly published, because that publication is deployment
 policy (a rendezvous route carrying its relay hint, for one) and an accept
@@ -103,7 +103,7 @@ predicate so a doomed dial never touches the network on either spine.
 - **Byte I/O stays outside the core.** A byte-fed embedder interprets the plan
   and opens its explicit channel. The native driver instead dispatches to its
   registered provider and owns the I/O. Both preserve ADR-0072's sans-io core.
-- **Consumer-injected transports.** `planDial` is closed over pancake's typed
+- **Consumer-injected transports.** `planDial` is closed over glowcap's typed
   locator vocabulary; an unknown scheme is a typed error. A consumer-supplied
   byte-fed transport can still open a Host session directly, but extending the
   resolved-plan vocabulary is an explicit protocol/API decision.
@@ -124,12 +124,12 @@ predicate so a doomed dial never touches the network on either spine.
   change in `dial_plan.zig` and the shim, inherited by every binding. A new
   provider artifact can require one composition-root registration, but never a
   binding-local policy dispatcher.
-- The C header and ABI tests hold `PancakeDialPlan` for direct byte-fed
+- The C header and ABI tests hold `GlowcapDialPlan` for direct byte-fed
   embedders. Binding generators deliberately omit it and
-  `pancake_host_plan_dial`; native binding fronts reach transport dispatch
+  `glowcap_host_plan_dial`; native binding fronts reach transport dispatch
   through the generic driver and registered provider packages.
 - The accept-side resolver has no separate C export or plan struct; listener
-  facts ride `pancake_host_session_open_accepted` and the Host owns the
+  facts ride `glowcap_host_session_open_accepted` and the Host owns the
   locator derivation and retention.
 - The DIAL action no longer hands a consumed locator to the bindings; the dead
   field, its read, and its forward dropped from each binding's action drain.

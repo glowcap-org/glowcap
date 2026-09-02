@@ -132,13 +132,13 @@ fn writeNodeHelpTo(dest: Dest, path: []const *const Command) !void {
 
     // Root-only human footer (keep leaves short). Exit codes and CapTP budgets
     // are formatted from the owning constants so help cannot drift.
-    if (path.len == 1 and std.mem.eql(u8, node.name, "pancake")) {
+    if (path.len == 1 and std.mem.eql(u8, node.name, "glowcap")) {
         try dest.writeAll(
             \\
             \\Examples:
-            \\  pancake init
-            \\  pancake ocapn dial ocapn://…
-            \\  pancake ocapn listen --once
+            \\  glowcap init
+            \\  glowcap ocapn dial ocapn://…
+            \\  glowcap ocapn listen --once
             \\
             \\Exit status:
             \\
@@ -161,11 +161,11 @@ fn writeNodeHelpTo(dest: Dest, path: []const *const Command) !void {
         try dest.writeAll(
             \\
             \\Environment:
-            \\  PANCAKE_STATE       State dir (lock + default identity)
-            \\  PANCAKE_IDENTITY    Identity seed path (overrides state dir)
-            \\  PANCAKE_RENDEZVOUS  Relay URL (ws:// or wss://) for keyed-relay and noise-relay dials
-            \\  PANCAKE_RELAY_CA_FILE  PEM roots copied once by the native relay (default: system roots)
-            \\  XDG_STATE_HOME      Default state parent (…/pancake)
+            \\  GLOWCAP_STATE       State dir (lock + default identity)
+            \\  GLOWCAP_IDENTITY    Identity seed path (overrides state dir)
+            \\  GLOWCAP_RENDEZVOUS  Relay URL (ws:// or wss://) for keyed-relay and noise-relay dials
+            \\  GLOWCAP_RELAY_CA_FILE  PEM roots copied once by the native relay (default: system roots)
+            \\  XDG_STATE_HOME      Default state parent (…/glowcap)
             \\  HOME                Fallback for XDG defaults
             \\
         );

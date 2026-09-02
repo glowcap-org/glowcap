@@ -20,17 +20,17 @@
 
 (define (driver-loop-add-tcp! lp [config #f])
   (define-values (rc tcp-handle)
-    (pancake_tcp_netlayer_new
+    (glowcap_tcp_netlayer_new
      (tcp-config->c (or config (make-tcp-config)))))
-  (check-with rc (lambda () (read-last-error pancake_tcp_last_error)))
-  (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f #f))
+  (check-with rc (lambda () (read-last-error glowcap_tcp_last_error)))
+  (define package (make-GlowcapTransportProvider 0 0 #f 0 #f #f #f #f))
   (with-handlers ([(lambda (_) #t)
-                   (lambda (e) (pancake_tcp_netlayer_release tcp-handle) (raise e))])
-    (check-with (pancake_tcp_transport_provider tcp-handle package)
-                (lambda () (read-last-error pancake_tcp_last_error)))
+                   (lambda (e) (glowcap_tcp_netlayer_release tcp-handle) (raise e))])
+    (check-with (glowcap_tcp_transport_provider tcp-handle package)
+                (lambda () (read-last-error glowcap_tcp_last_error)))
     (driver-loop-add-provider! lp package)
       ;; Registration retained the package; release the constructor's lease.
-    (pancake_tcp_netlayer_release tcp-handle)))
+    (glowcap_tcp_netlayer_release tcp-handle)))
 
 ;; One TCP archive owns the cleartext TCP profiles. Noise-TCP stays native-only
 ;; here: the byte-fed TCP socket has no Noise sealing layer and must not claim
@@ -49,7 +49,7 @@
            (locator-designator loc)
            (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES
                      (lambda ()
-                       (raise-pancake 'tcp-connector ERR-INVALID-ARGUMENT
+                       (raise-glowcap 'tcp-connector ERR-INVALID-ARGUMENT
                                       "keyed-tcp locator has no direct-addresses hint")))))
      (define-values (host port) (designator-host-port address))
      (establish-dialed-locator-session

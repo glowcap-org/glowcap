@@ -1,7 +1,7 @@
 // The CapTP host — multi-session CapTP product over the byte-fed host archive
-// (libpancake_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns — never
-// a single-type equation. The `PancakeHost` owns every decision: the retained
+// a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
 // the embedder contract leaves to the binding: the host handle, the
@@ -19,10 +19,10 @@ import {
 	INTERNAL,
 	INVALID_ARGUMENT,
 	OK,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { encodeArgs } from "../abi_value.ts";
 import { Context, type FailureEvent, recordCallerlessFailure, releaseContext, retainContext } from "../context.ts";
-import { checkHost, hostLastError, PancakeError, retainSecondaryFailure } from "../errors.ts";
+import { checkHost, GlowcapError, hostLastError, retainSecondaryFailure } from "../errors.ts";
 import { drainFinalizerRetries } from "../finalizer_retry.ts";
 import { HostGc } from "../gc.ts";
 import type { HostOptions } from "../host.ts";
@@ -78,9 +78,9 @@ type VowState =
 	| { tag: "minted" }
 	| {
 		tag: "awaited";
-		waiter: { resolve: (v: Argument) => void; reject: (e: PancakeError) => void };
+		waiter: { resolve: (v: Argument) => void; reject: (e: GlowcapError) => void };
 	}
-	| { tag: "settled"; outcome: { ok: Argument } | { err: PancakeError } };
+	| { tag: "settled"; outcome: { ok: Argument } | { err: GlowcapError } };
 
 interface VowRow {
 	state: VowState;
@@ -114,10 +114,10 @@ export abstract class HostState {
 	protected readonly _finalizerState: HostFinalizerState;
 	/** Host-owned finalizer registry and release queue. */
 	protected readonly _gc: HostGc;
-	// Every live session by its PancakeHostSession address, so a FLUSH action
+	// Every live session by its GlowcapHostSession address, so a FLUSH action
 	// routes to the transport that owns the bytes, a dialed exporter stays
 	// reachable for teardown, and `exporterFor` maps a redeemed reply's route
-	// (a PancakeHostSession pointer) back to its `Session` wrapper.
+	// (a GlowcapHostSession pointer) back to its `Session` wrapper.
 	protected readonly _sessions = new Map<Ptr, Session>();
 	// Physical channel closes can outlive the native Session pointer that
 	// initiated them. Keep their promises at the Host barrier after the wrapper
@@ -127,7 +127,7 @@ export abstract class HostState {
 	protected readonly _vows = new Map<bigint, VowRow>();
 	// A loop drive failure outlives table teardown so promises observed after
 	// the loop failed receive the original cause rather than a generic close.
-	protected _terminalVowFailure: PancakeError | null = null;
+	protected _terminalVowFailure: GlowcapError | null = null;
 	// The first failure from work deliberately detached from its immediate
 	// caller. The next verb head consumes the exact cause before doing more work.
 	protected _backgroundFailure: unknown | null = null;
@@ -149,7 +149,7 @@ export abstract class HostState {
 	// a later handoff redeem uses the same application-selected integration.
 	protected readonly _connectors = new Map<string, Connector>();
 	// Releases the C tier refused inside a behavior callback park here
-	// (`pancake_host_session_release` / `pancake_host_release` are refused
+	// (`glowcap_host_session_release` / `glowcap_host_release` are refused
 	// mid-turn); the drain runs them once the enclosing feed unwinds, so a
 	// mid-turn close never leaks its C handle. Mirrors Python/Rust.
 	protected readonly _parkedReleases: Array<() => void> = [];
@@ -192,17 +192,17 @@ export abstract class HostState {
 	) {
 		drainFinalizerRetries();
 		if (seed != null && seed.length !== 32) {
-			throw new PancakeError(INVALID_ARGUMENT, "Host: seed must be 32 bytes");
+			throw new GlowcapError(INVALID_ARGUMENT, "Host: seed must be 32 bytes");
 		}
 		const durableSeed = seed ?? crypto.getRandomValues(new Uint8Array(32));
 		// Keep the binding's own copy: callers can reuse or mutate their input
 		// without changing the identity native Host already retained.
 		this._seed = new Uint8Array(durableSeed);
 		if (opts.profile !== undefined && opts.profile !== "native" && opts.profile !== "interop") {
-			throw new PancakeError(INVALID_ARGUMENT, `Host: unknown profile ${JSON.stringify(opts.profile)}`);
+			throw new GlowcapError(INVALID_ARGUMENT, `Host: unknown profile ${JSON.stringify(opts.profile)}`);
 		}
 		if (opts.profile !== undefined && (opts.codec !== undefined || opts.captpVersion !== undefined)) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				"Host: profile cannot be combined with codec or captpVersion",
 			);
@@ -220,7 +220,7 @@ export abstract class HostState {
 		this.features = opts.features ?? DEFAULT_FEATURES;
 		const frameCap = opts.frameCap ?? DEFAULT_FRAME_CAP;
 		if (!Number.isSafeInteger(frameCap) || frameCap <= 0) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				"Host: frameCap must be a positive safe integer",
 			);
@@ -240,7 +240,7 @@ export abstract class HostState {
 		this._context = context;
 		const contextRaw = retainContext(context);
 		try {
-			checkHost(hostS.pancake_host_new_in(
+			checkHost(hostS.glowcap_host_new_in(
 				contextRaw,
 				ab(seedWithRoot),
 				64n,
@@ -259,7 +259,7 @@ export abstract class HostState {
 		this._raw = outPointer(out);
 		const diagnosticOut = new Uint8Array(8);
 		try {
-			checkHost(hostS.pancake_host_diagnostic_id(this._raw, ab(diagnosticOut)));
+			checkHost(hostS.glowcap_host_diagnostic_id(this._raw, ab(diagnosticOut)));
 		} catch (err) {
 			const cleanupState: HostFinalizerState = {
 				raw: this._raw,
@@ -328,10 +328,10 @@ export abstract class HostState {
 		return new Uint8Array(this._seed);
 	}
 
-	/** The raw PancakeHost handle. Binding-internal: `Session` mints and
+	/** The raw GlowcapHost handle. Binding-internal: `Session` mints and
 	 * drives sessions against it. */
 	get raw(): Ptr {
-		if (this._raw === NULL) throw new PancakeError(CLOSED, "host released");
+		if (this._raw === NULL) throw new GlowcapError(CLOSED, "host released");
 		return this._raw;
 	}
 
@@ -383,7 +383,7 @@ export abstract class HostState {
 	/** Refuse operations only after the native handle has been invalidated. */
 	assertHandle(): void {
 		if (this._raw === NULL) {
-			throw new PancakeError(CLOSED, "Host is closed");
+			throw new GlowcapError(CLOSED, "Host is closed");
 		}
 	}
 
@@ -397,7 +397,7 @@ export abstract class HostState {
 	 * only that loop may release the handle. Binding-internal. */
 	attachDriverLoop(driverLoop: DriverLoopHandle): HostFinalizerState {
 		if (this._raw === NULL || this._releaseStarted || this._driverLoop != null) {
-			throw new PancakeError(INVALID_ARGUMENT, "host is not transferable");
+			throw new GlowcapError(INVALID_ARGUMENT, "host is not transferable");
 		}
 		unregisterHostFinalizer(this);
 		this._driverLoop = driverLoop;
@@ -434,7 +434,7 @@ export abstract class HostState {
 			await task.promise;
 		}
 		if (this._raw !== NULL) {
-			checkHost(hostS.pancake_host_dial_cancelled(this._raw, ticket, routeIndex));
+			checkHost(hostS.glowcap_host_dial_cancelled(this._raw, ticket, routeIndex));
 			// Retiring a pending dial is close-relevant pending work.
 			this.signalCloseActivity();
 		}
@@ -449,7 +449,7 @@ export abstract class HostState {
 	 * False when the deferral itself refused; the caller breaks the turn. */
 	deferTurnToPromise(turn: Ptr, pending: PromiseLike<Argument | void>): boolean {
 		const resolverOut = new Uint8Array(8);
-		if (hostS.pancake_host_turn_defer(turn, ab(resolverOut)) !== OK) return false;
+		if (hostS.glowcap_host_turn_defer(turn, ab(resolverOut)) !== OK) return false;
 		const resolver = outU64(resolverOut);
 		void Promise.resolve(pending).then(
 			(value) => this._settleResolver(resolver, value === undefined ? null : value),
@@ -468,7 +468,7 @@ export abstract class HostState {
 			this._breakResolver(resolver, error instanceof Error ? error.message : String(error));
 			return;
 		}
-		if (hostS.pancake_host_resolver_fulfill(this._raw, resolver, ab(buf)) !== OK) {
+		if (hostS.glowcap_host_resolver_fulfill(this._raw, resolver, ab(buf)) !== OK) {
 			this._breakResolver(resolver, hostLastError() ?? "deferred settle refused");
 			return;
 		}
@@ -480,7 +480,7 @@ export abstract class HostState {
 		if (this._raw === NULL) return;
 		const msg = new TextEncoder().encode(message);
 		try {
-			checkHost(hostS.pancake_host_resolver_break(this._raw, resolver, ab(msg), BigInt(msg.length)));
+			checkHost(hostS.glowcap_host_resolver_break(this._raw, resolver, ab(msg), BigInt(msg.length)));
 		} catch (error) {
 			this.recordBackgroundFailure(error);
 		}

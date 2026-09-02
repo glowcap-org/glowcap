@@ -17,6 +17,7 @@
 @import url("join.css");
 @import url("plane.css");
 @import url("forms.css");
+@import url("entries.css");
 @import url("settings.css");
 @import url("session-setup.css");
 @import url("operations.css");
@@ -30,7 +31,7 @@
 @import url("toasts.css");
 @import url("kitchen.css");
 
-/* Rooms wears pancake's own colours — cream paper, cocoa ink, an amber accent,
+/* Rooms wears glowcap's own colours — cream paper, cocoa ink, an amber accent,
    a teal flourish — so it looks like part of the project rather than like any
    chat app it borrows ideas from. Those come from ui/tokens.css, linked ahead of
    this file in page.html; what follows is only what rooms means by them. */

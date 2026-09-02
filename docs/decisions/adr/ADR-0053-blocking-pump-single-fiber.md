@@ -33,14 +33,14 @@ in `step` / `call` / `serve` between requests is draining, not flooding. A
 partner that streams without draining is outside the contract, and the surface
 for that partner already exists: the completion loop bounds outbound bytes and
 parks reads (ADR-0042), and both directions are packaged above it
-(`net.TcpLoop`, ADR-0051; `iroh.Backend`, ADR-0057). pancake deliberately has one
+(`net.TcpLoop`, ADR-0051; `iroh.Backend`, ADR-0057). glowcap deliberately has one
 duplex runtime, not two.
 
 ## Scope (what this does not decide)
 
 - **A write-stall deadline on the blocking pump is not implemented.** A
   poll-`POLLOUT` deadline could convert an out-of-contract deadlock into a typed
-  error, but deadlines are host policy above pancake (resilience rule), and the
+  error, but deadlines are host policy above glowcap (resilience rule), and the
   mechanism would guard only callers the contract already routes to the loop.
 - **The shared read-buffer ring and the wall-clock gate** are unchanged roadmap
   items.

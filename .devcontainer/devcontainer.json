@@ -1,13 +1,13 @@
-// The Compose container is pancake-${PANCAKE_WORKTREE}; paths in containerEnv
+// The Compose container is glowcap-${GLOWCAP_WORKTREE}; paths in containerEnv
 // must match .devcontainer/pins.sh.
 //
 // Networks: docker-compose.yml declares them; networking.md owns the setup
 // steps (EGRESS_NET in the gitignored .devcontainer/.env).
 {
-  "name": "pancake worktree",
+  "name": "glowcap worktree",
   "dockerComposeFile": "docker-compose.yml",
-  "service": "pancake-dev",
-  "workspaceFolder": "/workspaces/pancake",
+  "service": "glowcap-dev",
+  "workspaceFolder": "/workspaces/glowcap",
   "shutdownAction": "stopCompose",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
@@ -22,8 +22,8 @@
   // Do not also ask the editor to forward them: that creates a second host-port
   // allocator and makes two otherwise independent worktrees collide again.
   "containerEnv": {
-    "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/pancake/tool/bun/install",
-    "CARGO_HOME": "/home/vscode/.cache/pancake/cargo",
+    "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/bun/install",
+    "CARGO_HOME": "/home/vscode/.cache/glowcap/cargo",
     "CARGO_TERM_COLOR": "always",
     // Claude Code and the Cursor agent CLI each pick their state directory from
     // an environment variable, so a bind alone does not share their login.
@@ -33,17 +33,17 @@
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
     "CURSOR_CONFIG_DIR": "/home/vscode/.cursor",
     "CURSOR_DATA_DIR": "/home/vscode/.cursor",
-    "DENO_DIR": "/home/vscode/.cache/pancake/tool/deno",
-    "npm_config_cache": "/home/vscode/.cache/pancake/tool/npm",
-    "PIP_CACHE_DIR": "/home/vscode/.cache/pancake/tool/pip",
+    "DENO_DIR": "/home/vscode/.cache/glowcap/tool/deno",
+    "npm_config_cache": "/home/vscode/.cache/glowcap/tool/npm",
+    "PIP_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/pip",
     "PLAYWRIGHT_BROWSERS_PATH": "/usr/local/share/ms-playwright",
-    "PLTUSERHOME": "/opt/pancake-racket-userhome",
+    "PLTUSERHOME": "/opt/glowcap-racket-userhome",
     "RUSTUP_HOME": "/usr/local/rustup",
-    "UV_CACHE_DIR": "/home/vscode/.cache/pancake/tool/uv",
-    "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/pancake/tool/zig"
+    "UV_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/uv",
+    "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/zig"
   },
   "mounts": [
-    "source=${localEnv:HOME}/.cache/pancake,target=/home/vscode/.cache/pancake,type=bind",
+    "source=${localEnv:HOME}/.cache/glowcap,target=/home/vscode/.cache/glowcap,type=bind",
     // Agent tools authenticate and keep user-level harness state for the host
     // user, not one checkout. These scoped binds give every worktree the same
     // login, sessions, configuration, and user resources without mounting all

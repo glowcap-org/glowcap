@@ -1,8 +1,8 @@
 //! The raw FFI mirror of the C ABI, grouped per archive (ADR-0059).
 //!
-//! pancake's C ABI ships as a set of symbol-disjoint archives, and this module
-//! mirrors that shape: [`ocapn`] is the always-linked core (`libpancake_ocapn`),
-//! [`host`] is the byte-fed host archive (`libpancake_host`, ADR-0072), and
+//! glowcap's C ABI ships as a set of symbol-disjoint archives, and this module
+//! mirrors that shape: [`ocapn`] is the always-linked core (`libglowcap_ocapn`),
+//! [`host`] is the byte-fed host archive (`libglowcap_host`, ADR-0072), and
 //! each transport's externs live in their own submodule behind the matching
 //! Cargo feature, so a build declares the FFI for exactly the archives it links.
 //! Nothing in here escapes the crate; the safe wrappers above wrap it.

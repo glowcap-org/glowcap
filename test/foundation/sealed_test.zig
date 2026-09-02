@@ -9,10 +9,10 @@
 //! that shape at the host's hello pause boundary.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const crypto = pancake.foundation.crypto;
-const sealed = pancake.foundation.sealed;
+const crypto = glowcap.foundation.crypto;
+const sealed = glowcap.foundation.sealed;
 
 const transport = "noise-tcp";
 

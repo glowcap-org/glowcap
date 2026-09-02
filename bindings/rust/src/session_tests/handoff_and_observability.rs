@@ -151,7 +151,7 @@ async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
 }
 
 // The same off-turn deferral with the worker hosted on a native-loop server
-// (ADR-0112): the behavior fires inside a `pancake_driver_step`, so
+// (ADR-0112): the behavior fires inside a `glowcap_driver_step`, so
 // `defer_turn` must find the turn latched to the loop's adopted Host (the
 // step's deliver bracket), and the top-level resolver settle must reach the
 // wire through a loop step rather than a byte-fed drain.
@@ -298,10 +298,10 @@ async fn the_live_trace_produces_the_timeline_schema() {
 				"opens carry the negotiated codec and the application's display label",
 			);
 			// A producer states what it RUNS, because this schema is not
-			// pancake's alone and a consumer must not read an implementation off
+			// glowcap's alone and a consumer must not read an implementation off
 			// the fact that a record arrived.
 			assert!(
-				opened.iter().all(|ev| ev.a_profile == Some("pancake")),
+				opened.iter().all(|ev| ev.a_profile == Some("glowcap")),
 				"an open states the implementation this producer runs",
 			);
 			// Identity and label are two facts. `a` is the host's own key

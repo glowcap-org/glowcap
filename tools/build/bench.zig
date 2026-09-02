@@ -8,7 +8,7 @@ const root = @import("../../build.zig");
 const common = @import("common.zig");
 const execution = @import("execution.zig");
 
-const pancakeExecutable = common.pancakeExecutable;
+const glowcapExecutable = common.glowcapExecutable;
 const layerIndex = root.layerIndex;
 
 pub fn register(
@@ -22,7 +22,7 @@ pub fn register(
 ) void {
     // ── Benchmarks ───────────────────────────────────────────────────────────
     // Table-driven like the examples: each row builds one executable over
-    // `pancake` and registers its public step, whose run forwards
+    // `glowcap` and registers its public step, whose run forwards
     // `zig build <step> -- <args>`. Each row also gets a dedicated gate run that
     // takes no passthrough args; `smoke_on_check` passes `--smoke` there so the
     // heavier benches prove they still run cheaply, without report artifacts
@@ -31,7 +31,7 @@ pub fn register(
     //
     // Optimize mode is per-module: an executable whose root module is
     // ReleaseFast still runs Debug *library* code when it imports the
-    // `-Doptimize` graph. Every consumer that claims optimized pancake figures
+    // `-Doptimize` graph. Every consumer that claims optimized glowcap figures
     // — the `--gate` tripwire runs below and the bench-langs Zig rows — must
     // therefore import this dedicated ReleaseFast graph, never `lib_mod`.
 
@@ -53,7 +53,7 @@ pub fn register(
         gate_on_check: bool = false,
         /// The snapshot bench measures the persistent-actor divergence path, so
         /// it imports the persistent-collections leaf module directly, the same
-        /// way the test module does; it is not on the public `pancake`
+        /// way the test module does; it is not on the public `glowcap`
         /// namespace (ADR-0061).
         needs_persistent: bool = false,
     }{
@@ -65,7 +65,7 @@ pub fn register(
         .{ .step_name = "bench-snapshot", .description = "Measure vat snapshot/restore: O(objects), flat in object size, off by default", .name = "snapshot-bench", .path = "bench/snapshot_bench.zig", .smoke_on_check = true, .needs_persistent = true },
     };
     for (benches) |bench| {
-        const exe = pancakeExecutable(b, lib_mod, target, optimize, bench.name, bench.path);
+        const exe = glowcapExecutable(b, lib_mod, target, optimize, bench.name, bench.path);
         if (bench.needs_persistent) {
             exe.root_module.addImport("persistent", host_mods[layerIndex("persistent")]);
         }
@@ -74,7 +74,7 @@ pub fn register(
         b.step(bench.step_name, bench.description).dependOn(&run.step);
 
         if (bench.gate_on_check) {
-            const gate_exe = pancakeExecutable(b, fast_lib_mod, target, .ReleaseFast, b.fmt("{s}-gate", .{bench.name}), bench.path);
+            const gate_exe = glowcapExecutable(b, fast_lib_mod, target, .ReleaseFast, b.fmt("{s}-gate", .{bench.name}), bench.path);
             const gate = execution.addArtifact(b, .{ .deterministic = 30 }, gate_exe);
             gate.addArg("--gate");
             perf_check_step.dependOn(&gate.step);

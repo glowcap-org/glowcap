@@ -5,7 +5,7 @@
 // before it exists, the root is published, grants restore, then checkpoint
 // changes reconcile without blocking attach.
 
-import type { Host } from "@pancake/runtime";
+import type { Host } from "@glowcap/runtime";
 import { formatRoomsSturdyref, roomsLocator } from "../lib/locator.ts";
 import { DurableRoomsSessionBehavior } from "./behavior.ts";
 import type { DurableRoomsSessionGrants } from "./grants.ts";

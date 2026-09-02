@@ -2,12 +2,12 @@
 //! messages while retaining their semantic wire or virtual answer identity.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const codec = pancake.ocapn.codec;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const codec = glowcap.ocapn.codec;
+const crypto = glowcap.foundation.crypto;
 
 const Node = engine.Node;
 const openKeyedSessionWithCounterpart = @import("harness.zig").openKeyedSessionWithCounterpart;

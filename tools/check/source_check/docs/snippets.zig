@@ -27,7 +27,7 @@ pub fn checkQuickStartSnippet(
     defer expected.deinit(gpa);
     const import_lines = [_][]const u8{
         "const std = @import(\"std\");",
-        "const pancake = @import(\"pancake\");",
+        "const glowcap = @import(\"glowcap\");",
     };
     for (import_lines) |import_line| {
         if (std.mem.indexOf(u8, example, import_line) == null) {
@@ -383,7 +383,7 @@ pub fn checkExampleFenceIndent(
     const dirs = [_][]const u8{ "site/content", "docs", "bindings", "examples", "apps", "tools", "bench", "interop", "conformance", "transports", ".devcontainer" };
     const top_files = [_][]const u8{ "README.md", "CONTRIBUTING.md", "SECURITY.md", "PROVENANCE.md", "AGENTS.md" };
     // `apps/ocapnviz/` is the maintainer's own viewer, carried over from the
-    // pre-Zig pancake tree and possibly headed for its own repository; its
+    // pre-Zig glowcap tree and possibly headed for its own repository; its
     // docs keep their source style until that decision lands.
     const skip_fragments = [_][]const u8{ "target/", "node_modules/", "upstream/", "zig-out/", ".zig-cache/", "apps/ocapnviz/" };
 

@@ -27,10 +27,10 @@
 //! report's warmed number must keep passing.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const foundation = pancake.foundation;
+const engine = glowcap.ocapn.engine;
+const foundation = glowcap.foundation;
 const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllocator;
 const copyFromBorrowed = @import("../support/frame.zig").copyFromBorrowed;
 

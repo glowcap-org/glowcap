@@ -7,9 +7,9 @@ import {
 	DRIVER_EVENT_OPENED,
 	DRIVER_EVENT_SESSION_CLOSED,
 	INTERNAL,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { decodeCarrierFailure } from "../carrier_failure.ts";
-import { PancakeError } from "../errors.ts";
+import { GlowcapError } from "../errors.ts";
 import { decodeHostAction, type HostAction } from "./host_action.ts";
 import type { DriverFailure } from "./driver_failure.ts";
 import type { Ptr } from "./ffi/runtime.ts";
@@ -67,10 +67,10 @@ export function decodeDriverEvent(buf: Uint8Array<ArrayBuffer>): LoopEvent {
 					action: decodeHostAction(new DataView(buf.buffer, L.DRIVER_EVENT_ACTION_OFF)),
 				};
 			} catch (error) {
-				throw new PancakeError(INTERNAL, `pancake ABI returned an invalid completion action: ${String(error)}`);
+				throw new GlowcapError(INTERNAL, `glowcap ABI returned an invalid completion action: ${String(error)}`);
 			}
 		default:
-			throw new PancakeError(INTERNAL, `pancake ABI returned unknown loop event kind ${kind}`);
+			throw new GlowcapError(INTERNAL, `glowcap ABI returned unknown loop event kind ${kind}`);
 	}
 }
 
@@ -78,10 +78,10 @@ function text(dv: DataView, pointerOffset: number, lengthOffset: number): string
 	const len = L.getUsize(dv, lengthOffset);
 	const pointer = L.getPtr(dv, pointerOffset);
 	if (len === 0n) return "";
-	if (pointer === 0n) throw new PancakeError(INTERNAL, "driver returned null failure name with nonzero length");
+	if (pointer === 0n) throw new GlowcapError(INTERNAL, "driver returned null failure name with nonzero length");
 	try {
 		return utf8.decode(readBytes(pointer, len));
 	} catch {
-		throw new PancakeError(INTERNAL, "driver returned non-UTF-8 failure name");
+		throw new GlowcapError(INTERNAL, "driver returned non-UTF-8 failure name");
 	}
 }

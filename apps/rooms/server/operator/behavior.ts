@@ -6,7 +6,7 @@
 // boot capability beside listeners, diagnostics, IRC, peering, and viz—not a
 // method on the public directory and not a rank inferred from membership.
 
-import { type Argument, type Behavior, currentSession, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession, Ref, type Session } from "@glowcap/runtime";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../../lib/argument_custody.ts";
 import { NO_SUCH_ROOM, NOT_STEWARD, RoomError } from "../../lib/errors.ts";
 import {

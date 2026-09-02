@@ -17,7 +17,7 @@ import sys
 PATCHES = [
     ("<html>", '<html lang="en">'),
     # The viewer titles itself generically; the tab should name what it shows.
-    ("<title>Zig Documentation</title>", "<title>pancake API reference</title>"),
+    ("<title>Zig Documentation</title>", "<title>glowcap API reference</title>"),
     ('<a class="logo" href="#">', '<a class="logo" href="#" aria-label="API reference home">'),
     # The viewer's one content section is its main region, and the search box
     # with its scope picker is a search landmark; without the roles, assistive

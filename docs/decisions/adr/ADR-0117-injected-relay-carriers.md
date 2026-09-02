@@ -22,7 +22,7 @@ opens its WebSocket and feeds the byte-owned Host. All three carry the same
 contracts are expressed separately.
 
 A public browser deployment normally requires WSS. Zig's standard TLS client
-does not expose the resumable connection state needed by Pancake's shared
+does not expose the resumable connection state needed by Glowcap's shared
 readiness loop. A thread per connection would avoid that API mismatch but would
 make the project's session-scale target pay one stack and scheduler participant
 per relay connection. Rust, Python, Racket, Deno, and browsers already have
@@ -83,7 +83,7 @@ ws  = TCP + WebSocket
 wss = TCP + TLS(engine) + WebSocket
 ```
 
-Pancake's default native TLS engine uses a pinned Mbed TLS release compiled by
+Glowcap's default native TLS engine uses a pinned Mbed TLS release compiled by
 Zig and driven through nonblocking BIO callbacks. Zig owns sockets, scheduling,
 cancellation, and failure projection. Mbed TLS is private to the optional
 native TLS transform rather than to TCP, the relay, or the C archive.
@@ -147,7 +147,7 @@ WebSocket or TLS implementations.
 
 Mbed TLS is pinned, built, licensed, namespaced, and linked only when the
 optional native secure carrier is composed. Native Zig and
-`libpancake_relay` consume the same module.
+`libglowcap_relay` consume the same module.
 
 The C relay configuration gains a size/version prefix, trust policy, and
 effective carrier bounds with copied initialization data and generated binding

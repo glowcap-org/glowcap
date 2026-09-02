@@ -11,15 +11,15 @@
 //! both of its constructors refuse the symbol outright.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const driver = glowcap.driver;
+const net = glowcap.net;
 
 const frame_cap = 4096;
 

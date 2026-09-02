@@ -12,7 +12,7 @@ here.
 | [`c-abi/`](c-abi/) | Operator scripts and JSON fixtures for C-ABI resolve |
 | [`fuzz/`](fuzz/) | Fuzz driver and the patched Zig test runner described in [`PROVENANCE.md`](../PROVENANCE.md) |
 | [`wasm/`](wasm/) | Deno checks for the browser binding's wasm32 Host (layout descriptor, import set) |
-| [`consumer/`](consumer/) | A throwaway downstream package that depends on pancake the way the README says to, so `zig build consumer-check` keeps that first instruction a checked claim |
+| [`consumer/`](consumer/) | A throwaway downstream package that depends on glowcap the way the README says to, so `zig build consumer-check` keeps that first instruction a checked claim |
 | [`deps/`](deps/) | Fetch scripts for pinned third-party sources the build vendors (Mbed TLS) |
 | [`run-with-timeout.py`](run-with-timeout.py) | Portable wall-clock deadline for check commands (GNU `timeout` is not on macOS) |
 

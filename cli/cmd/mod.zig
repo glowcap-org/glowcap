@@ -22,7 +22,7 @@ fn isHelpFlag(a: []const u8) bool {
 ///
 /// A lone `-` is the conventional stand-in for stdin, so it counts as a value.
 /// Everything else starting with a dash is a flag, including where a value was
-/// expected. `pancake --identity --json init` used to read `--json` as the
+/// expected. `glowcap --identity --json init` used to read `--json` as the
 /// identity path: it wrote a key to a file literally called `--json`, left a
 /// `--json.lock` beside it, silently dropped the flag the user did write, and
 /// exited zero. A value that genuinely begins with a dash is still reachable

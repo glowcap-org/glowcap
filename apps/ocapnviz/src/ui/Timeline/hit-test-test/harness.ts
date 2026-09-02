@@ -61,7 +61,7 @@ export function makePeer(
 			kind: "peer-joined",
 			t: joinT,
 			peerId: id,
-			profile: "pancake",
+			profile: "glowcap",
 		},
 	];
 	if (leftT !== undefined) {

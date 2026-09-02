@@ -60,7 +60,7 @@ export function applyEvent(
 			const proved = attributionForProvenance(provenance);
 			// The negotiated CapTP profile, read once: omitted means an old producer
 			// from before the field, while a present unknown word remains unknown.
-			// Only the pancake-private track names both ends as pancake hosts.
+			// Only the glowcap-private track names both ends as glowcap hosts.
 			const captpVersion = captpVersionFromWire(ev.captp_version) ??
 				"v1_0";
 			const aLabel = stringFromWire(ev.a_label);
@@ -90,11 +90,11 @@ export function applyEvent(
 				// resolved snapshot holds. Live, nothing can supply either.
 				...(known.partnerOwnProfile !== undefined &&
 					{ partnerOwnProfile: known.partnerOwnProfile }),
-				// `pancake-next` is pancake's own CapTP profile and travels only
-				// between pancake peers (ADR-0003), so a session on it says what
+				// `glowcap-next` is glowcap's own CapTP profile and travels only
+				// between glowcap peers (ADR-0003), so a session on it says what
 				// both of its ends run. `v1_0` is the OCapN interop floor and says
-				// nothing — pancake speaks it too.
-				...(captpVersion === "next" && { pancakePrivateProfile: true }),
+				// nothing — glowcap speaks it too.
+				...(captpVersion === "next" && { glowcapPrivateProfile: true }),
 			});
 			// Null means another producer already put this wire on stage: an edge
 			// watched from both ends is still one edge.

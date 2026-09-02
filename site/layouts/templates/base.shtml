@@ -5,19 +5,19 @@
 		<meta name="viewport" content="initial-scale=1, width=device-width">
 		<!-- Code and locators in the docs are not phone numbers. -->
 		<meta name="format-detection" content="telephone=no">
-		<title :text="$page.title.suffix(' · pancake')"></title>
+		<title :text="$page.title.suffix(' · glowcap')"></title>
 		<meta name="description" content="$page.description">
 		<!-- Link unfurls in chat and social clients read these; without them a
 		     shared page renders as a bare URL. The image and canonical URL are
 		     deliberately absent: they must be absolute, and the template does
 		     not know its deployed origin. -->
 		<meta property="og:type" content="website">
-		<meta property="og:site_name" content="pancake">
+		<meta property="og:site_name" content="glowcap">
 		<meta property="og:title" content="$page.title">
 		<meta property="og:description" content="$page.description">
 		<meta name="twitter:card" content="summary">
 		<link rel="icon" type="image/svg+xml" href="$site.asset('favicon.svg').link()">
-		<link rel="apple-touch-icon" href="$site.asset('pancake-icon-256.png').link()">
+		<link rel="apple-touch-icon" href="$site.asset('glowcap-icon-256.png').link()">
 		<!-- The browser chrome takes the page's own ground (tokens.css --paper),
 		     so the frame around the page stops being a stranger's white or black. -->
 		<meta name="theme-color" content="#f8e7c9" media="(prefers-color-scheme: light)">
@@ -48,7 +48,7 @@
 			// media query to answer.
 			document.documentElement.classList.add("js");
 			try {
-				var saved = localStorage.getItem("pancake-theme");
+				var saved = localStorage.getItem("glowcap-theme");
 				if (saved === "light" || saved === "dark") {
 					document.documentElement.dataset.theme = saved;
 				}
@@ -61,11 +61,11 @@
 		<header class="site-header">
 			<a class="brand" href="$site.page('').link()">
 				<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i class="mark-piece mark-cake-2"></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></span>
-				<span class="wordmark"><span>pancake</span></span>
+				<span class="wordmark"><span>glowcap</span></span>
 			</a>
 			<nav class="top-nav" aria-label="Site">
 				<a href="$site.page('reference').link()">API reference</a>
-				<a href="https://github.com/jimisaacs/pancake">Source</a>
+				<a href="https://github.com/jimisaacs/glowcap">Source</a>
 				<button type="button" id="themeToggle" class="theme-toggle" title="Switch between light and syrup" aria-label="Switch between the light and syrup themes">
 					<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"/></svg>
 					<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.1M12 19.3v2.1M4.3 4.3l1.5 1.5M18.2 18.2l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.3 19.7l1.5-1.5M18.2 5.8l1.5-1.5"/></svg>
@@ -135,7 +135,7 @@
 				<div class="footer-brand">
 					<a class="brand" href="$site.page('').link()">
 						<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i class="mark-piece mark-cake-2"></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></span>
-						<span class="wordmark"><span>pancake</span></span>
+						<span class="wordmark"><span>glowcap</span></span>
 					</a>
 					<p>An object-capability RPC library for OCapN, written in Zig. Two programs hand each other references to live objects, and holding one is the whole permission to call it.</p>
 				</div>
@@ -156,12 +156,12 @@
 					<h2>Project</h2>
 					<a href="$site.page('project').link()">Project &amp; status</a>
 					<a href="$site.page('stability').link()">What you can depend on</a>
-					<a href="https://github.com/jimisaacs/pancake/blob/main/SECURITY.md">Security policy</a>
-					<a href="https://github.com/jimisaacs/pancake">Source</a>
-					<a href="https://github.com/jimisaacs/pancake/actions/workflows/check.yml">Checks</a>
+					<a href="https://github.com/jimisaacs/glowcap/blob/main/SECURITY.md">Security policy</a>
+					<a href="https://github.com/jimisaacs/glowcap">Source</a>
+					<a href="https://github.com/jimisaacs/glowcap/actions/workflows/check.yml">Checks</a>
 				</nav>
 			</div>
-			<p class="footer-legal">pancake-authored work is Apache-2.0.</p>
+			<p class="footer-legal">glowcap-authored work is Apache-2.0.</p>
 		</footer>
 		<!-- These enhancements are separate script elements on purpose. In one
 		     block a throw anywhere takes out everything after it, and the theme
@@ -192,7 +192,7 @@
 						: matchMedia("(prefers-color-scheme: dark)").matches;
 					root.dataset.theme = dark ? "light" : "dark";
 					try {
-						localStorage.setItem("pancake-theme", root.dataset.theme);
+						localStorage.setItem("glowcap-theme", root.dataset.theme);
 					} catch (_) { /* private mode: the choice lasts this page only */ }
 				});
 			}
@@ -344,7 +344,7 @@
 					// in its light palette, since the swap is what lets it follow
 					// the theme. Say so rather than nothing: a 404 here is a build
 					// or deploy fault, and it used to look identical to success.
-					console.warn("pancake: could not inline " + img.src + ":", why);
+					console.warn("glowcap: could not inline " + img.src + ":", why);
 					img.style.visibility = "visible";
 				}));
 			}

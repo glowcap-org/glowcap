@@ -20,11 +20,11 @@ use crate::{sys, Argument, Error, Ref, Result, SendArena};
 
 pub(crate) const READ_CHUNK: usize = sys::BINDING_STREAM_READ_CHUNK_BYTES;
 
-/// Map a transport `std::io::Error` to a pancake [`Error`], carrying the
+/// Map a transport `std::io::Error` to a glowcap [`Error`], carrying the
 /// original message through the detail channel so a consumer can tell
 /// connection-refused from timeout from reset (the public `Error` keeps its
 /// `Clone`/`PartialEq` derives, so it holds the message string, not a
-/// `Box<dyn Error>` source). The flat code stays `PANCAKE_ERR_IO`.
+/// `Box<dyn Error>` source). The flat code stays `GLOWCAP_ERR_IO`.
 pub(crate) fn io_err(e: std::io::Error) -> Error {
 	Error::with_detail(sys::ERR_IO, e.to_string())
 }
@@ -75,7 +75,7 @@ impl Caretaker {
 /// The per-session state the handle, the serve task, and the host's action
 /// drain share. Fields the [`crate::pump`] path reads are `pub(crate)`.
 pub(crate) struct SessionShared {
-	pub(crate) ptr: Cell<*mut ffi::PancakeHostSession>,
+	pub(crate) ptr: Cell<*mut ffi::GlowcapHostSession>,
 	key: usize,
 	pub(crate) host: Rc<HostShared>,
 	// The transport halves: the serve task takes the read half for its life;
@@ -89,7 +89,7 @@ pub(crate) struct SessionShared {
 	// The native loop that owns this session's wire and its release (ADR-0112),
 	// or `None` for a byte-fed session this binding pumps itself. A loop-backed
 	// session has no byte pump: the loop reads, feeds, and flushes inside its
-	// steps, and `pancake_driver_session_release` is its one release verb.
+	// steps, and `glowcap_driver_session_release` is its one release verb.
 	pub(crate) loop_wire: Option<Rc<crate::driver_loop::LoopShared>>,
 	// Set the moment teardown begins (an application close, or the transport
 	// reporting EOF), so the serve loop can tell a read cancelled by our own
@@ -127,7 +127,7 @@ pub(crate) struct SessionShared {
 
 impl SessionShared {
 	#[cfg(any(test, feature = "iroh"))]
-	pub(crate) fn new<S>(ptr: *mut ffi::PancakeHostSession, host: Rc<HostShared>, stream: S) -> Rc<SessionShared>
+	pub(crate) fn new<S>(ptr: *mut ffi::GlowcapHostSession, host: Rc<HostShared>, stream: S) -> Rc<SessionShared>
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
@@ -157,13 +157,13 @@ impl SessionShared {
 		shared
 	}
 
-	/// The loop-backed shell (ADR-0112): a real `PancakeHostSession` the native
+	/// The loop-backed shell (ADR-0112): a real `GlowcapHostSession` the native
 	/// loop minted (dial, accept, or an internal redeem), with no byte halves —
 	/// the loop owns the wire, the pumping, and the release. Registered in the
 	/// host's session directory like any other shell, so the loop's
 	/// SESSION_CLOSED dispatch and `exporter_for` both find it.
 	pub(crate) fn new_loop(
-		ptr: *mut ffi::PancakeHostSession,
+		ptr: *mut ffi::GlowcapHostSession,
 		host: Rc<HostShared>,
 		loop_wire: Rc<crate::driver_loop::LoopShared>,
 	) -> Rc<SessionShared> {
@@ -190,7 +190,7 @@ impl SessionShared {
 		shared
 	}
 
-	pub(crate) fn raw_session(&self) -> *mut ffi::PancakeHostSession {
+	pub(crate) fn raw_session(&self) -> *mut ffi::GlowcapHostSession {
 		self.ptr.get()
 	}
 
@@ -232,7 +232,7 @@ impl SessionShared {
 	pub(crate) fn session_open(&self) -> bool {
 		!self.host.closing()
 			&& !self.released.get()
-			&& unsafe { ffi::pancake_host_session_is_open(self.ptr.get()) } == 1
+			&& unsafe { ffi::glowcap_host_session_is_open(self.ptr.get()) } == 1
 	}
 
 	// ── The pump ────────────────────────────────────────────────────────────────
@@ -362,9 +362,9 @@ impl SessionShared {
 		let id = match turn {
 			Some(turn) => turn_spawn(turn, cell)?,
 			None => {
-				let mut reference = sys::PancakeReference { id: 0 };
+				let mut reference = sys::GlowcapReference { id: 0 };
 				let rc = unsafe {
-					ffi::pancake_host_session_spawn(
+					ffi::glowcap_host_session_spawn(
 						self.ptr.get(),
 						trampoline,
 						cell as *mut core::ffi::c_void,
@@ -401,9 +401,9 @@ impl SessionShared {
 		self.guard_open()?;
 		self.drain_gc()?;
 		let cell = self.host.actor_cell(behavior)?;
-		let mut reference = sys::PancakeReference { id: 0 };
+		let mut reference = sys::GlowcapReference { id: 0 };
 		let rc = unsafe {
-			ffi::pancake_host_session_publish(
+			ffi::glowcap_host_session_publish(
 				self.ptr.get(),
 				name.as_ptr(),
 				name.len(),
@@ -456,7 +456,7 @@ impl SessionShared {
 		let mut arena = SendArena::default();
 		let (args_ptr, args_len) = arena.build(args)?;
 		check_host(unsafe {
-			ffi::pancake_host_session_tell(self.ptr.get(), &wire, verb.as_ptr(), verb.len(), args_ptr, args_len)
+			ffi::glowcap_host_session_tell(self.ptr.get(), &wire, verb.as_ptr(), verb.len(), args_ptr, args_len)
 		})?;
 		self.host.schedule_kick()
 	}

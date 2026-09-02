@@ -2,7 +2,7 @@
 //!
 //! It exists so the onion transport's checks run in the ordinary suite with no Tor
 //! and no network. It is deliberately not a Tor emulator. It answers the exact
-//! requests pancake sends, in the exact shapes the two reference implementations
+//! requests glowcap sends, in the exact shapes the two reference implementations
 //! use, and it forwards a dial to a local address the test names.
 //!
 //! **What it cannot prove is that a real Tor answers the same way.** The bytes are
@@ -13,18 +13,18 @@
 
 const std = @import("std");
 
-const pancake = @import("pancake");
-const socks5 = pancake.net.onion.socks5;
-const endpoint_mod = pancake.net.onion.endpoint;
+const glowcap = @import("glowcap");
+const socks5 = glowcap.net.onion.socks5;
+const endpoint_mod = glowcap.net.onion.endpoint;
 
 /// A real, checksum-valid version 3 id, taken from the pinned Goblins source where
 /// it is the example in `structs-urls.rkt`. Used as the id the fake control
 /// endpoint reports, so a test asserting it is asserting a well-formed address
-/// rather than a placeholder pancake would also accept.
+/// rather than a placeholder glowcap would also accept.
 pub const service_id = "wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd";
 
 /// The key the fake reports for a freshly minted service, in the shape Tor's
-/// `250-PrivateKey=` carries: a key type and a blob, which pancake passes back
+/// `250-PrivateKey=` carries: a key type and a blob, which glowcap passes back
 /// verbatim and never parses.
 pub const service_key = "ED25519-V3:c3RvcmVkLW9uaW9uLWtleS1ieXRlcw==";
 
@@ -109,7 +109,7 @@ pub const Daemon = struct {
 
     /// Answer control conversations until the listener closes.
     ///
-    /// Each one gets its own fiber, because pancake holds a control connection
+    /// Each one gets its own fiber, because glowcap holds a control connection
     /// open for a listener's whole life: a second listener needs a second
     /// conversation, and a daemon that served them one at a time would park the
     /// second caller forever. Bounded, because a fake that could spawn without

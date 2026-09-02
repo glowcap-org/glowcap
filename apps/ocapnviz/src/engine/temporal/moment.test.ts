@@ -37,7 +37,7 @@ const peerEvents: TimelineEvent[] = [
 		kind: "peer-joined",
 		t: 100,
 		peerId: "127.0.0.1:0",
-		profile: "pancake",
+		profile: "glowcap",
 		label: "127.0.0.1:0",
 	},
 	{

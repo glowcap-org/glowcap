@@ -35,7 +35,7 @@ function hubDoc(
 		t: 0,
 		kind: "peer-joined",
 		peerId: "hub",
-		profile: "pancake",
+		profile: "glowcap",
 	}];
 	designators.forEach((designator, i) => {
 		observations.push({
@@ -71,7 +71,7 @@ function namedHubDoc(name: string, count: number): TimelineDocument {
 		t: 0,
 		kind: "peer-joined",
 		peerId: "hub",
-		profile: "pancake",
+		profile: "glowcap",
 	}];
 	for (let i = 0; i < count; i++) {
 		observations.push({
@@ -80,7 +80,7 @@ function namedHubDoc(name: string, count: number): TimelineDocument {
 			kind: "peer-joined",
 			peerId: `p${i}`,
 			label: name,
-			profile: "pancake",
+			profile: "glowcap",
 		});
 		observations.push({
 			id: `o-${i}`,
@@ -242,7 +242,7 @@ layoutTest(
 		// is as long as any designator. The renderer shortens it; if the solver
 		// did not, two such peers would be held a whole pill apart for text
 		// nobody draws.
-		const long = `pancake-peer-${"b4".repeat(40)}`;
+		const long = `glowcap-peer-${"b4".repeat(40)}`;
 		const doc = pairDoc(long);
 		const at = settled(doc);
 		const p0 = at.get("p0");

@@ -11,7 +11,7 @@
 // prints `REGISTERED-PEER-READY <designator>` once the first registration is
 // open and held by the relay.
 
-import { formatLocatorUri, Host, serveRendezvous, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
+import { formatLocatorUri, Host, serveRendezvous, TRANSPORT_KEYED_RELAY } from "@glowcap/runtime";
 
 const relayUrl = new URL(Deno.args[0] ?? "");
 if ((relayUrl.protocol !== "ws:" && relayUrl.protocol !== "wss:") || relayUrl.pathname !== "/relay") {

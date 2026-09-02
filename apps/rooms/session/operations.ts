@@ -1,18 +1,17 @@
 // Operations-capability custody for one durable Rooms session.
 
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import type { Directory } from "../lib/directory.ts";
 import { type DiagnosticRow, snapshotDiagnostics } from "../lib/diagnostics.ts";
+import type { BridgeGateway } from "../lib/bridge/gateway.ts";
 import {
-	closeIrcNetwork,
-	type IrcGatewaySnapshot,
-	IrcNetworkChoiceSchema,
-	joinIrcChannel,
-	openIrcNetwork,
-	partIrcChannel,
-	snapshotIrcGateway,
-} from "../lib/irc_gateway_client.ts";
+	addBridgeLease,
+	closeBridgeConnection,
+	openBridgeConnection,
+	removeBridgeLease,
+	snapshotBridgeGateway,
+} from "../lib/bridge/gateway_client.ts";
 import { listenerDown, ListenerOptionsSchema, type ListenerRow, listenerUp, listListeners } from "../lib/listeners.ts";
 import {
 	clearOperatorTrouble,
@@ -57,7 +56,7 @@ type OperationCredential = RoomsSessionState["capabilities"]["operations"][numbe
 export type DurableOperationsSnapshot =
 	| { capability: "listeners"; rows: ListenerRow[] }
 	| { capability: "diagnostics"; rows: DiagnosticRow[] }
-	| { capability: "irc"; snapshot: IrcGatewaySnapshot };
+	| { capability: "irc"; snapshot: BridgeGateway };
 
 const MAX_OPERATION_JSON_CHARS = 128 * 1024;
 
@@ -110,7 +109,7 @@ export class DurableRoomsOperations {
 		if (capability === "diagnostics") {
 			return { capability, rows: await snapshotDiagnostics(held.session, held.capability) };
 		}
-		return { capability, snapshot: await snapshotIrcGateway(held.session, held.capability) };
+		return { capability, snapshot: await snapshotBridgeGateway(held.session, held.capability) };
 	}
 
 	operationEffect(scope: string, capability: string, action: string, args: string[]): () => Promise<void> {
@@ -153,33 +152,31 @@ export class DurableRoomsOperations {
 
 	#ircEffect(scope: string, action: string, args: string[]): () => Promise<void> {
 		const held = this.#capability(scope, "irc");
-		if (action === "openNetwork" && args.length === 1) {
-			const choice = jsonValue(args[0], "IRC network settings", IrcNetworkChoiceSchema);
+		if (action === "openConnection" && args.length === 1) {
 			return async () => {
-				const network = await openIrcNetwork(held.session, held.capability, choice);
-				settleCapabilityCleanup("IRC network capability release failed", () => held.session.release(network));
+				await openBridgeConnection(held.session, held.capability, args[0]);
 				this.#invalidated(scope);
 			};
 		}
-		if (action === "closeNetwork" && args.length === 1 && args[0] !== "") {
+		if (action === "closeConnection" && args.length === 1 && args[0] !== "") {
 			return async () => {
-				await closeIrcNetwork(held.session, held.capability, args[0]);
+				await closeBridgeConnection(held.session, held.capability, args[0]);
 				this.#invalidated(scope);
 			};
 		}
-		if (action === "part" && args.length === 2 && args[0] !== "" && args[1] !== "") {
+		if (action === "removeLease" && args.length === 2 && args[0] !== "" && args[1] !== "") {
 			return async () => {
-				await partIrcChannel(held.session, held.capability, args[0], args[1]);
+				await removeBridgeLease(held.session, held.capability, args[0], args[1]);
 				this.#invalidated(scope);
 			};
 		}
-		if (action === "joinChannel" && args.length === 2 && args[0] !== "" && args[1] !== "") {
+		if (action === "addLease" && args.length === 2 && args[0] !== "") {
 			return async () => {
-				await joinIrcChannel(held.session, held.capability, args[0], args[1]);
+				await addBridgeLease(held.session, held.capability, args[0], args[1]);
 				this.#invalidated(scope);
 			};
 		}
-		throw new Error(`shared IRC action ${action} has invalid arguments`);
+		throw new Error(`shared bridge gateway action ${action} has invalid arguments`);
 	}
 
 	#operatorAction(held: HeldOperation, action: string, args: string[]): () => Promise<void> {

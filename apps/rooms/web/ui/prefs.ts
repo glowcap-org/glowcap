@@ -7,7 +7,7 @@
 // transport, the Visualizer pane the viz endpoint — because both are decided
 // when the peer opens, not mid-session.
 
-import { TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@glowcap/runtime";
 import { originVizUrl, vizOverrideRefusal } from "../../lib/viz_publish.ts";
 import { setWorkspaceConnectionSettings, workspaceConnectionSettings } from "./workspace_state.ts";
 import type { RoomsPageContext } from "./page.ts";

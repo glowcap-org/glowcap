@@ -1,12 +1,12 @@
 //! Allocation-failure scenarios for vow completion and fetch admission.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const engine = pancake.ocapn.engine;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const engine = glowcap.ocapn.engine;
 const Host = driver.core.Host;
 
 const harness = @import("../harness.zig");

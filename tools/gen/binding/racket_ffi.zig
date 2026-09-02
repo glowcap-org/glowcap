@@ -46,56 +46,56 @@ pub const outputs = [_]Output{
     .{ .path = "bindings/racket/private/ffi-relay-gen.rkt", .generate = generateRelay },
 };
 
-/// `module.PancakeManagedFrame` → `PancakeManagedFrame`.
+/// `module.GlowcapManagedFrame` → `GlowcapManagedFrame`.
 const baseName = @import("reflect").baseName;
 
 const render = @import("racket_ffi_render.zig");
 fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
     return render.renderEager(gpa, .{
         .M = c,
-        .archive = "pancake_ocapn",
+        .archive = "glowcap_ocapn",
         .lib_var = "ocapn-lib",
-        .definer = "define-pancake",
+        .definer = "define-glowcap",
         .fingerprint_stem = "ocapn",
         .fingerprint_constant = "OCAPN-ARCHIVE-FINGERPRINT",
         .check_fingerprint_at_load = false,
         .note =
-        \\;; The raw `ffi/unsafe` table of libpancake_ocapn, the core archive. The
+        \\;; The raw `ffi/unsafe` table of libglowcap_ocapn, the core archive. The
         \\;; hand-written sibling (`ffi-ocapn.rkt`) owns the prose and re-provides
         \\;; this module together with the shared cstruct vocabulary.
         \\
         ,
-        .header_path = "include/pancake_ocapn.h",
+        .header_path = "include/glowcap_ocapn.h",
     });
 }
 
 fn generateHost(gpa: std.mem.Allocator) ![]u8 {
     return render.renderEager(gpa, .{
         .M = cd,
-        .archive = "pancake_host",
+        .archive = "glowcap_host",
         .lib_var = "host-lib",
         .definer = "define-host",
         .fingerprint_stem = "host",
         .fingerprint_constant = "HOST-ARCHIVE-FINGERPRINT",
         .check_fingerprint_at_load = false,
         .note =
-        \\;; The raw `ffi/unsafe` table of the `pancake_host_*` byte-fed host
-        \\;; family, loaded from its symbol-disjoint libpancake_host archive.
+        \\;; The raw `ffi/unsafe` table of the `glowcap_host_*` byte-fed host
+        \\;; family, loaded from its symbol-disjoint libglowcap_host archive.
         \\;; The hand-written sibling (`ffi-host.rkt`) owns the prose and
         \\;; the bespoke pending-dial wrapper over the starred raw, and re-provides
         \\;; this module. The behavior/pump callback types and the plan/dial cstructs
         \\;; live in `ffi-shared.rkt`, the binding's types leaf.
         \\
         ,
-        .hand_wrapped = &.{"pancake_host_pending_dial"},
-        .header_path = "include/pancake_host.h",
+        .hand_wrapped = &.{"glowcap_host_pending_dial"},
+        .header_path = "include/glowcap_host.h",
         .specials = &.{
-            .{ .T = cd.PancakeHostBehavior, .spelling = "_PancakeHostBehavior" },
-            .{ .T = cd.PancakeHostCtxFree, .spelling = "_pointer" },
+            .{ .T = cd.GlowcapHostBehavior, .spelling = "_GlowcapHostBehavior" },
+            .{ .T = cd.GlowcapHostCtxFree, .spelling = "_pointer" },
             // The binding constructs and strongly retains one callback object
             // with `function-ptr`; accepting `_fpointer` here prevents every
             // installation call from minting a short-lived callback thunk.
-            .{ .T = cd.PancakeTraceCallback, .spelling = "_fpointer" },
+            .{ .T = cd.GlowcapTraceCallback, .spelling = "_fpointer" },
         },
     });
 }
@@ -103,44 +103,44 @@ fn generateHost(gpa: std.mem.Allocator) ![]u8 {
 fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
     return render.renderEager(gpa, .{
         .M = cdr,
-        .archive = "pancake_driver",
+        .archive = "glowcap_driver",
         .lib_var = "loop-lib",
         .definer = "define-driver-loop",
         .fingerprint_stem = "driver",
         .fingerprint_constant = "DRIVER-ARCHIVE-FINGERPRINT",
         .check_fingerprint_at_load = false,
         .note =
-        \\;; The raw `ffi/unsafe` table of the `pancake_driver_*` loop family
-        \\;; (ADR-0112), exported by symbol-disjoint libpancake_driver. The
+        \\;; The raw `ffi/unsafe` table of the `glowcap_driver_*` loop family
+        \\;; (ADR-0112), exported by symbol-disjoint libglowcap_driver. The
         \\;; hand-written sibling (`ffi-driver.rkt`) owns the prose
         \\;; and re-provides this module. The event and provider cstructs live
         \\;; in `ffi-shared.rkt`, the binding's types leaf.
         \\
         ,
-        .header_path = "include/pancake_driver.h",
+        .header_path = "include/glowcap_driver.h",
     });
 }
 
 fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
     return render.renderEager(gpa, .{
         .M = ct,
-        .archive = "pancake_net_transport_tcp",
+        .archive = "glowcap_net_transport_tcp",
         .lib_var = "tcp-lib",
-        .definer = "define-pancake-tcp",
+        .definer = "define-glowcap-tcp",
         .extra_require = "ffi-tcp-types.rkt",
         .fingerprint_stem = "tcp",
         .fingerprint_constant = "TCP-ARCHIVE-FINGERPRINT",
         // Racket reads this synchronous call's thread-local diagnostic. Keep
         // the optional caller-buffer plumbing below the ergonomic wrappers.
         .hand_wrapped = &.{
-            "pancake_tcp_connect",
-            "pancake_tcp_accept",
-            "pancake_tcp_conn_read_frame",
-            "pancake_tcp_conn_write_frame",
-            "pancake_tcp_conn_release",
+            "glowcap_tcp_connect",
+            "glowcap_tcp_accept",
+            "glowcap_tcp_conn_read_frame",
+            "glowcap_tcp_conn_write_frame",
+            "glowcap_tcp_conn_release",
         },
         .note =
-        \\;; The raw `ffi/unsafe` table of libpancake_net_transport_tcp. The
+        \\;; The raw `ffi/unsafe` table of libglowcap_net_transport_tcp. The
         \\;; hand-written sibling (`ffi-tcp.rkt`) owns the prose and re-provides this
         \\;; module. The blocking rows (`#:blocking?`) park the calling thread on the
         \\;; socket; the mark keeps the runtime GC-cooperative during the park.
@@ -152,22 +152,22 @@ fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
 fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
     return render.renderEager(gpa, .{
         .M = cin,
-        .archive = "pancake_net_transport_inproc",
+        .archive = "glowcap_net_transport_inproc",
         .lib_var = "inproc-lib",
-        .definer = "define-pancake-inproc",
+        .definer = "define-glowcap-inproc",
         .fingerprint_stem = "inproc",
         .fingerprint_constant = "INPROC-ARCHIVE-FINGERPRINT",
         // Racket consumes the calling-thread last-error slot; the optional
         // diagnostic outputs are worker-dispatch plumbing in other runtimes.
         .hand_wrapped = &.{
-            "pancake_inproc_connect",
-            "pancake_inproc_accept",
-            "pancake_inproc_conn_read_frame",
-            "pancake_inproc_conn_write_frame",
-            "pancake_inproc_listener_release",
+            "glowcap_inproc_connect",
+            "glowcap_inproc_accept",
+            "glowcap_inproc_conn_read_frame",
+            "glowcap_inproc_conn_write_frame",
+            "glowcap_inproc_listener_release",
         },
         .note =
-        \\;; The raw `ffi/unsafe` table of libpancake_net_transport_inproc. The
+        \\;; The raw `ffi/unsafe` table of libglowcap_net_transport_inproc. The
         \\;; hand-written sibling (`ffi-inproc.rkt`) owns the prose and re-provides
         \\;; this module. The blocking rows (`#:blocking?`) park the calling thread
         \\;; on the in-process pipes; the mark keeps the runtime GC-cooperative
@@ -180,27 +180,27 @@ fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
 fn generateOnion(gpa: std.mem.Allocator) ![]u8 {
     return render.renderEager(gpa, .{
         .M = con,
-        .archive = "pancake_net_transport_onion",
+        .archive = "glowcap_net_transport_onion",
         .lib_var = "onion-lib",
-        .definer = "define-pancake-onion",
+        .definer = "define-glowcap-onion",
         .fingerprint_stem = "onion",
         .fingerprint_constant = "ONION-ARCHIVE-FINGERPRINT",
         .hand_wrapped = &.{
-            "pancake_onion_netlayer_release",
-            "pancake_onion_connect",
-            "pancake_onion_listen",
-            "pancake_onion_listener_wait",
-            "pancake_onion_accept",
-            "pancake_onion_conn_read_frame",
-            "pancake_onion_conn_write_frame",
-            "pancake_onion_conn_release",
-            "pancake_onion_listener_release",
+            "glowcap_onion_netlayer_release",
+            "glowcap_onion_connect",
+            "glowcap_onion_listen",
+            "glowcap_onion_listener_wait",
+            "glowcap_onion_accept",
+            "glowcap_onion_conn_read_frame",
+            "glowcap_onion_conn_write_frame",
+            "glowcap_onion_conn_release",
+            "glowcap_onion_listener_release",
         },
-        // `pancake_onion_listen` writes five out-parameters, so its wrapper needs
+        // `glowcap_onion_listen` writes five out-parameters, so its wrapper needs
         // the header's argument names to spell them.
-        .header_path = "include/pancake_net_transport_onion.h",
+        .header_path = "include/glowcap_net_transport_onion.h",
         .note =
-        \\;; The raw `ffi/unsafe` table of libpancake_net_transport_onion. The
+        \\;; The raw `ffi/unsafe` table of libglowcap_net_transport_onion. The
         \\;; hand-written sibling (`ffi-onion.rkt`) owns the prose and re-provides
         \\;; this module. The blocking rows (`#:blocking?`) park the calling thread
         \\;; on a Tor circuit, which costs seconds rather than milliseconds; the mark
@@ -222,7 +222,7 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
         \\;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
         \\;; (part of `check`) fails when this is stale.
         \\;;
-        \\;; The keyed table of libpancake_net_transport_iroh. The archive is
+        \\;; The keyed table of libglowcap_net_transport_iroh. The archive is
         \\;; optional and loads lazily, so this module exports one table-building
         \\;; function the hand-written sibling (`ffi-iroh.rkt`) calls with the opened
         \\;; library and the config cstruct pointer type it declares — the generated
@@ -233,7 +233,7 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
         \\         "ffi-shared.rkt")
         \\(provide iroh-ffi-table)
         \\
-        \\(define (iroh-ffi-table L _PancakeIrohConfig-pointer)
+        \\(define (iroh-ffi-table L _GlowcapIrohConfig-pointer)
         \\  (hasheq
     );
     inline for (ci.symbols.symbols) |row| {
@@ -241,24 +241,24 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
             const key = comptime irohKey(row.name);
             const sig = comptime render.funSig(ci, row, &.{});
             const slots = comptime render.slotIndexes(ci, row);
-            if (comptime std.mem.eql(u8, row.name, "pancake_iroh_netlayer_new")) {
+            if (comptime std.mem.eql(u8, row.name, "glowcap_iroh_netlayer_new")) {
                 // Racket reads the calling thread's TLS diagnostic. Hide the
                 // optional worker-dispatch outputs while retaining the usual
                 // one-value constructor wrapper.
                 try out.print(gpa,
                     \\
                     \\   '{s}
-                    \\   (let ([raw (get-ffi-obj 'pancake_iroh_netlayer_new L {s})])
+                    \\   (let ([raw (get-ffi-obj 'glowcap_iroh_netlayer_new L {s})])
                     \\     (lambda (seed seed-len config)
                     \\       (call/out _pointer #f
                     \\         (lambda (out)
                     \\           (call/without-diagnostic raw seed seed-len config out)))))
                 , .{ key, sig });
-            } else if (comptime std.mem.eql(u8, row.name, "pancake_iroh_netlayer_release")) {
+            } else if (comptime std.mem.eql(u8, row.name, "glowcap_iroh_netlayer_release")) {
                 try out.print(gpa,
                     \\
                     \\   '{s}
-                    \\   (let ([raw (get-ffi-obj 'pancake_iroh_netlayer_release L {s})])
+                    \\   (let ([raw (get-ffi-obj 'glowcap_iroh_netlayer_release L {s})])
                     \\     (lambda (netlayer)
                     \\       (call/without-diagnostic raw netlayer)))
                 , .{ key, sig });
@@ -278,9 +278,9 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
     return out.toOwnedSlice(gpa);
 }
 
-/// `pancake_iroh_netlayer_drain_ready` → `netlayer-drain-ready`.
+/// `glowcap_iroh_netlayer_drain_ready` → `netlayer-drain-ready`.
 fn irohKey(comptime name: []const u8) []const u8 {
-    const stripped = name["pancake_iroh_".len..];
+    const stripped = name["glowcap_iroh_".len..];
     comptime var s: []const u8 = "";
     inline for (stripped) |ch| {
         s = s ++ &[_]u8{if (ch == '_') '-' else ch};
@@ -298,7 +298,7 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
         \\;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
         \\;; (part of `check`) fails when this is stale.
         \\;;
-        \\;; The keyed table of libpancake_net_transport_webrtc. The archive is
+        \\;; The keyed table of libglowcap_net_transport_webrtc. The archive is
         \\;; optional and loads lazily, so this module exports one table-building
         \\;; function the hand-written sibling (`ffi-webrtc.rkt`) calls with the
         \\;; opened library and the config cstruct pointer type it declares -- the
@@ -308,7 +308,7 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
         \\         "ffi-shared.rkt")
         \\(provide webrtc-ffi-table)
         \\
-        \\(define (webrtc-ffi-table L _PancakeWebrtcConfig-pointer)
+        \\(define (webrtc-ffi-table L _GlowcapWebrtcConfig-pointer)
         \\  (hasheq
     );
     inline for (cw.symbols.symbols) |row| {
@@ -333,7 +333,7 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn webrtcKey(comptime name: []const u8) []const u8 {
-    const stripped = name["pancake_webrtc_".len..];
+    const stripped = name["glowcap_webrtc_".len..];
     comptime var s: []const u8 = "";
     inline for (stripped) |ch| {
         s = s ++ &[_]u8{if (ch == '_') '-' else ch};
@@ -344,19 +344,19 @@ fn webrtcKey(comptime name: []const u8) []const u8 {
 fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
     return render.renderEager(gpa, .{
         .M = cr,
-        .archive = "pancake_net_transport_relay",
+        .archive = "glowcap_net_transport_relay",
         .lib_var = "relay-lib",
-        .definer = "define-pancake-relay",
+        .definer = "define-glowcap-relay",
         .fingerprint_stem = "relay",
         .fingerprint_constant = "RELAY-ARCHIVE-FINGERPRINT",
-        .hand_wrapped = &.{"pancake_relay_runtime_release"},
+        .hand_wrapped = &.{"glowcap_relay_runtime_release"},
         .note =
-        \\;; The raw `ffi/unsafe` table of libpancake_net_transport_relay. The
+        \\;; The raw `ffi/unsafe` table of libglowcap_net_transport_relay. The
         \\;; hand-written sibling (`ffi-relay.rkt`) owns the config mirror and
         \\;; re-provides this module. One package owns both keyed-relay and
         \\;; noise-relay; profile policy remains in the native driver.
         \\
         ,
-        .header_path = "include/pancake_net_transport_relay.h",
+        .header_path = "include/glowcap_net_transport_relay.h",
     });
 }

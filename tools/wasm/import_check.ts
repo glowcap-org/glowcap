@@ -13,11 +13,11 @@
 // needs no import object and never instantiates — the import being unsatisfied
 // is exactly the state under test.
 
-const wasmPath = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
+const wasmPath = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 
 const EXPECTED = [
-	{ module: "env", name: "pancake_behavior_trampoline", kind: "function" },
-	{ module: "env", name: "pancake_hosted_free_trampoline", kind: "function" },
+	{ module: "env", name: "glowcap_behavior_trampoline", kind: "function" },
+	{ module: "env", name: "glowcap_hosted_free_trampoline", kind: "function" },
 ];
 
 function fail(msg: string): never {

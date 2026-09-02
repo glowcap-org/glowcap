@@ -1,6 +1,6 @@
 //! The `onion` netlayer: the one transport the OCapN draft standardizes.
 //!
-//! pancake reaches Tor the way the pinned Spritely Goblins does, by talking to a
+//! glowcap reaches Tor the way the pinned Spritely Goblins does, by talking to a
 //! daemon the deployment already started. There is no embedded Tor, no spawned
 //! process, and nothing supervised, so the whole transport is two conversations
 //! with that daemon over local sockets
@@ -8,7 +8,7 @@
 //!
 //! Outbound is SOCKS5: `socks5.zig` builds and checks the bytes for connecting
 //! to `<serviceid>.onion` on port 9045, and what comes back is an ordinary byte
-//! stream that pancake's existing frame reader carries unchanged. Hosting is the
+//! stream that glowcap's existing frame reader carries unchanged. Hosting is the
 //! Tor control protocol: `control.zig` formats the authenticate, create, and
 //! restore requests and classifies the reply lines they answer with.
 //!

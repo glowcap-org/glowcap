@@ -1,8 +1,8 @@
-import * as iroh from "@pancake/iroh";
-import { Runtime, TRANSPORT_IROH, TRANSPORT_TCP } from "@pancake/runtime";
-import type { Host } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
-import * as relay from "@pancake/relay";
+import * as iroh from "@glowcap/iroh";
+import { Runtime, TRANSPORT_IROH, TRANSPORT_TCP } from "@glowcap/runtime";
+import type { Host } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
+import * as relay from "@glowcap/relay";
 import { roomsHost } from "./locator.ts";
 
 export interface RoomsRuntimeOptions {

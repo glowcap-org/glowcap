@@ -49,7 +49,7 @@
 (define (split-designator who designator)
   (define match (regexp-match #px"^(.*):([0-9]+)$" designator))
   (unless match
-    (raise-pancake who ERR-INVALID-ARGUMENT
+    (raise-glowcap who ERR-INVALID-ARGUMENT
                    "listener designator is not host:port: ~a" designator))
   (values (cadr match) (string->number (caddr match))))
 
@@ -62,23 +62,23 @@
       (locator-designator loc)
       (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES
                 (lambda ()
-                  (raise-pancake who ERR-INVALID-ARGUMENT
+                  (raise-glowcap who ERR-INVALID-ARGUMENT
                                  "listener locator has no direct-addresses hint")))))
 
 (define (listen-tcp-profile who transport bind-host port seed codec captp-version
                             features advertised-host time-travel? shared-host config options)
   (when (and shared-host codec (not (eq? codec (host-codec shared-host))))
-    (raise-pancake who ERR-INVALID-ARGUMENT
+    (raise-glowcap who ERR-INVALID-ARGUMENT
                    "the supplied Host codec conflicts with #:codec"))
   (when (and seed shared-host (not (bytes=? seed (host-seed shared-host))))
-    (raise-pancake who ERR-INVALID-ARGUMENT
+    (raise-glowcap who ERR-INVALID-ARGUMENT
                    "the seed conflicts with the supplied Host"))
   (define durable
     (and (identity-profile? transport)
          (or seed (and shared-host (host-seed shared-host))
              (crypto-random-bytes 32))))
   (when (and durable (not (= (bytes-length durable) 32)))
-    (raise-pancake who ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
+    (raise-glowcap who ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
   (define-values (lp owns-loop?)
     (if (and shared-host (host-loop-of shared-host))
         (values (host-loop-of shared-host) #f)
@@ -117,10 +117,10 @@
     (define direct (locator-direct-address who loc))
     (define-values (bound-host bound-port) (split-designator who direct))
     (when (and (wildcard-address? bound-host) (not advertised-host))
-      (raise-pancake who ERR-INVALID-ARGUMENT
+      (raise-glowcap who ERR-INVALID-ARGUMENT
                      "a wildcard bind has no dialable address; provide #:advertised-host"))
     (when (and advertised-host (wildcard-address? advertised-host))
-      (raise-pancake who ERR-INVALID-ARGUMENT
+      (raise-glowcap who ERR-INVALID-ARGUMENT
                      "an advertised host must be dialable"))
     (define advertised-direct
       (if advertised-host

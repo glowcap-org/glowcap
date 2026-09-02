@@ -9,10 +9,10 @@
 // WebRTC signaling rides here too, because it is the same shape: opaque strings
 // routed between two members the directory already reaches, parsed by nobody.
 
-import { currentSession, Ref, type Session } from "@pancake/runtime";
-import type { Argument } from "@pancake/runtime";
-import { designatorHostPort, durableIdentityAuthenticated, parseLocator, TRANSPORT_WEBRTC } from "@pancake/runtime";
-import { addressDesignator } from "@pancake/tcp";
+import { currentSession, Ref, type Session } from "@glowcap/runtime";
+import type { Argument } from "@glowcap/runtime";
+import { designatorHostPort, durableIdentityAuthenticated, parseLocator, TRANSPORT_WEBRTC } from "@glowcap/runtime";
+import { addressDesignator } from "@glowcap/tcp";
 import { isUriLocator } from "../lib/locator.ts";
 import { notifyMember } from "./discovery.ts";
 import { DIRECT_REQUEST_COALESCE_MS, MAX_DM_INBOXES, MAX_NAME_VOUCHERS, NAME_VOUCHER_BYTES } from "../lib/limits.ts";

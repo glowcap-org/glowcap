@@ -181,19 +181,19 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	// that asset down past the slow-start mark: the opening screen must carry
 	// the newest real failure, keep the half-built interface covered, and then
 	// recover by itself when the same URL starts serving the module. This also
-	// proves that a rejected @pancake/web attempt is not cached forever.
+	// proves that a rejected @glowcap/web attempt is not cached forever.
 	{
 		const delayed = await browser.newContext();
 		const recovering = await delayed.newPage();
 		let rebuilding = true;
 		let attempts = 0;
-		await recovering.route("**/pancake_host.wasm", async (route) => {
+		await recovering.route("**/glowcap_host.wasm", async (route) => {
 			attempts++;
 			if (rebuilding) {
 				await route.fulfill({
 					status: 503,
 					contentType: "text/plain",
-					body: "rooms: pancake_host.wasm is still building\n",
+					body: "rooms: glowcap_host.wasm is still building\n",
 				});
 				return;
 			}

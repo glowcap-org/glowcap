@@ -29,7 +29,7 @@ export function loadListenersPane() {
 }
 
 export function loadIrcPane() {
-	return import("./ops/Irc.tsx").then((m) => ({ default: m.IrcPane }));
+	return import("./ops/Gateway.tsx").then((m) => ({ default: m.GatewayPane }));
 }
 
 export function loadPeeringPane() {

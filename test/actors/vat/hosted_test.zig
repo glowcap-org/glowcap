@@ -4,10 +4,10 @@
 //! handler's own words.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const cross_peer = @import("../../support/cross_peer.zig");
@@ -128,7 +128,7 @@ test "spawnHosted whose box allocation fails still runs the hosted free" {
 }
 
 test "a failed export bind can discard the freshly spawned hosted actor" {
-    var pair = try pancake.ocapn.engine.pairing.paired(std.testing.allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(std.testing.allocator);
     defer pair.deinit();
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var vat = actors.Vat.init(failing.allocator());
@@ -160,7 +160,7 @@ test "a failed export bind can discard the freshly spawned hosted actor" {
 
 test "Turn.breakWith breaks a served answer with the handler's own words and refuses a local frame" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;

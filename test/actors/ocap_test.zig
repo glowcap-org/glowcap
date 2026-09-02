@@ -6,10 +6,10 @@
 //! when the forwarded send resolves, then breaks it once revoked.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const capture = @import("../support/capture.zig");
@@ -104,11 +104,11 @@ test "a caretaker composes over an attenuator: a revocable read-only view" {
 }
 
 /// Pump every queued frame from `from` to `to` and step `to` so it parses them.
-fn pump(from: *pancake.ocapn.engine.Peer, to: *pancake.ocapn.engine.Peer) !void {
+fn pump(from: *glowcap.ocapn.engine.Peer, to: *glowcap.ocapn.engine.Peer) !void {
     try cross_peer.pumpAll(from, to);
 }
 
-fn serveAll(vat: *actors.Vat, port: *actors.Port, peer: *pancake.ocapn.engine.Peer) void {
+fn serveAll(vat: *actors.Vat, port: *actors.Port, peer: *glowcap.ocapn.engine.Peer) void {
     while (peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
@@ -118,7 +118,7 @@ fn serveAll(vat: *actors.Vat, port: *actors.Port, peer: *pancake.ocapn.engine.Pe
 
 test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     const allocator = std.testing.allocator;
-    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
     const coord_peer = &pair.p1;
     const agent_peer = &pair.p2;

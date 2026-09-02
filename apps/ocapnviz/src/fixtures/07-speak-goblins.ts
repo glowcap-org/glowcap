@@ -34,8 +34,8 @@ export const speakGoblins = TimelineDocument.parse({
 	metadata: {
 		"dct:title": "07 · Speak Goblins (OCapN 1.0)",
 		"dct:description":
-			"A pancake peer talks to a Spritely Goblins peer, so the session settles on the OCapN 1.0 baseline in Syrup. The application still just resolves an answer. The runtime turns that into the op:deliver to a resolver callback that Goblins expects, so one line differs at the call site and every byte differs on the wire.",
-		"dct:creator": "pancake project",
+			"A glowcap peer talks to a Spritely Goblins peer, so the session settles on the OCapN 1.0 baseline in Syrup. The application still just resolves an answer. The runtime turns that into the op:deliver to a resolver callback that Goblins expects, so one line differs at the call site and every byte differs on the wire.",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: { "prov:wasAttributedTo": AGENT },
@@ -46,8 +46,8 @@ export const speakGoblins = TimelineDocument.parse({
 			t: 0,
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9701",
-			label: "Alice (pancake)",
-			profile: "pancake",
+			label: "Alice (glowcap)",
+			profile: "glowcap",
 			designator: "127.0.0.1:9701",
 		},
 		{

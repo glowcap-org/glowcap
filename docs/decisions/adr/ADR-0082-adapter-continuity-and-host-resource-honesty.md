@@ -104,7 +104,7 @@ never onto the sans-io CapTP core.
   generated/shared values).
 - `Host.Options.limits` replaces Host-only `frame_cap`; C ABI keeps
   `frame_cap` as the admission field mapped into limits. Selective changes use
-  the versioned `PancakeSessionLimitOptions` record from ADR-0124 rather than
+  the versioned `GlowcapSessionLimitOptions` record from ADR-0124 rather than
   positional integer arguments.
 - `completion.Loop.Options` grows fan-in, park-kill, and `on_park` fields;
   `on_park` carries a `ParkReason`, because the two parks are operationally

@@ -77,10 +77,10 @@
   (define seed*
     (or seed (and host (host-seed host)) (crypto-random-bytes 32)))
   (unless (= (bytes-length seed*) 32)
-    (raise-pancake 'listen-iroh ERR-INVALID-ARGUMENT
+    (raise-glowcap 'listen-iroh ERR-INVALID-ARGUMENT
                    "the iroh seed must be 32 bytes"))
   (when (and host seed (not (bytes=? seed (host-seed host))))
-    (raise-pancake 'listen-iroh ERR-INVALID-ARGUMENT
+    (raise-glowcap 'listen-iroh ERR-INVALID-ARGUMENT
                    "the seed conflicts with the supplied Host"))
   (define-values (lp owns-loop?)
     (if (and host (host-loop-of host))

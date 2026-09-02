@@ -24,7 +24,7 @@ frame end," which must agree on every byte: a permanent divergence surface, and
 exactly the seam where a hostile partner finds a frame the scanner accepts but
 the decoder rejects (or vice versa).
 
-pancake's wire codecs are already self-delimiting: Syrup is length-prefixed and
+glowcap's wire codecs are already self-delimiting: Syrup is length-prefixed and
 fully recursive ([ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md)),
 and the single-segment Cap'n Proto frame's length is computable from its header
 ([ADR-0026](ADR-0026-hand-rolled-capnp-codec.md)). The decoder already walks to

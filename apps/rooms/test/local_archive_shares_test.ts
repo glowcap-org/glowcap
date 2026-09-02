@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { DURABLE_SWISS_ENTROPY_BYTES, parseLocator, type Ref, type Session } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES, parseLocator, type Ref, type Session } from "@glowcap/runtime";
 import type { Live } from "../web/ui/net/live.ts";
 import { formatRoomsSturdyref } from "../lib/locator.ts";
 import { assertEquals } from "./assert.ts";

@@ -1,13 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../support/core_host.zig");
 
-const net = pancake.net;
-const completion = pancake.net.completion;
-const onion = pancake.net.onion;
-const engine = pancake.ocapn.engine;
-const driver = pancake.driver;
+const net = glowcap.net;
+const completion = glowcap.net.completion;
+const onion = glowcap.net.onion;
+const engine = glowcap.ocapn.engine;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const NativeOnionBridge = driver.Bridge(net.OnionLoop);

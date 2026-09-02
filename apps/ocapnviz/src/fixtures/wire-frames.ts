@@ -1,7 +1,7 @@
 /**
  * The wire frames the built-in recordings carry.
  *
- * Every entry below is a real pancake encoding, read byte for byte
+ * Every entry below is a real glowcap encoding, read byte for byte
  * out of a file this repository commits and checks. Nothing here is
  * hand-written to look like a frame: `wire-frames.test.ts` reads each
  * `source` file off disk and fails if a single byte drifts, which is
@@ -10,9 +10,9 @@
  *
  * The two corpora these come from:
  *
- * - `test/oracle/corpus/*.bin` are Syrup frames. pancake builds the
+ * - `test/oracle/corpus/*.bin` are Syrup frames. glowcap builds the
  *   record for a message arm and the upstream Racket Syrup encoder
- *   serializes it, so the bytes are not pancake's own opinion of
+ *   serializes it, so the bytes are not glowcap's own opinion of
  *   Syrup. `zig build fixture-gen-check` regenerates and compares
  *   them.
  * - `test/codec/capnp_fixtures/*.bin` are Cap'n Proto frames written
@@ -62,7 +62,7 @@ export const wireFrames = {
 	/**
 	 * The keyed `op:start-session` hello. Its version field reads
 	 * `"1.0"`, the baseline every OCapN implementation speaks, and it
-	 * reads that on a `pancake-next` session as much as a v1.0 one. A
+	 * reads that on a `glowcap-next` session as much as a v1.0 one. A
 	 * peer states the profile it prefers in the hints of the locator
 	 * this hello carries, never in the version field (ADR-0103).
 	 */

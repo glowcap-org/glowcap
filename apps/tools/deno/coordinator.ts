@@ -1,4 +1,4 @@
-// The tools coordinator, written on pancake actors in native Deno.
+// The tools coordinator, written on glowcap actors in native Deno.
 //
 // It publishes a `tools` capability. An agent fetches it and asks for the tools a
 // task requests; the coordinator hands back capabilities — full, attenuated to
@@ -16,8 +16,8 @@
 //
 // Run it with a port:  deno run --allow-ffi --allow-net --allow-read coordinator.ts 9099
 
-import { type Argument, Session } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
+import { type Argument, Session } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 import { GRANT, GRANT_REVOCABLE, REVOKE_LAST, TOOLS } from "./protocol.ts";
 import { revocable, toolFor } from "./capabilities.ts";
 

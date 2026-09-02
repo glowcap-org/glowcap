@@ -3,14 +3,14 @@
 // reflected signature) — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// Internal: the FFI mirror of `libpancake_net_transport_relay`'s C ABI.
+// Internal: the FFI mirror of `libglowcap_net_transport_relay`'s C ABI.
 // The archive owns one provider package for keyed-relay and noise-relay;
 // profile policy remains in the native driver.
 //
 // Nothing here is public; `transport/relay.ts` is the ergonomic surface.
 
-import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-import { RELAY_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+import { RELAY_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 const P = "pointer",
 	B = "buffer",
 	U = "usize",
@@ -18,16 +18,16 @@ const P = "pointer",
 	V = "void",
 	U64 = "u64";
 
-export const relayS = lazySymbols(() => libPath("pancake_net_transport_relay"), {
-	pancake_relay_archive_fingerprint: { parameters: [], result: U64 },
-	pancake_relay_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_relay_clear_last_error: { parameters: [], result: V },
-	pancake_relay_runtime_new: { parameters: [B, B], result: I, outBuffers: [1] },
-	pancake_relay_runtime_trust_summary: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_relay_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_relay_runtime_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+export const relayS = lazySymbols(() => libPath("glowcap_net_transport_relay"), {
+	glowcap_relay_archive_fingerprint: { parameters: [], result: U64 },
+	glowcap_relay_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
+	glowcap_relay_clear_last_error: { parameters: [], result: V },
+	glowcap_relay_runtime_new: { parameters: [B, B], result: I, outBuffers: [1] },
+	glowcap_relay_runtime_trust_summary: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_relay_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_relay_runtime_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
 }, {
-	symbol: "pancake_relay_archive_fingerprint",
+	symbol: "glowcap_relay_archive_fingerprint",
 	expected: RELAY_ARCHIVE_FINGERPRINT,
-	archive: "pancake_net_transport_relay",
+	archive: "glowcap_net_transport_relay",
 });

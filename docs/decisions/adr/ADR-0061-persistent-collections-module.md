@@ -3,7 +3,7 @@ id: ADR-0061
 status: accepted
 date: 2026-06-13
 tags: [actors, persistent, collections, layer, memory]
-decision: "A persistent immutable map lives in a sharp leaf module, `src/persistent/`, as a single `PersistentMap` (HAMT, non-atomic refcounted nodes, path-copy update). It imports nothing from the protocol layers, is not exported from the `pancake` root module, and is reached only by opt-in persistent actors and the time-travel benchmark, not a general collections package and not a headline public API."
+decision: "A persistent immutable map lives in a sharp leaf module, `src/persistent/`, as a single `PersistentMap` (HAMT, non-atomic refcounted nodes, path-copy update). It imports nothing from the protocol layers, is not exported from the `glowcap` root module, and is reached only by opt-in persistent actors and the time-travel benchmark, not a general collections package and not a headline public API."
 supersedes: []
 superseded_by: []
 ---
@@ -18,9 +18,9 @@ pointer-sharing. But if the actor rebuilds its whole state value every turn,
 `become` is O(size), losing the cheap _incremental_ mutation Goblins gets from
 Racket's persistent data structures. To make `become` O(log n) with structural
 sharing: and to back the map-shaped benchmark apps (registry, mint/purse, task
-board): pancake needs a persistent immutable map.
+board): glowcap needs a persistent immutable map.
 
-The risk this engages is scope: pancake is "a native Zig OCapN/CapTP substrate,"
+The risk this engages is scope: glowcap is "a native Zig OCapN/CapTP substrate,"
 and a collections library is the part of the time-travel work that most
 stretches that. This ADR settles the containment so the addition holds the
 vision line rather than trading it for a general-purpose library nobody asked
@@ -42,7 +42,7 @@ Containment is the decision as much as the structure:
   `PersistentMap`, no persistent vector or set (those are follow-on work, not
   built here).
 - It is **actor-support for time-travel**, reached by opt-in persistent actors
-  and the S5 benchmark. It is **not exported from the `pancake` root module**,
+  and the S5 benchmark. It is **not exported from the `glowcap` root module**,
   so it is not a headline public API unless a later decision promotes it;
   consumers import the `persistent` module directly.
 - It **imports nothing from the protocol layers**. It is a `core` layer in
@@ -55,7 +55,7 @@ Containment is the decision as much as the structure:
 
 - **No general collections library.** Only the map exists. A persistent vector,
   set, or ordered map is not implemented.
-- **No public `pancake` surface.** The module is not re-exported from
+- **No public `glowcap` surface.** The module is not re-exported from
   `src/root.zig`; promoting it to a supported public API is a separate decision.
 - **Not required by the vat itself.** `vat.zig` never imports `persistent`;
   functional `become` works with any state type. The map only makes a large
@@ -66,7 +66,7 @@ Containment is the decision as much as the structure:
 - **Put the map in `foundation`.** Rejected: `foundation` owns bytes, IDs, and
   frame ownership; a persistent map is the wrong semantic neighbor and would
   blur that module's responsibility.
-- **Export it on the `pancake` root now.** Rejected: it is not yet a headline
+- **Export it on the `glowcap` root now.** Rejected: it is not yet a headline
   API; exposing it would add a public-surface contract before a consumer
   justifies it.
 - **Skip it; rebuild actor state each `become`.** Rejected: O(size) `become`

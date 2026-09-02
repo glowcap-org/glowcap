@@ -108,7 +108,7 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 		says: "The name is a key, and the Noise handshake proves the far end " +
 			"holds it. The channel is encrypted end to end, so nobody on the path " +
 			"can read the frames.",
-		aside: "Same sockets as keyed-tcp, sealed. Pancake to pancake only.",
+		aside: "Same sockets as keyed-tcp, sealed. Glowcap to glowcap only.",
 	},
 	"noise-relay": {
 		standing: "production",
@@ -159,7 +159,7 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 };
 
 /** Where the reasoning behind the verdicts lives. */
-export const TRANSPORTS_PAGE_URL = "https://jimisaacs.github.io/pancake/transports/choosing/";
+export const TRANSPORTS_PAGE_URL = "https://jimisaacs.github.io/glowcap/transports/choosing/";
 export const TRANSPORTS_PAGE_NOTE = "The project's choosing-a-transport page carries the assessment behind " +
 	"these verdicts: when to reach for each netlayer, how far it can be " +
 	"trusted, and what the path proves. The rows here are the same claims, " +
@@ -196,9 +196,9 @@ export const CAPTP_VERSION_ROWS: Record<
 			"Goblins peer speaks.",
 	},
 	next: {
-		says: "This is pancake's own forward version, and it is valid only with a " +
-			"pancake host at each end. A session running it therefore tells the " +
-			"viewer both of its peers are pancake.",
+		says: "This is glowcap's own forward version, and it is valid only with a " +
+			"glowcap host at each end. A session running it therefore tells the " +
+			"viewer both of its peers are glowcap.",
 	},
 	unknown: {
 		says: "The trace said this session negotiated a CapTP profile this viewer " +
@@ -207,10 +207,10 @@ export const CAPTP_VERSION_ROWS: Record<
 };
 
 export const PROFILE_ROWS: Record<ProfileOption, ReferenceEntry> = {
-	pancake: {
-		says: "The peer is a pancake host. A live feed learns this at the hello, " +
+	glowcap: {
+		says: "The peer is a glowcap host. A live feed learns this at the hello, " +
 			"either because the producer said so or because the session settled on " +
-			"pancake-next.",
+			"glowcap-next.",
 	},
 	goblins: {
 		says: "The peer is a Spritely Goblins vat. A feed carries this when the " +

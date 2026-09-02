@@ -11,7 +11,7 @@ const Scenario = bench.Scenario;
 const gib = bench.gib;
 const target_connections = bench.target_connections;
 
-const engine = @import("pancake").ocapn.engine;
+const engine = @import("glowcap").ocapn.engine;
 
 fn scenarioLabel(s: Scenario) []const u8 {
     return switch (s) {
@@ -184,7 +184,7 @@ fn renderSvg(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
     try appendFmt(&b, gpa,
         \\<svg xmlns="http://www.w3.org/2000/svg" width="{d:.0}" height="{d:.0}" font-family="sans-serif" font-size="13">
         \\<rect width="{d:.0}" height="{d:.0}" fill="white"/>
-        \\<text x="{d:.0}" y="26" font-size="16" font-weight="bold">pancake: per-connection memory to 500k (protocol core only)</text>
+        \\<text x="{d:.0}" y="26" font-size="16" font-weight="bold">glowcap: per-connection memory to 500k (protocol core only)</text>
         \\
     , .{ svg_w, svg_h, svg_w, svg_h, plot_l });
 

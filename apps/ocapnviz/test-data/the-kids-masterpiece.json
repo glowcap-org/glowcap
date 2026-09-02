@@ -50,7 +50,7 @@
         }
       },
       "peer-3": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-3",
         "position": {
           "x": 702.982938485904,
@@ -68,7 +68,7 @@
         }
       },
       "peer-4": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-4",
         "position": {
           "x": 231.81106348590401,
@@ -86,7 +86,7 @@
         }
       },
       "peer-5": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-5",
         "position": {
           "x": -168.78353261406437,
@@ -104,7 +104,7 @@
         }
       },
       "peer-6": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-6",
         "position": {
           "x": -559.681717408524,
@@ -140,7 +140,7 @@
         }
       },
       "peer-8": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-8",
         "position": {
           "x": -1170.7555651152538,
@@ -158,7 +158,7 @@
         }
       },
       "peer-9": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-9",
         "position": {
           "x": -1355.3231297417742,
@@ -176,7 +176,7 @@
         }
       },
       "peer-10": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-10",
         "position": {
           "x": 565.6568308852306,
@@ -194,7 +194,7 @@
         }
       },
       "peer-11": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-11",
         "position": {
           "x": -200.02741442353272,
@@ -212,7 +212,7 @@
         }
       },
       "peer-12": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-12",
         "position": {
           "x": 1292.8006759209184,
@@ -230,7 +230,7 @@
         }
       },
       "peer-13": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-13",
         "position": {
           "x": 1783.4100604742498,
@@ -248,7 +248,7 @@
         }
       },
       "peer-14": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-14",
         "position": {
           "x": 2163.0732078513765,
@@ -266,7 +266,7 @@
         }
       },
       "peer-15": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-15",
         "position": {
           "x": 1267.742870794319,
@@ -302,7 +302,7 @@
         }
       },
       "peer-17": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-17",
         "position": {
           "x": 461.9848371375683,
@@ -320,7 +320,7 @@
         }
       },
       "peer-18": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-18",
         "position": {
           "x": -1009.9742155044314,
@@ -338,7 +338,7 @@
         }
       },
       "peer-19": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-19",
         "position": {
           "x": -2087.7029340576464,
@@ -356,7 +356,7 @@
         }
       },
       "peer-20": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-20",
         "position": {
           "x": -1403.0077589006014,
@@ -374,7 +374,7 @@
         }
       },
       "peer-21": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-21",
         "position": {
           "x": -936.8764839821347,
@@ -392,7 +392,7 @@
         }
       },
       "peer-22": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-22",
         "position": {
           "x": -1875.0190671018086,
@@ -410,7 +410,7 @@
         }
       },
       "peer-23": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-23",
         "position": {
           "x": -1985.835366094474,
@@ -428,7 +428,7 @@
         }
       },
       "peer-24": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-24",
         "position": {
           "x": -1687.1146494143525,
@@ -446,7 +446,7 @@
         }
       },
       "peer-25": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-25",
         "position": {
           "x": 4.732867157013061,
@@ -464,7 +464,7 @@
         }
       },
       "peer-26": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-26",
         "position": {
           "x": -662.026021481568,
@@ -482,7 +482,7 @@
         }
       },
       "peer-27": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-27",
         "position": {
           "x": -483.554609445549,
@@ -500,7 +500,7 @@
         }
       },
       "peer-28": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-28",
         "position": {
           "x": 2423.019886257988,
@@ -518,7 +518,7 @@
         }
       },
       "peer-29": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-29",
         "position": {
           "x": 2329.707611943263,
@@ -536,7 +536,7 @@
         }
       },
       "peer-30": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-30",
         "position": {
           "x": 2014.3507964234914,
@@ -554,7 +554,7 @@
         }
       },
       "peer-31": {
-        "profile": "pancake",
+        "profile": "glowcap",
         "label": "peer-31",
         "position": {
           "x": 1881.285099304565,

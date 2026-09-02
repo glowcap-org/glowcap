@@ -9,7 +9,7 @@ every member obeys. **Human overrides everything here** when they contradict.
 | ------ | ----- |
 | Agents ignore the human to “finish the strategy” | Human leads the lead; lead leads members. Human messages (Cursor/Claude/Codex or room) win immediately; lead announces pause/replan |
 | Members race lead back into the room after stop | Presence is lead-owned. After human/lead stop: stay down. No locator wait-loop / auto-`start`. Lead rejoins first when human says ready; members only on lead assign |
-| Over-cap spawn / silent seat swap | Cap includes lead (`PANCAKE_ROOMS_TEAM_MAX_BOTS`, default 4). Dismiss before call-in; announce both moves in-room ([ops](ops.md) roster capacity) |
+| Over-cap spawn / silent seat swap | Cap includes lead (`GLOWCAP_ROOMS_TEAM_MAX_BOTS`, default 4). Dismiss before call-in; announce both moves in-room ([ops](ops.md) roster capacity) |
 | Team spawned for a one-prompt job | Lowest viable complexity: single agent first ([strategies](strategies.md) checklist §1) |
 | Persona voice overrides repo rules | Project rules, gates, and human > persona flavor |
 | “Consensus” overrides a direct ask | No voting against the human; ensemble is advisory only |

@@ -56,8 +56,8 @@ import {
 	TRANSPORT_ID,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_TCP,
-} from "@pancake/runtime";
-import type { Ref, Session } from "@pancake/runtime";
+} from "@glowcap/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 
 Deno.test("the listeners capability admits exact data before consulting the registry", () => {
@@ -96,7 +96,7 @@ function spawnAdminServer(stateDir: string, extraEnv: Record<string, string> = {
 	return spawnOwned("deno", {
 		args: [...DENO_FLAGS, "--allow-write", SERVER, "0", "--admin-listeners"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: stateDir, ...extraEnv },
+		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: stateDir, ...extraEnv },
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -118,7 +118,7 @@ function liveCount(rows: readonly ListenerRow[]): number {
 	return rows.filter((row) => row.id !== null).length;
 }
 
-/** The reference relay from `@pancake/relay`, spawned for the rendezvous
+/** The reference relay from `@glowcap/relay`, spawned for the rendezvous
  * round trip; it prints `DENO-RELAY-READY <port>` once listening. */
 async function spawnRelay(): Promise<{ proc: Deno.ChildProcess; url: string }> {
 	const proc = spawnOwned("deno", {
@@ -154,7 +154,7 @@ roomsTest("the seat list, the serving listener, held transports, and unsupported
 	const stateDir = await Deno.makeTempDir();
 	// No Tor endpoints reach this child, so its onion refusal is the built-in
 	// boundary this test pins rather than an accident of the host environment.
-	const proc = spawnAdminServer(stateDir, { PANCAKE_ONION_SOCKS: "", PANCAKE_ONION_CONTROL: "" });
+	const proc = spawnAdminServer(stateDir, { GLOWCAP_ONION_SOCKS: "", GLOWCAP_ONION_CONTROL: "" });
 	try {
 		const port = await readPort(proc);
 		const bootLocator = loopbackTcpDesignator(port);
@@ -357,7 +357,7 @@ roomsTest("a loopback tcp listener rides up and down at runtime", async () => {
 	const proc = spawnOwned("deno", {
 		args: [...IROH_FLAGS, SERVER, "--transport=iroh", "--admin-listeners"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: stateDir },
+		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: stateDir },
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -467,7 +467,7 @@ roomsTest("route advertisement follows each caller's negotiated profile", async 
 			assert(floor.session.profile.codec === "syrup", "the compatibility caller did not settle Syrup");
 			assert(
 				await floor.advertisedLocation() === tcpLocator,
-				"a v1.0 caller received pancake-next route vocabulary",
+				"a v1.0 caller received glowcap-next route vocabulary",
 			);
 
 			const linked = await floor.openManaged("v1-link");
@@ -519,7 +519,7 @@ roomsTest("no listener capability exists without the flag", async () => {
 	proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, "--allow-write", SERVER, "0"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: stateDir },
+		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: stateDir },
 		stdout: "piped",
 		stderr: "piped",
 	});

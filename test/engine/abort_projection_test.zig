@@ -1,9 +1,9 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
-const abort_projection = pancake.ocapn.engine.abort_projection;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
+const abort_projection = glowcap.ocapn.engine.abort_projection;
 
 test "decode failures project to malformed-frame and close" {
     const a = abort_projection.abortForError(error.MalformedFrame).?;

@@ -1,14 +1,14 @@
 ---
 .title = "Rust",
-.description = "The Rust binding: typed Session, Reference, and Argument over the pancake archives, with Cargo features selecting transports.",
+.description = "The Rust binding: typed Session, Reference, and Argument over the glowcap archives, with Cargo features selecting transports.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
 The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and `Argument` over the
-pancake archives
-([`lib.rs`](https://github.com/jimisaacs/pancake/blob/main/bindings/rust/src/lib.rs)).
+glowcap archives
+([`lib.rs`](https://github.com/jimisaacs/glowcap/blob/main/bindings/rust/src/lib.rs)).
 The round-trip below leads with iroh. Enable the `iroh` Cargo feature for that
 tab; the crate's default features are the testing pair (`tcp`, `inproc`). Start
 from the
@@ -27,11 +27,11 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```rust
-> use pancake::iroh::{self, Reachability};
-> use pancake::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::iroh::{self, Reachability};
+> use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Discovery resolves a bare iroh node ID without an address hint.
-> // Cargo.toml: pancake = { …, features = ["iroh"] }
+> // Cargo.toml: glowcap = { …, features = ["iroh"] }
 > let node_id = "<64 lowercase hex characters from the server>";
 > let partner = iroh::locator(node_id, None);
 >
@@ -42,7 +42,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > ```
 > **noise-tcp**
 > ```rust
-> use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > let peer_key = "<64 lowercase hex characters from the server>";
@@ -52,7 +52,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > ```
 > **noise-relay**
 > ```rust
-> use pancake::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Noise_XK seals the CapTP stream end to end through the relay.
 > let peer_key = "<64 lowercase hex characters from the server>";
@@ -65,10 +65,10 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > ```
 > **onion**
 > ```rust
-> use pancake::onion::{self, Config};
-> use pancake::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::onion::{self, Config};
+> use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
-> // pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+> // glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 > let partner = onion::locator("<56-character onion service id>");
 > let runtime = Runtime::open(RuntimeConfig::providers([onion::provider(
 > 	Config::dial_only("/run/tor/socks"),
@@ -77,7 +77,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > ```
 > **keyed-tcp**
 > ```rust
-> use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Key designator, cleartext CapTP. Partners dial the public key; the host:port is a hint.
 > let peer_key = "<64 lowercase hex characters from the server>";
@@ -87,7 +87,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > ```
 > **keyed-relay**
 > ```rust
-> use pancake::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > let peer_key = "<64 lowercase hex characters from the server>";
@@ -100,7 +100,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > ```
 > **tcp**
 > ```rust
-> use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Plain TCP uses a cleartext host and port.
 > let partner = tcp::locator("127.0.0.1", 9099);
@@ -141,11 +141,11 @@ restart; iroh binds a node id instead of a socket address.
 > []($block.attrs('code-tabs'))
 > **iroh**
 > ```rust
-> use pancake::iroh::{self, Reachability};
-> use pancake::Argument;
+> use glowcap::iroh::{self, Reachability};
+> use glowcap::Argument;
 >
 > // This listener is named by its node id. Partners can dial it from anywhere.
-> // Cargo.toml: pancake = { …, features = ["iroh"] }
+> // Cargo.toml: glowcap = { …, features = ["iroh"] }
 > let server = iroh::listen(
 >     iroh::Config::new(Reachability::Discovery),
 >     iroh::ListenOptions::default(),
@@ -154,7 +154,7 @@ restart; iroh binds a node id instead of a socket address.
 > ```
 > **noise-tcp**
 > ```rust
-> use pancake::{tcp, Argument};
+> use glowcap::{tcp, Argument};
 >
 > // Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > let seed = [7u8; 32]; // replace with durable secret bytes across restarts
@@ -170,7 +170,7 @@ restart; iroh binds a node id instead of a socket address.
 > ```
 > **noise-relay**
 > ```rust
-> use pancake::{relay, Argument};
+> use glowcap::{relay, Argument};
 >
 > // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > let seed = [7u8; 32]; // replace with durable secret bytes across restarts
@@ -186,10 +186,10 @@ restart; iroh binds a node id instead of a socket address.
 > ```
 > **onion**
 > ```rust
-> use pancake::onion::{self, Auth, Config};
-> use pancake::Argument;
+> use glowcap::onion::{self, Auth, Config};
+> use glowcap::Argument;
 >
-> // pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+> // glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 > let config = Config::dial_only("/run/tor/socks")
 >     .with_control("/run/tor/control", Auth::None);
 > let server = onion::listen(config, onion::ListenOptions::default()).await?;
@@ -197,7 +197,7 @@ restart; iroh binds a node id instead of a socket address.
 > ```
 > **keyed-tcp**
 > ```rust
-> use pancake::{tcp, Argument};
+> use glowcap::{tcp, Argument};
 >
 > // Key designator, cleartext CapTP. Reuse a 32-byte seed to keep the same key.
 > let seed = [7u8; 32]; // replace with durable secret bytes across restarts
@@ -213,7 +213,7 @@ restart; iroh binds a node id instead of a socket address.
 > ```
 > **tcp**
 > ```rust
-> use pancake::{tcp, Argument};
+> use glowcap::{tcp, Argument};
 >
 > // Plain TCP binds the host and port you choose.
 > let server = tcp::listen("127.0.0.1", 9099, tcp::ListenOptions::default()).await?;
@@ -262,7 +262,7 @@ from `listen`.
 [Concepts]($link.page('concepts')) covers pipelining and attenuation.
 
 The complete API lives in the
-[Rust binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/rust/README.md),
+[Rust binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/rust/README.md),
 and the
-[rooms chat client](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/clients/rust/client.rs)
+[rooms chat client](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/clients/rust/client.rs)
 shows the binding in a complete application.

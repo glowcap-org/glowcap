@@ -1,6 +1,6 @@
 // Session-side calls for independently revocable archive-peer shares (ADR-0140).
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import { type ArchiveFilter, archiveFilterRow, parseArchiveFilter } from "./protocol.ts";
 import { ARCHIVE_LIST_SHARES, ARCHIVE_REVOKE_SHARE, ARCHIVE_SHARE } from "./durable_protocol.ts";

@@ -21,7 +21,7 @@
 // toggle arms a local tab mid-life; an attached take is refused.
 
 import * as store from "../store.ts";
-import { enableTrace, retainSecondaryFailure } from "@pancake/runtime";
+import { enableTrace, retainSecondaryFailure } from "@glowcap/runtime";
 import { publishViz, type VizPublisher } from "../../../lib/viz_publish.ts";
 import { presentedSwiss } from "../../../lib/operations.ts";
 import * as prefs from "../prefs.ts";

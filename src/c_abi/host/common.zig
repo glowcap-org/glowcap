@@ -1,5 +1,5 @@
 //! Shared internal glue for the byte-fed host tier's C ABI
-//! (`libpancake_host`).
+//! (`libglowcap_host`).
 //!
 //! This leaf declares no `export fn`: it is not part of the public surface.
 //! It owns the host instance state (`Instance`), the C-behavior bridge
@@ -8,7 +8,7 @@
 //! turn exports share (`valueMessageFromC`, hosted-behavior marshalling).
 //! The `host`,
 //! `session`, `turn`, and `pump` leaves import it; the module root
-//! (`mod.zig`) re-exports their `pancake_host_*` exports and owns the public C
+//! (`mod.zig`) re-exports their `glowcap_host_*` exports and owns the public C
 //! types those exports fill.
 
 const std = @import("std");
@@ -35,17 +35,17 @@ pub const Host = driver_core.Host;
 pub const HostSession = driver_core.HostSession;
 pub const HostError = driver_core.HostError;
 
-pub const PancakeHost = c.PancakeHost;
-pub const PancakeHostSession = c.PancakeHostSession;
-pub const PancakeHostTurn = c.PancakeHostTurn;
-pub const PancakeHostAction = c.PancakeHostAction;
-pub const PancakeHostBehavior = c.PancakeHostBehavior;
-pub const PancakeHostCtxFree = c.PancakeHostCtxFree;
+pub const GlowcapHost = c.GlowcapHost;
+pub const GlowcapHostSession = c.GlowcapHostSession;
+pub const GlowcapHostTurn = c.GlowcapHostTurn;
+pub const GlowcapHostAction = c.GlowcapHostAction;
+pub const GlowcapHostBehavior = c.GlowcapHostBehavior;
+pub const GlowcapHostCtxFree = c.GlowcapHostCtxFree;
 
-pub const PANCAKE_OK = shared.PANCAKE_OK;
-pub const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-pub const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
-pub const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
+pub const GLOWCAP_OK = shared.GLOWCAP_OK;
+pub const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+pub const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+pub const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 
 /// The retained-capacity ceiling for the per-call scratch arenas: capacity a
 /// burst grew above this is freed at the next reset, the steady-bytes posture
@@ -73,11 +73,11 @@ pub const Instance = struct {
     /// diagnostic namespace to allocate from.
     diagnostic_id: u64,
     drive_owner: DriveOwner = .embedder,
-    /// The C trace callback (`pancake_host_set_trace`), bridged onto the
+    /// The C trace callback (`glowcap_host_set_trace`), bridged onto the
     /// core's sink; null when tracing is off.
-    trace_cb: ?c.PancakeTraceCallback = null,
+    trace_cb: ?c.GlowcapTraceCallback = null,
     trace_ctx: ?*anyopaque = null,
-    /// The drained trace ring (`pancake_host_set_trace_queue`), for an
+    /// The drained trace ring (`glowcap_host_set_trace_queue`), for an
     /// embedder that cannot take the callback; null when none is installed.
     /// Host-scope, so a session pays nothing for it.
     trace_queue: ?*trace_queue.TraceQueue = null,
@@ -94,13 +94,13 @@ pub const Instance = struct {
     turn_scratch: std.heap.ArenaAllocator,
     /// Scratch owning a SETTLE action's projected `value` sub-structure
     /// (`argumentToC`'s child arrays), reset at the head of each
-    /// `pancake_host_next_action` — the C children and the model value in the
+    /// `glowcap_host_next_action` — the C children and the model value in the
     /// popped action row both die at the next `next_action` call, one
     /// lifetime sentence, the one DIAL already carries.
     completion_scratch: std.heap.ArenaAllocator,
 };
 
-pub const zero_action = PancakeHostAction{
+pub const zero_action = GlowcapHostAction{
     .kind = 0,
     .ticket = 0,
     .route_index = 0,
@@ -108,7 +108,7 @@ pub const zero_action = PancakeHostAction{
     .value = shared.zero_argument,
     .message = null,
     .message_len = 0,
-    .result = PANCAKE_OK,
+    .result = GLOWCAP_OK,
 };
 
 /// Destroy one Host instance after its drive owner has ended all access.
@@ -128,7 +128,7 @@ pub fn releaseInstance(inst: *Instance) ?anyerror {
     return failure;
 }
 
-pub fn releaseFromDriver(handle: *PancakeHost) ?anyerror {
+pub fn releaseFromDriver(handle: *GlowcapHost) ?anyerror {
     const inst = instanceFrom(handle).?;
     std.debug.assert(inst.drive_owner == .driver);
     std.debug.assert(!inst.core.withinCallback());
@@ -137,7 +137,7 @@ pub fn releaseFromDriver(handle: *PancakeHost) ?anyerror {
 
 /// Project one settled/failed completion onto the shared C action shape.
 /// The caller resets `completion_scratch` once before this operation.
-pub fn projectCompletionInto(inst: *Instance, action: driver_core.HostAction, slot: *PancakeHostAction) i32 {
+pub fn projectCompletionInto(inst: *Instance, action: driver_core.HostAction, slot: *GlowcapHostAction) i32 {
     const projection = inst.core.projectCompletion(
         action,
         inst.completion_scratch.allocator(),
@@ -147,25 +147,25 @@ pub fn projectCompletionInto(inst: *Instance, action: driver_core.HostAction, sl
     slot.* = zero_action;
     switch (projection) {
         .settled => |settled| {
-            slot.kind = c.PANCAKE_HOST_ACTION_SETTLE;
+            slot.kind = c.GLOWCAP_HOST_ACTION_SETTLE;
             slot.ticket = settled.vow_id;
             slot.value = settled.value;
         },
         .failed => |failed| {
-            slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
+            slot.kind = c.GLOWCAP_HOST_ACTION_FAIL;
             slot.ticket = failed.vow_id;
             slot.result = switch (failed.failure) {
-                .broken => shared.PANCAKE_ERR_BROKEN,
-                .closed => shared.PANCAKE_ERR_CLOSED,
+                .broken => shared.GLOWCAP_ERR_BROKEN,
+                .closed => shared.GLOWCAP_ERR_CLOSED,
             };
             if (failed.message.len != 0) slot.message = failed.message.ptr;
             slot.message_len = failed.message.len;
         },
     }
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-pub fn instanceFrom(handle: ?*PancakeHost) ?*Instance {
+pub fn instanceFrom(handle: ?*GlowcapHost) ?*Instance {
     return @ptrCast(@alignCast(handle orelse return null));
 }
 
@@ -178,11 +178,11 @@ pub fn embedderOwnsDrive(inst: *Instance, operation: []const u8) bool {
     return false;
 }
 
-pub fn sessionFrom(handle: ?*PancakeHostSession) ?*HostSession {
+pub fn sessionFrom(handle: ?*GlowcapHostSession) ?*HostSession {
     return @ptrCast(@alignCast(handle orelse return null));
 }
 
-pub fn turnFrom(handle: ?*PancakeHostTurn) ?*actors.Turn {
+pub fn turnFrom(handle: ?*GlowcapHostTurn) ?*actors.Turn {
     return @ptrCast(@alignCast(handle orelse return null));
 }
 
@@ -200,7 +200,7 @@ pub fn sessionOfTurn(t: *actors.Turn) *HostSession {
 }
 
 /// Map a host-tier error to a C return code, recording the name for
-/// `pancake_host_last_error`.
+/// `glowcap_host_last_error`.
 pub fn errToCode(err: anyerror) i32 {
     // The marshal leaf raises `InvalidArgument` only after writing a message
     // naming the value it refused (`shared.refKindFromC`), which is the whole
@@ -209,8 +209,8 @@ pub fn errToCode(err: anyerror) i32 {
     if (err != error.InvalidArgument) shared.setLastError("host: {s}", .{@errorName(err)});
     return switch (err) {
         // These are C marshalling failures, not Host-domain failures.
-        error.UnsupportedValue => shared.PANCAKE_ERR_UNSUPPORTED_VALUE,
-        error.NullPointer => PANCAKE_ERR_NULL_POINTER,
+        error.UnsupportedValue => shared.GLOWCAP_ERR_UNSUPPORTED_VALUE,
+        error.NullPointer => GLOWCAP_ERR_NULL_POINTER,
         else => host_error.fromError(err),
     };
 }
@@ -236,9 +236,9 @@ pub fn preflightHostedTransfer(inst: *Instance) ?i32 {
 /// allocator and freed by its own `freeThunk` when the actor's box drops
 /// (Host release, or a failed construction after ownership transfers).
 pub const HostedBehavior = struct {
-    behavior: PancakeHostBehavior,
+    behavior: GlowcapHostBehavior,
     ctx: ?*anyopaque,
-    free: ?PancakeHostCtxFree,
+    free: ?GlowcapHostCtxFree,
     allocator: std.mem.Allocator,
 
     /// The vat calls this on each deliver. It marshals the message into C,
@@ -263,7 +263,7 @@ pub const HostedBehavior = struct {
             c_args.len,
             &reply,
         );
-        if (code != PANCAKE_OK) return error.ForeignBehaviorBroke;
+        if (code != GLOWCAP_OK) return error.ForeignBehaviorBroke;
         return try hostArgumentFromCOwned(inst, session, arena, reply, 0);
     }
 
@@ -282,9 +282,9 @@ pub const HostedBehavior = struct {
 /// `ctx` contract and invokes `free`; after return, `HostedActor.free` does.
 pub fn hostedBridge(
     alloc: std.mem.Allocator,
-    behavior: PancakeHostBehavior,
+    behavior: GlowcapHostBehavior,
     ctx: ?*anyopaque,
-    free: ?PancakeHostCtxFree,
+    free: ?GlowcapHostCtxFree,
 ) !actors.HostedActor {
     const bridge = alloc.create(HostedBehavior) catch |e| {
         if (free) |f| f(ctx);
@@ -306,7 +306,7 @@ pub fn valueMessageFromC(
     inst: *Instance,
     verb: ?[*]const u8,
     verb_len: usize,
-    args: ?[*]const shared.PancakeArgument,
+    args: ?[*]const shared.GlowcapArgument,
     args_len: usize,
 ) !ValueMessage {
     const verb_slice = try shared.sliceFromC(verb, verb_len);
@@ -328,7 +328,7 @@ pub fn valueMessageFromC(
     };
 }
 
-fn decodeHostCapability(inst: *Instance, ref: shared.PancakeReference) anyerror!driver_core.Capability {
+fn decodeHostCapability(inst: *Instance, ref: shared.GlowcapReference) anyerror!driver_core.Capability {
     return inst.core.capabilityFromRaw(ref.id);
 }
 
@@ -337,7 +337,7 @@ const HostRefContext = struct {
     session: *HostSession,
 };
 
-fn decodeHostReference(ctx: HostRefContext, ref: shared.PancakeReference) anyerror!model.Reference {
+fn decodeHostReference(ctx: HostRefContext, ref: shared.GlowcapReference) anyerror!model.Reference {
     return ctx.inst.core.lowerCapability(ctx.session, ctx.inst.core.capabilityFromRaw(ref.id));
 }
 
@@ -345,7 +345,7 @@ fn decodeHostReference(ctx: HostRefContext, ref: shared.PancakeReference) anyerr
 /// reference arm refuses, because the settle carries no session to home a
 /// capability — an answer that carries authority takes the turn's
 /// forward-to-send path instead.
-fn refusePlainReference(ctx: void, ref: shared.PancakeReference) anyerror!model.Reference {
+fn refusePlainReference(ctx: void, ref: shared.GlowcapReference) anyerror!model.Reference {
     _ = ctx;
     _ = ref;
     return HostError.ForeignArgument;
@@ -355,7 +355,7 @@ fn refusePlainReference(ctx: void, ref: shared.PancakeReference) anyerror!model.
 /// instance's argument scratch (borrowed byte payloads; the vat's settle
 /// spine clones what a listener may outlive). Resets the scratch exactly as
 /// `valueMessageFromC` does at a top-level call.
-pub fn plainArgumentFromC(inst: *Instance, arg: shared.PancakeArgument) !model.Argument {
+pub fn plainArgumentFromC(inst: *Instance, arg: shared.GlowcapArgument) !model.Argument {
     if (!inst.core.withinCallback())
         _ = inst.arg_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
     return shared.argumentFromCWith(anyerror, {}, refusePlainReference, inst.arg_scratch.allocator(), arg, 0, false);
@@ -365,66 +365,66 @@ pub fn hostArgumentFromCOwned(
     inst: *Instance,
     session: *HostSession,
     arena: std.mem.Allocator,
-    arg: shared.PancakeArgument,
+    arg: shared.GlowcapArgument,
     depth: usize,
 ) !model.Argument {
     return shared.argumentFromCWith(anyerror, HostRefContext{ .inst = inst, .session = session }, decodeHostReference, arena, arg, depth, true);
 }
 
-pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!shared.PancakeArgument {
+pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!shared.GlowcapArgument {
     var out = shared.zero_argument;
     switch (value) {
         .integer => |v| {
-            out.kind = shared.PANCAKE_ARG_INTEGER;
+            out.kind = shared.GLOWCAP_ARG_INTEGER;
             out.integer = v;
         },
         .float64 => |v| {
-            out.kind = shared.PANCAKE_ARG_FLOAT64;
+            out.kind = shared.GLOWCAP_ARG_FLOAT64;
             out.float64 = v;
         },
         .boolean => |v| {
-            out.kind = shared.PANCAKE_ARG_BOOLEAN;
+            out.kind = shared.GLOWCAP_ARG_BOOLEAN;
             out.boolean = if (v) 1 else 0;
         },
         .bytes => |bytes| {
-            out.kind = shared.PANCAKE_ARG_BYTES;
+            out.kind = shared.GLOWCAP_ARG_BYTES;
             out.bytes = bytes.ptr;
             out.bytes_len = bytes.len;
         },
         .string => |bytes| {
-            out.kind = shared.PANCAKE_ARG_STRING;
+            out.kind = shared.GLOWCAP_ARG_STRING;
             out.bytes = bytes.ptr;
             out.bytes_len = bytes.len;
         },
         .symbol => |bytes| {
-            out.kind = shared.PANCAKE_ARG_SYMBOL;
+            out.kind = shared.GLOWCAP_ARG_SYMBOL;
             out.bytes = bytes.ptr;
             out.bytes_len = bytes.len;
         },
         .@"error" => |reason| {
-            out.kind = shared.PANCAKE_ARG_ERROR;
+            out.kind = shared.GLOWCAP_ARG_ERROR;
             out.bytes = reason.message.ptr;
             out.bytes_len = reason.message.len;
         },
-        .void => out.kind = shared.PANCAKE_ARG_VOID,
+        .void => out.kind = shared.GLOWCAP_ARG_VOID,
         .capability => |capability| {
-            out.kind = shared.PANCAKE_ARG_REFERENCE;
+            out.kind = shared.GLOWCAP_ARG_REFERENCE;
             out.reference = .{ .id = capability.raw() };
         },
         .list => |items| {
-            out.kind = shared.PANCAKE_ARG_LIST;
+            out.kind = shared.GLOWCAP_ARG_LIST;
             const projected = try valuesToC(arena, items);
             out.items = projected.ptr;
             out.items_len = projected.len;
         },
         .set => |items| {
-            out.kind = shared.PANCAKE_ARG_SET;
+            out.kind = shared.GLOWCAP_ARG_SET;
             const projected = try valuesToC(arena, items);
             out.items = projected.ptr;
             out.items_len = projected.len;
         },
         .tagged => |tagged| {
-            out.kind = shared.PANCAKE_ARG_TAGGED;
+            out.kind = shared.GLOWCAP_ARG_TAGGED;
             out.bytes = tagged.tag.ptr;
             out.bytes_len = tagged.tag.len;
             const projected = try valuesToC(arena, tagged.value);
@@ -432,22 +432,22 @@ pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!sha
             out.items_len = projected.len;
         },
         .keyword => |keyword| {
-            out.kind = shared.PANCAKE_ARG_KEYWORD;
+            out.kind = shared.GLOWCAP_ARG_KEYWORD;
             out.bytes = keyword.ptr;
             out.bytes_len = keyword.len;
         },
         .big_integer => |big| {
-            out.kind = shared.PANCAKE_ARG_BIG_INTEGER;
+            out.kind = shared.GLOWCAP_ARG_BIG_INTEGER;
             out.boolean = if (big.negative) 1 else 0;
             out.bytes = big.digits.ptr;
             out.bytes_len = big.digits.len;
         },
         .@"struct" => |entries| {
-            out.kind = shared.PANCAKE_ARG_STRUCT;
-            const projected = try arena.alloc(shared.PancakeArgument, entries.len * 2);
+            out.kind = shared.GLOWCAP_ARG_STRUCT;
+            const projected = try arena.alloc(shared.GlowcapArgument, entries.len * 2);
             for (entries, 0..) |entry, i| {
                 var key = shared.zero_argument;
-                key.kind = shared.PANCAKE_ARG_STRING;
+                key.kind = shared.GLOWCAP_ARG_STRING;
                 key.bytes = entry.key.ptr;
                 key.bytes_len = entry.key.len;
                 projected[i * 2] = key;
@@ -460,13 +460,13 @@ pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!sha
     return out;
 }
 
-fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) anyerror![]shared.PancakeArgument {
-    const out = try arena.alloc(shared.PancakeArgument, values.len);
+fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) anyerror![]shared.GlowcapArgument {
+    const out = try arena.alloc(shared.GlowcapArgument, values.len);
     for (values, out) |value, *slot| slot.* = try valueToC(arena, value);
     return out;
 }
 
-pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, args: []const model.Argument) ![]shared.PancakeArgument {
+pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, args: []const model.Argument) ![]shared.GlowcapArgument {
     return inst.core.projectValues(session, arena, args, arena, valuesToC);
 }
 
@@ -477,7 +477,7 @@ pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Alloca
 /// than being spelled at each of them.
 pub fn provenanceToC(provenance: driver_core.DurableProvenance) u32 {
     return switch (provenance) {
-        .authenticated_transport => c.PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
-        .unauthenticated => c.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED,
+        .authenticated_transport => c.GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
+        .unauthenticated => c.GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED,
     };
 }

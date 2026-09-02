@@ -8,13 +8,13 @@ import os
 from typing import Any, cast
 import unittest
 
-from pancake._ws import _WebSocketTransport, _WS_MESSAGE_HIGH_WATER
+from glowcap._ws import _WebSocketTransport, _WS_MESSAGE_HIGH_WATER
 
 RELAY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "relay.py"
 )
 RELAY_SPEC = importlib.util.spec_from_file_location(
-    "pancake_reference_relay", RELAY_PATH
+    "glowcap_reference_relay", RELAY_PATH
 )
 assert RELAY_SPEC is not None and RELAY_SPEC.loader is not None
 relay = cast(Any, importlib.util.module_from_spec(RELAY_SPEC))

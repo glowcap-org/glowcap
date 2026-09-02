@@ -20,8 +20,8 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`) and
 // a live internet connection; run via `zig build deno-iroh-reachability`.
 
-import { Runtime, type Session } from "@pancake/runtime";
-import { type IrohServer, listen, locator, provider, Reachability } from "@pancake/iroh";
+import { Runtime, type Session } from "@glowcap/runtime";
+import { type IrohServer, listen, locator, provider, Reachability } from "@glowcap/iroh";
 import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const GATE = "deno-iroh-reachability";

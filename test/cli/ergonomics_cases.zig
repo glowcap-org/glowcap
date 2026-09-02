@@ -1,4 +1,4 @@
-//! XDG / POSIX / human-help goldens for the pancake CLI.
+//! XDG / POSIX / human-help goldens for the glowcap CLI.
 const std = @import("std");
 const cli = @import("cli");
 
@@ -37,7 +37,7 @@ const children = [_]Command{
     },
 };
 const fixture_root: Command = .{
-    .name = "pancake",
+    .name = "glowcap",
     .short_help = "fixture",
     .flags = &root_flags,
     .children = &children,
@@ -52,12 +52,12 @@ const dash_children = [_]Command{
     },
 };
 const dash_root: Command = .{
-    .name = "pancake",
+    .name = "glowcap",
     .short_help = "fixture",
     .children = &dash_children,
 };
 
-test "defaultStateDir prefers PANCAKE_STATE then XDG_STATE_HOME" {
+test "defaultStateDir prefers GLOWCAP_STATE then XDG_STATE_HOME" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
     defer environ.deinit();
@@ -66,9 +66,9 @@ test "defaultStateDir prefers PANCAKE_STATE then XDG_STATE_HOME" {
 
     var buf: [256]u8 = undefined;
     const with_xdg = try cli.xdg.defaultStateDir(&buf, &environ, .product);
-    try std.testing.expectEqualStrings("/xdg/state/pancake", with_xdg);
+    try std.testing.expectEqualStrings("/xdg/state/glowcap", with_xdg);
 
-    try environ.put("PANCAKE_STATE", "/explicit/state");
+    try environ.put("GLOWCAP_STATE", "/explicit/state");
     const with_env = try cli.xdg.defaultStateDir(&buf, &environ, .product);
     try std.testing.expectEqualStrings("/explicit/state", with_env);
 }
@@ -82,10 +82,10 @@ test "empty XDG_STATE_HOME falls through like unset" {
 
     var buf: [256]u8 = undefined;
     const path = try cli.xdg.defaultStateDir(&buf, &environ, .product);
-    try std.testing.expectEqualStrings("/home/tester/.local/state/pancake", path);
+    try std.testing.expectEqualStrings("/home/tester/.local/state/glowcap", path);
 }
 
-test "defaultStateDir falls back to ~/.local/state/pancake" {
+test "defaultStateDir falls back to ~/.local/state/glowcap" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
     defer environ.deinit();
@@ -93,10 +93,10 @@ test "defaultStateDir falls back to ~/.local/state/pancake" {
 
     var buf: [256]u8 = undefined;
     const path = try cli.xdg.defaultStateDir(&buf, &environ, .product);
-    try std.testing.expectEqualStrings("/home/tester/.local/state/pancake", path);
+    try std.testing.expectEqualStrings("/home/tester/.local/state/glowcap", path);
 }
 
-test "mcp state posture defaults to .local/pancake-mcp-state" {
+test "mcp state posture defaults to .local/glowcap-mcp-state" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
     defer environ.deinit();
@@ -105,9 +105,9 @@ test "mcp state posture defaults to .local/pancake-mcp-state" {
 
     var buf: [256]u8 = undefined;
     const path = try cli.xdg.defaultStateDir(&buf, &environ, .mcp_local);
-    try std.testing.expectEqualStrings(".local/pancake-mcp-state", path);
+    try std.testing.expectEqualStrings(".local/glowcap-mcp-state", path);
 
-    try environ.put("PANCAKE_STATE", "/explicit/mcp");
+    try environ.put("GLOWCAP_STATE", "/explicit/mcp");
     const override = try cli.xdg.defaultStateDir(&buf, &environ, .mcp_local);
     try std.testing.expectEqualStrings("/explicit/mcp", override);
 }
@@ -121,7 +121,7 @@ test "defaultIdentityPath uses the state directory" {
 
     var buf: [256]u8 = undefined;
     const path = try cli.xdg.defaultIdentityPath(&buf, &environ, .product);
-    try std.testing.expectEqualStrings("/xdg/state/pancake/identity", path);
+    try std.testing.expectEqualStrings("/xdg/state/glowcap/identity", path);
 }
 
 test "end-of-options treats flag-shaped tokens as positionals" {
@@ -172,7 +172,7 @@ test "root help footer mentions Examples and XDG_STATE_HOME" {
     try std.testing.expect(std.mem.indexOf(u8, text, "Exit status:") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "CapTP waits (product defaults):") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "XDG_STATE_HOME") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "PANCAKE_STATE") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "GLOWCAP_STATE") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "[flags] <command>") != null);
 
     // Help formats from owning constants — prose cannot invent a different map.

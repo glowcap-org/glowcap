@@ -1,4 +1,4 @@
-import { type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { DirectorySignaling } from "../lib/directory_signal.ts";
 import { SIG_ACCEPTED } from "../lib/protocol.ts";
 import { assertEquals } from "./assert.ts";

@@ -31,30 +31,30 @@ The public C surface is a set of symbol-disjoint archives:
 
 | Package | Ownership |
 | --- | --- |
-| `libpancake_ocapn` | Shared OCapN values, locator and sturdyref operations, URI helpers, contexts, and frame ownership. |
-| `libpancake_host` | The byte-fed, multi-session CapTP application surface. |
-| `libpancake_driver` | The generic native loop over an adopted Host and installed provider packages. |
-| `libpancake_net_transport_tcp` | The complete `tcp`, `keyed-tcp`, and `noise-tcp` provider package, plus low-level TCP endpoints. |
-| `libpancake_net_transport_relay` | The complete `keyed-relay` and `noise-relay` provider package. |
+| `libglowcap_ocapn` | Shared OCapN values, locator and sturdyref operations, URI helpers, contexts, and frame ownership. |
+| `libglowcap_host` | The byte-fed, multi-session CapTP application surface. |
+| `libglowcap_driver` | The generic native loop over an adopted Host and installed provider packages. |
+| `libglowcap_net_transport_tcp` | The complete `tcp`, `keyed-tcp`, and `noise-tcp` provider package, plus low-level TCP endpoints. |
+| `libglowcap_net_transport_relay` | The complete `keyed-relay` and `noise-relay` provider package. |
 | Other transport archives | One self-contained package for in-process, onion, iroh, or WebRTC integration. |
 
-Each archive exports only its own `pancake_<family>_*` symbols and owns its own
+Each archive exports only its own `glowcap_<family>_*` symbols and owns its own
 diagnostic slot. Headers share fixed-layout declarations through
-`pancake_ocapn.h` and `pancake_transport_provider.h`. Private Zig modules are
+`glowcap_ocapn.h` and `glowcap_transport_provider.h`. Private Zig modules are
 compiled into the archive that uses them and remain local symbols. There is no
-`libpancake` umbrella and no `libpancake_net` archive with no public contract.
+`libglowcap` umbrella and no `libglowcap_net` archive with no public contract.
 
 The driver starts with zero transports. A transport archive returns one
-`PancakeTransportProvider` package containing every profile it owns. The driver
+`GlowcapTransportProvider` package containing every profile it owns. The driver
 copies the generic execution tables after retaining the package lease; it does
 not name a concrete transport or reconstruct transport-specific locators. A
 provider owns dialing, listening, readiness, locator canonicalization, and
 transport policy. The Host owns CapTP state and sealed-channel policy selected
 from provider metadata.
 
-`PancakeLocatorView` is the archive-neutral locator seam. OCapN owns its
+`GlowcapLocatorView` is the archive-neutral locator seam. OCapN owns its
 semantics and construction, while a provider can borrow the fixed view without
-linking an OCapN implementation into its own behavior. `PancakeSturdyRef`
+linking an OCapN implementation into its own behavior. `GlowcapSturdyRef`
 remains a separate value because its swiss bytes carry authority a locator does
 not.
 
@@ -96,7 +96,7 @@ mirror of the provider set.
 sidecars become dependencies of every consumer, and one artifact obscures
 ownership rather than providing composition.
 
-**Publish a common `libpancake_net` implementation archive.** Rejected because
+**Publish a common `libglowcap_net` implementation archive.** Rejected because
 the proposed archive had no public consumer contract. Making private Zig
 internals into an exported C ABI would freeze an extra boundary solely to avoid
 some local code duplication. Provider packages already give the driver the

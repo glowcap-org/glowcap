@@ -27,12 +27,12 @@
 //! in the test.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
-const capnp = pancake.ocapn.codec.capnp;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
+const capnp = glowcap.ocapn.codec.capnp;
 
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it

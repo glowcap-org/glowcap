@@ -30,7 +30,7 @@ pub const EventKind = enum {
 
 comptime {
     // A new `model.Message` arm cannot land without its `EventKind` mirror; the
-    // C `PANCAKE_EVENT_*` block is forced in turn by `eventKindToC`'s exhaustive
+    // C `GLOWCAP_EVENT_*` block is forced in turn by `eventKindToC`'s exhaustive
     // switch over this enum.
     model.assertMirrorsMessageKinds(EventKind);
 }
@@ -191,7 +191,7 @@ pub fn resolutionFromResolverCallback(
 
 /// The one break-payload shape table: the reason text a break payload carries,
 /// or null when the shape has no usable text. Accepts every shape a live
-/// partner emits, pancake's own bare Symbol (mirroring the listener fire), a
+/// partner emits, glowcap's own bare Symbol (mirroring the listener fire), a
 /// next `<error>` record, text, or a Goblins exception record such as
 /// `<exn:fail:mystery>`, whose tag is the only reason it carries. `anytype`
 /// over the borrowed `model.view.Argument` and the owned `model.Argument`, the

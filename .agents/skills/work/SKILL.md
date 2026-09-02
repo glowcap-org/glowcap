@@ -1,16 +1,16 @@
 ---
 name: work
 description: >-
-  Use when starting substantial pancake work, scoping features, architectural
+  Use when starting substantial glowcap work, scoping features, architectural
   moves, naming or module-boundary sweeps, release readiness, multi-file
   refactors, or reviews that should end in action or evidenced inaction. Skip
   for one-line fixes and pure questions where a focused rule already specifies
   the path.
 ---
 
-# pancake — Work Skill
+# glowcap — Work Skill
 
-Substantial work leaves pancake closer to [`docs/vision.md`](../../../docs/vision.md)
+Substantial work leaves glowcap closer to [`docs/vision.md`](../../../docs/vision.md)
 and easier to continue. Assess, then act or prove inaction. A defect discovered
 while executing an item may block it; fixing that defect clears the block and
 immediately resumes the original item—it does not redefine completion.
@@ -39,8 +39,8 @@ asked.
 | Frames, allocators, wire-path copies                  | [memory rule](../../rules/memory.md)                                                                       |
 | Semantic claims, fixtures, conformance                | [tests rule](../../rules/tests.md) + `test/oracle/`                                                        |
 | Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
-| Live CapTP from the shell (argv/REPL/listen/`--json`) | [pancake-cli skill](../pancake-cli/SKILL.md)                                                               |
-| Live CapTP via Cursor/Claude MCP tools                | [pancake-mcp skill](../pancake-mcp/SKILL.md) — dogfood CapTP while editing pancake                         |
+| Live CapTP from the shell (argv/REPL/listen/`--json`) | [glowcap-cli skill](../glowcap-cli/SKILL.md)                                                               |
+| Live CapTP via Cursor/Claude MCP tools                | [glowcap-mcp skill](../glowcap-mcp/SKILL.md) — dogfood CapTP while editing glowcap                         |
 | Room presence wake-loop                               | [rooms-peer skill](../rooms-peer/SKILL.md)                                                                   |
 | A settled boundary or vocabulary choice               | matching ADR under `docs/decisions/adr/`                                                                   |
 | OCapN current direction (settled or pending)          | updated `conformance/ocapn-spec/upstream/`: draft, recent minutes, and the owning live proposal            |
@@ -153,14 +153,14 @@ zig build check
 
 Use focused gates while iterating (see [cli rule](../../rules/cli.md)).
 When host tooling is missing but the devcontainer is already running, invoke the
-same command through `.agents/skills/work/bin/pancake-dev`, for example
-`.agents/skills/work/bin/pancake-dev zig build source-check`.
+same command through `.agents/skills/work/bin/glowcap-dev`, for example
+`.agents/skills/work/bin/glowcap-dev zig build source-check`.
 
 When the user has directed worktree commits into the shared `dev` integration
 ref, start a clean work stint with
-`.agents/skills/work/bin/pancake-integrate --sync`; it rebases onto the current
+`.agents/skills/work/bin/glowcap-integrate --sync`; it rebases onto the current
 `main` and `dev` without publishing. Commit only explicit owned paths, then run
-`.agents/skills/work/bin/pancake-integrate` without the flag to absorb both
+`.agents/skills/work/bin/glowcap-integrate` without the flag to absorb both
 shared lines again and fast-forward `dev`. Both modes discover the current
 branch from Git; the worktree/container name is deliberately not an input.
 

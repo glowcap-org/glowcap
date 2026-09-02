@@ -1,11 +1,11 @@
 // The browser side of the iroh-relay proof, bundled through
 // `browser-bundle.json` so its module graph is exactly a page's: the wasm
-// peer, the runtime, and `@pancake/iroh` mapped to the browser arm — no dlopen
+// peer, the runtime, and `@glowcap/iroh` mapped to the browser arm — no dlopen
 // anywhere. It dials the iroh locator through the ordinary `connect`, which
 // lands in the browser arm's `_connectIroh` and rides the relay named by
 // `init({ relayUrl })`. Argv: <wasm-path> <relay-port> <ocapn-uri>.
 
-import { init } from "@pancake/web";
+import { init } from "@glowcap/web";
 
 const [wasmPath, relayPort, uri] = Deno.args;
 if (!wasmPath || !relayPort || !uri) {

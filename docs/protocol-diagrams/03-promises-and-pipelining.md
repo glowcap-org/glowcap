@@ -116,7 +116,7 @@ with that resolution. Nothing waits. Shapes:
 - an already-settled **answer** (suite `test_op_listen_already_has_answer`)
 - a live **object export** (fulfill of that export)
 
-A listen on a bare **promise export** is refused `InvalidReference`: pancake
+A listen on a bare **promise export** is refused `InvalidReference`: glowcap
 exports no free-standing resolvable promise, so a listener on one could never
 fire. A party that wants a resolution notification listens on the inbound
 answer it already holds.

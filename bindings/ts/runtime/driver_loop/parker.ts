@@ -1,5 +1,5 @@
-import { IO } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { IO } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import { ffi, type Symbols } from "../internal/ffi/runtime.ts";
 import { ab } from "../internal/seam.ts";
 
@@ -27,7 +27,7 @@ let parkerRunning = false;
 export function duplicateReadinessDescriptor(fd: number): number {
 	const dup = Number(libcSyms().dup(fd));
 	if (dup < 0) {
-		throw new PancakeError(IO, "dup of the loop readiness descriptor failed");
+		throw new GlowcapError(IO, "dup of the loop readiness descriptor failed");
 	}
 	return dup;
 }
@@ -83,7 +83,7 @@ async function runParker(): Promise<void> {
 		});
 		const n = Number(await libcSyms().poll(ab(set), BigInt(rows.length), PARK_MS));
 		if (n < 0) {
-			const error = new PancakeError(IO, "poll of loop readiness descriptors failed");
+			const error = new GlowcapError(IO, "poll of loop readiness descriptors failed");
 			for (const row of rows) row.failed(error);
 			break;
 		}

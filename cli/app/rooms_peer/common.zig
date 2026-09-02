@@ -1,15 +1,15 @@
-//! Shared constants and stdout emit for `pancake app rooms-peer`.
+//! Shared constants and stdout emit for `glowcap app rooms-peer`.
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 
 pub const Io = std.Io;
 pub const Allocator = std.mem.Allocator;
-pub const model = pancake.ocapn.model;
-pub const actors = pancake.actors;
-pub const driver = pancake.driver;
-pub const net = pancake.net;
-pub const crypto = pancake.foundation.crypto;
+pub const model = glowcap.ocapn.model;
+pub const actors = glowcap.actors;
+pub const driver = glowcap.driver;
+pub const net = glowcap.net;
+pub const crypto = glowcap.foundation.crypto;
 
 pub const Host = driver.core.Host;
 pub const HostSession = driver.core.HostSession;
@@ -40,7 +40,7 @@ pub const redial_cooldown_wakes: u32 = 13;
 pub const join_deadline_wakes: u32 = 100;
 pub const dial_timeout_ms: u64 = 4000;
 pub const file_cap = Io.Limit.limited(1 << 24);
-pub const default_locator = "http://pancake-rooms:8000/locator";
+pub const default_locator = "http://glowcap-rooms:8000/locator";
 pub const reply_placeholder = "YOUR REPLY HERE";
 pub const replied_cap: usize = 1200;
 
@@ -66,7 +66,7 @@ pub fn deriveRendezvousUrl(gpa: Allocator, locator: []const u8) Allocator.Error!
     return admitRelayUrl(gpa, url);
 }
 
-/// Resolve rendezvous URL: `PANCAKE_RENDEZVOUS` when set, else derive from an
+/// Resolve rendezvous URL: `GLOWCAP_RENDEZVOUS` when set, else derive from an
 /// `http://…/locator` bootstrap. Owned string or null. An explicit env value
 /// the relay URL grammar refuses is `error.InvalidRendezvousUrl`.
 pub fn resolveRendezvousUrl(gpa: Allocator, environ_rendezvous: ?[]const u8, locator: []const u8) (Allocator.Error || error{InvalidRendezvousUrl})!?[]u8 {

@@ -1,9 +1,9 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
+const foundation = glowcap.foundation;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
 
 /// Counts fresh `alloc` and growing `remap` traffic for the wire-path budget.
 const TotalCountingAllocator = struct {
@@ -97,7 +97,7 @@ fn driveOneTurn(peer: *engine.Peer) !void {
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
     const iterations: usize = 1_000_000;
-    const payload = "pancake-frame-view-baseline";
+    const payload = "glowcap-frame-view-baseline";
 
     const storage = try allocator.dupe(u8, payload);
     var frame = try foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));

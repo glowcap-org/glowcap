@@ -20,8 +20,8 @@ import {
 	within,
 	withServer,
 } from "../../support/rooms_server.ts";
-import { Argument, Ref } from "@pancake/runtime";
-import type { Session } from "@pancake/runtime";
+import { Argument, Ref } from "@glowcap/runtime";
+import type { Session } from "@glowcap/runtime";
 import { type Member, type PostedFile } from "../../../server/registry.ts";
 import { RoomServer } from "../../../server/room_server.ts";
 

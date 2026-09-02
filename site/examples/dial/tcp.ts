@@ -1,5 +1,5 @@
-import { locator, provider } from "@pancake/tcp";
-import { Runtime } from "@pancake/runtime";
+import { locator, provider } from "@glowcap/tcp";
+import { Runtime } from "@glowcap/runtime";
 
 // Plain TCP uses a cleartext host and port.
 const partner = locator("127.0.0.1", 9099);

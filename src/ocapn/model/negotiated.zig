@@ -33,7 +33,7 @@ pub const CodecId = enum(u16) {
 /// features it can do. Plain vocabulary, like everything else in this file —
 /// the session records each side's, and `engine.negotiation` settles them.
 ///
-/// Only the preference travels, never the accepted set, because a pancake peer
+/// Only the preference travels, never the accepted set, because a glowcap peer
 /// speaks the v1.0 Syrup baseline by construction: it must, to reach a Goblins
 /// vat at all. So what a peer accepts is derivable from what it prefers, and a
 /// peer that names nothing has said "the baseline".
@@ -42,10 +42,10 @@ pub const Preference = struct {
     codec: CodecId = .syrup,
     features: FeatureSet = FeatureSet.defaultOffer(),
 
-    /// What pancake offers when a caller does not override the session profile.
+    /// What glowcap offers when a caller does not override the session profile.
     pub const default_offer: Preference = .{};
 
-    /// Pancake's coherent peer-to-peer preference. Applications select this
+    /// Glowcap's coherent peer-to-peer preference. Applications select this
     /// as one profile rather than pairing its codec and CapTP version by hand.
     pub const native: Preference = .{
         .captp_version = .next,
@@ -59,9 +59,9 @@ pub const Preference = struct {
 };
 
 /// CapTP version spoken on a session. Two jobs, one axis:
-/// - `v1_0` / `"1.0"` — pancake's current Goblins 0.18.0 and pinned-suite
+/// - `v1_0` / `"1.0"` — glowcap's current Goblins 0.18.0 and pinned-suite
 ///   interop floor. The wire token does not claim the draft is released.
-/// - `next` / `"pancake-next"` — pancake-forward private track for pancake-to-pancake.
+/// - `next` / `"glowcap-next"` — glowcap-forward private track for glowcap-to-glowcap.
 pub const CaptpVersion = enum {
     v1_0,
     next,
@@ -69,7 +69,7 @@ pub const CaptpVersion = enum {
     pub fn wireString(self: CaptpVersion) []const u8 {
         return switch (self) {
             .v1_0 => "1.0",
-            .next => "pancake-next",
+            .next => "glowcap-next",
         };
     }
 
@@ -78,7 +78,7 @@ pub const CaptpVersion = enum {
     pub fn name(self: CaptpVersion) []const u8 {
         return switch (self) {
             .v1_0 => "ocapn-v1.0",
-            .next => "pancake-next",
+            .next => "glowcap-next",
         };
     }
 
@@ -107,7 +107,7 @@ pub const FeatureSet = packed struct {
     sturdyref: bool = false,
     /// The peer explicitly advertises that it accepts outbound `op:untag`.
     /// Inbound `op:untag` remains part of OCapN 1.0 and is accepted regardless
-    /// of this bit. The distinction lets a pancake peer avoid sending the
+    /// of this bit. The distinction lets a glowcap peer avoid sending the
     /// operation to Goblins, whose absent feature hint means the baseline set.
     untag: bool = false,
     /// Private identity-route vocabulary. A peer must advertise this before an
@@ -131,7 +131,7 @@ pub const FeatureSet = packed struct {
     }
 
     /// Capabilities an OCapN 1.0 peer can be assumed to support when it sends
-    /// no pancake feature hint. This is intentionally not `full`: the pinned
+    /// no glowcap feature hint. This is intentionally not `full`: the pinned
     /// draft includes `op:untag`, but Goblins does not implement it.
     pub fn baseline() FeatureSet {
         return .{
@@ -142,7 +142,7 @@ pub const FeatureSet = packed struct {
         };
     }
 
-    /// Full pancake-native feature set: every feature field, driven off the
+    /// Full glowcap-native feature set: every feature field, driven off the
     /// field list itself so a new feature joins automatically.
     pub fn full() FeatureSet {
         var out: FeatureSet = .{};
@@ -152,7 +152,7 @@ pub const FeatureSet = packed struct {
         return out;
     }
 
-    /// Pancake's implicit offer keeps private route vocabulary silent. Callers
+    /// Glowcap's implicit offer keeps private route vocabulary silent. Callers
     /// opt in per session so enabling it cannot change baseline bytes.
     pub fn defaultOffer() FeatureSet {
         var out = FeatureSet.full();
@@ -161,7 +161,7 @@ pub const FeatureSet = packed struct {
     }
 
     /// Features usable under the active CapTP version. `multi_location` is
-    /// pancake-next identity-route vocabulary: a v1.0 session may hear an offer
+    /// glowcap-next identity-route vocabulary: a v1.0 session may hear an offer
     /// bit, but the settled session must not report it as usable.
     pub fn forCaptpVersion(self: FeatureSet, captp_version: CaptpVersion) FeatureSet {
         var out = self;

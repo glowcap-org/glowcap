@@ -9,13 +9,13 @@
 
 set -uo pipefail
 
-dir="${PANCAKE_DEVCONTAINER_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
 # shellcheck source=../lib/playwright.sh
 source "${dir}/lib/playwright.sh"
-pancake_devcontainer_init "${dir}"
-pancake_require_devcontainer "image/verify-toolchains"
+glowcap_devcontainer_init "${dir}"
+glowcap_require_devcontainer "image/verify-toolchains"
 
 failures=()
 
@@ -70,18 +70,15 @@ expect_on_path() {
     done
 }
 
-# Every pin is read through require_pin (directly or via expect_pin_*), because
-# this script also runs against the pins.sh baked into the image
-# (PANCAKE_DEVCONTAINER_DIR), which is one image build behind the repository
-# whenever a pin is being added. Under `set -u` a bare reference to the new pin
-# would abort the whole run on that skew, which is the tripwire behavior this
-# file exists to avoid; reported as a failure, it says what is missing and the
-# checks below it still run.
+# Every pin is read through require_pin (directly or via expect_pin_*), so a
+# missing variable is a listed failure and the checks below it still run.
+# `set -u` would abort the rest of the run, which is the tripwire behavior
+# this file exists to avoid.
 require_pin() {
     local label="$1"
     local var="$2"
     if [[ -z "${!var:-}" ]]; then
-        fail "${label}: ${var} is not set by this run's pins.sh (a baked pins.sh runs one image build behind while a pin lands; rebuild, or run against the repository's .devcontainer)"
+        fail "${label}: ${var} is not set by this run's pins.sh"
         return 1
     fi
 }
@@ -103,7 +100,7 @@ expect_pin_contains() {
 }
 
 expect_pin_equals "zig" ZIG_VERSION zig version
-if pancake_devcontainer_zls_enabled; then
+if glowcap_devcontainer_zls_enabled; then
     expect_pin_equals "zls" ZLS_VERSION zls --version
 elif command -v zls >/dev/null; then
     fail "zls: installed even though ZLS_ENABLED=false"
@@ -141,7 +138,7 @@ expect_pin_contains "codex" CODEX_VERSION codex --version
 # directory, and during the image build that directory is the vscode user's
 # bind-mount target while this runs as root, so both checks are pointed at a
 # scratch directory that goes away with them.
-cursor_state="$(mktemp -d -t pancake-cursor-agent-verify-XXXXXX)"
+cursor_state="$(mktemp -d -t glowcap-cursor-agent-verify-XXXXXX)"
 expect_pin_equals "cursor-agent" CURSOR_AGENT_VERSION \
     env "CURSOR_CONFIG_DIR=${cursor_state}" "CURSOR_DATA_DIR=${cursor_state}" cursor-agent --version
 expect_pin_equals "cursor-agent (agent)" CURSOR_AGENT_VERSION \
@@ -157,7 +154,7 @@ rm -rf "${cursor_state}"
 # as every version pin above.
 if require_pin "playwright" PLAYWRIGHT_BROWSERS_PATH; then
     browsers_path="${PLAYWRIGHT_BROWSERS_PATH}"
-    if ! pancake_playwright_binaries "${browsers_path}"; then
+    if ! glowcap_playwright_binaries "${browsers_path}"; then
         fail "playwright: expected exactly one Chromium and one headless shell under ${browsers_path}; image/playwright.sh puts them there during the image build, so rebuild the container"
     else
         for bin in "${playwright_bins[@]}"; do
@@ -176,6 +173,11 @@ if require_pin "ocapn-conformance-python" OCAPN_CONFORMANCE_PYTHON; then
         uv python find "${OCAPN_CONFORMANCE_PYTHON}"
 fi
 expect_pin_contains "serena" SERENA_AGENT_VERSION serena --version
+
+# The pane runtime docker-execs /bin/zsh, and the workspace user's login shell
+# is that same path. It is an image package so a Dockerfile-only build still
+# has the shell post-create requires; the common-utils feature may wrap it.
+expect_ok "zsh" /bin/zsh --version
 
 # Tor is presence-only like the other apt packages, and it is checked by running
 # the binary rather than testing the path: the Debian package installs it under

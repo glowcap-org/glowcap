@@ -1,7 +1,7 @@
 //! The CapTP [`Host`] — multi-session CapTP product over the byte-fed host archive
-//! (`libpancake_host`, ADR-0072). It owns `engine.Node` (the sans-io handoff
+//! (`libglowcap_host`, ADR-0072). It owns `engine.Node` (the sans-io handoff
 //! router). Goblins' `mycapn` is two roles: product maps to Host, router tables map to
-//! `engine.Node` — never a single-type equation (ADR-0079). The `PancakeHost`
+//! `engine.Node` — never a single-type equation (ADR-0079). The `GlowcapHost`
 //! owns every decision: the retained identity, session directory,
 //! routing, transparent three-party redemption, and the gifter half's
 //! origination. This package owns only what the embedder contract leaves to the
@@ -13,12 +13,12 @@
 //! `session.rs`.
 //!
 //! Threading model: everything runs on one tokio current-thread `LocalSet`.
-//! Tasks yield only at `.await` and no `pancake_host_*` call contains one, so
+//! Tasks yield only at `.await` and no `glowcap_host_*` call contains one, so
 //! a verb-plus-register-plus-kick sequence is naturally atomic with no lock
 //! and no progress semaphore. The one discipline rule that replaces a lock: no
 //! `RefCell` borrow is held across an FFI call that can fire the behavior
-//! trampoline (`pancake_host_session_feed_bytes`, `pancake_host_dialed`,
-//! `pancake_host_provide_gift_id`) — take, drop,
+//! trampoline (`glowcap_host_session_feed_bytes`, `glowcap_host_dialed`,
+//! `glowcap_host_provide_gift_id`) — take, drop,
 //! call.
 
 use std::cell::{Cell, RefCell};
@@ -54,7 +54,7 @@ use vows::VowTable;
 pub use public::{Host, HostOptions, ListenerIdentity, Resolver, SessionLimitOptions};
 
 /// Every connection's maximum admissible frame; mirrors
-/// `PANCAKE_DEFAULT_FRAME_CAP`.
+/// `GLOWCAP_DEFAULT_FRAME_CAP`.
 const HOST_FRAME_CAP: usize = sys::DEFAULT_FRAME_CAP;
 
 /// Cap on stored outcomes whose vow is never awaited, so the store cannot grow
@@ -91,13 +91,13 @@ fn host_refusal(code: i32, operation: &str) -> Error {
 }
 
 crate::error_slot::error_slot!(
-	/// Like the core `check`, but for `pancake_host_*` calls: snapshot the host
+	/// Like the core `check`, but for `glowcap_host_*` calls: snapshot the host
 	/// family's own thread-local last-error rather than the unrelated ocapn one.
 	pub(crate) fn check_host;
-	/// The calling thread's last `pancake_host_*` error message, read from the
+	/// The calling thread's last `glowcap_host_*` error message, read from the
 	/// driver archive's own slot (never the ocapn family's).
 	pub(crate) fn host_last_error;
-	ffi::pancake_host_last_error
+	ffi::glowcap_host_last_error
 );
 
 /// Spawn a task on the current `LocalSet`, tolerating teardown: `spawn_local`
@@ -118,13 +118,13 @@ where
 	try_spawn_local_handle(future).is_some()
 }
 
-/// The binding half of one CapTP Host: the raw `PancakeHost`, the CapTP session
+/// The binding half of one CapTP Host: the raw `GlowcapHost`, the CapTP session
 /// registry, the vow table, and the redeem posture, shared behind an `Rc` by
 /// the public [`Host`] and every [`SessionShared`], and that sharing mechanically
 /// enforces the header's "release the host always after its CapTP sessions" (the
 /// host pointer cannot be released while any session wrapper lives).
 pub(crate) struct HostShared {
-	raw: Cell<*mut ffi::PancakeHost>,
+	raw: Cell<*mut ffi::GlowcapHost>,
 	/// Binding-local close barrier coordination. Native Host lifecycle remains
 	/// authoritative; `Failed` retains the raw handle for diagnosis and a final
 	/// Drop attempt rather than pretending release succeeded.
@@ -132,7 +132,7 @@ pub(crate) struct HostShared {
 	/// Exact first failure behind `CloseBarrierState::Failed`. The state remains
 	/// `Copy` for cheap barrier checks while this owns the diagnostic payload.
 	close_failure: RefCell<Option<Error>>,
-	// Every live CapTP session shell by its PancakeHostSession address, so a FLUSH
+	// Every live CapTP session shell by its GlowcapHostSession address, so a FLUSH
 	// action routes to the transport that owns the bytes and a dialed exporter
 	// stays reachable for teardown. A session unregisters at close, which is
 	// what breaks the Rc cycle between host and session state. `action::run`
@@ -190,7 +190,7 @@ pub(crate) struct HostShared {
 	// The native loop this Host was adopted over (ADR-0112), or `None` for a
 	// byte-fed Host this binding pumps itself. On a loop-adopted Host the loop
 	// is the one action drain and the one release authority: kicks become loop
-	// steps, no `pancake_host_pump_drain` runs here, and teardown routes
+	// steps, no `glowcap_host_pump_drain` runs here, and teardown routes
 	// through `LoopShared::close` (which releases the wrapped native Host).
 	driver_loop: RefCell<Option<Rc<crate::driver_loop::LoopShared>>>,
 	// Explicit byte-fed connectors, indexed by the transport symbols their
@@ -210,7 +210,7 @@ impl HostShared {
 	) -> Result<Rc<HostShared>> {
 		crate::require_archive_fingerprint(
 			"host",
-			unsafe { ffi::pancake_host_archive_fingerprint() },
+			unsafe { ffi::glowcap_host_archive_fingerprint() },
 			crate::sys::HOST_ARCHIVE_FINGERPRINT,
 		)?;
 		// The durable identity followed by a session-key root drawn here, at
@@ -231,15 +231,15 @@ impl HostShared {
 		// construction, so `?` cannot leak a raw Host during setup.
 		let mut designator = [0u8; 64];
 		check_host(unsafe {
-			ffi::pancake_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
+			ffi::glowcap_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
 		})?;
 		let context = match context {
 			Some(context) => context.retain_inner(),
 			None => Rc::new(ContextInner::new()?),
 		};
-		let mut raw: *mut ffi::PancakeHost = core::ptr::null_mut();
+		let mut raw: *mut ffi::GlowcapHost = core::ptr::null_mut();
 		check_host(unsafe {
-			ffi::pancake_host_new_in(
+			ffi::glowcap_host_new_in(
 				context.raw,
 				seed_with_root.as_ptr(),
 				seed_with_root.len(),
@@ -253,8 +253,8 @@ impl HostShared {
 			)
 		})?;
 		let mut diagnostic_id = 0;
-		if let Err(error) = check_host(unsafe { ffi::pancake_host_diagnostic_id(raw, &mut diagnostic_id) }) {
-			let cleanup_rc = unsafe { ffi::pancake_host_release(raw) };
+		if let Err(error) = check_host(unsafe { ffi::glowcap_host_diagnostic_id(raw, &mut diagnostic_id) }) {
+			let cleanup_rc = unsafe { ffi::glowcap_host_release(raw) };
 			let cleanup = check_host(cleanup_rc);
 			if !crate::lifecycle::release_consumed(cleanup_rc) {
 				core::mem::forget(context);
@@ -299,17 +299,17 @@ impl HostShared {
 	/// authority. `seed` is the identity half of the loop's 64-byte seed, so
 	/// `Host::designator` answers the same as on a byte-fed Host.
 	pub(crate) fn adopt_loop(
-		raw: *mut ffi::PancakeHost,
+		raw: *mut ffi::GlowcapHost,
 		seed: [u8; 32],
 		driver_loop: Rc<crate::driver_loop::LoopShared>,
 	) -> Result<Rc<HostShared>> {
 		let mut designator = [0u8; 64];
 		check_host(unsafe {
-			ffi::pancake_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
+			ffi::glowcap_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
 		})?;
 		let context = driver_loop.retained_context();
 		let mut diagnostic_id = 0;
-		check_host(unsafe { ffi::pancake_host_diagnostic_id(raw, &mut diagnostic_id) })?;
+		check_host(unsafe { ffi::glowcap_host_diagnostic_id(raw, &mut diagnostic_id) })?;
 		if let Some(context) = context.as_ref() {
 			crate::trace::attach_host(
 				raw,
@@ -413,14 +413,14 @@ impl HostShared {
 	}
 
 	/// Release one native session handle through the verb that owns it: the
-	/// loop's own `pancake_driver_session_release` for a loop-minted session
-	/// (which also drops queued events naming it), `pancake_host_session_release`
+	/// loop's own `glowcap_driver_session_release` for a loop-minted session
+	/// (which also drops queued events naming it), `glowcap_host_session_release`
 	/// for a byte-fed one. A loop already released frees its sessions itself,
 	/// so the loop arm is a no-op then.
-	pub(crate) fn release_native_session(&self, session: *mut ffi::PancakeHostSession) -> Result<()> {
+	pub(crate) fn release_native_session(&self, session: *mut ffi::GlowcapHostSession) -> Result<()> {
 		match self.driver_loop() {
 			Some(lp) => lp.native_session_release(session)?,
-			None => check_host(unsafe { ffi::pancake_host_session_release(session) })?,
+			None => check_host(unsafe { ffi::glowcap_host_session_release(session) })?,
 		}
 		// A released session retires its pending close work, so a driver
 		// parked on host activity must re-check progress.
@@ -428,8 +428,8 @@ impl HostShared {
 		Ok(())
 	}
 
-	/// The raw `PancakeHost` handle.
-	pub(crate) fn raw(&self) -> *mut ffi::PancakeHost {
+	/// The raw `GlowcapHost` handle.
+	pub(crate) fn raw(&self) -> *mut ffi::GlowcapHost {
 		self.raw.get()
 	}
 
@@ -470,13 +470,13 @@ impl HostShared {
 	pub(crate) fn set_advertised_locator(&self, locator: &Locator) -> Result<()> {
 		self.guard_handle()?;
 		let owned = OwnedLocator::new(locator)?;
-		check_host(unsafe { ffi::pancake_host_set_advertised_locator(self.raw.get(), owned.borrow_view()?) })
+		check_host(unsafe { ffi::glowcap_host_set_advertised_locator(self.raw.get(), owned.borrow_view()?) })
 	}
 
 	pub(crate) fn remove_advertised_locator(&self, transport: &str) -> Result<()> {
 		self.guard_handle()?;
 		check_host(unsafe {
-			ffi::pancake_host_remove_advertised_locator(self.raw.get(), transport.as_ptr(), transport.len())
+			ffi::glowcap_host_remove_advertised_locator(self.raw.get(), transport.as_ptr(), transport.len())
 		})
 	}
 
@@ -484,21 +484,21 @@ impl HostShared {
 	/// unchanged. Affects peers minted after this call.
 	pub(crate) fn set_session_limits(&self, options: SessionLimitOptions) -> Result<()> {
 		self.guard_handle()?;
-		let raw = ffi::PancakeSessionLimitOptions {
+		let raw = ffi::GlowcapSessionLimitOptions {
 			abi_version: sys::SESSION_LIMIT_OPTIONS_ABI_VERSION,
-			struct_size: core::mem::size_of::<ffi::PancakeSessionLimitOptions>(),
+			struct_size: core::mem::size_of::<ffi::GlowcapSessionLimitOptions>(),
 			max_frame_bytes: options.max_frame_bytes,
 			queue_cap: options.queue_cap,
 			outbound_high_water_bytes: options.outbound_high_water_bytes,
 			max_retained_sent_answer_bytes: usize::try_from(options.max_retained_sent_answer_bytes)
 				.expect("u32 always fits usize on supported targets"),
 		};
-		check_host(unsafe { ffi::pancake_host_set_session_limits(self.raw.get(), &raw) })
+		check_host(unsafe { ffi::glowcap_host_set_session_limits(self.raw.get(), &raw) })
 	}
 
 	// ── Session registry ────────────────────────────────────────────────────
 
-	/// Track a live CapTP session shell by its PancakeHostSession address; the
+	/// Track a live CapTP session shell by its GlowcapHostSession address; the
 	/// `SessionShared` constructor calls it.
 	pub(crate) fn register_session(&self, key: usize, session: Rc<SessionShared>) {
 		self.sessions.borrow_mut().insert(key, session);
@@ -512,7 +512,7 @@ impl HostShared {
 	/// Resolve the Host-owned session address carried by a callback turn to the
 	/// existing public wrapper. A loop-internal redeem leg may have no wrapper;
 	/// callers preserve their Host-only turn context in that case.
-	pub(crate) fn session_for_ptr(&self, ptr: *mut ffi::PancakeHostSession) -> Option<Rc<SessionShared>> {
+	pub(crate) fn session_for_ptr(&self, ptr: *mut ffi::GlowcapHostSession) -> Option<Rc<SessionShared>> {
 		self.sessions.borrow().get(&(ptr as usize)).cloned()
 	}
 
@@ -538,8 +538,8 @@ impl HostShared {
 		let out = if let Some(lp) = self.driver_loop() {
 			lp.claim_reference_exporter(&wire)?.unwrap_or(core::ptr::null_mut())
 		} else {
-			let mut out: *mut ffi::PancakeHostSession = core::ptr::null_mut();
-			check_host(unsafe { ffi::pancake_host_reference_exporter(self.raw.get(), &wire, &mut out) })?;
+			let mut out: *mut ffi::GlowcapHostSession = core::ptr::null_mut();
+			check_host(unsafe { ffi::glowcap_host_reference_exporter(self.raw.get(), &wire, &mut out) })?;
 			out
 		};
 		if out.is_null() {

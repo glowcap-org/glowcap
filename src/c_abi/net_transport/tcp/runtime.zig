@@ -12,24 +12,24 @@ const model = @import("model");
 const net = @import("net");
 const c = @import("c_abi_shared");
 
-pub const PancakeTcpStreamOptions = extern struct {
+pub const GlowcapTcpStreamOptions = extern struct {
     keepalive_idle_sec: u32,
     keepalive_interval_sec: u32,
     keepalive_count: u32,
 };
 
-pub const PancakeTcpOperationOptions = extern struct {
-    stream: PancakeTcpStreamOptions,
+pub const GlowcapTcpOperationOptions = extern struct {
+    stream: GlowcapTcpStreamOptions,
 };
 
 const setLastError = c.setLastError;
 
-const PANCAKE_OK = c.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = c.PANCAKE_ERR_INVALID_ARGUMENT;
-const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
-const PANCAKE_ERR_CLOSED = c.PANCAKE_ERR_CLOSED;
-const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
+const GLOWCAP_OK = c.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = c.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = c.GLOWCAP_ERR_INVALID_ARGUMENT;
+const GLOWCAP_ERR_INTERNAL = c.GLOWCAP_ERR_INTERNAL;
+const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
+const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 
 pub const TcpNetlayerPayload = struct {
     threaded: std.Io.Threaded,
@@ -44,10 +44,10 @@ pub const TcpNetlayerPayload = struct {
     tasks: net.OperationOwner,
     stream_options: net.tcp.StreamOptions,
     provider_profiles: [net.tcp.profiles.len]ProviderProfile,
-    provider_profile_abi: [net.tcp.profiles.len]c.PancakeTransportProfile,
-    provider_tables: [net.tcp.profiles.len]c.PancakeStreamTransport,
-    provider_entries: [net.tcp.profiles.len]c.PancakeTransportProviderEntry,
-    provider: c.PancakeTransportProvider,
+    provider_profile_abi: [net.tcp.profiles.len]c.GlowcapTransportProfile,
+    provider_tables: [net.tcp.profiles.len]c.GlowcapStreamTransport,
+    provider_entries: [net.tcp.profiles.len]c.GlowcapTransportProviderEntry,
+    provider: c.GlowcapTransportProvider,
 
     /// `Threaded.io()` captures `&self.threaded`, so the payload must be
     /// heap-pinned for the borrowed `Io` to stay valid. The archive constructor
@@ -63,13 +63,13 @@ pub const TcpNetlayerPayload = struct {
             self.provider_tables[i] = streamTransport(&self.provider_profiles[i]);
             self.provider_entries[i] = .{
                 .profile = &self.provider_profile_abi[i],
-                .execution_model = c.transport_provider.PANCAKE_TRANSPORT_EXEC_STREAM,
+                .execution_model = c.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM,
                 .implementation = &self.provider_tables[i],
             };
         }
         self.provider = .{
-            .abi_version = c.transport_provider.PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION,
-            .struct_size = @sizeOf(c.PancakeTransportProvider),
+            .abi_version = c.transport_provider.GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION,
+            .struct_size = @sizeOf(c.GlowcapTransportProvider),
             .entries = &self.provider_entries,
             .entry_count = self.provider_entries.len,
             .lease_ctx = self,
@@ -107,7 +107,7 @@ fn providerSameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(
     return @intFromBool(std.meta.eql(lhs.stream_options, rhs.stream_options));
 }
 
-fn decodeStreamOptions(value: PancakeTcpStreamOptions) error{InvalidStreamOptions}!net.tcp.StreamOptions {
+fn decodeStreamOptions(value: GlowcapTcpStreamOptions) error{InvalidStreamOptions}!net.tcp.StreamOptions {
     const idle = value.keepalive_idle_sec;
     const interval = value.keepalive_interval_sec;
     const count = value.keepalive_count;
@@ -118,7 +118,7 @@ fn decodeStreamOptions(value: PancakeTcpStreamOptions) error{InvalidStreamOption
     return .{ .keepalive = .{ .idle_sec = idle, .interval_sec = interval, .count = count } };
 }
 
-pub fn streamOptionsFromC(value: PancakeTcpStreamOptions, operation: []const u8) error{InvalidStreamOptions}!net.tcp.StreamOptions {
+pub fn streamOptionsFromC(value: GlowcapTcpStreamOptions, operation: []const u8) error{InvalidStreamOptions}!net.tcp.StreamOptions {
     return decodeStreamOptions(value) catch |err| {
         setLastError("{s}: {s}", .{ operation, @errorName(err) });
         return err;
@@ -127,37 +127,37 @@ pub fn streamOptionsFromC(value: PancakeTcpStreamOptions, operation: []const u8)
 
 pub fn operationStreamOptions(
     inherited: net.tcp.StreamOptions,
-    options: ?*const PancakeTcpStreamOptions,
+    options: ?*const GlowcapTcpStreamOptions,
 ) error{InvalidStreamOptions}!net.tcp.StreamOptions {
     return if (options) |value| decodeStreamOptions(value.*) else inherited;
 }
 
 fn providerOperationStreamOptions(
     inherited: net.tcp.StreamOptions,
-    raw: ?*const c.PancakeTransportOperationOptions,
+    raw: ?*const c.GlowcapTransportOperationOptions,
 ) error{InvalidStreamOptions}!net.tcp.StreamOptions {
     const envelope = raw orelse return inherited;
     const typed = (net.OperationOptions{
         .data = envelope.data,
         .size = envelope.size,
-    }).decode(PancakeTcpOperationOptions) catch return error.InvalidStreamOptions;
+    }).decode(GlowcapTcpOperationOptions) catch return error.InvalidStreamOptions;
     return decodeStreamOptions((typed orelse return inherited).stream);
 }
 
-fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
+fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const payload: *TcpNetlayerPayload = @ptrCast(@alignCast(ctx orelse {
-        c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-        return PANCAKE_ERR_NULL_POINTER;
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+        return GLOWCAP_ERR_NULL_POINTER;
     }));
-    if (payload.retain()) return PANCAKE_OK;
-    c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
-    return PANCAKE_ERR_CLOSED;
+    if (payload.retain()) return GLOWCAP_OK;
+    c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
+    return GLOWCAP_ERR_CLOSED;
 }
 
-fn providerRelease(ctx: ?*anyopaque, _: ?*c.PancakeProviderFailure) callconv(.c) i32 {
-    const payload: *TcpNetlayerPayload = @ptrCast(@alignCast(ctx orelse return PANCAKE_OK));
+fn providerRelease(ctx: ?*anyopaque, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
+    const payload: *TcpNetlayerPayload = @ptrCast(@alignCast(ctx orelse return GLOWCAP_OK));
     payload.release();
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 const ProviderProfile = struct {
@@ -172,7 +172,7 @@ const ProviderProfile = struct {
 const RawConn = struct {
     connection: net.tcp.RawConnection,
     owner: *TcpNetlayerPayload,
-    failure: c.PancakeProviderFailure = std.mem.zeroes(c.PancakeProviderFailure),
+    failure: c.GlowcapProviderFailure = std.mem.zeroes(c.GlowcapProviderFailure),
 };
 
 const RawListener = struct {
@@ -224,10 +224,10 @@ fn profileFrom(ctx: ?*anyopaque) *ProviderProfile {
     return @ptrCast(@alignCast(ctx.?));
 }
 
-fn streamTransport(profile: *ProviderProfile) c.PancakeStreamTransport {
+fn streamTransport(profile: *ProviderProfile) c.GlowcapStreamTransport {
     return .{
-        .abi_version = c.transport_provider.PANCAKE_STREAM_TRANSPORT_ABI_VERSION,
-        .struct_size = @sizeOf(c.PancakeStreamTransport),
+        .abi_version = c.transport_provider.GLOWCAP_STREAM_TRANSPORT_ABI_VERSION,
+        .struct_size = @sizeOf(c.GlowcapStreamTransport),
         .ctx = profile,
         .start_connect = providerStartConnect,
         .finish_connect = providerFinishConnect,
@@ -248,16 +248,16 @@ fn streamTransport(profile: *ProviderProfile) c.PancakeStreamTransport {
 
 fn providerStartConnect(
     ctx: ?*anyopaque,
-    locator_view: ?*const c.PancakeLocatorView,
-    options: ?*const c.PancakeTransportOperationOptions,
+    locator_view: ?*const c.GlowcapLocatorView,
+    options: ?*const c.GlowcapTransportOperationOptions,
     out_attempt: ?*?*anyopaque,
     out_readiness_fd: ?*i32,
-    out_failure: ?*c.PancakeProviderFailure,
+    out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const profile = profileFrom(ctx);
-    const slot = out_attempt orelse return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-    const fd_slot = out_readiness_fd orelse return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-    const view = locator_view orelse return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+    const slot = out_attempt orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+    const fd_slot = out_readiness_fd orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+    const view = locator_view orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     var hint_stack: [c.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = c.locator_adapter.BorrowedLocator.init(
         profile.owner.allocator,
@@ -270,16 +270,16 @@ fn providerStartConnect(
     defer borrowed.deinit(profile.owner.allocator);
     const locator = borrowed.value;
     if (!std.mem.eql(u8, locator.transport, profile.metadata().symbol))
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidAddress);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress);
     const address = net.tcp.resolveProfile(
         profile.metadata(),
         locator.designator,
         net.netlayer.directAddrHint(locator.hints) orelse "",
-    ) catch |err| return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, err);
+    ) catch |err| return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, err);
     const stream_options = providerOperationStreamOptions(profile.owner.stream_options, options) catch
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidOptions);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidOptions);
     const attempt = profile.owner.allocator.create(ProviderDialAttempt) catch |err| {
-        c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_INTERNAL, err);
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
         return c.failInternal("tcp provider connect admission", err);
     };
     attempt.* = .{
@@ -288,7 +288,7 @@ fn providerStartConnect(
         .stream_options = stream_options,
         .completion = net.TransportOperationCompletion.init() catch |err| {
             profile.owner.allocator.destroy(attempt);
-            c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_INTERNAL, err);
+            c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
             return c.failInternal("tcp provider connect completion", err);
         },
     };
@@ -300,44 +300,44 @@ fn providerStartConnect(
         ProviderDialAttempt.retire,
     ) catch |err| {
         attempt.destroy();
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
     };
     slot.* = attempt;
     fd_slot.* = attempt.completion.readinessFd();
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 fn providerFinishConnect(
     attempt_raw: ?*anyopaque,
     out_conn: ?*?*anyopaque,
     out_readiness_fd: ?*i32,
-    out_failure: ?*c.PancakeProviderFailure,
+    out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const attempt: *ProviderDialAttempt = @ptrCast(@alignCast(attempt_raw orelse
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer)));
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer)));
     const slot = out_conn orelse {
         _ = providerCancelConnect(attempt, null);
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     };
     const fd_slot = out_readiness_fd orelse {
         _ = providerCancelConnect(attempt, null);
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     };
     const claimed = attempt.completion.claim() catch |err| {
         _ = attempt.owner.tasks.reap(&attempt.operation);
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
     };
-    if (!claimed) return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
+    if (!claimed) return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
     attempt.completion.wake.drain() catch |err| {
         _ = attempt.owner.tasks.reap(&attempt.operation);
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
     };
     const result = attempt.result;
     attempt.result = .pending;
     switch (result) {
         .failure => |err| {
             _ = attempt.owner.tasks.reap(&attempt.operation);
-            return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
+            return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
         },
         .pending => unreachable,
         .connection => |connection| {
@@ -345,24 +345,24 @@ fn providerFinishConnect(
                 var owned = connection;
                 owned.close();
                 _ = attempt.owner.tasks.reap(&attempt.operation);
-                return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INTERNAL, err);
+                return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
             };
             conn.* = .{ .connection = connection, .owner = attempt.owner };
             slot.* = conn;
             fd_slot.* = connection.readinessFd();
             _ = attempt.owner.tasks.reap(&attempt.operation);
-            return PANCAKE_OK;
+            return GLOWCAP_OK;
         },
     }
 }
 
-fn providerCancelConnect(attempt_raw: ?*anyopaque, _: ?*c.PancakeProviderFailure) callconv(.c) i32 {
-    const attempt: *ProviderDialAttempt = @ptrCast(@alignCast(attempt_raw orelse return PANCAKE_OK));
+fn providerCancelConnect(attempt_raw: ?*anyopaque, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
+    const attempt: *ProviderDialAttempt = @ptrCast(@alignCast(attempt_raw orelse return GLOWCAP_OK));
     if (attempt.completion.cancel())
         _ = attempt.owner.tasks.reap(&attempt.operation)
     else
         _ = attempt.owner.tasks.cancel(&attempt.operation);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 fn providerListen(
@@ -371,44 +371,44 @@ fn providerListen(
     requested_designator_len: usize,
     identity_designator: ?[*]const u8,
     identity_designator_len: usize,
-    options: ?*const c.PancakeTransportOperationOptions,
-    out_result: ?*c.PancakeListenResult,
-    out_failure: ?*c.PancakeProviderFailure,
+    options: ?*const c.GlowcapTransportOperationOptions,
+    out_result: ?*c.GlowcapListenResult,
+    out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const profile = profileFrom(ctx);
     const slot = out_result orelse
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     const requested = c.sliceFromC(requested_designator, requested_designator_len) catch
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     const address = net.tcp.parseDesignator(requested) catch
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidAddress);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress);
     const identity = c.sliceFromC(identity_designator, identity_designator_len) catch {
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     };
     const peer_key = if (profile.metadata().designator_scheme == .key)
         crypto.PeerKey.fromDesignator(identity) orelse
-            return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidAddress)
+            return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress)
     else
         null;
     const stream_options = providerOperationStreamOptions(profile.owner.stream_options, options) catch
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidOptions);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidOptions);
     var listener = switch (profile.transport) {
         .tcp => net.tcp.ProfileListener.bind(.tcp, profile.owner.io(), address, peer_key),
         .keyed_tcp => net.tcp.ProfileListener.bind(.keyed_tcp, profile.owner.io(), address, peer_key),
         .noise_tcp => net.tcp.ProfileListener.bind(.noise_tcp, profile.owner.io(), address, peer_key),
         else => unreachable,
     } catch |err| {
-        c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_IO, err);
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_IO, err);
         return c.failIo("tcp provider listen", err);
     };
     errdefer listener.deinit();
     const locator = listener.localLocator(profile.owner.allocator) catch |err| {
-        c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_INTERNAL, err);
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
         return c.failInternal("tcp provider listener locator", err);
     };
     errdefer model.freePeerLocator(profile.owner.allocator, locator);
     const raw = profile.owner.allocator.create(RawListener) catch |err| {
-        c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_INTERNAL, err);
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
         return c.failInternal("tcp provider listener", err);
     };
     raw.* = .{
@@ -418,24 +418,24 @@ fn providerListen(
         .stream_options = stream_options,
     };
     slot.* = .{
-        .state = c.PANCAKE_LISTEN_READY,
+        .state = c.GLOWCAP_LISTEN_READY,
         .listener = raw,
         .attempt = null,
         .readiness_fd = -1,
     };
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 fn rawListener(raw: ?*anyopaque) *RawListener {
     return @ptrCast(@alignCast(raw.?));
 }
 
-fn providerListenerWaitAcceptable(_: ?*anyopaque, listener: ?*anyopaque, timeout_ms: i32, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
+fn providerListenerWaitAcceptable(_: ?*anyopaque, listener: ?*anyopaque, timeout_ms: i32, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     return if (rawListener(listener).listener.waitAcceptable(timeout_ms) catch |err|
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err))
-        PANCAKE_OK
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err))
+        GLOWCAP_OK
     else
-        c.PANCAKE_ERR_WOULD_BLOCK;
+        c.GLOWCAP_ERR_WOULD_BLOCK;
 }
 
 fn providerListenerReadinessFd(_: ?*anyopaque, listener: ?*anyopaque) callconv(.c) i32 {
@@ -445,11 +445,11 @@ fn providerListenerReadinessFd(_: ?*anyopaque, listener: ?*anyopaque) callconv(.
 fn providerListenerLocator(
     listener_raw: ?*anyopaque,
     sink_ctx: ?*anyopaque,
-    sink: c.PancakeLocatorSinkFn,
-    out_failure: ?*c.PancakeProviderFailure,
+    sink: c.GlowcapLocatorSinkFn,
+    out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const listener = rawListener(listener_raw);
-    var hint_stack: [c.locator_adapter.inline_hint_capacity]c.PancakeLocatorHintView = undefined;
+    var hint_stack: [c.locator_adapter.inline_hint_capacity]c.GlowcapLocatorHintView = undefined;
     var projection = c.locator_adapter.Projection.init(
         listener.owner.allocator,
         listener.locator,
@@ -461,14 +461,14 @@ fn providerListenerLocator(
 
 fn providerListenerAdvertise(
     listener_raw: ?*anyopaque,
-    locator_view: ?*const c.PancakeLocatorView,
+    locator_view: ?*const c.GlowcapLocatorView,
     sink_ctx: ?*anyopaque,
-    sink: c.PancakeLocatorSinkFn,
-    out_failure: ?*c.PancakeProviderFailure,
+    sink: c.GlowcapLocatorSinkFn,
+    out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const listener = rawListener(listener_raw);
     const view = locator_view orelse
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     var hint_stack: [c.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = c.locator_adapter.BorrowedLocator.init(
         listener.owner.allocator,
@@ -478,42 +478,42 @@ fn providerListenerAdvertise(
     defer borrowed.deinit(listener.owner.allocator);
     listener.listener.validateLocator(borrowed.value) catch |err| {
         c.setLastError("tcp listener advertise: {s}", .{@errorName(err)});
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, err);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, err);
     };
     return sink(sink_ctx, view);
 }
 
-fn providerAccept(_: ?*anyopaque, listener_raw: ?*anyopaque, out_conn: ?*?*anyopaque, out_readiness_fd: ?*i32, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
+fn providerAccept(_: ?*anyopaque, listener_raw: ?*anyopaque, out_conn: ?*?*anyopaque, out_readiness_fd: ?*i32, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const listener = rawListener(listener_raw);
-    const slot = out_conn orelse return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-    const fd_slot = out_readiness_fd orelse return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+    const slot = out_conn orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+    const fd_slot = out_readiness_fd orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     const connection = listener.listener.acceptRaw(&.{}, &.{}, listener.stream_options) catch |err| {
         setLastError("accept: {s}", .{@errorName(err)});
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
     };
     const owner = listener.owner;
     const conn = owner.allocator.create(RawConn) catch |err| {
         var owned = connection;
         owned.close();
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INTERNAL, err);
+        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
     };
     conn.* = .{ .connection = connection, .owner = owner };
     slot.* = conn;
     fd_slot.* = connection.readinessFd();
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 fn providerListenerClose(
     _: ?*anyopaque,
     listener_raw: ?*anyopaque,
-    _: ?*c.PancakeProviderFailure,
+    _: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const listener = rawListener(listener_raw);
     const owner = listener.owner;
     listener.listener.deinit();
     model.freePeerLocator(owner.allocator, listener.locator);
     owner.allocator.destroy(listener);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 fn rawConn(raw: ?*anyopaque) *RawConn {
@@ -523,13 +523,13 @@ fn rawConn(raw: ?*anyopaque) *RawConn {
 fn providerRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize) callconv(.c) isize {
     const conn = rawConn(conn_raw);
     const dest = (out orelse {
-        c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
         return -1;
     })[0..cap];
     const got = conn.connection.read(dest) catch |err| {
         if (err == error.EndOfStream) return 0;
         if (c.transport_provider.providerFailureEmpty(conn.failure))
-            c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_IO, err);
+            c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
         return -1;
     };
     return @intCast(got);
@@ -538,29 +538,29 @@ fn providerRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize) 
 fn providerWriteAll(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) i32 {
     const conn = rawConn(conn_raw);
     const source = bytes orelse {
-        c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-        return PANCAKE_ERR_NULL_POINTER;
+        c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+        return GLOWCAP_ERR_NULL_POINTER;
     };
     conn.connection.writeAll(source[0..len]) catch |err| {
         if (c.transport_provider.providerFailureEmpty(conn.failure))
-            c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_IO, err);
-        return PANCAKE_ERR_IO;
+            c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
+        return GLOWCAP_ERR_IO;
     };
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) void {
+fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {
     c.transport_provider.takeProviderFailure(&rawConn(conn_raw).failure, out_failure);
 }
 
 fn providerConnClose(
     _: ?*anyopaque,
     conn_raw: ?*anyopaque,
-    _: ?*c.PancakeProviderFailure,
+    _: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const conn = rawConn(conn_raw);
     const owner = conn.owner;
     conn.connection.close();
     owner.allocator.destroy(conn);
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }

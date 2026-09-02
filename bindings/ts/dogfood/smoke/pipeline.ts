@@ -6,14 +6,14 @@
 // anchors go safely unawaited, and an ungranted position is refused as the
 // probe it is.
 
-import * as tcp from "@pancake/tcp";
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import * as tcp from "@glowcap/tcp";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
 
 import {
 	enableTrace,
 	FEATURE_FULL,
+	GlowcapError,
 	Host,
-	PancakeError,
 	PStruct,
 	Ref,
 	Runtime,
@@ -227,11 +227,11 @@ export async function run(managed: Runtime): Promise<void> {
 		const secondRoot = await second.fetch("root");
 		const secondTask = second.send(secondRoot, "create", ["second"]);
 		assert(firstTask.vow === secondTask.vow, "the scenario needs colliding Host vow ids");
-		let refused: PancakeError | null = null;
+		let refused: GlowcapError | null = null;
 		try {
 			await second.send(firstTask, "label", []);
 		} catch (error) {
-			if (error instanceof PancakeError) refused = error;
+			if (error instanceof GlowcapError) refused = error;
 		}
 		assert(refused?.code === INVALID_ARGUMENT, "a promise from another Host is refused before FFI");
 		assert(await second.send(secondTask, "label", []) === "second", "the destination vow remains exact");
@@ -346,7 +346,7 @@ export async function run(managed: Runtime): Promise<void> {
 
 		async function host(): Promise<void> {
 			for await (const session of server) {
-				assert(session.profile.captpVersion === "next", "accepted session reports pancake-next");
+				assert(session.profile.captpVersion === "next", "accepted session reports glowcap-next");
 				assert(session.profile.codec === "capnp", "accepted session reports Cap'n Proto");
 				assert(session.profile.features === FEATURE_FULL, "accepted session reports the full feature set");
 				session.serve().catch(() => {});
@@ -361,7 +361,7 @@ export async function run(managed: Runtime): Promise<void> {
 
 		async function client(): Promise<void> {
 			const session = await clientRuntime.connect(tcp.locator("127.0.0.1", port));
-			assert(session.profile.captpVersion === "next", "dialed session reports pancake-next");
+			assert(session.profile.captpVersion === "next", "dialed session reports glowcap-next");
 			assert(session.profile.codec === "capnp", "dialed session reports Cap'n Proto");
 			assert(session.profile.features === FEATURE_FULL, "dialed session reports the full feature set");
 			session.serve().catch(() => {});

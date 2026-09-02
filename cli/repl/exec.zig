@@ -36,8 +36,8 @@ pub fn appendWorkbenchReady(store: *blocks.Store) !void {
 }
 
 pub fn appendDivertLine(store: *blocks.Store, line: []const u8) !void {
-    const err_prefix = "pancake: error: ";
-    const info_prefix = "pancake: ";
+    const err_prefix = "glowcap: error: ";
+    const info_prefix = "glowcap: ";
     if (std.mem.startsWith(u8, line, err_prefix)) {
         var buf: [600]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "! {s}", .{line[err_prefix.len..]}) catch line;

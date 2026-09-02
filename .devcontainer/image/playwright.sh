@@ -5,11 +5,11 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}"
-pancake_require_devcontainer "image/playwright"
-pancake_require_arch "playwright chromium"
+glowcap_devcontainer_init "${dir}"
+glowcap_require_devcontainer "image/playwright"
+glowcap_require_arch "playwright chromium"
 
-tmp="$(mktemp -d -t pancake-playwright-install-XXXXXX)"
+tmp="$(mktemp -d -t glowcap-playwright-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
 
 export DEBIAN_FRONTEND=noninteractive

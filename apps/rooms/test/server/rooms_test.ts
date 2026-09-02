@@ -54,7 +54,7 @@ import {
 	withServer,
 } from "../support/rooms_server.ts";
 import type { DirectoryRoomRecord, DirectoryWatchEvent } from "../support/subscribe.ts";
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import { rosterSaid } from "../../server/room.ts";
 import { RoomServer } from "../../server/room_server.ts";
 import { dropWatchers, MAX_WATCHERS } from "../../server/watchers.ts";

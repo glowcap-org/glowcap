@@ -9,7 +9,7 @@ import { readPort, restartStatefulServer, startStatefulServer } from "../support
 import { fail, openDirectoryCardFromSettings, reachDirectoryOnCard } from "./harness.ts";
 
 export async function proveSharedDirectoryRecovery(page: Page, port: number): Promise<void> {
-	const state = await Deno.makeTempDir({ prefix: "pancake-rooms-shared-web-other-room-" });
+	const state = await Deno.makeTempDir({ prefix: "glowcap-rooms-shared-web-other-room-" });
 	let peer: Deno.ChildProcess | null = startStatefulServer(port, state);
 	try {
 		await readPort(peer);

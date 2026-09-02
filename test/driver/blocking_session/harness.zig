@@ -3,7 +3,7 @@
 //! family publishes.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const support_actors = @import("../../support/actors.zig");
 
 /// A finite handshake budget for every dial in this file. Unbounded is the
@@ -11,14 +11,14 @@ const support_actors = @import("../../support/actors.zig");
 /// then goes quiet would park the suite instead of failing it.
 pub const handshake_budget: driver.Budget = .{ .ms = 10_000 };
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
-const net = pancake.net;
-const syrup = pancake.ocapn.codec.syrup;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
+const net = glowcap.net;
+const syrup = glowcap.ocapn.codec.syrup;
+const crypto = glowcap.foundation.crypto;
 
 const ip = std.Io.net;
 

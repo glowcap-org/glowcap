@@ -3,7 +3,7 @@ id: ADR-0089
 status: accepted
 date: 2026-07-21
 tags: [transport, webrtc, browser, signaling, sidecar, handoff]
-decision: "pancake gains a `webrtc` transport: a reliable, ordered WebRTC DataChannel that carries one bare OCapN codec frame per DataChannel message between two peers, at least one of which is a browser. The transport is a native Rust sidecar over the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig netlayer resident over its C ABI, a companion archive `libpancake_net_transport_webrtc` (ADR-0059), and a browser `RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs, the SDP offer/answer and ICE candidates, is exchanged through an OCapN capability rather than a bespoke signaling server."
+decision: "glowcap gains a `webrtc` transport: a reliable, ordered WebRTC DataChannel that carries one bare OCapN codec frame per DataChannel message between two peers, at least one of which is a browser. The transport is a native Rust sidecar over the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig netlayer resident over its C ABI, a companion archive `libglowcap_net_transport_webrtc` (ADR-0059), and a browser `RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs, the SDP offer/answer and ICE candidates, is exchanged through an OCapN capability rather than a bespoke signaling server."
 supersedes: []
 superseded_by: []
 amends: []
@@ -29,12 +29,12 @@ amended_by: [ADR-0110]
 
 ## Decision
 
-pancake gains a `webrtc` transport: a reliable, ordered WebRTC
+glowcap gains a `webrtc` transport: a reliable, ordered WebRTC
 DataChannel that carries one bare OCapN codec frame per message between two peers,
 at least one of which is a browser. The transport is a native Rust sidecar over
 the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig
 netlayer resident over its C ABI, a companion archive
-`libpancake_net_transport_webrtc` (ADR-0059), and a browser
+`libglowcap_net_transport_webrtc` (ADR-0059), and a browser
 `RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs, the
 SDP offer/answer and ICE candidates, is exchanged through an OCapN capability
 rather than a bespoke signaling server. In the TypeScript stack the dial
@@ -67,7 +67,7 @@ candidates, and from then on the DTLS-encrypted DataChannel runs peer to peer.
 An intermediary is touched only during signaling (always) and only as a byte
 relay when ICE cannot find a direct path through NAT (the fallback). This is the
 one transport that makes a browser cold-dialable and makes two browsers direct
-peers, and it keeps the steady-state byte path off any server pancake runs.
+peers, and it keeps the steady-state byte path off any server glowcap runs.
 
 WebTransport does not solve this: it is client-only, so it makes neither a
 browser cold-dialable nor two browsers direct peers. The "Alternatives
@@ -80,7 +80,7 @@ piece is classified against the layer it lives in.
 
 - **Native Rust sidecar (`transports/webrtc/`).** A separate crate wraps the
   `webrtc` crate behind a narrow C ABI, exactly as `transports/iroh/` wraps
-  iroh (ADR-0055). `libpancake` and the core stay pure Zig; only the `webrtc-*`
+  iroh (ADR-0055). `libglowcap` and the core stay pure Zig; only the `webrtc-*`
   build steps need cargo on PATH, the same sibling-step posture as the Rust
   dogfood. One endpoint owns a two-worker Tokio runtime and readiness fd shared
   by all of its peers. Peer creation and signaling submissions are synchronous
@@ -99,7 +99,7 @@ piece is classified against the layer it lives in.
 - **Zig resident (`src/net/transport/webrtc.zig`).** One resident owns the
   sidecar endpoint and presents established peers through readiness-driven
   packet I/O. It is compiled as its own
-  module outside the `pancake` root namespace, so its externs resolve only when
+  module outside the `glowcap` root namespace, so its externs resolve only when
   the staticlib links, and a plain `zig build check` type-checks it as an
   object without cargo. Its completion backend accepts answers, candidates, and
   adopted peers from foreign signaling threads through a bounded wake-driven
@@ -108,19 +108,19 @@ piece is classified against the layer it lives in.
   caller's potentially single-threaded allocator, and a full inbox reports
   `WouldBlock` instead of growing behind the reactor.
 
-- **C ABI companion archive (`libpancake_net_transport_webrtc`).** The public
+- **C ABI companion archive (`libglowcap_net_transport_webrtc`).** The public
   frame-level ABI ships as its own archive under
-  `src/c_abi/net_transport/webrtc/`, exporting only its own pancake_webrtc_*
+  `src/c_abi/net_transport/webrtc/`, exporting only its own glowcap_webrtc_*
   symbol family and reusing `c_abi/shared` by layout (ADR-0059). It links the
   Rust sidecar, so it sits outside the layer DAG (`.graph = false`) like the
   iroh companion, and its header is reflected from its own root by a
   gen-header-net-transport-webrtc generator mirroring the iroh one.
 
-- **Browser arm (`bindings/ts/webrtc`).** A new `@pancake/webrtc` package holds
+- **Browser arm (`bindings/ts/webrtc`).** A new `@glowcap/webrtc` package holds
   the browser's `RTCPeerConnection`/`RTCDataChannel` half, the peer of the
   native sidecar. It composes with the browser binding (ADR-0070): the wasm Host
   runs the keyed session, and this arm provides the packet channel the session
-  runs over, the same Host seam `@pancake/web`'s WebSocket channel fills for
+  runs over, the same Host seam `@glowcap/web`'s WebSocket channel fills for
   the relay path. Two browsers each run this arm and speak directly; a browser
   and a native peer each run their own half.
 
@@ -155,7 +155,7 @@ socket, while a resident deliberately exposes no fake address-based `dial` or
 ## OCapN-native signaling
 
 WebRTC needs a signaling channel to exchange the offer, the answer, and ICE
-candidates before the DataChannel opens. pancake already has a signaling
+candidates before the DataChannel opens. glowcap already has a signaling
 channel: the capability graph. Introductions flow through it as the three-party
 handoff, and the browser cold-dial rendezvous (ADR-0088) already routes a
 browser's reachability through a room. Signaling is the same shape, so it uses
@@ -274,11 +274,11 @@ can dial, and a relay classifying targets refuses the shape outright.
 ## STUN/TURN posture: direct where possible, relayed only when it cannot be
 
 ICE gathers three kinds of candidate, and the transport posture mirrors iroh's
-explicit reachability choice: the `@pancake/webrtc` connector adds no
+explicit reachability choice: the `@glowcap/webrtc` connector adds no
 infrastructure unless its embedding names some, and a relay is a fallback,
 never the steady path. The Rooms application is an embedding with a public
 reachability goal: its server publishes Cloudflare STUN by default, while an
-explicit empty `PANCAKE_ROOMS_ICE_SERVERS` restores host candidates alone and a
+explicit empty `GLOWCAP_ROOMS_ICE_SERVERS` restores host candidates alone and a
 deployment-owned list replaces the default. A deployment may additionally keep
 an HTTPS TURN-credential issuer token on the Rooms server; `/ice` then mints
 bounded short-lived credentials for each browser connection without exposing
@@ -299,7 +299,7 @@ credentials. Credential APIs, expiry, and refresh remain embedding policy.
   intermediary sits on the byte path, and it is a fallback: ICE prefers a direct
   candidate pair whenever one works and falls back to TURN only when none does.
 
-"Relay-less where possible" is therefore a property of ICE, not a pancake
+"Relay-less where possible" is therefore a property of ICE, not a glowcap
 policy: the DataChannel is direct (host or srflx pair) whenever connectivity
 allows, and relayed (TURN) only when the network blocks every direct path. A
 TURN relay, when it is used, is a byte relay under the DTLS channel; like the
@@ -376,22 +376,22 @@ phase gated before the next.
 
 - **Phase 2 — the Zig resident over the sidecar.** Grow the phase-1
   probe into the sidecar C ABI (endpoint/peer/readiness, mirroring
-  `pancake_iroh_sidecar_*`), and write `src/net/transport/webrtc.zig` over it to
+  `glowcap_iroh_sidecar_*`), and write `src/net/transport/webrtc.zig` over it to
   the established-peer byte contract. Signaling stays out of band at this phase (a test
   harness carries SDP/ICE), so the proof is transport-shaped, not yet
-  capability-routed. **Gate:** a `webrtc-interop` step — two native pancake
+  capability-routed. **Gate:** a `webrtc-interop` step — two native glowcap
   peers hold a keyed OCapN session over a real DataChannel, plus the hermetic
   resident type-check that rides `check`.
 
 - **Phase 3 — the C ABI companion archive.** Add
-  `src/c_abi/net_transport/webrtc/` exporting its own pancake_webrtc_* family,
+  `src/c_abi/net_transport/webrtc/` exporting its own glowcap_webrtc_* family,
   its header generator, and its TS FFI mirror, so the bindings can drive the
   transport. **Gate:** a `webrtc-abi` step plus its
   gen-header-net-transport-webrtc-check and the FFI-layout checks folded into
   `check`.
 
 - **Phase 4 — classify signaling without faking an address dial.** The dial
-  classifier (`pancake_host_plan_dial`) recognizes `webrtc` and returns the
+  classifier (`glowcap_host_plan_dial`) recognizes `webrtc` and returns the
   signaling shape. The resident has no address `Netlayer`, because a locator
   alone cannot open a channel. The signaling-aware completion adapter under
   `driver.Bridge` (`webrtc.Backend` plus configured `SignalingAuthority`) is
@@ -404,7 +404,7 @@ phase gated before the next.
   up a direct DataChannel carrying a keyed session. Generic Host adoption and
   redemption compose on that foundation; the standing note names the checks.
 
-- **Phase 6 — the browser arm and browser-to-browser.** Ship `@pancake/webrtc`
+- **Phase 6 — the browser arm and browser-to-browser.** Ship `@glowcap/webrtc`
   and prove the two end states: a browser and a native peer over a DataChannel,
   then two browsers introduced by a room speaking directly with the room out of
   the byte path. **Gate:** a `webrtc-browser-peer` step and a
@@ -429,7 +429,7 @@ phase gated before the next.
   companion; this ADR does not make a bare locator sufficient.
 - **Driving `rtc` directly from Zig.** The `webrtc` 0.20 crate sits over the
   sans-io `rtc` core, so a future resident could drive WebRTC packets, timers,
-  ICE/STUN/TURN work, and data-channel events from pancake's own loop instead of
+  ICE/STUN/TURN work, and data-channel events from glowcap's own loop instead of
   letting the Rust sidecar own the runtime and sockets. That is possible, but it
   is a different boundary. The current C ABI hands Zig an established
   DataChannel-like packet peer plus signaling operations; a direct `rtc` resident

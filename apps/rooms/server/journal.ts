@@ -8,7 +8,7 @@
 // bounded, newest first, repeats folded into a count, and ride the inspect
 // capability's snapshot as ordinary `trouble` rows.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { MAX_TROUBLE_REASON_BYTES, MAX_TROUBLE_SOURCE_BYTES } from "../lib/limits.ts";
 import type { OperatorRevision } from "./operator/revision.ts";
 

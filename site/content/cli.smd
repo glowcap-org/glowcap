@@ -10,12 +10,12 @@ Call a capability from your shell, host a peer, inspect a live session in the
 REPL, or expose CapTP tools over MCP. The command uses the same Host and
 transport implementations as the library. Complete command and configuration
 reference:
-[docs/cli.md](https://github.com/jimisaacs/pancake/blob/main/docs/cli.md).
+[docs/cli.md](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md).
 
 ```sh
 zig build
 export PATH="$PWD/zig-out/bin:$PATH"
-pancake help
+glowcap help
 ```
 
 # Encrypted conversation
@@ -23,7 +23,7 @@ pancake help
 Native rooms traffic rides [iroh]($link.page('transports/iroh')):
 
 ```sh
-pancake app rooms-peer
+glowcap app rooms-peer
 ```
 
 # Lab round-trip
@@ -37,21 +37,21 @@ The CLI's demo greeter accepts the verb `greet` and one argument, then returns
 a waiting or serving `listen` cleanly with exit 0. Run terminal A first, then
 paste its printed locator (the peer's dialable `ocapn://` address) into `LOC`
 in terminal B. `init` mints the identity keys a peer signs its sessions with,
-stored under `PANCAKE_STATE`; each terminal gets its own directory so it acts
+stored under `GLOWCAP_STATE`; each terminal gets its own directory so it acts
 as its own peer.
 
 ```sh
 # terminal A
-export PANCAKE_STATE=/tmp/pancake-a
-pancake --json init
-pancake --json ocapn listen --publish greeter
+export GLOWCAP_STATE=/tmp/glowcap-a
+glowcap --json init
+glowcap --json ocapn listen --publish greeter
 # {"ok":true,"locator":"ocapn://127.0.0.1%3A46659.tcp"}   (%3A is the : of host:port, URI-encoded)
 
 # terminal B
-export PANCAKE_STATE=/tmp/pancake-b
-pancake --json init
+export GLOWCAP_STATE=/tmp/glowcap-b
+glowcap --json init
 LOC='ocapn://127.0.0.1%3A46659.tcp'   # paste A's locator
-pancake --json ocapn call "$LOC" greeter greet world
+glowcap --json ocapn call "$LOC" greeter greet world
 #                         name──┘       │     └─ arg
 #                         verb──────────┘
 # {"ok":true,"value":"Hello, world"}
@@ -59,15 +59,15 @@ pancake --json ocapn call "$LOC" greeter greet world
 
 # REPL, MCP, and completion
 
-The binary also serves CapTP tools over MCP and completes your shell. `pancake repl`
+The binary also serves CapTP tools over MCP and completes your shell. `glowcap repl`
 opens an interactive CapTP lab on a live session: the exports, imports, and
 answers appear beside the prompt as you type the verbs, and typing `guide`
 turns on a staged walkthrough. The REPL and `probe` want a live listener, so
-their full recipes are in the [CLI guide](https://github.com/jimisaacs/pancake/blob/main/docs/cli.md).
+their full recipes are in the [CLI guide](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md).
 
 ```sh
-pancake mcp --tools default                # CapTP tools for an editor assistant (MCP)
-eval "$(pancake completion bash)"          # tab completion
+glowcap mcp --tools default                # CapTP tools for an editor assistant (MCP)
+eval "$(glowcap completion bash)"          # tab completion
 ```
 
 For the library API behind these commands, continue to [Start

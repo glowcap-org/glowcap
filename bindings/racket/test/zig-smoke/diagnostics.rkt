@@ -5,11 +5,11 @@
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -57,7 +57,7 @@
   (define reads (box 0))
   (define diagnostic (format "exact diagnostic for ~a" name))
   (define translated
-    (with-handlers ([exn:fail:pancake? values])
+    (with-handlers ([exn:fail:glowcap? values])
       (check-with code
                   (lambda ()
                     (set-box! reads (add1 (unbox reads)))
@@ -68,8 +68,8 @@
      (expect (and (eq? translated 'ok) (zero? (unbox reads)))
              "ABI translation read a diagnostic or raised for OK")]
     [else
-     (expect (and (exn:fail:pancake? translated)
-                  (= code (exn:fail:pancake-code translated))
+     (expect (and (exn:fail:glowcap? translated)
+                  (= code (exn:fail:glowcap-code translated))
                   (= 1 (unbox reads))
                   (regexp-match? (regexp-quote diagnostic)
                                  (exn-message translated)))
@@ -87,8 +87,8 @@
 (define matrix-secondary-name #"ReleaseFailed")
 (define matrix-secondary-message #"descriptor remained live")
 (define matrix-report
-  (make-PancakeFailureReport
-   1 (ctype-sizeof _PancakeFailureReport)
+  (make-GlowcapFailureReport
+   1 (ctype-sizeof _GlowcapFailureReport)
    FAILURE-LAYER-TRANSPORT FAILURE-SCOPE-LISTENER
    31 47 ERR-IO ERR-INTERNAL 2
    (pin-immobile matrix-operation) (bytes-length matrix-operation)
@@ -99,7 +99,7 @@
 (call-with-host
  matrix-host
  (lambda ()
-   (check (pancake_context_report_failure (host-context matrix-host) matrix-report))))
+   (check (glowcap_context_report_failure (host-context matrix-host) matrix-report))))
 (define matrix-failures (host-take-failures! matrix-host))
 (define matrix-failure (and (= (length matrix-failures) 1) (car matrix-failures)))
 (expect (and matrix-failure
@@ -262,9 +262,9 @@
 ;; transport rollback to it; Host teardown must not observe a duplicate.
 (define establish-cleanup-host (make-fresh-host))
 (define establish-primary-failure
-  (exn:fail:pancake "session establishment failed" (current-continuation-marks) ERR-IO #f #f #f #f 0))
+  (exn:fail:glowcap "session establishment failed" (current-continuation-marks) ERR-IO #f #f #f #f 0))
 (define establish-close-failure
-  (exn:fail:pancake "failed establishment transport close failed" (current-continuation-marks) ERR-INTERNAL #f #f #f #f 0))
+  (exn:fail:glowcap "failed establishment transport close failed" (current-continuation-marks) ERR-INTERNAL #f #f #f #f 0))
 (define failed-establish-transport
   (async-transport void void (lambda (_wake) eof) (lambda () (raise establish-close-failure))))
 (define observed-establish-primary
@@ -272,10 +272,10 @@
     (establish-closing-transport establish-cleanup-host failed-establish-transport
                                  (lambda () (raise establish-primary-failure)))
     #f))
-(expect (and (exn:fail:pancake? observed-establish-primary)
+(expect (and (exn:fail:glowcap? observed-establish-primary)
              (equal? (exn-message observed-establish-primary) (exn-message establish-primary-failure))
-             (= (exn:fail:pancake-secondary-code observed-establish-primary) ERR-INTERNAL)
-             (= (exn:fail:pancake-secondary-count observed-establish-primary) 1))
+             (= (exn:fail:glowcap-secondary-code observed-establish-primary) ERR-INTERNAL)
+             (= (exn:fail:glowcap-secondary-count observed-establish-primary) 1))
         "establishment preserves its primary and attaches rollback failure")
 (define observed-establish-close-failure
   (with-handlers ([exn:fail? values]) (host-close! establish-cleanup-host) #f))
@@ -355,15 +355,15 @@
         "a refused Context recorder preserves the original and recorder failures")
 
 (define typed-runtime-failure
-  (exn:fail:pancake "typed primary" (current-continuation-marks)
-                    ERR-IO #f #f ERR-INTERNAL "PancakeError" 2))
+  (exn:fail:glowcap "typed primary" (current-continuation-marks)
+                    ERR-IO #f #f ERR-INTERNAL "GlowcapError" 2))
 (record-runtime-failure! 'transport "listener.close" typed-runtime-failure)
 (define typed-runtime-event (car (take-runtime-failures!)))
 (expect (and (= (failure-event-primary-result typed-runtime-event) ERR-IO)
              (= (failure-event-secondary-result typed-runtime-event) ERR-INTERNAL)
              (= (failure-event-secondary-count typed-runtime-event) 2)
              (equal? (failure-event-secondary-name typed-runtime-event)
-                     "PancakeError"))
+                     "GlowcapError"))
         "runtime diagnostics preserve stable typed primary and secondary causes")
 
 ;; The reference relay owns two pump legs, a watchdog, and both transport
@@ -421,14 +421,14 @@
 (define maximum-close-options
   (close-options 'grace-boundary 'finish #xffffffff))
 (expect (= #xffffffff
-           (PancakeCloseOptions-grace-ms maximum-close-options))
+           (GlowcapCloseOptions-grace-ms maximum-close-options))
         "finite close grace preserves the C field maximum")
 (define excessive-grace
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (close-options 'grace-boundary 'finish #x100000000)
     #f))
-(expect (and (exn:fail:pancake? excessive-grace)
-             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code excessive-grace)))
+(expect (and (exn:fail:glowcap? excessive-grace)
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code excessive-grace)))
         "finite close grace rejects values outside its C field")
 
 ;; The linked library reports a real ABI version.
@@ -458,11 +458,11 @@
 
 (for ([invalid-seed (list (make-bytes 31) (make-bytes 33))])
   (define refused
-    (with-handlers ([exn:fail:pancake? values])
+    (with-handlers ([exn:fail:glowcap? values])
       (make-host invalid-seed)
       #f))
-  (expect (and (exn:fail:pancake? refused)
-               (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code refused)))
+  (expect (and (exn:fail:glowcap? refused)
+               (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code refused)))
           "Host must reject a seed that is not 32 bytes"))
 
 (define caller-seed (make-bytes 32 7))
@@ -483,13 +483,13 @@
 
 (define profile-host (make-fresh-host))
 (define profile-conflict
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (open-test-session (tcp-locator "127.0.0.1" 1)
              #:adopt-host profile-host
              #:captp-version 'next)
     #f))
-(expect (and (exn:fail:pancake? profile-conflict)
-             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code profile-conflict)))
+(expect (and (exn:fail:glowcap? profile-conflict)
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code profile-conflict)))
         "connect: shared Host refuses a conflicting CapTP profile")
 (host-close! profile-host)
 

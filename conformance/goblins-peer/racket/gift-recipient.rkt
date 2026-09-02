@@ -1,14 +1,14 @@
 #lang racket/base
-;; gift-recipient.rkt — Goblins Carol, the recipient in the pancake-as-gifter
-;; three-party handoff proof. Dials the pancake gifter's introducer, asks it for
+;; gift-recipient.rkt — Goblins Carol, the recipient in the glowcap-as-gifter
+;; three-party handoff proof. Dials the glowcap gifter's introducer, asks it for
 ;; the greeter, and calls it. With the optional `nested` mode the answer is a
 ;; list containing two recursively placed gives; Carol must redeem and call
 ;; both, proving that the gifter did not special-case a top-level answer.
 ;;
-;; The introduction returns a `desc:handoff-give` pancake minted that names the
+;; The introduction returns a `desc:handoff-give` glowcap minted that names the
 ;; Goblins exporter (Bob). Goblins redeems it transparently: it dials Bob
 ;; directly, withdraws the gift, and resolves the send to the live greeter cap.
-;; The greeter call then lands straight on Bob — pancake (the gifter) is never in
+;; The greeter call then lands straight on Bob — glowcap (the gifter) is never in
 ;; the message path. The reply must carry the name we sent, proving data
 ;; integrity across the cross-implementation handoff.
 ;;

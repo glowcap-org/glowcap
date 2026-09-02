@@ -7,8 +7,6 @@ import type { DirId } from "../types.ts";
 
 import type {
 	DiagnosticRow,
-	IrcGatewayRow,
-	IrcNetworkRow,
 	ListenerRow,
 	OperatorCategory,
 	OperatorLinkRow,
@@ -20,6 +18,7 @@ import type {
 	OperatorTroubleRow,
 	StewardshipRow,
 } from "../../../lib/room/client.ts";
+import type { BridgeGateway } from "../../../lib/bridge/gateway.ts";
 
 /** One named object the inspect capability reported on this directory. */
 export type { DiagnosticRow } from "../../../lib/room/client.ts";
@@ -85,16 +84,19 @@ export interface VizPublishState {
 	readonly refusal: string | null;
 }
 
-/** One IRC channel the gateway currently bridges into this directory: the
- * gateway's own row, aliased so the pane and the wire cannot drift. */
-export type IrcBridgeRow = IrcGatewayRow;
-
 /** What this tab holds while the IRC gateway capability is in hand: the
- * bridged channels as the gateway last listed them. Possession is this row
- * being non-null, the same rule as its siblings. */
-export interface IrcGatewayState {
-	readonly networks: readonly IrcNetworkRow[];
-	readonly bridged: readonly IrcBridgeRow[];
+ * gateway's whole description, as the bridge behind it drew it. Possession is
+ * this being non-null, the same rule as its siblings. It is a generic bridge
+ * gateway; IRC is the one bridge that fills it today. */
+export type IrcGatewayState = BridgeGateway;
+
+/** One bridged room a room operator administers: the connection and lease it
+ * belongs to, so the room's moderation surface can retire it, plus the room's
+ * own publication so it can match itself against the gateway's leases. */
+export interface AdministeredBridge {
+	readonly connectionId: string;
+	readonly leaseId: string;
+	readonly publicationId: string;
 }
 
 /** One stewardship as the operator pane can act on. The server answers a

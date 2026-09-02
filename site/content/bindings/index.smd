@@ -1,6 +1,6 @@
 ---
 .title = "Bindings",
-.description = "Use pancake from Rust, TypeScript, Python, or Racket through one shared C ABI and composable transport archives.",
+.description = "Use glowcap from Rust, TypeScript, Python, or Racket through one shared C ABI and composable transport archives.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -18,7 +18,7 @@ these bindings with the Zig package, C ABI, CLI, and browser package.
 # One contract, four idioms
 
 A `Session` gives you the verbs in the
-[bindings contract](https://github.com/jimisaacs/pancake/blob/main/bindings/README.md).
+[bindings contract](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md).
 A `Host` is the multi-session product behind introductions
 ([modules]($link.page('modules'))). A `Ref` is a capability in hand; pass it as
 an argument and authority moves.
@@ -34,7 +34,7 @@ an argument and authority moves.
 returns an established session (handshake complete); per-operation options stay
 on that call.
 
-The TypeScript binding also runs in the browser, where `@pancake/web` compiles
+The TypeScript binding also runs in the browser, where `@glowcap/web` compiles
 the same `Session` API to WebAssembly. The browser side always dials
 rather than listens, and [In the browser]($link.page('bindings/browser')) is
 the browser setup guide.
@@ -45,11 +45,11 @@ or the Goblins-shaped actor layer on top with near-call and eventual-send
 
 # Use a binding from a checkout
 
-The packages and archives live in a pancake checkout. Pin a commit, run
+The packages and archives live in a glowcap checkout. Pin a commit, run
 `zig build`, and use the binding in that tree. Bindings find
-`zig-out/lib` by default; set `PANCAKE_LIB_DIR` if the archives live elsewhere.
+`zig-out/lib` by default; set `GLOWCAP_LIB_DIR` if the archives live elsewhere.
 
-The [binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/README.md)
+The [binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md)
 has the path for each language. Compose
 [iroh]($link.page('transports/iroh')),
 [onion]($link.page('transports/onion')),

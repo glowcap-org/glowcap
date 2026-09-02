@@ -7,7 +7,7 @@ const std = @import("std");
 const common = @import("common.zig");
 const execution = @import("execution.zig");
 
-const pancakeExecutable = common.pancakeExecutable;
+const glowcapExecutable = common.glowcapExecutable;
 const addInstalledSystemRun = common.addInstalledSystemRun;
 
 pub fn register(
@@ -28,7 +28,7 @@ pub fn register(
     // rooms, it needs `deno` (which hosts the board and runs the orchestrator)
     // and the Zig client, always built here. Python, Racket, and Rust join when their
     // runtimes are on PATH. It is a sibling step, not part of the hermetic gate.
-    const tasks_client_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-tasks-client", "apps/tasks/zig/client.zig");
+    const tasks_client_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-tasks-client", "apps/tasks/zig/client.zig");
     tasks_client_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tasks_client_exe.step);
 
@@ -58,7 +58,7 @@ pub fn register(
     // (which hosts the coordinator and runs the orchestrator); Python, Racket,
     // and Rust agents join when their runtimes are on PATH. A sibling step, not
     // part of the hermetic gate.
-    const tools_agent_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-tools-agent", "apps/tools/zig/agent.zig");
+    const tools_agent_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-tools-agent", "apps/tools/zig/agent.zig");
     tools_agent_exe.root_module.addImport("demo_tools_check", demo_tools_check_mod);
     tools_agent_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tools_agent_exe.step);
@@ -85,21 +85,21 @@ pub fn register(
     tools_demo_step.dependOn(&tools_demo.step);
 
     // ── Accountability application ───────────────────────────────────────────
-    // accountability-on-pancake: a real worked application that runs ON pancake's
-    // own runtime. Two native pancake peers complete an OCapN handshake over a
+    // accountability-on-glowcap: a real worked application that runs ON glowcap's
+    // own runtime. Two native glowcap peers complete an OCapN handshake over a
     // real loopback TCP socket; the host publishes an Affordance capability and
     // the caller invokes it, and every invocation produces a signed,
     // transparency-logged Episode attributing the attested caller. Identity
-    // (KERI), Episodes, and the transparency log all live above pancake, the app
-    // imports the `pancake` module and never reaches into the core. It needs no
+    // (KERI), Episodes, and the transparency log all live above glowcap, the app
+    // imports the `glowcap` module and never reaches into the core. It needs no
     // extra runtime, so it rides the gate as an application contract (below). The
-    // app source lives under `apps/accountability-on-pancake/`, beside
+    // app source lives under `apps/accountability-on-glowcap/`, beside
     // the other worked applications.
-    const accountability_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-on-pancake", "apps/accountability-on-pancake/zig/main.zig");
+    const accountability_exe = glowcapExecutable(b, lib_mod, target, optimize, "accountability-on-glowcap", "apps/accountability-on-glowcap/zig/main.zig");
     const run_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
     run_accountability.setCwd(b.path("."));
     run_accountability.has_side_effects = true;
-    const accountability_step = b.step("accountability", "Run the accountability application on pancake's own runtime over real TCP");
+    const accountability_step = b.step("accountability", "Run the accountability application on glowcap's own runtime over real TCP");
     accountability_step.dependOn(&run_accountability.step);
     // The accountability application and its three-party attribution test are
     // Zig-hermetic (both use loopback TCP), so they ride the
@@ -109,7 +109,7 @@ pub fn register(
     const check_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
     check_accountability.setCwd(b.path("."));
     check_accountability.has_side_effects = true;
-    check_accountability.setEnvironmentVariable("PANCAKE_ACCOUNTABILITY_DATA_ROOT", ".zig-cache/pancake-accountability/check");
+    check_accountability.setEnvironmentVariable("GLOWCAP_ACCOUNTABILITY_DATA_ROOT", ".zig-cache/glowcap-accountability/check");
     check_step.dependOn(&check_accountability.step);
 
     // The cross-language accountability demo: the standalone Zig host (listens
@@ -118,11 +118,11 @@ pub fn register(
     // installed C ABI. The orchestrator receives the host binary's built path
     // as its argument; the host installs only for this step, not on every
     // default build.
-    const host_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-host", "apps/accountability-on-pancake/zig/host.zig");
+    const host_exe = glowcapExecutable(b, lib_mod, target, optimize, "accountability-host", "apps/accountability-on-glowcap/zig/host.zig");
     const host_install = b.addInstallArtifact(host_exe, .{});
     const accountability_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",                                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "apps/accountability-on-pancake/deno/demo.ts",
+        "apps/accountability-on-glowcap/deno/demo.ts",
     });
     accountability_demo.addArtifactArg(host_exe); // the Zig host's built path
     if (pin_port) |p| accountability_demo.addArg(b.fmt("--port={d}", .{p}));
@@ -136,7 +136,7 @@ pub fn register(
     // on the gate. Pin the primitive against known vectors here, which is (needs
     // deno).
     const accountability_blake3_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
-        "deno", "test", "apps/accountability-on-pancake/deno/blake3_test.ts",
+        "deno", "test", "apps/accountability-on-glowcap/deno/blake3_test.ts",
     });
     accountability_blake3_test.has_side_effects = true;
     const accountability_blake3_step = b.step("accountability-blake3-test", "Pin the accountability app's Blake3 against known vectors (needs deno and python3)");
@@ -147,7 +147,7 @@ pub fn register(
     // requirement and the same off-gate demo, so its vectors are pinned too. Pure
     // Python, no dependency, so a bare python3 run serves.
     const accountability_blake3_py = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
-        "python3", "apps/accountability-on-pancake/python/blake3_test.py",
+        "python3", "apps/accountability-on-glowcap/python/blake3_test.py",
     });
     accountability_blake3_py.has_side_effects = true;
     accountability_blake3_step.dependOn(&accountability_blake3_py.step);
@@ -156,11 +156,11 @@ pub fn register(
     // live loopback-TCP handoff, then the exporter attributes the true caller
     // rather than the introducer.
     const three_party_mod = b.createModule(.{
-        .root_source_file = b.path("apps/accountability-on-pancake/zig/three_party_test.zig"),
+        .root_source_file = b.path("apps/accountability-on-glowcap/zig/three_party_test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    three_party_mod.addImport("pancake", lib_mod);
+    three_party_mod.addImport("glowcap", lib_mod);
     const three_party_test = b.addTest(.{
         .name = "accountability-three-party",
         .root_module = three_party_mod,

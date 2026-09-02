@@ -9,10 +9,10 @@ import {
 	abortable,
 	Connector,
 	ffi,
+	GlowcapError,
 	NativeDiagnostic,
 	openWebSocketChannel,
 	outPointer,
-	PancakeError,
 	readErrorSlot,
 	RELAY_CONFIG_ABI_VERSION,
 	RELAY_CONFIG_ABI_VERSION_OFF,
@@ -35,10 +35,10 @@ import {
 	retainCleanupFailures,
 	Session,
 	TRANSPORT_PROVIDER_SIZE,
-} from "@pancake/runtime/transport";
-import type { DriverProvider, ProviderTarget, Ptr } from "@pancake/runtime/transport";
+} from "@glowcap/runtime/transport";
+import type { DriverProvider, ProviderTarget, Ptr } from "@glowcap/runtime/transport";
 import { relayS } from "./ffi.ts";
-import { INVALID_ARGUMENT, TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "@pancake/abi";
+import { INVALID_ARGUMENT, TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "@glowcap/abi";
 import { dialUrl, routeFromLocator } from "./route.ts";
 
 const OK = 0;
@@ -65,12 +65,12 @@ export interface NativeTrustSummary {
 }
 
 function relayLastError(): string | null {
-	return readErrorSlot(relayS.pancake_relay_last_error);
+	return readErrorSlot(relayS.glowcap_relay_last_error);
 }
 
 function checkRelay(code: number): void {
 	if (code !== OK) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			code,
 			relayLastError() ?? `relay transport call failed (code ${code})`,
 		);
@@ -105,14 +105,14 @@ function openRuntime(options: RelayOptions): Ptr {
 	requireOffThreadFfi("relay", "native provider lifecycle");
 	const { struct, keepAlive } = encodeConfig(options);
 	const out = new Uint8Array(abiLayout.ptrSize);
-	checkRelay(relayS.pancake_relay_runtime_new(struct, out));
+	checkRelay(relayS.glowcap_relay_runtime_new(struct, out));
 	void keepAlive;
 	return outPointer(out);
 }
 
 function trustSummary(raw: Ptr): NativeTrustSummary {
 	const out = new Uint8Array(RELAY_TRUST_SUMMARY_SIZE);
-	checkRelay(relayS.pancake_relay_runtime_trust_summary(raw, out));
+	checkRelay(relayS.glowcap_relay_runtime_trust_summary(raw, out));
 	const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
 	const firstSkippedEngineCode = view.getInt32(RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF, true);
 	return {
@@ -132,21 +132,21 @@ export async function installProvider(
 	try {
 		summary = trustSummary(raw);
 		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
-		checkRelay(relayS.pancake_relay_transport_provider(raw, packageBytes));
+		checkRelay(relayS.glowcap_relay_transport_provider(raw, packageBytes));
 		loop.installProvider((register) => register(packageBytes));
 	} catch (primary) {
 		throw await retainCleanupFailures(primary, [
 			() =>
 				new NativeDiagnostic("relay").check(
 					"runtime release after refused installation",
-					(error, cap, errorLen) => relayS.pancake_relay_runtime_release(raw, error, cap, errorLen),
+					(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
 				),
 		]);
 	}
 	// Registration retained the runtime; this drops only the constructor lease.
 	await new NativeDiagnostic("relay").check(
 		"runtime release",
-		(error, cap, errorLen) => relayS.pancake_relay_runtime_release(raw, error, cap, errorLen),
+		(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
 	);
 	return summary;
 }
@@ -168,7 +168,7 @@ export function connector(): Connector {
 	return new Connector([TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY], async (host, locator, request) => {
 		const route = routeFromLocator(locator);
 		if (route == null) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`${locator.transport} connector requires a rendezvous-relay hint; got designator=${
 					locator.designator.slice(0, 16)

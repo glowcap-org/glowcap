@@ -45,7 +45,7 @@ function docEngine(): Engine {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "e2",

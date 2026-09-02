@@ -5,13 +5,13 @@
 //! lifecycles, and accept close-ownership transfers exactly once.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
 const driver_core = driver.core;
-const net = pancake.net;
+const net = glowcap.net;
 const tcp = net.tcp;
 const linux = std.os.linux;
 

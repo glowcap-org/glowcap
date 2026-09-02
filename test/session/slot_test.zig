@@ -2,12 +2,12 @@
 //! syrup codec and the oracle corpus. No second Syrup encoder lives in `slot.zig`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const protocol_oracle = @import("../oracle/protocol_oracle.zig");
 
-const model = pancake.ocapn.model;
-const syrup = pancake.ocapn.codec.syrup;
-const slot = pancake.ocapn.session.slot;
+const model = glowcap.ocapn.model;
+const syrup = glowcap.ocapn.codec.syrup;
+const slot = glowcap.ocapn.session.slot;
 
 /// Encode a payload reference the way CapTP does: as the fulfill of an
 /// `op:resolve`. Bytes come only from `syrup.encodeMessage`.

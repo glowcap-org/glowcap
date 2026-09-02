@@ -10,7 +10,7 @@ const fileContains = util.fileContains;
 const containsAsSymbol = util.containsAsSymbol;
 const extractBraceBlock = util.extractBraceBlock;
 
-/// Every `PANCAKE_HOST_ACTION_*` kind must appear in each binding's host-action
+/// Every `GLOWCAP_HOST_ACTION_*` kind must appear in each binding's host-action
 /// drain. The Zig embedders share one skeleton (`driver_core.drainActions`);
 /// the four language bindings each hand-roll the executor arm set in a named
 /// `action` module (decode/types are generated). Grep-level: the header's
@@ -27,7 +27,7 @@ pub fn checkBindingHostActionDrains(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const header_path = "include/pancake_host.h";
+    const header_path = "include/glowcap_host.h";
     const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for host-action drain check with {s}", .{ header_path, @errorName(err) });
         return;
@@ -36,7 +36,7 @@ pub fn checkBindingHostActionDrains(
 
     var action_names: std.ArrayList([]const u8) = .empty;
     defer action_names.deinit(gpa);
-    const needle = "#define PANCAKE_HOST_ACTION_";
+    const needle = "#define GLOWCAP_HOST_ACTION_";
     var rest = header;
     while (std.mem.indexOf(u8, rest, needle)) |start| {
         const after = rest[start + needle.len ..];
@@ -46,7 +46,7 @@ pub fn checkBindingHostActionDrains(
         rest = after[name_end..];
     }
     if (action_names.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no PANCAKE_HOST_ACTION_* constants found for drain check", .{header_path});
+        try appendViolation(gpa, violations, "{s}: no GLOWCAP_HOST_ACTION_* constants found for drain check", .{header_path});
         return;
     }
 
@@ -65,7 +65,7 @@ pub fn checkBindingHostActionDrains(
     }{
         // Kind inventory may live in the generated dispatch file; executor I/O
         // stays in action.* (route-exact dial, flush, …). Union of paths must
-        // cover every PANCAKE_HOST_ACTION_*.
+        // cover every GLOWCAP_HOST_ACTION_*.
         .{
             .paths = &.{
                 "bindings/ts/runtime/action.ts",
@@ -75,11 +75,11 @@ pub fn checkBindingHostActionDrains(
         },
         .{
             .paths = &.{
-                "bindings/python/pancake/_action.py",
-                "bindings/python/pancake/_host_action_gen.py",
+                "bindings/python/glowcap/_action.py",
+                "bindings/python/glowcap/_host_action_gen.py",
             },
             .sep = '_',
-            .variant_path = "bindings/python/pancake/_host_action_gen.py",
+            .variant_path = "bindings/python/glowcap/_host_action_gen.py",
             .variant_prefix = "case ",
         },
         .{
@@ -159,7 +159,7 @@ pub fn checkBindingHostActionDrains(
                 }
                 const variant = variant_buf[0..n];
                 if (std.mem.indexOf(u8, contents, variant) == null) {
-                    try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` arm (from PANCAKE_HOST_ACTION_{s})", .{ vpath, variant, name });
+                    try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` arm (from GLOWCAP_HOST_ACTION_{s})", .{ vpath, variant, name });
                 }
                 continue;
             }
@@ -194,7 +194,7 @@ pub fn checkBindingHostActionDrains(
                 }
             }
             if (!found) {
-                try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` (from PANCAKE_HOST_ACTION_{s})", .{ label, token, name });
+                try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` (from GLOWCAP_HOST_ACTION_{s})", .{ label, token, name });
             }
 
             if (drain.racket_symbol_path) |sym_path| {
@@ -210,7 +210,7 @@ pub fn checkBindingHostActionDrains(
                 }
                 const symbol = symbol_buf[0 .. 1 + name.len];
                 if (std.mem.indexOf(u8, contents, symbol) == null) {
-                    try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` handler (from PANCAKE_HOST_ACTION_{s})", .{ sym_path, symbol, name });
+                    try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` handler (from GLOWCAP_HOST_ACTION_{s})", .{ sym_path, symbol, name });
                 }
             }
         }
@@ -240,19 +240,19 @@ pub fn checkBindingHostActionSpine(
                 "dispatchHostAction",
                 "runDialTicket",
                 "flushOutbound",
-                "pancake_host_provide_gift_id",
+                "glowcap_host_provide_gift_id",
                 "settleVow",
                 "closeTransport",
             },
         },
         .{
-            .path = "bindings/python/pancake/_action.py",
+            .path = "bindings/python/glowcap/_action.py",
             .decode_import = "decode",
             .markers = &.{
                 "dispatch",
                 "run_dial_ticket",
                 "flush_outbound",
-                "pancake_host_provide_gift_id",
+                "glowcap_host_provide_gift_id",
                 "settle_vow",
                 "close_transport",
             },
@@ -264,7 +264,7 @@ pub fn checkBindingHostActionSpine(
                 "host_action_gen::dispatch",
                 "run_dial_ticket",
                 "flush_outbound",
-                "pancake_host_provide_gift_id",
+                "glowcap_host_provide_gift_id",
                 "settle_vow",
                 "close_transport",
             },
@@ -286,7 +286,7 @@ pub fn checkBindingHostActionSpine(
     try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/internal/host_action.ts", &.{
         "dispatchHostAction",
     });
-    try expectFileContains(io, gpa, root, violations, "bindings/python/pancake/_host_action_gen.py", &.{
+    try expectFileContains(io, gpa, root, violations, "bindings/python/glowcap/_host_action_gen.py", &.{
         "async def dispatch",
     });
     try expectFileContains(io, gpa, root, violations, "bindings/rust/src/host_action_gen.rs", &.{
@@ -303,28 +303,28 @@ pub fn checkBindingHostActionSpine(
     // Ticket-only DIAL: each binding clones the complete pending locator before
     // reporting the ticket (no URI re-parse or hint projection).
     try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/dial.ts", &.{
-        "pancake_host_pending_dial",
+        "glowcap_host_pending_dial",
         "runDialTicket",
         "OwnedLocator.cloneView",
     });
-    try expectFileContains(io, gpa, root, violations, "bindings/python/pancake/_dial.py", &.{
-        "pancake_host_pending_dial",
+    try expectFileContains(io, gpa, root, violations, "bindings/python/glowcap/_dial.py", &.{
+        "glowcap_host_pending_dial",
         "run_dial_ticket",
         "_OwnedLocator.clone_view",
     });
     try expectFileContains(io, gpa, root, violations, "bindings/rust/src/dial.rs", &.{
-        "pancake_host_pending_dial",
+        "glowcap_host_pending_dial",
         "run_dial_ticket",
         "OwnedLocator::clone_view",
     });
     try expectFileContains(io, gpa, root, violations, "bindings/racket/private/dial.rkt", &.{
-        "pancake_host_pending_dial",
+        "glowcap_host_pending_dial",
         "run-dial!",
         "call-with-owned-locator-handle",
     });
     try expectFileContains(io, gpa, root, violations, "bindings/racket/private/ffi-host.rkt", &.{
-        "pancake_host_pending_dial",
-        "pancake_locator_clone",
+        "glowcap_host_pending_dial",
+        "glowcap_locator_clone",
     });
     // Shared codec order spine: both encode paths must import codec_order.
     try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/syrup/encode.zig", &.{
@@ -335,7 +335,7 @@ pub fn checkBindingHostActionSpine(
     });
     // Stale locator-bearing or ticket-only DIAL prose must not return in the C
     // header
-    // sources. The generated include/pancake_host.h needs no row of its
+    // sources. The generated include/glowcap_host.h needs no row of its
     // own: `gen-header-host-check` holds it byte-identical to these two.
     for ([_][]const u8{
         "action's transport",
@@ -352,19 +352,19 @@ pub fn checkBindingHostActionSpine(
             try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: stale DIAL prose `{s}` — HostAction carries ticket + route_index; drop dead locator fields", .{needle});
         }
     }
-    // Dead dial-view fields stay deleted on PancakeHostAction; the complete
+    // Dead dial-view fields stay deleted on GlowcapHostAction; the complete
     // locator remains on the pending Node row and is projected on demand.
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/mod.zig", &.{
-        \\pub const PancakeHostAction = extern struct {
+        \\pub const GlowcapHostAction = extern struct {
         \\    kind: u32,
         \\    ticket: u64,
         \\    route_index: usize,
-        \\    session: ?*PancakeHostSession,
-        \\    value: shared.PancakeArgument,
+        \\    session: ?*GlowcapHostSession,
+        \\    value: shared.GlowcapArgument,
         \\    message: ?[*]const u8,
         \\    message_len: usize,
-        \\    /// CLOSE: PANCAKE_OK or PANCAKE_ERR_TIMEOUT. FAIL: PANCAKE_ERR_BROKEN or
-        \\    /// PANCAKE_ERR_CLOSED. Zero for every other kind.
+        \\    /// CLOSE: GLOWCAP_OK or GLOWCAP_ERR_TIMEOUT. FAIL: GLOWCAP_ERR_BROKEN or
+        \\    /// GLOWCAP_ERR_CLOSED. Zero for every other kind.
         \\    result: i32,
         \\};
     });
@@ -376,24 +376,24 @@ pub fn checkBindingHostActionSpine(
         "demanded_partner_key: ?crypto.PeerKey",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host.zig", &.{
-        "hint_storage: ?[*]c.PancakeLocatorHintView",
-        "out_locator: ?*c.PancakeLocatorView",
+        "hint_storage: ?[*]c.GlowcapLocatorHintView",
+        "out_locator: ?*c.GlowcapLocatorView",
         "out_hint_count: ?*usize",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/plan.zig", &.{
         "shared.locator_adapter.project(view.locator, hints)",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/symbols.zig", &.{
-        ".{ .name = \"pancake_host_pending_dial\", .out_params = &.{ 3, 5, 6 } }",
-        ".{ .name = \"pancake_host_dialed\", .out_params = &.{4} }",
+        ".{ .name = \"glowcap_host_pending_dial\", .out_params = &.{ 3, 5, 6 } }",
+        ".{ .name = \"glowcap_host_dialed\", .out_params = &.{4} }",
     });
     for ([_][]const u8{
         "src/c_abi/host/mod.zig",
         "bindings/racket/private/ffi-shared.rkt",
         "bindings/rust/src/sys/host.rs",
     }) |path| {
-        if (try fileContains(io, gpa, root, path, "PancakePendingDial")) {
-            try appendViolation(gpa, violations, "{s}: fixed fragment pending-dial struct must stay deleted — project PancakeLocatorView", .{path});
+        if (try fileContains(io, gpa, root, path, "GlowcapPendingDial")) {
+            try appendViolation(gpa, violations, "{s}: fixed fragment pending-dial struct must stay deleted — project GlowcapLocatorView", .{path});
         }
     }
     // One TCP host:port admission; DialResolver / planDial compose it.
@@ -438,7 +438,7 @@ pub fn checkBindingHostActionSpine(
 
     const generated = [_][]const u8{
         "bindings/ts/runtime/internal/host_action.ts",
-        "bindings/python/pancake/_host_action_gen.py",
+        "bindings/python/glowcap/_host_action_gen.py",
         "bindings/rust/src/host_action_gen.rs",
         "bindings/racket/private/host-action-gen.rkt",
     };
@@ -456,11 +456,11 @@ pub fn checkBindingHostActionSpine(
         .{ .path = "bindings/ts/runtime/host/lifecycle.ts", .banned = "HOST_ACTION_" },
         .{ .path = "bindings/ts/runtime/host/application.ts", .banned = "HOST_ACTION_" },
         .{ .path = "bindings/ts/runtime/host/drive.ts", .banned = "HOST_ACTION_" },
-        .{ .path = "bindings/python/pancake/_host/__init__.py", .banned = "HOST_ACTION_" },
-        .{ .path = "bindings/python/pancake/_host/finalizer.py", .banned = "HOST_ACTION_" },
-        .{ .path = "bindings/python/pancake/_host/lifecycle.py", .banned = "HOST_ACTION_" },
-        .{ .path = "bindings/python/pancake/_host/progress.py", .banned = "HOST_ACTION_" },
-        .{ .path = "bindings/python/pancake/_host/publication.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/glowcap/_host/__init__.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/glowcap/_host/finalizer.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/glowcap/_host/lifecycle.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/glowcap/_host/progress.py", .banned = "HOST_ACTION_" },
+        .{ .path = "bindings/python/glowcap/_host/publication.py", .banned = "HOST_ACTION_" },
         .{ .path = "bindings/rust/src/host.rs", .banned = "HOST_ACTION_" },
         .{ .path = "bindings/racket/private/host.rkt", .banned = "HOST-ACTION-" },
     };

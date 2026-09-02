@@ -8,7 +8,7 @@
 //
 // Three legs, dispatched by what the WebSocket names:
 //   - `?to=host:port`         a raw TCP socket (kernel-backpressured).
-//   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through @pancake/iroh's
+//   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through @glowcap/iroh's
 //                             `dialLocatorForRelay`.
 //   - `?rendezvous=<id>`      a bridge onto the inbound socket a non-listening
 //                             peer registered under its key designator at
@@ -30,17 +30,17 @@ import {
 	relayFailureLogger,
 	Rendezvous,
 	webSocketRelay,
-} from "@pancake/relay";
-import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@pancake/abi";
+} from "@glowcap/relay";
+import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@glowcap/abi";
 
 // Liveness is the idle timeout; the per-session byte total is a runaway backstop
 // over the session's life, not a memory bound (instantaneous memory is bounded
 // by the backpressure on both legs). Defaults come from generated binding policy.
-// The conformance idle-timeout proof sets `PANCAKE_RELAY_IDLE_MS` low; a
+// The conformance idle-timeout proof sets `GLOWCAP_RELAY_IDLE_MS` low; a
 // production run leaves it unset and gets the 60s default.
 function idleTimeoutMsFromEnv(): number {
 	try {
-		const override = Deno.env.get("PANCAKE_RELAY_IDLE_MS");
+		const override = Deno.env.get("GLOWCAP_RELAY_IDLE_MS");
 		if (override) return Number(override);
 	} catch {
 		// no --allow-env; fall through to the default
@@ -64,9 +64,9 @@ const activeRelayWork = new Set<Promise<void>>();
 const logRelayFailure = relayFailureLogger();
 let relayShuttingDown = false;
 let relayStop: Promise<void> | null = null;
-const plaintextCanaryText = Deno.env.get("PANCAKE_RELAY_PLAINTEXT_CANARY");
+const plaintextCanaryText = Deno.env.get("GLOWCAP_RELAY_PLAINTEXT_CANARY");
 if (plaintextCanaryText?.length === 0) {
-	throw new Error("PANCAKE_RELAY_PLAINTEXT_CANARY must not be empty");
+	throw new Error("GLOWCAP_RELAY_PLAINTEXT_CANARY must not be empty");
 }
 const plaintextCanary = plaintextCanaryText == null ? null : new TextEncoder().encode(plaintextCanaryText);
 const canaryPrefix = plaintextCanary == null ? null : (() => {
@@ -125,7 +125,7 @@ function runRelay(
 
 /** Dispatch one upgraded WebSocket to the channel its query names, then hand it
  * to the shared byte pump. One of `?to=host:port`, `?locator=<uri>`, or
- * `?rendezvous=<id>` must be present; the dials are @pancake/relay's shared,
+ * `?rendezvous=<id>` must be present; the dials are @glowcap/relay's shared,
  * hardened channel factories, and a rendezvous is a bridge onto a held
  * registered socket. */
 function relay(socket: WebSocket, query: URLSearchParams): void {
@@ -178,10 +178,10 @@ function relay(socket: WebSocket, query: URLSearchParams): void {
 }
 
 const listenPort = Number(Deno.args[0] ?? "0");
-const tlsCertPath = Deno.env.get("PANCAKE_RELAY_TLS_CERT");
-const tlsKeyPath = Deno.env.get("PANCAKE_RELAY_TLS_KEY");
+const tlsCertPath = Deno.env.get("GLOWCAP_RELAY_TLS_CERT");
+const tlsKeyPath = Deno.env.get("GLOWCAP_RELAY_TLS_KEY");
 if ((tlsCertPath == null) !== (tlsKeyPath == null)) {
-	throw new Error("PANCAKE_RELAY_TLS_CERT and PANCAKE_RELAY_TLS_KEY must be set together");
+	throw new Error("GLOWCAP_RELAY_TLS_CERT and GLOWCAP_RELAY_TLS_KEY must be set together");
 }
 const tls = tlsCertPath == null ? null : {
 	cert: await Deno.readTextFile(tlsCertPath),

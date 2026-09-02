@@ -1,4 +1,4 @@
-import { type Argument } from "@pancake/runtime";
+import { type Argument } from "@glowcap/runtime";
 import { MAX_SNAPSHOT_TEXT_BYTES, MAX_TASKS, validateTaskText } from "./limits.ts";
 
 export interface Task {

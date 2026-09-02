@@ -16,7 +16,7 @@ pub const sturdyref_authority: []const Ban = blk: {
                 .exclude = &.{"tools/check/source_check/bans/authority.zig"},
             } },
             .kind = .forbid,
-            .needles = &.{ "pancake_locator_swissnum", "is_sturdyref" },
+            .needles = &.{ "glowcap_locator_swissnum", "is_sturdyref" },
             .check = "sturdyref-authority",
             .why = "peer locators and authority-bearing sturdyrefs are distinct values and handles; do not restore a discriminator-shaped union",
         };
@@ -31,8 +31,8 @@ pub const sturdyref_authority: []const Ban = blk: {
 pub const host_action_session_vocabulary: []const Ban = &.{
     .{
         .where = .{ .files = &.{
-            "bindings/python/pancake/_action.py",
-            "bindings/python/pancake/_ffi_host.py",
+            "bindings/python/glowcap/_action.py",
+            "bindings/python/glowcap/_ffi_host.py",
             "bindings/racket/private/host-action-gen.rkt",
             "bindings/racket/private/loop/core.rkt",
             "bindings/rust/src/session.rs",
@@ -43,13 +43,13 @@ pub const host_action_session_vocabulary: []const Ban = &.{
         .needles = &.{
             "a.conn_ptr",
             "aliases={\"session\": \"conn\"}",
-            "PancakeHostAction-conn",
+            "GlowcapHostAction-conn",
             "session-vow-conn",
-            "fn raw_conn(&self) -> *mut ffi::PancakeHostSession",
+            "fn raw_conn(&self) -> *mut ffi::GlowcapHostSession",
             "self.shared.raw_conn()",
         },
         .check = "host-action-session-vocabulary",
-        .why = "Host actions and PancakeHostSession mirrors use session vocabulary directly; prerelease keeps no connection-named aliases",
+        .why = "Host actions and GlowcapHostSession mirrors use session vocabulary directly; prerelease keeps no connection-named aliases",
     },
 };
 
@@ -82,7 +82,7 @@ pub const sturdyref_profile_authority: []const Ban = &.{
         .why = "Rust sturdyref parsing requires the profile that owns its swissnum spelling",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_locator.py" },
+        .where = .{ .file = "bindings/python/glowcap/_locator.py" },
         .kind = .require,
         .needles = &.{"def parse_sturdyref(uri: str, captp_version: str)"},
         .check = "sturdyref-profile-authority",

@@ -1,6 +1,6 @@
 ---
 .title = "Codecs",
-.description = "Choose between Syrup, the compact OCapN interoperability format, and Cap'n Proto for measured pancake-to-pancake workloads.",
+.description = "Choose between Syrup, the compact OCapN interoperability format, and Cap'n Proto for measured glowcap-to-glowcap workloads.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -10,18 +10,18 @@ A codec turns CapTP messages into bytes and back. It does not decide what a
 message means or whether a reference is valid; that authority stays in the
 session. Changing codecs changes the wire format, not application behavior.
 
-pancake ships two:
+glowcap ships two:
 
 | Codec | Use it when | Tradeoff |
 | --- | --- | --- |
-| [Syrup](https://github.com/ocapn/syrup) | Always, unless a measured pancake-to-pancake workload says otherwise | Compact and interoperable; finding an arbitrary field requires a scan |
-| [Cap'n Proto](https://capnproto.org/) | Both peers are pancake and large or partially read payloads benefit from fixed offsets | Constant-time field access; larger frames and no outside interoperability |
+| [Syrup](https://github.com/ocapn/syrup) | Always, unless a measured glowcap-to-glowcap workload says otherwise | Compact and interoperable; finding an arbitrary field requires a scan |
+| [Cap'n Proto](https://capnproto.org/) | Both peers are glowcap and large or partially read payloads benefit from fixed offsets | Constant-time field access; larger frames and no outside interoperability |
 
 [One message, two encodings. Syrup lays it out as variable-length byte records and Cap'n Proto as fixed 8-byte words; decode either and you get back the same message.]($image.siteAsset('diagram-codec.svg'))
 
 # Syrup
 
-Syrup is the OCapN format and pancake's default. It is the only codec pancake
+Syrup is the OCapN format and glowcap's default. It is the only codec glowcap
 uses with [Spritely Goblins](https://spritely.institute/goblins/) and other
 implementations.
 
@@ -30,9 +30,9 @@ compact. The decoder can find a frame boundary and decode it in one forward
 pass. Random access is the tradeoff: reaching item *i* requires walking the
 records before it.
 
-Syrup is also pancake's signing format. Session location signatures and
+Syrup is also glowcap's signing format. Session location signatures and
 three-party handoff certificates use canonical Syrup bytes even when two
-pancake peers exchange their messages with Cap'n Proto.
+glowcap peers exchange their messages with Cap'n Proto.
 
 # Cap'n Proto
 
@@ -40,26 +40,26 @@ Cap'n Proto lays messages out in 8-byte words with fixed field offsets. That
 makes partial reads and random access cheap, but padding and pointer words make
 small messages larger.
 
-In pancake it is only for two pancake peers; Goblins does not speak it. Codec
+In glowcap it is only for two glowcap peers; Goblins does not speak it. Codec
 and CapTP version are separate choices. The native preference pairs Cap'n Proto
-with `pancake-next`, while Cap'n Proto can also carry V1.0 semantics between
-pancake peers. Set `codec = .capnp` and the version you need in Zig
+with `glowcap-next`, while Cap'n Proto can also carry V1.0 semantics between
+glowcap peers. Set `codec = .capnp` and the version you need in Zig
 `SessionOptions`, or use the matching Host or binding preference.
 
 # Choosing
 
 Stay on Syrup for ordinary CapTP traffic. Other OCapN implementations expect
-it, pancake signs with it, and small messages stay compact.
+it, glowcap signs with it, and small messages stay compact.
 
-Consider Cap'n Proto only when both peers are pancake and your payloads are
+Consider Cap'n Proto only when both peers are glowcap and your payloads are
 large or field-heavy enough for fixed-offset access to matter. Measure your
 actual messages: the
 [performance page]($link.page('performance')) shows one small mixed-argument
 call, not a universal result.
 
-Either codec can hand the session a temporary view of a message. pancake copies
+Either codec can hand the session a temporary view of a message. glowcap copies
 into owned memory only when it must keep that message after decode finishes.
 [Concepts]($link.page('concepts')) explains how
 peers negotiate the surrounding protocol profile. The
-[architecture doc](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
+[architecture doc](https://github.com/jimisaacs/glowcap/blob/main/docs/architecture.md)
 defines the codec extension boundary for Zig consumers.

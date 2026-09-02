@@ -1,5 +1,5 @@
-import { Runtime } from "@pancake/runtime";
-import { locator, provider, Reachability } from "@pancake/iroh";
+import { Runtime } from "@glowcap/runtime";
+import { locator, provider, Reachability } from "@glowcap/iroh";
 
 // Discovery resolves a bare iroh node ID without an address hint.
 const nodeId = "<64 lowercase hex characters from the server>";

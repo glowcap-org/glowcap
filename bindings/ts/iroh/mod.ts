@@ -1,6 +1,6 @@
-// Public @pancake/iroh surface: hosting + posture. Dial goes through
-// `@pancake/runtime`'s `connect(locator)`; the binding-internal dial lives at
-// `@pancake/iroh/internal` and is not part of the application contract.
+// Public @glowcap/iroh surface: hosting + posture. Dial goes through
+// `@glowcap/runtime`'s `connect(locator)`; the binding-internal dial lives at
+// `@glowcap/iroh/internal` and is not part of the application contract.
 //
 // Relay support: `dialLocatorForRelay` provides a byte-fed dial API for
 // transparent relay implementations (e.g., browser peer → relay → native iroh).
@@ -28,4 +28,4 @@ export const profiles = [
 		referenceName: "iroh",
 		takes: [],
 	},
-] as const satisfies readonly import("@pancake/runtime/transport").ProfileInfo[];
+] as const satisfies readonly import("@glowcap/runtime/transport").ProfileInfo[];

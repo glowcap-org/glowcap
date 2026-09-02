@@ -15,7 +15,7 @@
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 /// The ordinary finite handshake budget. Omitting one is a compile error, and
 /// `.unbounded` would park this example against a silent partner.
@@ -24,11 +24,11 @@ const handshake_budget = driver.default_handshake_budget;
 /// The ordinary finite budget for waits after the session opens.
 const settle_budget = driver.default_settle_budget;
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
 
 const frame_cap: usize = 4096;
 
@@ -105,7 +105,7 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(write_buf);
 
     var tcp_resident = tcp.Resident{ .io = io };
-    const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{tcp_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     {
         var session = try driver.connectVia(

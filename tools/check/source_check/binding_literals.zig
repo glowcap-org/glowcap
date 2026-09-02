@@ -20,7 +20,7 @@ pub fn check(
     // of model.transport; production modules import those names.
     {
         const allowed = [_][]const u8{
-            "bindings/python/pancake/_constants_gen.py",
+            "bindings/python/glowcap/_constants_gen.py",
             "bindings/rust/src/abi_constants_gen.rs",
             "bindings/ts/abi/constants.ts",
             "bindings/racket/private/constants-gen.rkt",
@@ -87,8 +87,8 @@ pub fn check(
             required_in_owner: []const []const u8,
         }{
             .{
-                .connection = "bindings/python/pancake/_session/",
-                .owner = "bindings/python/pancake/_socket_address.py",
+                .connection = "bindings/python/glowcap/_session/",
+                .owner = "bindings/python/glowcap/_socket_address.py",
                 .banned_in_connection = &.{
                     "def _socket_addr_designator",
                     "def _host_port_from_direct_hint",
@@ -163,7 +163,7 @@ pub fn check(
         }{
             .{ .path = "bindings/ts/runtime/dial.ts", .banned = &.{ "opts.hostPort", "hostPort: loc.hostPort" } },
             .{ .path = "bindings/rust/src/dial.rs", .banned = &.{ "tcp_host_port", "loc.host_port" } },
-            .{ .path = "bindings/python/pancake/_dial.py", .banned = &.{ "tcp_host", "tcp_port", "loc.host", "loc.port" } },
+            .{ .path = "bindings/python/glowcap/_dial.py", .banned = &.{ "tcp_host", "tcp_port", "loc.host", "loc.port" } },
             .{ .path = "bindings/racket/private/dial.rkt", .banned = &.{ "#:tcp-host", "#:tcp-port", "(locator-host loc)", "(locator-port loc)" } },
         };
         for (tcp_dial_one_path) |entry| {
@@ -218,7 +218,7 @@ pub fn check(
             // `gen-ts-abi-check`, and `gen-binding-constants-check`, so
             // per-mirror rows here were redundant.
             const shape_peer = [_]struct { path: []const u8, required: []const u8, banned: []const u8 }{
-                .{ .path = "src/c_abi/host/mod.zig", .required = "PANCAKE_DIAL_SHAPE_PEER_ID", .banned = "PANCAKE_DIAL_SHAPE_IROH" },
+                .{ .path = "src/c_abi/host/mod.zig", .required = "GLOWCAP_DIAL_SHAPE_PEER_ID", .banned = "GLOWCAP_DIAL_SHAPE_IROH" },
             };
             for (shape_peer) |entry| {
                 const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
@@ -239,7 +239,7 @@ pub fn check(
             path: []const u8,
             banned: []const []const u8,
         }{
-            .{ .path = "bindings/python/pancake/_locator.py", .banned = &.{ "def host_port_from_direct_hint", "def _host_port_from_direct_hint" } },
+            .{ .path = "bindings/python/glowcap/_locator.py", .banned = &.{ "def host_port_from_direct_hint", "def _host_port_from_direct_hint" } },
             .{ .path = "bindings/ts/runtime/locator.ts", .banned = &.{ "function hostPortFromDirectHint", "export function hostPortFromDirectHint" } },
             .{ .path = "bindings/rust/src/uri.rs", .banned = &.{ "fn host_port_from_direct_hint", "pub fn host_port_from_direct_hint" } },
             .{ .path = "bindings/racket/private/locator.rkt", .banned = &.{"(define (host-port-from-direct-hint"} },

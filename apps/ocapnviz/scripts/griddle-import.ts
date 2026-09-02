@@ -1,9 +1,9 @@
 /**
- * Convert a `pancake griddle run` timeline (NDJSON on stdin) into an ocapnviz
+ * Convert a `glowcap griddle run` timeline (NDJSON on stdin) into an ocapnviz
  * TimelineDocument (JSON on stdout), so a simulated conversation opens in the
  * viewer's Play mode:
  *
- *   pancake griddle run --scenario crossed-fetch --seed 7 \
+ *   glowcap griddle run --scenario crossed-fetch --seed 7 \
  *     | deno run scripts/griddle-import.ts > /tmp/crossed-fetch.json
  *
  * The mapping is layer-for-layer. griddle's base kinds carry network facts
@@ -91,7 +91,7 @@ for (const line of input.split("\n")) {
 				t,
 				kind: "peer-joined",
 				peerId: peerId(ev.id),
-				profile: "pancake",
+				profile: "glowcap",
 			});
 			break;
 		}

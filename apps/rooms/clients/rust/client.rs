@@ -1,4 +1,4 @@
-//! A rooms chat client, written on pancake actors in native Rust.
+//! A rooms chat client, written on glowcap actors in native Rust.
 //!
 //! It enters the named room, waits until everyone it expects is present, posts
 //! one line, and collects each expected member's line as the room pushes it
@@ -34,7 +34,7 @@ use room::{Directory, Room};
 use rooms_cli::{error_code, NO_SUCH_ROOM, ROOM_EXISTS};
 
 /// Enter `name`, opening the room if it does not exist yet.
-async fn enter_or_open(dir: &Directory, name: &str) -> Result<pancake::Ref, String> {
+async fn enter_or_open(dir: &Directory, name: &str) -> Result<glowcap::Ref, String> {
 	match dir.enter(name).await {
 		Ok(room) => return Ok(room),
 		Err(reason) if error_code(&reason) == NO_SUCH_ROOM => {}

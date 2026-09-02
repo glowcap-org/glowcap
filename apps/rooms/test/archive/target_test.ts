@@ -6,7 +6,7 @@
 
 import type { ArchiveLine, ArchiveRecord } from "../../lib/archive/protocol.ts";
 import type { ArchivePeerTarget } from "../../web/ui/net/archive_target.ts";
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import {
 	activateHistoryArchiveTarget,
 	type HistoryArchiveTarget,

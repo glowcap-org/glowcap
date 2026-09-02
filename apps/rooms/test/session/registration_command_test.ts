@@ -2,7 +2,7 @@
 // effect. The effect ledger owns ambiguity, while the room view carries the
 // resulting private policy without discarding independent authority.
 
-import type { Session } from "@pancake/runtime";
+import type { Session } from "@glowcap/runtime";
 import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import { dispatchRoomsSessionCommand } from "../../session/command_dispatch.ts";
@@ -12,7 +12,7 @@ import { assertEquals } from "../assert.ts";
 import { openSessionState } from "../support/session_disk.ts";
 
 Deno.test("a durable session unregisters one managed room through the effect ledger", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-registration-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-registration-" });
 	try {
 		const state = await openSessionState(directory);
 		const directoryId = "ocapn://directory.id";

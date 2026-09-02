@@ -6,8 +6,8 @@
 // The iroh arm probes whether this tree can actually run iroh before using it,
 // and skips only for the loader's own refusal.
 
-import type { Host, Runtime, Session } from "@pancake/runtime";
-import { Reachability } from "@pancake/iroh";
+import type { Host, Runtime, Session } from "@glowcap/runtime";
+import { Reachability } from "@glowcap/iroh";
 
 import { dial as dialWithRuntime, isUriLocator, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
@@ -200,14 +200,14 @@ export async function readPort(proc: Deno.ChildProcess): Promise<number> {
 }
 
 /** Child servers that mean no durable state must not inherit a live
- * `PANCAKE_ROOMS_STATE` from the pane that launched the suite.
+ * `GLOWCAP_ROOMS_STATE` from the pane that launched the suite.
  *
  * `spawnOwned` is the authority that actually hides the pane directory
  * (Deno overlays `env` unless `clearEnv` is set). This helper still names
  * that absence for callers who pass an explicit environment map. */
 export function ephemeralRoomsEnv(): Record<string, string> {
 	const env = { ...Deno.env.toObject() };
-	delete env.PANCAKE_ROOMS_STATE;
+	delete env.GLOWCAP_ROOMS_STATE;
 	return env;
 }
 
@@ -233,7 +233,7 @@ export async function withPeeringServer(
 	const proc = spawnOwned("deno", {
 		args: [...DENO_FLAGS, "--allow-write", SERVER, "0", "--peering"],
 		cwd: ROOT,
-		env: { ...Deno.env.toObject(), PANCAKE_ROOMS_STATE: state },
+		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -346,7 +346,7 @@ export function startStatefulServer(
 	return spawnOwned("deno", {
 		args: [...DENO_FLAGS, `--allow-write=${stateDirectory}`, SERVER, String(port), ...serverArgs],
 		cwd: ROOT,
-		env: { PANCAKE_ROOMS_STATE: stateDirectory },
+		env: { GLOWCAP_ROOMS_STATE: stateDirectory },
 		stdout: "piped",
 		stderr: "piped",
 	});

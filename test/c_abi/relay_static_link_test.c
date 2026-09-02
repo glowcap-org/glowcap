@@ -1,5 +1,5 @@
-#include "pancake_net_transport_relay.h"
+#include "glowcap_net_transport_relay.h"
 
 int main(void) {
-    return pancake_relay_archive_fingerprint() == 0;
+    return glowcap_relay_archive_fingerprint() == 0;
 }

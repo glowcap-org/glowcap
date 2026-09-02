@@ -1,6 +1,6 @@
 // Two-stage managed-room creation and its capability-occurrence custody.
 
-import { Ref, retainCleanupFailures, type Session } from "@pancake/runtime";
+import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { ask } from "./ask.ts";
 import { parseRoomsSturdyref } from "./locator.ts";
 import { isManagedRoomId, newManagedRoomId } from "./limits.ts";

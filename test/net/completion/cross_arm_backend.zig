@@ -12,12 +12,12 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const tcp = pancake.net.tcp;
-const completion = pancake.net.completion;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const tcp = glowcap.net.tcp;
+const completion = glowcap.net.completion;
 const fetch_pump = @import("../../support/fetch_pump.zig");
 const handshake = @import("../../support/handshake.zig");
 const fixtures = @import("../../support/completion_loop_fixtures.zig");

@@ -5,8 +5,8 @@ entry for browsers. Pin a checkout, run `zig build`, and use the packages from
 the tree.
 
 ```ts
-import { Runtime } from "@pancake/runtime";
-import { noise, provider } from "@pancake/tcp";
+import { Runtime } from "@glowcap/runtime";
+import { noise, provider } from "@glowcap/tcp";
 
 const peerKey = "<64 lowercase hex characters from the server>";
 await using runtime = await Runtime.open({ providers: [provider()] });
@@ -21,21 +21,21 @@ console.log(await session.send(greeter, "greet", ["world"]));
 
 | Package | Purpose |
 | --- | --- |
-| [`@pancake/runtime`](runtime/README.md) | The `Session`, `Host`, OCapN values, and generic native driver. |
-| [`@pancake/iroh`](iroh/README.md) | Optional encrypted QUIC provider and listener. |
-| `@pancake/onion` | Tor onion provider, listener, and raw transport handles. |
-| [`@pancake/relay`](relay/README.md) | A byte-transparent relay for browser peers that cannot open sockets. |
-| `@pancake/webrtc` | A WebRTC DataChannel opened through a signaling capability. |
-| [`@pancake/web`](web/README.md) | The same host and session API compiled to WebAssembly. |
-| `@pancake/tcp` | TCP-profile locator constructors and native driver listeners; `/transport` exposes provider installation and blocking frame handles. |
-| `@pancake/inproc` | Socket-free in-process frame transport for tests and embedded topologies. |
-| `@pancake/abi` | Generated ABI constants used by the other packages. |
+| [`@glowcap/runtime`](runtime/README.md) | The `Session`, `Host`, OCapN values, and generic native driver. |
+| [`@glowcap/iroh`](iroh/README.md) | Optional encrypted QUIC provider and listener. |
+| `@glowcap/onion` | Tor onion provider, listener, and raw transport handles. |
+| [`@glowcap/relay`](relay/README.md) | A byte-transparent relay for browser peers that cannot open sockets. |
+| `@glowcap/webrtc` | A WebRTC DataChannel opened through a signaling capability. |
+| [`@glowcap/web`](web/README.md) | The same host and session API compiled to WebAssembly. |
+| `@glowcap/tcp` | TCP-profile locator constructors and native driver listeners; `/transport` exposes provider installation and blocking frame handles. |
+| `@glowcap/inproc` | Socket-free in-process frame transport for tests and embedded topologies. |
+| `@glowcap/abi` | Generated ABI constants used by the other packages. |
 
 Runtime-specific FFI and socket code stays behind an adapter selected at load
 time, so Deno never loads Bun FFI and Bun never loads Deno FFI.
 
-On the native path the Runtime loads the symbol-disjoint `libpancake_host` and
-`libpancake_driver` archives. The driver adopts a quiescent Host and receives
+On the native path the Runtime loads the symbol-disjoint `libglowcap_host` and
+`libglowcap_driver` archives. The driver adopts a quiescent Host and receives
 archive-owned provider packages: one TCP package owns TCP, keyed TCP, and
 Noise TCP, while the optional iroh package owns its dial and listener halves.
 On Deno those providers run on one stepping driver loop that owns readiness,
@@ -50,7 +50,7 @@ keep the byte-fed Host path.
 | Bun | Host identity/lifetime, locator and sturdyref ABI, and fail-closed native-loop/transport admission. | Hosted application round trips, live Goblins, and iroh checks. |
 | Browser | WebAssembly handshake, ABI layout, and import checks. | Real Chromium, WebRTC, mesh, and cold-dial scenarios. |
 
-`@pancake/web` uses the same byte-fed host as the native binding. JavaScript
+`@glowcap/web` uses the same byte-fed host as the native binding. JavaScript
 supplies the channel, whether that is a WebSocket relay or a WebRTC
 DataChannel.
 

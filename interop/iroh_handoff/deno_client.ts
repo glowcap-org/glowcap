@@ -27,8 +27,8 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`); run
 // via `zig build deno-iroh-handoff`.
 
-import { HINT_DIRECT_ADDRESSES, Ref, Runtime, type Session } from "@pancake/runtime";
-import { type IrohServer, listen, locator, provider, Reachability } from "@pancake/iroh";
+import { HINT_DIRECT_ADDRESSES, Ref, Runtime, type Session } from "@glowcap/runtime";
+import { type IrohServer, listen, locator, provider, Reachability } from "@glowcap/iroh";
 import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const GATE = "deno-iroh-handoff";

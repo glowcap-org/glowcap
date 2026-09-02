@@ -10,17 +10,17 @@ const c = @import("c_abi_shared");
 const failure_projection = @import("../failure.zig");
 const runtime = @import("../runtime/state.zig");
 
-const PANCAKE_OK = c.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
-const PANCAKE_ERR_CLOSED = c.PANCAKE_ERR_CLOSED;
-const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
+const GLOWCAP_OK = c.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = c.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INTERNAL = c.GLOWCAP_ERR_INTERNAL;
+const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
+const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 
 const RawConn = struct {
     stream: net.onion.resident.RawStream,
     owner: *runtime.Netlayer,
     operations: c.ForeignCallBarrier = .{},
-    failure: c.PancakeProviderFailure = std.mem.zeroes(c.PancakeProviderFailure),
+    failure: c.GlowcapProviderFailure = std.mem.zeroes(c.GlowcapProviderFailure),
 };
 
 pub const Adopted = struct {
@@ -55,18 +55,18 @@ pub fn providerRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usi
     const conn = rawConn(conn_raw);
     if (!conn.operations.acquire(conn.owner.io())) {
         if (c.transport_provider.providerFailureEmpty(conn.failure))
-            c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_CLOSED, error.Closed);
+            c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_CLOSED, error.Closed);
         return -1;
     }
     defer conn.operations.release(conn.owner.io());
     const dest = (out orelse {
-        c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
         return -1;
     })[0..cap];
     const got = conn.stream.read(dest) catch |err| {
         if (err == error.EndOfStream) return 0;
         if (c.transport_provider.providerFailureEmpty(conn.failure))
-            c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_IO, err);
+            c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
         return -1;
     };
     return @intCast(got);
@@ -76,30 +76,30 @@ pub fn providerWriteAll(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const 
     const conn = rawConn(conn_raw);
     if (!conn.operations.acquire(conn.owner.io())) {
         if (c.transport_provider.providerFailureEmpty(conn.failure))
-            c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_CLOSED, error.Closed);
-        return PANCAKE_ERR_CLOSED;
+            c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_CLOSED, error.Closed);
+        return GLOWCAP_ERR_CLOSED;
     }
     defer conn.operations.release(conn.owner.io());
     const source = bytes orelse {
-        c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-        return PANCAKE_ERR_NULL_POINTER;
+        c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+        return GLOWCAP_ERR_NULL_POINTER;
     };
     conn.stream.writeAll(source[0..len]) catch |err| {
         if (c.transport_provider.providerFailureEmpty(conn.failure))
-            c.transport_provider.setProviderFailure(&conn.failure, PANCAKE_ERR_IO, err);
-        return PANCAKE_ERR_IO;
+            c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
+        return GLOWCAP_ERR_IO;
     };
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
-pub fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) void {
+pub fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {
     c.transport_provider.takeProviderFailure(&rawConn(conn_raw).failure, out_failure);
 }
 
 pub fn providerConnClose(
     _: ?*anyopaque,
     conn_raw: ?*anyopaque,
-    out_failure: ?*c.PancakeProviderFailure,
+    out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const conn = rawConn(conn_raw);
     const owner = conn.owner;
@@ -126,5 +126,5 @@ pub fn providerConnClose(
             failure_projection.providerListen,
         );
     }
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }

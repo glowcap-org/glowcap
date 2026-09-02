@@ -46,7 +46,7 @@ async fn drive_session_close(shared: Rc<SessionShared>) {
 	while !shared.released.get() {
 		if let Some(loop_) = shared.loop_wire.as_ref() {
 			// The loop tier's discipline: progress happens only inside
-			// `pancake_driver_step`, so this driver is the deadline-stepper.
+			// `glowcap_driver_step`, so this driver is the deadline-stepper.
 			// Register the loop-activity waiter before stepping, so a rival
 			// path's step landing between this step and the park still wakes
 			// this driver instead of being lost.
@@ -88,7 +88,7 @@ async fn drive_session_close(shared: Rc<SessionShared>) {
 		tokio::pin!(notified);
 		notified.as_mut().enable();
 		let mut lifecycle = 0;
-		let rc = unsafe { ffi::pancake_host_session_close_progress(shared.ptr.get(), monotonic_ms(), &mut lifecycle) };
+		let rc = unsafe { ffi::glowcap_host_session_close_progress(shared.ptr.get(), monotonic_ms(), &mut lifecycle) };
 		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 			shared.record_close_result(rc);
 			shared.close_transport();
@@ -188,7 +188,7 @@ fn request_session_close(shared: &Rc<SessionShared>, pending: PendingWork) -> Re
 		loop_.request_session_close(shared.ptr.get(), pending)?;
 	} else {
 		let options = pending.to_ffi()?;
-		check_host(unsafe { ffi::pancake_host_session_close(shared.ptr.get(), &options, monotonic_ms()) })?;
+		check_host(unsafe { ffi::glowcap_host_session_close(shared.ptr.get(), &options, monotonic_ms()) })?;
 		// A close request or escalation is close-relevant activity: a driver
 		// parked on a now-superseded wait must re-check progress.
 		shared.host.note_close_activity();

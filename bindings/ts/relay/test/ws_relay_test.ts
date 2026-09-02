@@ -7,7 +7,7 @@ import {
 } from "../ws_relay.ts";
 import { isRendezvousDesignator, Rendezvous } from "../rendezvous.ts";
 import { relayBytes } from "../relay.ts";
-import { secondaryFailures } from "@pancake/runtime";
+import { secondaryFailures } from "@glowcap/runtime";
 import { assertEquals } from "../../dogfood/assert.ts";
 
 function assertIncludes(actual: string, expected: string): void {

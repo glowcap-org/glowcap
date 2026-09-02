@@ -10,7 +10,7 @@
 //! intermediate line, ` ` for the last one, and `+` for a line introducing a
 //! block terminated by a lone `.`.
 //!
-//! What pancake sends is what the pinned Goblins sends, read off
+//! What glowcap sends is what the pinned Goblins sends, read off
 //! `conformance/spritely-goblins/upstream/goblins/ocapn/netlayer/onion.rkt`:
 //! a bare `AUTHENTICATE`, then `ADD_ONION NEW:ED25519-V3 PORT=9045,<target>` for
 //! a fresh service or `ADD_ONION <key> PORT=9045,<target>` to restore one, and it
@@ -29,7 +29,7 @@ const std = @import("std");
 const socks5 = @import("socks5.zig");
 
 /// The virtual port an `ADD_ONION` forwards. One authority with the SOCKS side,
-/// because a mismatch between the port pancake asks Tor to forward and the port
+/// because a mismatch between the port glowcap asks Tor to forward and the port
 /// it dials would produce a service nothing could reach.
 pub const virtual_port = socks5.virtual_port;
 
@@ -38,8 +38,8 @@ pub const virtual_port = socks5.virtual_port;
 /// protocol, so this is a constant rather than a setting.
 pub const new_key_spec = "NEW:ED25519-V3";
 
-/// The longest control line pancake will format or accept. The control protocol
-/// sets no limit of its own, so one is set here: every reply pancake reads is a
+/// The longest control line glowcap will format or accept. The control protocol
+/// sets no limit of its own, so one is set here: every reply glowcap reads is a
 /// status line or a short key-value pair, and a peer or a wedged daemon that
 /// sends an unbounded line must fail rather than grow a buffer. A service key
 /// blob is the longest legitimate value and sits far under this.
@@ -65,8 +65,8 @@ pub const Error = error{
 /// The three arms are the three a real `torrc` produces. `none` is what an
 /// unauthenticated Unix control socket gives, and what the pinned Goblins
 /// assumes. `cookie` carries the bytes of the file named by `CookieAuthFile`,
-/// which pancake sends as hexadecimal. `password` carries the cleartext of a
-/// `HashedControlPassword` setup, which pancake sends as a quoted string.
+/// which glowcap sends as hexadecimal. `password` carries the cleartext of a
+/// `HashedControlPassword` setup, which glowcap sends as a quoted string.
 pub const Auth = union(enum) {
     none,
     cookie: []const u8,
@@ -125,7 +125,7 @@ pub fn writeAddOnionNew(buf: []u8, forward: Forward) Error![]const u8 {
 /// Format the `ADD_ONION` request that restores the service `key` names.
 ///
 /// `key` is the value Tor returned in `250-PrivateKey=`, verbatim and including
-/// its `ED25519-V3:` prefix. pancake never parses it, derives anything from it,
+/// its `ED25519-V3:` prefix. glowcap never parses it, derives anything from it,
 /// or holds it as anything but bytes: the control protocol produced it and the
 /// control protocol consumes it, which is exactly the posture the pinned Goblins
 /// takes with the string it hands its caller to store.

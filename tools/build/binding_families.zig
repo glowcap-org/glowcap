@@ -376,13 +376,13 @@ const keyed_relay_rendezvous_clients = [_]BindingClientRow{
     },
     .{
         .step_name = "zig-keyed-relay-register",
-        .description = "Keyed-relay register proof: the native pancake CLI registers at the reference relay (no listening socket) and answers a cold dial (needs deno)",
+        .description = "Keyed-relay register proof: the native glowcap CLI registers at the reference relay (no listening socket) and answers a cold dial (needs deno)",
         .argv = &.{ "bash", "bindings/proofs/keyed_relay_rendezvous/zig_register.sh" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "zig-keyed-relay-rendezvous",
-        .description = "Keyed-relay rendezvous cold-dial proof: the native pancake CLI dials a registered peer through the reference relay via PANCAKE_RENDEZVOUS (needs deno)",
+        .description = "Keyed-relay rendezvous cold-dial proof: the native glowcap CLI dials a registered peer through the reference relay via GLOWCAP_RENDEZVOUS (needs deno)",
         .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "bash", "bindings/proofs/keyed_relay_rendezvous/zig_client.sh" },
         .posture = .{ .deterministic = 30 },
     },

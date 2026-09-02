@@ -1,7 +1,7 @@
 //! Generates the TypeScript ABI mirror from Zig declarations.
 //!
-//! Constants go to `@pancake/abi` because they are target-independent. Native
-//! struct offsets stay in `@pancake/runtime`; wasm32 reports its own layout at
+//! Constants go to `@glowcap/abi` because they are target-independent. Native
+//! struct offsets stay in `@glowcap/runtime`; wasm32 reports its own layout at
 //! runtime. The FFI symbol tables reflect each archive's `symbols.zig`, so the
 //! binding reads the C ABI without hand-kept offsets or signatures.
 
@@ -72,15 +72,15 @@ const BigConst = struct {
 };
 
 const archive_fingerprints = [_]BigConst{
-    .{ .ts = "OCAPN_ARCHIVE_FINGERPRINT", .value = c.PANCAKE_OCAPN_ARCHIVE_FINGERPRINT },
-    .{ .ts = "HOST_ARCHIVE_FINGERPRINT", .value = cd.PANCAKE_HOST_ARCHIVE_FINGERPRINT },
-    .{ .ts = "DRIVER_ARCHIVE_FINGERPRINT", .value = cdr.PANCAKE_DRIVER_ARCHIVE_FINGERPRINT },
-    .{ .ts = "TCP_ARCHIVE_FINGERPRINT", .value = ct.PANCAKE_TCP_ARCHIVE_FINGERPRINT },
-    .{ .ts = "INPROC_ARCHIVE_FINGERPRINT", .value = cin.PANCAKE_INPROC_ARCHIVE_FINGERPRINT },
-    .{ .ts = "ONION_ARCHIVE_FINGERPRINT", .value = con.PANCAKE_ONION_ARCHIVE_FINGERPRINT },
-    .{ .ts = "IROH_ARCHIVE_FINGERPRINT", .value = ci.PANCAKE_IROH_ARCHIVE_FINGERPRINT },
-    .{ .ts = "RELAY_ARCHIVE_FINGERPRINT", .value = cr.PANCAKE_RELAY_ARCHIVE_FINGERPRINT },
-    .{ .ts = "WEBRTC_ARCHIVE_FINGERPRINT", .value = cw.PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT },
+    .{ .ts = "OCAPN_ARCHIVE_FINGERPRINT", .value = c.GLOWCAP_OCAPN_ARCHIVE_FINGERPRINT },
+    .{ .ts = "HOST_ARCHIVE_FINGERPRINT", .value = cd.GLOWCAP_HOST_ARCHIVE_FINGERPRINT },
+    .{ .ts = "DRIVER_ARCHIVE_FINGERPRINT", .value = cdr.GLOWCAP_DRIVER_ARCHIVE_FINGERPRINT },
+    .{ .ts = "TCP_ARCHIVE_FINGERPRINT", .value = ct.GLOWCAP_TCP_ARCHIVE_FINGERPRINT },
+    .{ .ts = "INPROC_ARCHIVE_FINGERPRINT", .value = cin.GLOWCAP_INPROC_ARCHIVE_FINGERPRINT },
+    .{ .ts = "ONION_ARCHIVE_FINGERPRINT", .value = con.GLOWCAP_ONION_ARCHIVE_FINGERPRINT },
+    .{ .ts = "IROH_ARCHIVE_FINGERPRINT", .value = ci.GLOWCAP_IROH_ARCHIVE_FINGERPRINT },
+    .{ .ts = "RELAY_ARCHIVE_FINGERPRINT", .value = cr.GLOWCAP_RELAY_ARCHIVE_FINGERPRINT },
+    .{ .ts = "WEBRTC_ARCHIVE_FINGERPRINT", .value = cw.GLOWCAP_WEBRTC_ARCHIVE_FINGERPRINT },
 };
 
 fn k(comptime ts: []const u8, comptime decl: []const u8) Const {
@@ -135,158 +135,158 @@ fn writeTsTransportConstName(
 const constants = [_]Const{
     // Return codes (the subset the binding branches on; the rest surface
     // through `check` as thrown errors carrying the raw code).
-    k("OK", "PANCAKE_OK"),
-    k("INVALID_ARGUMENT", "PANCAKE_ERR_INVALID_ARGUMENT"),
-    k("INTERNAL", "PANCAKE_ERR_INTERNAL"),
-    k("WOULD_BLOCK", "PANCAKE_ERR_WOULD_BLOCK"),
-    k("CLOSED", "PANCAKE_ERR_CLOSED"),
-    k("IO", "PANCAKE_ERR_IO"),
-    k("BUFFER_TOO_SMALL", "PANCAKE_ERR_BUFFER_TOO_SMALL"),
-    k("NOT_FOUND", "PANCAKE_ERR_NOT_FOUND"),
-    k("UNSUPPORTED_VALUE", "PANCAKE_ERR_UNSUPPORTED_VALUE"),
-    k("BROKEN", "PANCAKE_ERR_BROKEN"),
-    k("TIMEOUT", "PANCAKE_ERR_TIMEOUT"),
-    k("FAILURE_LAYER_CORE", "PANCAKE_FAILURE_LAYER_CORE"),
-    k("FAILURE_LAYER_DRIVER", "PANCAKE_FAILURE_LAYER_DRIVER"),
-    k("FAILURE_LAYER_TRANSPORT", "PANCAKE_FAILURE_LAYER_TRANSPORT"),
-    k("FAILURE_LAYER_BINDING", "PANCAKE_FAILURE_LAYER_BINDING"),
-    k("FAILURE_LAYER_APPLICATION_OBSERVER", "PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER"),
-    k("FAILURE_SCOPE_PROCESS", "PANCAKE_FAILURE_SCOPE_PROCESS"),
-    k("FAILURE_SCOPE_CONTEXT", "PANCAKE_FAILURE_SCOPE_CONTEXT"),
-    k("FAILURE_SCOPE_HOST", "PANCAKE_FAILURE_SCOPE_HOST"),
-    k("FAILURE_SCOPE_SESSION", "PANCAKE_FAILURE_SCOPE_SESSION"),
-    k("FAILURE_SCOPE_LISTENER", "PANCAKE_FAILURE_SCOPE_LISTENER"),
-    k("FAILURE_SCOPE_TRANSPORT", "PANCAKE_FAILURE_SCOPE_TRANSPORT"),
-    k("FAILURE_SCOPE_OPERATION", "PANCAKE_FAILURE_SCOPE_OPERATION"),
-    k("DEFAULT_FAILURE_CAPACITY", "PANCAKE_DEFAULT_FAILURE_CAPACITY"),
-    k("DEFAULT_FAILURE_PAYLOAD_CAP", "PANCAKE_DEFAULT_FAILURE_PAYLOAD_CAP"),
-    k("FRAME_SHAPE_BYTE", "PANCAKE_FRAME_SHAPE_BYTE"),
-    k("FRAME_SHAPE_WORD", "PANCAKE_FRAME_SHAPE_WORD"),
-    // The byte-fed host tier's action queue (libpancake_host, ADR-0072):
-    // PancakeHostAction.kind.
-    kd("HOST_ACTION_DIAL", "PANCAKE_HOST_ACTION_DIAL"),
-    kd("HOST_ACTION_FLUSH", "PANCAKE_HOST_ACTION_FLUSH"),
-    kd("HOST_ACTION_NEED_GIFT_ID", "PANCAKE_HOST_ACTION_NEED_GIFT_ID"),
-    kd("HOST_ACTION_SETTLE", "PANCAKE_HOST_ACTION_SETTLE"),
-    kd("HOST_ACTION_FAIL", "PANCAKE_HOST_ACTION_FAIL"),
-    kd("HOST_ACTION_CLOSE", "PANCAKE_HOST_ACTION_CLOSE"),
-    kd("HOST_ACTION_RESUME", "PANCAKE_HOST_ACTION_RESUME"),
-    kd("HOST_ACTION_CANCEL_DIAL", "PANCAKE_HOST_ACTION_CANCEL_DIAL"),
-    kd("PENDING_CANCEL", "PANCAKE_PENDING_CANCEL"),
-    kd("PENDING_FINISH", "PANCAKE_PENDING_FINISH"),
-    kd("LIFECYCLE_ACTIVE", "PANCAKE_LIFECYCLE_ACTIVE"),
-    kd("LIFECYCLE_FINISHING", "PANCAKE_LIFECYCLE_FINISHING"),
-    kd("LIFECYCLE_TERMINATING", "PANCAKE_LIFECYCLE_TERMINATING"),
-    kd("LIFECYCLE_CLOSED", "PANCAKE_LIFECYCLE_CLOSED"),
-    kd("CLOSE_OPTIONS_ABI_VERSION", "PANCAKE_CLOSE_OPTIONS_ABI_VERSION"),
-    kd("CLOSE_MAX_GRACE_MS", "PANCAKE_CLOSE_MAX_GRACE_MS"),
-    kd("CLOSE_GRACE_UNSPECIFIED", "PANCAKE_CLOSE_GRACE_UNSPECIFIED"),
-    kd("CLOSE_GRACE_FINITE", "PANCAKE_CLOSE_GRACE_FINITE"),
-    kd("CLOSE_GRACE_UNBOUNDED", "PANCAKE_CLOSE_GRACE_UNBOUNDED"),
-    kd("SESSION_LIMIT_OPTIONS_ABI_VERSION", "PANCAKE_SESSION_LIMIT_OPTIONS_ABI_VERSION"),
+    k("OK", "GLOWCAP_OK"),
+    k("INVALID_ARGUMENT", "GLOWCAP_ERR_INVALID_ARGUMENT"),
+    k("INTERNAL", "GLOWCAP_ERR_INTERNAL"),
+    k("WOULD_BLOCK", "GLOWCAP_ERR_WOULD_BLOCK"),
+    k("CLOSED", "GLOWCAP_ERR_CLOSED"),
+    k("IO", "GLOWCAP_ERR_IO"),
+    k("BUFFER_TOO_SMALL", "GLOWCAP_ERR_BUFFER_TOO_SMALL"),
+    k("NOT_FOUND", "GLOWCAP_ERR_NOT_FOUND"),
+    k("UNSUPPORTED_VALUE", "GLOWCAP_ERR_UNSUPPORTED_VALUE"),
+    k("BROKEN", "GLOWCAP_ERR_BROKEN"),
+    k("TIMEOUT", "GLOWCAP_ERR_TIMEOUT"),
+    k("FAILURE_LAYER_CORE", "GLOWCAP_FAILURE_LAYER_CORE"),
+    k("FAILURE_LAYER_DRIVER", "GLOWCAP_FAILURE_LAYER_DRIVER"),
+    k("FAILURE_LAYER_TRANSPORT", "GLOWCAP_FAILURE_LAYER_TRANSPORT"),
+    k("FAILURE_LAYER_BINDING", "GLOWCAP_FAILURE_LAYER_BINDING"),
+    k("FAILURE_LAYER_APPLICATION_OBSERVER", "GLOWCAP_FAILURE_LAYER_APPLICATION_OBSERVER"),
+    k("FAILURE_SCOPE_PROCESS", "GLOWCAP_FAILURE_SCOPE_PROCESS"),
+    k("FAILURE_SCOPE_CONTEXT", "GLOWCAP_FAILURE_SCOPE_CONTEXT"),
+    k("FAILURE_SCOPE_HOST", "GLOWCAP_FAILURE_SCOPE_HOST"),
+    k("FAILURE_SCOPE_SESSION", "GLOWCAP_FAILURE_SCOPE_SESSION"),
+    k("FAILURE_SCOPE_LISTENER", "GLOWCAP_FAILURE_SCOPE_LISTENER"),
+    k("FAILURE_SCOPE_TRANSPORT", "GLOWCAP_FAILURE_SCOPE_TRANSPORT"),
+    k("FAILURE_SCOPE_OPERATION", "GLOWCAP_FAILURE_SCOPE_OPERATION"),
+    k("DEFAULT_FAILURE_CAPACITY", "GLOWCAP_DEFAULT_FAILURE_CAPACITY"),
+    k("DEFAULT_FAILURE_PAYLOAD_CAP", "GLOWCAP_DEFAULT_FAILURE_PAYLOAD_CAP"),
+    k("FRAME_SHAPE_BYTE", "GLOWCAP_FRAME_SHAPE_BYTE"),
+    k("FRAME_SHAPE_WORD", "GLOWCAP_FRAME_SHAPE_WORD"),
+    // The byte-fed host tier's action queue (libglowcap_host, ADR-0072):
+    // GlowcapHostAction.kind.
+    kd("HOST_ACTION_DIAL", "GLOWCAP_HOST_ACTION_DIAL"),
+    kd("HOST_ACTION_FLUSH", "GLOWCAP_HOST_ACTION_FLUSH"),
+    kd("HOST_ACTION_NEED_GIFT_ID", "GLOWCAP_HOST_ACTION_NEED_GIFT_ID"),
+    kd("HOST_ACTION_SETTLE", "GLOWCAP_HOST_ACTION_SETTLE"),
+    kd("HOST_ACTION_FAIL", "GLOWCAP_HOST_ACTION_FAIL"),
+    kd("HOST_ACTION_CLOSE", "GLOWCAP_HOST_ACTION_CLOSE"),
+    kd("HOST_ACTION_RESUME", "GLOWCAP_HOST_ACTION_RESUME"),
+    kd("HOST_ACTION_CANCEL_DIAL", "GLOWCAP_HOST_ACTION_CANCEL_DIAL"),
+    kd("PENDING_CANCEL", "GLOWCAP_PENDING_CANCEL"),
+    kd("PENDING_FINISH", "GLOWCAP_PENDING_FINISH"),
+    kd("LIFECYCLE_ACTIVE", "GLOWCAP_LIFECYCLE_ACTIVE"),
+    kd("LIFECYCLE_FINISHING", "GLOWCAP_LIFECYCLE_FINISHING"),
+    kd("LIFECYCLE_TERMINATING", "GLOWCAP_LIFECYCLE_TERMINATING"),
+    kd("LIFECYCLE_CLOSED", "GLOWCAP_LIFECYCLE_CLOSED"),
+    kd("CLOSE_OPTIONS_ABI_VERSION", "GLOWCAP_CLOSE_OPTIONS_ABI_VERSION"),
+    kd("CLOSE_MAX_GRACE_MS", "GLOWCAP_CLOSE_MAX_GRACE_MS"),
+    kd("CLOSE_GRACE_UNSPECIFIED", "GLOWCAP_CLOSE_GRACE_UNSPECIFIED"),
+    kd("CLOSE_GRACE_FINITE", "GLOWCAP_CLOSE_GRACE_FINITE"),
+    kd("CLOSE_GRACE_UNBOUNDED", "GLOWCAP_CLOSE_GRACE_UNBOUNDED"),
+    kd("SESSION_LIMIT_OPTIONS_ABI_VERSION", "GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION"),
     // Frame-cap defaults: Host protocol admission and direct raw transport
     // frame-shuttle helpers intentionally keep separate memory postures.
-    kd("DEFAULT_FRAME_CAP", "PANCAKE_DEFAULT_FRAME_CAP"),
-    k("RAW_TRANSPORT_DEFAULT_FRAME_CAP", "PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP"),
-    kd("MAX_LOCAL_FORWARD_HOPS", "PANCAKE_MAX_LOCAL_FORWARD_HOPS"),
-    kd("HANDSHAKE_TIMEOUT_MS", "PANCAKE_HANDSHAKE_TIMEOUT_MS"),
-    kd("DEFAULT_PENDING_ACCEPTS", "PANCAKE_DEFAULT_PENDING_ACCEPTS"),
-    kd("DEFAULT_HANDSHAKE_CONCURRENCY", "PANCAKE_DEFAULT_HANDSHAKE_CONCURRENCY"),
-    kd("MAX_HANDSHAKE_CONCURRENCY", "PANCAKE_MAX_HANDSHAKE_CONCURRENCY"),
-    kd("DISCOVERY_DIAL_RETRY_MS", "PANCAKE_DISCOVERY_DIAL_RETRY_MS"),
-    kd("DISCOVERY_DIAL_MAX_ATTEMPTS", "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS"),
-    kdr("DRIVER_OPTIONS_ABI_VERSION", "PANCAKE_DRIVER_OPTIONS_ABI_VERSION"),
-    kdr("DRIVER_FAILURE_ABI_VERSION", "PANCAKE_DRIVER_FAILURE_ABI_VERSION"),
-    kdr("DRIVER_MAX_WAIT_MS", "PANCAKE_DRIVER_MAX_WAIT_MS"),
-    kdr("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", "PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES"),
-    kdr("DRIVER_DEFAULT_MAX_PENDING_OPENS", "PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS"),
-    kdr("DRIVER_DEFAULT_HANDSHAKE_MS", "PANCAKE_DRIVER_DEFAULT_HANDSHAKE_MS"),
-    kdr("DRIVER_DEFAULT_LISTENER_SETUP_MS", "PANCAKE_DRIVER_DEFAULT_LISTENER_SETUP_MS"),
-    kdr("DRIVER_DEFAULT_SETTLE_MS", "PANCAKE_DRIVER_DEFAULT_SETTLE_MS"),
-    // Host trace event kinds (libpancake_host).
-    kd("TRACE_SESSION_OPEN", "PANCAKE_TRACE_SESSION_OPEN"),
-    kd("TRACE_MESSAGE", "PANCAKE_TRACE_MESSAGE"),
-    kd("TRACE_SESSION_CLOSE", "PANCAKE_TRACE_SESSION_CLOSE"),
-    kd("TRACE_DIGEST_BYTES", "PANCAKE_TRACE_DIGEST_BYTES"),
-    kd("DESIGNATOR_SCHEME_ADDRESS", "PANCAKE_DESIGNATOR_SCHEME_ADDRESS"),
-    kd("DESIGNATOR_SCHEME_KEY", "PANCAKE_DESIGNATOR_SCHEME_KEY"),
-    kd("HOST_OUTBOUND_PREFIX_CAP", "PANCAKE_HOST_OUTBOUND_PREFIX_CAP"),
-    kd("HOST_DURABLE_ENTROPY_LEN", "PANCAKE_HOST_DURABLE_ENTROPY_LEN"),
-    kd("HOST_DURABLE_SWISS_LEN", "PANCAKE_HOST_DURABLE_SWISS_LEN"),
-    // PancakeDriverEvent.kind values the driver archive's event queue
-    // carries (libpancake_driver, ADR-0112).
-    kdr("DRIVER_EVENT_OPENED", "PANCAKE_DRIVER_EVENT_OPENED"),
-    kdr("DRIVER_EVENT_OPEN_FAILED", "PANCAKE_DRIVER_EVENT_OPEN_FAILED"),
-    kdr("DRIVER_EVENT_ACCEPTED", "PANCAKE_DRIVER_EVENT_ACCEPTED"),
-    kdr("DRIVER_EVENT_SESSION_CLOSED", "PANCAKE_DRIVER_EVENT_SESSION_CLOSED"),
-    kdr("DRIVER_EVENT_COMPLETION", "PANCAKE_DRIVER_EVENT_COMPLETION"),
-    kdr("DRIVER_EVENT_LISTENER_READY", "PANCAKE_DRIVER_EVENT_LISTENER_READY"),
-    kdr("DRIVER_EVENT_LISTENER_FAILED", "PANCAKE_DRIVER_EVENT_LISTENER_FAILED"),
-    kdr("CARRIER_PHASE_NONE", "PANCAKE_CARRIER_PHASE_NONE"),
-    kdr("CARRIER_PHASE_RESOLVE", "PANCAKE_CARRIER_PHASE_RESOLVE"),
-    kdr("CARRIER_PHASE_CONNECT", "PANCAKE_CARRIER_PHASE_CONNECT"),
-    kdr("CARRIER_PHASE_SECURE_HANDSHAKE", "PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE"),
-    kdr("CARRIER_PHASE_WEBSOCKET_UPGRADE", "PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE"),
-    kdr("CARRIER_PHASE_REGISTRATION", "PANCAKE_CARRIER_PHASE_REGISTRATION"),
-    kdr("CARRIER_PHASE_RECEIVE", "PANCAKE_CARRIER_PHASE_RECEIVE"),
-    kdr("CARRIER_PHASE_TRANSMIT", "PANCAKE_CARRIER_PHASE_TRANSMIT"),
-    kdr("CARRIER_PHASE_SHUTDOWN", "PANCAKE_CARRIER_PHASE_SHUTDOWN"),
-    kdr("CARRIER_DETAIL_PEER_ALERT", "PANCAKE_CARRIER_DETAIL_PEER_ALERT"),
-    kdr("CARRIER_DETAIL_ENGINE_CODE", "PANCAKE_CARRIER_DETAIL_ENGINE_CODE"),
-    kdr("DRIVER_ADOPT_DIALED", "PANCAKE_DRIVER_ADOPT_DIALED"),
-    kdr("DRIVER_ADOPT_ACCEPTED", "PANCAKE_DRIVER_ADOPT_ACCEPTED"),
-    kdr("LOCATOR_VIEW_ABI_VERSION", "PANCAKE_LOCATOR_VIEW_ABI_VERSION"),
-    kdr("HINT_STRING", "PANCAKE_HINT_STRING"),
-    kdr("HINT_BYTES", "PANCAKE_HINT_BYTES"),
-    kdr("HINT_BOOLEAN", "PANCAKE_HINT_BOOLEAN"),
-    kdr("HINT_INTEGER", "PANCAKE_HINT_INTEGER"),
-    kdr("HINTS_MAP", "PANCAKE_HINTS_MAP"),
-    kdr("HINTS_BOOLEAN_FALSE", "PANCAKE_HINTS_BOOLEAN_FALSE"),
-    // PancakePartnerIdentity.provenance: how the partner's advertised durable
+    kd("DEFAULT_FRAME_CAP", "GLOWCAP_DEFAULT_FRAME_CAP"),
+    k("RAW_TRANSPORT_DEFAULT_FRAME_CAP", "GLOWCAP_RAW_TRANSPORT_DEFAULT_FRAME_CAP"),
+    kd("MAX_LOCAL_FORWARD_HOPS", "GLOWCAP_MAX_LOCAL_FORWARD_HOPS"),
+    kd("HANDSHAKE_TIMEOUT_MS", "GLOWCAP_HANDSHAKE_TIMEOUT_MS"),
+    kd("DEFAULT_PENDING_ACCEPTS", "GLOWCAP_DEFAULT_PENDING_ACCEPTS"),
+    kd("DEFAULT_HANDSHAKE_CONCURRENCY", "GLOWCAP_DEFAULT_HANDSHAKE_CONCURRENCY"),
+    kd("MAX_HANDSHAKE_CONCURRENCY", "GLOWCAP_MAX_HANDSHAKE_CONCURRENCY"),
+    kd("DISCOVERY_DIAL_RETRY_MS", "GLOWCAP_DISCOVERY_DIAL_RETRY_MS"),
+    kd("DISCOVERY_DIAL_MAX_ATTEMPTS", "GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS"),
+    kdr("DRIVER_OPTIONS_ABI_VERSION", "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION"),
+    kdr("DRIVER_FAILURE_ABI_VERSION", "GLOWCAP_DRIVER_FAILURE_ABI_VERSION"),
+    kdr("DRIVER_MAX_WAIT_MS", "GLOWCAP_DRIVER_MAX_WAIT_MS"),
+    kdr("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", "GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES"),
+    kdr("DRIVER_DEFAULT_MAX_PENDING_OPENS", "GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS"),
+    kdr("DRIVER_DEFAULT_HANDSHAKE_MS", "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS"),
+    kdr("DRIVER_DEFAULT_LISTENER_SETUP_MS", "GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS"),
+    kdr("DRIVER_DEFAULT_SETTLE_MS", "GLOWCAP_DRIVER_DEFAULT_SETTLE_MS"),
+    // Host trace event kinds (libglowcap_host).
+    kd("TRACE_SESSION_OPEN", "GLOWCAP_TRACE_SESSION_OPEN"),
+    kd("TRACE_MESSAGE", "GLOWCAP_TRACE_MESSAGE"),
+    kd("TRACE_SESSION_CLOSE", "GLOWCAP_TRACE_SESSION_CLOSE"),
+    kd("TRACE_DIGEST_BYTES", "GLOWCAP_TRACE_DIGEST_BYTES"),
+    kd("DESIGNATOR_SCHEME_ADDRESS", "GLOWCAP_DESIGNATOR_SCHEME_ADDRESS"),
+    kd("DESIGNATOR_SCHEME_KEY", "GLOWCAP_DESIGNATOR_SCHEME_KEY"),
+    kd("HOST_OUTBOUND_PREFIX_CAP", "GLOWCAP_HOST_OUTBOUND_PREFIX_CAP"),
+    kd("HOST_DURABLE_ENTROPY_LEN", "GLOWCAP_HOST_DURABLE_ENTROPY_LEN"),
+    kd("HOST_DURABLE_SWISS_LEN", "GLOWCAP_HOST_DURABLE_SWISS_LEN"),
+    // GlowcapDriverEvent.kind values the driver archive's event queue
+    // carries (libglowcap_driver, ADR-0112).
+    kdr("DRIVER_EVENT_OPENED", "GLOWCAP_DRIVER_EVENT_OPENED"),
+    kdr("DRIVER_EVENT_OPEN_FAILED", "GLOWCAP_DRIVER_EVENT_OPEN_FAILED"),
+    kdr("DRIVER_EVENT_ACCEPTED", "GLOWCAP_DRIVER_EVENT_ACCEPTED"),
+    kdr("DRIVER_EVENT_SESSION_CLOSED", "GLOWCAP_DRIVER_EVENT_SESSION_CLOSED"),
+    kdr("DRIVER_EVENT_COMPLETION", "GLOWCAP_DRIVER_EVENT_COMPLETION"),
+    kdr("DRIVER_EVENT_LISTENER_READY", "GLOWCAP_DRIVER_EVENT_LISTENER_READY"),
+    kdr("DRIVER_EVENT_LISTENER_FAILED", "GLOWCAP_DRIVER_EVENT_LISTENER_FAILED"),
+    kdr("CARRIER_PHASE_NONE", "GLOWCAP_CARRIER_PHASE_NONE"),
+    kdr("CARRIER_PHASE_RESOLVE", "GLOWCAP_CARRIER_PHASE_RESOLVE"),
+    kdr("CARRIER_PHASE_CONNECT", "GLOWCAP_CARRIER_PHASE_CONNECT"),
+    kdr("CARRIER_PHASE_SECURE_HANDSHAKE", "GLOWCAP_CARRIER_PHASE_SECURE_HANDSHAKE"),
+    kdr("CARRIER_PHASE_WEBSOCKET_UPGRADE", "GLOWCAP_CARRIER_PHASE_WEBSOCKET_UPGRADE"),
+    kdr("CARRIER_PHASE_REGISTRATION", "GLOWCAP_CARRIER_PHASE_REGISTRATION"),
+    kdr("CARRIER_PHASE_RECEIVE", "GLOWCAP_CARRIER_PHASE_RECEIVE"),
+    kdr("CARRIER_PHASE_TRANSMIT", "GLOWCAP_CARRIER_PHASE_TRANSMIT"),
+    kdr("CARRIER_PHASE_SHUTDOWN", "GLOWCAP_CARRIER_PHASE_SHUTDOWN"),
+    kdr("CARRIER_DETAIL_PEER_ALERT", "GLOWCAP_CARRIER_DETAIL_PEER_ALERT"),
+    kdr("CARRIER_DETAIL_ENGINE_CODE", "GLOWCAP_CARRIER_DETAIL_ENGINE_CODE"),
+    kdr("DRIVER_ADOPT_DIALED", "GLOWCAP_DRIVER_ADOPT_DIALED"),
+    kdr("DRIVER_ADOPT_ACCEPTED", "GLOWCAP_DRIVER_ADOPT_ACCEPTED"),
+    kdr("LOCATOR_VIEW_ABI_VERSION", "GLOWCAP_LOCATOR_VIEW_ABI_VERSION"),
+    kdr("HINT_STRING", "GLOWCAP_HINT_STRING"),
+    kdr("HINT_BYTES", "GLOWCAP_HINT_BYTES"),
+    kdr("HINT_BOOLEAN", "GLOWCAP_HINT_BOOLEAN"),
+    kdr("HINT_INTEGER", "GLOWCAP_HINT_INTEGER"),
+    kdr("HINTS_MAP", "GLOWCAP_HINTS_MAP"),
+    kdr("HINTS_BOOLEAN_FALSE", "GLOWCAP_HINTS_BOOLEAN_FALSE"),
+    // GlowcapPartnerIdentity.provenance: how the partner's advertised durable
     // identity was authenticated (ADR-0097). A caller needing a proved durable
     // peer reads this, never a designator-equals-session-key comparison.
-    kd("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", "PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT"),
-    kd("DURABLE_PROVENANCE_UNAUTHENTICATED", "PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED"),
-    ko("ONION_AUTH_NONE", "PANCAKE_ONION_AUTH_NONE"),
-    ko("ONION_AUTH_COOKIE", "PANCAKE_ONION_AUTH_COOKIE"),
-    ko("ONION_AUTH_PASSWORD", "PANCAKE_ONION_AUTH_PASSWORD"),
-    ko("ONION_SERVICE_ID_LEN", "PANCAKE_ONION_SERVICE_ID_LEN"),
-    ko("ONION_SERVICE_KEY_CAP", "PANCAKE_ONION_SERVICE_KEY_CAP"),
+    kd("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", "GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT"),
+    kd("DURABLE_PROVENANCE_UNAUTHENTICATED", "GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED"),
+    ko("ONION_AUTH_NONE", "GLOWCAP_ONION_AUTH_NONE"),
+    ko("ONION_AUTH_COOKIE", "GLOWCAP_ONION_AUTH_COOKIE"),
+    ko("ONION_AUTH_PASSWORD", "GLOWCAP_ONION_AUTH_PASSWORD"),
+    ko("ONION_SERVICE_ID_LEN", "GLOWCAP_ONION_SERVICE_ID_LEN"),
+    ko("ONION_SERVICE_KEY_CAP", "GLOWCAP_ONION_SERVICE_KEY_CAP"),
     // Iroh reachability postures and the redeem knob's starting value
-    // (libpancake_net_transport_iroh). The stack's `Reachability` surface and
+    // (libglowcap_net_transport_iroh). The stack's `Reachability` surface and
     // its hint-less-redeem default read these instead of hand-typing numbers.
-    ki("IROH_REACH_DIRECT", "PANCAKE_IROH_REACH_DIRECT"),
-    ki("IROH_REACH_DISCOVERY", "PANCAKE_IROH_REACH_DISCOVERY"),
-    ki("IROH_REACH_DISCOVERY_NO_RELAY", "PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY"),
-    ki("IROH_REACH_LOCAL_DISCOVERY", "PANCAKE_IROH_REACH_LOCAL_DISCOVERY"),
-    ki("IROH_REACH_REDEEM_DEFAULT", "PANCAKE_IROH_REACH_REDEEM_DEFAULT"),
-    ki("IROH_NODE_ID_BYTES", "PANCAKE_IROH_NODE_ID_BYTES"),
-    ki("IROH_MAX_DIRECT_ADDRESS_BYTES", "PANCAKE_IROH_MAX_DIRECT_ADDRESS_BYTES"),
-    // Iroh readiness event bits: the PANCAKE_IROH_EV_* bitset a drain_ready
+    ki("IROH_REACH_DIRECT", "GLOWCAP_IROH_REACH_DIRECT"),
+    ki("IROH_REACH_DISCOVERY", "GLOWCAP_IROH_REACH_DISCOVERY"),
+    ki("IROH_REACH_DISCOVERY_NO_RELAY", "GLOWCAP_IROH_REACH_DISCOVERY_NO_RELAY"),
+    ki("IROH_REACH_LOCAL_DISCOVERY", "GLOWCAP_IROH_REACH_LOCAL_DISCOVERY"),
+    ki("IROH_REACH_REDEEM_DEFAULT", "GLOWCAP_IROH_REACH_REDEEM_DEFAULT"),
+    ki("IROH_NODE_ID_BYTES", "GLOWCAP_IROH_NODE_ID_BYTES"),
+    ki("IROH_MAX_DIRECT_ADDRESS_BYTES", "GLOWCAP_IROH_MAX_DIRECT_ADDRESS_BYTES"),
+    // Iroh readiness event bits: the GLOWCAP_IROH_EV_* bitset a drain_ready
     // record carries.
-    ki("IROH_EV_READABLE", "PANCAKE_IROH_EV_READABLE"),
-    ki("IROH_EV_WRITABLE", "PANCAKE_IROH_EV_WRITABLE"),
-    ki("IROH_EV_CLOSED", "PANCAKE_IROH_EV_CLOSED"),
-    ki("IROH_EV_ACCEPT", "PANCAKE_IROH_EV_ACCEPT"),
-    ki("IROH_EV_CONNECT", "PANCAKE_IROH_EV_CONNECT"),
-    kw("WEBRTC_EV_OPEN", "PANCAKE_WEBRTC_EV_OPEN"),
-    kw("WEBRTC_EV_CANDIDATE", "PANCAKE_WEBRTC_EV_CANDIDATE"),
-    kw("WEBRTC_EV_READABLE", "PANCAKE_WEBRTC_EV_READABLE"),
-    kw("WEBRTC_EV_WRITABLE", "PANCAKE_WEBRTC_EV_WRITABLE"),
-    kw("WEBRTC_EV_CLOSED", "PANCAKE_WEBRTC_EV_CLOSED"),
-    kw("WEBRTC_MAX_SIGNAL_BYTES", "PANCAKE_WEBRTC_MAX_SIGNAL_BYTES"),
-    kw("WEBRTC_MAX_ICE_CANDIDATE_BYTES", "PANCAKE_WEBRTC_MAX_ICE_CANDIDATE_BYTES"),
-    kw("WEBRTC_MAX_ICE_SERVERS", "PANCAKE_WEBRTC_MAX_ICE_SERVERS"),
-    kw("WEBRTC_MAX_ICE_URLS_PER_SERVER", "PANCAKE_WEBRTC_MAX_ICE_URLS_PER_SERVER"),
-    kw("WEBRTC_MAX_ICE_URL_BYTES", "PANCAKE_WEBRTC_MAX_ICE_URL_BYTES"),
-    kw("WEBRTC_MAX_ICE_CREDENTIAL_BYTES", "PANCAKE_WEBRTC_MAX_ICE_CREDENTIAL_BYTES"),
-    kw("WEBRTC_MAX_PENDING_ICE_CANDIDATES", "PANCAKE_WEBRTC_MAX_PENDING_ICE_CANDIDATES"),
-    kw("WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES", "PANCAKE_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES"),
-    kw("WEBRTC_DATA_CHANNEL_QUEUE_BYTES", "PANCAKE_WEBRTC_DATA_CHANNEL_QUEUE_BYTES"),
+    ki("IROH_EV_READABLE", "GLOWCAP_IROH_EV_READABLE"),
+    ki("IROH_EV_WRITABLE", "GLOWCAP_IROH_EV_WRITABLE"),
+    ki("IROH_EV_CLOSED", "GLOWCAP_IROH_EV_CLOSED"),
+    ki("IROH_EV_ACCEPT", "GLOWCAP_IROH_EV_ACCEPT"),
+    ki("IROH_EV_CONNECT", "GLOWCAP_IROH_EV_CONNECT"),
+    kw("WEBRTC_EV_OPEN", "GLOWCAP_WEBRTC_EV_OPEN"),
+    kw("WEBRTC_EV_CANDIDATE", "GLOWCAP_WEBRTC_EV_CANDIDATE"),
+    kw("WEBRTC_EV_READABLE", "GLOWCAP_WEBRTC_EV_READABLE"),
+    kw("WEBRTC_EV_WRITABLE", "GLOWCAP_WEBRTC_EV_WRITABLE"),
+    kw("WEBRTC_EV_CLOSED", "GLOWCAP_WEBRTC_EV_CLOSED"),
+    kw("WEBRTC_MAX_SIGNAL_BYTES", "GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES"),
+    kw("WEBRTC_MAX_ICE_CANDIDATE_BYTES", "GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES"),
+    kw("WEBRTC_MAX_ICE_SERVERS", "GLOWCAP_WEBRTC_MAX_ICE_SERVERS"),
+    kw("WEBRTC_MAX_ICE_URLS_PER_SERVER", "GLOWCAP_WEBRTC_MAX_ICE_URLS_PER_SERVER"),
+    kw("WEBRTC_MAX_ICE_URL_BYTES", "GLOWCAP_WEBRTC_MAX_ICE_URL_BYTES"),
+    kw("WEBRTC_MAX_ICE_CREDENTIAL_BYTES", "GLOWCAP_WEBRTC_MAX_ICE_CREDENTIAL_BYTES"),
+    kw("WEBRTC_MAX_PENDING_ICE_CANDIDATES", "GLOWCAP_WEBRTC_MAX_PENDING_ICE_CANDIDATES"),
+    kw("WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES", "GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES"),
+    kw("WEBRTC_DATA_CHANNEL_QUEUE_BYTES", "GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES"),
     kp("BINDING_UNOBSERVED_OUTCOME_CAP", binding_policy.unobserved_outcome_cap),
     kp("BINDING_READINESS_DRAIN_CAP", binding_policy.readiness_drain_cap),
     kp("BINDING_STREAM_READ_CHUNK_BYTES", binding_policy.stream_read_chunk_bytes),
-    ki("BINDING_IROH_READ_CHUNK_BYTES", "PANCAKE_IROH_READ_CHUNK_BYTES"),
+    ki("BINDING_IROH_READ_CHUNK_BYTES", "GLOWCAP_IROH_READ_CHUNK_BYTES"),
     kp("BINDING_TRACE_PAYLOAD_CAP_BYTES", binding_policy.trace_payload_cap_bytes),
     kp("BINDING_SECONDARY_FAILURE_CAP", binding_policy.secondary_failure_cap),
     kp("BINDING_RELAY_IDLE_TIMEOUT_MS", binding_policy.relay_idle_timeout_ms),
@@ -299,52 +299,52 @@ const constants = [_]Const{
     kp("BINDING_WEBSOCKET_DRAIN_POLL_MS", binding_policy.websocket_drain_poll_ms),
     kp("BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS", binding_policy.websocket_close_timeout_ms),
     kp("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", binding_policy.websocket_inbound_high_water_bytes),
-    kr("RELAY_CONFIG_ABI_VERSION", "PANCAKE_RELAY_CONFIG_ABI_VERSION"),
-    kr("RELAY_TRUST_SYSTEM", "PANCAKE_RELAY_TRUST_SYSTEM"),
-    kr("RELAY_TRUST_COPIED_PEM", "PANCAKE_RELAY_TRUST_COPIED_PEM"),
-    kr("RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES", "PANCAKE_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES"),
+    kr("RELAY_CONFIG_ABI_VERSION", "GLOWCAP_RELAY_CONFIG_ABI_VERSION"),
+    kr("RELAY_TRUST_SYSTEM", "GLOWCAP_RELAY_TRUST_SYSTEM"),
+    kr("RELAY_TRUST_COPIED_PEM", "GLOWCAP_RELAY_TRUST_COPIED_PEM"),
+    kr("RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES", "GLOWCAP_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES"),
     // Argument kinds.
-    k("ARG_INTEGER", "PANCAKE_ARG_INTEGER"),
-    k("ARG_FLOAT64", "PANCAKE_ARG_FLOAT64"),
-    k("ARG_BOOLEAN", "PANCAKE_ARG_BOOLEAN"),
-    k("ARG_BYTES", "PANCAKE_ARG_BYTES"),
-    k("ARG_STRING", "PANCAKE_ARG_STRING"),
-    k("ARG_SYMBOL", "PANCAKE_ARG_SYMBOL"),
-    k("ARG_VOID", "PANCAKE_ARG_VOID"),
-    k("ARG_REFERENCE", "PANCAKE_ARG_REFERENCE"),
-    k("ARG_LIST", "PANCAKE_ARG_LIST"),
-    k("ARG_SET", "PANCAKE_ARG_SET"),
-    k("ARG_TAGGED", "PANCAKE_ARG_TAGGED"),
-    k("ARG_KEYWORD", "PANCAKE_ARG_KEYWORD"),
-    k("ARG_BIG_INTEGER", "PANCAKE_ARG_BIG_INTEGER"),
-    k("ARG_STRUCT", "PANCAKE_ARG_STRUCT"),
-    k("ARG_ERROR", "PANCAKE_ARG_ERROR"),
+    k("ARG_INTEGER", "GLOWCAP_ARG_INTEGER"),
+    k("ARG_FLOAT64", "GLOWCAP_ARG_FLOAT64"),
+    k("ARG_BOOLEAN", "GLOWCAP_ARG_BOOLEAN"),
+    k("ARG_BYTES", "GLOWCAP_ARG_BYTES"),
+    k("ARG_STRING", "GLOWCAP_ARG_STRING"),
+    k("ARG_SYMBOL", "GLOWCAP_ARG_SYMBOL"),
+    k("ARG_VOID", "GLOWCAP_ARG_VOID"),
+    k("ARG_REFERENCE", "GLOWCAP_ARG_REFERENCE"),
+    k("ARG_LIST", "GLOWCAP_ARG_LIST"),
+    k("ARG_SET", "GLOWCAP_ARG_SET"),
+    k("ARG_TAGGED", "GLOWCAP_ARG_TAGGED"),
+    k("ARG_KEYWORD", "GLOWCAP_ARG_KEYWORD"),
+    k("ARG_BIG_INTEGER", "GLOWCAP_ARG_BIG_INTEGER"),
+    k("ARG_STRUCT", "GLOWCAP_ARG_STRUCT"),
+    k("ARG_ERROR", "GLOWCAP_ARG_ERROR"),
     // Wire-grammar codec selectors (the host constructor and the transports).
-    k("CODEC_UNKNOWN", "PANCAKE_CODEC_UNKNOWN"),
-    k("CODEC_SYRUP", "PANCAKE_CODEC_SYRUP"),
-    k("CODEC_CAPNP", "PANCAKE_CODEC_CAPNP"),
-    k("CAPTP_V1_0", "PANCAKE_CAPTP_V1_0"),
-    k("CAPTP_NEXT", "PANCAKE_CAPTP_NEXT"),
-    k("FEATURE_PIPELINING", "PANCAKE_FEATURE_PIPELINING"),
-    k("FEATURE_HANDOFF", "PANCAKE_FEATURE_HANDOFF"),
-    k("FEATURE_WIRE_DELTA", "PANCAKE_FEATURE_WIRE_DELTA"),
-    k("FEATURE_STURDYREF", "PANCAKE_FEATURE_STURDYREF"),
-    k("FEATURE_UNTAG", "PANCAKE_FEATURE_UNTAG"),
-    k("FEATURE_MULTI_LOCATION", "PANCAKE_FEATURE_MULTI_LOCATION"),
-    k("FEATURE_MINIMUM", "PANCAKE_FEATURE_MINIMUM"),
-    k("FEATURE_BASELINE", "PANCAKE_FEATURE_BASELINE"),
-    k("FEATURE_FULL", "PANCAKE_FEATURE_FULL"),
-    k("DEFAULT_CODEC", "PANCAKE_DEFAULT_CODEC"),
-    k("DEFAULT_CAPTP_VERSION", "PANCAKE_DEFAULT_CAPTP_VERSION"),
-    k("DEFAULT_FEATURES", "PANCAKE_DEFAULT_FEATURES"),
-    k("INTEROP_CODEC", "PANCAKE_INTEROP_CODEC"),
-    k("INTEROP_CAPTP_VERSION", "PANCAKE_INTEROP_CAPTP_VERSION"),
-    k("NATIVE_CODEC", "PANCAKE_NATIVE_CODEC"),
-    k("NATIVE_CAPTP_VERSION", "PANCAKE_NATIVE_CAPTP_VERSION"),
-    // PancakeLastAbort.domain.
-    k("ABORT_DOMAIN_CODEC", "PANCAKE_ABORT_DOMAIN_CODEC"),
-    k("ABORT_DOMAIN_SESSION", "PANCAKE_ABORT_DOMAIN_SESSION"),
-    k("ABORT_DOMAIN_FOREIGN", "PANCAKE_ABORT_DOMAIN_FOREIGN"),
+    k("CODEC_UNKNOWN", "GLOWCAP_CODEC_UNKNOWN"),
+    k("CODEC_SYRUP", "GLOWCAP_CODEC_SYRUP"),
+    k("CODEC_CAPNP", "GLOWCAP_CODEC_CAPNP"),
+    k("CAPTP_V1_0", "GLOWCAP_CAPTP_V1_0"),
+    k("CAPTP_NEXT", "GLOWCAP_CAPTP_NEXT"),
+    k("FEATURE_PIPELINING", "GLOWCAP_FEATURE_PIPELINING"),
+    k("FEATURE_HANDOFF", "GLOWCAP_FEATURE_HANDOFF"),
+    k("FEATURE_WIRE_DELTA", "GLOWCAP_FEATURE_WIRE_DELTA"),
+    k("FEATURE_STURDYREF", "GLOWCAP_FEATURE_STURDYREF"),
+    k("FEATURE_UNTAG", "GLOWCAP_FEATURE_UNTAG"),
+    k("FEATURE_MULTI_LOCATION", "GLOWCAP_FEATURE_MULTI_LOCATION"),
+    k("FEATURE_MINIMUM", "GLOWCAP_FEATURE_MINIMUM"),
+    k("FEATURE_BASELINE", "GLOWCAP_FEATURE_BASELINE"),
+    k("FEATURE_FULL", "GLOWCAP_FEATURE_FULL"),
+    k("DEFAULT_CODEC", "GLOWCAP_DEFAULT_CODEC"),
+    k("DEFAULT_CAPTP_VERSION", "GLOWCAP_DEFAULT_CAPTP_VERSION"),
+    k("DEFAULT_FEATURES", "GLOWCAP_DEFAULT_FEATURES"),
+    k("INTEROP_CODEC", "GLOWCAP_INTEROP_CODEC"),
+    k("INTEROP_CAPTP_VERSION", "GLOWCAP_INTEROP_CAPTP_VERSION"),
+    k("NATIVE_CODEC", "GLOWCAP_NATIVE_CODEC"),
+    k("NATIVE_CAPTP_VERSION", "GLOWCAP_NATIVE_CAPTP_VERSION"),
+    // GlowcapLastAbort.domain.
+    k("ABORT_DOMAIN_CODEC", "GLOWCAP_ABORT_DOMAIN_CODEC"),
+    k("ABORT_DOMAIN_SESSION", "GLOWCAP_ABORT_DOMAIN_SESSION"),
+    k("ABORT_DOMAIN_FOREIGN", "GLOWCAP_ABORT_DOMAIN_FOREIGN"),
 };
 
 /// One generated struct layout: the TS constant prefix and the extern struct.
@@ -395,7 +395,7 @@ const native_only_layouts = [_][]const u8{
     "WEBRTC_CONFIG",
 };
 
-/// The target-independent constants, emitted into the `@pancake/abi` package.
+/// The target-independent constants, emitted into the `@glowcap/abi` package.
 fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
@@ -424,7 +424,7 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
 
     try out.appendSlice(gpa,
         \\
-        \\// ── Wasm layout-descriptor manifest (pancake_wasm_abi_layout) ────────────
+        \\// ── Wasm layout-descriptor manifest (glowcap_wasm_abi_layout) ────────────
         \\// Struct index i of the wasm32 module's layout descriptor is row i here;
         \\// the descriptor's offset words for that struct name its fields, in
         \\// declaration order. `nativeMirror` says whether the prefix also names
@@ -479,35 +479,35 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, layouts_preamble);
     try out.appendSlice(gpa, "// ── Struct layouts (@sizeOf/@offsetOf on the extern structs) ─────────────\n\n");
 
-    try emitLayout(&out, gpa, "REF", c.PancakeReference, "PancakeReference");
-    try emitLayout(&out, gpa, "ARG", c.PancakeArgument, "PancakeArgument");
-    try emitLayout(&out, gpa, "FRAME", c.PancakeFrame, "PancakeFrame (borrowed)");
-    try emitLayout(&out, gpa, "MANAGED_FRAME", c.PancakeManagedFrame, "PancakeManagedFrame (owned, self-releasing)");
-    try emitLayout(&out, gpa, "LAST_ABORT", c.PancakeLastAbort, "PancakeLastAbort");
-    try emitLayout(&out, gpa, "ALLOCATOR", c.PancakeAllocator, "PancakeAllocator (pancake_context_new_with_allocator)");
-    try emitLayout(&out, gpa, "FAILURE_REPORT", c.PancakeFailureReport, "PancakeFailureReport");
-    try emitLayout(&out, gpa, "FAILURE_EVENT", c.PancakeFailureEvent, "PancakeFailureEvent");
-    try emitLayout(&out, gpa, "HOST_ACTION", cd.PancakeHostAction, "PancakeHostAction (libpancake_host, pancake_host_next_action)");
-    try emitLayout(&out, gpa, "HOST_PUMP_HOOKS", cd.PancakeHostPumpHooks, "PancakeHostPumpHooks (libpancake_host, pancake_host_pump_drain)");
-    try emitLayout(&out, gpa, "PARTNER_IDENTITY", cd.PancakePartnerIdentity, "PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)");
-    try emitLayout(&out, gpa, "TRACE_EVENT", cd.PancakeTraceEvent, "PancakeTraceEvent (libpancake_host, pancake_host_set_trace)");
-    try emitLayout(&out, gpa, "DRIVER_OPTIONS", cdr.PancakeDriverOptions, "PancakeDriverOptions (libpancake_driver, pancake_driver_take_host)");
-    try emitLayout(&out, gpa, "DRIVER_FAILURE", cdr.PancakeDriverFailure, "PancakeDriverFailure (libpancake_driver deterministic barriers)");
-    try emitLayout(&out, gpa, "CLOSE_OPTIONS", cd.PancakeCloseOptions, "PancakeCloseOptions (libpancake_host and libpancake_driver)");
-    try emitLayout(&out, gpa, "SESSION_LIMIT_OPTIONS", cd.PancakeSessionLimitOptions, "PancakeSessionLimitOptions (libpancake_host)");
-    try emitLayout(&out, gpa, "DRIVER_EVENT", cdr.PancakeDriverEvent, "PancakeDriverEvent (libpancake_driver, pancake_driver_next_event)");
-    try emitLayout(&out, gpa, "TRANSPORT_OPERATION_OPTIONS", cdr.PancakeTransportOperationOptions, "PancakeTransportOperationOptions (pancake_driver_dial)");
-    try emitLayout(&out, gpa, "LOCATOR_HINT_VIEW", cdr.PancakeLocatorHintView, "PancakeLocatorHintView (pancake_transport_provider.h)");
-    try emitLayout(&out, gpa, "LOCATOR_VIEW", cdr.PancakeLocatorView, "PancakeLocatorView (pancake_transport_provider.h)");
-    try emitLayout(&out, gpa, "TRANSPORT_PROVIDER", cdr.PancakeTransportProvider, "PancakeTransportProvider (pancake_transport_provider.h, pancake_driver_add_provider)");
-    try emitLayout(&out, gpa, "TCP_STREAM_OPTIONS", ct.PancakeTcpStreamOptions, "PancakeTcpStreamOptions (libpancake_net_transport_tcp)");
-    try emitLayout(&out, gpa, "TCP_CONFIG", ct.PancakeTcpConfig, "PancakeTcpConfig (libpancake_net_transport_tcp, pancake_tcp_netlayer_new)");
-    try emitLayout(&out, gpa, "RELAY_CONFIG", cr.PancakeRelayConfig, "PancakeRelayConfig (libpancake_net_transport_relay, pancake_relay_runtime_new)");
-    try emitLayout(&out, gpa, "RELAY_TRUST_SUMMARY", cr.PancakeRelayTrustSummary, "PancakeRelayTrustSummary (libpancake_net_transport_relay, pancake_relay_runtime_trust_summary)");
-    try emitLayout(&out, gpa, "IROH_READY_EVENT", ci.PancakeIrohReadyEvent, "PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)");
-    try emitLayout(&out, gpa, "WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent, "PancakeWebrtcReadyEvent (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_drain_ready)");
-    try emitLayout(&out, gpa, "IROH_CONFIG", ci.PancakeIrohConfig, "PancakeIrohConfig (libpancake_net_transport_iroh, pancake_iroh_netlayer_new)");
-    try emitLayout(&out, gpa, "WEBRTC_CONFIG", cw.PancakeWebrtcConfig, "PancakeWebrtcConfig (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_new)");
+    try emitLayout(&out, gpa, "REF", c.GlowcapReference, "GlowcapReference");
+    try emitLayout(&out, gpa, "ARG", c.GlowcapArgument, "GlowcapArgument");
+    try emitLayout(&out, gpa, "FRAME", c.GlowcapFrame, "GlowcapFrame (borrowed)");
+    try emitLayout(&out, gpa, "MANAGED_FRAME", c.GlowcapManagedFrame, "GlowcapManagedFrame (owned, self-releasing)");
+    try emitLayout(&out, gpa, "LAST_ABORT", c.GlowcapLastAbort, "GlowcapLastAbort");
+    try emitLayout(&out, gpa, "ALLOCATOR", c.GlowcapAllocator, "GlowcapAllocator (glowcap_context_new_with_allocator)");
+    try emitLayout(&out, gpa, "FAILURE_REPORT", c.GlowcapFailureReport, "GlowcapFailureReport");
+    try emitLayout(&out, gpa, "FAILURE_EVENT", c.GlowcapFailureEvent, "GlowcapFailureEvent");
+    try emitLayout(&out, gpa, "HOST_ACTION", cd.GlowcapHostAction, "GlowcapHostAction (libglowcap_host, glowcap_host_next_action)");
+    try emitLayout(&out, gpa, "HOST_PUMP_HOOKS", cd.GlowcapHostPumpHooks, "GlowcapHostPumpHooks (libglowcap_host, glowcap_host_pump_drain)");
+    try emitLayout(&out, gpa, "PARTNER_IDENTITY", cd.GlowcapPartnerIdentity, "GlowcapPartnerIdentity (libglowcap_host, glowcap_host_session_partner_identity)");
+    try emitLayout(&out, gpa, "TRACE_EVENT", cd.GlowcapTraceEvent, "GlowcapTraceEvent (libglowcap_host, glowcap_host_set_trace)");
+    try emitLayout(&out, gpa, "DRIVER_OPTIONS", cdr.GlowcapDriverOptions, "GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host)");
+    try emitLayout(&out, gpa, "DRIVER_FAILURE", cdr.GlowcapDriverFailure, "GlowcapDriverFailure (libglowcap_driver deterministic barriers)");
+    try emitLayout(&out, gpa, "CLOSE_OPTIONS", cd.GlowcapCloseOptions, "GlowcapCloseOptions (libglowcap_host and libglowcap_driver)");
+    try emitLayout(&out, gpa, "SESSION_LIMIT_OPTIONS", cd.GlowcapSessionLimitOptions, "GlowcapSessionLimitOptions (libglowcap_host)");
+    try emitLayout(&out, gpa, "DRIVER_EVENT", cdr.GlowcapDriverEvent, "GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event)");
+    try emitLayout(&out, gpa, "TRANSPORT_OPERATION_OPTIONS", cdr.GlowcapTransportOperationOptions, "GlowcapTransportOperationOptions (glowcap_driver_dial)");
+    try emitLayout(&out, gpa, "LOCATOR_HINT_VIEW", cdr.GlowcapLocatorHintView, "GlowcapLocatorHintView (glowcap_transport_provider.h)");
+    try emitLayout(&out, gpa, "LOCATOR_VIEW", cdr.GlowcapLocatorView, "GlowcapLocatorView (glowcap_transport_provider.h)");
+    try emitLayout(&out, gpa, "TRANSPORT_PROVIDER", cdr.GlowcapTransportProvider, "GlowcapTransportProvider (glowcap_transport_provider.h, glowcap_driver_add_provider)");
+    try emitLayout(&out, gpa, "TCP_STREAM_OPTIONS", ct.GlowcapTcpStreamOptions, "GlowcapTcpStreamOptions (libglowcap_net_transport_tcp)");
+    try emitLayout(&out, gpa, "TCP_CONFIG", ct.GlowcapTcpConfig, "GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new)");
+    try emitLayout(&out, gpa, "RELAY_CONFIG", cr.GlowcapRelayConfig, "GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new)");
+    try emitLayout(&out, gpa, "RELAY_TRUST_SUMMARY", cr.GlowcapRelayTrustSummary, "GlowcapRelayTrustSummary (libglowcap_net_transport_relay, glowcap_relay_runtime_trust_summary)");
+    try emitLayout(&out, gpa, "IROH_READY_EVENT", ci.GlowcapIrohReadyEvent, "GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready)");
+    try emitLayout(&out, gpa, "WEBRTC_READY_EVENT", cw.GlowcapWebrtcReadyEvent, "GlowcapWebrtcReadyEvent (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_drain_ready)");
+    try emitLayout(&out, gpa, "IROH_CONFIG", ci.GlowcapIrohConfig, "GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new)");
+    try emitLayout(&out, gpa, "WEBRTC_CONFIG", cw.GlowcapWebrtcConfig, "GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new)");
 
     std.debug.assert(std.mem.endsWith(u8, out.items, "\n\n"));
     out.items.len -= 1;

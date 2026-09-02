@@ -3,12 +3,12 @@
 // The boot block prints each swiss number once, at startup, and a deployment
 // reading it back through `docker compose logs` is fishing in scrollback for
 // a fact that lives on disk: `persistentSwiss` keeps every minted swiss as
-// one file per capability under `PANCAKE_ROOMS_STATE`, which is what lets a
+// one file per capability under `GLOWCAP_ROOMS_STATE`, which is what lets a
 // restart republish the same one. This reads those files and prints the same
 // flush-left token lines the boot block does, so the grep contract holds
 // wherever the lines came from.
 //
-//     PANCAKE_ROOMS_STATE=/state deno run --allow-read --allow-env \
+//     GLOWCAP_ROOMS_STATE=/state deno run --allow-read --allow-env \
 //       apps/rooms/server/capabilities.ts
 //
 // In the deploy container: `docker compose exec rooms deno run --allow-read
@@ -43,10 +43,10 @@ export async function capabilityLines(directory: string): Promise<string[]> {
 }
 
 if (import.meta.main) {
-	const directory = Deno.args[0] ?? Deno.env.get("PANCAKE_ROOMS_STATE");
+	const directory = Deno.args[0] ?? Deno.env.get("GLOWCAP_ROOMS_STATE");
 	if (directory === undefined || directory === "") {
 		console.error(
-			"capabilities: say where the state lives — set PANCAKE_ROOMS_STATE or pass the directory as the argument",
+			"capabilities: say where the state lives — set GLOWCAP_ROOMS_STATE or pass the directory as the argument",
 		);
 		Deno.exit(2);
 	}

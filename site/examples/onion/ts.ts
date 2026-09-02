@@ -1,7 +1,7 @@
-import type { Argument } from "@pancake/runtime";
-import { listen } from "@pancake/onion";
+import type { Argument } from "@glowcap/runtime";
+import { listen } from "@glowcap/onion";
 
-// pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+// glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 await using server = await listen({
 	socks: "/run/tor/socks",
 	control: "/run/tor/control",

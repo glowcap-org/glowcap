@@ -1,5 +1,5 @@
 import os
-from pancake import Argument, tcp
+from glowcap import Argument, tcp
 
 # Key designator, cleartext CapTP. Persist the 32-byte seed to keep the same key.
 seed = os.urandom(32)

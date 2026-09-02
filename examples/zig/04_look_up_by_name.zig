@@ -9,9 +9,9 @@
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
-const pancake = @import("pancake");
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
+const glowcap = @import("glowcap");
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
 
 pub fn main() !void {
     var gpa: std.heap.DebugAllocator(.{}) = .{};

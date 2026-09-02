@@ -1,4 +1,4 @@
-from pancake import Runtime, relay
+from glowcap import Runtime, relay
 
 # Noise_XK seals the CapTP stream end to end through the relay.
 peer_key = "<64 lowercase hex characters from the server>"

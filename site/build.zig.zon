@@ -1,7 +1,7 @@
 .{
-    .name = .pancake_site,
+    .name = .glowcap_site,
     .version = "0.1.0",
-    .fingerprint = 0x5b882ff097f3ffa8,
+    .fingerprint = 0x433cd5dceff6bf04,
     .minimum_zig_version = "0.17.0-dev.1818+7051f8e73",
     .dependencies = .{
         .zine = .{

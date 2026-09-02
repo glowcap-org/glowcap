@@ -2,7 +2,7 @@
 refusal, and same-seed-fresh-port restart — the Python sibling of
 ``test/driver/keyed_tcp_restart_test.zig``.
 
-Needs ``python3`` and the installed pancake archives; run via
+Needs ``python3`` and the installed glowcap archives; run via
 ``zig build python-keyed-tcp-restart``.
 """
 
@@ -17,11 +17,11 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import (
+from glowcap import (
     tcp,  # noqa: E402
     DurableProvenance,
     Locator,
-    PancakeError,
+    GlowcapError,
     Runtime,
 )
 
@@ -99,7 +99,7 @@ async def scene_squatter() -> None:
     try:
         await call_greeter(partner, designator)
         fail("keyed-tcp-restart", "squatter dial should have been refused")
-    except PancakeError as e:
+    except GlowcapError as e:
         print(f"python-keyed-tcp-restart: squatter refused ({e})")
     await asyncio.wait([task], timeout=2)
     squatter.close()

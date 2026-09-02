@@ -16,9 +16,9 @@ pub const LocatorPayload = struct {
     transport: []u8,
     designator: []u8,
     hints: std.ArrayListUnmanaged(model.HintEntry),
-    hint_views: std.ArrayListUnmanaged(shared.PancakeLocatorHintView),
+    hint_views: std.ArrayListUnmanaged(shared.GlowcapLocatorHintView),
     wire_form: model.Hints.WireForm,
-    view: shared.PancakeLocatorView,
+    view: shared.GlowcapLocatorView,
 
     pub fn peer(self: *const LocatorPayload) model.PeerLocator {
         return .{
@@ -58,11 +58,11 @@ pub const SturdyRefPayload = struct {
     }
 };
 
-pub fn locFromOpaque(loc: ?*c.PancakeLocator) ?*LocatorPayload {
+pub fn locFromOpaque(loc: ?*c.GlowcapLocator) ?*LocatorPayload {
     return @ptrCast(@alignCast(loc orelse return null));
 }
 
-pub fn sturdyFromOpaque(sturdyref: ?*c.PancakeSturdyRef) ?*SturdyRefPayload {
+pub fn sturdyFromOpaque(sturdyref: ?*c.GlowcapSturdyRef) ?*SturdyRefPayload {
     return @ptrCast(@alignCast(sturdyref orelse return null));
 }
 

@@ -1,4 +1,4 @@
-/// <reference path="../../virtual-pancake-web.d.ts" />
+/// <reference path="../../virtual-glowcap-web.d.ts" />
 
 /**
  * Live capability consumer — CapTP peer, reconnect, and the inbox that
@@ -14,7 +14,7 @@
 
 import type { TimelineEvent } from "../timeline.ts";
 import type { EngineError } from "../errors.ts";
-import type { BrowserRuntime, PancakeWebModule } from "./pancake-web-api.ts";
+import type { BrowserRuntime, GlowcapWebModule } from "./glowcap-web-api.ts";
 import { makeBaseEventConverter } from "./feed.ts";
 import { type BaseTimelineEvent, numberFromWire } from "./record.ts";
 
@@ -43,18 +43,18 @@ let browserRuntimePromise: Promise<BrowserRuntime> | null = null;
 let vizSocketCap = "";
 
 function wasmUrl(): string {
-	const configured = (globalThis as { __OCV_PANCAKE_WASM_URL?: string })
-		.__OCV_PANCAKE_WASM_URL;
-	return configured ?? "/pancake_host.wasm";
+	const configured = (globalThis as { __OCV_GLOWCAP_WASM_URL?: string })
+		.__OCV_GLOWCAP_WASM_URL;
+	return configured ?? "/glowcap_host.wasm";
 }
 
 async function browserRuntime(): Promise<BrowserRuntime> {
 	if (browserRuntimePromise !== null) return await browserRuntimePromise;
 	browserRuntimePromise = (async () => {
 		const override = (globalThis as {
-			__OCV_PANCAKE_WEB_LOADER?: () => Promise<PancakeWebModule>;
-		}).__OCV_PANCAKE_WEB_LOADER;
-		const web = override === undefined ? await import("virtual:pancake-web") : await override();
+			__OCV_GLOWCAP_WEB_LOADER?: () => Promise<GlowcapWebModule>;
+		}).__OCV_GLOWCAP_WEB_LOADER;
+		const web = override === undefined ? await import("virtual:glowcap-web") : await override();
 		// `init` is identity-sensitive by design. Keep this one options object
 		// for the page, so remounting Live mode does not attempt a second runtime.
 		return await web.init({
@@ -73,7 +73,7 @@ async function browserRuntime(): Promise<BrowserRuntime> {
 	}
 }
 
-/** The production browser peer. The socket is created by `@pancake/runtime` from
+/** The production browser peer. The socket is created by `@glowcap/runtime` from
  * the sturdyref's parsed locator; this function never interprets or forwards
  * CapTP bytes. */
 export const browserPeerFactory: LivePeerFactory = async (

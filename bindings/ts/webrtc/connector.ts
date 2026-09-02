@@ -1,5 +1,5 @@
-import { Connector, Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@pancake/runtime";
-import { abortable } from "@pancake/runtime/transport";
+import { Connector, Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@glowcap/runtime";
+import { abortable } from "@glowcap/runtime/transport";
 import { RtcPeer } from "./peer.ts";
 import { assertSignalBytes } from "./signal.ts";
 

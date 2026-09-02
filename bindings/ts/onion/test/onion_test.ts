@@ -1,7 +1,7 @@
 // The onion transport surface, driven against a fake Tor daemon.
 //
 // Nothing here needs Tor or the network. Two loopback servers stand in for the
-// daemon's control and SOCKS endpoints, answering the exact requests pancake
+// daemon's control and SOCKS endpoints, answering the exact requests glowcap
 // sends. The bytes those requests must contain are pinned on the Zig side, in
 // `test/net/onion_socks5_test.zig` and `test/net/onion_control_test.zig`, against
 // the pinned Spritely Goblins netlayer and the upstream OCapN suite; this file
@@ -17,7 +17,7 @@ function assertThrows(fn: () => unknown): void {
 	}
 	throw new Error("expected the call to throw");
 }
-import { DriverLoop, PancakeError } from "@pancake/runtime/transport";
+import { DriverLoop, GlowcapError } from "@glowcap/runtime/transport";
 import { Connection, installProvider, listen, Netlayer, SERVICE_ID_LENGTH } from "../mod.ts";
 import { assert, assertDeepEquals, assertRejects } from "../../dogfood/assert.ts";
 
@@ -330,7 +330,7 @@ Deno.test("onion: a malformed designator is refused before dialing", async () =>
 	const net = new Netlayer({ socks: "127.0.0.1:1" });
 	try {
 		const error = await assertRejects(() => net.connect("not-an-onion-address"));
-		if (!(error instanceof PancakeError)) {
+		if (!(error instanceof GlowcapError)) {
 			throw new Error("off-thread failure lost its typed status");
 		}
 		assert(

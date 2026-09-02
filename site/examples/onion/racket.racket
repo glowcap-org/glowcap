@@ -1,6 +1,6 @@
-(require "pancake.rkt" "pancake-onion.rkt")
+(require "glowcap.rkt" "glowcap-onion.rkt")
 
-;; pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+;; glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 (define server (listen-onion #:socks "/run/tor/socks"
                              #:control "/run/tor/control"))
 (printf "~a\n" (onion-server-uri server)) ; hand this locator to partners

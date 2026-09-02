@@ -1,10 +1,10 @@
 //! Completion result and shared-buffer ownership contract evidence.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const completion = pancake.net.completion;
-const foundation = pancake.foundation;
+const completion = glowcap.net.completion;
+const foundation = glowcap.foundation;
 
 test "completion borrow distinguishes receive bytes from structured failure without growing" {
     const bytes = "bytes";
@@ -39,7 +39,7 @@ test "completion borrow distinguishes receive bytes from structured failure with
     try std.testing.expectEqual(@as(u16, 2), failed.borrowed.failureChain().?.secondary_count);
     try std.testing.expectEqual(@as(u32, 23), failed.borrowed.token);
 
-    var carrier = pancake.net.carrier_failure.Failure.init(
+    var carrier = glowcap.net.carrier_failure.Failure.init(
         .secure_handshake,
         error.TlsHandshakeFailed,
     );
@@ -50,11 +50,11 @@ test "completion borrow distinguishes receive bytes from structured failure with
         .borrowed = .carrierFailure(&carrier, 29),
     };
     try std.testing.expectEqual(
-        pancake.net.carrier_failure.Phase.secure_handshake,
+        glowcap.net.carrier_failure.Phase.secure_handshake,
         carrier_failed.borrowed.carrierFailureValue().?.phase,
     );
     try std.testing.expectEqual(
-        pancake.net.carrier_failure.Phase.secure_handshake,
+        glowcap.net.carrier_failure.Phase.secure_handshake,
         carrier_failed.borrowed.carrierPhase().?,
     );
     try std.testing.expectEqual(
@@ -69,7 +69,7 @@ test "completion scalar failure carries phase without retained storage" {
     const borrowed = Borrowed.phaseOnly(.connect);
     try std.testing.expect(!borrowed.active());
     try std.testing.expectEqual(
-        pancake.net.carrier_failure.Phase.connect,
+        glowcap.net.carrier_failure.Phase.connect,
         borrowed.carrierPhase().?,
     );
     try std.testing.expectEqual(@as(usize, 48), @sizeOf(completion.Completion));

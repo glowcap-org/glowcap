@@ -8,9 +8,9 @@
 
 const peer_locator = @import("peer_locator.zig");
 
-/// Width of the random gift identifier the draft specifies, and what pancake
+/// Width of the random gift identifier the draft specifies, and what glowcap
 /// mints on every profile. Session admission requires it inbound on
-/// `pancake-next`, where both ends are pancake's own, and admits a wider domain
+/// `glowcap-next`, where both ends are glowcap's own, and admits a wider domain
 /// on `1.0`, which has to interoperate with peers that mint narrower ids
 /// (`conformance/ocapn-findings`, gift-id width).
 pub const GIFT_ID_BYTES: usize = 32;

@@ -8,17 +8,17 @@ const relay_archive = @import("c_abi_net_transport_relay");
 
 const tls_root_pem = @embedFile("../../net/fixtures/tls_root.pem");
 
-pub fn copiedTrustConfig(relay_url: []const u8) relay_archive.PancakeRelayConfig {
+pub fn copiedTrustConfig(relay_url: []const u8) relay_archive.GlowcapRelayConfig {
     return .{
         .relay_url = relay_url.ptr,
         .relay_url_len = relay_url.len,
-        .trust = relay_archive.PANCAKE_RELAY_TRUST_COPIED_PEM,
+        .trust = relay_archive.GLOWCAP_RELAY_TRUST_COPIED_PEM,
         .trust_pem = tls_root_pem.ptr,
         .trust_pem_len = tls_root_pem.len,
     };
 }
 
-pub fn keyedTable(provider: c.PancakeTransportProvider) *const c.PancakeMultiplexedTransport {
+pub fn keyedTable(provider: c.GlowcapTransportProvider) *const c.GlowcapMultiplexedTransport {
     for (provider.entries.?[0..provider.entry_count]) |entry| {
         const profile = entry.profile.?;
         const name = profile.transport_name.?[0..profile.transport_name_len];
@@ -29,12 +29,12 @@ pub fn keyedTable(provider: c.PancakeTransportProvider) *const c.PancakeMultiple
 }
 
 pub fn drain(
-    table: *const c.PancakeMultiplexedTransport,
-    records: *[8]c.PancakeMultiplexedReadyEvent,
-) ![]c.PancakeMultiplexedReadyEvent {
+    table: *const c.GlowcapMultiplexedTransport,
+    records: *[8]c.GlowcapMultiplexedReadyEvent,
+) ![]c.GlowcapMultiplexedReadyEvent {
     var count: usize = 0;
     var failure = c.transport_provider.emptyProviderFailure();
-    try std.testing.expectEqual(c.PANCAKE_OK, table.drain_ready.?(
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.drain_ready.?(
         table.ctx,
         records,
         records.len,
@@ -48,11 +48,11 @@ pub fn drain(
 
 pub fn waitForEvent(
     io: std.Io,
-    table: *const c.PancakeMultiplexedTransport,
+    table: *const c.GlowcapMultiplexedTransport,
     subject: u64,
     mask: u32,
 ) !u32 {
-    var records: [8]c.PancakeMultiplexedReadyEvent = undefined;
+    var records: [8]c.GlowcapMultiplexedReadyEvent = undefined;
     var observed: u32 = 0;
     var rounds: usize = 0;
     while (observed & mask == 0 and rounds < 400) : (rounds += 1) {
@@ -71,11 +71,11 @@ pub fn waitForEvent(
 /// transition is the contract under test.
 pub fn waitForEventRecord(
     io: std.Io,
-    table: *const c.PancakeMultiplexedTransport,
+    table: *const c.GlowcapMultiplexedTransport,
     subject: u64,
     mask: u32,
 ) !u32 {
-    var records: [8]c.PancakeMultiplexedReadyEvent = undefined;
+    var records: [8]c.GlowcapMultiplexedReadyEvent = undefined;
     var rounds: usize = 0;
     while (rounds < 400) : (rounds += 1) {
         for (try drain(table, &records)) |event| {

@@ -118,7 +118,7 @@ export class HostGc {
 		try {
 			for (const token of this.pending) {
 				checkHost(
-					hostS.pancake_host_ref_release(
+					hostS.glowcap_host_ref_release(
 						h.hostRaw,
 						ab(refStruct(refFromId(token))),
 						1n,
@@ -128,7 +128,7 @@ export class HostGc {
 			}
 			for (const vow of this.pendingVows) {
 				h.abandonVow(vow);
-				checkHost(hostS.pancake_host_vow_release(h.hostRaw, vow));
+				checkHost(hostS.glowcap_host_vow_release(h.hostRaw, vow));
 				vowsCommitted += 1;
 			}
 		} finally {
@@ -188,5 +188,5 @@ export class HostGc {
  * Lives here beside the finalizer path because both release the same opaque
  * Host identity; the Host resolves whether any wire GC is required. */
 export function releaseRef(hostRaw: Ptr, ref: Ref): void {
-	checkHost(hostS.pancake_host_ref_release(hostRaw, ab(refStruct(ref)), 1n));
+	checkHost(hostS.glowcap_host_ref_release(hostRaw, ab(refStruct(ref)), 1n));
 }

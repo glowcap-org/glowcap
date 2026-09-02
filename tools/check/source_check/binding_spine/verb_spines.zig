@@ -33,19 +33,19 @@ pub fn checkBindingPromiseSpine(
             // synchronous failure channel on a promise and escapes the caller's
             // own `.catch`. Rust carried this arm alone for a while, and the
             // two that lacked it both shipped that trap.
-            .markers = &.{ "class RemotePromise", "index(", "untag(", "get(", "awaitMinted", "fetchLike", "promiseFor", "sendFar", "listenFar", "static failed", "\"failed\"", "pancake_host_vow_index", "pancake_host_vow_untag", "pancake_host_vow_get" },
+            .markers = &.{ "class RemotePromise", "index(", "untag(", "get(", "awaitMinted", "fetchLike", "promiseFor", "sendFar", "listenFar", "static failed", "\"failed\"", "glowcap_host_vow_index", "glowcap_host_vow_untag", "glowcap_host_vow_get" },
         },
         .{
-            .path = "bindings/python/pancake/_promise.py",
-            .markers = &.{ "class RemotePromise", "def index", "def untag", "def get", "_await_minted", "_fetch_like", "def _promise_for", "def _send_far", "def _listen_far", "def failed", "class Failed", "pancake_host_vow_get" },
+            .path = "bindings/python/glowcap/_promise.py",
+            .markers = &.{ "class RemotePromise", "def index", "def untag", "def get", "_await_minted", "_fetch_like", "def _promise_for", "def _send_far", "def _listen_far", "def failed", "class Failed", "glowcap_host_vow_get" },
         },
         .{
             .path = "bindings/rust/src/promise.rs",
-            .markers = &.{ "struct RemotePromise", "fn index", "fn untag", "fn get", "pancake_host_vow_index", "pancake_host_vow_get", "await_minted", "fetch_like", "fn send_promise", "fn listen_far", "Failed(" },
+            .markers = &.{ "struct RemotePromise", "fn index", "fn untag", "fn get", "glowcap_host_vow_index", "glowcap_host_vow_get", "await_minted", "fetch_like", "fn send_promise", "fn listen_far", "Failed(" },
         },
         .{
             .path = "bindings/racket/private/promise.rkt",
-            .markers = &.{ "session-vow", "settle-vow!", "session-index", "session-untag", "session-get", "pancake_host_vow_index", "pancake_host_vow_get", "await-vow", "blocking-fetch", "session-far-send", "listen-far", "pancake_host_session_send", "pancake_host_session_tell", "pancake_host_vow_send" },
+            .markers = &.{ "session-vow", "settle-vow!", "session-index", "session-untag", "session-get", "glowcap_host_vow_index", "glowcap_host_vow_get", "await-vow", "blocking-fetch", "session-far-send", "listen-far", "glowcap_host_session_send", "glowcap_host_session_tell", "glowcap_host_vow_send" },
         },
     };
     for (mods) |mod| {
@@ -70,18 +70,18 @@ pub fn checkBindingPromiseSpine(
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/ts/runtime/session/", .needle = "async #fetchLike" },
         .{ .path = "bindings/ts/runtime/session/", .needle = "#promiseFor(" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "async def _fetch_like" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "async def _await_minted" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "def _promise_for" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "async def _fetch_like" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "async def _await_minted" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "def _promise_for" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "async fn await_minted" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "async fn fetch_like" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "fn send_promise" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (await-vow" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (blocking-fetch" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (session-far-send" },
-        .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_session_send" },
-        .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_session_tell" },
-        .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_vow_send" },
+        .{ .path = "bindings/racket/private/session.rkt", .needle = "glowcap_host_session_send" },
+        .{ .path = "bindings/racket/private/session.rkt", .needle = "glowcap_host_session_tell" },
+        .{ .path = "bindings/racket/private/session.rkt", .needle = "glowcap_host_vow_send" },
     };
     for (banned) |b| {
         const contents = (try readSourceSubject(io, gpa, root, b.path)) orelse {
@@ -153,19 +153,19 @@ pub fn checkBindingGcSpine(
     }{
         .{
             .path = "bindings/ts/runtime/gc.ts",
-            .markers = &.{ "class HostGc", "interface GcHandle", "pancake_host_ref_release", "trackArgument(", "drainGc(", "bind(" },
+            .markers = &.{ "class HostGc", "interface GcHandle", "glowcap_host_ref_release", "trackArgument(", "drainGc(", "bind(" },
         },
         .{
-            .path = "bindings/python/pancake/_gc.py",
-            .markers = &.{ "class HostGc", "class GcHandle", "def bind_host", "pancake_host_ref_release", "def track_argument", "def drain_gc", "def bind" },
+            .path = "bindings/python/glowcap/_gc.py",
+            .markers = &.{ "class HostGc", "class GcHandle", "def bind_host", "glowcap_host_ref_release", "def track_argument", "def drain_gc", "def bind" },
         },
         .{
             .path = "bindings/rust/src/gc.rs",
-            .markers = &.{ "struct CapabilityGuard", "pancake_host_ref_release", "fn drain", "fn track_argument" },
+            .markers = &.{ "struct CapabilityGuard", "glowcap_host_ref_release", "fn drain", "fn track_argument" },
         },
         .{
             .path = "bindings/racket/private/gc.rkt",
-            .markers = &.{ "session-with-gc!", "track-argument!", "drain-gc!", "pancake_host_ref_release" },
+            .markers = &.{ "session-with-gc!", "track-argument!", "drain-gc!", "glowcap_host_ref_release" },
         },
     };
     for (mods) |mod| {
@@ -189,14 +189,14 @@ pub fn checkBindingGcSpine(
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/ts/runtime/session/", .needle = "\ttrackArgument(" },
         .{ .path = "bindings/ts/runtime/session/", .needle = "#drainGc(" },
-        .{ .path = "bindings/ts/runtime/session/", .needle = "pancake_host_ref_release" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "def track_argument" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "def _drain_gc" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "def _on_capability_dropped" },
-        .{ .path = "bindings/python/pancake/_session/", .needle = "pancake_host_ref_release" },
+        .{ .path = "bindings/ts/runtime/session/", .needle = "glowcap_host_ref_release" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "def track_argument" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "def _drain_gc" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "def _on_capability_dropped" },
+        .{ .path = "bindings/python/glowcap/_session/", .needle = "glowcap_host_ref_release" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "fn track_argument" },
-        .{ .path = "bindings/rust/src/session.rs", .needle = "pancake_host_ref_release" },
-        .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_ref_release" },
+        .{ .path = "bindings/rust/src/session.rs", .needle = "glowcap_host_ref_release" },
+        .{ .path = "bindings/racket/private/session.rkt", .needle = "glowcap_host_ref_release" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (track-argument!" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (drain-gc!" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (session-with-gc!" },
@@ -213,7 +213,7 @@ pub fn checkBindingGcSpine(
     }
 
     // Python HostGc must not poke owner privates — GcHandle owns the seam.
-    const py_gc = "bindings/python/pancake/_gc.py";
+    const py_gc = "bindings/python/glowcap/_gc.py";
     const py_gc_contents = root.readFileAlloc(io, py_gc, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for GcHandle check with {s}", .{ py_gc, @errorName(err) });
         return;
@@ -229,15 +229,15 @@ pub fn checkBindingGcSpine(
     // (raw/host/gc/hosted/…), not underscore reach-ins — the same class of
     // smell as the pre-fix GC getattr path.
     const py_seam = [_]struct { path: []const u8, needles: []const []const u8 }{
-        .{ .path = "bindings/python/pancake/_pump.py", .needles = &.{ "session._", "host._" } },
-        .{ .path = "bindings/python/pancake/_promise.py", .needles = &.{"session._"} },
-        .{ .path = "bindings/python/pancake/_trampoline.py", .needles = &.{"session._"} },
-        .{ .path = "bindings/python/pancake/_action.py", .needles = &.{ "host._", "conn._" } },
-        .{ .path = "bindings/python/pancake/_host/__init__.py", .needles = &.{"conn._"} },
-        .{ .path = "bindings/python/pancake/_host/finalizer.py", .needles = &.{"conn._"} },
-        .{ .path = "bindings/python/pancake/_host/lifecycle.py", .needles = &.{"conn._"} },
-        .{ .path = "bindings/python/pancake/_host/progress.py", .needles = &.{"conn._"} },
-        .{ .path = "bindings/python/pancake/_host/publication.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/glowcap/_pump.py", .needles = &.{ "session._", "host._" } },
+        .{ .path = "bindings/python/glowcap/_promise.py", .needles = &.{"session._"} },
+        .{ .path = "bindings/python/glowcap/_trampoline.py", .needles = &.{"session._"} },
+        .{ .path = "bindings/python/glowcap/_action.py", .needles = &.{ "host._", "conn._" } },
+        .{ .path = "bindings/python/glowcap/_host/__init__.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/glowcap/_host/finalizer.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/glowcap/_host/lifecycle.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/glowcap/_host/progress.py", .needles = &.{"conn._"} },
+        .{ .path = "bindings/python/glowcap/_host/publication.py", .needles = &.{"conn._"} },
     };
     for (py_seam) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(2 << 20)) catch |err| {
@@ -270,22 +270,22 @@ pub fn checkBindingDialSpine(
         .{
             .path = "bindings/ts/runtime/dial.ts",
             .markers = &.{ "dialWithConnector", "dialExporter", "runDialTicket", "import type { Connector }" },
-            .banned = &.{ "pancake_host_plan_dial", "@pancake/tcp", "@pancake/iroh", "@pancake/webrtc", "net.connect(", "openWebSocketChannel" },
+            .banned = &.{ "glowcap_host_plan_dial", "@glowcap/tcp", "@glowcap/iroh", "@glowcap/webrtc", "net.connect(", "openWebSocketChannel" },
         },
         .{
-            .path = "bindings/python/pancake/_dial.py",
+            .path = "bindings/python/glowcap/_dial.py",
             .markers = &.{ "class Runtime", "def open(", "async def connect(", "dial_parsed_locator", "dial_exporter", "run_dial_ticket" },
-            .banned = &.{ "pancake_host_plan_dial", "from .tcp", "from . import iroh", "from .relay", "from ._ws" },
+            .banned = &.{ "glowcap_host_plan_dial", "from .tcp", "from . import iroh", "from .relay", "from ._ws" },
         },
         .{
             .path = "bindings/rust/src/dial.rs",
             .markers = &.{ "dial_with_connector", "dial_exporter", "run_dial_ticket", "TransportOperationOptions" },
-            .banned = &.{ "pancake_host_plan_dial", "tokio::net::TcpStream", "crate::iroh::", "crate::relay_route::", "crate::tcp::", "crate::ws_stream::" },
+            .banned = &.{ "glowcap_host_plan_dial", "tokio::net::TcpStream", "crate::iroh::", "crate::relay_route::", "crate::tcp::", "crate::ws_stream::" },
         },
         .{
             .path = "bindings/racket/private/dial.rkt",
             .markers = &.{ "open-runtime", "runtime-connect", "dial-exporter", "run-dial!" },
-            .banned = &.{ "pancake_host_plan_dial", "(define (connect", "tcp-provider.rkt", "iroh-companion.rkt", "relay-provider.rkt", "ws-transport.rkt", "racket/tcp" },
+            .banned = &.{ "glowcap_host_plan_dial", "(define (connect", "tcp-provider.rkt", "iroh-companion.rkt", "relay-provider.rkt", "ws-transport.rkt", "racket/tcp" },
         },
     };
     for (mods) |mod| {
@@ -312,7 +312,7 @@ pub fn checkBindingDialSpine(
 
     const runtimes = [_]struct { path: []const u8, markers: []const []const u8 }{
         .{ .path = "bindings/ts/runtime/runtime.ts", .markers = &.{ "class Runtime", "static async open", "async connect", "adoptHost", "DriverProvider", "Connector" } },
-        .{ .path = "bindings/python/pancake/_dial.py", .markers = &.{ "class Runtime", "def open(", "async def connect(", "adopt_host", "Provider", "Connector" } },
+        .{ .path = "bindings/python/glowcap/_dial.py", .markers = &.{ "class Runtime", "def open(", "async def connect(", "adopt_host", "Provider", "Connector" } },
         .{ .path = "bindings/rust/src/runtime.rs", .markers = &.{ "pub struct Runtime", "pub struct RuntimeConfig", "pub async fn open", "pub async fn connect", "adopt_host", "Provider", "Connector" } },
         .{ .path = "bindings/racket/private/dial.rkt", .markers = &.{ "(struct runtime", "(define (open-runtime", "(define (runtime-connect", "#:adopt-host", "driver-provider?", "byte-connector?" } },
     };
@@ -322,7 +322,7 @@ pub fn checkBindingDialSpine(
 
     const provider_symbol_mirrors = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/ts/runtime/transport.ts", .needle = "interface DriverProvider {\n\treadonly transports" },
-        .{ .path = "bindings/python/pancake/_transport.py", .needle = "class Provider:\n" ++
+        .{ .path = "bindings/python/glowcap/_transport.py", .needle = "class Provider:\n" ++
             "    \"\"\"One explicitly composed native provider package." ++
             "\n\n    transports:" },
         .{ .path = "bindings/rust/src/driver_loop/provider.rs", .needle = "pub struct Provider {\n\ttransports:" },
@@ -353,7 +353,7 @@ pub fn checkBindingListenSpine(
             .markers = &.{ "class Server", "DriverListener", "function listen", "function listenKeyed", "function listenNoise", "installTcpProvider", "addressDesignator" },
         },
         .{
-            .path = "bindings/python/pancake/_tcp_listen.py",
+            .path = "bindings/python/glowcap/_tcp_listen.py",
             .markers = &.{ "class Server", "async def listen", "listen_keyed", "listen_noise", "DriverServer", ".install(", "address_designator" },
         },
         .{
@@ -361,7 +361,7 @@ pub fn checkBindingListenSpine(
             .markers = &.{ "DriverServer", "RelayListenOptions", "function listenProfile", "function listenKeyed", "function listenNoise", "installProvider" },
         },
         .{
-            .path = "bindings/python/pancake/relay.py",
+            .path = "bindings/python/glowcap/relay.py",
             .markers = &.{ "async def listen", "DriverServer", "prepare_driver_loop", "provider(config).install", "TRANSPORT_KEYED_RELAY", "TRANSPORT_NOISE_RELAY" },
         },
         .{
@@ -478,11 +478,11 @@ pub fn checkBindingListenSpine(
             .markers = &.{"this.#listener.accept()"},
         },
         .{
-            .path = "bindings/python/pancake/_loop/progress.py",
+            .path = "bindings/python/glowcap/_loop/progress.py",
             .markers = &.{"self._accepts.get(event.listener_id)"},
         },
         .{
-            .path = "bindings/python/pancake/_server.py",
+            .path = "bindings/python/glowcap/_server.py",
             .markers = &.{"accept_session(self._listener)"},
         },
         .{
@@ -536,7 +536,7 @@ pub fn checkBindingListenSpine(
             .banned = &.{ "pub use crate::promise::", "pub use crate::dial::", "pub use crate::listen::" },
         },
         .{
-            .path = "bindings/python/pancake/_session/",
+            .path = "bindings/python/glowcap/_session/",
             .banned = &.{ "from ._dial import", "from ._listen import", "async def connect", "class Server", "class KeyedTcpServer" },
         },
     };

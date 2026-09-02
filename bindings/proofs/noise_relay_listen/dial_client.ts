@@ -6,8 +6,8 @@
 //
 // Run by `harness.ts` with the advertised `ocapn://` locator as argv.
 
-import { parseLocator, Runtime } from "@pancake/runtime";
-import { provider, routeFromLocator } from "@pancake/relay";
+import { parseLocator, Runtime } from "@glowcap/runtime";
+import { provider, routeFromLocator } from "@glowcap/relay";
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);

@@ -3,10 +3,10 @@
 </head>
 <main id="content">
 	<header class="hero">
-		<img class="hero-mark" src="$site.asset('pancake-icon-256.png').link()" alt="A smiling stack of pancakes" width="160" height="160">
+		<img class="hero-mark" src="$site.asset('glowcap-icon-256.png').link()" alt="A smiling stack of pancakes" width="160" height="160">
 		<div class="hero-copy">
 			<p class="hero-eyebrow">Object-capability RPC for OCapN, in Zig</p>
-			<h1>pancake</h1>
+			<h1>glowcap</h1>
 			<p class="hero-tagline">Two programs hand each other references to live objects and call them across the network. Holding the reference is the permission.</p>
 			<p class="hero-kicker">Because you can't have pancakes without <a href="https://github.com/ocapn/syrup">Syrup</a>.</p>
 			<div class="hero-actions">
@@ -20,7 +20,7 @@
 		<a class="card card-lead" href="$site.page('examples').link()">
 			<span class="card-lead-mark" aria-hidden="true"></span>
 			<div>
-				<h2>Rooms: pancake as a chat</h2>
+				<h2>Rooms: glowcap as a chat</h2>
 				<p>Open a room, pick a member, and press Message. That introduction is the protocol this site is for.</p>
 			</div>
 		</a>
@@ -50,7 +50,7 @@
 		</a>
 		<a class="card" href="$site.page('transports/noise').link()">
 			<h2>Noise: sealed TCP</h2>
-			<p>Encrypt a direct pancake-to-pancake route and prove the dialed key, without pulling in iroh.</p>
+			<p>Encrypt a direct glowcap-to-glowcap route and prove the dialed key, without pulling in iroh.</p>
 		</a>
 		<a class="card" href="$site.page('examples').link()">
 			<h2>Zig chapters and other apps</h2>

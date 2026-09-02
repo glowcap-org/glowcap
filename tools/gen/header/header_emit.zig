@@ -5,7 +5,7 @@
 //! become prototypes, all spelled from the real Zig types so the header cannot
 //! disagree with the implementation. The reflection machinery is identical
 //! across them; only the module, the function table, the curated prose, and
-//! (for `libpancake_ocapn`) the three function-pointer typedefs differ. Those
+//! (for `libglowcap_ocapn`) the three function-pointer typedefs differ. Those
 //! differences are a `Spec` type each generator supplies to `Emit`.
 //!
 //! A `Spec` provides `c` (the reflected module), `emitted_fns` (the prototype
@@ -52,7 +52,7 @@ pub fn section(b: *Buf, gpa: std.mem.Allocator, comptime title: []const u8) !voi
     try line(b, gpa, "/* ── {s} ── */", .{title});
 }
 
-/// `c_abi.PancakeFrame` → `PancakeFrame` (strip the module path).
+/// `c_abi.GlowcapFrame` → `GlowcapFrame` (strip the module path).
 const baseName = @import("reflect").baseName;
 
 /// The reflection primitives, bound to one generator's `Spec`. `Spec` supplies
@@ -158,7 +158,7 @@ pub fn Emit(comptime Spec: type) type {
         /// small discriminant callers compare against both `int32_t` returns and
         /// `uint32_t` struct fields, and a `u` suffix would force a cast or a
         /// sign-compare warning on the signed side. A negative code expands
-        /// parenthesized, `(-1)` not `-1`, so `x-PANCAKE_ERR_IO` written without
+        /// parenthesized, `(-1)` not `-1`, so `x-GLOWCAP_ERR_IO` written without
         /// spaces cannot lex as a decrement. A name in `Spec.const_docs` gets its
         /// one curated comment line first.
         pub fn emitConst(b: *Buf, gpa: std.mem.Allocator, comptime name: []const u8) !void {

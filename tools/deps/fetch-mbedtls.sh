@@ -23,13 +23,13 @@ for program in curl tar; do
 	fi
 done
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/pancake-mbedtls.XXXXXX")
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/glowcap-mbedtls.XXXXXX")
 readonly scratch
 trap 'rm -rf -- "$scratch"' EXIT
 readonly tarball_path="$scratch/$ARCHIVE"
 
 curl -fsSL --proto '=https' --tlsv1.2 --max-filesize "$MAX_BYTES" \
-	-A 'pancake-build/mbedtls-fetch' -o "$tarball_path" "$URL"
+	-A 'glowcap-build/mbedtls-fetch' -o "$tarball_path" "$URL"
 actual_bytes=$(wc -c <"$tarball_path")
 if ((actual_bytes > MAX_BYTES)); then
 	printf 'fetch-mbedtls: archive exceeds %d-byte ceiling: %d\n' \
@@ -84,4 +84,4 @@ TAR_OPTIONS= tar --no-same-owner --no-same-permissions -xjf "$tarball_path" \
 	"$ROOT/LICENSE" \
 	"${prefixes[@]}"
 
-printf 'mbedtls %s %s\n' "$VERSION" "$SHA256" >"$OUTPUT/PANCAKE-PIN"
+printf 'mbedtls %s %s\n' "$VERSION" "$SHA256" >"$OUTPUT/GLOWCAP-PIN"

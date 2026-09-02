@@ -15,7 +15,7 @@ pub const coach_guide =
     \\tour exports|imports|answers · guide exit returns to the workbench · ? reprints this.
 ;
 
-pub const next_identity = "next: mint identity (pancake init) or set PANCAKE_IDENTITY";
+pub const next_identity = "next: mint identity (glowcap init) or set GLOWCAP_IDENTITY";
 pub const next_connect = "next: dial ocapn://…";
 pub const next_session = "next: wait for the session to open, then fetch a name";
 pub const next_fetch = "next: fetch greeter";

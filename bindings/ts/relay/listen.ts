@@ -1,7 +1,7 @@
 // Native registered accepts for the relay profiles. The driver owns the
 // registration socket, admission, handshake, events, and terminal release;
 // this module installs the relay provider with its two routes and projects
-// the listener into the TypeScript API, the same shape `@pancake/tcp`'s
+// the listener into the TypeScript API, the same shape `@glowcap/tcp`'s
 // listen has.
 //
 // The provider hosts one registration route per loop (the deployed
@@ -14,17 +14,17 @@ import {
 	DriverListener,
 	DriverServer,
 	ensureRuntimeReady,
+	GlowcapError,
 	type Host,
 	listenerLoopUnavailable,
 	loopTierAvailable,
-	PancakeError,
 	prepareListenerLoop,
 	retainCleanupFailures,
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_NOISE_RELAY,
-} from "@pancake/runtime/transport";
-import type { Codec, DriverLoop } from "@pancake/runtime/transport";
-import { IO } from "@pancake/abi";
+} from "@glowcap/runtime/transport";
+import type { Codec, DriverLoop } from "@glowcap/runtime/transport";
+import { IO } from "@glowcap/abi";
 import { installProvider, type NativeTrust } from "./transport.ts";
 import { relayRoute } from "./route.ts";
 
@@ -77,7 +77,7 @@ async function listenProfile(
 		listener = null;
 		return server;
 	} catch (error) {
-		const primary = error instanceof PancakeError ? error : new PancakeError(IO, String(error));
+		const primary = error instanceof GlowcapError ? error : new GlowcapError(IO, String(error));
 		const failedListener = listener;
 		const ownedLoop = prepared?.ownsLoop ? prepared.loop : null;
 		const cleanups: Array<() => void | Promise<void>> = [];

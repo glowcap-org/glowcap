@@ -24,27 +24,27 @@ test "archive fingerprints follow reflected signatures, constants, and layouts" 
     const Layout64 = extern struct { value: u64 };
     const Calls32 = struct {
         pub const symbols = Symbols;
-        pub const PANCAKE_MODE: u32 = 7;
+        pub const GLOWCAP_MODE: u32 = 7;
         pub fn contractCall(value: u32) callconv(.c) u32 {
             return value;
         }
     };
     const Calls64 = struct {
         pub const symbols = Symbols;
-        pub const PANCAKE_MODE: u32 = 7;
+        pub const GLOWCAP_MODE: u32 = 7;
         pub fn contractCall(value: u64) callconv(.c) u64 {
             return value;
         }
     };
     const CallsDifferentConstant = struct {
-        pub const PANCAKE_MODE: u32 = 8;
+        pub const GLOWCAP_MODE: u32 = 8;
         pub const symbols = Symbols;
         pub fn contractCall(value: u32) callconv(.c) u32 {
             return value;
         }
     };
     const CallsReordered = struct {
-        pub const PANCAKE_MODE: u32 = 7;
+        pub const GLOWCAP_MODE: u32 = 7;
         pub const symbols = Symbols;
         pub fn contractCall(value: u32) callconv(.c) u32 {
             return value;

@@ -4,7 +4,7 @@
 //! command's outcome rather than an implicit `deinit`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const Ctx = @import("../ctx.zig").Ctx;
 const argv = @import("../argv.zig");
 const exit_codes = @import("../exit_codes.zig");
@@ -16,9 +16,9 @@ const session_opts = @import("session_opts.zig");
 const listen_close = @import("listen_close.zig");
 const builtins = @import("builtins.zig");
 
-const driver = pancake.driver;
-const model = pancake.ocapn.model;
-const FailureChain = pancake.foundation.FailureChain;
+const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
+const FailureChain = glowcap.foundation.FailureChain;
 
 pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
     const bind = parsed.flagString("bind") orelse "127.0.0.1:0";
@@ -26,7 +26,7 @@ pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
     const once = parsed.flagBool("once");
     const accept_id = try ctx.acceptIdentity();
 
-    var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
+    var tcp = glowcap.net.tcp.Resident{ .io = ctx.io };
     var relay: ?relay_runtime.Provider = null;
     const target = listen_target.select(
         ctx,

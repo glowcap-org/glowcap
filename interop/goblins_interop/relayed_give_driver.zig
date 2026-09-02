@@ -1,4 +1,4 @@
-//! A relayed give read by a live Goblins recipient: pancake introduces a third
+//! A relayed give read by a live Goblins recipient: glowcap introduces a third
 //! party to a promise it does not own, and when that promise settles the third
 //! party finds a signed give in the settlement.
 //!
@@ -6,28 +6,28 @@
 //! moment it is asked for, so the give rides an answer the recipient asked for.
 //! Here the introduction is a promise living on a vat the recipient has never
 //! spoken to, so the give arrives in a *listener fire* instead. That position
-//! rested on pancake's own tests until this step. This scenario asks a real
+//! rested on glowcap's own tests until this step. This scenario asks a real
 //! Goblins vat to read a give specifically from a listener fulfillment; the
 //! recursive container evidence lives in the binding gifter matrix.
 //!
 //! Topology (TCP loopback):
 //!   Bob      (Goblins exporter)  publishes a rendezvous and holds a promise he
 //!                               has not settled. He hands the promise to
-//!                               pancake as a delivered argument, and settles it
+//!                               glowcap as a delivered argument, and settles it
 //!                               when the driver writes a line to his stdin.
-//!   pancake  (introducer)        holds Bob's promise as an opaque Host
+//!   glowcap  (introducer)        holds Bob's promise as an opaque Host
 //!                               capability and answers `get-greeter` with it.
 //!                               Its host
 //!                               proxies the promise onto Carol's session and
 //!                               waits on Bob's.
-//!   Carol    (Goblins recipient) asks pancake for the greeter, waits on the
+//!   Carol    (Goblins recipient) asks glowcap for the greeter, waits on the
 //!                               promise she is answered with, redeems the give
 //!                               the settlement carries, dials Bob, and calls
 //!                               what she withdrew.
 //!
 //! Why Bob hands the promise over as an *argument*: an answer carrying a local
 //! promise chains through Goblins' own promise machinery and stays pending on
-//! the wire, so pancake would be handed a pending answer rather than a promise
+//! the wire, so glowcap would be handed a pending answer rather than a promise
 //! it can name. An argument marshals as `desc:import-promise`, which the Host
 //! lifts under Bob's session before application code sees it.
 //!
@@ -36,16 +36,16 @@
 //! `zig build goblins-relayed-give`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const crypto = pancake.foundation.crypto;
-const driver = pancake.driver;
-const net = pancake.net;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const crypto = glowcap.foundation.crypto;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const tcp = glowcap.net.tcp;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -57,7 +57,7 @@ const default_bob_port: u16 = 22150;
 const frame_cap: usize = 1 << 16;
 const exporter_script = "conformance/goblins-peer/racket/deferred-exporter-host.rkt";
 const recipient_script = "conformance/goblins-peer/racket/relayed-give-recipient.rkt";
-const rendezvous_swiss = "pancakeDeferredRendezvousSwiss01";
+const rendezvous_swiss = "glowcapDeferredRendezvousSwiss01";
 const introducer_swiss = "introducer";
 const holder_swiss = "holder";
 const deadline_ms: u64 = 60_000;
@@ -69,7 +69,7 @@ fn pokeListener(io: std.Io, port: u16) void {
     stream.close(io);
 }
 
-/// What the introducer half of pancake knows: Bob's session, the capability it
+/// What the introducer half of glowcap knows: Bob's session, the capability it
 /// published for Bob to send the promise to, and the opaque Host capability
 /// produced when that argument arrives.
 const IntroducerState = struct {
@@ -167,7 +167,7 @@ fn introducerOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot)
     if (conn.leg != .app_dial or conn.session.role != .dialed) return;
     if (state.bob_conn != null) return;
     state.bob_conn = conn.session;
-    std.debug.print("goblins-relayed-give: session open (pancake as introducer -> bob)\n", .{});
+    std.debug.print("goblins-relayed-give: session open (glowcap as introducer -> bob)\n", .{});
     const holder = try conn.session.served.publish(
         &conn.session.host.vat,
         holder_swiss,
@@ -264,7 +264,7 @@ pub fn main(init: std.process.Init) !void {
     bob.kill(io);
     bob_reaped = true;
     std.debug.print(
-        "goblins-relayed-give OK: a live Goblins recipient read a pancake give out of a listener fire and reached the exporter directly\n",
+        "goblins-relayed-give OK: a live Goblins recipient read a glowcap give out of a listener fire and reached the exporter directly\n",
         .{},
     );
 }
@@ -342,7 +342,7 @@ fn introducerStep(
         .{ host_addr, introducer_port },
     );
     std.debug.print(
-        "goblins-relayed-give: pancake publishing introducer swiss={s} on {s}\n",
+        "goblins-relayed-give: glowcap publishing introducer swiss={s} on {s}\n",
         .{ introducer_swiss, introducer_designator },
     );
 

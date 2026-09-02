@@ -18,7 +18,7 @@
 ;;
 ;; It lives here, not in the iroh binding, so a TCP-only relay never loads the iroh
 ;; module: the TCP leg builds a `byte-channel` over a raw socket with no iroh in
-;; sight, and only the iroh leg reaches for `pancake-iroh.rkt`.
+;; sight, and only the iroh leg reaches for `glowcap-iroh.rkt`.
 
 (provide (struct-out byte-channel))
 

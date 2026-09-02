@@ -9,22 +9,22 @@ import {
 	DriverServer,
 	ensureRuntimeReady,
 	formatPeerUri,
+	GlowcapError,
 	HINT_DIRECT_ADDRESSES,
 	Host,
 	listenerLoopUnavailable,
 	loopTierAvailable,
-	PancakeError,
 	prepareListenerLoop,
 	retainCleanupFailures,
 	stringHint,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_NOISE_TCP,
 	TRANSPORT_TCP,
-} from "@pancake/runtime/transport";
-import type { Codec } from "@pancake/runtime/transport";
+} from "@glowcap/runtime/transport";
+import type { Codec } from "@glowcap/runtime/transport";
 import { addressDesignator } from "./address.ts";
 import { type Config, installProvider as installTcpProvider } from "./transport.ts";
-import { INVALID_ARGUMENT, IO } from "@pancake/abi";
+import { INVALID_ARGUMENT, IO } from "@glowcap/abi";
 
 export interface ListenOptions {
 	/** Defaults inherited by every TCP stream admitted through this provider. */
@@ -53,7 +53,7 @@ export type KeyedListenOptions =
 
 /** A native-driver listener. Its Host is the driver's Host wrapper, which is
  * either minted by the loop or the exact supplied wrapper transferred through
- * `pancake_driver_take_host`. */
+ * `glowcap_driver_take_host`. */
 export class Server extends DriverServer {
 	get port(): number {
 		const locator = this.locator;
@@ -71,7 +71,7 @@ function configureTcpProfileListener(
 	const boundDirect = stringHint(locator, HINT_DIRECT_ADDRESSES) ??
 		(transport === TRANSPORT_TCP ? locator.designator : null);
 	if (boundDirect == null) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			INVALID_ARGUMENT,
 			`${transport} listener locator has no ${HINT_DIRECT_ADDRESSES} hint`,
 		);
@@ -99,13 +99,13 @@ function wildcardHost(hostname: string): boolean {
 function dialableSocketAddress(boundAddress: string, advertisedHost?: string): string {
 	const { hostname, port } = designatorHostPort(boundAddress);
 	if (wildcardHost(hostname) && advertisedHost == null) {
-		throw new PancakeError(
+		throw new GlowcapError(
 			INVALID_ARGUMENT,
 			"a wildcard bind has no dialable address; provide advertisedHost",
 		);
 	}
 	if (advertisedHost != null && wildcardHost(advertisedHost)) {
-		throw new PancakeError(INVALID_ARGUMENT, "an advertised host must be dialable");
+		throw new GlowcapError(INVALID_ARGUMENT, "an advertised host must be dialable");
 	}
 	return advertisedHost == null ? boundAddress : addressDesignator(advertisedHost, port);
 }
@@ -120,7 +120,7 @@ async function listenProfile(
 	seed?: Uint8Array,
 ): Promise<Server> {
 	if (seed != null && seed.length !== 32) {
-		throw new PancakeError(INVALID_ARGUMENT, `${transport} listen: seed must be 32 bytes`);
+		throw new GlowcapError(INVALID_ARGUMENT, `${transport} listen: seed must be 32 bytes`);
 	}
 	await ensureRuntimeReady();
 	if (!loopTierAvailable()) throw listenerLoopUnavailable();
@@ -144,7 +144,7 @@ async function listenProfile(
 		listener = null;
 		return server;
 	} catch (error) {
-		const primary = error instanceof PancakeError ? error : new PancakeError(IO, String(error));
+		const primary = error instanceof GlowcapError ? error : new GlowcapError(IO, String(error));
 		const failedListener = listener;
 		const ownedLoop = prepared?.ownsLoop ? prepared.loop : null;
 		const cleanups: Array<() => void | Promise<void>> = [];

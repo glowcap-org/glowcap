@@ -3,13 +3,13 @@
 //! callback projection.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const codec = pancake.ocapn.codec;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
-const driver = pancake.driver;
+const codec = glowcap.ocapn.codec;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
+const driver = glowcap.driver;
 const peer_fixture = @import("../../../support/peer_fixture.zig");
 
 test "raw-open fixture peer is already open on v1.0, not next" {

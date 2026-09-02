@@ -1,4 +1,4 @@
-//! Live WebRTC transport: two native pancake peers hold a real keyed OCapN
+//! Live WebRTC transport: two native glowcap peers hold a real keyed OCapN
 //! conversation over one reliable, ordered `RTCDataChannel` (ADR-0089 phase 2).
 //!
 //! There is no netlayer dial yet (that is phase 4), so this drives the transport
@@ -15,7 +15,7 @@
 //! on the wire are DTLS-encrypted SCTP; the keyed handshake proves each peer's
 //! Ed25519 identity end to end on top of it.
 //!
-//! Goblins ships no WebRTC netlayer, so this is pancake-to-pancake by
+//! Goblins ships no WebRTC netlayer, so this is glowcap-to-glowcap by
 //! construction, exactly like `iroh-interop`: it proves the netlayer contract
 //! carries a peer-to-peer encrypted transport, not Goblins interop (the
 //! conversation is the one the TCP gates already prove against Goblins).
@@ -25,13 +25,13 @@
 //! step `zig build webrtc-interop`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc";
@@ -229,7 +229,7 @@ fn offererHalf(
     const greeter = try webrtc_common.fetchRef(resident, peer, &pump, &host, session, "greeter", 10_000);
     try webrtc_common.sendAndExpectString(resident, peer, &pump, &host, session, greeter, .{
         .verb = "greet",
-        .args = &.{.{ .string = "pancake" }},
+        .args = &.{.{ .string = "glowcap" }},
     }, greeting, 10_000);
     _ = try pump.drive(&host, session, peer);
     peer.close();

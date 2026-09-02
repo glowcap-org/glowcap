@@ -25,7 +25,7 @@ membership rank, or moderation itself.
 
 ## Decision
 
-`--operator` (or `PANCAKE_ROOMS_OPERATOR=1`) publishes a sibling boot capability under the persistent `ROOMS-OPERATOR`
+`--operator` (or `GLOWCAP_ROOMS_OPERATOR=1`) publishes a sibling boot capability under the persistent `ROOMS-OPERATOR`
 swiss. Holding it permits three operations:
 
 - `list()` inventories stewardship for every local room this server owns;

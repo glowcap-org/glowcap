@@ -31,7 +31,7 @@ function parse(id: string): TimelineDocument {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 		],
 	});

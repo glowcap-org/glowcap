@@ -6,13 +6,13 @@
 //! reference relay is `zig build zig-keyed-relay-rendezvous`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../../support/netlayer.zig");
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const net = pancake.net;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const net = glowcap.net;
 const keyed_relay = net.relay;
 const ws_relay = @import("../../support/ws_relay.zig");
 const fetch_pump = @import("../../support/fetch_pump.zig");

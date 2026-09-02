@@ -69,11 +69,11 @@
 (define (guard-open who c)
   (when (or (session-closing? c) (session-released? c))
     (raise-session-wire-failure! c)
-    (raise-pancake who ERR-CLOSED "connection closed")))
+    (raise-glowcap who ERR-CLOSED "connection closed")))
 
 (define (guard-retained who c)
   (when (session-released? c)
-    (raise-pancake who ERR-CLOSED "the session has been released")))
+    (raise-glowcap who ERR-CLOSED "the session has been released")))
 
 ;; Nonzero once the keyed handshake has completed and the session is open.
 (define (session-open? c)
@@ -81,4 +81,4 @@
    (session-host c)
    (lambda ()
      (and (not (session-released? c))
-          (= 1 (pancake_host_session_is_open (session-ptr c)))))))
+          (= 1 (glowcap_host_session_is_open (session-ptr c)))))))

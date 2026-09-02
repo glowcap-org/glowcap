@@ -89,7 +89,7 @@ export class Connector {
 
 // Transport-package authoring surface. Keeping it here makes the module name,
 // public subpath, and concept agree: companions import
-// `@pancake/runtime/transport`; applications import `@pancake/runtime`.
+// `@glowcap/runtime/transport`; applications import `@glowcap/runtime`.
 export { abortable } from "./internal/cancellation.ts";
 export { recordProcessBindingFailure } from "./context.ts";
 export * from "./internal/constants.ts";
@@ -101,7 +101,7 @@ export { L as abiLayout } from "./internal/layout.ts";
 export { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "./internal/seam.ts";
 export { DriverServer, listenerLoopUnavailable, prepareListenerLoop } from "./internal/server.ts";
 export { DriverListener, DriverLoop, loopTierAvailable, type ProviderTarget } from "./driver_loop.ts";
-export { PancakeError, retainCleanupFailures, retainSecondaryFailure } from "./errors.ts";
+export { GlowcapError, retainCleanupFailures, retainSecondaryFailure } from "./errors.ts";
 export type { CarrierFailure, CarrierPhase } from "./carrier_failure.ts";
 export { Host } from "./host.ts";
 export {

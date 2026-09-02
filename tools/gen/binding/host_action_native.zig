@@ -24,7 +24,7 @@ pub fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\from typing import Union
         \\
         \\
-        \\# PancakeHostAction.kind — mirrors PANCAKE_HOST_ACTION_* in pancake_host.h.
+        \\# GlowcapHostAction.kind — mirrors GLOWCAP_HOST_ACTION_* in glowcap_host.h.
         \\
     );
     inline for (ha.arms) |arm| {
@@ -50,7 +50,7 @@ pub fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\
         \\def decode(a) -> HostAction:
-        \\    """Decode a filled ``PancakeHostAction`` ctypes struct into an
+        \\    """Decode a filled ``GlowcapHostAction`` ctypes struct into an
         \\    owned ``HostAction`` variant. Lazily imports ``_arg_from_c`` so
         \\    this module stays importable without a codec cycle.
         \\    """
@@ -202,8 +202,8 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
         \\use crate::sys::host as ffi;
         \\use crate::{arg_from_sys, Argument, Error, Result};
         \\
-        \\/// `PancakeHostAction.kind` — mirrors `PANCAKE_HOST_ACTION_*` in
-        \\/// `pancake_host.h`.
+        \\/// `GlowcapHostAction.kind` — mirrors `GLOWCAP_HOST_ACTION_*` in
+        \\/// `glowcap_host.h`.
         \\
     );
     inline for (ha.arms) |arm| {
@@ -212,8 +212,8 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa,
         \\
         \\/// One popped embedder action, every borrowed view lifted to owned
-        \\/// Rust values (a SETTLE's `PancakeArgument` included) before the next
-        \\/// `pancake_host_next_action` call can free them.
+        \\/// Rust values (a SETTLE's `GlowcapArgument` included) before the next
+        \\/// `glowcap_host_next_action` call can free them.
         \\pub enum HostAction {
         \\
     );
@@ -222,10 +222,10 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.appendSlice(gpa, "}\n\n");
     try out.appendSlice(gpa,
-        \\/// Decode a filled `PancakeHostAction` into an owned `HostAction`.
+        \\/// Decode a filled `GlowcapHostAction` into an owned `HostAction`.
         \\/// An unknown ABI discriminant is a returned internal failure, never a
         \\/// process panic.
-        \\pub fn decode(raw: &ffi::PancakeHostAction) -> Result<HostAction> {
+        \\pub fn decode(raw: &ffi::GlowcapHostAction) -> Result<HostAction> {
         \\
     );
     try ha.tline(&out, gpa, 1, "let view = |ptr: *const u8, len: usize| -> String {");
@@ -243,7 +243,7 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     }
     try ha.tline(&out, gpa, 2, "kind => return Err(Error::with_detail(");
     try ha.tline(&out, gpa, 3, "crate::sys::ERR_INTERNAL,");
-    try ha.tline(&out, gpa, 3, "format!(\"pancake ABI returned unknown host action kind {kind}\"),");
+    try ha.tline(&out, gpa, 3, "format!(\"glowcap ABI returned unknown host action kind {kind}\"),");
     try ha.tline(&out, gpa, 2, ")),");
     try ha.tline(&out, gpa, 1, "})");
     try out.appendSlice(gpa, "}\n\n");
@@ -399,7 +399,7 @@ pub fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         \\         host-decode-action!
         \\         host-dispatch-action!)
         \\
-        \\;; PancakeHostAction.kind — mirrors PANCAKE_HOST_ACTION_* in pancake_host.h.
+        \\;; GlowcapHostAction.kind — mirrors GLOWCAP_HOST_ACTION_* in glowcap_host.h.
         \\
     );
     inline for (ha.arms) |arm| {
@@ -409,12 +409,12 @@ pub fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.appendSlice(gpa,
         \\
-        \\;; Decode a filled PancakeHostAction cstruct into the list form the
+        \\;; Decode a filled GlowcapHostAction cstruct into the list form the
         \\;; drain switch matches: `(list 'dial …)`, `(list 'flush …)`, …
         \\;; `arg<-c` is passed by the caller (from `abi-value.rkt`) so this module
         \\;; stays require-acyclic with constants.rkt.
         \\(define (host-decode-action! a arg<-c)
-        \\  (define kind (PancakeHostAction-kind a))
+        \\  (define kind (GlowcapHostAction-kind a))
         \\  (define (view->string ptr len) (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD))
         \\  (cond
         \\
@@ -423,7 +423,7 @@ pub fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         try emitRacketDecodeArm(&out, gpa, arm);
     }
     try out.appendSlice(gpa,
-        \\    [else (raise-pancake 'pancake ERR-INTERNAL
+        \\    [else (raise-glowcap 'glowcap ERR-INTERNAL
         \\                         "ABI returned unknown host action kind: ~a" kind)]))
         \\
         \\;; Exhaustive dispatch over a decoded action list. `handlers` is a
@@ -434,7 +434,7 @@ pub fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         \\  (define tag (car a))
         \\  (define fn (hash-ref handlers tag #f))
         \\  (unless fn
-        \\    (error 'pancake "host-dispatch-action!: missing handler for ~a" tag))
+        \\    (error 'glowcap "host-dispatch-action!: missing handler for ~a" tag))
         \\  (fn a))
         \\
     );
@@ -451,30 +451,30 @@ fn emitRacketDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.
             \\
         , .{arm.racket}),
         .session => try out.print(gpa,
-            \\     (list '{s} (PancakeHostAction-session a))]
+            \\     (list '{s} (GlowcapHostAction-session a))]
             \\
         , .{arm.racket}),
         .close => try out.print(gpa,
-            \\     (list '{s} (PancakeHostAction-session a) (PancakeHostAction-result a))]
+            \\     (list '{s} (GlowcapHostAction-session a) (GlowcapHostAction-result a))]
             \\
         , .{arm.racket}),
         .ticket => try out.print(gpa,
-            \\     (list '{s} (PancakeHostAction-ticket a))]
+            \\     (list '{s} (GlowcapHostAction-ticket a))]
             \\
         , .{arm.racket}),
         .dial_attempt => try out.print(gpa,
-            \\     (list '{s} (PancakeHostAction-ticket a) (PancakeHostAction-route-index a))]
+            \\     (list '{s} (GlowcapHostAction-ticket a) (GlowcapHostAction-route-index a))]
             \\
         , .{arm.racket}),
         .settle => try out.print(gpa,
             \\     ;; `arg<-c` copies every byte payload into fresh Racket values, so the
             \\     ;; outcome outlives the popped action's until-next-pop lifetime.
-            \\     (list '{s} (PancakeHostAction-ticket a) (arg<-c (PancakeHostAction-value a)))]
+            \\     (list '{s} (GlowcapHostAction-ticket a) (arg<-c (GlowcapHostAction-value a)))]
             \\
         , .{arm.racket}),
         .fail => try out.print(gpa,
-            \\     (list '{s} (PancakeHostAction-ticket a) (PancakeHostAction-result a)
-            \\           (view->string (PancakeHostAction-message a) (PancakeHostAction-message-len a)))]
+            \\     (list '{s} (GlowcapHostAction-ticket a) (GlowcapHostAction-result a)
+            \\           (view->string (GlowcapHostAction-message a) (GlowcapHostAction-message-len a)))]
             \\
         , .{arm.racket}),
     }

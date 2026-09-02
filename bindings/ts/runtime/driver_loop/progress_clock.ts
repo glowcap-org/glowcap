@@ -13,7 +13,7 @@ export type DriverProgressTimer = ReturnType<typeof setTimeout> | null;
  * at zero, or -1 while readiness alone can advance terminal progress. */
 export function driverStepWaitMs(handle: Ptr): number {
 	const out = new Uint8Array(4);
-	checkDriver(loopS.pancake_driver_step_wait_ms(handle, ab(out)));
+	checkDriver(loopS.glowcap_driver_step_wait_ms(handle, ab(out)));
 	return new DataView(out.buffer).getInt32(0, true);
 }
 

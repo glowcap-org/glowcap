@@ -190,14 +190,14 @@ pub fn checkRequiredSubstrings(
         "--project",
         "${workspaceFolder}",
     });
-    try expectPancakeMcpServer(io, gpa, root, violations, ".cursor/mcp.json", .cursor);
-    try expectPancakeMcpServer(io, gpa, root, violations, ".mcp.json", .claude);
-    try expectFileContains(io, gpa, root, violations, "pancake", &.{
-        "zig-out/bin/pancake",
+    try expectGlowcapMcpServer(io, gpa, root, violations, ".cursor/mcp.json", .cursor);
+    try expectGlowcapMcpServer(io, gpa, root, violations, ".mcp.json", .claude);
+    try expectFileContains(io, gpa, root, violations, "glowcap", &.{
+        "zig-out/bin/glowcap",
     });
     try expectFileContains(io, gpa, root, violations, "cli/operability/xdg.zig", &.{
         "mcp_local",
-        ".local/pancake-mcp-state",
+        ".local/glowcap-mcp-state",
     });
     try expectFileContains(io, gpa, root, violations, "cli/mcp/mod.zig", &.{
         "ctx.json = .json",
@@ -207,14 +207,14 @@ pub fn checkRequiredSubstrings(
     try expectFileContains(io, gpa, root, violations, ".gitignore", &.{
         ".local/",
     });
-    try expectFileContains(io, gpa, root, violations, "docs/pancake-mcp.json", &.{
+    try expectFileContains(io, gpa, root, violations, "docs/glowcap-mcp.json", &.{
         "\"mcp\"",
         "--tools",
         "default",
-        "PANCAKE_STATE",
+        "GLOWCAP_STATE",
     });
     try expectFileContains(io, gpa, root, violations, "docs/cli.md", &.{
-        ".local/pancake-mcp-state",
+        ".local/glowcap-mcp-state",
         "no shim",
         "newline-delimited",
     });
@@ -328,17 +328,17 @@ fn expectMcpServer(
     }
 }
 
-const PancakeMcpHost = enum { cursor, claude };
+const GlowcapMcpHost = enum { cursor, claude };
 
-/// Project CapTP MCP must launch the repo-root `./pancake` shim (forwards to
-/// zig-out/bin/pancake; PATH is not required).
-fn expectPancakeMcpServer(
+/// Project CapTP MCP must launch the repo-root `./glowcap` shim (forwards to
+/// zig-out/bin/glowcap; PATH is not required).
+fn expectGlowcapMcpServer(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     path: []const u8,
-    host: PancakeMcpHost,
+    host: GlowcapMcpHost,
 ) !void {
     var parsed = try parseJsonFile(io, gpa, root, violations, path) orelse return;
     defer parsed.deinit();
@@ -347,27 +347,27 @@ fn expectPancakeMcpServer(
         try appendViolation(gpa, violations, "{s}: missing `mcpServers` object", .{path});
         return;
     };
-    const pancake = getField(servers, "pancake") orelse {
-        try appendViolation(gpa, violations, "{s}: missing `mcpServers.pancake` object — CapTP MCP must be wired", .{path});
+    const glowcap = getField(servers, "glowcap") orelse {
+        try appendViolation(gpa, violations, "{s}: missing `mcpServers.glowcap` object — CapTP MCP must be wired", .{path});
         return;
     };
-    const command = getField(pancake, "command") orelse {
-        try appendViolation(gpa, violations, "{s}: missing `mcpServers.pancake.command`", .{path});
+    const command = getField(glowcap, "command") orelse {
+        try appendViolation(gpa, violations, "{s}: missing `mcpServers.glowcap.command`", .{path});
         return;
     };
     const expected_command: []const u8 = switch (host) {
-        .cursor => "${workspaceFolder}/pancake",
-        .claude => "./pancake",
+        .cursor => "${workspaceFolder}/glowcap",
+        .claude => "./glowcap",
     };
     if (!jsonStringEquals(command, expected_command)) {
-        try appendViolation(gpa, violations, "{s}: `mcpServers.pancake.command` must be `{s}`", .{ path, expected_command });
+        try appendViolation(gpa, violations, "{s}: `mcpServers.glowcap.command` must be `{s}`", .{ path, expected_command });
     }
-    const args = getField(pancake, "args") orelse {
-        try appendViolation(gpa, violations, "{s}: missing `mcpServers.pancake.args`", .{path});
+    const args = getField(glowcap, "args") orelse {
+        try appendViolation(gpa, violations, "{s}: missing `mcpServers.glowcap.args`", .{path});
         return;
     };
     if (!jsonStringArrayEquals(args, &.{ "mcp", "--tools", "default" })) {
-        try appendViolation(gpa, violations, "{s}: `mcpServers.pancake.args` must be `[\"mcp\", \"--tools\", \"default\"]`", .{path});
+        try appendViolation(gpa, violations, "{s}: `mcpServers.glowcap.args` must be `[\"mcp\", \"--tools\", \"default\"]`", .{path});
     }
 }
 

@@ -63,7 +63,7 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
     );
     common.linkIrohSidecar(b, link_mod, ctx.target, ctx.sidecar_archive);
     const shared = b.addLibrary(.{
-        .name = "pancake_net_transport_iroh",
+        .name = "glowcap_net_transport_iroh",
         .linkage = .dynamic,
         .root_module = link_mod,
         .version = ctx.version,
@@ -74,18 +74,18 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
 
     const install = b.addInstallArtifact(shared, .{});
     const header = b.addInstallHeaderFile(
-        b.path("include/pancake_net_transport_iroh.h"),
-        "pancake_net_transport_iroh.h",
+        b.path("include/glowcap_net_transport_iroh.h"),
+        "glowcap_net_transport_iroh.h",
     );
-    const step = b.step("iroh-abi", "Build libpancake_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)");
+    const step = b.step("iroh-abi", "Build libglowcap_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)");
     step.dependOn(&install.step);
     step.dependOn(&header.step);
 
     if (ctx.target.result.ofmt == .elf) {
         const export_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/sidecar-exports.sh" });
         export_check.addFileArg(shared.getEmittedBin());
-        export_check.addArg("pancake_iroh_");
-        export_check.addArg("pancake_iroh_sidecar_");
+        export_check.addArg("glowcap_iroh_");
+        export_check.addArg("glowcap_iroh_sidecar_");
         step.dependOn(&export_check.step);
     }
     return .{ .install = install, .step = step };
@@ -133,7 +133,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
 
     // ── iroh netlayer (external siblings, plus hermetic Zig checks) ─────────
     // The iroh netlayer sidecar (ADR-0055): cargo builds the
-    // `libpancake_iroh_sidecar.a` staticlib, and the live gate runs two pancake
+    // `libglowcap_iroh_sidecar.a` staticlib, and the live gate runs two glowcap
     // peers — each with its own
     // real iroh endpoint — through the keyed handshake, a bootstrap fetch, and
     // a deliver/resolve over an encrypted QUIC stream, dialed by endpoint id
@@ -144,7 +144,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // fail after every dependency bump unless some unrelated command happened
     // to warm Cargo's cache. The target directory is a build output, so the
     // staticlib is a graph path every linker depends on by using it, in this
-    // tree and in a downstream package that imports `pancake_iroh`; cargo
+    // tree and in a downstream package that imports `glowcap_iroh`; cargo
     // still runs on every build (it is its own incremental cache) into the
     // one stable directory the runner keeps for a side-effect step.
     const iroh_lib = addRootedSystemCommand(b, .build_tool, &.{
@@ -152,7 +152,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     });
     const sidecar_target_dir = iroh_lib.addPrefixedOutputDirectoryArg("--target-dir=", "target");
     iroh_lib.has_side_effects = true;
-    const sidecar_archive = sidecar_target_dir.path(b, "release/libpancake_iroh_sidecar.a");
+    const sidecar_archive = sidecar_target_dir.path(b, "release/libglowcap_iroh_sidecar.a");
     const iroh_lib_step = b.step("iroh-lib", "Build the iroh netlayer sidecar staticlib (needs cargo)");
     iroh_lib_step.dependOn(&iroh_lib.step);
 
@@ -170,9 +170,9 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     iroh_sidecar_test_step.dependOn(&iroh_sidecar_test.step);
 
     // The resident compiles as its own module over the same layer-module
-    // instances, *outside* the `pancake` root namespace: its externs resolve
+    // instances, *outside* the `glowcap` root namespace: its externs resolve
     // only when the staticlib links, and the api-surface test references every
-    // exported `pancake` declaration recursively, exporting it would drag the
+    // exported `glowcap` declaration recursively, exporting it would drag the
     // Rust sidecar into every gate.
     const iroh_resident_mod = b.createModule(.{
         .root_source_file = b.path("src/net/transport/iroh.zig"),
@@ -188,12 +188,12 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // completion `Backend` (ADR-0076).
 
     // The same resident published for a downstream package, with the sidecar
-    // attached, so `pancake.module("pancake_iroh")` is the `iroh` import the
+    // attached, so `glowcap.module("glowcap_iroh")` is the `iroh` import the
     // site's Zig tabs name and a program that links it needs nothing beyond
     // cargo on PATH. It is a second module over the same source because the
     // in-tree resident stays unlinked: the hermetic compile objects that ride
     // `check` import that one and never start cargo.
-    const published_iroh_mod = b.addModule("pancake_iroh", .{
+    const published_iroh_mod = b.addModule("glowcap_iroh", .{
         .root_source_file = b.path("src/net/transport/iroh.zig"),
         .target = target,
         .optimize = optimize,
@@ -210,7 +210,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // a driver's Zig is cargo-free because externs stay unresolved and nothing
     // links, so a core or model API change cannot silently rot a driver only the
     // cargo-gated steps run. Per-row posture:
-    //   iroh-interop  — live encrypted conversation, two pancake peers over real
+    //   iroh-interop  — live encrypted conversation, two glowcap peers over real
     //                   iroh endpoints, dialed by id with direct-address hints.
     //   iroh-reachability — Milestone 1: dial by node id alone over n0's public
     //                   relays and DNS/pkarr discovery, no hints. Touches public
@@ -221,7 +221,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     //                   superset. Deterministic.
     //   iroh-bridge-redeem — ADR-0076: recipient on Loop(iroh.Backend, iroh.DialResolver) redeems
     //                   a handoff via Loop.dialLocator. Deterministic.
-    //   goblins-iroh  — the one row whose partner is not pancake: a real Spritely
+    //   goblins-iroh  — the one row whose partner is not glowcap: a real Spritely
     //                   Goblins vat over the iroh netlayer this repository wrote
     //                   for it, both directions. Needs racket + goblins as well
     //                   as cargo, so it is the family's only Racket-spawning row.
@@ -237,12 +237,12 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         forwards_args: bool = false,
         posture: execution.Posture,
     }{
-        .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)", .exe_name = "pancake-iroh-interop", .root_source = "interop/iroh_interop/driver.zig", .posture = .{ .deterministic = 20 } },
-        .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "pancake-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig", .posture = .real_internet },
-        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "pancake-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
-        .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "pancake-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
-        .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a pancake peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "pancake-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 } },
-        .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "pancake-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true, .posture = .benchmark },
+        .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)", .exe_name = "glowcap-iroh-interop", .root_source = "interop/iroh_interop/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "glowcap-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig", .posture = .real_internet },
+        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "glowcap-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a glowcap peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 } },
+        .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "glowcap-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true, .posture = .benchmark },
     };
     for (iroh_drivers) |drv| {
         // Hermetic compile-only object (no sidecar), rides `check`.
@@ -273,7 +273,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     {
         const seam_source = "interop/iroh_driver_provider/driver.zig";
         const seam_imports = [_]AbiImport{
-            .{ .name = "pancake", .module = lib_mod },
+            .{ .name = "glowcap", .module = lib_mod },
             .{ .name = "iroh", .module = iroh_resident_mod },
             .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
             .{ .name = "c_abi_host", .module = host_abi_mod },
@@ -289,7 +289,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         for (seam_imports) |imp| seam_compile_mod.addImport(imp.name, imp.module);
         seam_compile_mod.addImport("interop_harness", interop_harness_mod);
         seam_compile_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
-        const seam_compile = b.addObject(.{ .name = "pancake-iroh-driver-provider-compile", .root_module = seam_compile_mod });
+        const seam_compile = b.addObject(.{ .name = "glowcap-iroh-driver-provider-compile", .root_module = seam_compile_mod });
         check_step.dependOn(&seam_compile.step);
 
         // Runnable sibling of `check`: links the sidecar and runs from the root.
@@ -302,7 +302,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         seam_run_mod.addImport("interop_harness", interop_harness_mod);
         seam_run_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
         linkIrohSidecar(b, seam_run_mod, target, sidecar_archive);
-        const seam_exe = b.addExecutable(.{ .name = "pancake-iroh-driver-provider", .root_module = seam_run_mod });
+        const seam_exe = b.addExecutable(.{ .name = "glowcap-iroh-driver-provider", .root_module = seam_run_mod });
         const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
         seam_run.setCwd(b.path("."));
         seam_run.has_side_effects = true;
@@ -324,7 +324,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     };
     for (site_iroh_examples) |example| {
         common.addSiteZigExampleCompile(b, target, optimize, example.name, example.path, &.{
-            .{ .name = "pancake", .module = lib_mod },
+            .{ .name = "glowcap", .module = lib_mod },
             .{ .name = "iroh", .module = iroh_resident_mod },
         }, ctx.site_zig_examples_check);
     }
@@ -419,7 +419,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     iroh_constructor_diagnostic.step.dependOn(&iroh_abi_install.step);
     iroh_constructor_diagnostic.step.dependOn(b.getInstallStep());
     iroh_constructor_diagnostic.setEnvironmentVariable(
-        "PANCAKE_LIB_DIR",
+        "GLOWCAP_LIB_DIR",
         common.rootPath(b, "zig-out/lib"),
     );
 
@@ -434,7 +434,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     iroh_driver_listener.step.dependOn(&iroh_abi_install.step);
     iroh_driver_listener.step.dependOn(b.getInstallStep());
     iroh_driver_listener.setEnvironmentVariable(
-        "PANCAKE_LIB_DIR",
+        "GLOWCAP_LIB_DIR",
         common.rootPath(b, "zig-out/lib"),
     );
 

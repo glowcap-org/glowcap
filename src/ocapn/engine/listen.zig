@@ -25,7 +25,7 @@ const Peer = engine.Peer;
 /// shape is refused `InvalidReference`: a `near` names an export of ours, whose
 /// settlement is ours to decide, and a `promise`, `sturdy`, or `broken` names
 /// nothing a partner could notify us about. A far *object* target is legal.
-/// CapTP answers a listen on a settled capability immediately, as pancake's
+/// CapTP answers a listen on a settled capability immediately, as glowcap's
 /// own inbound handler does
 /// (`pipeline.fireLiveObjectExportListener`).
 ///

@@ -1,6 +1,6 @@
 # Language bindings
 
-pancake has bindings for Rust, TypeScript, Python, and Racket. They live in
+glowcap has bindings for Rust, TypeScript, Python, and Racket. They live in
 this repository. Pin a checkout, run `zig build`, and follow the README for
 your language.
 
@@ -14,7 +14,7 @@ your language.
 All four wrap the same C ABI and present the same application model. A
 `Session` represents one CapTP partner. A `Host` shares one identity and
 handoff registry across several sessions. A binding `Ref` (C
-`PancakeReference`) is the host-scoped capability; Zig owning APIs name the
+`GlowcapReference`) is the host-scoped capability; Zig owning APIs name the
 same row `driver.Capability`.
 
 ## Shared API
@@ -26,7 +26,7 @@ same. Each binding README gives the concrete signature and how ownership is expr
 | --- | --- |
 | `runtime.connect(locator)` | Dial an `ocapn://` peer through explicitly composed transport authority and return a session. |
 | `transport.listen(config)` | Accept partners and return one session per connection. |
-| `session.listen(ref)` | Subscribe to the listen notification for a held far capability; 1.0 accepts far promises and live far objects, while pancake-next accepts only far promises. |
+| `session.listen(ref)` | Subscribe to the listen notification for a held far capability; 1.0 accepts far promises and live far objects, while glowcap-next accepts only far promises. |
 | `fetch(name)` | Fetch a capability published by the partner. |
 | `publish(name, behavior)` | Make a local behavior fetchable by name. |
 | `spawn(behavior)` | Create a local actor and return its capability. |
@@ -36,7 +36,7 @@ same. Each binding README gives the concrete signature and how ownership is expr
 | `close()` | Close the session. |
 
 Native bindings load the Host and the driver, then install the transport
-archives you need. [Using pancake from C](../docs/consuming-from-c.md) owns
+archives you need. [Using glowcap from C](../docs/consuming-from-c.md) owns
 that archive graph. Wasm, browser WebRTC, and a bare relay locator drive the
 byte-fed Host as owned integrations. Binding a wildcard interface (`0.0.0.0`
 or `::`) needs an explicit advertised host: the bind address is a local

@@ -35,7 +35,7 @@ function makePeer(id: string, joinT: number, leftT?: number): TimelineEvent[] {
 		kind: "peer-joined",
 		t: joinT,
 		peerId: id,
-		profile: "pancake",
+		profile: "glowcap",
 	}];
 	if (leftT !== undefined) {
 		out.push({ id: `${id}-left`, kind: "peer-left", t: leftT, peerId: id });
@@ -415,7 +415,7 @@ Deno.test("an authored span is a pill that no observation names", () => {
 	const doc = docFor([], {
 		peers: {
 			carol: {
-				profile: "pancake",
+				profile: "glowcap",
 				timing: {
 					start: { value: 100, explicit: true },
 					duration: { value: 500, explicit: true },

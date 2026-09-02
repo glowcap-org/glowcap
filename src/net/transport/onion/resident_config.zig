@@ -1,6 +1,6 @@
 //! Blocking onion resident configuration.
 //!
-//! Every endpoint and credential is explicit because Pancake neither starts
+//! Every endpoint and credential is explicit because Glowcap neither starts
 //! nor supervises Tor. The configuration is borrowed for the resident's
 //! lifetime; provider archives and bindings own any copied projection.
 

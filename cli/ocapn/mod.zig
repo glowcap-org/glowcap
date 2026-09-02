@@ -1,6 +1,6 @@
-//! Progressive CapTP surface for the pancake CLI (everyday tier).
+//! Progressive CapTP surface for the glowcap CLI (everyday tier).
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const Ctx = @import("../ctx.zig").Ctx;
 const argv = @import("../argv.zig");
 const exit_codes = @import("../exit_codes.zig");
@@ -10,8 +10,8 @@ const listen_target = @import("listen_target.zig");
 const session_opts = @import("session_opts.zig");
 const SessionRef = @import("session_ref.zig").SessionRef;
 
-const driver = pancake.driver;
-const model = pancake.ocapn.model;
+const driver = glowcap.driver;
+const model = glowcap.ocapn.model;
 
 /// Built-in demo actors (`greeter`, `echo`) live in `builtins.zig`; the public
 /// entry point stays on this flat `ocapn` surface.
@@ -72,7 +72,7 @@ pub fn sessionOpts() driver.SessionOptions {
 }
 
 /// Dial with explicit session options (tests pass a short handshake budget).
-/// `PANCAKE_RENDEZVOUS` (a `ws://` or `wss://` relay URL) joins a
+/// `GLOWCAP_RENDEZVOUS` (a `ws://` or `wss://` relay URL) joins a
 /// relay provider to the dial set, so `keyed-relay` and `noise-relay` locators
 /// cold-dial through the same deployment-configured mapping ADR-0088 keeps out
 /// of locator bytes.
@@ -82,7 +82,7 @@ pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) 
     ctx.dial_netlayers[0] = ctx.dial_resident.netlayer();
     var netlayer_count: usize = 1;
     var created_relay = false;
-    if (ctx.environ.get("PANCAKE_RENDEZVOUS")) |url| {
+    if (ctx.environ.get("GLOWCAP_RENDEZVOUS")) |url| {
         if (ctx.rendezvous_provider == null) {
             ctx.rendezvous_provider = .{};
             relay_runtime.init(ctx, &ctx.rendezvous_provider.?, url, null) catch |err| {
@@ -233,7 +233,7 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
 pub fn cmdDial(ctx: *Ctx, parsed: *Parsed) !u8 {
     const want_repl = parsed.flagBool("repl");
     if (want_repl and ctx.front == .mcp) {
-        ctx.logErr("dial --repl is argv-only (use `pancake repl` or `pancake ocapn dial --repl`)", .{});
+        ctx.logErr("dial --repl is argv-only (use `glowcap repl` or `glowcap ocapn dial --repl`)", .{});
         return exit_codes.usage;
     }
     const pos = parsed.positionals;

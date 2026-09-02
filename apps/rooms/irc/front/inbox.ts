@@ -2,7 +2,7 @@
 // alias and leaves old issued capabilities on their exact disconnected actor;
 // reconnect therefore mints fresh authority and never retargets an old holder.
 
-import { type Behavior, currentSession, type Host, Ref, type Session } from "@pancake/runtime";
+import { type Behavior, currentSession, type Host, Ref, type Session } from "@glowcap/runtime";
 import { directMessageReceiverBehavior } from "../../lib/direct_message.ts";
 import { type InboxOfferer, type InboxPublisher, inboxPublisher } from "../../lib/dm_inbox.ts";
 import type { Directory } from "../../lib/room/client.ts";

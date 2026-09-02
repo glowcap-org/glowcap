@@ -1,5 +1,5 @@
-// Pancake-only three-party handoff (TCP): the gifter half, end to end, with
-// pancake as all three parties — no Goblins, no manual export bookkeeping.
+// Glowcap-only three-party handoff (TCP): the gifter half, end to end, with
+// glowcap as all three parties — no Goblins, no manual export bookkeeping.
 //
 //   Exporter  (Bob)    publishes a host-giftable "dm" inbox and listens.
 //   Gifter    (Broker) holds Bob's dm and exposes an "introducer".
@@ -13,8 +13,8 @@
 // separate Carol-to-Bob connection, against one host-wide object identity.
 
 import process from "node:process";
-import { Ref, Runtime } from "@pancake/runtime";
-import { listen, locator, provider } from "@pancake/tcp";
+import { Ref, Runtime } from "@glowcap/runtime";
+import { listen, locator, provider } from "@glowcap/tcp";
 
 function fail(message: string): never {
 	console.error(`gifter-handoff: FAIL, ${message}`);

@@ -3,7 +3,7 @@ id: ADR-0122
 status: accepted
 date: 2026-08-24
 tags: [c-abi, memory, ownership, performance, bindings]
-decision: "PancakeManagedFrame carries an owned foundation.Frame in fixed opaque caller-owned words. Producing or probing a managed frame performs no descriptor allocation and no byte copy; release destroys the inline owner and clears the descriptor. Native bindings reuse one metadata scratch set per serialized Session drain."
+decision: "GlowcapManagedFrame carries an owned foundation.Frame in fixed opaque caller-owned words. Producing or probing a managed frame performs no descriptor allocation and no byte copy; release destroys the inline owner and clears the descriptor. Native bindings reuse one metadata scratch set per serialized Session drain."
 supersedes: []
 superseded_by: []
 amends: [ADR-0059]
@@ -15,7 +15,7 @@ amended_by: []
 ## Context
 
 The C ABI transfers already-owned outbound and transport frames through
-`PancakeManagedFrame`. Its former implementation allocated a second heap box
+`GlowcapManagedFrame`. Its former implementation allocated a second heap box
 for every transferred frame merely to retain the `foundation.Frame` and its
 allocator. Host drains reserved that box before inspecting the queue, so even
 an empty nonblocking probe allocated and could fail. Blocking transport reads
@@ -27,17 +27,17 @@ the wire path.
 
 ## Decision
 
-`PancakeManagedFrame` reserves eight opaque `size_t` words in its public C
-layout. pancake moves the native `foundation.Frame` value into those words and
+`GlowcapManagedFrame` reserves eight opaque `size_t` words in its public C
+layout. glowcap moves the native `foundation.Frame` value into those words and
 publishes the existing byte pointer, length, shape, and release callback.
 Compile-time assertions prove the native owner fits and is correctly aligned
 on every compiled target. The word count is target-independent, so the C
 declaration has one source shape while ordinary ABI size rules still follow
 the target's `size_t`.
 
-The private words are pancake storage, not a consumer extension point. A
+The private words are glowcap storage, not a consumer extension point. A
 consumer reads only the documented frame fields and calls
-`pancake_managed_frame_release`. Release destroys the inline owner, which
+`glowcap_managed_frame_release`. Release destroys the inline owner, which
 returns allocator-owned or external storage through its original path, then
 zeroes the complete descriptor. Null and repeated public release remain
 no-ops because the public wrapper claims the callback before invoking it.
@@ -55,7 +55,7 @@ the native descriptor across its awaited write.
 
 ## Consequences
 
-- `PancakeManagedFrame` is larger, but it is caller-owned bounded metadata and
+- `GlowcapManagedFrame` is larger, but it is caller-owned bounded metadata and
   eliminates one heap allocation and one allocator failure per transferred
   frame.
 - The prerelease C layout and every hand-written language mirror changed

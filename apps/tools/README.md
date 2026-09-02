@@ -67,7 +67,7 @@ function revocable(tool) {
 After the coordinator calls `revoke`, later calls through that reference break.
 No global permission table is involved.
 
-pancake also provides these common wrappers as
+glowcap also provides these common wrappers as
 `session.attenuate(capability, methods)` and `session.caretaker(capability)`.
 This demo keeps the small hand-written versions so their behavior is visible.
 

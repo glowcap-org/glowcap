@@ -282,8 +282,9 @@ export interface State {
 	/** Whether that card opened already asking to leave the conversation. */
 	aboutConvLeave: boolean;
 	/** Which room-specific surface asked to open that card. Ordinary title and
-	 * /details routes use About; the reader's roster row opens IRC directly. */
-	aboutConvPane: "about" | "irc" | "capabilities";
+	 * /details routes use About; the reader's roster row opens the bridge
+	 * identity tab directly. */
+	aboutConvPane: "about" | "bridge" | "capabilities";
 	/** Changes for every request to open the conversation card, including a
 	 * repeated request for the same pane while its retained dialog still exists. */
 	aboutConvRequest: number;

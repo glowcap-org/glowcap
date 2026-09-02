@@ -1,9 +1,9 @@
-# PLANNED: pancake has no managed WebRTC Runtime adapter yet.
+# PLANNED: glowcap has no managed WebRTC Runtime adapter yet.
 # The Python WebRTC dial API is not yet public; this shows the planned shape.
 # Pass the signaling capability you already hold.
 #
-# from pancake import Runtime
-# from pancake.webrtc import SignalingAuthority, connector, locator
+# from glowcap import Runtime
+# from glowcap.webrtc import SignalingAuthority, connector, locator
 #
 # signaling: SignalingAuthority = ...
 # partner = locator("<64 lowercase hex characters from the peer>")

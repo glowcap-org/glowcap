@@ -1,15 +1,15 @@
 # Architecture
 
-These names are pancake's CapTP product:
+These names are glowcap's CapTP product:
 
 | Name | Meaning |
 | --- | --- |
 | Host | Multi-session CapTP product: one identity, one Vat, one Node, and the sessions under them. An OS hostname is a different word. |
 | Node | Host-owned I/O-free identity, routing state, and handoff router (`engine.Node`). |
 | Vat | Actor container and turn loop. |
-| Port | One actor-layer session projection and ingress into the Vat (`actors.Port`), inside the Host's serving shell. A TCP port is a different word; `PancakeHostSession` is the Host-registered shell. |
+| Port | One actor-layer session projection and ingress into the Vat (`actors.Port`), inside the Host's serving shell. A TCP port is a different word; `GlowcapHostSession` is the Host-registered shell. |
 | Peer | Local CapTP state machine for that session. In prose, "peer" still means the remote party. |
-| Session | Application-facing one-partner CapTP conversation, backed by a Host-registered shell (`driver_core.HostSession` / `PancakeHostSession`) and one byte connection. |
+| Session | Application-facing one-partner CapTP conversation, backed by a Host-registered shell (`driver_core.HostSession` / `GlowcapHostSession`) and one byte connection. |
 
 Most Zig programs start with `driver.Session`: connect or listen, then fetch,
 call, publish, and redeem a live reference passed to a third party (a handoff)
@@ -82,14 +82,14 @@ rejects `std.Io`, threads, and platform calls in the portable core
 ## From a peer to an application
 
 `engine.Peer` is useful when the application already owns an event loop or is
-embedding pancake behind another runtime. Most Zig programs start higher.
+embedding glowcap behind another runtime. Most Zig programs start higher.
 
 | API | Use it when |
 | --- | --- |
 | `driver.Session` | You want one application-facing session with blocking calls, backed by a connection its `driver.HostRuntime` owns. Handoffs are redeemed before a call returns. |
 | `driver.HostRuntime` | You want one identity across several file-descriptor-backed sessions. |
 | `driver.BlockingSession` | You own the connection and buffers, or your transport has no pollable descriptor (an in-process pipe, or a WebRTC peer you already opened). Values are actor-layer references rather than opaque host capabilities. A call may return a handoff for you to redeem. |
-| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own I/O. Native bindings hand this Host to the driver; the browser package feeds it itself. |
+| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting glowcap own I/O. Native bindings hand this Host to the driver; the browser package feeds it itself. |
 | `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 
 Consumers reach Host through `driver.core`. The files under `host/` are
@@ -157,13 +157,13 @@ amplification are separate decisions:
 | Option | What it limits | Default |
 | --- | --- | --- |
 | `driver.HostRuntime.Options.frame_cap` | Protocol admission for sessions the owning face creates. | 1 MiB |
-| `driver.HostRuntime.Options.wire_buffer_bytes` / `PancakeDriverOptions.wire_buffer_bytes` | Each stream read/write buffer and multiplexed-resident read staging buffer. | 16 KiB |
-| `driver.HostRuntime.Options.max_pending_opens` / `PancakeDriverOptions.max_pending_opens` | Transport connects and CapTP handshakes admitted at once, across dial, accept, adoption, and redeem. | 256 |
-| `driver.HostRuntime.Options.listener_setup` / `PancakeDriverOptions.listener_setup_ms` | Maximum time one admitted listener construction may remain pending before its terminal failure. | 10 seconds |
+| `driver.HostRuntime.Options.wire_buffer_bytes` / `GlowcapDriverOptions.wire_buffer_bytes` | Each stream read/write buffer and multiplexed-resident read staging buffer. | 16 KiB |
+| `driver.HostRuntime.Options.max_pending_opens` / `GlowcapDriverOptions.max_pending_opens` | Transport connects and CapTP handshakes admitted at once, across dial, accept, adoption, and redeem. | 256 |
+| `driver.HostRuntime.Options.listener_setup` / `GlowcapDriverOptions.listener_setup_ms` | Maximum time one admitted listener construction may remain pending before its terminal failure. | 10 seconds |
 | `driver_core.Host.Options.limits.max_frame_bytes` | Protocol admission for every peer the byte-fed host creates. | 1 MiB |
-| `SessionLimits.max_retained_sent_answer_bytes` / `PancakeSessionLimitOptions.max_retained_sent_answer_bytes` | Owned resolutions retained by sent inbound-answer rows after they leave transient flow accounting. | 16 MiB per session |
-| `driver_core.Host.Options.local_turn_budget` / `pancake_host_new(... local_turn_budget ...)` | Local actor turns one session may amplify into during a drive before the Host condemns that session. | Unbounded (`null` in Zig, `0` in C); loop demos and benches opt into `driver.core.default_loop_local_turn_budget` (4096). |
-| Raw transport `max_frame_bytes` / `maxFrameBytes` / `max-frame` default | Admission for direct blocking frame-shuttle handles before a Host owns the session. | `PANCAKE_RAW_TRANSPORT_DEFAULT_FRAME_CAP` (4 KiB) |
+| `SessionLimits.max_retained_sent_answer_bytes` / `GlowcapSessionLimitOptions.max_retained_sent_answer_bytes` | Owned resolutions retained by sent inbound-answer rows after they leave transient flow accounting. | 16 MiB per session |
+| `driver_core.Host.Options.local_turn_budget` / `glowcap_host_new(... local_turn_budget ...)` | Local actor turns one session may amplify into during a drive before the Host condemns that session. | Unbounded (`null` in Zig, `0` in C); loop demos and benches opt into `driver.core.default_loop_local_turn_budget` (4096). |
+| Raw transport `max_frame_bytes` / `maxFrameBytes` / `max-frame` default | Admission for direct blocking frame-shuttle handles before a Host owns the session. | `GLOWCAP_RAW_TRANSPORT_DEFAULT_FRAME_CAP` (4 KiB) |
 | `net.completion.BackendOptions.read_buffer_bytes` | Each buffer in the loop-wide shared read pool. | 16 KiB |
 | `net.completion.Options.outbound_high_water_bytes` | Pending outbound bytes before one connection's reads park. | 64 KiB |
 | `net.relay.RelayOptions.send_staging_bytes` | One retained masked WebSocket send chunk, including its header. | 4 KiB |
@@ -183,7 +183,7 @@ The protocol core has no reconnect policy.
 
 ## Session tables
 
-CapTP names imports, exports, and answers with integer positions. pancake keeps
+CapTP names imports, exports, and answers with integer positions. glowcap keeps
 each namespace in its own hash table:
 
 - direct lookup stays constant-time;
@@ -207,7 +207,7 @@ Recursive values are limited by `SessionLimits.max_nesting_depth`. Session
 state also decides which messages are legal while negotiating, open, or closed.
 An invalid transition is refused before it can mutate a table.
 
-pancake never reuses positions it allocates itself. A partner may reuse an
+glowcap never reuses positions it allocates itself. A partner may reuse an
 import position after release. The final decrement removes every sturdyref
 cache entry and clears the import row's routing generation. An old host route
 then fails closed even if its map row is reclaimed after the partner reuses the
@@ -240,11 +240,11 @@ copy constructor.
 
 The C ABI uses opaque handles, fixed-width result codes, `ptr + len` views,
 caller-supplied callback contexts, and explicit release. Allocation goes
-through `PancakeContext`. Peer locators and sturdyrefs stay distinct values at
+through `GlowcapContext`. Peer locators and sturdyrefs stay distinct values at
 every public surface: a locator carries transport, designator, and hints; a
 sturdyref embeds a peer locator plus swiss bytes.
 
-An owned `PancakeManagedFrame` moves the native frame owner into opaque words
+An owned `GlowcapManagedFrame` moves the native frame owner into opaque words
 inside the caller's descriptor. Producing, probing, and releasing that
 descriptor allocate no metadata and copy no frame bytes (ADR-0122).
 
@@ -257,7 +257,7 @@ retain policy for a background worker or maintain a second state machine.
 
 Returned failures remain in ordinary control flow. When the last caller or
 close barrier that could receive a failure has gone, the `diagnostics` layer
-normalizes it into a typed record in the owning `PancakeContext` journal. The C
+normalizes it into a typed record in the owning `GlowcapContext` journal. The C
 ABI only projects that record and the Context-local lifecycle IDs that name its
 owners. Its per-thread `last_error`, a session's retained
 abort, and the live protocol trace remain separate because each describes a
@@ -276,19 +276,19 @@ Racket layout expectations; C-only rows remain part of archive identity.
 Native binding loaders compare every archive before an ordinary call;
 implementation-only edits do not perturb the contract (ADR-0123).
 
-Native bindings load `libpancake_host` and `libpancake_driver`. The driver
+Native bindings load `libglowcap_host` and `libglowcap_driver`. The driver
 takes an idle Host and runs the loop. The binding waits on one readiness
 descriptor, arms one runtime-native timer from
-`pancake_driver_step_wait_ms`, calls `pancake_driver_step`, and drains one
+`glowcap_driver_step_wait_ms`, calls `glowcap_driver_step`, and drains one
 event queue. The driver remains the sole authority for which pending operation
 owns the nearest deadline; a binding only projects that duration into its
 scheduler. The browser package and any embedder that already owns I/O still
 drive the Host themselves: feed bytes, pump and drain, take outbound frames.
-pancake does not create a background runtime inside Python, Racket, Rust, or
+glowcap does not create a background runtime inside Python, Racket, Rust, or
 TypeScript.
 
-`libpancake_driver` starts with zero transports; the application installs
-provider packages through `pancake_transport_provider.h`. The TCP archive supplies `noise-tcp`, `keyed-tcp`,
+`libglowcap_driver` starts with zero transports; the application installs
+provider packages through `glowcap_transport_provider.h`. The TCP archive supplies `noise-tcp`, `keyed-tcp`,
 and testing `tcp`; the relay archive supplies `keyed-relay` and `noise-relay`;
 onion, iroh, and WebRTC ship as separate archives the driver consumes without
 naming their members. Listener ids remain the acceptance routing key through
@@ -304,13 +304,13 @@ one thread that drives the loop. A provider may use transport-owned workers,
 but it reports their results through the common readiness seam and never calls
 the Host from those workers.
 
-After `pancake_driver_take_host` succeeds, adoption is durable even when a later
+After `glowcap_driver_take_host` succeeds, adoption is durable even when a later
 bind fails: the supplied Host remains a valid loop-backed Host for another
 attempt. Bindings tear down only loops and Hosts they minted themselves.
 
 ## Other entry points
 
-The installable `pancake` command is an application of the public library, not
+The installable `glowcap` command is an application of the public library, not
 another protocol layer. It owns terminal behavior, identity files, MCP stdio,
 and room presence. [The CLI guide](cli.md) covers it.
 

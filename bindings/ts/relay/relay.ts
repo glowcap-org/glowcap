@@ -1,7 +1,7 @@
-// @pancake/relay: the byte-transparent relay core. Forward bytes between a
+// @glowcap/relay: the byte-transparent relay core. Forward bytes between a
 // source/sink pair and a RelayChannel without parsing them, so a keyed CapTP
 // session rides through end to end and the relay never holds a capability. This
-// is a first-class pancake capability, not app code: an embedder hosting peers
+// is a first-class glowcap capability, not app code: an embedder hosting peers
 // that cannot open a socket themselves (a browser) runs a relay built from these
 // pieces, and the app on top adds only policy — which targets may be dialed.
 //
@@ -13,7 +13,7 @@
 // kernel write. A sink that cannot block (a fire-and-forget send) has no
 // backpressure and must be bounded some other way.
 
-import { retainSecondaryFailure } from "@pancake/runtime/transport";
+import { retainSecondaryFailure } from "@glowcap/runtime/transport";
 
 /** A byte source: yields chunks to relay. `read` resolves null on EOF. */
 export interface ByteSource {

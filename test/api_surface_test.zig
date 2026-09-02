@@ -2,7 +2,7 @@
 //!
 //! Zig analyzes lazily: a public function nobody references is never
 //! semantically checked, so it can drift against std or against its own layer
-//! while the gate stays green. Referencing the whole public `pancake`
+//! while the gate stays green. Referencing the whole public `glowcap`
 //! namespace recursively turns that drift into a compile error in
 //! `zig build test` — the API surface is load-bearing even where no scenario
 //! exercises it yet. (`std.testing` ships only the shallow `refAllDecls`,
@@ -10,7 +10,7 @@
 //! walk lives here.)
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 fn refAllDeclsRecursive(comptime T: type) void {
     inline for (comptime std.meta.declarations(T)) |decl_name| {
@@ -24,7 +24,7 @@ fn refAllDeclsRecursive(comptime T: type) void {
     }
 }
 
-test "every exported pancake declaration is semantically analyzed" {
+test "every exported glowcap declaration is semantically analyzed" {
     @setEvalBranchQuota(1_000_000);
-    comptime refAllDeclsRecursive(pancake);
+    comptime refAllDeclsRecursive(glowcap);
 }

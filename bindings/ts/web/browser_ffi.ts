@@ -1,4 +1,4 @@
-// Browser selection of `@pancake/runtime/ffi`.
+// Browser selection of `@glowcap/runtime/ffi`.
 //
 // The wasm adapter resolves every symbol from one WebAssembly instance, so a
 // library pathname has no meaning here. Browser bundle configs map the FFI

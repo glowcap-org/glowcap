@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import ctypes
 
-import pancake
-from pancake import Context, PancakeError
+import glowcap
+from glowcap import Context, GlowcapError
 
 
 def _callback_exceptions_are_contained() -> None:
-    pancake.take_runtime_failures()
+    glowcap.take_runtime_failures()
     alloc_error = RuntimeError("allocator refused")
 
     def fail_alloc(_size: int, _alignment: int) -> int:
@@ -17,11 +17,11 @@ def _callback_exceptions_are_contained() -> None:
 
     try:
         Context.with_allocator(fail_alloc, lambda *_args: None)
-    except PancakeError:
+    except GlowcapError:
         pass
     else:
         raise AssertionError("null allocator result must refuse Context construction")
-    failures = pancake.take_runtime_failures()
+    failures = glowcap.take_runtime_failures()
     assert len(failures) == 1, failures
     assert failures[0].operation == "context.allocator.alloc", failures
     assert failures[0].primary_message == str(alloc_error), failures
@@ -41,7 +41,7 @@ def _callback_exceptions_are_contained() -> None:
 
     context = Context.with_allocator(allocate, fail_free)
     context.close()
-    failures = pancake.take_runtime_failures()
+    failures = glowcap.take_runtime_failures()
     assert failures, "free callback exception disappeared"
     assert failures[0].operation == "context.allocator.free", failures
     assert failures[0].primary_message == str(free_error), failures

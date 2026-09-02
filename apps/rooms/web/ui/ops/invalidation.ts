@@ -4,7 +4,7 @@ import type { RoomsPageContext } from "../page.ts";
 
 type Watcher = (scope: string) => void | Promise<void>;
 
-const CHANNEL = "pancake-rooms-operations";
+const CHANNEL = "glowcap-rooms-operations";
 
 /** Watchers and a BroadcastChannel identity for one browser page. The channel
  * name is isolate-wide so other tabs still hear a committed mutation. */

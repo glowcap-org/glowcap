@@ -13,13 +13,13 @@
 //!      dials Bob directly (keyed with the *same* identity Alice saw), withdraws
 //!      the gift, and resolves the send to an ordinary capability — the
 //!      application never sees the give or the second connection.
-//!   3. `send(greeter, "", ["pancake-carol"])`. The bytes go straight to Bob;
+//!   3. `send(greeter, "", ["glowcap-carol"])`. The bytes go straight to Bob;
 //!      the reply must carry the name back, proving data integrity end to end.
 //!
 //! Needs `racket` plus the `goblins` collection on PATH; run via
 //! `zig build rust-goblins-handoff`.
 
-use pancake_rust_dogfood::{tcp, Argument, ConnectOptions, Ref, Runtime, RuntimeConfig};
+use glowcap_rust_dogfood::{tcp, Argument, ConnectOptions, Ref, Runtime, RuntimeConfig};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -83,10 +83,10 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 	// Call the greeter. The send routes straight to Bob (the exporter); the reply
 	// must echo the name we sent, so the handoff proves data integrity.
 	let reply = session
-		.send(&greeter, "", &[Argument::String("pancake-carol".into())])
+		.send(&greeter, "", &[Argument::String("glowcap-carol".into())])
 		.await?;
 	match &reply {
-		Argument::String(text) if text.contains("pancake-carol") => {
+		Argument::String(text) if text.contains("glowcap-carol") => {
 			println!("rust-goblins-handoff: greeter replied: {text}");
 		}
 		other => return Err(format!("greeter reply did not carry the name back: {other:?}").into()),
@@ -96,6 +96,6 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 		"rust-goblins-handoff OK: the Rust binding redeemed a three-party handoff from live Goblins \
          and called the exporter directly"
 	);
-	session.close(pancake_rust_dogfood::PendingWork::Cancel).await?;
+	session.close(glowcap_rust_dogfood::PendingWork::Cancel).await?;
 	Ok(())
 }

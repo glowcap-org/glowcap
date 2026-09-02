@@ -8,7 +8,7 @@ const std = @import("std");
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const ws_relay = @import("../../support/ws_relay.zig");
 
 const harness = @import("harness.zig");
@@ -72,10 +72,10 @@ test "listener close remains available after terminal provider failure" {
     const loop = owned_loop.raw;
 
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(
+    try expectOk(cdrv.glowcap_driver_listen(
         loop,
-        pancake.ocapn.model.transport.tcp.ptr,
-        pancake.ocapn.model.transport.tcp.len,
+        glowcap.ocapn.model.transport.tcp.ptr,
+        glowcap.ocapn.model.transport.tcp.len,
         "127.0.0.1:0",
         "127.0.0.1:0".len,
         null,
@@ -83,25 +83,25 @@ test "listener close remains available after terminal provider failure" {
     ));
     try awaitListenerReady(loop, listener);
     var readiness_fd: i32 = -1;
-    try expectOk(cdrv.pancake_driver_readiness_fd(loop, &readiness_fd));
+    try expectOk(cdrv.glowcap_driver_readiness_fd(loop, &readiness_fd));
 
-    var resident = InvalidMultiplexedResident{ .wake = try pancake.net.wake_channel.WakeChannel.open() };
+    var resident = InvalidMultiplexedResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
     defer resident.wake.deinit();
     var table = resident.table();
     try expectOk(addMultiplexedProvider(loop, &table, "terminal-failure"));
     _ = try resident.wake.nudge();
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cdrv.pancake_driver_step(loop, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
     try expectOk(harness.closeListener(loop, listener));
 
     // Provider work stays fail-stop, but that failure cannot strand the
     // owner's explicit terminal barrier.
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cdrv.pancake_driver_step(loop, 0));
-    try expectOk(cdrv.pancake_driver_close(loop, &close_cancel));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
+    try expectOk(cdrv.glowcap_driver_close(loop, &close_cancel));
     var state: u32 = undefined;
-    try expectOk(cdrv.pancake_driver_lifecycle_state(loop, &state));
-    while (state != cd.PANCAKE_LIFECYCLE_CLOSED) {
-        try expectStep(cdrv.pancake_driver_step(loop, 0));
-        try expectOk(cdrv.pancake_driver_lifecycle_state(loop, &state));
+    try expectOk(cdrv.glowcap_driver_lifecycle_state(loop, &state));
+    while (state != cd.GLOWCAP_LIFECYCLE_CLOSED) {
+        try expectStep(cdrv.glowcap_driver_step(loop, 0));
+        try expectOk(cdrv.glowcap_driver_lifecycle_state(loop, &state));
     }
 
     // Close initiation posts one wake. Terminal stepping must consume it
@@ -109,12 +109,12 @@ test "listener close remains available after terminal provider failure" {
     // lifecycle forward.
     var fds = [_]std.posix.pollfd{.{ .fd = readiness_fd, .events = std.posix.POLL.IN, .revents = 0 }};
     try std.testing.expectEqual(@as(usize, 0), try std.posix.poll(&fds, 0));
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cdrv.pancake_driver_step(loop, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
 }
 
 test "an active listener failure retires its stable id through a reserved event" {
     var resident: TypedResident = .{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .opaque_hint = &.{},
         .stop_listen_pending = true,
     };
@@ -129,26 +129,26 @@ test "an active listener failure retires its stable id through a reserved event"
     const listener_id = try listenReady(owned_loop.raw, "typed-test", "listener-peer");
     resident.failed_accept_route = resident.listeners[0].route;
     _ = try resident.wake.nudge();
-    try expectOk(cdrv.pancake_driver_step(owned_loop.raw, 1_000));
+    try expectOk(cdrv.glowcap_driver_step(owned_loop.raw, 1_000));
 
-    var event: cdrv.PancakeDriverEvent = undefined;
+    var event: cdrv.GlowcapDriverEvent = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_WOULD_BLOCK,
-        cdrv.pancake_driver_next_event(owned_loop.raw, &event),
+        c.GLOWCAP_ERR_WOULD_BLOCK,
+        cdrv.glowcap_driver_next_event(owned_loop.raw, &event),
     );
-    try expectOk(cdrv.pancake_driver_step(owned_loop.raw, 1_000));
-    try expectOk(cdrv.pancake_driver_next_event(owned_loop.raw, &event));
-    try std.testing.expectEqual(cdrv.PANCAKE_DRIVER_EVENT_LISTENER_FAILED, event.kind);
+    try expectOk(cdrv.glowcap_driver_step(owned_loop.raw, 1_000));
+    try expectOk(cdrv.glowcap_driver_next_event(owned_loop.raw, &event));
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_LISTENER_FAILED, event.kind);
     try std.testing.expectEqual(listener_id, event.listener_id);
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, event.primary_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, event.primary_result);
     try std.testing.expectEqualStrings("ForcedAcceptFailure", event.primary_name.?[0..event.primary_name_len]);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INTERNAL, event.secondary_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, event.secondary_result);
     try std.testing.expectEqualStrings("ForcedAcceptCleanupFailure", event.secondary_name.?[0..event.secondary_name_len]);
     try std.testing.expectEqual(@as(u32, 2), event.secondary_count);
-    var locator: cdrv.PancakeLocatorView = undefined;
+    var locator: cdrv.GlowcapLocatorView = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NOT_FOUND,
-        cdrv.pancake_driver_listener_locator(owned_loop.raw, listener_id, &locator),
+        c.GLOWCAP_ERR_NOT_FOUND,
+        cdrv.glowcap_driver_listener_locator(owned_loop.raw, listener_id, &locator),
     );
     try std.testing.expect(!resident.listeners[0].active);
     try std.testing.expectEqual(@as(usize, 2), resident.stop_listen_calls);
@@ -156,7 +156,7 @@ test "an active listener failure retires its stable id through a reserved event"
 
 test "listener activation preserves the provider locator failure chain" {
     var resident: TypedResident = .{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .opaque_hint = &.{},
         .locator_failure = true,
     };
@@ -169,7 +169,7 @@ test "listener activation preserves the provider locator failure chain" {
     try expectOk(harness.addProvider(owned_loop.raw, &provider));
 
     var listener_id: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(
+    try expectOk(cdrv.glowcap_driver_listen(
         owned_loop.raw,
         "typed-test",
         "typed-test".len,
@@ -179,13 +179,13 @@ test "listener activation preserves the provider locator failure chain" {
         &listener_id,
     ));
 
-    var event: cdrv.PancakeDriverEvent = undefined;
-    try expectOk(cdrv.pancake_driver_next_event(owned_loop.raw, &event));
-    try std.testing.expectEqual(cdrv.PANCAKE_DRIVER_EVENT_LISTENER_FAILED, event.kind);
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try expectOk(cdrv.glowcap_driver_next_event(owned_loop.raw, &event));
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_LISTENER_FAILED, event.kind);
     try std.testing.expectEqual(listener_id, event.listener_id);
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, event.primary_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, event.primary_result);
     try std.testing.expectEqualStrings("ForcedLocatorFailure", event.primary_name.?[0..event.primary_name_len]);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INTERNAL, event.secondary_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, event.secondary_result);
     try std.testing.expectEqualStrings(
         "ForcedLocatorCleanupFailure",
         event.secondary_name.?[0..event.secondary_name_len],
@@ -193,16 +193,16 @@ test "listener activation preserves the provider locator failure chain" {
     try std.testing.expectEqual(@as(u32, 2), event.secondary_count);
     try std.testing.expectEqual(@as(usize, 1), resident.stop_listen_calls);
     try std.testing.expect(!resident.listeners[0].active);
-    var locator: cdrv.PancakeLocatorView = undefined;
+    var locator: cdrv.GlowcapLocatorView = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NOT_FOUND,
-        cdrv.pancake_driver_listener_locator(owned_loop.raw, listener_id, &locator),
+        c.GLOWCAP_ERR_NOT_FOUND,
+        cdrv.glowcap_driver_listener_locator(owned_loop.raw, listener_id, &locator),
     );
 }
 
 test "listener advertisement preserves the provider failure chain without retiring the listener" {
     var resident: TypedResident = .{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .opaque_hint = &.{},
     };
     defer resident.wake.deinit();
@@ -214,25 +214,25 @@ test "listener advertisement preserves the provider failure chain without retiri
     try expectOk(harness.addProvider(owned_loop.raw, &provider));
 
     const listener_id = try listenReady(owned_loop.raw, "typed-test", "listener-peer");
-    var locator: cdrv.PancakeLocatorView = undefined;
-    try expectOk(cdrv.pancake_driver_listener_locator(owned_loop.raw, listener_id, &locator));
+    var locator: cdrv.GlowcapLocatorView = undefined;
+    try expectOk(cdrv.glowcap_driver_listener_locator(owned_loop.raw, listener_id, &locator));
     resident.advertise_failure = true;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_IO,
-        cdrv.pancake_driver_listener_advertise(owned_loop.raw, listener_id, &locator),
+        c.GLOWCAP_ERR_IO,
+        cdrv.glowcap_driver_listener_advertise(owned_loop.raw, listener_id, &locator),
     );
     var message: [256]u8 = undefined;
-    const message_len = @min(cdrv.pancake_driver_last_error(&message, message.len), message.len);
+    const message_len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedAdvertiseFailure") != null);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedAdvertiseCleanupFailure") != null);
     try std.testing.expect(resident.listeners[0].active);
     try std.testing.expectEqual(@as(usize, 0), resident.stop_listen_calls);
-    try expectOk(cdrv.pancake_driver_listener_locator(owned_loop.raw, listener_id, &locator));
+    try expectOk(cdrv.glowcap_driver_listener_locator(owned_loop.raw, listener_id, &locator));
 }
 
 test "listener restoration state preserves the provider failure chain" {
     var resident: TypedResident = .{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .opaque_hint = &.{},
         .restoration_failure = true,
     };
@@ -247,12 +247,12 @@ test "listener restoration state preserves the provider failure chain" {
     const listener_id = try listenReady(owned_loop.raw, "typed-test", "listener-peer");
     var needed: usize = 99;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_IO,
-        cdrv.pancake_driver_listener_restoration_state(owned_loop.raw, listener_id, null, 0, &needed),
+        c.GLOWCAP_ERR_IO,
+        cdrv.glowcap_driver_listener_restoration_state(owned_loop.raw, listener_id, null, 0, &needed),
     );
     try std.testing.expectEqual(@as(usize, 0), needed);
     var message: [256]u8 = undefined;
-    const message_len = @min(cdrv.pancake_driver_last_error(&message, message.len), message.len);
+    const message_len = @min(cdrv.glowcap_driver_last_error(&message, message.len), message.len);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedRestorationFailure") != null);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "ForcedRestorationCleanupFailure") != null);
     try std.testing.expect(resident.listeners[0].active);
@@ -261,7 +261,7 @@ test "listener restoration state preserves the provider failure chain" {
 
 test "pending listener close retains its retry identity and refuses every non-close verb" {
     var resident: TypedResident = .{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .opaque_hint = &.{},
         .stop_listen_pending = true,
     };
@@ -274,44 +274,44 @@ test "pending listener close retains its retry identity and refuses every non-cl
     try expectOk(harness.addProvider(owned_loop.raw, &provider));
 
     const listener_id = try listenReady(owned_loop.raw, "typed-test", "listener-peer");
-    try expectOk(cdrv.pancake_driver_listener_select(owned_loop.raw, listener_id));
+    try expectOk(cdrv.glowcap_driver_listener_select(owned_loop.raw, listener_id));
 
-    var failure = cdrv.PancakeDriverFailure.init();
+    var failure = cdrv.GlowcapDriverFailure.init();
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_WOULD_BLOCK,
-        cdrv.pancake_driver_listener_close(owned_loop.raw, listener_id, &failure),
+        c.GLOWCAP_ERR_WOULD_BLOCK,
+        cdrv.glowcap_driver_listener_close(owned_loop.raw, listener_id, &failure),
     );
     try std.testing.expectEqual(@as(usize, 1), resident.stop_listen_calls);
 
-    var locator: cdrv.PancakeLocatorView = undefined;
+    var locator: cdrv.GlowcapLocatorView = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NOT_FOUND,
-        cdrv.pancake_driver_listener_locator(owned_loop.raw, listener_id, &locator),
+        c.GLOWCAP_ERR_NOT_FOUND,
+        cdrv.glowcap_driver_listener_locator(owned_loop.raw, listener_id, &locator),
     );
     var needed: usize = 99;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NOT_FOUND,
-        cdrv.pancake_driver_listener_restoration_state(owned_loop.raw, listener_id, null, 0, &needed),
+        c.GLOWCAP_ERR_NOT_FOUND,
+        cdrv.glowcap_driver_listener_restoration_state(owned_loop.raw, listener_id, null, 0, &needed),
     );
     try std.testing.expectEqual(@as(usize, 0), needed);
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NOT_FOUND,
+        c.GLOWCAP_ERR_NOT_FOUND,
         advertiseParts(owned_loop.raw, listener_id, "typed-test", "listener-peer", "127.0.0.1:1"),
     );
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NOT_FOUND,
-        cdrv.pancake_driver_listener_select(owned_loop.raw, listener_id),
+        c.GLOWCAP_ERR_NOT_FOUND,
+        cdrv.glowcap_driver_listener_select(owned_loop.raw, listener_id),
     );
 
-    try expectStep(cdrv.pancake_driver_step(owned_loop.raw, 1_000));
+    try expectStep(cdrv.glowcap_driver_step(owned_loop.raw, 1_000));
     try expectOk(harness.closeListener(owned_loop.raw, listener_id));
-    try std.testing.expectEqual(c.PANCAKE_ERR_NOT_FOUND, harness.closeListener(owned_loop.raw, listener_id));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, harness.closeListener(owned_loop.raw, listener_id));
     try std.testing.expectEqual(@as(usize, 2), resident.stop_listen_calls);
 }
 
 test "a successful multiplexed listen must return its listener handle" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .listen_without_handle = true,
     };
     defer resident.wake.deinit();
@@ -321,15 +321,15 @@ test "a successful multiplexed listen must return its listener handle" {
     var table = resident.table();
     try expectOk(addMultiplexedProvider(loop, &table, "missing-listener"));
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(loop, "missing-listener", "missing-listener".len, "", 0, null, &listener));
+    try expectOk(cdrv.glowcap_driver_listen(loop, "missing-listener", "missing-listener".len, "", 0, null, &listener));
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cdrv.pancake_driver_step(loop, 0),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cdrv.glowcap_driver_step(loop, 0),
     );
-    var event: cdrv.PancakeDriverEvent = undefined;
+    var event: cdrv.GlowcapDriverEvent = undefined;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_WOULD_BLOCK,
-        cdrv.pancake_driver_next_event(loop, &event),
+        c.GLOWCAP_ERR_WOULD_BLOCK,
+        cdrv.glowcap_driver_next_event(loop, &event),
     );
     try std.testing.expectEqual(@as(usize, 1), resident.cancel_listen_calls);
     try std.testing.expectEqual(@as(usize, 0), resident.stop_listen_calls);
@@ -343,7 +343,7 @@ test "an immediate-only stream listener rejects pending ownership without a fake
     try expectOk(addStreamProvider(owned_loop.raw, &table, "malformed-immediate-stream"));
 
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(
+    try expectOk(cdrv.glowcap_driver_listen(
         owned_loop.raw,
         "malformed-immediate-stream",
         "malformed-immediate-stream".len,
@@ -352,13 +352,13 @@ test "an immediate-only stream listener rejects pending ownership without a fake
         null,
         &listener,
     ));
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cdrv.pancake_driver_step(owned_loop.raw, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(owned_loop.raw, 0));
     try std.testing.expectEqual(@as(usize, 1), stream.listener_close_calls);
 }
 
 test "closing a pending listener abandons setup without publishing a failure" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .pending_listen = true,
     };
     defer resident.wake.deinit();
@@ -368,7 +368,7 @@ test "closing a pending listener abandons setup without publishing a failure" {
     try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "pending-listener-close"));
 
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(
+    try expectOk(cdrv.glowcap_driver_listen(
         owned_loop.raw,
         "pending-listener-close",
         "pending-listener-close".len,
@@ -378,27 +378,27 @@ test "closing a pending listener abandons setup without publishing a failure" {
         &listener,
     ));
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NULL_POINTER,
-        cdrv.pancake_driver_listener_close(owned_loop.raw, listener, null),
+        c.GLOWCAP_ERR_NULL_POINTER,
+        cdrv.glowcap_driver_listener_close(owned_loop.raw, listener, null),
     );
-    var malformed = cdrv.PancakeDriverFailure.init();
+    var malformed = cdrv.GlowcapDriverFailure.init();
     malformed.abi_version += 1;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cdrv.pancake_driver_listener_close(owned_loop.raw, listener, &malformed),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cdrv.glowcap_driver_listener_close(owned_loop.raw, listener, &malformed),
     );
     try std.testing.expectEqual(@as(usize, 0), resident.cancel_listen_calls);
     try expectOk(harness.closeListener(owned_loop.raw, listener));
     try std.testing.expectEqual(@as(usize, 1), resident.cancel_listen_calls);
 
-    var event: cdrv.PancakeDriverEvent = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cdrv.pancake_driver_next_event(owned_loop.raw, &event));
-    try std.testing.expectEqual(c.PANCAKE_ERR_NOT_FOUND, harness.closeListener(owned_loop.raw, listener));
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cdrv.glowcap_driver_next_event(owned_loop.raw, &event));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, harness.closeListener(owned_loop.raw, listener));
 }
 
 test "multiplexed listener start preserves the provider failure identity" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
     };
     defer resident.wake.deinit();
     const owned_loop = try newEmptyLoop(0x70);
@@ -407,7 +407,7 @@ test "multiplexed listener start preserves the provider failure identity" {
     try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "listen-start-failure"));
 
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(
+    try expectOk(cdrv.glowcap_driver_listen(
         owned_loop.raw,
         "listen-start-failure",
         "listen-start-failure".len,
@@ -416,19 +416,19 @@ test "multiplexed listener start preserves the provider failure identity" {
         null,
         &listener,
     ));
-    try expectOk(cdrv.pancake_driver_step(owned_loop.raw, 0));
+    try expectOk(cdrv.glowcap_driver_step(owned_loop.raw, 0));
 
-    var event: cdrv.PancakeDriverEvent = undefined;
-    try expectOk(cdrv.pancake_driver_next_event(owned_loop.raw, &event));
-    try std.testing.expectEqual(cdrv.PANCAKE_DRIVER_EVENT_LISTENER_FAILED, event.kind);
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try expectOk(cdrv.glowcap_driver_next_event(owned_loop.raw, &event));
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_LISTENER_FAILED, event.kind);
     try std.testing.expectEqual(listener, event.listener_id);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, event.primary_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, event.primary_result);
     try std.testing.expectEqualStrings("ListenRefused", event.primary_name.?[0..event.primary_name_len]);
 }
 
 test "multiplexed listener finish preserves provider cleanup consequences" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .pending_listen = true,
     };
     defer resident.wake.deinit();
@@ -438,7 +438,7 @@ test "multiplexed listener finish preserves provider cleanup consequences" {
     try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "listen-finish-failure"));
 
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(
+    try expectOk(cdrv.glowcap_driver_listen(
         owned_loop.raw,
         "listen-finish-failure",
         "listen-finish-failure".len,
@@ -447,15 +447,15 @@ test "multiplexed listener finish preserves provider cleanup consequences" {
         null,
         &listener,
     ));
-    try expectOk(cdrv.pancake_driver_step(owned_loop.raw, 0));
+    try expectOk(cdrv.glowcap_driver_step(owned_loop.raw, 0));
 
-    var event: cdrv.PancakeDriverEvent = undefined;
-    try expectOk(cdrv.pancake_driver_next_event(owned_loop.raw, &event));
-    try std.testing.expectEqual(cdrv.PANCAKE_DRIVER_EVENT_LISTENER_FAILED, event.kind);
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try expectOk(cdrv.glowcap_driver_next_event(owned_loop.raw, &event));
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_LISTENER_FAILED, event.kind);
     try std.testing.expectEqual(listener, event.listener_id);
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, event.primary_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, event.primary_result);
     try std.testing.expectEqualStrings("FinishListenRefused", event.primary_name.?[0..event.primary_name_len]);
-    try std.testing.expectEqual(c.PANCAKE_ERR_INTERNAL, event.secondary_result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, event.secondary_result);
     try std.testing.expectEqualStrings("FinishListenCleanupFailed", event.secondary_name.?[0..event.secondary_name_len]);
     try std.testing.expectEqual(@as(u32, 2), event.secondary_count);
     try std.testing.expectEqual(@as(?u64, null), resident.pending_listen_route);
@@ -464,7 +464,7 @@ test "multiplexed listener finish preserves provider cleanup consequences" {
 
 test "a failed provider callback cannot publish listener ownership" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .listen_output_on_failure = true,
     };
     defer resident.wake.deinit();
@@ -475,13 +475,13 @@ test "a failed provider callback cannot publish listener ownership" {
     try expectOk(addMultiplexedProvider(loop, &table, "failed-output"));
 
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(loop, "failed-output", "failed-output".len, "", 0, null, &listener));
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cdrv.pancake_driver_step(loop, 0));
+    try expectOk(cdrv.glowcap_driver_listen(loop, "failed-output", "failed-output".len, "", 0, null, &listener));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
 }
 
 test "a malformed pending multiplexed listener retires every published owner" {
     var resident = InvalidMultiplexedResident{
-        .wake = try pancake.net.wake_channel.WakeChannel.open(),
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .pending_listen_with_stream_fields = true,
     };
     defer resident.wake.deinit();
@@ -492,8 +492,8 @@ test "a malformed pending multiplexed listener retires every published owner" {
     try expectOk(addMultiplexedProvider(loop, &table, "malformed-pending"));
 
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(loop, "malformed-pending", "malformed-pending".len, "", 0, null, &listener));
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cdrv.pancake_driver_step(loop, 0));
+    try expectOk(cdrv.glowcap_driver_listen(loop, "malformed-pending", "malformed-pending".len, "", 0, null, &listener));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
     try std.testing.expectEqual(@as(usize, 1), resident.cancel_listen_calls);
     try std.testing.expectEqual(@as(usize, 1), resident.stop_listen_calls);
 }
@@ -503,27 +503,27 @@ test "listener close cancels a connection still in the accepted handshake" {
     defer owned_server.deinit();
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
-    const address = try pancake.net.tcp.parseDesignator(locator.designator);
+    const address = try glowcap.net.tcp.parseDesignator(locator.designator);
     var silent = try std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream });
     defer silent.close(io);
 
     // Accept the socket and stage its CapTP handshake, but send no hello.
     try expectLoopReadable(server);
-    try expectStep(cdrv.pancake_driver_step(server, 0));
+    try expectStep(cdrv.glowcap_driver_step(server, 0));
     try expectOk(harness.closeListener(server, listener));
 
     var seen = Drained{};
     try drainEvents(server, &seen);
     try std.testing.expect(!seen.accepted);
     // Later steps cannot resurrect the canceled accept under the retired id.
-    try expectStep(cdrv.pancake_driver_step(server, 0));
+    try expectStep(cdrv.glowcap_driver_step(server, 0));
     try drainEvents(server, &seen);
     try std.testing.expect(!seen.accepted);
 }
@@ -532,19 +532,19 @@ test "driver release retires pending accepts before listener storage" {
     const owned_server = try newLoop(0x61);
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
-    const address = try pancake.net.tcp.parseDesignator(locator.designator);
+    const address = try glowcap.net.tcp.parseDesignator(locator.designator);
     var silent = try std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream });
     defer silent.close(io);
 
     try expectLoopReadable(server);
-    try expectStep(cdrv.pancake_driver_step(server, 0));
+    try expectStep(cdrv.glowcap_driver_step(server, 0));
     try expectOk(harness.releaseLoop(server));
 }
 
@@ -554,26 +554,26 @@ test "an unselected listener refuses accept visibly until routing policy is sele
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
-    const address = try pancake.net.tcp.parseDesignator(locator.designator);
+    const address = try glowcap.net.tcp.parseDesignator(locator.designator);
     var silent = try std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream });
     defer silent.close(io);
 
     try expectLoopReadable(server);
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cdrv.pancake_driver_step(server, 0),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        cdrv.glowcap_driver_step(server, 0),
     );
     var message: [128]u8 = undefined;
-    const message_len = cdrv.pancake_driver_last_error(&message, message.len);
+    const message_len = cdrv.glowcap_driver_last_error(&message, message.len);
     try std.testing.expect(std.mem.indexOf(u8, message[0..message_len], "MissingAdvertisedLocator") != null);
 
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
-    try expectStep(cdrv.pancake_driver_step(server, 0));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
+    try expectStep(cdrv.glowcap_driver_step(server, 0));
     try expectOk(harness.closeListener(server, listener));
 }
 
@@ -582,9 +582,9 @@ test "listener close preserves an ACCEPTED event committed by an earlier step" {
     defer owned_server.deinit();
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.pancake_driver_listener_select(server, listener));
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     const locator = try readListenerLocator(server, listener);
-    defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
     const owned_client = try newLoop(0x3c);
     defer owned_client.deinit();
@@ -595,11 +595,11 @@ test "listener close preserves an ACCEPTED event committed by an earlier step" {
     var client_seen = Drained{};
     var rounds: usize = 0;
     while (client_seen.dialed_session == null and rounds < 2_000) : (rounds += 1) {
-        try expectStep(cdrv.pancake_driver_step(client, 5));
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
         // Deliberately do not drain the server: ACCEPTED must remain native-
         // owned across listener close once the handshake commits it.
-        try expectStep(cdrv.pancake_driver_step(server, 5));
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
     }
     try std.testing.expect(client_seen.dialed_session != null);
 
@@ -609,6 +609,6 @@ test "listener close preserves an ACCEPTED event committed by an earlier step" {
     try std.testing.expect(server_seen.accepted_session != null);
     try std.testing.expectEqual(listener, server_seen.accepted_listener);
 
-    try expectOk(cdrv.pancake_driver_session_release(client, client_seen.dialed_session));
-    try expectOk(cdrv.pancake_driver_session_release(server, server_seen.accepted_session));
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
 }

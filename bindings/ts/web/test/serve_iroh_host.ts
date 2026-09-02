@@ -4,7 +4,7 @@
 // Runs in its own process so this native dlopen graph never shares a module
 // graph with the wasm browser peer under test.
 
-import { listen, Reachability } from "@pancake/iroh";
+import { listen, Reachability } from "@glowcap/iroh";
 
 const server = await listen({ reachability: Reachability.Direct });
 server.host.publishGiftable("greeter", (verb: string, args: unknown[]) => {

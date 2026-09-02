@@ -3,7 +3,7 @@ id: ADR-0063
 status: accepted
 date: 2026-06-18
 tags: [gc, bindings, memory]
-decision: "A binding may opt a session into finalizer-driven distributed GC: every capability occurrence projected into application data by that session owns one Host release unit, and its language finalizer returns that unit through pancake_host_ref_release; the feature is off by default, failure stays at the Host barrier, and the wire-delta core remains runtime-neutral."
+decision: "A binding may opt a session into finalizer-driven distributed GC: every capability occurrence projected into application data by that session owns one Host release unit, and its language finalizer returns that unit through glowcap_host_ref_release; the feature is off by default, failure stays at the Host barrier, and the wire-delta core remains runtime-neutral."
 supersedes: []
 superseded_by: []
 ---
@@ -15,8 +15,8 @@ superseded_by: []
 The wire-delta GC substrate already ships (ADR-0008,
 `docs/protocol-diagrams/05-gc.md`): the session counts an import row up once per
 wire occurrence of a `far` reference and down by `op:gc-exports` deltas,
-releasing the row at zero, and the C ABI exposes `pancake_peer_send_gc_export` /
-`pancake_peer_send_gc_answer`. The stateless host policy (`src/driver/core/gc.zig`)
+releasing the row at zero, and the C ABI exposes `glowcap_peer_send_gc_export` /
+`glowcap_peer_send_gc_answer`. The stateless host policy (`src/driver/core/gc.zig`)
 drives it for a host that retains nothing. What no binding did was drive a
 release _from a dropped application handle_: a long-lived session that lifts and
 drops many imports kept their rows until teardown, because a binding's `Ref` had
@@ -48,7 +48,7 @@ the opt-in later does not rewrite an already-admitted value's ownership.
 
 The finalizer carries only the opaque Host capability id. It parks one release
 unit on Host-owned state, outside the collector callback, and the binding's
-ordinary runtime/pump thread invokes `pancake_host_ref_release`. The Host alone
+ordinary runtime/pump thread invokes `glowcap_host_ref_release`. The Host alone
 decides whether that identity releases a local root, a direct import, or a
 routed handoff and emits any required `op:gc-exports`. Bindings do not inspect
 id ranges or duplicate routing policy.
@@ -80,7 +80,7 @@ bounded by handles that existed when the session closed, and it cannot be used,
 canonicalized, or projected onto another session.
 
 Release is transactional with respect to failure. A parked id leaves its queue
-only after `pancake_host_ref_release` commits. A refusal retains that id and its
+only after `glowcap_host_ref_release` commits. A refusal retains that id and its
 tail for retry, and an unowned scheduled-drain failure reaches the binding's
 existing Host failure recipient rather than escaping a finalizer or changing a
 protocol outcome. Explicit `release` uses the same C verb, disarms the

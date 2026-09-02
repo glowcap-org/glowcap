@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live Rooms-over-onion proof. The harness owns Tor explicitly; pancake only
+# Live Rooms-over-onion proof. The harness owns Tor explicitly; glowcap only
 # receives configured SOCKS and control endpoints.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
@@ -38,6 +38,6 @@ done
   exit 1
 }
 
-PANCAKE_ONION_SOCKS="$socks" PANCAKE_ONION_CONTROL="$control" \
+GLOWCAP_ONION_SOCKS="$socks" GLOWCAP_ONION_CONTROL="$control" \
   deno run --allow-ffi --allow-read --allow-net --allow-env \
   apps/rooms/demos/onion_demo.ts

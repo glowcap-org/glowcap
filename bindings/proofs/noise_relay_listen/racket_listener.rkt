@@ -5,8 +5,8 @@
 ;; appends `<relayUrl> <registerUrl>` and dials the printed locator.
 
 (require racket/random
-         "../../racket/pancake.rkt"
-         "../../racket/pancake-relay.rkt")
+         "../../racket/glowcap.rkt"
+         "../../racket/glowcap-relay.rkt")
 
 (define args (vector->list (current-command-line-arguments)))
 (when (< (length args) 2)

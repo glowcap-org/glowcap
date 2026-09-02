@@ -10,7 +10,7 @@
 import { fetchesOnArrival, fileSize, kindOf } from "../web/ui/media.ts";
 import { attachmentRefusal, readAttachmentsExact } from "../lib/attachment.ts";
 import { AUTO_IMAGE_BYTES, MAX_ATTACHMENT_BYTES, MAX_MESSAGE_FILES } from "../lib/limits.ts";
-import { Ref } from "@pancake/runtime";
+import { Ref } from "@glowcap/runtime";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("a media type picks how the file is met", () => {

@@ -1,5 +1,5 @@
 import os
-from pancake import Argument, relay
+from glowcap import Argument, relay
 
 # Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 seed = os.urandom(32)  # load durable secret bytes in a real service

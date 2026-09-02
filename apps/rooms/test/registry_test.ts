@@ -1,4 +1,4 @@
-import type { PartnerIdentity, Ref, Session } from "@pancake/runtime";
+import type { PartnerIdentity, Ref, Session } from "@glowcap/runtime";
 import { ROOM_EXISTS, RoomError, TOO_MANY_PEERED_ROOMS } from "../lib/errors.ts";
 import { MAX_PEERED_ROOMS, MAX_PEERED_ROOMS_PER_SOURCE } from "../lib/limits.ts";
 import { RoomLiveIndex } from "../server/live_index.ts";

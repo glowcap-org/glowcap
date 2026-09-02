@@ -5,7 +5,7 @@
 // the sender's claimed scope against the receiving directory before retention.
 
 import * as store from "../store.ts";
-import { type Ref, type Session } from "@pancake/runtime";
+import { type Ref, type Session } from "@glowcap/runtime";
 import {
 	ALL_ARCHIVE_RECORDS,
 	type ArchiveFilter,

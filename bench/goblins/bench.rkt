@@ -1,8 +1,8 @@
 #lang racket/base
 ;; Orchestrator for the cross-implementation bench suite. For each selected suite
-;; and each backend (goblins, pancake) it spawns the bench server as its own OS
+;; and each backend (goblins, glowcap) it spawns the bench server as its own OS
 ;; process, waits for the NDJSON readiness line, runs the client measurements,
-;; samples the server's RSS for the memory metric, then prints a pancake-vs-Goblins
+;; samples the server's RSS for the memory metric, then prints a glowcap-vs-Goblins
 ;; comparison and writes a report under zig-out/bench-reports/.
 ;;
 ;; Flags: --suite=<echo|registry|mint|taskboard|all> (default all), --smoke (tiny
@@ -26,10 +26,10 @@
 
 (define ALL-SUITES '("echo" "registry" "mint" "taskboard"))
 (define SUITES (if (equal? suite-sel "all") ALL-SUITES (list suite-sel)))
-;; Three series: standard Goblins, the pancake binding, and the pancake binding
-;; with time-travel on for every actor (`pancake-tt`). Each is its own backend
+;; Three series: standard Goblins, the glowcap binding, and the glowcap binding
+;; with time-travel on for every actor (`glowcap-tt`). Each is its own backend
 ;; module under bench/goblins/backend-<name>.rkt.
-(define BACKENDS '("goblins" "pancake" "pancake-tt"))
+(define BACKENDS '("goblins" "glowcap" "glowcap-tt"))
 
 (define LAT-N (if smoke? 20 2000))
 (define TPUT-N (if smoke? 20 2000))
@@ -195,7 +195,7 @@
 
 (define report
   (string-append
-   "pancake vs Goblins, cross-implementation benchmark\n"
+   "glowcap vs Goblins, cross-implementation benchmark\n"
    (format "mode=~a suites=~a lat_n=~a tput_n=~a conns=~a\n\n"
            (if smoke? "smoke" "full") (string-join SUITES ",") LAT-N TPUT-N CONNS)
    (string-join (for/list ([s (in-list SUITES)]) (row s)) "\n\n")

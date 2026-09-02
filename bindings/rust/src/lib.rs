@@ -1,15 +1,15 @@
-//! Idiomatic Rust API for pancake — an OCapN/CapTP [`Host`] whose partners
+//! Idiomatic Rust API for glowcap — an OCapN/CapTP [`Host`] whose partners
 //! you hold as a [`Session`].
 //!
 //! The shared raw C ABI lives in the private `sys` module. The one deliberate
 //! exception is [`webrtc`], whose public contract is the native companion
 //! archive's multiplexed readiness and try-I/O boundary.
-//! What you use is the application surface every pancake binding speaks —
+//! What you use is the application surface every glowcap binding speaks —
 //! [`Runtime::connect`] plus transport-module `listen`, a [`Session`] with `fetch`/`send`/`tell`/
 //! `spawn`/`publish`, one opaque [`Ref`] capability type, a Rust [`Argument`]
 //! enum, and `Result` for fallible calls — over the symbol-disjoint
-//! `libpancake_host` and `libpancake_driver` archives (ADR-0112). The Host
-//! archive owns `pancake_host_*`; the driver exports only `pancake_driver_*`
+//! `libglowcap_host` and `libglowcap_driver` archives (ADR-0112). The Host
+//! archive owns `glowcap_host_*`; the driver exports only `glowcap_driver_*`
 //! and adopts a quiescent Host. Bounded `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, and routed relay dials and
 //! listeners ride the loop ([`driver_loop`]); a quiescent caller-supplied Host
 //! transfers to that same runtime before its first network operation. The
@@ -23,7 +23,7 @@
 //!
 //! # Composable modules, à la carte
 //!
-//! pancake's C ABI ships as a set of symbol-disjoint archives (ADR-0059), and
+//! glowcap's C ABI ships as a set of symbol-disjoint archives (ADR-0059), and
 //! this crate mirrors that shape: the core value/locator vocabulary and the
 //! Host ABI is always available at the crate root, and each optional transport
 //! is a module behind a Cargo feature that links exactly its archive — you pay
@@ -33,17 +33,17 @@
 //!
 //! | Feature | Module | Archive linked | Default |
 //! | --- | --- | --- | --- |
-//! | (always) | crate root + [`Locator`] | `libpancake_ocapn` + `libpancake_host` + `libpancake_driver` | yes |
-//! | `tcp` | [`tcp`] | `libpancake_net_transport_tcp` | yes |
-//! | `inproc` | [`inproc`] | `libpancake_net_transport_inproc` | yes |
-//! | `onion` | [`onion`] | `libpancake_net_transport_onion` | no |
-//! | `iroh` | [`iroh`] | `libpancake_net_transport_iroh` (dynamic) | no |
-//! | `relay` | [`relay`] | `libpancake_net_transport_relay` | no |
-//! | `webrtc` | [`webrtc`] | `libpancake_net_transport_webrtc` (dynamic) | no |
+//! | (always) | crate root + [`Locator`] | `libglowcap_ocapn` + `libglowcap_host` + `libglowcap_driver` | yes |
+//! | `tcp` | [`tcp`] | `libglowcap_net_transport_tcp` | yes |
+//! | `inproc` | [`inproc`] | `libglowcap_net_transport_inproc` | yes |
+//! | `onion` | [`onion`] | `libglowcap_net_transport_onion` | no |
+//! | `iroh` | [`iroh`] | `libglowcap_net_transport_iroh` (dynamic) | no |
+//! | `relay` | [`relay`] | `libglowcap_net_transport_relay` | no |
+//! | `webrtc` | [`webrtc`] | `libglowcap_net_transport_webrtc` (dynamic) | no |
 //! | `async` | [`Session`], [`Host`], [`Runtime`] | (none — native tokio) | no |
 //!
 //! `tcp` and `inproc` are on by default. `onion` is opt-in because it needs a Tor
-//! daemon the deployment runs; pancake starts none. `iroh` is opt-in and implies `async`
+//! daemon the deployment runs; glowcap starts none. `iroh` is opt-in and implies `async`
 //! (the tokio driver it rides); it needs the companion library built by
 //! `zig build iroh-abi`. The `async` feature adds the tokio-driven
 //! [`Session`] over native sockets and links no transport archive of its
@@ -116,7 +116,7 @@ pub use dial::ConnectOptions;
 #[cfg(feature = "async")]
 pub use runtime::{Runtime, RuntimeConfig};
 
-// Every pancake archive keeps its own thread-local last-error slot (ADR-0059);
+// Every glowcap archive keeps its own thread-local last-error slot (ADR-0059);
 // this macro mints each family's checker/reader pair over its archive's extern
 // reader — the ocapn core here at the root, the host in `host`, and each
 // transport in its module. Unconditional: the core pair below is its first user.
@@ -150,7 +150,7 @@ pub mod iroh;
 #[cfg(feature = "webrtc")]
 pub mod webrtc;
 
-// OCapN locator URIs, core libpancake_ocapn vocabulary, so a TCP-only consumer reaches
+// OCapN locator URIs, core libglowcap_ocapn vocabulary, so a TCP-only consumer reaches
 // the grammar without the iroh companion library. One grammar, no hand-rolled
 // percent codec. Transport packages construct typed locators; this module owns
 // their generic model and explicit URI conversion.
@@ -235,7 +235,7 @@ mod tests {
 		);
 	}
 
-	// The public `ErrorKind` maps each known `PANCAKE_ERR_*` family, and an
+	// The public `ErrorKind` maps each known `GLOWCAP_ERR_*` family, and an
 	// unknown or retired code falls through to `Other` with the raw value, so the
 	// enum cannot silently diverge from a code a consumer still sees.
 	#[test]
@@ -294,9 +294,9 @@ mod tests {
 		let primary_message = b"socket refused shutdown";
 		let secondary_name = b"ReleaseFailed";
 		let secondary_message = b"descriptor remained live";
-		let report = sys::PancakeFailureReport {
+		let report = sys::GlowcapFailureReport {
 			abi_version: 1,
-			struct_size: core::mem::size_of::<sys::PancakeFailureReport>(),
+			struct_size: core::mem::size_of::<sys::GlowcapFailureReport>(),
 			layer: abi_constants_gen::FAILURE_LAYER_TRANSPORT,
 			scope_kind: abi_constants_gen::FAILURE_SCOPE_LISTENER,
 			scope_id: 31,
@@ -315,7 +315,7 @@ mod tests {
 			secondary_message: secondary_message.as_ptr(),
 			secondary_message_len: secondary_message.len(),
 		};
-		check(unsafe { sys::pancake_context_report_failure(context.inner.raw, &report) }).unwrap();
+		check(unsafe { sys::glowcap_context_report_failure(context.inner.raw, &report) }).unwrap();
 
 		let failures = context.take_failures().unwrap();
 		assert_eq!(failures.len(), 1);
@@ -493,7 +493,7 @@ mod tests {
 	#[cfg(feature = "async")]
 	#[test]
 	fn unknown_native_argument_kind_is_a_returned_failure() {
-		let mut c = unsafe { core::mem::zeroed::<sys::PancakeArgument>() };
+		let mut c = unsafe { core::mem::zeroed::<sys::GlowcapArgument>() };
 		c.kind = u32::MAX;
 		let error = unsafe { arg_from_sys(&c) }.expect_err("unknown argument kind must be rejected");
 		assert_eq!(error.code(), sys::ERR_INTERNAL);

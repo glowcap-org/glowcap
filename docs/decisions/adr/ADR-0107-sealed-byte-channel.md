@@ -225,7 +225,7 @@ Additive. `keyed-tcp` and `keyed-relay` are untouched, and every existing
 locator keeps working. A peer that does not know `noise-tcp` cannot dial it,
 which is the correct outcome rather than a downgrade.
 
-Upstream Goblins ships no Noise netlayer, so `noise-*` is pancake to pancake and
+Upstream Goblins ships no Noise netlayer, so `noise-*` is glowcap to glowcap and
 to anyone who implements this record. Goblins interop continues over `tcp` and
 over the iroh netlayer this repository wrote for it. No conformance fixture
 changes.
@@ -352,7 +352,7 @@ claims.
   machinery for a two-party pinned-key exchange, it is far larger in a wasm
   build, and `std.crypto` gives us the three Noise primitives already.
 - **WebTransport so a browser speaks QUIC**: rejected because its server
-  authentication is a WebPKI certificate rather than a pancake durable key, so
+  authentication is a WebPKI certificate rather than a glowcap durable key, so
   it would prove the wrong thing and still need this layer on top.
 
 ## Adversarial review

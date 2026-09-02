@@ -241,13 +241,13 @@ const paths = {
 
 export type IconName = keyof typeof paths | "mark";
 
-/** Every glyph, in definition order, including the pancake mark. */
+/** Every glyph, in definition order, including the glowcap mark. */
 export const iconNames: readonly IconName[] = [
 	...(Object.keys(paths) as (keyof typeof paths)[]),
 	"mark",
 ];
 
-/** The logotype lockup — "pancake" beside its small-caps rooms — as one
+/** The logotype lockup — "glowcap" beside its small-caps rooms — as one
  * component so every home shares one structure; every metric lives on the
  * `.wordmark` class in ui/mark.css, where the lockup's pixel contract is owned.
  * (The boot screen in page.html carries the same two-element markup
@@ -256,7 +256,7 @@ export const iconNames: readonly IconName[] = [
 export function Wordmark() {
 	return (
 		<span className="wordmark">
-			<span>pancake</span>
+			<span>glowcap</span>
 			<small>rooms</small>
 		</span>
 	);

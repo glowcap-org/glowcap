@@ -1,4 +1,4 @@
-//! Start/stop supervision for `pancake app rooms-peer`.
+//! Start/stop supervision for `glowcap app rooms-peer`.
 const std = @import("std");
 const builtin = @import("builtin");
 const signals = @import("../../operability/signals.zig");
@@ -189,11 +189,11 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
 
     var child_env = try init.environ_map.clone(gpa);
     defer child_env.deinit();
-    // PANCAKE_ROOMS_PEER_SUPERVISED is set only on this detached child, so `peer` refuses
+    // GLOWCAP_ROOMS_PEER_SUPERVISED is set only on this detached child, so `peer` refuses
     // any other launch path.
-    try child_env.put("PANCAKE_ROOMS_PEER_SUPERVISED", "1");
+    try child_env.put("GLOWCAP_ROOMS_PEER_SUPERVISED", "1");
 
-    // Always `pancake app rooms-peer peer` — the `rooms-peer` install name is a thin
+    // Always `glowcap app rooms-peer peer` — the `rooms-peer` install name is a thin
     // exec shim (cli/rooms_peer_shim.zig), so `selfExe` is the product binary.
     var argv_buf: [16][]const u8 = undefined;
     var n: usize = 0;
@@ -389,9 +389,9 @@ fn tailOf(s: []const u8, n: usize) []const u8 {
 }
 
 pub fn peerCliPrefix(exe: []const u8) []const u8 {
-    // Product binary is always `pancake` after the rooms-peer shim; keep a
+    // Product binary is always `glowcap` after the rooms-peer shim; keep a
     // basename check so a renamed install still emits copy-pasteable commands.
-    return if (std.mem.eql(u8, std.fs.path.basename(exe), "pancake")) "app rooms-peer " else "";
+    return if (std.mem.eql(u8, std.fs.path.basename(exe), "glowcap")) "app rooms-peer " else "";
 }
 
 fn reportStarted(

@@ -1,4 +1,4 @@
-// The native seam for transport-companion packages (e.g. `@pancake/iroh`).
+// The native seam for transport-companion packages (e.g. `@glowcap/iroh`).
 //
 // A companion transport rides its own archive but shares the core's one FFI
 // runtime: it loads its symbol table through the same `ffi`, resolves its

@@ -29,10 +29,10 @@ pub fn checkCAbiResolvePorts(
         "536870912",
         "536_870_912",
         "1048576",
-        "pancake-c-abi-fetch/",
-        "pancake-c-abi-cache",
-        "pancake-c-v{version}-{target}.tar.gz",
-        "https://github.com/jimisaacs/pancake/releases/download",
+        "glowcap-c-abi-fetch/",
+        "glowcap-c-abi-cache",
+        "glowcap-c-v{version}-{target}.tar.gz",
+        "https://github.com/jimisaacs/glowcap/releases/download",
     };
     for (binding_loaders) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
@@ -50,7 +50,7 @@ pub fn checkCAbiResolvePorts(
             try appendViolation(gpa, violations, "{s}: must not shell out to `fetch-c-abi.sh` (ADR-0077: language-native download)", .{path});
         }
         if (std.mem.indexOf(u8, contents, "abi_version") == null and
-            std.mem.indexOf(u8, contents, "PANCAKE_VERSION_MAJOR") == null)
+            std.mem.indexOf(u8, contents, "GLOWCAP_VERSION_MAJOR") == null)
         {
             try appendViolation(gpa, violations, "{s}: must read contract `abi_version` or header macros", .{path});
         }
@@ -72,8 +72,8 @@ pub fn checkCAbiResolvePorts(
         if (std.mem.indexOf(u8, contents, "releases_published") == null) {
             try appendViolation(gpa, violations, "{s}: must read contract `releases_published`", .{path});
         }
-        if (std.mem.indexOf(u8, contents, "PANCAKE_ALLOW_INSECURE") == null) {
-            try appendViolation(gpa, violations, "{s}: must gate downloads with PANCAKE_ALLOW_INSECURE escape (ADR-0077 §5)", .{path});
+        if (std.mem.indexOf(u8, contents, "GLOWCAP_ALLOW_INSECURE") == null) {
+            try appendViolation(gpa, violations, "{s}: must gate downloads with GLOWCAP_ALLOW_INSECURE escape (ADR-0077 §5)", .{path});
         }
         // Fixed env truthy set (not a contract field).
         if (std.mem.indexOf(u8, contents, "\"1\"") == null or
@@ -124,7 +124,7 @@ pub fn checkCAbiResolvePorts(
             }
         }
         // Extract hygiene (ADR-0077 §5): reject links/traversal before extract.
-        if (std.mem.eql(u8, path, "bindings/python/pancake/_lib_resolve.py")) {
+        if (std.mem.eql(u8, path, "bindings/python/glowcap/_lib_resolve.py")) {
             if (std.mem.indexOf(u8, contents, "issym") == null) {
                 try appendViolation(gpa, violations, "{s}: must reject symlink/hardlink tar members (ADR-0077 §5)", .{path});
             }
@@ -234,7 +234,7 @@ pub fn checkCAbiResolvePorts(
                 try appendViolation(gpa, violations, "{s}: must define hard-fail! for hygiene/checksum/HTTPS (ADR-0077)", .{path});
             }
         }
-        if (std.mem.eql(u8, path, "bindings/python/pancake/_lib_resolve.py")) {
+        if (std.mem.eql(u8, path, "bindings/python/glowcap/_lib_resolve.py")) {
             if (std.mem.indexOf(u8, contents, "def _hard_fail") == null) {
                 try appendViolation(gpa, violations, "{s}: must define _hard_fail for hygiene/checksum/HTTPS", .{path});
             }
@@ -247,8 +247,8 @@ pub fn checkCAbiResolvePorts(
             defer gpa.free(security);
             const policy_calls = [_][]const u8{
                 "failArchiveSecurity(",
-                "requireSecureReleaseUrl(base, envTruthy(\"PANCAKE_ALLOW_INSECURE\"));",
-                "curlTransportArgs(url, envTruthy(\"PANCAKE_ALLOW_INSECURE\"))",
+                "requireSecureReleaseUrl(base, envTruthy(\"GLOWCAP_ALLOW_INSECURE\"));",
+                "curlTransportArgs(url, envTruthy(\"GLOWCAP_ALLOW_INSECURE\"))",
             };
             var policy_complete = std.mem.indexOf(u8, contents, "release_security.ts") != null;
             for (policy_calls) |call_shape| {
@@ -298,10 +298,10 @@ pub fn checkCAbiResolvePorts(
         if (std.mem.indexOf(u8, contents, "define-runtime-path") != null and
             std.mem.indexOf(u8, contents, "zig-out") != null)
         {
-            try appendViolation(gpa, violations, "{s}: must not hardcode zig-out via define-runtime-path; open-pancake-archive discovers it", .{path});
+            try appendViolation(gpa, violations, "{s}: must not hardcode zig-out via define-runtime-path; open-glowcap-archive discovers it", .{path});
         }
-        if (std.mem.indexOf(u8, contents, "open-pancake-archive") == null) {
-            try appendViolation(gpa, violations, "{s}: must open archives through open-pancake-archive", .{path});
+        if (std.mem.indexOf(u8, contents, "open-glowcap-archive") == null) {
+            try appendViolation(gpa, violations, "{s}: must open archives through open-glowcap-archive", .{path});
         }
         // Automatic FFI out cells (`(_ptr o …)`) lose values under concurrent
         // Racket green threads. Archive loaders must wrap outs with caller-owned
@@ -493,7 +493,7 @@ pub fn checkCAbiResolvePorts(
         .{ .path = "bindings/racket/private/lib-resolve.rkt" },
         .{ .path = "bindings/ts/runtime/internal/ffi/archive_hygiene.ts" },
         .{ .path = "bindings/rust/archive_hygiene.rs" },
-        .{ .path = "bindings/python/pancake/_lib_resolve.py", .parses_listing = false },
+        .{ .path = "bindings/python/glowcap/_lib_resolve.py", .parses_listing = false },
     };
     for (hygiene_owners) |owner_spec| {
         const path = owner_spec.path;

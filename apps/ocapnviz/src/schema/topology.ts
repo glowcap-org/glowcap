@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * OCapN vocabulary primitives — the atoms higher-level schemas
- * (`TimelineEvent`, ECS components) compose. Names track pancake's
+ * (`TimelineEvent`, ECS components) compose. Names track glowcap's
  * actual types in the Zig `model` and `session` layers; the `ocapn:`
  * IRI namespace exposes them for JSON-LD consumers.
  *
@@ -26,23 +26,23 @@ export type PeerProfile = z.infer<typeof PeerProfile>;
  * told stays unknown. `StageLedger` says why. */
 export const GOBLINS_PROFILE = "goblins";
 
-/** pancake. A live feed reaches this verdict two ways, both at the hello:
+/** glowcap. A live feed reaches this verdict two ways, both at the hello:
  * a producer states it on the record it publishes (`a_profile`), and a
- * session that negotiated the `next` CapTP profile has a pancake host at each
- * end, because that profile is pancake-private (ADR-0003). The second is the
+ * session that negotiated the `next` CapTP profile has a glowcap host at each
+ * end, because that profile is glowcap-private (ADR-0003). The second is the
  * only implementation a feed ever concludes without being told; publishing a
  * trace is not evidence of anything, since every implementation may publish
  * one. `StageLedger` is where both are read.
  *
- * The word itself is stated a sixth time here, once per pancake binding and
+ * The word itself is stated a sixth time here, once per glowcap binding and
  * once by this reader, and no generated tier can own it: the claim is about the
  * binding tier rather than about the core, so no Zig or C declaration carries
  * it. `zig build source-check` (`checkTraceViewerVocabulary`) is what keeps the
  * six in step, and it pins `GOBLINS_PROFILE` beside them so the two producers
  * cannot be collapsed into one. */
-export const PANCAKE_PROFILE = "pancake";
+export const GLOWCAP_PROFILE = "glowcap";
 
-export const KNOWN_PROFILES = [GOBLINS_PROFILE, PANCAKE_PROFILE] as const;
+export const KNOWN_PROFILES = [GOBLINS_PROFILE, GLOWCAP_PROFILE] as const;
 
 /** What a peer's implementation is called while nobody has named it.
  *
@@ -149,8 +149,8 @@ export const CODEC_REFERENCE_OPTIONS: readonly CodecReferenceOption[] = [
 
 /**
  * CapTP wire-profile version. `v1_0` is the spec-text version
- * (Goblins-canonical); `next` is pancake's forward private track, valid
- * only between pancake peers (ADR-0003: it is a pancake-namespaced interop
+ * (Goblins-canonical); `next` is glowcap's forward private track, valid
+ * only between glowcap peers (ADR-0003: it is a glowcap-namespaced interop
  * version, not an upstream OCapN maturity stage). `unknown` is an observed
  * trace sentinel for a producer that named a profile this viewer cannot.
  */
@@ -172,7 +172,7 @@ export const CAPTP_VERSION_REFERENCE_OPTIONS: readonly CaptpVersionReferenceOpti
 ];
 
 /**
- * How the handshake spells each version, which is the word a pancake trace
+ * How the handshake spells each version, which is the word a glowcap trace
  * reports (the Zig `model.CaptpVersion.wireString`). The tags above are this
  * document model's own names, chosen to read as identifiers; these are the
  * protocol's, and a live feed arrives speaking them.
@@ -187,14 +187,14 @@ export const CAPTP_VERSION_REFERENCE_OPTIONS: readonly CaptpVersionReferenceOpti
  * `bindings/ts/runtime/trace.ts`, and the same words inline in the Python,
  * Racket, and Rust trace modules). This one stays separate on three grounds:
  * the viewer consumes a schema no single implementation owns, it is its own
- * Deno scope that links no pancake package, and this table is display text as
+ * Deno scope that links no glowcap package, and this table is display text as
  * well as a wire reading, which the producers' is not. What separate must not
  * mean is free to drift, so `zig build source-check` requires this table to carry
  * every word `model.CaptpVersion.wireString` emits
  * (`checkTraceViewerVocabulary`), the same authority it holds the producers to.
  */
 export const CAPTP_VERSION_WIRE: Record<BuiltinCaptpVersion, string> = {
-	next: "pancake-next",
+	next: "glowcap-next",
 	v1_0: "1.0",
 };
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate the Syrup byte-fixture corpus through the upstream Python encoder.
 
-Each builder below hand-constructs the record structure pancake's Syrup codec
+Each builder below hand-constructs the record structure glowcap's Syrup codec
 produces for the corresponding ``model.Message``, then serializes it through
 the upstream Python Syrup encoder and writes one ``.bin`` per fixture to the
 directory passed on the command line. The Syrup grammar is small and

@@ -20,14 +20,14 @@ export function looseDoc(): TimelineDocument {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "carol",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "p2",
 				t: 0,
 				kind: "peer-joined",
 				peerId: "alice",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "so",

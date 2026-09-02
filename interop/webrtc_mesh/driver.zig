@@ -1,4 +1,4 @@
-//! Live WebRTC signaling mesh: two native pancake peers bring up a DataChannel
+//! Live WebRTC signaling mesh: two native glowcap peers bring up a DataChannel
 //! through an OCapN-shaped signaling object, then hold a keyed OCapN session
 //! over it (ADR-0089 phase 5).
 //!
@@ -23,13 +23,13 @@
 //! step `zig build webrtc-mesh`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc mesh";
@@ -202,7 +202,7 @@ fn recipientHalf(
     const greeter = try webrtc_common.fetchRef(resident, peer, &pump, &host, session, "greeter", 10_000);
     try webrtc_common.sendAndExpectString(resident, peer, &pump, &host, session, greeter, .{
         .verb = "greet",
-        .args = &.{.{ .string = "pancake" }},
+        .args = &.{.{ .string = "glowcap" }},
     }, greeting, 10_000);
     _ = try pump.drive(&host, session, peer);
     peer.close();

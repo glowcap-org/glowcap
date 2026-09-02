@@ -16,8 +16,8 @@ export interface RoomsBrowserController {
 	aboutDirectory(dir: DirId | null, askingLeave?: boolean): void;
 	showDirectory(dir: DirId): void;
 	aboutMember(about: MemberRef | null): void;
-	aboutConversation(pane?: "about" | "irc" | "capabilities", askingLeave?: boolean): void;
-	manageIrcIdentity(): void;
+	aboutConversation(pane?: "about" | "bridge" | "capabilities", askingLeave?: boolean): void;
+	manageBridgeIdentity(): void;
 	closeAboutConversation(): void;
 	showError(detail: { title: string; text: string }): void;
 	closeError(): void;

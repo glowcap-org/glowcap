@@ -241,18 +241,36 @@ Deno.test("file archive refuses corruption before its final crash boundary", () 
 		);
 	}));
 
-Deno.test("file archive refuses an obsolete header without rewriting it", () =>
+Deno.test("file archive refuses an obsolete header without rewriting it, naming both schemas", () =>
 	withState(async (directory) => {
 		await FileArchiveBackend.open(directory);
 		const path = `${directory}/archive.jsonl`;
 		const rows = (await Deno.readTextFile(path)).split("\n");
 		const header = JSON.parse(rows[0]);
-		header.version = 2;
-		rows[0] = JSON.stringify(header);
-		const obsolete = rows.join("\n");
-		await Deno.writeTextFile(path, obsolete);
+		const stamp = (archive: string, version: number) => {
+			rows[0] = JSON.stringify({ ...header, archive, version });
+			return rows.join("\n");
+		};
+
+		const newerVersion = stamp(header.archive, 2);
+		await Deno.writeTextFile(path, newerVersion);
+		const versionRefusal = await refused(() => FileArchiveBackend.open(directory));
+		assertEquals(versionRefusal.includes(`written as ${header.archive} version 2`), true);
+		assertEquals(versionRefusal.includes(`this build reads ${header.archive} version 1`), true);
+		assertEquals(versionRefusal.includes("remove its state directory"), true);
+		assertEquals(await Deno.readTextFile(path), newerVersion);
+
+		const renamedFormat = stamp("renamed-rooms-member-archive", 1);
+		await Deno.writeTextFile(path, renamedFormat);
+		const formatRefusal = await refused(() => FileArchiveBackend.open(directory));
+		assertEquals(formatRefusal.includes("written as renamed-rooms-member-archive version 1"), true);
+		assertEquals(await Deno.readTextFile(path), renamedFormat);
+
+		rows[0] = JSON.stringify({ ...header, revision: -1 });
+		const malformed = rows.join("\n");
+		await Deno.writeTextFile(path, malformed);
 		assertEquals((await refused(() => FileArchiveBackend.open(directory))).includes("invalid header"), true);
-		assertEquals(await Deno.readTextFile(path), obsolete);
+		assertEquals(await Deno.readTextFile(path), malformed);
 	}));
 
 Deno.test("file archive bounds both resident records and uncompacted revision rows", () =>

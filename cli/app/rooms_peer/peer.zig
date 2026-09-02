@@ -1,4 +1,4 @@
-//! Peer daemon: CapTP/iroh room presence loop for `pancake app rooms-peer`.
+//! Peer daemon: CapTP/iroh room presence loop for `glowcap app rooms-peer`.
 const std = @import("std");
 const builtin = @import("builtin");
 const iroh = @import("iroh");
@@ -147,8 +147,8 @@ fn seedRepliedBacklog(io: Io, gpa: Allocator, dir: []const u8, nick: []const u8)
 pub fn runPeer(init: std.process.Init, flags: Flags) !void {
     const io = init.io;
     const gpa = init.gpa;
-    if (init.environ_map.get("PANCAKE_ROOMS_PEER_SUPERVISED") == null) {
-        log.err(io, "`peer` is the internal daemon — start it with: pancake app rooms-peer start --dir <DIR> --nick <NICK>", .{});
+    if (init.environ_map.get("GLOWCAP_ROOMS_PEER_SUPERVISED") == null) {
+        log.err(io, "`peer` is the internal daemon — start it with: glowcap app rooms-peer start --dir <DIR> --nick <NICK>", .{});
         return error.Unsupervised;
     }
     if (flags.dir.len == 0 or flags.nick.len == 0 or flags.locator.len == 0) return error.MissingFlags;
@@ -213,7 +213,7 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
         }
         const hint = net.netlayer.directAddrHint(loc.hints) orelse "";
         const reachability: iroh.Reachability = if (hint.len > 0) .direct else .discovery;
-        const rendezvous_url = common.resolveRendezvousUrl(gpa, init.environ_map.get("PANCAKE_RENDEZVOUS"), flags.locator) catch |err| {
+        const rendezvous_url = common.resolveRendezvousUrl(gpa, init.environ_map.get("GLOWCAP_RENDEZVOUS"), flags.locator) catch |err| {
             log.err(io, "rendezvous URL refused: {s}", .{@errorName(err)});
             return err;
         };
@@ -333,7 +333,7 @@ fn runStack(
     defer gpa.free(member_locator);
 
     // The room's profile, not the interop floor: this peer only ever talks to
-    // other pancake peers, and the directory it dials offers the same pair.
+    // other glowcap peers, and the directory it dials offers the same pair.
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
     var host = try Host.init(gpa, seed, session_root, .{
@@ -368,7 +368,7 @@ fn runStack(
     defer bridge.deinit();
     state.bridge = &bridge;
     if (rendezvous_url == null) {
-        log.err(io, "no relay rendezvous configured (set PANCAKE_RENDEZVOUS or pass an http://host:port/locator); browser DM introduce will fail", .{});
+        log.err(io, "no relay rendezvous configured (set GLOWCAP_RENDEZVOUS or pass an http://host:port/locator); browser DM introduce will fail", .{});
     }
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));

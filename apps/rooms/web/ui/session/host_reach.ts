@@ -1,6 +1,6 @@
 // Whether a tab-hosted Share can be reached over the advertised WebRTC door.
 
-import { TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { TRANSPORT_WEBRTC } from "@glowcap/runtime";
 
 /** Refusal when Share would publish a WebRTC sturdyref nobody can signal to.
  *

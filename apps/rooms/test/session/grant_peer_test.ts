@@ -1,6 +1,6 @@
 // Process proof for restart-stable attenuated Rooms session grants.
 
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import { RoomsSessionClient } from "../../lib/session/client.ts";
 import { roomsAddress, roomsHost } from "../../lib/locator.ts";
 import { stopOwned } from "../support/children.ts";
@@ -28,7 +28,7 @@ async function settled(client: RoomsSessionClient): Promise<void> {
 }
 
 roomsTest("a durable session grant survives restart and stays revoked", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-grant-peer-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-grant-peer-" });
 	const port = freePort();
 	let peer = startRoomsSessionPeer(directory, port);
 	let firstSession: Awaited<ReturnType<typeof dial>> | null = null;
@@ -118,7 +118,7 @@ roomsTest("a durable session grant survives restart and stays revoked", async ()
 // intended access is remembered, so lifting it needs no one to recall what it
 // was.
 roomsTest("a durable grant's access changes under one unchanging link", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-grant-tier-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-grant-tier-" });
 	const port = freePort();
 	let peer = startRoomsSessionPeer(directory, port);
 	let session: Awaited<ReturnType<typeof dial>> | null = null;

@@ -20,7 +20,7 @@ const failureChainFromProvider = owner_mod.failureChainFromProvider;
 const dialErrorFromCode = owner_mod.dialErrorFromCode;
 const dialFailureFromProvider = owner_mod.dialFailureFromProvider;
 const providerFailureIsEmpty = owner_mod.providerFailureIsEmpty;
-const PANCAKE_OK = shared.PANCAKE_OK;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
 
 fn ownProfile(owner: *Owner, profile: model.transport.Metadata) !model.transport.Metadata {
     var owned = profile;
@@ -37,7 +37,7 @@ pub const Adapter = struct {
     };
 
     owner: *Owner,
-    table: shared.PancakeStreamTransport,
+    table: shared.GlowcapStreamTransport,
     transport: []const u8,
     netlayer_vtable: net.netlayer.Netlayer.VTable,
     listener_vtable: net.netlayer.Listener.VTable,
@@ -68,7 +68,7 @@ pub const Adapter = struct {
                 self.conn,
                 bytes.ptr,
                 bytes.len,
-            ) != PANCAKE_OK) return error.WriteFailed;
+            ) != GLOWCAP_OK) return error.WriteFailed;
         }
 
         pub fn flush(_: Source) std.Io.Writer.Error!void {}
@@ -89,7 +89,7 @@ pub const Adapter = struct {
         }
 
         pub fn takeFailure(self: ConnContext) ?foundation.FailureChain {
-            var report = std.mem.zeroes(shared.PancakeProviderFailure);
+            var report = std.mem.zeroes(shared.GlowcapProviderFailure);
             self.adapter.table.conn_take_failure.?(self.adapter.table.ctx, self.conn, &report);
             if (providerFailureIsEmpty(report)) return null;
             return failureChainFromProvider(report.result, report) catch {
@@ -141,7 +141,7 @@ pub const Adapter = struct {
     pub fn closeConnection(self: *Adapter, handle: *anyopaque) ?driver.OperationFailure {
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.conn_close.?(self.table.ctx, handle, &report);
-        if (code == PANCAKE_OK) {
+        if (code == GLOWCAP_OK) {
             if (providerFailureIsEmpty(report)) return null;
             self.owner.failContract("stream close reported failure data on success");
             self.owner.retainContradictoryReport(report, null);
@@ -161,14 +161,14 @@ pub const Adapter = struct {
         const self = of(ctx);
         var attempt: ?*anyopaque = null;
         var fd: i32 = -1;
-        var hint_stack: [shared.locator_adapter.inline_hint_capacity]shared.PancakeLocatorHintView = undefined;
+        var hint_stack: [shared.locator_adapter.inline_hint_capacity]shared.GlowcapLocatorHintView = undefined;
         var projection = LocatorProjection.init(self.owner.allocator, locator, &hint_stack) catch |err|
             return .{ .failed = .fromChain(
                 if (err == error.OutOfMemory) error.OutOfMemory else error.InvalidAddress,
                 .init(err),
             ) };
         defer projection.deinit(self.owner.allocator);
-        var options_storage: shared.PancakeTransportOperationOptions = undefined;
+        var options_storage: shared.GlowcapTransportOperationOptions = undefined;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.start_connect.?(
             self.table.ctx,
@@ -178,7 +178,7 @@ pub const Adapter = struct {
             &fd,
             &report,
         );
-        if (code != PANCAKE_OK) {
+        if (code != GLOWCAP_OK) {
             var failure = dialFailureFromProvider(code, report) catch blk: {
                 self.owner.failContract("stream connect start returned an invalid structured failure");
                 break :blk net.netlayer.DialFailure.fromChain(error.InvalidOptions, .init(error.ProviderContract));
@@ -237,7 +237,7 @@ pub const Adapter = struct {
             &fd,
             &report,
         );
-        if (code != PANCAKE_OK) {
+        if (code != GLOWCAP_OK) {
             var failure = dialFailureFromProvider(code, report) catch blk: {
                 self.owner.failContract("stream connect finish returned an invalid structured failure");
                 break :blk net.netlayer.DialFailure.fromChain(error.InvalidOptions, .init(error.ProviderContract));
@@ -296,7 +296,7 @@ pub const Adapter = struct {
     ) ?foundation.FailureChain {
         var report = shared.transport_provider.emptyProviderFailure();
         const code = callback(attempt, &report);
-        if (code == PANCAKE_OK) {
+        if (code == GLOWCAP_OK) {
             if (providerFailureIsEmpty(report)) return null;
             self.owner.failContract(operation);
             self.owner.retainContradictoryReport(report, null);
@@ -318,9 +318,9 @@ pub const Adapter = struct {
 pub fn prepare(
     owner: *Owner,
     profile: model.transport.Metadata,
-    table_ptr: *const shared.PancakeStreamTransport,
+    table_ptr: *const shared.GlowcapStreamTransport,
 ) !*Adapter {
-    try validation.tablePrefix(shared.PancakeStreamTransport, table_ptr, shared.transport_provider.PANCAKE_STREAM_TRANSPORT_ABI_VERSION, "stream");
+    try validation.tablePrefix(shared.GlowcapStreamTransport, table_ptr, shared.transport_provider.GLOWCAP_STREAM_TRANSPORT_ABI_VERSION, "stream");
     const table = table_ptr.*;
     const dial_any = table.start_connect != null or table.finish_connect != null or table.cancel_connect != null;
     const dial = try validation.operationGroup(dial_any, table.start_connect != null and

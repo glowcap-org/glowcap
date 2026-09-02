@@ -1,7 +1,7 @@
 const std = @import("std");
 
-/// The pancake documentation site is its own build so the heavyweight Zine
-/// generator never enters the root `pancake` build graph. The root build drives
+/// The glowcap documentation site is its own build so the heavyweight Zine
+/// generator never enters the root `glowcap` build graph. The root build drives
 /// these steps from `site/`, redirecting the install prefix so the rendered
 /// pages land in the project's `zig-out/site`.
 pub fn build(b: *std.Build) void {

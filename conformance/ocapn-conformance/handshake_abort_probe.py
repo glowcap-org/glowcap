@@ -1,4 +1,4 @@
-"""Assert pancake rejects malformed setup and honors pre-setup `op:abort`.
+"""Assert glowcap rejects malformed setup and honors pre-setup `op:abort`.
 
 The upstream suite's `tests.op_start_session` module is the authority and
 passes in full (crossed-hellos resolution included; the peer routes it through
@@ -97,14 +97,14 @@ def case_pre_setup_abort(netlayer, uri):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Handshake abort probe against pancake peer")
+    parser = argparse.ArgumentParser(description="Handshake abort probe against glowcap peer")
     parser.add_argument(
         "--port",
         type=int,
         default=None,
-        help="TCP port of the running pancake-ocapn-peer",
+        help="TCP port of the running glowcap-ocapn-peer",
     )
-    parser.add_argument("--locator", help="onion locator of the running pancake peer")
+    parser.add_argument("--locator", help="onion locator of the running glowcap peer")
     args = parser.parse_args()
     if args.locator is not None and args.port is not None:
         parser.error("--locator and --port are mutually exclusive")
@@ -116,7 +116,7 @@ def main():
     else:
         port = args.port
         if port is None:
-            port = int(os.environ.get("PANCAKE_OCAPN_CONFORMANCE_PORT", "22055"))
+            port = int(os.environ.get("GLOWCAP_OCAPN_CONFORMANCE_PORT", "22055"))
         uri = OCapNPeer.from_uri(peer_url(port))
         netlayer = TestingOnlyTCPNetlayer(uri.hints.get("host"))
     ok = True

@@ -1,9 +1,9 @@
 //! The counter, greeter, and reader the vat suite reuses across its files.
 
 const std = @import("std");
-const pancake = @import("pancake");
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const glowcap = @import("glowcap");
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 

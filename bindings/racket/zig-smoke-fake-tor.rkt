@@ -44,7 +44,7 @@
   (define-values (_host port _peer-host _peer-port) (tcp-addresses listener #t))
   (values listener port))
 
-;; Answer control conversations. pancake holds one open for a listener's whole
+;; Answer control conversations. glowcap holds one open for a listener's whole
 ;; life, so each gets its own thread and the loop keeps accepting.
 (define (serve-control listener)
   (let accept-loop ()

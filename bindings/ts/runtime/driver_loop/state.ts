@@ -17,8 +17,8 @@
 // trampolines fire inside it; provider starts are nonblocking, and readiness
 // drives connect completion and CapTP handshakes through later steps.
 
-import { CLOSED, INTERNAL } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { CLOSED, INTERNAL } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
 import type { HostFinalizerState } from "../host/finalizer.ts";
 import { type LoopEvent } from "../internal/driver_event.ts";
@@ -33,23 +33,23 @@ import { TerminalDriverRelease } from "./terminal_release.ts";
 
 export const utf8Encoder = new TextEncoder();
 
-export function loopClosedError(): PancakeError {
-	return new PancakeError(CLOSED, "the loop is closed");
+export function loopClosedError(): GlowcapError {
+	return new GlowcapError(CLOSED, "the loop is closed");
 }
 
-function asPancakeError(error: unknown, operation: string): PancakeError {
-	if (error instanceof PancakeError) return error;
-	return new PancakeError(INTERNAL, `${operation}: ${String(error)}`);
+function asGlowcapError(error: unknown, operation: string): GlowcapError {
+	if (error instanceof GlowcapError) return error;
+	return new GlowcapError(INTERNAL, `${operation}: ${String(error)}`);
 }
 
 interface DialWaiter {
 	resolve: (session: Ptr) => void;
-	reject: (error: PancakeError) => void;
+	reject: (error: GlowcapError) => void;
 }
 
 export interface ListenerWaiter {
 	resolve: (listener: bigint) => void;
-	reject: (error: PancakeError) => void;
+	reject: (error: GlowcapError) => void;
 	onAbort?: () => void;
 }
 
@@ -57,7 +57,7 @@ export interface ListenerWaiter {
  *
  * Construct with `open` on the thread that will drive it, `start()` to park on
  * the readiness descriptor, and `close()` before dropping it. One thread
- * drives one loop; `pancake_driver_wake` is the one cross-thread call, and the
+ * drives one loop; `glowcap_driver_wake` is the one cross-thread call, and the
  * park task is the only place it is needed here. */
 export abstract class DriverLoopState implements DriverLoopHandle {
 	abstract stepNow(): void;
@@ -76,20 +76,20 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	protected abstract _settleListener(
 		listener: bigint,
 		waiter: ListenerWaiter,
-		result: { ready: true } | { error: PancakeError },
+		result: { ready: true } | { error: GlowcapError },
 	): void;
 	protected abstract _dispatchCommittedEvents(): void;
 	protected abstract _advanceClosingListeners(): void;
 	protected abstract _finishListenerClose(
 		listener: bigint,
-		reason?: PancakeError,
+		reason?: GlowcapError,
 		rejectAccepts?: boolean,
 	): void;
 	protected _h: Ptr;
 	protected _finalizerState: DriverLoopFinalizerState | null = null;
 	protected readonly _wrapper: Host;
 	protected _released = false;
-	protected _terminalFailure: PancakeError | null = null;
+	protected _terminalFailure: GlowcapError | null = null;
 	protected _terminalRelease: TerminalDriverRelease | null = null;
 	protected _stepping = false;
 	protected _stepScheduled = false;
@@ -108,12 +108,12 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	protected readonly _unclaimedSessions = new Map<
 		Ptr,
 		| { readonly kind: "open" }
-		| { readonly kind: "closed"; readonly error: PancakeError | null }
+		| { readonly kind: "closed"; readonly error: GlowcapError | null }
 	>();
 	protected readonly _sessionCloses = new Map<Ptr, {
 		readonly promise: Promise<void>;
 		readonly resolve: () => void;
-		readonly reject: (error: PancakeError) => void;
+		readonly reject: (error: GlowcapError) => void;
 	}>();
 	protected readonly _pendingDials = new Map<bigint, DialWaiter>();
 	protected readonly _pendingListeners = new Map<bigint, ListenerWaiter>();
@@ -122,15 +122,15 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 		bigint,
 		Array<{
 			readonly resolve: (session: Ptr | null) => void;
-			readonly reject: (error: PancakeError) => void;
+			readonly reject: (error: GlowcapError) => void;
 		}>
 	>();
 	protected readonly _listeners = new Set<bigint>();
-	protected readonly _closingListeners = new Map<bigint, PancakeError>();
+	protected readonly _closingListeners = new Map<bigint, GlowcapError>();
 	protected readonly _listenerCloses = new Map<bigint, {
 		readonly promise: Promise<void>;
 		readonly resolve: () => void;
-		readonly reject: (error: PancakeError) => void;
+		readonly reject: (error: GlowcapError) => void;
 	}>();
 	// A loop step may deliver for any session. The step carrier supplies the
 	// wrapper Host; each callback turn supplies its actual ingress session.
@@ -156,7 +156,7 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 
 	protected _failBackgroundWithRelease(error: unknown, initialOutcome?: ReturnType<typeof driverCall>): void {
 		if (this._terminalFailure != null) return;
-		const failure = asPancakeError(error, "driver loop failed");
+		const failure = asGlowcapError(error, "driver loop failed");
 		this._terminalFailure = failure;
 		this._parkStop = true;
 		this._progressTimer = clearProgressClock(this._progressTimer);
@@ -191,7 +191,7 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 			() =>
 				driverCall(
 					"driver-loop.background.release",
-					(out) => loopS.pancake_driver_release(handle, out),
+					(out) => loopS.glowcap_driver_release(handle, out),
 				),
 			() => {
 				retireDriverLoopFinalizer(this, this._finalizerState);

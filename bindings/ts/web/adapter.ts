@@ -1,12 +1,12 @@
 // The browser runtime adapter (ADR-0070): the runtime's FFI seam implemented
-// over a WebAssembly instance of `pancake_host.wasm`, and its socket seam
+// over a WebAssembly instance of `glowcap_host.wasm`, and its socket seam
 // implemented over WebSocket. Installed by `mod.ts`'s `init` before the runtime
 // loads, so `internal/ffi/runtime.ts` resolves this adapter instead of probing
 // for Deno or Bun.
 //
 // Marshalling across the JS/wasm boundary: wasm has no view into JS buffers,
 // so every `buffer` parameter and every `pointerOf` target is copied into
-// linear memory (`pancake_wasm_alloc`), and every buffer parameter is copied
+// linear memory (`glowcap_wasm_alloc`), and every buffer parameter is copied
 // back after the call so C out-parameters land in the caller's JS buffer.
 // Those two copies are the named cost of the linear-memory boundary, the
 // wasm sibling of the dlopen adapters' `readMemory` ownership copy.
@@ -32,17 +32,17 @@ import type {
 } from "../runtime/internal/ffi/runtime.ts";
 import { type AbiLayout, layoutFromWasmDescriptor } from "../runtime/internal/layout.ts";
 import { webSocketChannel } from "../runtime/websocket.ts";
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
 
-/** The wasm exports the adapter itself drives; every `pancake_*` symbol the
+/** The wasm exports the adapter itself drives; every `glowcap_*` symbol the
  * runtime asks for is looked up dynamically on the same exports object. */
 type WasmExports = {
 	memory: WebAssembly.Memory;
-	pancake_wasm_alloc: (len: number) => number;
-	pancake_wasm_free: (ptr: number, len: number) => void;
-	pancake_wasm_abi_layout: (out: number, cap: number) => number;
-	pancake_wasm_behavior_trampoline_addr: () => number;
-	pancake_wasm_hosted_free_trampoline_addr: () => number;
+	glowcap_wasm_alloc: (len: number) => number;
+	glowcap_wasm_free: (ptr: number, len: number) => void;
+	glowcap_wasm_abi_layout: (out: number, cap: number) => number;
+	glowcap_wasm_behavior_trampoline_addr: () => number;
+	glowcap_wasm_hosted_free_trampoline_addr: () => number;
 } & Record<string, CallableFunction>;
 
 /** How a dial's host:port maps to the WebSocket URL that carries its bytes.
@@ -106,7 +106,7 @@ export function makeWebAdapter(
 		const keep: Slot[] = [];
 		for (const slot of slots) {
 			if (slot.epoch <= epoch - 2) {
-				if (slot.ptr !== 0) exports.pancake_wasm_free(slot.ptr, slot.len);
+				if (slot.ptr !== 0) exports.glowcap_wasm_free(slot.ptr, slot.len);
 				const source = memoOf.get(slot);
 				if (source !== undefined) {
 					memo.delete(source);
@@ -133,10 +133,10 @@ export function makeWebAdapter(
 		if (buf.length === 0) {
 			slot = { ptr: 0, len: 0, epoch };
 		} else {
-			const ptr = exports.pancake_wasm_alloc(buf.length) >>> 0;
+			const ptr = exports.glowcap_wasm_alloc(buf.length) >>> 0;
 			if (ptr === 0) {
 				throw new Error(
-					`pancake wasm: linear-memory allocation failed for ${buf.length} bytes ` +
+					`glowcap wasm: linear-memory allocation failed for ${buf.length} bytes ` +
 						`(${slots.length} staged allocations, ${exports.memory.buffer.byteLength} bytes of linear memory)`,
 				);
 			}
@@ -234,8 +234,8 @@ export function makeWebAdapter(
 		const fn = exports[name];
 		if (typeof fn !== "function") {
 			throw new Error(
-				`pancake wasm module exports no "${name}": only the ocapn and driver ` +
-					"families live in pancake_host.wasm (the transport archives are native-only)",
+				`glowcap wasm module exports no "${name}": only the ocapn and driver ` +
+					"families live in glowcap_host.wasm (the transport archives are native-only)",
 			);
 		}
 		return (...args: unknown[]) => {
@@ -296,7 +296,7 @@ export function makeWebAdapter(
 			if (isBehavior) {
 				behaviorTrampoline = fn;
 				return {
-					pointer: BigInt(exports.pancake_wasm_behavior_trampoline_addr() >>> 0),
+					pointer: BigInt(exports.glowcap_wasm_behavior_trampoline_addr() >>> 0),
 					close() {
 						behaviorTrampoline = null;
 					},
@@ -307,14 +307,14 @@ export function makeWebAdapter(
 			if (isHostedFree) {
 				hostedFreeTrampoline = fn;
 				return {
-					pointer: BigInt(exports.pancake_wasm_hosted_free_trampoline_addr() >>> 0),
+					pointer: BigInt(exports.glowcap_wasm_hosted_free_trampoline_addr() >>> 0),
 					close() {
 						hostedFreeTrampoline = null;
 					},
 				};
 			}
 			throw new Error(
-				"pancake wasm: callbacks are limited to hosted behavior and lifecycle " +
+				"glowcap wasm: callbacks are limited to hosted behavior and lifecycle " +
 					"trampolines (custom-allocator contexts are dlopen-only)",
 			);
 		},

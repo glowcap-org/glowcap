@@ -10,8 +10,8 @@
 // posted, the topic, the upload that will carry a file. There are no ranks to
 // check because there is nothing to check them against.
 
-import { currentSession, Ref } from "@pancake/runtime";
-import type { Argument, Behavior, Session } from "@pancake/runtime";
+import { currentSession, Ref } from "@glowcap/runtime";
+import type { Argument, Behavior, Session } from "@glowcap/runtime";
 import {
 	AWAY,
 	CALLED,

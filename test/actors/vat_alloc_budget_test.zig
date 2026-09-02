@@ -7,11 +7,11 @@
 //! block. A regression in *either* direction fails.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;

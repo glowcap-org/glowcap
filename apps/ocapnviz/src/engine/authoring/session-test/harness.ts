@@ -28,7 +28,7 @@ export function buildDoc(): TimelineDocument {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "p2",
@@ -65,7 +65,7 @@ export function looseDoc(): TimelineDocument {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "p2",

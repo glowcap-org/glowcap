@@ -171,8 +171,8 @@
   (define m (session-host c))
   (with-host-drain m
     (lambda ()
-      (check/host (pancake_host_ref_release
-                   (host-ptr m) (make-PancakeReference (ref-id capability)) 1))
+      (check/host (glowcap_host_ref_release
+                   (host-ptr m) (make-GlowcapReference (ref-id capability)) 1))
       (drain-host-actions! m)))
   (define token (hash-ref ref-gc-tokens capability #f))
   (when token (set-box! token #f))
@@ -246,11 +246,11 @@
               (case (car release)
                 [(ref)
                  (check/host
-                  (pancake_host_ref_release
-                   (host-ptr m) (make-PancakeReference (cdr release)) 1))]
+                  (glowcap_host_ref_release
+                   (host-ptr m) (make-GlowcapReference (cdr release)) 1))]
                 [(vow)
                  (hash-remove! (host-vows m) (cdr release))
-                 (check/host (pancake_host_vow_release (host-ptr m) (cdr release)))]
+                 (check/host (glowcap_host_vow_release (host-ptr m) (cdr release)))]
                 [else (error 'drain-host-gc! "unknown release kind: ~a" (car release))])))
            (drain-host-actions! m)]))
       #:allow-released? #t)))

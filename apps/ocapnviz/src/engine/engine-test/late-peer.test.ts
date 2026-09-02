@@ -26,7 +26,7 @@ const latePeerDoc = () =>
 				t: 5_000,
 				kind: "peer-joined",
 				peerId: "late",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 		],
 	});
@@ -73,7 +73,7 @@ engineTest(
 					t: 0,
 					kind: "peer-joined",
 					peerId: "a",
-					profile: "pancake",
+					profile: "glowcap",
 				},
 				{
 					id: "j2",
@@ -129,7 +129,7 @@ function bornOpenDoc() {
 				t: 0,
 				kind: "peer-joined",
 				peerId: "a",
-				profile: "pancake",
+				profile: "glowcap",
 			},
 			{
 				id: "j2",
@@ -339,7 +339,7 @@ engineTest(
 					t: 1_000,
 					kind: "peer-joined",
 					peerId: "p",
-					profile: "pancake",
+					profile: "glowcap",
 				},
 			],
 		}));
@@ -363,7 +363,7 @@ engineTest(
 					t: 0,
 					kind: "peer-joined",
 					peerId: "a",
-					profile: "pancake",
+					profile: "glowcap",
 				},
 				{
 					id: "j2",

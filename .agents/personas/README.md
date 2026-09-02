@@ -1,4 +1,4 @@
-# pancake — Agent Personas
+# glowcap — Agent Personas
 
 Anonymous taste lenses for subagent reviews and rooms-team members. Catalog:
 [`.agents/README.md` Personas](../README.md#personas).

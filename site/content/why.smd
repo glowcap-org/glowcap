@@ -6,7 +6,7 @@
 .draft = false,
 ---
 
-pancake speaks [OCapN](https://github.com/ocapn/ocapn). If you know what a bearer
+glowcap speaks [OCapN](https://github.com/ocapn/ocapn). If you know what a bearer
 token is, this page has the background it assumes.
 
 # How today's protocols authorize
@@ -335,7 +335,7 @@ OCapN is the standard that grew out of CapTP: one message model over a choice
 of wire encodings and transports, so the same references travel over encrypted
 QUIC, a sealed TCP stream, or a browser DataChannel. Calls return promises you can keep calling
 through, which lets a chain of dependent calls cross the network once instead
-of once per call. pancake checks its outside interoperability against
+of once per call. glowcap checks its outside interoperability against
 [Spritely Goblins](https://spritely.institute/goblins/) on signed CapTP 1.0
 over Syrup.
 
@@ -349,10 +349,10 @@ you a direct reference to that member, and the room leaves the path.
   locators and sturdyrefs, pipelining on the wire, the handoff stages, and
   dialect negotiation.
 - The [CapTP CLI]($link.page('cli')) ships a REPL with a guided mode: run
-  `pancake repl`, then type `guide`, and it walks these ideas against a live
+  `glowcap repl`, then type `guide`, and it walks these ideas against a live
   session while you type the verbs.
 - [Start building]($link.page('start')) is the client, line by line, in Zig,
   C, and every binding.
 - The glossary in
-  [capabilities](https://github.com/jimisaacs/pancake/blob/main/docs/capabilities.md)
+  [capabilities](https://github.com/jimisaacs/glowcap/blob/main/docs/capabilities.md)
   gives every term on this page a one-line definition.

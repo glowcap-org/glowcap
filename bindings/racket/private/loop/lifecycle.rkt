@@ -19,7 +19,7 @@
 ;; projection remain live. The driver/core decide every transition and
 ;; outcome; this binding supplies execution and observes completion.
 (define (begin-loop-close! lp options)
-  (check/driver (pancake_driver_close (driver-loop-handle lp) options)))
+  (check/driver (glowcap_driver_close (driver-loop-handle lp) options)))
 
 ;; The wait is event-driven, the same shape as the byte-fed
 ;; `drive-host-close!`: snapshot the host progress event before stepping,
@@ -41,7 +41,7 @@
        (lambda ()
          (define effects (loop-drain! m lp))
          (define-values (rc lifecycle)
-           (pancake_driver_lifecycle_state (driver-loop-handle lp)))
+           (glowcap_driver_lifecycle_state (driver-loop-handle lp)))
          (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/driver rc))
          (set! close-code rc)
          (set! state lifecycle)
@@ -60,7 +60,7 @@
 ;; function only supplies steps and observes the native result beforehand.
 (define (begin-loop-session-close! lp c options)
   (check/driver
-   (pancake_driver_session_close
+   (glowcap_driver_session_close
     (driver-loop-handle lp) (session-ptr c) options)))
 
 (define (await-loop-session-close! lp c)
@@ -83,7 +83,7 @@
            ;; be consulted again.
            (unless (session-released? c)
              (define-values (rc lifecycle)
-               (pancake_driver_session_lifecycle_state
+               (glowcap_driver_session_lifecycle_state
                 (driver-loop-handle lp) (session-ptr c)))
              (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/driver rc))
              (when (lifecycle-closed? lifecycle)
@@ -128,7 +128,7 @@
       [else (void)])))
 
 ;; The native teardown the Host release worker runs in place of
-;; `pancake_host_release`, under the host lock, after the sessions closed:
+;; `glowcap_host_release`, under the host lock, after the sessions closed:
 ;; release the loop (which frees the wrapped host), then the sidecar
 ;; endpoint it retained, in that order so no resident call runs against a
 ;; freed endpoint. The close procedure was captured at adoption, so this
@@ -140,7 +140,7 @@
      (define-values (code failure)
        (call/driver-failure
         'driver-release
-        (lambda (out) (pancake_driver_release (driver-loop-handle lp) out))))
+        (lambda (out) (glowcap_driver_release (driver-loop-handle lp) out))))
      (when (release-consumed? code)
        (set-box! (driver-loop-state lp) 'released)
        (for ([listener (in-hash-values (driver-loop-listeners lp))])

@@ -13,13 +13,13 @@ The machine-readable contract is
 
 Every binding uses the same order:
 
-1. `PANCAKE_LIB_DIR`, when set;
+1. `GLOWCAP_LIB_DIR`, when set;
 2. the versioned download cache;
 3. `zig-out/lib` when running from a checkout;
 4. the operating system's library search on Unix.
 
 Windows does not use a bare DLL name because its search order can load a
-library from an unintended directory. Use `PANCAKE_LIB_DIR` or a populated
+library from an unintended directory. Use `GLOWCAP_LIB_DIR` or a populated
 cache there.
 
 Rust resolves its static libraries at build time. TypeScript, Python, and
@@ -29,19 +29,19 @@ library in both cases.
 ### Download behavior
 
 `releases_published` in `c-abi-resolve.json` is currently false. A cold cache
-therefore does not contact the network unless `PANCAKE_DOWNLOAD=1` is set.
-After releases are enabled, `PANCAKE_SKIP_DOWNLOAD=1` disables fetching.
+therefore does not contact the network unless `GLOWCAP_DOWNLOAD=1` is set.
+After releases are enabled, `GLOWCAP_SKIP_DOWNLOAD=1` disables fetching.
 
 Downloads require HTTPS and a matching entry in `SHA256SUMS`. Extraction
 accepts regular files under `lib/` only; links and path traversal are refused.
-`PANCAKE_STRICT=1` turns a network or tool failure into a hard error instead of
+`GLOWCAP_STRICT=1` turns a network or tool failure into a hard error instead of
 continuing to the local fallbacks.
 
-`PANCAKE_RELEASE_BASE_URL` points at a different release host.
-`PANCAKE_ALLOW_INSECURE=1` permits HTTP for a controlled test mirror; normal
+`GLOWCAP_RELEASE_BASE_URL` points at a different release host.
+`GLOWCAP_ALLOW_INSECURE=1` permits HTTP for a controlled test mirror; normal
 loads reject it.
 
-The cache root is chosen from `PANCAKE_CACHE_DIR`, then `XDG_CACHE_HOME`, then
+The cache root is chosen from `GLOWCAP_CACHE_DIR`, then `XDG_CACHE_HOME`, then
 the platform's user cache directory. The ABI version and normalized target
 select the directory underneath it.
 
@@ -52,7 +52,7 @@ Rust begins with `CARGO_CFG_TARGET_ARCH` and `CARGO_CFG_TARGET_OS`; the other
 bindings normalize common aliases such as `amd64`, `arm64`, and `darwin`.
 
 Linux and macOS are the current packaging targets. Windows needs
-`PANCAKE_LIB_DIR` or an in-tree build until its runtime and release path exist.
+`GLOWCAP_LIB_DIR` or an in-tree build until its runtime and release path exist.
 
 ## Building release archives
 
@@ -76,7 +76,7 @@ files. The extracted smoke compares that disclosure byte for byte against the
 source tree. The tarballs contain regular files rather than library symlinks.
 
 The optional native relay archive is self-contained: its pinned, namespaced
-Mbed TLS client is linked privately into `libpancake_net_transport_relay` and
+Mbed TLS client is linked privately into `libglowcap_net_transport_relay` and
 is not a second runtime library for a binding to discover or distribute.
 Packages that omit the relay archive acquire no TLS artifact or dependency.
 
@@ -93,7 +93,7 @@ change it until the corresponding assets can be downloaded and verified.
    target.
 2. Push the release commit and require its exact SHA to complete `check.yml`
    successfully, including both the `check.yml` jobs and macOS runtime jobs.
-3. Tag `v{abi_version}`, matching `include/pancake_ocapn.h`. The release
+3. Tag `v{abi_version}`, matching `include/glowcap_ocapn.h`. The release
    workflow independently queries the successful exact-SHA check before it
    builds archives.
 4. Push the tag and confirm the release workflow publishes the tarballs and
@@ -106,7 +106,7 @@ change it until the corresponding assets can be downloaded and verified.
 7. Push that consumer-enablement commit and require `check.yml` to pass for its
    exact SHA.
 8. Test a cold-cache install against the live release URL without
-   `PANCAKE_DOWNLOAD=1`.
+   `GLOWCAP_DOWNLOAD=1`.
 
-Before that switch, `PANCAKE_DOWNLOAD=1` can rehearse the download path against
+Before that switch, `GLOWCAP_DOWNLOAD=1` can rehearse the download path against
 staged assets.

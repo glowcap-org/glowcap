@@ -1,8 +1,8 @@
-# Learn pancake by example
+# Learn glowcap by example
 
 Numbered chapters teach the API, starting at 01 over a local TCP socket so
 the session operations stay visible. The rooms app and
-[Start building](https://jimisaacs.github.io/pancake/start/) are the first look:
+[Start building](https://jimisaacs.github.io/glowcap/start/) are the first look:
 encrypted peers and a complete program. Every chapter and helper is a runnable
 build target:
 
@@ -36,7 +36,7 @@ These programs use the same small API from several languages:
 | [Rooms](../apps/rooms/) | A chat server hands clients room and inbox capabilities. Zig, Rust, TypeScript, Python, and Racket clients exchange broadcasts. The browser UI is `zig build rooms-web`. | `zig build demo-rooms` |
 | [Tasks](../apps/tasks/) | A shared task board combines request-response calls, structured values, and change notifications. | `zig build demo-tasks` |
 | [Tools](../apps/tools/) | A coordinator grants agents tool capabilities, narrows them to read-only use, and revokes them. | `zig build demo-tools` |
-| [Accountability](../apps/accountability-on-pancake/) | Signed identity and an audit log sit above an ordinary capability call. | `zig build demo-accountability` |
+| [Accountability](../apps/accountability-on-glowcap/) | Signed identity and an audit log sit above an ordinary capability call. | `zig build demo-accountability` |
 
 The demos start their own server on an available port. Pass `-Dport=9099` to
 choose one. Rooms, tasks, and tools also accept `-Dattach=true` when you want
@@ -63,9 +63,9 @@ README has its standalone commands.
 ## C examples
 
 - [`host_embedder_pump.c`](c/host_embedder_pump.c) drives the sole C CapTP
-  application surface, `PancakeHost`, through a complete in-memory conversation:
+  application surface, `GlowcapHost`, through a complete in-memory conversation:
   feed, drain, refusal, and break-far-vows, as language bindings do.
-- [`frame_view.c`](c/frame_view.c) shows a borrowed `PancakeFrame` over caller
+- [`frame_view.c`](c/frame_view.c) shows a borrowed `GlowcapFrame` over caller
   bytes. Owned frames come from `take_outbound` in the host example.
 
 The [C guide](../docs/consuming-from-c.md) explains which API and libraries to

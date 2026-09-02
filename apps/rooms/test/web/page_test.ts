@@ -1,6 +1,6 @@
 // The rooms web page as a real browser peer, end to end. A headless Chromium
 // loads the ACTUAL page serve.ts serves — the
-// bundled `@pancake/web` graph, `pancake_host.wasm`, and the UI — joins a
+// bundled `@glowcap/web` graph, `glowcap_host.wasm`, and the UI — joins a
 // room, sends a line, and sees the room echo it back. Every hop is the shipped
 // path: the page's wasm Host holds the room capability, dials the room server
 // through serve.ts's `/relay`, and drives `lib/room/client.ts` directly. No JSON
@@ -45,7 +45,7 @@ const httpPort = freePort();
 // read what the server printed. The state directory is this test's to remove.
 // The viz port is fixed so `/viz` can answer it, which is how the page's
 // take of the viz capability finds the endpoint to present the swiss to.
-const opsState = await Deno.makeTempDir({ prefix: "pancake-rooms-page-ops-" });
+const opsState = await Deno.makeTempDir({ prefix: "glowcap-rooms-page-ops-" });
 const vizPort = freePort();
 const roomPort = freePort();
 const foreignRoomPort = freePort();
@@ -96,15 +96,15 @@ spawnOwned("deno", {
 	],
 	cwd: ROOT,
 	env: {
-		PANCAKE_RELAY_TCP_PEERS: `127.0.0.1:${foreignRoomPort},127.0.0.1:${hangPort}`,
-		PANCAKE_ROOMS_STATE: opsState,
-		PANCAKE_ROOMS_DIAGNOSTICS: "1",
-		PANCAKE_ROOMS_ADMIN_LISTENERS: "1",
-		PANCAKE_ROOMS_OPERATOR: "1",
-		PANCAKE_ROOMS_PEERING: "1",
-		PANCAKE_ROOMS_VIZ: "1",
-		PANCAKE_ROOMS_IRC: "1",
-		PANCAKE_ROOMS_VIZ_PORT: String(vizPort),
+		GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${foreignRoomPort},127.0.0.1:${hangPort}`,
+		GLOWCAP_ROOMS_STATE: opsState,
+		GLOWCAP_ROOMS_DIAGNOSTICS: "1",
+		GLOWCAP_ROOMS_ADMIN_LISTENERS: "1",
+		GLOWCAP_ROOMS_OPERATOR: "1",
+		GLOWCAP_ROOMS_PEERING: "1",
+		GLOWCAP_ROOMS_VIZ: "1",
+		GLOWCAP_ROOMS_IRC: "1",
+		GLOWCAP_ROOMS_VIZ_PORT: String(vizPort),
 	},
 	stdout: "piped",
 	stderr: "inherit",

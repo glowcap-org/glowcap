@@ -21,8 +21,8 @@
 
 use std::rc::Rc;
 
-use pancake_rust_dogfood::iroh::Reachability;
-use pancake_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::iroh::Reachability;
+use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -57,7 +57,7 @@ async fn run() -> Result<(), Fail> {
 	);
 
 	// ── Client: dial by node id ALONE — empty hints — over real n0 discovery ──────
-	let locator = pancake_rust_dogfood::iroh::locator(&server_id, None);
+	let locator = glowcap_rust_dogfood::iroh::locator(&server_id, None);
 	let runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
 		Reachability::Discovery,
 	))]))
@@ -91,7 +91,7 @@ async fn run() -> Result<(), Fail> {
 // Serve every connection the server accepts for the life of the run: the loop
 // holds its own `Rc` to the server and parks on `accept().await`, so it is
 // cancelled with the enclosing `LocalSet` rather than awaited.
-fn accept_loop(server: Rc<pancake_rust_dogfood::iroh::Server>) {
+fn accept_loop(server: Rc<glowcap_rust_dogfood::iroh::Server>) {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
 		while let Ok(session) = server.accept().await {

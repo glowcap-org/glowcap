@@ -58,10 +58,11 @@ pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 /// weighing the bytes, never to route around the gate.
 ///
 /// The assertion below is an equality, not a ceiling, and that is deliberate.
-/// As a ceiling it said only "128 or less", so the overhead grew to exactly 128
-/// while both this comment and the ladder went on claiming a measured 112 with
-/// a word of headroom — a stale figure no build could catch, in the two places
-/// an agent goes to find out whether a new field is affordable. An equality
+/// As a ceiling it said only "this much or less", so the overhead once grew to
+/// the ceiling while both this comment and the ladder went on claiming a
+/// smaller measured figure with a word of headroom — a stale figure no build
+/// could catch, in the two places an agent goes to find out whether a new
+/// field is affordable. An equality
 /// makes the constant the measurement: any change to `Conn` fails the build and
 /// is answered by moving the number here and in the ladder together, which is
 /// the process this comment already described and nothing enforced. It holds
@@ -69,11 +70,18 @@ pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 /// iroh alike, so `Conn` carries no backend-dependent width.
 ///
 /// It exists to stop a field being *added* unnoticed, not to invite shaving
-/// bytes off it. For scale: 128 bytes is 64 MB at 500k connections, against the
+/// bytes off it. For scale: 144 bytes is 72 MB at 500k connections, against the
 /// roughly 16 GiB of steady outbound queue the same connections carry
-/// (`docs/ladder.md` step 2). Three unavoidable slice headers make up 72 of the
-/// 128, so the whole available saving is noise against the queues.
-pub const conn_slot_overhead_bytes: usize = 128;
+/// (`docs/ladder.md` step 2). The two list headers and the spill header make up
+/// 88 of the 144, so the whole available saving is noise against the queues.
+///
+/// Like every footprint number in the ladder, this is the runtime-safety
+/// measurement: each of the two outbound `std.ArrayList` headers carries std's
+/// one-byte `pointer_stability` lock, padded to a word, in Debug and
+/// ReleaseSafe. ReleaseFast and ReleaseSmall make that lock zero-sized, and
+/// nothing else in `Conn` moves with the mode, so the assertion below takes
+/// those two words back in a fast build rather than holding a second number.
+pub const conn_slot_overhead_bytes: usize = 144;
 
 /// How recv-completion consumption ended, decided by `onRecvConsume` while
 /// the completion's pool buffer is still borrowed and acted on by
@@ -211,7 +219,8 @@ pub fn Types(comptime Backend: type) type {
         };
 
         comptime {
-            std.debug.assert(@sizeOf(Conn) - @sizeOf(engine.Peer) == conn_slot_overhead_bytes);
+            const fast_mode_discount: usize = if (std.debug.runtime_safety) 0 else 2 * @sizeOf(usize);
+            std.debug.assert(@sizeOf(Conn) - @sizeOf(engine.Peer) == conn_slot_overhead_bytes - fast_mode_discount);
             std.debug.assert(@alignOf(Conn) == @alignOf(engine.Peer));
         }
     };

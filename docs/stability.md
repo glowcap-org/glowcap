@@ -1,6 +1,6 @@
 # What you can depend on
 
-pancake has no stable release yet. The table below records the evidence
+glowcap has no stable release yet. The table below records the evidence
 available for each area, whether it crosses into code maintained outside this
 repository, and what it leaves open. Some checks run on every main or dev push
 and pull request; others need external runtimes or network access and run on
@@ -13,30 +13,30 @@ change a deployment, read [known limitations](boundaries.md).
 
 | Area | Evidence | What remains |
 | --- | --- | --- |
-| Protocol core | The upstream OCapN suite and a live Goblins peer exercise V1.0 model, session, engine, calls, promises, and all three handoff roles. In-tree scenarios exercise the next-profile promise-listen behavior (OCapN PR 282) in `pancake-next`. | No outside peer exercises the next profile; community review lists the other exact gaps. |
+| Protocol core | The upstream OCapN suite and a live Goblins peer exercise V1.0 model, session, engine, calls, promises, and all three handoff roles. In-tree scenarios exercise the next-profile promise-listen behavior (OCapN PR 282) in `glowcap-next`. | No outside peer exercises the next profile; community review lists the other exact gaps. |
 | Syrup | Fixtures are regenerated with upstream Syrup encoders and compared byte for byte. | None known in the supported message set. |
-| Cap'n Proto | In-tree golden frames and cross-codec tests run under `zig build check`. | No outside Cap'n Proto implementation reads pancake's hand-written format. |
-| `tcp` | Live Goblins interoperability runs over pancake's cleartext TCP adapter. The upstream OCapN suite uses its own `tcp-testing-only` transport. | Goblins ships onion rather than TCP. The channel is cleartext and the peer proves no identity. |
-| `iroh` | `iroh-interop` and relay checks use real iroh endpoints and its QUIC stack. The on-demand `goblins-iroh` check reaches a Goblins vat through pancake's adapter. | Two-NAT hole-punching is not in CI. Goblins ships no iroh netlayer, and `goblins-iroh` requires Cargo and Racket. |
+| Cap'n Proto | In-tree golden frames and cross-codec tests run under `zig build check`. | No outside Cap'n Proto implementation reads glowcap's hand-written format. |
+| `tcp` | Live Goblins interoperability runs over glowcap's cleartext TCP adapter. The upstream OCapN suite uses its own `tcp-testing-only` transport. | Goblins ships onion rather than TCP. The channel is cleartext and the peer proves no identity. |
+| `iroh` | `iroh-interop` and relay checks use real iroh endpoints and its QUIC stack. The on-demand `goblins-iroh` check reaches a Goblins vat through glowcap's adapter. | Two-NAT hole-punching is not in CI. Goblins ships no iroh netlayer, and `goblins-iroh` requires Cargo and Racket. |
 | `keyed-tcp` and `inproc` | In-tree restart, refusal, and end-to-end netlayer tests run under `check`. | No outside peer speaks these transport symbols; `inproc` is test-only. |
-| `noise-tcp` | In-tree sealed-channel and netlayer tests run under `check`. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. | No outside CapTP peer speaks Noise; this is pancake-to-pancake. `BlockingSession` cannot apply the sealed-channel protocol. |
+| `noise-tcp` | In-tree sealed-channel and netlayer tests run under `check`. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. | No outside CapTP peer speaks Noise; this is glowcap-to-glowcap. `BlockingSession` cannot apply the sealed-channel protocol. |
 | `keyed-relay` | In-tree netlayer tests run under `check`. On-demand rendezvous checks (`bindings-keyed-relay-rendezvous`, `zig-keyed-relay-register`) cold-dial a registered, non-listening peer through the reference relay. | Those checks need Deno and are not in the recurring list. The channel is cleartext and unauthenticated. |
 | `noise-relay` | In-tree tests keep CapTP plaintext off the relay. Recurring checks cover hostname and unknown-CA refusal from every native binding, real local certificate chains, and a Chromium Wasm peer over local WSS. | No outside CapTP peer speaks this profile. Public-certificate and non-Linux evidence remain open. |
-| `onion` | Fake-daemon tests drive the blocking resident, provider lifecycle, native completion loop, and every native binding. Live checks cover two pancake peers, both Goblins directions, the portable upstream suite plus the strict abort probe, fresh-process service restoration, and Rooms with two independent clients. | Live Tor checks need Tor and outbound network, so they run on demand. No live scale run is recorded. |
+| `onion` | Fake-daemon tests drive the blocking resident, provider lifecycle, native completion loop, and every native binding. Live checks cover two glowcap peers, both Goblins directions, the portable upstream suite plus the strict abort probe, fresh-process service restoration, and Rooms with two independent clients. | Live Tor checks need Tor and outbound network, so they run on demand. No live scale run is recorded. |
 | `webrtc` | Rust sidecar tests cover inbound backpressure, partial writes, oversized-message refusal, retained capacity, runtime teardown, readiness coalescing, and exactly-once terminal publication. | Native DataChannel, browser, and signaling-mesh checks run on demand. `webrtc-loop` and `webrtc-bridge-redeem` exercise Host adoption and three-party redemption and require Cargo. |
 | C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. `release-pack` also safely extracts its tarball off-tree, then compiles and runs an independent C consumer for each self-contained static archive and one across the packaged shared libraries. | The independent consumers prove packaging, linkage, version, and archive identity; behavioral interoperability still runs through the bindings rather than an external C implementation. |
 | Rust, Deno, Python, and Racket bindings | Each binding holds a live Goblins session as a client, accepts one as a listener, and exercises both handoff roles. The listener matrix requires Goblins to enliven and call a Host-wide actor and checks the exact reply. | Bun cannot host the native listener loop. |
 | TypeScript on Bun | The `bun-dogfood` consumer check covers Host identity and lifetime, locator and sturdyref ABI calls, and fail-closed native-loop admission. | Bun's synchronous FFI cannot host the native driver or blocking transport lifecycles. No Bun-native Goblins check runs. |
-| Native Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are pancake-native APIs with no outside implementation to compare. |
-| Distributed GC | A live Goblins peer sends `op:gc-exports`; in-tree tests cover outbound release and `op:gc-answers`. | No live peer observes pancake's outbound GC or binding finalizers. |
+| Native Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are glowcap-native APIs with no outside implementation to compare. |
+| Distributed GC | A live Goblins peer sends `op:gc-exports`; in-tree tests cover outbound release and `op:gc-answers`. | No live peer observes glowcap's outbound GC or binding finalizers. |
 | Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The Goblins interoperability check does not run through the Python, Rust, or Racket relays. |
-| Rooms | The recurring `goblins-rooms` scenario puts a real Goblins vat and a pancake member in one room and proves their independently settled wire profiles. `goblins-rooms-irc` composes that outside implementation with both shipped IRC edges. In-tree checks cover room authority, operator revocation, the bounded browser state bundle, archives, and a durable session peer with two attached OCapN clients, room events, interaction, revocation, restart, and unresolved-effect custody. | The complete browser page, browser direct messages, and the four-peer iroh matrix remain on demand because they require Chromium or the iroh sidecar. |
+| Rooms | The recurring `goblins-rooms` scenario puts a real Goblins vat and a glowcap member in one room and proves their independently settled wire profiles. `goblins-rooms-irc` composes that outside implementation with both shipped IRC edges. In-tree checks cover room authority, operator revocation, the bounded browser state bundle, archives, and a durable session peer with two attached OCapN clients, room events, interaction, revocation, restart, and unresolved-effect custody. | The complete browser page, browser direct messages, and the four-peer iroh matrix remain on demand because they require Chromium or the iroh sidecar. |
 | CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
 | Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. The recurring `web-peer-test` drives a Chromium Wasm peer and proves native-to-browser Noise rendezvous over local WSS; on demand, `ocapnviz-live-browser` drives the production visualizer bundle as an OCapN peer. | WebRTC and public-certificate WSS scenarios remain on-demand or unsupported as named above. |
 | Linux | The full CI sequence runs on Linux. | No claim is made for untested kernel or architecture combinations. |
 | macOS | Recurring `zig build test` executes the native suite, including the host-selected kqueue path, on a macOS runner. | `zig build check` and the external-runtime matrix remain Linux-only. |
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
-| Hostile-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The recurring fuzz budget is shallow, and most assertions are written by pancake. |
+| Hostile-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The recurring fuzz budget is shallow, and most assertions are written by glowcap. |
 
 External evidence applies only to the boundary it crosses. A live iroh
 endpoint checks the transport stack, not agreement with another CapTP
@@ -46,7 +46,7 @@ stability. The table keeps those claims separate.
 [Community review](community-review.md) is the detailed outside-peer matrix.
 
 The evidence is current only when the
-[checks workflow](https://github.com/jimisaacs/pancake/actions/workflows/check.yml)
+[checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
 is green for the commit you are evaluating. No row freezes an API or ABI, and
 none is a security review.
 

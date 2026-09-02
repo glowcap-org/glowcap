@@ -1,7 +1,7 @@
 #lang racket/base
-;; Goblins half of the S5 snapshot benchmark — the counterpart to pancake's
+;; Goblins half of the S5 snapshot benchmark — the counterpart to glowcap's
 ;; `bench/snapshot_bench.zig`. It measures Goblins' local time-travel natively
-;; (Racket), to sit beside pancake's native (Zig) numbers. Because that is
+;; (Racket), to sit beside glowcap's native (Zig) numbers. Because that is
 ;; native-Racket vs native-Zig, compare the *shape* of each cost and the
 ;; *algorithmic tradeoff*, not the absolute nanoseconds. Every number is a
 ;; median over repeated warmed samples.
@@ -12,14 +12,14 @@
 ;;     the bytes an object holds.
 ;;   - restore: `hasheq->whactormap` rebuilds a live actormap from a snapshot after
 ;;     every actor has diverged. The diverged behaviors are reclaimed by Goblins'
-;;     GC, not freed in the timed window (pancake frees them eagerly instead).
+;;     GC, not freed in the timed window (glowcap frees them eagerly instead).
 ;;   - divergence: with a snapshot outstanding, `become` (`bcom`) an actor holding
 ;;     an N-entry immutable hash to a path-copied version — O(log N), the shape
-;;     pancake's persistent actors mirror.
+;;     glowcap's persistent actors mirror.
 ;;
 ;; Measured natively rather than through the shared wire suite because
 ;; snapshot/restore is a local actormap operation, not an OCapN conversation, and
-;; pancake does not project it over the C ABI the Racket binding drives. Run it:
+;; glowcap does not project it over the C ABI the Racket binding drives. Run it:
 ;;
 ;;   racket bench/goblins/snapshot.rkt            # full sweep
 ;;   racket bench/goblins/snapshot.rkt --smoke    # tiny counts
@@ -31,7 +31,7 @@
 
 ;; An opaque M-byte actor for the snapshot/restore axes. Goblins behaviors are
 ;; immutable, so isolating a snapshot from a mutation means `become`-ing a fresh
-;; bytevector, the O(M) shape pancake's mutable copy-on-write also pays.
+;; bytevector, the O(M) shape glowcap's mutable copy-on-write also pays.
 (define (^blob bcom data)
   (lambda (method . args)
     (case method

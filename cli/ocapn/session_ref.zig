@@ -1,10 +1,10 @@
 //! One CLI verb's borrowed-or-owned session view.
 
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const exit_codes = @import("../exit_codes.zig");
 
-const driver = pancake.driver;
-const FailureChain = pancake.foundation.FailureChain;
+const driver = glowcap.driver;
+const FailureChain = glowcap.foundation.FailureChain;
 
 const close_grace_ms: u32 = 5_000;
 

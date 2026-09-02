@@ -1,9 +1,9 @@
 #lang racket/base
 ;; The Goblins reference client for the per-language consumer-cost bench. This is
-;; the row that is NOT a pancake binding: it is Spritely Goblins, the reference
-;; CapTP implementation in Racket, dialing the pancake host as an ordinary OCapN
+;; the row that is NOT a glowcap binding: it is Spritely Goblins, the reference
+;; CapTP implementation in Racket, dialing the glowcap host as an ordinary OCapN
 ;; peer. It owns its own vat and TCP netlayer per connection (the same shape one
-;; pancake connection has), enlivens the host's published root, and drives the
+;; glowcap connection has), enlivens the host's published root, and drives the
 ;; taskboard unit with eventual-send and vat quiescence. It prints the shared
 ;; NDJSON schema (see bench/langs/contract.md) tagged "goblins-ref" so the reports
 ;; label it apart from the language rows.
@@ -28,7 +28,7 @@
 (define CLIENT "goblins-ref")
 (define RUNTIME "racket-cs/goblins")
 
-;; The pancake host publishes its board under the bootstrap swiss-num "root"
+;; The glowcap host publishes its board under the bootstrap swiss-num "root"
 ;; (`conn.publish("root", ...)` registers the literal bytes), so the Goblins peer
 ;; enlivens a sturdyref carrying exactly those bytes.
 (define ROOT-SWISS (string->bytes/latin-1 "root"))
@@ -36,7 +36,7 @@
 (define (now) (current-inexact-monotonic-milliseconds))
 
 ;; One client connection: its own vat, an ephemeral-port TCP netlayer, and a
-;; mycapn over it, a distinct CapTP session, the same shape one pancake
+;; mycapn over it, a distinct CapTP session, the same shape one glowcap
 ;; connection has. One settle channel reused across the (sequential) calls.
 (struct gconn (run mycapn ch))
 

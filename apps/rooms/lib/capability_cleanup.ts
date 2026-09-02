@@ -1,13 +1,13 @@
 // Capability cleanup outcomes shared by Rooms runtime owners.
 
-import { CLOSED } from "@pancake/abi";
-import { PancakeError } from "@pancake/runtime";
+import { CLOSED } from "@glowcap/abi";
+import { GlowcapError } from "@glowcap/runtime";
 
 /** A closed CapTP session has already reclaimed every reference it carried.
  * Later release or unwatch calls cannot do more cleanup and are successful for
  * ownership purposes; other failures still need to be surfaced. */
 export function cleanupSettledBySessionClose(error: unknown): boolean {
-	return error instanceof PancakeError && error.code === CLOSED;
+	return error instanceof GlowcapError && error.code === CLOSED;
 }
 
 /** Run a release whose final owner is the enclosing session. Session closure

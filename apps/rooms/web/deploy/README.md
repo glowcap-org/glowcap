@@ -8,7 +8,7 @@ repository.
 
 Build artifacts stay outside the image. The container mounts this repository
 and `zig-out/lib` read-only, then serves the prebuilt browser bundle and loads
-the pancake shared libraries at runtime.
+the glowcap shared libraries at runtime.
 
 This is the source distribution described in the Rooms
 [prerelease scope](../../README.md#prerelease-distribution), not a standalone
@@ -19,7 +19,7 @@ from that same checkout before recreating the containers.
 
 You need:
 
-- the pancake devcontainer, with Zig, Deno, and Cargo;
+- the glowcap devcontainer, with Zig, Deno, and Cargo;
 - Docker Compose.
 
 ## Run it
@@ -30,7 +30,7 @@ From the repository root, build everything the container mounts:
 zig build rooms-deploy-prep
 ```
 
-Create the external network shared with the pancake devcontainer if it does not
+Create the external network shared with the glowcap devcontainer if it does not
 already exist:
 
 ```sh
@@ -51,7 +51,7 @@ cp docker-compose.override.yml.example docker-compose.override.yml
 The example override publishes the page on this host's loopback. Its comments
 carry the other way in: joining the Docker network that a reverse proxy or
 tunnel container already runs on. That neighbor reaches
-`http://pancake-rooms:8000` over the network and needs no published port. A
+`http://glowcap-rooms:8000` over the network and needs no published port. A
 host may use either way, or both.
 
 `./up.sh` is the front door. It builds, recreates both containers, waits for
@@ -66,12 +66,12 @@ passed:
 ./compose.sh logs -f rooms
 ```
 
-Open `http://127.0.0.1:8000`. The `pancake-rooms` container serves the browser
+Open `http://127.0.0.1:8000`. The `glowcap-rooms` container serves the browser
 page, its same-origin `/relay` WebSocket, and `GET /locator`. The Compose port
 mapping names host loopback explicitly, so no other machine reaches this HTTP
 surface through a host LAN address. Reaching further than this machine is the
 separate, deliberate choice of attaching a site network above. Containers on
-`rooms-net` reach the same service as `http://pancake-rooms:8000` (or the
+`rooms-net` reach the same service as `http://glowcap-rooms:8000` (or the
 `rooms` service alias).
 
 The application still listens on port 8000 inside its container. Docker's port
@@ -96,7 +96,7 @@ service.
 
 ## Your shared workspace
 
-The `pancake-rooms-session` container owns one durable user workspace. Its
+The `glowcap-rooms-session` container owns one durable user workspace. Its
 identity, intended rooms and direct conversations, drafts, shared connection
 and retention choices, retained capabilities, and member-owned history live in
 the separate `rooms-session-state` volume. Restarting the stack republishes the
@@ -139,7 +139,7 @@ authority boundaries.
 
 ## Room history
 
-`PANCAKE_ROOMS_HISTORY: "1"` is on in `docker-compose.yml` (the same as
+`GLOWCAP_ROOMS_HISTORY: "1"` is on in `docker-compose.yml` (the same as
 starting with `--history`): each listed room keeps its last lines in the
 `rooms-state` volume, serving them to members who join later. Private rooms
 and direct messages never record server-side. Comment the line out to run
@@ -148,12 +148,12 @@ without retention.
 ## Operations capabilities
 
 Every operator capability is on in `docker-compose.yml`: inspect
-(`PANCAKE_ROOMS_DIAGNOSTICS`), listener administration
-(`PANCAKE_ROOMS_ADMIN_LISTENERS`), room-steward operation
-(`PANCAKE_ROOMS_OPERATOR`), directory peering
-(`PANCAKE_ROOMS_PEERING`), the live timeline (`PANCAKE_ROOMS_VIZ`, serving
-port 9300 unless `PANCAKE_ROOMS_VIZ_PORT` says otherwise), and the IRC
-gateway (`PANCAKE_ROOMS_IRC`). Each is the same as the matching `--flag` on a
+(`GLOWCAP_ROOMS_DIAGNOSTICS`), listener administration
+(`GLOWCAP_ROOMS_ADMIN_LISTENERS`), room-steward operation
+(`GLOWCAP_ROOMS_OPERATOR`), directory peering
+(`GLOWCAP_ROOMS_PEERING`), the live timeline (`GLOWCAP_ROOMS_VIZ`, serving
+port 9300 unless `GLOWCAP_ROOMS_VIZ_PORT` says otherwise), and the IRC
+gateway (`GLOWCAP_ROOMS_IRC`). Each is the same as the matching `--flag` on a
 local start; comment a line out to withhold that authority from the
 deployment. The viz endpoint requires its capability of every socket, so
 reaching the port neither reads the timeline nor writes traces into it.
@@ -163,6 +163,24 @@ reaching the port neither reads the timeline nor writes traces into it.
 shared session to become ready, and prints one handoff block containing the
 room's operator capabilities, room locator, and session administrator
 capability.
+
+A build that replaced a prerelease state schema refuses the files a volume
+holds from the previous one, says which schema wrote them, and keeps
+restarting until the operator resets. The session's durable files are one
+custody unit, so reset the whole volume rather than one file:
+
+```sh
+./compose.sh down
+docker volume ls --filter name=rooms-session-state   # shows the project-prefixed name
+docker volume rm <that name>
+./up.sh
+```
+
+The same applies to `rooms-state`. To start the whole deployment fresh,
+`./compose.sh down -v` removes every volume the stack declares, state and
+caches alike, and `./up.sh` rebuilds from nothing. Resetting the session
+volume mints a new session identity, so the page's shared session must be
+attached again from the new handoff block.
 
 Each capability's swiss number is minted once and persists in the
 `rooms-state` volume, so a restart republishes the same one. Three ways to
@@ -188,20 +206,20 @@ through the Session form described above.
 
 ## Connect a Rooms peer
 
-The pancake devcontainer shares `rooms-net` with the deployed app. From the
+The glowcap devcontainer shares `rooms-net` with the deployed app. From the
 repository root inside that container:
 
 ```sh
 zig build
 export PATH="$PWD/zig-out/bin:$PATH"
-pancake app rooms-peer start \
+glowcap app rooms-peer start \
   --nick Alice --dir /tmp/rooms-peer-alice --room general
 ```
 
-The peer fetches `http://pancake-rooms:8000/locator` by default, then dials the
+The peer fetches `http://glowcap-rooms:8000/locator` by default, then dials the
 returned iroh locator. The Docker service alias `rooms` works too.
 
-Run `pancake app rooms-peer --help` for the remaining peer commands. After a
+Run `glowcap app rooms-peer --help` for the remaining peer commands. After a
 Rooms server source change, rebuild the mounted artifacts inside the
 devcontainer:
 
@@ -217,7 +235,7 @@ apps/rooms/web/deploy/compose.sh restart rooms
 ```
 
 Browser-to-browser WebRTC uses the application's public STUN default. Set
-`PANCAKE_ROOMS_ICE_SERVERS` in Compose to a comma-separated STUN list, or to an
+`GLOWCAP_ROOMS_ICE_SERVERS` in Compose to a comma-separated STUN list, or to an
 empty string for host candidates only. The server validates the value at
 startup and serves that exact configuration to both browser halves.
 
@@ -227,9 +245,9 @@ username/password rows to browsers. Configure any HTTPS issuer that answers
 the bounded ICE-server credential document:
 
 ```sh
-export PANCAKE_ROOMS_TURN_CREDENTIALS_URL="https://turn.example/credentials"
-export PANCAKE_ROOMS_TURN_BEARER_TOKEN="<issuer bearer token>"
-export PANCAKE_ROOMS_TURN_TTL_SECONDS=86400
+export GLOWCAP_ROOMS_TURN_CREDENTIALS_URL="https://turn.example/credentials"
+export GLOWCAP_ROOMS_TURN_BEARER_TOKEN="<issuer bearer token>"
+export GLOWCAP_ROOMS_TURN_TTL_SECONDS=86400
 ./compose.sh up -d
 ```
 
@@ -244,11 +262,11 @@ channel; it is not Rooms' separately selectable Noise-sealed relay DM transport.
 
 The image contains Deno on the same pinned glibc-based Debian image used by the
 supported devcontainer. It contains no Zig or Rust toolchain. The iroh sidecar
-is already linked into `libpancake_net_transport_iroh.so`.
+is already linked into `libglowcap_net_transport_iroh.so`.
 
 `zig build rooms-deploy-prep` creates:
 
-- the pancake shared libraries;
+- the glowcap shared libraries;
 - the iroh transport library;
 - the WebAssembly Host loaded by the browser;
 - `apps/rooms/web/ui/bundle/`, the browser entry and its async chunks.
@@ -276,12 +294,12 @@ The bundle directory is generated and gitignored.
 ## Network and transport reference
 
 The base service joins one external Docker network, `rooms-net`, which connects
-the deployment to the pancake devcontainer. The ignored local override adds
+the deployment to the glowcap devcontainer. The ignored local override adds
 whatever else this host needs:
 
 - `127.0.0.1:8000` reaches the browser page and `/relay` from the Docker host.
 - A site network puts the page beside a reverse proxy or tunnel container, and
-  that neighbor reaches `http://pancake-rooms:8000` over it. An override adding
+  that neighbor reaches `http://glowcap-rooms:8000` over it. An override adding
   one must keep `rooms-net` in the same list, or terminal peers in the
   devcontainer lose the room.
 
@@ -289,13 +307,13 @@ The shared-session container also joins `rooms-net`, but publishes no host
 port: browser bytes reach its authenticated iroh identity through the Rooms
 page's existing opaque `/relay` path.
 
-The deployment defaults to `PANCAKE_ROOMS_REACHABILITY=discovery`. The room announces
+The deployment defaults to `GLOWCAP_ROOMS_REACHABILITY=discovery`. The room announces
 only its iroh node id; peers resolve it through n0 relay and DNS/pkarr
 infrastructure.
 
-For a self-contained same-host setup, set `PANCAKE_ROOMS_REACHABILITY=direct`. To run a
-TCP room instead, remove `--transport=iroh` and configure `PANCAKE_ROOMS_BIND` and
-`PANCAKE_ROOMS_ANNOUNCE_HOST`; TCP does not use iroh discovery.
+For a self-contained same-host setup, set `GLOWCAP_ROOMS_REACHABILITY=direct`. To run a
+TCP room instead, remove `--transport=iroh` and configure `GLOWCAP_ROOMS_BIND` and
+`GLOWCAP_ROOMS_ANNOUNCE_HOST`; TCP does not use iroh discovery.
 
 See [devcontainer networking](../../../../.devcontainer/docs/networking.md) for
 the `rooms-net` side of the setup.
@@ -307,8 +325,8 @@ two repository-relative mounts with absolute paths:
 
 ```yaml
 volumes:
-  - /absolute/path/to/pancake:/repo:ro
-  - /absolute/path/to/pancake/zig-out/lib:/libs:ro
+  - /absolute/path/to/glowcap:/repo:ro
+  - /absolute/path/to/glowcap/zig-out/lib:/libs:ro
   - rooms-deno-cache:/deno-dir
 ```
 
@@ -324,7 +342,7 @@ database instead, bring up the optional service and point the server at it:
 
 ```sh
 export STORAGE_DB_PASSWORD='<a long secret>'
-export PANCAKE_ROOMS_STORAGE='postgres://rooms:<that secret>@rooms-storage-db:5432/rooms'
+export GLOWCAP_ROOMS_STORAGE='postgres://rooms:<that secret>@rooms-storage-db:5432/rooms'
 ./compose.sh --profile storage-db up -d
 ./up.sh
 ```

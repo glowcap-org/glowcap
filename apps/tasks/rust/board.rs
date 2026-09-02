@@ -1,7 +1,7 @@
-//! A small, friendly client for the tasks board, built on pancake actors.
+//! A small, friendly client for the tasks board, built on glowcap actors.
 //!
 //! On the connection API this is barely a layer: connect, fetch the board by
-//! name, publish a watcher, and call `add`/`done`/`list`. The pancake
+//! name, publish a watcher, and call `add`/`done`/`list`. The glowcap
 //! `Session` owns the peer on a background task, so the application above sees
 //! only the board methods.
 //!
@@ -13,7 +13,7 @@
 
 use std::rc::Rc;
 
-use pancake::{tcp, Argument, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig, Session};
+use glowcap::{tcp, Argument, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig, Session};
 
 const BOARD: &str = "board";
 
@@ -47,7 +47,7 @@ fn parse_snapshot(arg: &Argument) -> Vec<Task> {
 /// A membership in a task board: the connection plus the board capability.
 pub struct Board {
 	session: Rc<Session>,
-	board: pancake::Ref,
+	board: glowcap::Ref,
 	runtime: Runtime,
 }
 

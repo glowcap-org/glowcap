@@ -54,19 +54,19 @@ pub fn checkCaptpVocabulary(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const driver_header = root.readFileAlloc(io, "include/pancake_host.h", gpa, .limited(4 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "include/pancake_host.h: cannot be read for the vocabulary check ({s})", .{@errorName(err)});
+    const driver_header = root.readFileAlloc(io, "include/glowcap_host.h", gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "include/glowcap_host.h: cannot be read for the vocabulary check ({s})", .{@errorName(err)});
         return;
     };
     defer gpa.free(driver_header);
-    for ([_][]const u8{ "PancakeHostSession", "pancake_host_session_" }) |needle| {
+    for ([_][]const u8{ "GlowcapHostSession", "glowcap_host_session_" }) |needle| {
         if (std.mem.indexOf(u8, driver_header, needle) == null) {
-            try appendViolation(gpa, violations, "include/pancake_host.h: missing `{s}` — the byte-fed CapTP session family (ADR-0079)", .{needle});
+            try appendViolation(gpa, violations, "include/glowcap_host.h: missing `{s}` — the byte-fed CapTP session family (ADR-0079)", .{needle});
         }
     }
 
     const positive = [_]struct { path: []const u8, needle: []const u8, what: []const u8 }{
-        .{ .path = "src/driver/core/host.zig", .needle = "pub const HostSession", .what = "the byte-fed CapTP session Zig type (aligns with PancakeHostSession)" },
+        .{ .path = "src/driver/core/host.zig", .needle = "pub const HostSession", .what = "the byte-fed CapTP session Zig type (aligns with GlowcapHostSession)" },
         .{ .path = "src/ocapn/engine/node.zig", .needle = "pub const PeerHandle", .what = "the engine's Node-scoped registered-session handle" },
         .{ .path = "src/ocapn/engine/node.zig", .needle = "pub const registerPeer", .what = "the Node registers Peers" },
     };

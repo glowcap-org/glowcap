@@ -35,11 +35,11 @@ bash conformance/ocapn-conformance/run.sh smoke
 bash conformance/ocapn-conformance/run.sh shell
 ```
 
-## Running Against pancake
+## Running Against glowcap
 
-The suite can be pointed at a _pancake_ peer, not only Goblins.
-`pancake_peer.zig` serves the canonical conformance swiss-nums over the
-`tcp-testing-only` netlayer, and `run-against-pancake.sh` starts it and runs the
+The suite can be pointed at a _glowcap_ peer, not only Goblins.
+`glowcap_peer.zig` serves the canonical conformance swiss-nums over the
+`tcp-testing-only` netlayer, and `run-against-glowcap.sh` starts it and runs the
 suite against it. The peer is the production Host stack, plus what the Host
 cannot know: the conformance actors and three suite-required interceptors on
 the serve path (a promise-resolver bootstrap object, the recipient's give
@@ -49,12 +49,12 @@ file's header inventories them.
 ```sh
 zig build ocapn-conformance              # default: every upstream test module
 zig build ocapn-conformance -Dport=23055 # move the peer off 22055 when that port is taken
-bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_deliver  # one module
+bash conformance/ocapn-conformance/run-against-glowcap.sh tests.op_deliver  # one module
 ```
 
 The wrapper derives its module list from the upstream tree itself
 (`upstream/tests/*.py`), so a submodule bump that adds a module fails the run
-until pancake targets it. It runs every upstream module except `tests.op_abort`:
+until glowcap targets it. It runs every upstream module except `tests.op_abort`:
 that test does not accept Linux's TCP-reset form of teardown. The wrapper's
 abort probe uses the suite's own netlayer and message types for the same case
 and requires observable EOF, reset, or broken pipe; timeout fails. The raw
@@ -76,12 +76,12 @@ have passed. Raise it with `OCAPN_MODULE_TIMEOUT` (and the probe's with
 `handshake_abort_probe.py` covers invalid signature, invalid version, and
 pre-setup abort teardown on their own. The default
 `zig build ocapn-conformance` wrapper runs that probe (10s cap) before the suite
-modules. Pass `--port=N` or set `PANCAKE_OCAPN_CONFORMANCE_PORT` to match the
+modules. Pass `--port=N` or set `GLOWCAP_OCAPN_CONFORMANCE_PORT` to match the
 peer. To run one module or the probe alone:
 
 ```sh
-bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_start_session
-bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_abort # raw upstream diagnostic
+bash conformance/ocapn-conformance/run-against-glowcap.sh tests.op_start_session
+bash conformance/ocapn-conformance/run-against-glowcap.sh tests.op_abort # raw upstream diagnostic
 uv run --project conformance/ocapn-conformance --locked \
   python conformance/ocapn-conformance/handshake_abort_probe.py --port=22055
 ```
@@ -98,17 +98,17 @@ re-encode of them.
 
 The suite is external conformance pressure. A green run against `goblins-peer/`
 proves the upstream suite, the native wrapper, the slim Goblins target, and its
-testing TCP netlayer compose; a run against `pancake_peer.zig` turns the same
-authority on pancake itself. It is not the `zig build check` gate and it is not
+testing TCP netlayer compose; a run against `glowcap_peer.zig` turns the same
+authority on glowcap itself. It is not the `zig build check` gate and it is not
 the semantic oracle for Zig code by itself.
 
-Pancake's in-tree gate remains `zig build oracle-check` / `zig build check`.
-Those gates cover the checked protocol scenarios and pancake-authored Syrup
+Glowcap's in-tree gate remains `zig build oracle-check` / `zig build check`.
+Those gates cover the checked protocol scenarios and glowcap-authored Syrup
 fixtures consumed by the Zig implementation.
 
 ## Posture
 
 - `upstream/` is read-only. Bump the submodule pin; do not edit it in place.
-- `run.sh` is pancake-owned and should stay a thin native wrapper.
+- `run.sh` is glowcap-owned and should stay a thin native wrapper.
 - `tcp-testing-only` is a conformance/testing transport, not a production
   transport claim.

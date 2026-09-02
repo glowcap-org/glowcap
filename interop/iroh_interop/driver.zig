@@ -1,4 +1,4 @@
-//! Live iroh transport: two pancake peers hold a real keyed OCapN
+//! Live iroh transport: two glowcap peers hold a real keyed OCapN
 //! conversation over real iroh endpoints (ADR-0055).
 //!
 //! The server binds an iroh endpoint, registers the `iroh` netlayer resident,
@@ -11,7 +11,7 @@
 //! `op:start-session` keyed handshake, bootstrap fetch, and deliver/resolve the
 //! TCP gates prove against Goblins.
 //!
-//! Both peers here are pancake, deliberately: this driver proves the
+//! Both peers here are glowcap, deliberately: this driver proves the
 //! bring-your-own-netlayer contract carries an encrypted transport end to end,
 //! with no second implementation in the picture. `goblins-iroh` is the outside
 //! partner's check, over the iroh netlayer this repository wrote for Goblins.
@@ -19,7 +19,7 @@
 //! Beyond the conversation, the gate pins the seam's edges: address defects
 //! refuse as typed `InvalidAddress` before the network is touched, closing the
 //! endpoint releases a parked accept, and a seeded endpoint's id is the same
-//! Ed25519 public key pancake's own crypto derives from the seed. That bridge is
+//! Ed25519 public key glowcap's own crypto derives from the seed. That bridge is
 //! the key-unification capstone stands on.
 //!
 //! Two capstones ride that bridge. Dial-by-id: two endpoints in the
@@ -41,14 +41,14 @@
 //! step `zig build iroh-interop`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const driver = glowcap.driver;
+const net = glowcap.net;
 
 fn listenReady(layer: net.netlayer.Netlayer, allocator: std.mem.Allocator) !net.netlayer.Listener {
     var result = switch (layer.listen(allocator, .{ .designator = "" })) {
@@ -184,7 +184,7 @@ fn assertPartnerIsNodeId(cv: *driver.BlockingSession, node_id_hex: []const u8) !
 fn hostUnified(
     listener: net.netlayer.Listener,
     allocator: std.mem.Allocator,
-    secret: pancake.foundation.crypto.SecretKey,
+    secret: glowcap.foundation.crypto.SecretKey,
     expect_partner_id: []const u8,
 ) anyerror!void {
     var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
@@ -209,7 +209,7 @@ fn callUnified(
     netlayers: []const net.netlayer.Netlayer,
     server_id: []const u8,
     self_id: []const u8,
-    secret: pancake.foundation.crypto.SecretKey,
+    secret: glowcap.foundation.crypto.SecretKey,
     allocator: std.mem.Allocator,
 ) !void {
     var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
@@ -241,7 +241,7 @@ fn restartCycle(
     io: std.Io,
     allocator: std.mem.Allocator,
     server: *iroh.Resident,
-    server_secret: pancake.foundation.crypto.SecretKey,
+    server_secret: glowcap.foundation.crypto.SecretKey,
     dial_id: []const u8,
 ) !void {
     var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
@@ -275,7 +275,7 @@ pub fn main(init: std.process.Init) !void {
     // own key: iroh is a key-designator transport, and a dialer pins the
     // session identity to the node id it dialed.
     const main_server_seed: [32]u8 = @splat(0x31);
-    const main_server_secret = pancake.foundation.crypto.SecretKey.fromSeed(main_server_seed);
+    const main_server_secret = glowcap.foundation.crypto.SecretKey.fromSeed(main_server_seed);
     var server = iroh.Resident.init(io, &main_server_seed, .{ .reachability = .direct }) catch |err| {
         std.debug.print("iroh-interop: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
@@ -341,15 +341,15 @@ pub fn main(init: std.process.Init) !void {
         defer seeded.deinit() catch |err| std.log.err("iroh seeded endpoint teardown failed: {s}", .{@errorName(err)});
         var seeded_buf: [iroh.node_id_len]u8 = undefined;
         const seeded_id = seeded.nodeId(&seeded_buf);
-        const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
+        const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
         const expected = std.fmt.bytesToHex(secret.publicKey().bytes, .lower);
         if (!std.mem.eql(u8, seeded_id, &expected)) return error.SeededIdentityMismatch;
-        std.debug.print("iroh-interop: a seeded endpoint's id is the Ed25519 key pancake derives from the same seed\n", .{});
+        std.debug.print("iroh-interop: a seeded endpoint's id is the Ed25519 key glowcap derives from the same seed\n", .{});
     }
 
     {
         const d_server_seed: [32]u8 = @splat(0x33);
-        const d_server_secret = pancake.foundation.crypto.SecretKey.fromSeed(d_server_seed);
+        const d_server_secret = glowcap.foundation.crypto.SecretKey.fromSeed(d_server_seed);
         var d_server = try iroh.Resident.init(io, &d_server_seed, .{ .reachability = .local_discovery });
         defer d_server.deinit() catch |err| std.log.err("iroh discovery server teardown failed: {s}", .{@errorName(err)});
         var d_client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
@@ -377,7 +377,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     {
-        const crypto = pancake.foundation.crypto;
+        const crypto = glowcap.foundation.crypto;
         const server_seed: [32]u8 = @splat(0x11);
         const client_seed: [32]u8 = @splat(0x22);
         const server_secret = crypto.SecretKey.fromSeed(server_seed);
@@ -413,7 +413,7 @@ pub fn main(init: std.process.Init) !void {
 
     {
         const dur_seed: [32]u8 = @splat(0x55);
-        const dur_secret = pancake.foundation.crypto.SecretKey.fromSeed(dur_seed);
+        const dur_secret = glowcap.foundation.crypto.SecretKey.fromSeed(dur_seed);
         var sturdyref: [iroh.node_id_len]u8 = undefined;
 
         {
@@ -434,5 +434,5 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-interop: a sturdyref (node id + swiss-number) outlives an endpoint restart, same seed, same node id, same published cap reached through the recorded locator\n", .{});
     }
 
-    std.debug.print("iroh-interop: OK, encrypted iroh channel: keyed handshake + bootstrap fetch + deliver/resolve + dial-by-id discovery + key unification + durable identity, pancake to pancake\n", .{});
+    std.debug.print("iroh-interop: OK, encrypted iroh channel: keyed handshake + bootstrap fetch + deliver/resolve + dial-by-id discovery + key unification + durable identity, glowcap to glowcap\n", .{});
 }

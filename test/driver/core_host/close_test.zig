@@ -4,18 +4,18 @@
 //! transport packages publish nothing before a conflict.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 const SessionOpenFailingAllocator = harness.SessionOpenFailingAllocator;
@@ -50,7 +50,7 @@ const TraceLog = harness.TraceLog;
 
 test "operation failure preserves its first cause and later chain" {
     var failure = driver.OperationFailure.fromError(error.Primary);
-    var cleanup = pancake.foundation.FailureChain.init(error.FirstCleanup);
+    var cleanup = glowcap.foundation.FailureChain.init(error.FirstCleanup);
     cleanup.note(error.LaterCleanup);
     failure.noteChain(cleanup);
     failure.note(error.LastCleanup);
@@ -98,7 +98,7 @@ test "Host action failure detail remains diagnostic when retaining it cannot all
 
 test "Host admission frame cap defaults to the canonical session limit" {
     // Single-source lock: a default-constructed Host admits the same frame size
-    // the driver C ABI publishes as PANCAKE_DEFAULT_FRAME_CAP, so a native Zig
+    // the driver C ABI publishes as GLOWCAP_DEFAULT_FRAME_CAP, so a native Zig
     // embedder and a C embedder agree on the default admission cap. If someone
     // re-hardcodes this default to a bare literal, this fails instead of
     // silently shrinking a Zig host's admissible frame below the advertised C
@@ -463,7 +463,7 @@ test "close policy stamps the partner-visible abort kind" {
     // `graceful_shutdown`. Nothing else pins the label split, so a swap would
     // otherwise ship silently.
     const allocator = std.testing.allocator;
-    const codec = pancake.ocapn.codec;
+    const codec = glowcap.ocapn.codec;
     const cases = [_]struct {
         policy: driver.core.PendingWork,
         kind: model.AbortKind,

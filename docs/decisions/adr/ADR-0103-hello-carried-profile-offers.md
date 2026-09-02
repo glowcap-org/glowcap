@@ -28,12 +28,12 @@ configuration, and every session it held wore the same tuple.
 and one `features`, but those are preferences: `sessions.negotiatingOptions`
 stamps them onto every session at mint, dialed and accepted alike, and the
 handshake settles the active tuple with the partner. The old shape meant a host
-that preferred `pancake-next` over Cap'n Proto could not also hold a v1.0 Syrup
+that preferred `glowcap-next` over Cap'n Proto could not also hold a v1.0 Syrup
 session with a Goblins vat. It refused that vat: a mismatched version was
 `CaptpVersionMismatch` at `session/validate.zig`, and a mismatched codec never
 got that far, because the frame did not parse.
 
-That is the wrong shape for the thing pancake is. A profile is what a peer
+That is the wrong shape for the thing glowcap is. A profile is what a peer
 _prefers_, and what two peers actually speak is a property of the pair, not of
 either one. `engine.negotiation.negotiate` has settled exactly that from two
 offers since ADR-0003, symmetrically across version, codec, and features.
@@ -84,13 +84,13 @@ two hellos. So this works when a peer is handed a bare `host:port` with no
 hints at all, which is the case that matters — it needs no configuration, no
 discovery, and no agreement arranged in advance.
 
-Only the preference, never the accepted set: a pancake peer speaks the baseline
+Only the preference, never the accepted set: a glowcap peer speaks the baseline
 by construction, so what it accepts is derivable from what it prefers. A hello
 that carries none of the preference hints has said "the baseline", which is
 exactly what an implementation that never heard of these names is saying. The
 baseline feature set names behavior proven against Goblins and therefore
 excludes outbound `op:untag`, even though 1.0 inbound support remains mandatory.
-Two Pancake peers advertise the additional `untag` bit without inventing
+Two Glowcap peers advertise the additional `untag` bit without inventing
 another wire version. A compatibility-default peer still signs the
 byte-identical hello it always did.
 
@@ -128,15 +128,15 @@ no configuration and no C ABI surface: the accepted set was never a knob.
   no peer that does not already agree.
 - **Keep the profile as host configuration and require both ends to be
   configured alike.** This is the present shape. Rejected because it makes an
-  ordinary mixed room impossible: a pancake fleet cannot admit one Goblins
+  ordinary mixed room impossible: a glowcap fleet cannot admit one Goblins
   member without dropping every session to the baseline.
-- **Add an offer field to `op:start-session`.** Rejected because pancake does
+- **Add an offer field to `op:start-session`.** Rejected because glowcap does
   not add fields to OCapN's messages, and the hint dict is the extension point
   the protocol already carries for exactly this.
 
 ## Consequences
 
-A room can hold a Goblins member and a pancake member at once, each on the
+A room can hold a Goblins member and a glowcap member at once, each on the
 profile its pair settled, which is what `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts`
 depicts and what nothing in the tree could do before.
 
@@ -144,6 +144,6 @@ Two frames per session are encoded and decoded in Syrup that a Cap'n Proto pair
 would otherwise have encoded in Cap'n Proto. That is once per session, off every
 per-turn path, and it is what buys a peer the ability to parse any greeting.
 
-A pancake-to-pancake session's handshake changes shape on the wire, so the
-handshake bytes in the oracle corpus move with it. pancake ships under no
+A glowcap-to-glowcap session's handshake changes shape on the wire, so the
+handshake bytes in the oracle corpus move with it. glowcap ships under no
 compatibility promise, so this is a re-record, not a migration.

@@ -40,10 +40,10 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 	// answer reachable. Short-lived credentials themselves are minted per `/ice`
 	// request; the issuer bearer token never crosses this server boundary.
 	const ICE_POLICY = icePolicy({
-		stunServers: Deno.env.get("PANCAKE_ROOMS_ICE_SERVERS"),
-		turnCredentialsUrl: Deno.env.get("PANCAKE_ROOMS_TURN_CREDENTIALS_URL"),
-		turnBearerToken: Deno.env.get("PANCAKE_ROOMS_TURN_BEARER_TOKEN"),
-		turnTtlSeconds: Deno.env.get("PANCAKE_ROOMS_TURN_TTL_SECONDS"),
+		stunServers: Deno.env.get("GLOWCAP_ROOMS_ICE_SERVERS"),
+		turnCredentialsUrl: Deno.env.get("GLOWCAP_ROOMS_TURN_CREDENTIALS_URL"),
+		turnBearerToken: Deno.env.get("GLOWCAP_ROOMS_TURN_BEARER_TOKEN"),
+		turnTtlSeconds: Deno.env.get("GLOWCAP_ROOMS_TURN_TTL_SECONDS"),
 	});
 
 	// One same-origin door per timeline leg: refuse a foreign page, upgrade,
@@ -75,9 +75,9 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 	// A production build can shrink it a lot by adding "--minify" to a pre-built
 	// bundle directory (see deploy/README.md).
 	const BROWSER_BUNDLE_CONFIG = `${ROOT}browser-bundle.json`;
-	const WASM_PATH = `${ROOT}../../../zig-out/wasm/pancake_host.wasm`;
+	const WASM_PATH = `${ROOT}../../../zig-out/wasm/glowcap_host.wasm`;
 	async function bundleClient(): Promise<Map<string, string>> {
-		const outdir = await Deno.makeTempDir({ prefix: "pancake-rooms-browser-" });
+		const outdir = await Deno.makeTempDir({ prefix: "glowcap-rooms-browser-" });
 		try {
 			const { code, stderr } = await new Deno.Command("deno", {
 				args: [
@@ -402,7 +402,7 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 				if (!relayAllowed(classified, Number(ROOM_PORT), RELAY_TCP_PEERS, onionDesignator(roomLocator()))) {
 					return new Response(
 						`rooms: relay target not allowed (TCP relay reaches 127.0.0.1:${ROOM_PORT} ` +
-							`and the peers named in PANCAKE_RELAY_TCP_PEERS; an onion target must be ` +
+							`and the peers named in GLOWCAP_RELAY_TCP_PEERS; an onion target must be ` +
 							`this room's own service)\n`,
 						{ status: 403 },
 					);
@@ -469,7 +469,7 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 					// through rather than reading. Nothing here can name it.
 					return new Response(
 						"rooms: the live timeline endpoint took an ephemeral port; " +
-							"set PANCAKE_ROOMS_VIZ_PORT to a fixed one, or open the page with ?viz=<ws url>\n",
+							"set GLOWCAP_ROOMS_VIZ_PORT to a fixed one, or open the page with ?viz=<ws url>\n",
 						{ status: 409 },
 					);
 				}
@@ -508,12 +508,12 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 				return asset(req, browserBundles.get(browserChunk)!, "text/javascript; charset=utf-8");
 			}
 			// The browser peer's wasm Host module (ADR-0070), fetched by the page's
-			// `@pancake/web` init. Read fresh so a rebuilt module serves without a
+			// `@glowcap/web` init. Read fresh so a rebuilt module serves without a
 			// restart, like the page assets. Its validator is the file's size and
 			// write time rather than a content hash, because hashing megabytes on
 			// every page load would spend more than the revalidation saves; a
 			// rebuilt module moves both.
-			if (url.pathname === "/pancake_host.wasm") {
+			if (url.pathname === "/glowcap_host.wasm") {
 				return (async () => {
 					try {
 						const stat = await Deno.stat(WASM_PATH);
@@ -531,7 +531,7 @@ export async function prepareAndListen(opts: HttpServe): Promise<void> {
 						});
 					} catch {
 						return new Response(
-							"rooms: pancake_host.wasm not built (zig build wasm-driver)\n",
+							"rooms: glowcap_host.wasm not built (zig build wasm-driver)\n",
 							{
 								status: 503,
 							},

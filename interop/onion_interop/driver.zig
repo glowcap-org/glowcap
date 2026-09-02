@@ -1,8 +1,8 @@
-//! Live Tor: two pancake peers hold a real OCapN conversation over a hidden
+//! Live Tor: two glowcap peers hold a real OCapN conversation over a hidden
 //! service (ADR-0108).
 //!
 //! Everything else in the tree that exercises the onion transport drives a fake
-//! daemon on loopback, so it proves pancake agrees with the bytes pinned against
+//! daemon on loopback, so it proves glowcap agrees with the bytes pinned against
 //! the pinned Spritely Goblins netlayer and the upstream OCapN suite. This is the
 //! step that proves a real Tor accepts those bytes. One peer asks Tor for a
 //! service, records its sturdyref, and withdraws it. A fresh child process
@@ -13,7 +13,7 @@
 //! The driver starts its own Tor through the shared `harness.Tor`, so the check
 //! is one command rather than a setup procedure.
 //!
-//! Two waits dominate the runtime and neither is pancake's. Tor bootstraps into
+//! Two waits dominate the runtime and neither is glowcap's. Tor bootstraps into
 //! the network, which takes seconds, and a freshly minted service's descriptor
 //! takes tens of seconds more to reach the directories the client will ask. The
 //! dial retries across that window rather than failing on the first refusal.
@@ -22,14 +22,14 @@
 //! `zig build check` rather than a member: `zig build onion-interop`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const driver = pancake.driver;
-const actors = pancake.actors;
-const onion = pancake.net.onion;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const driver = glowcap.driver;
+const actors = glowcap.actors;
+const onion = glowcap.net.onion;
 const Tor = harness.Tor;
 
 const frame_cap = 16 * 1024;
@@ -218,7 +218,7 @@ fn dialAndGreet(
     var scaffold = try harness.PeerScaffold.init(gpa, frame_cap);
     defer scaffold.deinit();
 
-    const layers = [_]pancake.net.netlayer.Netlayer{res.netlayer()};
+    const layers = [_]glowcap.net.netlayer.Netlayer{res.netlayer()};
     var session = try connectWhileDescriptorPublishes(gpa, io, &layers, &scaffold, sturdyref.peer);
     defer session.deinit();
 
@@ -235,7 +235,7 @@ fn dialAndGreet(
 fn connectWhileDescriptorPublishes(
     gpa: std.mem.Allocator,
     io: std.Io,
-    layers: []const pancake.net.netlayer.Netlayer,
+    layers: []const glowcap.net.netlayer.Netlayer,
     scaffold: *harness.PeerScaffold,
     locator: model.PeerLocator,
 ) !driver.BlockingSession {

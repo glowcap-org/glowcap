@@ -3,7 +3,7 @@
 //!
 //! Rust and TypeScript refuse a wrapper that names something undefined or calls
 //! it with the wrong arity; `cargo` and `deno check` are that proof. Python and
-//! Racket refuse nothing until the line runs, so a `pancake_host_*` wrapper no
+//! Racket refuse nothing until the line runs, so a `glowcap_host_*` wrapper no
 //! gate ever executes can ship with an undefined name or a mismatched argument
 //! list in it and nothing in the tree will say so. Twice it did. This check is
 //! the missing compiler for those two bindings: every verb's wrapper must be
@@ -55,7 +55,7 @@ const bindings = [_]Binding{
         .lang = .python,
         .name = "python",
         .ext = ".py",
-        .lib = &.{"bindings/python/pancake"},
+        .lib = &.{"bindings/python/glowcap"},
         .ffi_tier = &.{"_sigs_gen.py"},
         .proof = &.{ "bindings/python/zig_smoke.py", "bindings/python/smoke", "bindings/python/relay.py" },
     },
@@ -65,10 +65,10 @@ const bindings = [_]Binding{
         .ext = ".rkt",
         .lib = &.{
             "bindings/racket/private",
-            "bindings/racket/pancake.rkt",
-            "bindings/racket/pancake-tcp.rkt",
-            "bindings/racket/pancake-iroh.rkt",
-            "bindings/racket/pancake-inproc.rkt",
+            "bindings/racket/glowcap.rkt",
+            "bindings/racket/glowcap-tcp.rkt",
+            "bindings/racket/glowcap-iroh.rkt",
+            "bindings/racket/glowcap-inproc.rkt",
         },
         .ffi_tier = &.{ "ffi-host-gen.rkt", "ffi-shared.rkt" },
         .proof = &.{ "bindings/racket/zig-smoke.rkt", "bindings/racket/test/zig-smoke", "bindings/racket/relay.rkt" },
@@ -193,7 +193,7 @@ fn collectVerbs(
     };
     const table = contents[table_start..];
 
-    const needle = ".name = \"pancake_host_";
+    const needle = ".name = \"glowcap_host_";
     var from: usize = 0;
     while (std.mem.indexOfPos(u8, table, from, needle)) |at| {
         const name_start = at + ".name = \"".len;
@@ -212,7 +212,7 @@ fn collectVerbs(
         try out.append(arena, .{ .name = name, .omitted = omitted.items });
     }
     if (out.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no `pancake_host_*` rows found — the runtime-proof scanner no longer matches this inventory", .{path});
+        try appendViolation(gpa, violations, "{s}: no `glowcap_host_*` rows found — the runtime-proof scanner no longer matches this inventory", .{path});
     }
 }
 
@@ -328,7 +328,7 @@ const Graph = struct {
     }
 
     fn noteSites(self: *Graph, line: []const u8, owner: []const u8) !void {
-        if (std.mem.indexOf(u8, line, "pancake_host_") == null) return;
+        if (std.mem.indexOf(u8, line, "glowcap_host_") == null) return;
         for (self.verbs) |verb| {
             // Boundary-matched, so `…_publish` is not read out of
             // `…_published_ref`.
@@ -409,6 +409,6 @@ test "every allowlist row names a real binding" {
         }
         try std.testing.expect(known);
         try std.testing.expect(row.why.len != 0);
-        try std.testing.expect(std.mem.startsWith(u8, row.symbol, "pancake_host_"));
+        try std.testing.expect(std.mem.startsWith(u8, row.symbol, "glowcap_host_"));
     }
 }

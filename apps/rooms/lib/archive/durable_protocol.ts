@@ -1,6 +1,6 @@
 // Durable share verbs on the whole-archive root. Narrowed facets cannot mint.
 
-import { type Argument, type Behavior } from "@pancake/runtime";
+import { type Argument, type Behavior } from "@glowcap/runtime";
 import { type ArchiveFacet, type ArchiveFacetIssuer } from "./facet.ts";
 import { type ArchiveFilter } from "./scope.ts";
 import { RoomsSessionGrantIdSchema, RoomsSessionGrantLabelSchema } from "../session/grants.ts";

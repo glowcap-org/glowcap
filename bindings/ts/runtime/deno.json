@@ -1,5 +1,5 @@
 {
-	"name": "@pancake/runtime",
+	"name": "@glowcap/runtime",
 	"compilerOptions": {
 		"lib": ["deno.window", "esnext"]
 	},

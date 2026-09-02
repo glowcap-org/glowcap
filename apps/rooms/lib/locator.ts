@@ -14,7 +14,7 @@
 // relay. The browser connector reads a noise-relay locator's rendezvous-relay
 // hint and opens it as a rendezvous bridge, often the same `/relay`.
 
-import { addressDesignator, listen, locator as tcpLocator, type Server } from "@pancake/tcp";
+import { addressDesignator, listen, locator as tcpLocator, type Server } from "@glowcap/tcp";
 import { DIRECTORY } from "./protocol.ts";
 import {
 	designatorHostPort,
@@ -31,8 +31,8 @@ import {
 	TRANSPORT_ONION,
 	TRANSPORT_TCP,
 	TRANSPORT_WEBRTC,
-} from "@pancake/runtime";
-import type { Ref } from "@pancake/runtime";
+} from "@glowcap/runtime";
+import type { Ref } from "@glowcap/runtime";
 import { roomsHostOptions, type RoomsHostPosture } from "./profile.ts";
 
 /** Whether `locator` is an `ocapn://` URI rather than a `hostname:port`. */

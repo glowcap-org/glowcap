@@ -8,14 +8,14 @@
 # version and hash values themselves; these helpers are how the rest of the
 # directory reaches them.
 
-pancake_devcontainer_source_pins() {
+glowcap_devcontainer_source_pins() {
     local root="$1"
     # shellcheck disable=SC1091
     source "${root}/pins.sh"
-    pancake_devcontainer_validate_pins
+    glowcap_devcontainer_validate_pins
 }
 
-pancake_devcontainer_validate_pins() {
+glowcap_devcontainer_validate_pins() {
     if ! [[ "${DEBIAN_BASE_DIGEST:-}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
         echo "pins.sh: DEBIAN_BASE_DIGEST must be sha256:<64 hex>, got '${DEBIAN_BASE_DIGEST:-}'" >&2
         return 1
@@ -43,7 +43,7 @@ pancake_devcontainer_validate_pins() {
     esac
 }
 
-pancake_devcontainer_zls_enabled() {
+glowcap_devcontainer_zls_enabled() {
     case "${ZLS_ENABLED:-true}" in
         true) return 0 ;;
         false) return 1 ;;
@@ -54,24 +54,24 @@ pancake_devcontainer_zls_enabled() {
     esac
 }
 
-pancake_devcontainer_default_egress_network() {
-    printf 'pancake-%s-egress\n' "$1"
+glowcap_devcontainer_default_egress_network() {
+    printf 'glowcap-%s-egress\n' "$1"
 }
 
-pancake_devcontainer_port_rows() {
+glowcap_devcontainer_port_rows() {
     printf '%s\n' \
-        PANCAKE_ROOMS_WEB_HOST_PORT:8000 \
-        PANCAKE_ROOMS_CAPTP_HOST_PORT:9099 \
-        PANCAKE_ROOMS_RELAY_HOST_PORT:9200 \
-        PANCAKE_ROOMS_TRACE_HOST_PORT:9300 \
-        PANCAKE_OCAPNVIZ_HOST_PORT:5173 \
-        PANCAKE_DOCS_HOST_PORT:1990
+        GLOWCAP_ROOMS_WEB_HOST_PORT:8000 \
+        GLOWCAP_ROOMS_CAPTP_HOST_PORT:9099 \
+        GLOWCAP_ROOMS_RELAY_HOST_PORT:9200 \
+        GLOWCAP_ROOMS_TRACE_HOST_PORT:9300 \
+        GLOWCAP_OCAPNVIZ_HOST_PORT:5173 \
+        GLOWCAP_DOCS_HOST_PORT:1990
 }
 
-# User identity and agent-harness state shared by every pancake worktree. The
+# User identity and agent-harness state shared by every glowcap worktree. The
 # host-relative source and absolute container target stay paired here so host
 # initialization, container checks, and the committed mounts cannot drift.
-pancake_devcontainer_host_state_rows() {
+glowcap_devcontainer_host_state_rows() {
     printf '%s\n' \
         .claude:/home/vscode/.claude \
         .codex:/home/vscode/.codex \
@@ -85,22 +85,22 @@ pancake_devcontainer_host_state_rows() {
 }
 
 # Build caches the host and every worktree container share by bind, not a
-# named volume, so `ls ~/.cache/pancake` is the same tree in and out. Subdirs
+# named volume, so `ls ~/.cache/glowcap` is the same tree in and out. Subdirs
 # under it (tool, cargo, work) are created by initialize.sh; the worktree
 # slice is work/<name>/ at runtime.
-pancake_devcontainer_host_cache_rows() {
+glowcap_devcontainer_host_cache_rows() {
     printf '%s\n' \
-        .cache/pancake:/home/vscode/.cache/pancake
+        .cache/glowcap:/home/vscode/.cache/glowcap
 }
 
-pancake_devcontainer_host_cache_layout() {
+glowcap_devcontainer_host_cache_layout() {
     printf '%s\n' tool cargo work
 }
 
-pancake_devcontainer_host_cache_layout_text() {
+glowcap_devcontainer_host_cache_layout_text() {
     cat <<'EOF'
-pancake caches — same tree on the host (~/.cache/pancake) and in the
-container (/home/vscode/.cache/pancake). See .devcontainer/README.md
+glowcap caches — same tree on the host (~/.cache/glowcap) and in the
+container (/home/vscode/.cache/glowcap). See .devcontainer/README.md
 (Persistent paths).
 
   tool/                         shared downloads (zig, deno, npm, pip, bun, uv, zls)
@@ -110,9 +110,9 @@ container (/home/vscode/.cache/pancake). See .devcontainer/README.md
 EOF
 }
 
-pancake_devcontainer_host_home_bind_rows() {
-    pancake_devcontainer_host_state_rows
-    pancake_devcontainer_host_cache_rows
+glowcap_devcontainer_host_home_bind_rows() {
+    glowcap_devcontainer_host_state_rows
+    glowcap_devcontainer_host_cache_rows
 }
 
 # The variables Compose reads for a checkout's identity, named once. The guard
@@ -120,16 +120,16 @@ pancake_devcontainer_host_home_bind_rows() {
 # tests have to clear the same set before building checkouts of their own — two
 # lists would drift, and the drift would show up as a test that passes on a host
 # and fails in a devcontainer.
-pancake_devcontainer_compose_variables() {
+glowcap_devcontainer_compose_variables() {
     cat <<'EOF'
-PANCAKE_WORKTREE
-PANCAKE_GIT_COMMON_DIR
-PANCAKE_ROOMS_WEB_HOST_PORT
-PANCAKE_ROOMS_CAPTP_HOST_PORT
-PANCAKE_ROOMS_RELAY_HOST_PORT
-PANCAKE_ROOMS_TRACE_HOST_PORT
-PANCAKE_OCAPNVIZ_HOST_PORT
-PANCAKE_DOCS_HOST_PORT
+GLOWCAP_WORKTREE
+GLOWCAP_GIT_COMMON_DIR
+GLOWCAP_ROOMS_WEB_HOST_PORT
+GLOWCAP_ROOMS_CAPTP_HOST_PORT
+GLOWCAP_ROOMS_RELAY_HOST_PORT
+GLOWCAP_ROOMS_TRACE_HOST_PORT
+GLOWCAP_OCAPNVIZ_HOST_PORT
+GLOWCAP_DOCS_HOST_PORT
 EGRESS_NET
 EOF
 }

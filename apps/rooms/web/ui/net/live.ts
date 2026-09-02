@@ -17,7 +17,7 @@ import { type AttachmentView, type DirId, dirId } from "../types.ts";
 import type { Attachment } from "../../../lib/attachment.ts";
 import type { DirectMessage, Directory, PostedLine, Room } from "../../../lib/room/client.ts";
 import type { WebrtcSignalingServer } from "../../../lib/signaling.ts";
-import type { Ref } from "@pancake/runtime";
+import type { Ref } from "@glowcap/runtime";
 import type { RoomsPageContext } from "../page.ts";
 /** Everything that belongs to one directory session, and nothing that outlives
  * one.

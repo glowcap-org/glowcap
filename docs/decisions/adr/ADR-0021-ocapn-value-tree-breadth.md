@@ -3,7 +3,7 @@ id: ADR-0021
 status: accepted
 date: 2026-05-17
 tags: [model, codec, syrup-wire, goblins-interop, value-tree]
-decision: The codec-neutral `Argument` union admits the OCapN passable value tree Goblins's marshaller emits, so a partner's value cannot crash pancake's decoder. The Syrup codec renders every modeled positional passable (`float64` included, as the canonical `'D'` + big-endian binary64) and Integer is arbitrary-precision (ADR-0049). Struct ships as the keyed-dictionary passable (ADR-0046). A value *outside* the model (`Null`, `Float32` fidelity) has no model home; inventing Null would not interop until upstream encoding settles.
+decision: The codec-neutral `Argument` union admits the OCapN passable value tree Goblins's marshaller emits, so a partner's value cannot crash glowcap's decoder. The Syrup codec renders every modeled positional passable (`float64` included, as the canonical `'D'` + big-endian binary64) and Integer is arbitrary-precision (ADR-0049). Struct ships as the keyed-dictionary passable (ADR-0046). A value *outside* the model (`Null`, `Float32` fidelity) has no model home; inventing Null would not interop until upstream encoding settles.
 supersedes: []
 superseded_by: []
 ---
@@ -14,8 +14,8 @@ superseded_by: []
 
 Goblins's `^echo` reflects any value its caller sends, and Goblins's CapTP
 marshaller emits the full OCapN passable universe (Model.md § Atom + §
-Container) as `op:deliver` arguments and resolution payloads. If pancake's value
-model is narrower than that universe, an honest Goblins client can hand pancake
+Container) as `op:deliver` arguments and resolution payloads. If glowcap's value
+model is narrower than that universe, an honest Goblins client can hand glowcap
 a value its decoder has no home for. The
 [First Principles](../../../AGENTS.md#first-principles) hold that protocol
 correctness comes before implementation convenience, and that a codec parses and
@@ -88,7 +88,7 @@ not fork on representability.
   are in-model per ADR-0046 and ADR-0049.
 - Conformance evidence lives in
   [`test/codec/syrup/`](../../../test/codec/syrup/): the
-  rendered variants assert against the pancake-authored Syrup corpus
+  rendered variants assert against the glowcap-authored Syrup corpus
   (`op_deliver_arg_*`); `float64` pins the canonical `'D'` + big-endian binary64
   bytes and round-trips NaN and signed zero bit-for-bit.
 

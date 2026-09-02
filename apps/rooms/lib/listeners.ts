@@ -6,7 +6,7 @@
 // `operations.ts`; what it answers — the listener rows, `up`, and `down` — is
 // what this module owns. The server side lives in `server/listeners.ts`.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import {
 	TRANSPORT_IROH,
 	TRANSPORT_KEYED_RELAY,
@@ -15,7 +15,7 @@ import {
 	TRANSPORT_NOISE_TCP,
 	TRANSPORT_ONION,
 	TRANSPORT_TCP,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { LIST } from "./protocol.ts";
 import { DOWN, UP } from "./protocol_operator.ts";

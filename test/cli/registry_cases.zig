@@ -1,7 +1,7 @@
-//! Registry metadata tests for the pancake CLI (ADR-0084).
+//! Registry metadata tests for the glowcap CLI (ADR-0084).
 const std = @import("std");
 const cli = @import("cli");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 test "everyday verbs are discoverable" {
     try std.testing.expect(cli.registry.find("listen") != null);
@@ -161,7 +161,7 @@ test "json CapTP failure writes non-empty sink body (MCP/argv --json)" {
         .front = .mcp,
         .json = .json,
         .sink = .{ .buffer = &capture },
-        .secret = pancake.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(9))),
+        .secret = glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(9))),
     };
     defer c.deinit();
 
@@ -317,7 +317,7 @@ test "registry dispatch unknown verb is usage" {
         .gpa = gpa,
         .environ = &environ,
         .front = .argv,
-        .secret = @import("pancake").foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(9))),
+        .secret = @import("glowcap").foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(9))),
     };
     defer c.deinit();
     const code = try cli.registry.dispatch(&c, "no-such-verb", &.{});

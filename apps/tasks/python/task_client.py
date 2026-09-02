@@ -1,4 +1,4 @@
-"""A small, friendly client for the tasks board, built on pancake actors.
+"""A small, friendly client for the tasks board, built on glowcap actors.
 
 On the connection API this is barely a layer: connect, fetch the board by
 name, publish a watcher the board can call back, and surface its updates as a
@@ -25,7 +25,7 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path()
 
-from pancake import Runtime, Session, tcp  # noqa: E402
+from glowcap import Runtime, Session, tcp  # noqa: E402
 BOARD = "board"
 ADD, DONE, LIST, WATCH, UPDATE = "add", "done", "list", "watch", "update"
 

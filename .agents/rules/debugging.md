@@ -1,9 +1,9 @@
 ---
-description: "pancake debugging discipline: evidence before theory, ordered suspects, halve the search, and a fix that explains the symptom."
+description: "glowcap debugging discipline: evidence before theory, ordered suspects, halve the search, and a fix that explains the symptom."
 alwaysApply: true
 ---
 
-# pancake — Debugging
+# glowcap — Debugging
 
 A failure is data. The cheap moves — rerun until green, patch the symptom,
 weaken the assertion — destroy that data. This rule is the method that keeps
@@ -28,7 +28,7 @@ reproduce alone is not yet a fact.
 3. **The platform, last.** Zig, std, the OS, the pinned crates, and the
    Goblins peer are each innocent until a minimal reproduction containing
    none of your code convicts them. "The toolchain is broken" is almost
-   always "my assumption is broken"; prove it outside pancake before
+   always "my assumption is broken"; prove it outside glowcap before
    designing around it.
 
 ## Halve the search

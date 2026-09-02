@@ -117,7 +117,7 @@ Deno.test("hitTestEvents: authored peer with no observations gets an entity-addr
 		entities: {
 			peers: {
 				alice: {
-					profile: "pancake",
+					profile: "glowcap",
 					label: "alice",
 					timing: {
 						start: { value: 0, explicit: true },
@@ -149,7 +149,7 @@ Deno.test("hitTestEvents: authored peer with no observations gets an entity-addr
 			kind: "peer-joined",
 			id: "alice-joined",
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 			t: 0,
 		}]),
 		doc,

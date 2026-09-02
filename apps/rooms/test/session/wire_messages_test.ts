@@ -1,5 +1,5 @@
 import { MAX_AWAY, MAX_LINE, MAX_ROSTER_SEEN } from "../../lib/limits.ts";
-import { type Argument, Ref } from "@pancake/runtime";
+import { type Argument, Ref } from "@glowcap/runtime";
 import { parseLineEvent, parseOperationsSnapshot, parseRoomsSessionSnapshot } from "../../lib/session/messages.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import { assertEquals } from "../assert.ts";

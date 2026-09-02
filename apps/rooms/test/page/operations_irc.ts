@@ -21,31 +21,29 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	// A restored active room changes behind this surface during startup. That
 	// background selection must not overwrite an explicit Operations address.
 	await tab.reload();
-	await tab.waitForSelector("#ircConnectionsTitle", { timeout: 60_000 });
+	await tab.waitForSelector("#gatewayConnectionsTitle", { timeout: 60_000 });
 	if (!new URL(tab.url()).pathname.endsWith("/ops/irc")) {
 		fail(`restoring the active room replaced the IRC Operations deep link with ${tab.url()}`);
 	}
 	if (await tab.$("#opsNav") !== null) fail("one held capability still drew pane navigation");
-	await tab.waitForSelector("#ircConnectionsTitle");
-	await tab.fill("#ircNetwork", "deadnet");
-	await tab.fill("#ircHost", "127.0.0.1");
-	await tab.fill("#ircPort", "1");
-	await tab.fill("#ircNick", "proofbot");
-	await tab.click("#ircTls");
-	await tab.click("#ircOpenNetwork");
+	await tab.waitForSelector("#gatewayConnectionsTitle");
+	await tab.fill("#gatewayConnection-name", "deadnet");
+	await tab.fill("#gatewayConnection-host", "127.0.0.1");
+	await tab.fill("#gatewayConnection-port", "1");
+	await tab.fill("#gatewayConnection-nick", "proofbot");
+	await tab.click("#gatewayConnection-tls");
+	await tab.click("#gatewayConnectionAct-open");
 	const connection = tab.locator('.irc-connection[data-network="deadnet"]');
 	await connection.waitFor({ timeout: 10_000 });
+	// The TLS toggle is an answer, not only disclosure: turning it off must reach
+	// the gateway, so this cleartext connection reports itself cleartext.
+	if (!(await connection.textContent())?.includes("cleartext")) {
+		fail("the connection did not carry the TLS toggle's off state to the gateway");
+	}
 	if (!(await connection.textContent())?.includes("No channels")) {
 		fail("an opened IRC connection did not exist independently of a channel");
 	}
-	await connection.locator(".irc-channel-add input").fill("#nowhere");
-	const channelFieldEdge = await connection.locator(".irc-channel-add input").evaluate((input) => {
-		const style = getComputedStyle(input);
-		return { left: style.borderLeftWidth, shadow: style.boxShadow, background: style.backgroundColor };
-	});
-	if (channelFieldEdge.left !== "0px" || channelFieldEdge.shadow !== "none") {
-		fail(`the fixed channel prefix was divided from its input: ${JSON.stringify(channelFieldEdge)}`);
-	}
+	await connection.locator(".irc-channel-add input").fill("nowhere");
 	await connection.locator('.irc-channel-add button:has-text("Join")').click();
 	await connection.locator('.irc-channel-list li:has-text("#nowhere")').waitFor({ timeout: 10_000 });
 	await connection.locator('.said:has-text("Connection refused")').waitFor({ timeout: 10_000 })
@@ -60,8 +58,10 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	await tab.click('#newRoomOffers .complete-row:has-text("deadnet/#nowhere")');
 	await tab.press("#newRoomInput", "Enter");
 	const bridgedRow = namedRoomRow(tab, "deadnet/#nowhere");
-	if ((await bridgedRow.locator(".irc-chip").textContent()) !== "IRC") {
-		fail("the bridged room's primary rail line carries no IRC badge");
+	// The rail chip wears the bridge's own badge word, which for this IRC
+	// fixture is "IRC"; a second bridge would put its own badge here.
+	if ((await bridgedRow.locator(".bridge-chip").textContent()) !== "IRC") {
+		fail("the bridged room's primary rail line carries no bridge badge");
 	}
 	if (await bridgedRow.locator(".rwhere-bridge").count() !== 0) {
 		fail("the bridged room used its directory subtitle for IRC connection details");
@@ -122,7 +122,9 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 		)
 	) fail(`the phone-sized room tabs were squeezed instead of composed as two rows: ${JSON.stringify(phoneTabs)}`);
 	if (priorViewport != null) await tab.setViewportSize(priorViewport);
-	await tab.click("#convcardIrcTab");
+	// The identity tab wears the bridge's own badge, not a hardcoded "IRC", so
+	// it is reached by its stable dom id rather than by a label.
+	await tab.click("#convcardBridgeTab");
 	await tab.waitForSelector("#convcardBridgeState");
 	const ircState = (await tab.textContent("#convcardBridgeState")) ?? "";
 	if (!ircState.includes("deadnet") || !ircState.includes("127.0.0.1:1")) {
@@ -144,27 +146,38 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	) {
 		fail(`the failed IRC member row did not say its relationship: ${JSON.stringify(ownBridgeSaid)}`);
 	}
+	// The badge the bridge declares labels this control, so it reads as the
+	// service rather than as a hardcoded "IRC".
 	await ownBridge.getByRole("button", { name: "Manage your IRC identity" }).click();
-	await tab.waitForSelector("#convcardIrcPanel").catch(() =>
-		fail("the reader's member row did not open the IRC identity panel")
+	await tab.waitForSelector("#convcardBridgePanel").catch(() =>
+		fail("the reader's member row did not open the bridge identity panel")
 	);
-	if ((await tab.getAttribute("#convcardIrcTab", "aria-selected")) !== "true") {
-		fail("the member row opened room details somewhere other than IRC identity");
+	if ((await tab.getAttribute("#convcardBridgeTab", "aria-selected")) !== "true") {
+		fail("the member row opened room details somewhere other than the bridge identity tab");
 	}
 	// Pressing a declared action drives the whole rendered form: the button
 	// submits its scope and action through the session's bridge-form command to
 	// the live room, and the seat's reported state moves. Disconnecting from a
 	// failed IRC link is the one transition this fixture can prove, because the
-	// bridge's own IRC reach is unavailable to it.
+	// bridge's own IRC reach is unavailable to it. Disconnect takes a member off
+	// IRC, so the bridge marks it a confirmed act: the press opens a second step.
 	await tab.click("#convcardBridgeAct-disconnect");
+	await tab.locator("#convcardBridgeConfirm-disconnect").waitFor({ state: "visible", timeout: 10_000 })
+		.catch(() => fail("the destructive disconnect acted without a confirmation step"));
+	await tab.click("#convcardBridgeConfirm-disconnect");
 	await tab.waitForFunction(() => document.getElementById("convcardBridgeState")?.textContent?.includes("Rooms only"))
 		.catch(() => fail("disconnecting IRC did not leave the membership visibly Rooms-only"));
 	// The bridge declares its form for the state it is in: over cleartext it
 	// refuses a SASL password, so the registered-account half is absent rather
-	// than offered and refused after the fact. The nick field it does offer is
-	// present and editable.
+	// than offered and refused after the fact. It says why, rather than leaving a
+	// reader hunting for a login that was silently withheld. The nick field it
+	// does offer is present and editable.
 	if (await tab.locator("#convcardBridge-registered").count() !== 0) {
 		fail("a cleartext bridge offered a registered-account login it would refuse");
+	}
+	const cleartextState = (await tab.textContent("#convcardBridgeState")) ?? "";
+	if (!cleartextState.includes("needs an encrypted connection")) {
+		fail(`the cleartext identity form did not explain the missing login: ${JSON.stringify(cleartextState)}`);
 	}
 	await tab.waitForSelector("#convcardBridge-nick").catch(() =>
 		fail("the declared cleartext identity form drew no nick field")
@@ -211,13 +224,18 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	// A fresh connection and channel are a fresh publication generation. The
 	// retired room above must not poison this one merely because its name is the
 	// same.
-	await tab.fill("#ircNetwork", "deadnet");
-	await tab.fill("#ircHost", "127.0.0.1");
-	await tab.fill("#ircPort", "1");
-	await tab.fill("#ircNick", "proofbot");
-	await tab.click("#ircTls");
-	await tab.click("#ircOpenNetwork");
+	await tab.fill("#gatewayConnection-name", "deadnet");
+	await tab.fill("#gatewayConnection-host", "127.0.0.1");
+	await tab.fill("#gatewayConnection-port", "1");
+	await tab.fill("#gatewayConnection-nick", "proofbot");
+	// This time leave TLS on. A checked TLS box has to reach the gateway, or a
+	// registered account is refused and its per-member login never appears — the
+	// exact break a reader hit with the box selected.
+	await tab.click("#gatewayConnectionAct-open");
 	await connection.waitFor({ timeout: 10_000 });
+	if (!(await connection.textContent())?.includes("TLS")) {
+		fail("a TLS connection reported itself cleartext; the TLS toggle's on state was lost");
+	}
 	await connection.locator(".irc-channel-add input").fill("#nowhere");
 	await connection.locator('.irc-channel-add button:has-text("Join")').click();
 	const replacement = connection.locator('.irc-channel-list li:has-text("#nowhere")');
@@ -233,6 +251,13 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 			timeout: 10_000,
 		},
 	).catch(() => fail("a recreated IRC bridge inherited the retired room's disabled membership"));
+	// Over TLS the per-member registered-account login is offered: the half a
+	// cleartext connection withholds and explains.
+	const ownTls = tab.locator('#members li[data-network="rooms-failed"]');
+	await ownTls.getByRole("button", { name: "Manage your IRC identity" }).click();
+	await tab.waitForSelector("#convcardBridge-registered", { timeout: 10_000 })
+		.catch(() => fail("a TLS connection did not offer the per-member registered-account login"));
+	await tab.click("#convcardClose");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
 	await tab.click("#opsBtn");

@@ -12,12 +12,12 @@
 //! behavior forced across an in-process loopback pair; host/port unused).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
 
 const frame_cap: usize = 1 << 16;
 const client_name = "zig";

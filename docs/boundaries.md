@@ -18,7 +18,7 @@ tested. The [roadmap](roadmap.md) lists future work.
   designator is a stable dial target, but the channel proves no possession of
   it. Anyone on the path reads and can alter every frame; on `keyed-relay` that
   includes the relay operator even when the carrier leg itself uses WSS.
-  Prefer `noise-tcp` or `noise-relay` for pancake-to-pancake sealed channels,
+  Prefer `noise-tcp` or `noise-relay` for glowcap-to-glowcap sealed channels,
   iroh when discovery or NAT traversal is needed, and WebRTC for a direct
   browser channel.
 - **A TCP locator names a socket.** On plain TCP, the crossed-connection
@@ -27,13 +27,13 @@ tested. The [roadmap](roadmap.md) lists future work.
   tiebreak. Only a channel-authenticated key designator can collapse a session,
   so an unproved claim from raw keyed TCP or keyed relay cannot condemn one.
 - **Two sessions to one peer stay open on an address transport.** `127.0.0.1`
-  and `[::1]` are different designators, and neither is an identity pancake
+  and `[::1]` are different designators, and neither is an identity glowcap
   will act on, so nothing joins the two sessions. A key-designator transport
   with channel proof recognizes the peer by its durable name and keeps one.
 - **`inproc` is a test transport.** Its unbounded pipes block the reading
   thread, so it is not a production or load-test substitute.
 - **`onion` is proven live against the portable upstream suite, but not at scale.** `zig build
-  onion-interop` holds a session between two pancake peers and restores the same
+  onion-interop` holds a session between two glowcap peers and restores the same
   service in a fresh process. `zig build goblins-onion` does it with a real
   Spritely Goblins vat in both directions. `zig build ocapn-conformance-onion`
   passes the complete portable upstream suite plus the strict abort probe through the
@@ -43,15 +43,15 @@ tested. The [roadmap](roadmap.md) lists future work.
   and outbound network access, so they remain siblings of `check`. No recorded
   live-Tor scale run exists.
 - **An onion session upgrades past the `1.0` profile only when the partner is
-  known to be pancake.** The pinned Goblins accepts a hinted hello on any
+  known to be glowcap.** The pinned Goblins accepts a hinted hello on any
   transport, and `zig build goblins-onion` probes that live. Its dial arm
   still refuses a hinted onion locator, and gift withdrawal is keyed by the
-  full node value, so every onion locator on the wire stays bare. A pancake
+  full node value, so every onion locator on the wire stays bare. A glowcap
   peer states a preferred profile over onion only when it already knows the
-  other side: it was handed the pancake-hinted form of the address, or it is
+  other side: it was handed the glowcap-hinted form of the address, or it is
   answering a hello that stated a preference. A host on the default baseline
-  profile, and every Goblins session, settles the baseline. Two pancake peers
-  that both know each other settle `pancake-next` over Tor.
+  profile, and every Goblins session, settles the baseline. Two glowcap peers
+  that both know each other settle `glowcap-next` over Tor.
   [ADR-0108](decisions/adr/ADR-0108-onion-netlayer.md) records the locator
   rule.
   [ADR-0118](decisions/adr/ADR-0118-onion-profile-by-knowledge.md) records
@@ -71,7 +71,7 @@ tested. The [roadmap](roadmap.md) lists future work.
   authority on the WebRTC backend rather than on Session. Without it the dial
   refuses.
 
-The iroh and WebRTC transports rely on their existing sidecars; pancake does
+The iroh and WebRTC transports rely on their existing sidecars; glowcap does
 not ship a native Zig QUIC or WebRTC stack.
 
 - **A peer that dies without closing is noticed on iroh in seconds, not at
@@ -80,7 +80,7 @@ not ship a native Zig QUIC or WebRTC stack.
   a killed QUIC peer simply stops answering.
 - **iroh ends a silent peer with an idle timeout.** The sidecar turns that into
   a closed event (`transports/iroh/src/lib.rs`). The default is fifteen seconds;
-  set `PancakeIrohConfig.idle_timeout_ms` (surfaced on every binding) when a
+  set `GlowcapIrohConfig.idle_timeout_ms` (surfaced on every binding) when a
   live session means presence. Rooms asks for eight. There is no separate
   keep-alive: the transport derives the heartbeat from the timeout. A shorter
   timeout costs more idle traffic, charged against the per-connection budget in
@@ -105,7 +105,7 @@ not ship a native Zig QUIC or WebRTC stack.
   defers its answer atomically and the work's completion settles
   it later through `Vat.fulfillVow` or `Vat.breakVow`, on the owning thread.
   A byte-fed embedder has the same seam over the C surface
-  (`pancake_host_turn_defer` and its settle verbs). A TypeScript or
+  (`glowcap_host_turn_defer` and its settle verbs). A TypeScript or
   Python behavior that returns a promise defers this way automatically, and
   the Rust and Racket bindings expose the resolver pair directly. A native
   worker thread hands its settle back through `driver.SettleMailbox`: the
@@ -124,15 +124,15 @@ not ship a native Zig QUIC or WebRTC stack.
   through the common provider package ABI (ADR-0112), which covers dials,
   listener metadata and lifecycle, accepted-connection claim, and teardown.
   iroh implements the multiplexed execution entry in that provider package
-  (`pancake_iroh_transport_provider`, with both dial and accept proven live by
+  (`glowcap_iroh_transport_provider`, with both dial and accept proven live by
   `zig build iroh-driver-provider`). WebRTC implements the package's external
   connection claim: its archive owns signaling and opens the DataChannel, then
-  `pancake_driver_adopt_external` transfers either session role to the generic
+  `glowcap_driver_adopt_external` transfers either session role to the generic
   driver. `zig build webrtc-driver-provider` proves both halves and an
   authenticated capability fetch.
-- **`libpancake_driver` steps one `HostRuntime` from C.** It parks behind one
+- **`libglowcap_driver` steps one `HostRuntime` from C.** It parks behind one
   readiness descriptor (epoll on Linux, kqueue on Darwin; elsewhere
-  `pancake_driver_readiness_fd` fails typed while the stepping verbs keep
+  `glowcap_driver_readiness_fd` fails typed while the stepping verbs keep
   working). Dial and accept handshakes advance across steps under the
   handshake budget, so two loops on one thread can dial each other and a
   stalled connector cannot park the step. Stream providers begin connects
@@ -155,7 +155,7 @@ not ship a native Zig QUIC or WebRTC stack.
   their designator from the wrapped Host and expose the bound address as a
   separate listener hint; `noise-tcp` seals and authenticates the channel in
   the Host. Other transports arrive as packages. Iroh's multiplexed provider
-  (`pancake_iroh_transport_provider`) owns listener start, metadata, accept
+  (`glowcap_iroh_transport_provider`) owns listener start, metadata, accept
   claim, stop, and dial. Providers that cannot host refuse listener start
   explicitly.
 
@@ -283,7 +283,7 @@ not ship a native Zig QUIC or WebRTC stack.
 
 - **A sturdyref enliven verifies the complete locator before wire traffic.**
   Every tier's select-or-dial enliven (`driver.HostRuntime.enliven`,
-  `pancake_host_enliven`, and each binding's host-level verb) checks the
+  `glowcap_host_enliven`, and each binding's host-level verb) checks the
   sturdyref's peer against the session it selects or dials. An accepted
   plain-TCP session is refused by default; only the native low-level
   `assertion_only` opt-in proceeds, and it reports that provenance. Dial
@@ -299,7 +299,7 @@ assets are not published.
 ## Protocol and interop
 
 - **Locator hint count is an implementation resource bound, not an OCapN wire
-  maximum.** pancake accepts at most 32 entries in one locator hint map across
+  maximum.** glowcap accepts at most 32 entries in one locator hint map across
   owned values, Syrup, Cap'n Proto, and URI parsing. URI parsing refuses the
   33rd entry before decoding or allocating it. Unknown names within the bound
   remain preserved and ignored unless a negotiated feature owns their meaning.
@@ -311,15 +311,15 @@ assets are not published.
   `noise-tcp` / `noise-relay` supply connection-scoped identity proof
   (ADR-0107). `BlockingSession` refuses Noise symbols.
   An embedder with its own authenticated channel records the same fact through
-  `pancake_host_session_bind_verified_channel_key`.
+  `glowcap_host_session_bind_verified_channel_key`.
 - **OCapN Null is absent.** Unknown Syrup records remain tagged values instead.
   The encoding is an open upstream question
   ([watch](upstream-watch.md#ocapn-null)).
-- **Only the negotiated features are accepted.** pancake supports
+- **Only the negotiated features are accepted.** glowcap supports
   `pipelining`, `handoff`, `wire_delta`, `sturdyref`, `untag`, and the
   ADR-0125 `multi_location` bit. Identity-route vocabulary is opt-in: an `id`
   locator is refused before send or apply unless the settled session is
-  `pancake-next` with that bit. Host-level `id` sturdyrefs also require the
+  `glowcap-next` with that bit. Host-level `id` sturdyrefs also require the
   Host to opt into that same feature and then match only authenticated same-key
   sessions or staged concrete `via` routes. Feature names from older CapTP
   designs (streams, equality queries, a `draining` lifecycle) exist in neither
@@ -353,7 +353,7 @@ assets are not published.
   records an accepted `handoff-count` on the Gifter-Exporter session, although
   the certificate assigns that count to the Receiver-Exporter session. Two
   independent receivers can therefore each correctly begin at zero while the
-  second is rejected against the first receiver's retained count. Pancake keeps
+  second is rejected against the first receiver's retained count. Glowcap keeps
   one V1 issuance cursor for replacement sessions inside a Node, which handles
   reconnects but cannot coordinate independent recipients. The live
   `goblins-rooms-matrix-iroh` step reproduces the rejection; the source-level
@@ -362,10 +362,10 @@ assets are not published.
 - **Remote equality does not cross unrelated sessions.** A proved exporter
   session gives direct and handed-off references one Host identity. Two
   independently established sessions without durable peer proof carry no
-  stable target id from which pancake could infer that identity, so their
+  stable target id from which glowcap could infer that identity, so their
   targets remain unrelated even when their locators look alike.
 
-Cap'n Proto is a pancake-to-pancake format. The project does not publish a
+Cap'n Proto is a glowcap-to-glowcap format. The project does not publish a
 fixed speed ratio between the codecs; `zig build bench-codec` measures the
 current workload.
 

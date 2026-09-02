@@ -7,9 +7,9 @@
 //! Codec-wire backings are exercised by the per-codec view tests.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
+const model = glowcap.ocapn.model;
 const view = model.view;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 

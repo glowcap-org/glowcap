@@ -19,12 +19,12 @@ if ! command -v openssl >/dev/null 2>&1; then
 	exit 1
 fi
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/pancake-native-tls-fixture.XXXXXX")
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/glowcap-native-tls-fixture.XXXXXX")
 readonly scratch
 trap 'rm -rf -- "${scratch}"' EXIT
 
 openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 3650 \
-	-subj '/CN=pancake TLS fixture root' \
+	-subj '/CN=glowcap TLS fixture root' \
 	-addext 'basicConstraints=critical,CA:true,pathlen:0' \
 	-addext 'keyUsage=critical,keyCertSign,cRLSign' \
 	-keyout "${scratch}/root.key" \

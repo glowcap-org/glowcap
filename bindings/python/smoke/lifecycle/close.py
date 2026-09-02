@@ -5,16 +5,16 @@ from __future__ import annotations
 import asyncio
 import socket
 
-from pancake import (
+from glowcap import (
     tcp,
     Host,
     Locator,
-    PancakeError,
+    GlowcapError,
     PendingWork,
     Runtime,
     Symbol,
 )
-from pancake._constants import (
+from glowcap._constants import (
     DESIGNATOR_SCHEME_ADDRESS,
     ERR_TIMEOUT,
     TRANSPORT_TCP,
@@ -24,7 +24,7 @@ from pancake._constants import (
 async def _session_wire_failure_is_exact_and_retired() -> None:
     """A session-scoped FLUSH fault reaches every public observer only after
     the byte channel has crossed its retirement barrier."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     class MemoryChannel:
         designator_scheme = DESIGNATOR_SCHEME_ADDRESS
@@ -118,7 +118,7 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
 
 async def _host_close_joins_session_transport_failure() -> None:
     """Host close owns physical channel retirement after consuming sessions."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     class MemoryChannel:
         designator_scheme = DESIGNATOR_SCHEME_ADDRESS
@@ -178,7 +178,7 @@ async def _host_close_joins_session_transport_failure() -> None:
 
 async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
     """A finite session finish keeps progressing after its first waiter leaves."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     class PendingTransport:
         async def read(self) -> bytes:
@@ -220,14 +220,14 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
 
     try:
         await asyncio.wait_for(asyncio.shield(terminal), timeout=1)
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == ERR_TIMEOUT, error
     else:
         raise AssertionError("the shared finite finish discarded its timeout")
     assert session._released, "the finite close coordinator did not retire the Session"
     try:
         await session.close(pending=PendingWork.FINISH, grace=None)
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == ERR_TIMEOUT, error
     else:
         raise AssertionError("the shared finite finish discarded its timeout")
@@ -238,7 +238,7 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
 async def _repeated_host_close_observes_recorded_timeout() -> None:
     """A Host close that exhausted its finish grace keeps its outcome: a later
     close raises the recorded timeout instead of silently succeeding."""
-    from pancake._session import Session
+    from glowcap._session import Session
 
     class PendingTransport:
         async def read(self) -> bytes:
@@ -260,7 +260,7 @@ async def _repeated_host_close_observes_recorded_timeout() -> None:
 
     try:
         await host.close(PendingWork.FINISH, grace=0.02)
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == ERR_TIMEOUT, error
     else:
         raise AssertionError("a negotiating session let the finite finish settle in time")
@@ -268,7 +268,7 @@ async def _repeated_host_close_observes_recorded_timeout() -> None:
     assert host.released, "the timed-out finish close did not reach its terminal release"
     try:
         await host.close()
-    except PancakeError as error:
+    except GlowcapError as error:
         assert error.code == ERR_TIMEOUT, error
     else:
         raise AssertionError("repeated Host.close discarded the recorded timeout")
@@ -279,7 +279,7 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
     """The same spent-grace outcome through the loop front (ADR-0112): the
     pending work is a Runtime dial whose partner accepted the socket and says
     nothing. After close begins nothing arrives on the wire and no verb runs,
-    so the close driver's park over ``pancake_driver_step_wait_ms`` is what
+    so the close driver's park over ``glowcap_driver_step_wait_ms`` is what
     spans the expiry, and its waking step escalates and reports the timeout."""
     silent = socket.socket()
     accepted = None
@@ -298,13 +298,13 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
         assert driver_loop._pending_dials, "the dial never admitted its pending open"
         try:
             await asyncio.wait_for(runtime.close(PendingWork.FINISH, grace=0.02), 5)
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_TIMEOUT, error
         else:
             raise AssertionError("a negotiating dial let the finite finish settle in time")
         try:
             await negotiating
-        except (PancakeError, asyncio.CancelledError):
+        except (GlowcapError, asyncio.CancelledError):
             pass
     finally:
         if accepted is not None:
@@ -314,7 +314,7 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
 
 async def _silent_loop_dial_reaches_native_handshake_deadline() -> None:
     """An ordinary dial has no close driver to wake it. The loop's one
-    asyncio progress clock must therefore step when pancake's handshake
+    asyncio progress clock must therefore step when glowcap's handshake
     deadline expires, even though the accepted socket produces no fd edge."""
     listener = socket.socket()
     listener.setblocking(False)
@@ -336,7 +336,7 @@ async def _silent_loop_dial_reaches_native_handshake_deadline() -> None:
         )
         try:
             await asyncio.wait_for(dial, timeout=1)
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_TIMEOUT, error
         else:
             raise AssertionError("a silent partner opened a session")

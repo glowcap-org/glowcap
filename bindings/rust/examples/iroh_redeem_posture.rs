@@ -32,8 +32,8 @@
 
 use std::rc::Rc;
 
-use pancake_rust_dogfood::iroh::Reachability;
-use pancake_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::iroh::Reachability;
+use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -74,7 +74,7 @@ async fn run() -> Result<(), Fail> {
 	);
 	let gifter_host = gifter.host();
 	let gifter_id = gifter.node_id().to_string();
-	let exporter_locator = pancake_rust_dogfood::iroh::locator(&exporter_id, None);
+	let exporter_locator = glowcap_rust_dogfood::iroh::locator(&exporter_id, None);
 	let gifter_runtime = Runtime::open(
 		RuntimeConfig::providers([iroh::provider(iroh::Config::new(Reachability::LocalDiscovery))])
 			.adopt_host(&gifter_host),
@@ -102,7 +102,7 @@ async fn run() -> Result<(), Fail> {
 	println!("rust-iroh-redeem-posture: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: configures its redeem posture, then redeems the hint-less give ─
-	let gifter_locator = pancake_rust_dogfood::iroh::locator(&gifter_id, None);
+	let gifter_locator = glowcap_rust_dogfood::iroh::locator(&gifter_id, None);
 	let recipient_runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
 		Reachability::LocalDiscovery,
 	))]))
@@ -144,7 +144,7 @@ async fn run() -> Result<(), Fail> {
 // Serve every connection a server accepts for the life of the run: the loop holds
 // its own `Rc` to the server and parks on `accept().await`, so it is cancelled
 // with the enclosing `LocalSet` rather than awaited.
-fn accept_loop(server: Rc<pancake_rust_dogfood::iroh::Server>) {
+fn accept_loop(server: Rc<glowcap_rust_dogfood::iroh::Server>) {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
 		while let Ok(session) = server.accept().await {

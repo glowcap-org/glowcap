@@ -3,7 +3,7 @@
 # exact commit that passed check.yml authorizes publication of every tarball and
 # one combined SHA256SUMS. workflow_dispatch builds and uploads CI artifacts
 # only — never creates a GitHub release. Versioning is `abi_version` in
-# build.zig (reported by `pancake_abi_version`); the tag records the release
+# build.zig (reported by `glowcap_abi_version`); the tag records the release
 # point. This is the find leg's upstream named in bindings/README.md: a
 # runtime-download or per-platform packaging leg resolves archives from here.
 #
@@ -132,7 +132,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "pancake C archives $GITHUB_REF_NAME" \
+            --title "glowcap C archives $GITHUB_REF_NAME" \
             --verify-tag \
-            --notes "Per-platform pancake C archive sets (static and shared libraries, headers, product binaries, authorship disclosure, and licenses). Read the tagged [project provenance](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/PROVENANCE.md). Verify SHA256SUMS, then verify the GitHub artifact attestation with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`pancake_abi_version\`." \
+            --notes "Per-platform glowcap C archive sets (static and shared libraries, headers, product binaries, authorship disclosure, and licenses). Read the tagged [project provenance](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/PROVENANCE.md). Verify SHA256SUMS, then verify the GitHub artifact attestation with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`glowcap_abi_version\`." \
             release-assets/*

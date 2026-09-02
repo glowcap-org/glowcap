@@ -21,16 +21,16 @@
 //! Run: `zig build webrtc-loop`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 const harness = @import("interop_harness");
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const net = pancake.net;
-const driver = pancake.driver;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const net = glowcap.net;
+const driver = glowcap.driver;
 
 const frame_cap: usize = 64 * 1024;
 const num_conns: usize = 4;
@@ -51,7 +51,7 @@ const CapturedString = webrtc_common.CapturedString;
 /// capability. It owns the fd-to-client routing for the server's outbound
 /// candidates, and its `offer` is what a client's signaling send becomes.
 const Hub = struct {
-    mutex: pancake.net.sync.SpinLock = .{},
+    mutex: glowcap.net.sync.SpinLock = .{},
     allocator: std.mem.Allocator,
     io: std.Io,
     backend: *webrtc.Backend,

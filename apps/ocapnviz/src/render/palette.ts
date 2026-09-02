@@ -34,7 +34,7 @@ import type { Theme } from "../ui/tokens.ts";
  *  still report a profile this build has never heard of — that is
  *  what `PROFILE_FALLBACK_COLOR` is for. */
 export const PROFILE_COLORS: Record<typeof KNOWN_PROFILES[number], number> = {
-	pancake: 0xf59e0b,
+	glowcap: 0xf59e0b,
 	goblins: 0x8b5cf6,
 };
 
@@ -77,7 +77,7 @@ function contrastRatio(a: number, b: number): number {
  *  paper contrasts with it more. A peer's pill is a categorical
  *  encoding chosen per entity (its profile paints amber, violet, or
  *  slate), so no single glyph color reads on all of them —
- *  pancake's amber swallowed a muted grey diamond whole. Compared
+ *  glowcap's amber swallowed a muted grey diamond whole. Compared
  *  rather than split at a luminance threshold, because the slate
  *  fallback sits near the middle and a threshold picks it wrong.
  *  The fills are theme-independent, so this choice is too.

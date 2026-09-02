@@ -1,12 +1,12 @@
 ---
 .title = "WebRTC: peer-to-peer for the browser",
-.description = "WebRTC carries a pancake session over an encrypted DataChannel, with direct browser-to-browser channels after signaling.",
+.description = "WebRTC carries a glowcap session over an encrypted DataChannel, with direct browser-to-browser channels after signaling.",
 .date = .date("2026-07-22T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-WebRTC carries pancake between browsers over a direct DataChannel. A session's
+WebRTC carries glowcap between browsers over a direct DataChannel. A session's
 bytes ride a
 [WebRTC](https://www.w3.org/TR/webrtc/) DataChannel, encrypted with DTLS, with
 no server on the byte path. Above the wire it is the same CapTP session.
@@ -27,8 +27,8 @@ companion, but the managed adapter named by that marker has not landed yet.
 > []($block.attrs('code-tabs'))
 > **TypeScript**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { connector, locator, type SignalingAuthority } from "@pancake/webrtc";
+> import { Runtime } from "@glowcap/runtime";
+> import { connector, locator, type SignalingAuthority } from "@glowcap/webrtc";
 >
 > declare const signaling: SignalingAuthority;
 > const peerKey = "<64 lowercase hex characters from the peer>";
@@ -40,12 +40,12 @@ companion, but the managed adapter named by that marker has not landed yet.
 > ```
 > **Browser**
 > ```ts
-> import { connector, locator, type SignalingAuthority } from "@pancake/webrtc";
-> import { init } from "@pancake/web";
+> import { connector, locator, type SignalingAuthority } from "@glowcap/webrtc";
+> import { init } from "@glowcap/web";
 >
 > declare const signaling: SignalingAuthority;
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	connectors: [connector(signaling)],
 > });
 > await using runtime = web.runtime;
@@ -59,12 +59,12 @@ companion, but the managed adapter named by that marker has not landed yet.
 > ```
 > **Python (planned)**
 > ```python
-> # PLANNED: pancake has no managed WebRTC Runtime adapter yet.
+> # PLANNED: glowcap has no managed WebRTC Runtime adapter yet.
 > # The Python WebRTC dial API is not yet public; this shows the planned shape.
 > # Pass the signaling capability you already hold.
 > #
-> # from pancake import Runtime
-> # from pancake.webrtc import SignalingAuthority, connector, locator
+> # from glowcap import Runtime
+> # from glowcap.webrtc import SignalingAuthority, connector, locator
 > #
 > # signaling: SignalingAuthority = ...
 > # partner = locator("<64 lowercase hex characters from the peer>")
@@ -74,22 +74,22 @@ companion, but the managed adapter named by that marker has not landed yet.
 > ```
 > **Rust (planned)**
 > ```rust
-> // PLANNED: pancake has no managed WebRTC Runtime adapter yet.
+> // PLANNED: glowcap has no managed WebRTC Runtime adapter yet.
 > // The Rust WebRTC dial API is not yet public; this shows the planned shape.
 > // Pass the signaling capability you already hold.
 > //
-> // use pancake::{webrtc, Runtime, RuntimeConfig};
+> // use glowcap::{webrtc, Runtime, RuntimeConfig};
 > //
 > // let partner = webrtc::locator("<64 lowercase hex characters from the peer>");
 > // let runtime = Runtime::open(RuntimeConfig::connectors([webrtc::connector(signaling)])).await?;
 > ```
 > **Racket (planned)**
 > ```scheme
-> ;; PLANNED: pancake has no managed WebRTC Runtime adapter yet.
+> ;; PLANNED: glowcap has no managed WebRTC Runtime adapter yet.
 > ;; The Racket WebRTC dial API is not yet public; this shows the planned shape.
 > ;; Pass the signaling capability you already hold.
 > ;;
-> ;; (require "pancake.rkt" "pancake-webrtc.rkt")
+> ;; (require "glowcap.rkt" "glowcap-webrtc.rkt")
 > ;;
 > ;; (define partner (webrtc-locator "<64 lowercase hex characters from the peer>"))
 > ;; (define runtime (open-runtime #:connectors (list (webrtc-connector signaling))))
@@ -101,7 +101,7 @@ companion, but the managed adapter named by that marker has not landed yet.
 # Listen
 
 WebRTC has no conventional host-and-port listener. Its accepting half is a
-signaling exchange. `@pancake/webrtc` currently exposes the dialing connector;
+signaling exchange. `@glowcap/webrtc` currently exposes the dialing connector;
 applications that answer offers drive the peer and signaling objects directly.
 The native Zig and C companions expose the same lower-level accepting pieces,
 but no binding currently wraps them as an application-level `Server`.
@@ -110,14 +110,14 @@ but no binding currently wraps them as an application-level `Server`.
 
 To open a DataChannel, the two peers first trade three things: an SDP offer, an
 SDP answer, and a handful of ICE candidates (the network paths each side can be
-reached on). pancake carries that exchange over an ordinary OCapN capability. A
+reached on). glowcap carries that exchange over an ordinary OCapN capability. A
 room both peers have joined, or any object both can send to, hosts the
 signaling. The object moves opaque strings; it parses no SDP and holds no
 session.
 
 [The two peers trade an offer, an answer, and ICE candidates through a signaling capability, then open a direct DataChannel and run the keyed session over it with the signaling host out of the byte path.]($image.siteAsset('diagram-webrtc-signaling.svg'))
 
-A bare `webrtc` locator does not dial on its own. pancake recognizes the
+A bare `webrtc` locator does not dial on its own. glowcap recognizes the
 transport and checks the designator (a public key), but with no signaling
 reference there is nowhere to send an offer. TypeScript puts signaling on the
 Host. Native Zig puts it on the WebRTC backend. Once it is in place, the dial
@@ -135,9 +135,9 @@ complete the keyed handshake for a key it does not hold.
 
 # Optional sidecar archive
 
-pancake's WebRTC DataChannel sidecar is Rust, so it rides a staticlib in
-`libpancake_net_transport_webrtc`
-([ADR-0089](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
+glowcap's WebRTC DataChannel sidecar is Rust, so it rides a staticlib in
+`libglowcap_net_transport_webrtc`
+([ADR-0089](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
 The base archives stay pure Zig; a program links WebRTC only when it wants it.
 Building the companion archive needs `cargo`.
 
@@ -150,7 +150,7 @@ in CI and which are still manual.
 
 # The browser arm
 
-`@pancake/webrtc` drives an `RTCPeerConnection` and presents the open
+`@glowcap/webrtc` drives an `RTCPeerConnection` and presents the open
 DataChannel to the wasm Host. It supports two topologies:
 
 - a browser and a native peer hold a keyed session over a DataChannel, and
@@ -159,7 +159,7 @@ DataChannel to the wasm Host. It supports two topologies:
 
 # STUN, TURN, and staying direct
 
-ICE finds a network path. The `@pancake/webrtc` connector adds no infrastructure
+ICE finds a network path. The `@glowcap/webrtc` connector adds no infrastructure
 unless its embedding names some; a relay is fallback, never the steady path. On
 loopback or a LAN, peers pair on host candidates with no STUN or TURN. A browser
 that must cross NAT hands the connector a STUN server. Rooms does that as
@@ -177,7 +177,7 @@ but never the keyed session.
 A handoff over WebRTC is the same introduction as over any other session
 ([Concepts]($link.page('concepts')) explains the exchange): the gifter names the
 exporter, and the recipient redeems by dialing that peer on a fresh session.
-pancake redeems that path when the redeeming host has signaling authority
+glowcap redeems that path when the redeeming host has signaling authority
 configured. Without that authority, a bare `webrtc` locator still refuses
 because it has no route for the signaling exchange.
 [What you can depend on]($link.page('stability')) owns the evidence boundary.

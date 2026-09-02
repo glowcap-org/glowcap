@@ -60,10 +60,10 @@ const process_calls = [_]struct {
     .{ .marker = "execution.addZigTest(", .posture_arg = 2, .zig_test = true },
     .{ .marker = "execution.addArtifact(", .posture_arg = 1 },
     .{ .marker = "execution.addSystemCommand(", .posture_arg = 1 },
-    .{ .marker = "common.addPancakeRun(", .posture_arg = 1 },
+    .{ .marker = "common.addGlowcapRun(", .posture_arg = 1 },
     .{ .marker = "common.addRootedSystemCommand(", .posture_arg = 1 },
     .{ .marker = "common.addInstalledSystemRun(", .posture_arg = 1 },
-    .{ .marker = "addPancakeRun(", .posture_arg = 1 },
+    .{ .marker = "addGlowcapRun(", .posture_arg = 1 },
     .{ .marker = "addRootedSystemCommand(", .posture_arg = 1 },
     .{ .marker = "addInstalledSystemRun(", .posture_arg = 1 },
 };

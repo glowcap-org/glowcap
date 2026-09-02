@@ -31,7 +31,7 @@ transports/webrtc/target/
 **/*.pyc
 # The Python binding lock is committed: relay and rendezvous proofs run its
 # optional WebSocket dependency with `uv --locked`.
-bindings/python/pancake_python.egg-info/
+bindings/python/glowcap_python.egg-info/
 # Deno lockfiles are committed beside each config. Direct versions are exact,
 # and the frozen transitive graph is part of reproducible checks and bundles.
 # Racket bytecode: compiling a Racket source (bench-langs precompiles its
@@ -41,9 +41,9 @@ bindings/python/pancake_python.egg-info/
 # goblins-peer sources. Generated, never committed, wherever it lands.
 **/compiled/
 
-# accountability-on-pancake writes its durable Episode log + transparency root
+# accountability-on-glowcap writes its durable Episode log + transparency root
 # here at run time; generated state, never committed.
-apps/accountability-on-pancake/.data/
+apps/accountability-on-glowcap/.data/
 # The Goblins-side kernel and three-vat demos write the same shape, including
 # per-AID KERI key files; one early round of them survives only in history,
 # named in that app's README.
@@ -65,7 +65,7 @@ apps/ocapnviz/test-data/stress-*x.json
 
 # Cold-cache fallback when HOME is unset (see bindings/c-abi-resolve.json
 # `fallback_cache_name`; written under $TMPDIR / the process cwd as appropriate).
-pancake-c-abi-cache/
+glowcap-c-abi-cache/
 
 # per-machine agent-harness settings, never committed
 .claude/settings.local.json

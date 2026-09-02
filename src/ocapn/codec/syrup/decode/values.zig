@@ -222,11 +222,11 @@ fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usi
         else => {},
     }
 
-    // A record label pancake does not model is a foreign record — a
+    // A record label glowcap does not model is a foreign record — a
     // Goblins exception such as `<exn:fail:mystery>` riding a break
     // payload — projected as Tagged: the label is the tag, the fields
     // the value, exactly the shape `engine.events.breakReasonFromPayload`
-    // reads a reason from. Decode-side leniency only (pancake's own
+    // reads a reason from. Decode-side leniency only (glowcap's own
     // Tagged spells `<user-record …>` on encode); whether a tagged
     // value is admissible where it lands stays the session's verdict.
     const fields = try sliceRecordFieldsNeutral(bytes, cursor, depth + 1, limit);

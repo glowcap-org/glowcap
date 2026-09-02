@@ -18,7 +18,7 @@ An OCapN locator names the peer it describes. The same value appears as this
 peer's `acceptable-location` in `op:start-session` and as an exporter's location
 in three-party handoff.
 
-pancake assembled that value at several call sites. Dial and accept could
+glowcap assembled that value at several call sites. Dial and accept could
 therefore advertise different hints for the same peer, while a handoff could
 reconstruct a third value. This was most visible with iroh: an accepted
 session could omit `direct-addresses`, then a third party receiving that
@@ -120,14 +120,14 @@ predicate.
 
 Goblins currently indexes an open exporter session by the complete locator,
 including hints. That is inconsistent with its own hint-insensitive node
-equality and the OCapN locator identity rule, but pancake does not need to shape
+equality and the OCapN locator identity rule, but glowcap does not need to shape
 its architecture around the defect.
 
 The production Goblins Onion locator is stable: `(onion, service-id, #f)`.
-There is no changing hint to mismatch. In pancake, `direct-addresses` changes
+There is no changing hint to mismatch. In glowcap, `direct-addresses` changes
 only when an iroh deployment without reachability must publish new direct
 routes, which is uncommon and naturally creates a new locator snapshot for
-subsequent sessions. pancake passes through the hints it actually uses and
+subsequent sessions. glowcap passes through the hints it actually uses and
 does not add a session-only field that guarantees mismatch.
 
 ## Consequences
@@ -157,7 +157,7 @@ handoff can then disagree about one peer-owned fact.
 
 **Work around Goblins by stripping or sorting hints.** Rejected because hint
 order is already canonicalized for signatures, and altering a peer's locator
-to satisfy an upstream full-value lookup would make pancake advertise a value
+to satisfy an upstream full-value lookup would make glowcap advertise a value
 the peer did not publish.
 
 ## Evidence

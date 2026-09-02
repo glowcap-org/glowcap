@@ -14,11 +14,11 @@ const c = @import("../mod.zig");
 const Internal = root.Internal;
 const Instance = Internal.Instance;
 const LocatorProjection = shared.locator_adapter.Projection;
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
-const PANCAKE_ERR_BUFFER_TOO_SMALL = shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
-const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+const GLOWCAP_ERR_BUFFER_TOO_SMALL = shared.GLOWCAP_ERR_BUFFER_TOO_SMALL;
+const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 const instanceFrom = Internal.instanceFrom;
 const errToCode = Internal.errToCode;
 const operationOptionsCode = Internal.operationOptionsCode;
@@ -45,31 +45,31 @@ fn activeListener(inst: *Instance, listener: u64) ActiveListenerLookupError!*lis
 
 fn activeListenerErrorCode(err: ActiveListenerLookupError) i32 {
     return switch (err) {
-        error.UnknownListener => shared.PANCAKE_ERR_NOT_FOUND,
-        error.ListenerPending => shared.PANCAKE_ERR_WOULD_BLOCK,
-        error.ListenerClosing => shared.PANCAKE_ERR_NOT_FOUND,
+        error.UnknownListener => shared.GLOWCAP_ERR_NOT_FOUND,
+        error.ListenerPending => shared.GLOWCAP_ERR_WOULD_BLOCK,
+        error.ListenerClosing => shared.GLOWCAP_ERR_NOT_FOUND,
     };
 }
 
 /// Begin listener construction under one stable identity. Bounded and staged
 /// providers both resolve through LISTENER_READY or LISTENER_FAILED; closing
 /// the identity cancels pending setup or closes the active listener.
-pub export fn pancake_driver_listen(
-    raw: ?*c.PancakeDriverLoop,
+pub export fn glowcap_driver_listen(
+    raw: ?*c.GlowcapDriverLoop,
     transport: ?[*]const u8,
     transport_len: usize,
     designator: ?[*]const u8,
     designator_len: usize,
-    options: ?*const shared.PancakeTransportOperationOptions,
+    options: ?*const shared.GlowcapTransportOperationOptions,
     out_listener: ?*u64,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "listen")) |code| return code;
-    const slot = out_listener orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_listener orelse return GLOWCAP_ERR_NULL_POINTER;
     const transport_bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     const designator_bytes = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
-    const operation_options = operationOptionsCode(options) catch return PANCAKE_ERR_INVALID_ARGUMENT;
+    const operation_options = operationOptionsCode(options) catch return GLOWCAP_ERR_INVALID_ARGUMENT;
     const id = inst.next_listener;
     if (id == 0 or id == std.math.maxInt(u64)) return errToCode(error.IdentifierExhausted);
     inst.listeners.ensureUnusedCapacity(inst.allocator, 1) catch return errToCode(error.OutOfMemory);
@@ -88,7 +88,7 @@ pub export fn pancake_driver_listen(
     };
     inst.next_listener = id + 1;
     slot.* = id;
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 fn listenerReady(ctx: *anyopaque, tag: u64, ready_listener: driver.HostRuntime.TransportListener) void {
@@ -161,44 +161,44 @@ fn finishListener(
 
 /// Borrow one active listener's complete locator view. It remains valid until
 /// that listener is advertised again, closed, or its loop is released.
-pub export fn pancake_driver_listener_locator(
-    raw: ?*c.PancakeDriverLoop,
+pub export fn glowcap_driver_listener_locator(
+    raw: ?*c.GlowcapDriverLoop,
     listener: u64,
-    out_locator: ?*shared.PancakeLocatorView,
+    out_locator: ?*shared.GlowcapLocatorView,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_locator orelse return GLOWCAP_ERR_NULL_POINTER;
     const bound_listener = activeListener(inst, listener) catch |err| return activeListenerErrorCode(err);
     // Return the POD view by value. Its nested slices still borrow the
     // listener's owned locator/projection, but no pointer into the hash map's
     // movable value storage escapes this call.
     slot.* = bound_listener.projection.view;
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Query or copy opaque transport-owned state sufficient to restore this
 /// listener's local address. The state is sensitive provider vocabulary, not
 /// part of the public locator. A null/zero output is the size query.
-pub export fn pancake_driver_listener_restoration_state(
-    raw: ?*c.PancakeDriverLoop,
+pub export fn glowcap_driver_listener_restoration_state(
+    raw: ?*c.GlowcapDriverLoop,
     listener: u64,
     out: ?[*]u8,
     cap: usize,
     out_len: ?*usize,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "listener_restoration_state")) |code| return code;
-    const len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
+    const len_slot = out_len orelse return GLOWCAP_ERR_NULL_POINTER;
     len_slot.* = 0;
     const bound = activeListener(inst, listener) catch |err| return activeListenerErrorCode(err);
-    const dest: []u8 = if (cap == 0) &.{} else (out orelse return PANCAKE_ERR_NULL_POINTER)[0..cap];
+    const dest: []u8 = if (cap == 0) &.{} else (out orelse return GLOWCAP_ERR_NULL_POINTER)[0..cap];
     _ = bound;
     const needed = switch (inst.runtime.ownedListenerRestorationStateOutcome(listener, dest)) {
         .unsupported => {
             shared.setLastError("driver: listener has no restoration state", .{});
-            return shared.PANCAKE_ERR_NOT_FOUND;
+            return shared.GLOWCAP_ERR_NOT_FOUND;
         },
         .size => |needed| needed,
         .failed => |failure| {
@@ -208,26 +208,26 @@ pub export fn pancake_driver_listener_restoration_state(
         },
     };
     len_slot.* = needed;
-    if (cap < needed) return PANCAKE_ERR_BUFFER_TOO_SMALL;
-    return PANCAKE_OK;
+    if (cap < needed) return GLOWCAP_ERR_BUFFER_TOO_SMALL;
+    return GLOWCAP_OK;
 }
 
 /// Replace an active listener's advertised locator while retaining its
 /// transport and identity posture. This is the wildcard/NAT policy seam: the
 /// binding may know a public address the socket cannot discover, but the loop
 /// remains the sole owner that validates and publishes the resulting locator.
-pub export fn pancake_driver_listener_advertise(
-    raw: ?*c.PancakeDriverLoop,
+pub export fn glowcap_driver_listener_advertise(
+    raw: ?*c.GlowcapDriverLoop,
     listener: u64,
-    locator_view: ?*const shared.PancakeLocatorView,
+    locator_view: ?*const shared.GlowcapLocatorView,
 ) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "listener_advertise")) |code| return code;
     inst.runtime.enterDriver();
     defer inst.runtime.leaveDriver();
     const bound = activeListener(inst, listener) catch |err| return activeListenerErrorCode(err);
-    const view = locator_view orelse return PANCAKE_ERR_NULL_POINTER;
+    const view = locator_view orelse return GLOWCAP_ERR_NULL_POINTER;
     const proposed = shared.locator_adapter.cloneView(inst.allocator, view) catch |err| return errToCode(err);
     defer model.freePeerLocator(inst.allocator, proposed);
     var prepared = switch (inst.runtime.prepareOwnedListenerAdvertisementOutcome(listener, proposed)) {
@@ -250,15 +250,15 @@ pub export fn pancake_driver_listener_advertise(
     bound.projection.deinit(inst.allocator);
     bound.projection = projection;
     projection_live = false;
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Select an active listener's retained locator as the Host's
 /// `acceptable-location`. This changes policy without reallocating or
 /// rebuilding locator metadata.
-pub export fn pancake_driver_listener_select(raw: ?*c.PancakeDriverLoop, listener: u64) i32 {
+pub export fn glowcap_driver_listener_select(raw: ?*c.GlowcapDriverLoop, listener: u64) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "listener_select")) |code| return code;
     inst.runtime.enterDriver();
     defer inst.runtime.leaveDriver();
@@ -268,19 +268,19 @@ pub export fn pancake_driver_listener_select(raw: ?*c.PancakeDriverLoop, listene
         return operationErrorCode(inst, err);
     if (!selected) {
         shared.setLastError("driver: listener locator is not retained by the host", .{});
-        return shared.PANCAKE_ERR_NOT_FOUND;
+        return shared.GLOWCAP_ERR_NOT_FOUND;
     }
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }
 
 /// Stop one listener and remove its advertised locator. Accepted sessions and
 /// already queued ACCEPTED events remain valid. If this listener supplied the
 /// selected acceptable location, the Host intentionally has no selection
 /// until the caller selects another active listener.
-pub export fn pancake_driver_listener_close(
-    raw: ?*c.PancakeDriverLoop,
+pub export fn glowcap_driver_listener_close(
+    raw: ?*c.GlowcapDriverLoop,
     listener: u64,
-    out_failure: ?*failure_output.PancakeDriverFailure,
+    out_failure: ?*failure_output.GlowcapDriverFailure,
 ) i32 {
     shared.lastErrorClear();
     const failure_slot = switch (failure_output.claim(out_failure, "driver listener_close")) {
@@ -288,7 +288,7 @@ pub export fn pancake_driver_listener_close(
         .refused => |code| return code,
     };
     const inst = instanceFrom(raw) orelse
-        return failure_output.refuse(failure_slot, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        return failure_output.refuse(failure_slot, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     // Terminal failure forbids new work, but never teardown. The provider
     // package remains leased until loop release, so closing a listener is both
     // valid and necessary after an unrelated provider violates its contract.
@@ -299,22 +299,22 @@ pub export fn pancake_driver_listener_close(
     const id: ListenerId = @fromBackingInt(@intCast(listener));
     const state = inst.listeners.get(id) orelse {
         shared.setLastError("driver: unknown listener id", .{});
-        return failure_output.refuse(failure_slot, shared.PANCAKE_ERR_NOT_FOUND, error.UnknownListener);
+        return failure_output.refuse(failure_slot, shared.GLOWCAP_ERR_NOT_FOUND, error.UnknownListener);
     };
     const pending = switch (state) {
         .retired => {
             std.debug.assert(inst.listeners.remove(id));
-            return PANCAKE_OK;
+            return GLOWCAP_OK;
         },
         .pending => true,
         .active, .closing => false,
     };
     const outcome = inst.runtime.stopOwnedListener(@backingInt(id));
     if (!outcome.found)
-        return failure_output.refuse(failure_slot, PANCAKE_ERR_INVALID_ARGUMENT, error.ProviderContract);
+        return failure_output.refuse(failure_slot, GLOWCAP_ERR_INVALID_ARGUMENT, error.ProviderContract);
     if (outcome.pending) {
         listener_state.markClosing(inst, listener);
-        return PANCAKE_ERR_WOULD_BLOCK;
+        return GLOWCAP_ERR_WOULD_BLOCK;
     }
     if (outcome.failure) |failure| {
         if (!pending) std.debug.assert(listener_state.remove(inst, listener));
@@ -324,5 +324,5 @@ pub export fn pancake_driver_listener_close(
         return code;
     }
     if (!pending) std.debug.assert(listener_state.remove(inst, listener));
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }

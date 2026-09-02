@@ -1,4 +1,4 @@
-import { type Argument, type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, Ref, type Session } from "@glowcap/runtime";
 import type { Attachment } from "../../lib/attachment.ts";
 import { Room } from "../../lib/room/client.ts";
 import { LEAVE, LINE, NOTIFY, SUBSCRIBE } from "../../lib/protocol.ts";

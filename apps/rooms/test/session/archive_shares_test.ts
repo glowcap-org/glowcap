@@ -1,4 +1,4 @@
-import { DURABLE_SWISS_ENTROPY_BYTES, parseLocator, type Ref, type Session } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES, parseLocator, type Ref, type Session } from "@glowcap/runtime";
 import { type ArchiveLine, archiveRecordRow, MAX_ARCHIVE_CONVERSATION_BYTES } from "../../lib/archive/protocol.ts";
 import { formatRoomsSturdyref } from "../../lib/locator.ts";
 import { MAX_PENDING_ARCHIVE_SHARES } from "../../lib/limits.ts";

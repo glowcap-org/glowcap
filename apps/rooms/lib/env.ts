@@ -26,10 +26,10 @@ export const ROOM_TRANSPORTS = ["tcp", "iroh", "onion"] as const;
 export type RoomTransport = (typeof ROOM_TRANSPORTS)[number];
 
 /** Resolve the transport choice (`--transport=…`, or its
- * `PANCAKE_ROOMS_TRANSPORT` env twin, or the tcp default), or throw naming
+ * `GLOWCAP_ROOMS_TRANSPORT` env twin, or the tcp default), or throw naming
  * the whole set. One grammar for the server and its supervisor. */
 export function transportChoice(named: string | undefined): RoomTransport {
-	const choice = named ?? optionalEnv("PANCAKE_ROOMS_TRANSPORT") ?? "tcp";
+	const choice = named ?? optionalEnv("GLOWCAP_ROOMS_TRANSPORT") ?? "tcp";
 	const known = ROOM_TRANSPORTS.find((transport) => transport === choice);
 	if (known === undefined) {
 		throw new Error(`unknown transport "${choice}" (expected ${ROOM_TRANSPORTS.join(", ")})`);
@@ -39,18 +39,18 @@ export function transportChoice(named: string | undefined): RoomTransport {
 
 /** The port the live timeline endpoint binds while `--viz` is on. The default
  * is the canonical container-side trace port the devcontainer maps out
- * (`.devcontainer/.env.example` pairs it with `PANCAKE_ROOMS_TRACE_HOST_PORT`).
- * `PANCAKE_ROOMS_VIZ_PORT` changes only this default — setting it enables
+ * (`.devcontainer/.env.example` pairs it with `GLOWCAP_ROOMS_TRACE_HOST_PORT`).
+ * `GLOWCAP_ROOMS_VIZ_PORT` changes only this default — setting it enables
  * nothing — and `0` asks for an ephemeral port. */
 const VIZ_DEFAULT_PORT = "9300";
 
 /** Resolve the viz port choice, or throw when the override is not a port. */
 export function vizPortChoice(): string {
-	const raw = optionalEnv("PANCAKE_ROOMS_VIZ_PORT");
+	const raw = optionalEnv("GLOWCAP_ROOMS_VIZ_PORT");
 	if (raw === undefined) return VIZ_DEFAULT_PORT;
 	const port = Number(raw);
 	if (!Number.isInteger(port) || port < 0 || port > 65535) {
-		throw new Error(`PANCAKE_ROOMS_VIZ_PORT is not a port: "${raw}"`);
+		throw new Error(`GLOWCAP_ROOMS_VIZ_PORT is not a port: "${raw}"`);
 	}
 	return raw;
 }

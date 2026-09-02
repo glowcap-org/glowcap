@@ -1,4 +1,4 @@
-use pancake::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+use glowcap::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 // The key names the peer; the hint names the relay that can reach it.
 let peer_key = "<64 lowercase hex characters from the server>";

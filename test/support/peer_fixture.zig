@@ -2,12 +2,12 @@
 //! Consumers: `test/engine/projection_test.zig`, `test/engine/resolve_window_test.zig`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const codec = pancake.ocapn.codec;
-const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
+const engine = glowcap.ocapn.engine;
+const codec = glowcap.ocapn.codec;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
 
 pub const OpenOptions = struct {
     captp_version: model.CaptpVersion = model.CaptpVersion.next,

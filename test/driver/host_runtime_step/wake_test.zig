@@ -4,12 +4,12 @@
 //! `wakeReadiness` raises the descriptor from another thread.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const netlayer_test = @import("../../support/netlayer.zig");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const harness = @import("harness.zig");

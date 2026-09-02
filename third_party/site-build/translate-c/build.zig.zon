@@ -5,12 +5,12 @@
 
     .fingerprint = 0x1c84f6455a54f043, // Changing this has security and trust implications.
 
-    .minimum_zig_version = "0.17.0-dev.1640+2597da025",
+    .minimum_zig_version = "0.17.0-dev.1936+5a625d5f3",
 
     .dependencies = .{
         .aro = .{
-            .url = "git+https://codeberg.org/ziglang/arocc#a4e99cedda3bff1e3a3a388e9f6ed05bbd36e441",
-            .hash = "aro-0.0.0-JSD1QllKNwBfEKDTpieRPt0mp_0RCJUOEAFBUdGHGXFl",
+            .url = "git+https://codeberg.org/ziglang/arocc#8d5f79925cfd60d1c894b478b3502ed1e376e9ba",
+            .hash = "aro-0.0.0-JSD1QhdtNwC3tSPo_L0O9EOdOqEXYxE5tOrih2p4RGKx",
         },
     },
 

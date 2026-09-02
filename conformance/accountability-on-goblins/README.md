@@ -3,21 +3,21 @@
 Worked accountability application on Spritely Goblins: KERI-anchored identity,
 signed invocation Episodes, and a local transparency log over Episode hashes. It
 is plain Racket on top of Goblins; it does not modify Spritely Goblins and it is
-not part of pancake's protocol core.
+not part of glowcap's protocol core.
 
 ## Why It Lives Here
 
 This application is external conformance pressure for the kind of host software
-pancake supports; the worked application
-[`accountability-on-pancake/`](../../apps/accountability-on-pancake/)
-runs the same shape on pancake itself. It exercises three concerns above CapTP:
+glowcap supports; the worked application
+[`accountability-on-glowcap/`](../../apps/accountability-on-glowcap/)
+runs the same shape on glowcap itself. It exercises three concerns above CapTP:
 
 1. networked capability invocation;
 2. identity material bound to a peer;
 3. an observation point that emits a signed Episode for each invocation.
 
-This implementation uses Goblins for the runtime. Pancake's core remains
-codec-neutral CapTP; the pancake port in `apps/accountability-on-pancake/` wraps the
+This implementation uses Goblins for the runtime. Glowcap's core remains
+codec-neutral CapTP; the glowcap port in `apps/accountability-on-glowcap/` wraps the
 caller-owned `Peer` boundary rather than pushing Episode/KERI vocabulary into
 the protocol core.
 
@@ -82,4 +82,4 @@ bash conformance/keri-conformance/run.sh --fixture sample-kel
   devcontainer.
 - Editable worked example: change it when it stops teaching the right boundary.
 - Not in `zig build check`: it informs design and external conformance pressure,
-  but does not gate pancake's protocol core.
+  but does not gate glowcap's protocol core.

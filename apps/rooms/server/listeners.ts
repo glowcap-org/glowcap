@@ -14,7 +14,7 @@
 // sentence naming what is missing, because an operator holding the swiss
 // deserves the real boundary rather than a generic failure.
 
-import { type Argument, type Host, retainCleanupFailures, type Session } from "@pancake/runtime";
+import { type Argument, type Host, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import {
 	FEATURE_MULTI_LOCATION,
 	formatLocatorUri,
@@ -26,12 +26,12 @@ import {
 	TRANSPORT_NOISE_TCP,
 	TRANSPORT_ONION,
 	TRANSPORT_TCP,
-} from "@pancake/runtime";
-import type { ProfileInfo } from "@pancake/runtime/transport";
-import * as irohTransport from "@pancake/iroh";
-import * as tcpTransport from "@pancake/tcp";
-import * as relayTransport from "@pancake/relay";
-import * as onionTransport from "@pancake/onion";
+} from "@glowcap/runtime";
+import type { ProfileInfo } from "@glowcap/runtime/transport";
+import * as irohTransport from "@glowcap/iroh";
+import * as tcpTransport from "@glowcap/tcp";
+import * as relayTransport from "@glowcap/relay";
+import * as onionTransport from "@glowcap/onion";
 import { roomsListen } from "../lib/locator.ts";
 import { roomsIdentityRoute } from "../lib/routes.ts";
 import { optionalEnv } from "../lib/env.ts";
@@ -110,9 +110,9 @@ function upOption(options: ListenerOptions): ListenerUpOptions {
 /** The env default behind a named listen option, so the hints `list` serves
  * show what this server would actually do with a blank field. */
 const OPTION_ENV_DEFAULTS: Record<string, string> = {
-	bind: "PANCAKE_ROOMS_BIND",
-	advertise: "PANCAKE_ROOMS_ANNOUNCE_HOST",
-	relay: "PANCAKE_ROOMS_RELAY_URL",
+	bind: "GLOWCAP_ROOMS_BIND",
+	advertise: "GLOWCAP_ROOMS_ANNOUNCE_HOST",
+	relay: "GLOWCAP_ROOMS_RELAY_URL",
 };
 
 /** What `list` says about a transport beside its live state, so an operator
@@ -144,7 +144,7 @@ const CATALOG: ReadonlyMap<AdminTransport, ProfileInfo> = (() => {
  * its own, so it is written as sentences rather than as a clause something
  * else introduces. */
 const ONION_NEEDS_TOR =
-	"This server was started without a running Tor, so no onion listener can come up. PANCAKE_ONION_SOCKS and PANCAKE_ONION_CONTROL are not set.";
+	"This server was started without a running Tor, so no onion listener can come up. GLOWCAP_ONION_SOCKS and GLOWCAP_ONION_CONTROL are not set.";
 
 /** How long a relay registration may take before the `up` refuses instead of
  * answering a row nothing stands behind. */
@@ -225,7 +225,7 @@ interface Row {
 
 /** Refuse a named local port another listener already holds.
  *
- * A pancake listener asks for a reusable address, which on Linux lets a second
+ * A glowcap listener asks for a reusable address, which on Linux lets a second
  * one hold the same address rather than refusing it: both bind, both announce,
  * and the kernel hands each arriving connection to whichever it likes. Two
  * servers with different identities then answer one address, and in a room
@@ -256,7 +256,7 @@ export function refuseHeldPort(hostname: string, port: number): void {
 export function irohReachability():
 	| typeof irohTransport.Reachability.Direct
 	| typeof irohTransport.Reachability.Discovery {
-	const choice = (optionalEnv("PANCAKE_ROOMS_REACHABILITY") ?? "direct").toLowerCase();
+	const choice = (optionalEnv("GLOWCAP_ROOMS_REACHABILITY") ?? "direct").toLowerCase();
 	if (choice === "discovery") return irohTransport.Reachability.Discovery;
 	if (choice === "direct") return irohTransport.Reachability.Direct;
 	throw new Error(`unknown reachability "${choice}" (expected direct or discovery)`);
@@ -324,8 +324,8 @@ export class ListenerRegistry {
 	 * or may not load answers at the ask instead. */
 	#unavailable(transport: AdminTransport): string {
 		if (transport !== TRANSPORT_ONION) return "";
-		const socks = optionalEnv("PANCAKE_ONION_SOCKS");
-		const control = optionalEnv("PANCAKE_ONION_CONTROL");
+		const socks = optionalEnv("GLOWCAP_ONION_SOCKS");
+		const control = optionalEnv("GLOWCAP_ONION_CONTROL");
 		return socks == null || control == null ? ONION_NEEDS_TOR : "";
 	}
 
@@ -453,13 +453,13 @@ export class ListenerRegistry {
 				throw error;
 			}
 		}
-		// Onion: pancake starts no Tor, so the endpoints of an already-running
+		// Onion: glowcap starts no Tor, so the endpoints of an already-running
 		// daemon must have arrived in the environment. Without them there is
 		// nothing to publish a service through, however the archive was built. A
 		// runtime-up service takes a fresh address: the stored onion key under
-		// PANCAKE_ROOMS_STATE belongs to the boot service alone.
-		const socks = optionalEnv("PANCAKE_ONION_SOCKS");
-		const control = optionalEnv("PANCAKE_ONION_CONTROL");
+		// GLOWCAP_ROOMS_STATE belongs to the boot service alone.
+		const socks = optionalEnv("GLOWCAP_ONION_SOCKS");
+		const control = optionalEnv("GLOWCAP_ONION_CONTROL");
 		if (socks == null || control == null) {
 			throw new RoomError(LISTENER_UNSUPPORTED, ONION_NEEDS_TOR);
 		}
@@ -487,10 +487,10 @@ export class ListenerRegistry {
 		transport: TcpFamily,
 		option: ListenerUpOptions,
 	): Promise<{ locator: string; server: AdminServer }> {
-		const bindHost = option.bind ?? optionalEnv("PANCAKE_ROOMS_BIND") ?? "127.0.0.1";
+		const bindHost = option.bind ?? optionalEnv("GLOWCAP_ROOMS_BIND") ?? "127.0.0.1";
 		const port = option.port ?? 0;
 		if (port !== 0) refuseHeldPort(bindHost, port);
-		const advertisedHost = option.advertise ?? optionalEnv("PANCAKE_ROOMS_ANNOUNCE_HOST");
+		const advertisedHost = option.advertise ?? optionalEnv("GLOWCAP_ROOMS_ANNOUNCE_HOST");
 		if (transport === TRANSPORT_TCP) {
 			const server = await roomsListen(bindHost, port, this.#host, advertisedHost);
 			return { locator: server.designator, server };
@@ -502,7 +502,7 @@ export class ListenerRegistry {
 
 	/** The relay profiles register held inbound sockets at a relay instead of
 	 * binding a socket, so what they need is the relay's WebSocket URL — from
-	 * the ask, or `PANCAKE_ROOMS_RELAY_URL` at start. The relay is probed
+	 * the ask, or `GLOWCAP_ROOMS_RELAY_URL` at start. The relay is probed
 	 * before the provider adopts the route (`probeRegisterEndpoint` says
 	 * why), so a dead relay refuses the `up` instead of answering a row
 	 * nothing stands behind. */
@@ -510,11 +510,11 @@ export class ListenerRegistry {
 		transport: RelayFamily,
 		relayUrl: string | null,
 	): Promise<{ locator: string; server: AdminServer }> {
-		const route = relayUrl ?? optionalEnv("PANCAKE_ROOMS_RELAY_URL") ?? null;
+		const route = relayUrl ?? optionalEnv("GLOWCAP_ROOMS_RELAY_URL") ?? null;
 		if (route === null) {
 			throw new RoomError(
 				LISTENER_UNSUPPORTED,
-				`A ${transport} listener registers at a relay. Name its WebSocket URL with the ask, or start the server with PANCAKE_ROOMS_RELAY_URL.`,
+				`A ${transport} listener registers at a relay. Name its WebSocket URL with the ask, or start the server with GLOWCAP_ROOMS_RELAY_URL.`,
 			);
 		}
 		const registerUrl = rendezvousRegisterUrl(route);

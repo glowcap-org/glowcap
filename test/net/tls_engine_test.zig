@@ -1,14 +1,14 @@
 //! Deterministic TLS-engine contract and failure ownership.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const tls = pancake.net.tls.engine;
+const tls = glowcap.net.tls.engine;
 
 const Fake = struct {
     outcomes: []const tls.RawOutcome,
     at: usize = 0,
-    cleanup: ?pancake.foundation.FailureChain = null,
+    cleanup: ?glowcap.foundation.FailureChain = null,
     deinit_count: usize = 0,
 
     fn client(self: *Fake) tls.Client {
@@ -22,7 +22,7 @@ const Fake = struct {
         return outcome;
     }
 
-    fn deinit(ctx: *anyopaque) ?pancake.foundation.FailureChain {
+    fn deinit(ctx: *anyopaque) ?glowcap.foundation.FailureChain {
         const self: *Fake = @ptrCast(@alignCast(ctx));
         self.deinit_count += 1;
         return self.cleanup;

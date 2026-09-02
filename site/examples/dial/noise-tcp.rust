@@ -1,4 +1,4 @@
-use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 // Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 let peer_key = "<64 lowercase hex characters from the server>";

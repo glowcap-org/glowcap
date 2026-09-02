@@ -2,11 +2,11 @@
 //! of its wire mention, and a gc-answers wave drops every released link.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const codec = pancake.ocapn.codec;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
+const codec = glowcap.ocapn.codec;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
 
 test "a V1.0 resolver export survives the partner's gc of its wire mention" {
     const allocator = std.testing.allocator;

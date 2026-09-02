@@ -25,7 +25,7 @@
 //! A `Resident` deliberately has no `dial` or `listen`: a bare WebRTC locator
 //! carries no signaling authority. The dial classifier still recognizes the
 //! transport symbol and validates the key designator. `driver_core.planDial` returns
-//! `DialPlan.signaling`, and `PANCAKE_DIAL_SHAPE_SIGNALING` ships in every
+//! `DialPlan.signaling`, and `GLOWCAP_DIAL_SHAPE_SIGNALING` ships in every
 //! binding's constants table. The resident compiles and type-checks under
 //! `zig build check` but is not a `Netlayer`. Generic Host integration is the
 //! completion `Backend` below: `completion.Loop(Backend, DialResolver)` under
@@ -37,8 +37,8 @@
 //!
 //! ## Sidecar posture
 //!
-//! The resident wraps the `pancake_webrtc_sidecar` C ABI (`transports/webrtc/`).
-//! It compiles as its own module outside the `pancake` root namespace, so its
+//! The resident wraps the `glowcap_webrtc_sidecar` C ABI (`transports/webrtc/`).
+//! It compiles as its own module outside the `glowcap` root namespace, so its
 //! externs resolve only when the sidecar staticlib links. A hermetic object build
 //! type-checks it under plain `zig build check` with no cargo.
 

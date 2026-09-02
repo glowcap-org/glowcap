@@ -1,7 +1,7 @@
 // A one-claim entrance. Copies race on one stateful object; the winning receipt
 // may retry without creating a second claim after a lost answer.
 
-import { type Behavior, currentSession, type Ref, type Session } from "@pancake/runtime";
+import { type Behavior, currentSession, type Ref, type Session } from "@glowcap/runtime";
 import { MAX_ROOM_INVITATIONS } from "../lib/limits.ts";
 import { type OneShotRoomAdmission, oneShotRoomAdmission } from "../lib/room/admission.ts";
 import type { RoomMembershipKind } from "../lib/room/membership.ts";
@@ -88,7 +88,7 @@ export function liveRoomInvitationIssuer(
 }
 
 export function oneShotInvitationBehavior(
-	entranceFor: (session: Session, admission: OneShotRoomAdmission) => import("@pancake/runtime").Ref,
+	entranceFor: (session: Session, admission: OneShotRoomAdmission) => import("@glowcap/runtime").Ref,
 	active: () => boolean,
 	sessionFor: () => Session | null = currentSession,
 ): Behavior {

@@ -1,5 +1,5 @@
 #lang racket/base
-;; A small, friendly client for the tasks board, built on pancake actors.
+;; A small, friendly client for the tasks board, built on glowcap actors.
 ;;
 ;; On the connection API this is barely a layer: connect, fetch the board by
 ;; name, publish a watcher, and call add/done/list. The Goblins verbs (`spawn`,
@@ -13,7 +13,7 @@
 ;;   (board-leave b)
 
 (require "../../_demo/bindings.rkt"
-         "../../../bindings/racket/pancake-tcp.rkt")
+         "../../../bindings/racket/glowcap-tcp.rkt")
 (provide board-join board-add board-done board-list board-leave (struct-out task))
 
 ;; One task on the board.

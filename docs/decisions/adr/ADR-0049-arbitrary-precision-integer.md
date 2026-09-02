@@ -13,7 +13,7 @@ superseded_by: []
 ## Context
 
 The OCapN Integer is arbitrary-precision (Model.md § Integer), and Goblins
-marshals Racket bignums. pancake modelled `integer` as `i64` and refused a
+marshals Racket bignums. glowcap modelled `integer` as `i64` and refused a
 magnitude outside that range at decode: a pinned fail-closed boundary, and the
 last missing atom of the passable set. Completing it has one design question:
 what bytes represent the magnitude in the codec-neutral model? Syrup carries
@@ -39,10 +39,10 @@ zero-copy borrowed-view path and drags bignum arithmetic into the tree.
 - **Refusal is symmetric (ADR-0003).** A non-canonical big integer: leading
   zeros, non-digits, or a magnitude that belongs to the `integer` arm: is a
   malformed frame on decode and an unsupported argument on encode, in both
-  codecs and at the C ABI boundary (`PANCAKE_ARG_BIG_INTEGER`, which reuses
+  codecs and at the C ABI boundary (`GLOWCAP_ARG_BIG_INTEGER`, which reuses
   `bytes`/`bytes_len` for digits and `boolean` for the sign). Only canonical
   bytes ever cross any boundary.
-- **Arithmetic is the application's job.** pancake transports and compares the
+- **Arithmetic is the application's job.** glowcap transports and compares the
   value; it does not compute with it. A consumer parses the digits into its own
   bignum type.
 

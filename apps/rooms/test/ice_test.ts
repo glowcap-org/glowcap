@@ -1,4 +1,4 @@
-import { WEBRTC_MAX_ICE_CREDENTIAL_BYTES, WEBRTC_MAX_ICE_SERVERS, WEBRTC_MAX_ICE_URL_BYTES } from "@pancake/abi";
+import { WEBRTC_MAX_ICE_CREDENTIAL_BYTES, WEBRTC_MAX_ICE_SERVERS, WEBRTC_MAX_ICE_URL_BYTES } from "@glowcap/abi";
 import { decodeIceServers, iceServersFrom } from "../lib/ice.ts";
 import { icePolicy } from "../web/ice_policy.ts";
 import { iceServerSource } from "../web/ui/net/ice.ts";

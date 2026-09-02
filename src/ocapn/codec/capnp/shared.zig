@@ -153,7 +153,7 @@ pub fn expectExactFrameLength(bytes: []const u8) Error!void {
 /// leaves generous headroom for a tree while an aliasing DAG — composite-list
 /// pointers that resolve to a shared child re-read the same words K^D times —
 /// exhausts it within a few thousand node visits for a 2 KB frame. This is the
-/// pancake sibling of Cap'n Proto's `traversalLimitInWords`; the tighter,
+/// glowcap sibling of Cap'n Proto's `traversalLimitInWords`; the tighter,
 /// per-frame bound is chosen over a fixed cap because a real frame's read count
 /// scales with its own size, not the deployment's `max_frame_bytes`.
 pub const traversal_budget_words_per_segment_word: usize = 32;
@@ -198,9 +198,9 @@ pub const Reader = struct {
     }
 
     /// Spend `words` from the traversal budget, if one is attached. Returns
-    /// `MalformedFrame` when the budget cannot cover the read: a pancake frame
+    /// `MalformedFrame` when the budget cannot cover the read: a glowcap frame
     /// is a tree, so a walk that outruns a size-derived budget is reading an
-    /// aliasing DAG pancake never emits — a structural refusal, the same
+    /// aliasing DAG glowcap never emits — a structural refusal, the same
     /// verdict `InvalidPointer`/`Truncated` carry (a distinct codec error would
     /// fall through `engine.abort_projection.classify` to `.foreign`; the
     /// tree-shape refusal is honestly `malformed_frame`).

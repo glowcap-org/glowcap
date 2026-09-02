@@ -14,7 +14,7 @@ target allow-list; this proof relays wherever the conformance test points it.
 
 Two transports, dispatched by what the WebSocket names:
   - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
-                     pancake binding needed).
+                     glowcap binding needed).
   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the Python iroh
                      binding's `dial_locator_for_relay`, the same C-ABI conn and
                      readiness primitives every binding drives.
@@ -36,15 +36,15 @@ import websockets
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from pancake import _constants_gen as _abi
+from glowcap import _constants_gen as _abi
 
 # The bounded resource defaults come from generated binding policy. The
-# conformance idle-timeout proof sets PANCAKE_RELAY_IDLE_MS low; a production run
+# conformance idle-timeout proof sets GLOWCAP_RELAY_IDLE_MS low; a production run
 # leaves it unset.
 IDLE_TIMEOUT_S = (
     float(
         os.environ.get(
-            "PANCAKE_RELAY_IDLE_MS",
+            "GLOWCAP_RELAY_IDLE_MS",
             str(_abi.BINDING_RELAY_IDLE_TIMEOUT_MS),
         )
     )
@@ -60,7 +60,7 @@ def _retain(primary: BaseException | None, error: BaseException) -> BaseExceptio
         return error
     # Keep the reference relay's TCP-only startup dependency-light; the binding
     # helper loads only when a second failure actually needs attachment.
-    from pancake._errors import _retain_cleanup_failure
+    from glowcap._errors import _retain_cleanup_failure
 
     return _retain_cleanup_failure(primary, error)
 
@@ -126,7 +126,7 @@ async def _open_channel(target_to, target_locator):
     """Dial classifier: a `host:port` opens a raw socket, an iroh `ocapn://`
     locator opens the iroh relay channel. One of the two must be present."""
     if target_locator is not None:
-        from pancake.iroh import Reachability, dial_locator_for_relay
+        from glowcap.iroh import Reachability, dial_locator_for_relay
 
         # The conformance host advertises loopback direct addresses, so the relay
         # reaches it directly; a deployment relay resolves node ids by discovery.

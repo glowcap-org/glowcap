@@ -1,9 +1,9 @@
 // Durable IRC network ownership and its demand-enacted feed transport.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import type { IrcChannelRelay } from "../../irc/bridge/outbound.ts";
 import { ircFold } from "../../irc/protocol.ts";
-import { type IrcNetworkChoice, sameIrcNetworkChoice } from "../../lib/irc_gateway_client.ts";
+import { type IrcNetworkChoice, sameIrcNetworkChoice } from "./model.ts";
 import type { TroubleJournal } from "../journal.ts";
 import { type DrivenIrcBridge, IrcNetworkFeed } from "./driver.ts";
 

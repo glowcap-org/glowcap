@@ -1,34 +1,34 @@
-//! Live Goblins over Tor: a native pancake peer and a real Spritely Goblins vat
+//! Live Goblins over Tor: a native glowcap peer and a real Spritely Goblins vat
 //! hold an OCapN CapTP session across a hidden service circuit.
 //!
 //! This is the check the onion netlayer was written for. `onion` is the one
 //! transport symbol the OCapN draft standardizes and the one upstream Goblins
-//! ships, so it is the only ground where a pancake peer and a Goblins vat meet
+//! ships, so it is the only ground where a glowcap peer and a Goblins vat meet
 //! without either having written the other's transport. Every other live interop
 //! in this tree runs over something this repository authored for the partner: the
 //! cleartext socket in `tcp-netlayer.rkt`, the endpoint in `iroh-netlayer.rkt`.
-//! Here the vat uses `goblins/ocapn/netlayer/onion`, which pancake had no hand in,
-//! and pancake uses its own resident, and the two agree because both follow the
+//! Here the vat uses `goblins/ocapn/netlayer/onion`, which glowcap had no hand in,
+//! and glowcap uses its own resident, and the two agree because both follow the
 //! draft.
 //!
-//! The dialing bracket: pancake starts a Tor, spawns the Goblins vat
+//! The dialing bracket: glowcap starts a Tor, spawns the Goblins vat
 //! (`goblins-onion-host.rkt`) pointed at that same daemon, reads the service id
 //! and the published echo swiss-num off the vat's NDJSON readiness lines, dials
 //! `ocapn://<service-id>.onion`, and bootstrap-fetches and calls the echo cap.
 //!
-//! The listening bracket: pancake publishes its own onion service and a real
-//! Goblins client (`pancake-onion-caller.rkt`) dials in and calls a Greeter.
+//! The listening bracket: glowcap publishes its own onion service and a real
+//! Goblins client (`glowcap-onion-caller.rkt`) dials in and calls a Greeter.
 //!
-//! The hinted-hello probe: pancake dials the same vat once more with a hello
-//! whose signed location carries the `pancake/*` profile hints, the exact
-//! bytes a pancake peer handed the pancake form of an onion address sends
+//! The hinted-hello probe: glowcap dials the same vat once more with a hello
+//! whose signed location carries the `glowcap/*` profile hints, the exact
+//! bytes a glowcap peer handed the glowcap form of an onion address sends
 //! (ADR-0118). The pinned `captp.rkt` start-session arm is transport-blind
 //! and stores any claimed node, so the vat must open the session, ignore the
 //! hints, settle the baseline, and answer the echo. This is the live
 //! observation behind the finding that only the Goblins *dial* arm refuses a
 //! hinted onion locator, never the hello.
 //!
-//! Two things about the daemon are decided by the partner rather than by pancake.
+//! Two things about the daemon are decided by the partner rather than by glowcap.
 //! Its control endpoint takes no credential, because Goblins sends a bare
 //! `AUTHENTICATE`, so the check runs the narrower of the two peers' capabilities.
 //! And both peers share one Tor, a thing a deployment would not do but is
@@ -40,14 +40,14 @@
 //! as the sibling step `zig build goblins-onion`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const net = pancake.net;
-const onion = pancake.net.onion;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const onion = glowcap.net.onion;
 const Tor = harness.Tor;
 
 const frame_cap = 16 * 1024;
@@ -57,15 +57,15 @@ const handshake_budget_ms = 60_000;
 const publish_budget_ms = 240_000;
 
 const host_script = "conformance/goblins-peer/racket/goblins-onion-host.rkt";
-const caller_script = "conformance/goblins-peer/racket/pancake-onion-caller.rkt";
+const caller_script = "conformance/goblins-peer/racket/glowcap-onion-caller.rkt";
 
 const caller_name = "goblins";
-const greeter_swiss = "pancake-onion-greeter";
-const echo_payload = "pancake-over-tor";
+const greeter_swiss = "glowcap-onion-greeter";
+const echo_payload = "glowcap-over-tor";
 
 // Positional, because a Goblins client invokes a cap with `(<- actor "name")`
 // and carries no verb.
-const Greeter = harness.PositionalReplyActor("hello {s}, from pancake over tor");
+const Greeter = harness.PositionalReplyActor("hello {s}, from glowcap over tor");
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
@@ -83,12 +83,12 @@ pub fn main(init: std.process.Init) !void {
     try serveGoblinsClient(io, allocator, init.environ_map, &daemon);
 
     std.debug.print(
-        "goblins-onion: OK, a real Goblins vat and pancake held OCapN sessions over Tor in both directions\n",
+        "goblins-onion: OK, a real Goblins vat and glowcap held OCapN sessions over Tor in both directions\n",
         .{},
     );
 }
 
-/// Bracket one: the Goblins vat publishes an onion service and pancake dials it.
+/// Bracket one: the Goblins vat publishes an onion service and glowcap dials it.
 fn dialGoblinsVat(
     io: std.Io,
     allocator: std.mem.Allocator,
@@ -144,7 +144,7 @@ fn dialGoblinsVat(
     child.kill(io);
     reaped = true;
     std.debug.print(
-        "goblins-onion: the vat accepted a pancake-hinted hello, settled the baseline, and answered the echo\n",
+        "goblins-onion: the vat accepted a glowcap-hinted hello, settled the baseline, and answered the echo\n",
         .{},
     );
 }
@@ -205,7 +205,7 @@ fn expectEchoAnswer(cv: *driver.BlockingSession, allocator: std.mem.Allocator, s
     }
 }
 
-/// Dial the vat as though someone handed us the pancake form of its address
+/// Dial the vat as though someone handed us the glowcap form of its address
 /// — a hinted onion locator naming a partner that is actually Goblins — and
 /// require the full baseline conversation on the session that opens. The
 /// dial mints partner knowledge from the handed form exactly as a real one
@@ -251,7 +251,7 @@ fn probeHintedHello(
     try expectEchoAnswer(&cv, allocator, swiss);
 }
 
-/// Bracket two: pancake publishes an onion service and the Goblins client dials.
+/// Bracket two: glowcap publishes an onion service and the Goblins client dials.
 fn serveGoblinsClient(
     io: std.Io,
     allocator: std.mem.Allocator,
@@ -267,7 +267,7 @@ fn serveGoblinsClient(
     };
     defer std.debug.assert(listener.deinit() == null);
     const service_id = listener.designator();
-    std.debug.print("goblins-onion: pancake is reachable at ocapn://{s}.onion\n", .{service_id});
+    std.debug.print("goblins-onion: glowcap is reachable at ocapn://{s}.onion\n", .{service_id});
 
     var server_err: ?anyerror = null;
     var server = try io.concurrent(serveOne, .{ allocator, listener, &server_err });
@@ -298,7 +298,7 @@ fn serveGoblinsClient(
         },
         else => return error.GoblinsClientFailed,
     }
-    std.debug.print("goblins-onion: a Goblins client called a pancake actor across a circuit\n", .{});
+    std.debug.print("goblins-onion: a Goblins client called a glowcap actor across a circuit\n", .{});
 }
 
 fn serveOne(gpa: std.mem.Allocator, listener: *onion.Listener, out_err: *?anyerror) void {

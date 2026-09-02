@@ -1,6 +1,6 @@
-from pancake import Runtime, onion
+from glowcap import Runtime, onion
 
-# pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+# glowcap starts no Tor; point the provider at an existing SOCKS endpoint.
 partner = onion.locator("<56-character onion service id>")
 
 async with Runtime.open(

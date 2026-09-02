@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Private facade for the iroh companion.
 ;;
-;; The public `../pancake-iroh.rkt` barrel consumes this stable surface. Raw
+;; The public `../glowcap-iroh.rkt` barrel consumes this stable surface. Raw
 ;; endpoint/readiness ownership lives in `iroh/runtime.rkt`; application-facing
 ;; provider, connector, and server composition lives in `iroh/surface.rkt`.
 

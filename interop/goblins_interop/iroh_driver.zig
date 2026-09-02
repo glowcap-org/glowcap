@@ -1,34 +1,34 @@
-//! Live Goblins over iroh: a native pancake peer and a real Spritely Goblins vat
+//! Live Goblins over iroh: a native glowcap peer and a real Spritely Goblins vat
 //! hold an OCapN CapTP session over encrypted QUIC, in both directions.
 //!
 //! A netlayer is a byte-stream provider plus a locator, and CapTP is transport
 //! agnostic, so nothing here changes what either side speaks. The Goblins vat
 //! runs its own CapTP, marshals its own Syrup, and keeps its own session keys.
 //! What is new is what carries the bytes: `conformance/goblins-peer/racket/
-//! iroh-netlayer.rkt` gives the vat an iroh endpoint through the pancake Racket
+//! iroh-netlayer.rkt` gives the vat an iroh endpoint through the glowcap Racket
 //! binding's byte-channel surface, where until now the only netlayer this
 //! repository wrote for Goblins was a cleartext socket.
 //!
-//! That makes iroh's first outside CapTP peer. `iroh-interop` is pancake on both
+//! That makes iroh's first outside CapTP peer. `iroh-interop` is glowcap on both
 //! ends by construction; here the partner is a foreign implementation of the
 //! protocol, reached over the same QUIC transport.
 //!
-//! The dialing bracket: pancake spawns the Goblins vat (`goblins-iroh-host.rkt`),
+//! The dialing bracket: glowcap spawns the Goblins vat (`goblins-iroh-host.rkt`),
 //! reads its endpoint id, direct addresses and published echo swiss-num off the
 //! NDJSON readiness lines, dials that `iroh` locator, runs the keyed
 //! `op:start-session` handshake, bootstrap-fetches the echo cap and calls it.
 //! Because iroh names a peer by an Ed25519 endpoint key, the dial demands that
 //! durable identity of the partner before a byte is fed: the vat's hello has to
-//! claim the endpoint id pancake dialed, and QUIC has already proved the far end
-//! holds it. pancake names itself in the same way, advertising the id of the
+//! claim the endpoint id glowcap dialed, and QUIC has already proved the far end
+//! holds it. glowcap names itself in the same way, advertising the id of the
 //! endpoint it dialed from and signing under that key, and this driver then
 //! reads back what the vat's netlayer concluded: the accepting side has to
-//! report `authenticated-transport` and name pancake's endpoint, which it can
+//! report `authenticated-transport` and name glowcap's endpoint, which it can
 //! do because the iroh C ABI hands an accepted connection its QUIC-verified
 //! remote id.
 //!
-//! The listening bracket: pancake binds its own seeded iroh endpoint, publishes
-//! a Greeter actor, and a real Goblins client (`pancake-iroh-caller.rkt`) dials
+//! The listening bracket: glowcap binds its own seeded iroh endpoint, publishes
+//! a Greeter actor, and a real Goblins client (`glowcap-iroh-caller.rkt`) dials
 //! in by endpoint id and calls the actor. The Goblins netlayer prints what its
 //! own session trace concluded, and this driver asserts the verdict is
 //! `authenticated-transport`: the vat dialed a key, so the transport itself
@@ -40,15 +40,15 @@
 //! collection on PATH, so it runs as the sibling step `zig build goblins-iroh`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const net = pancake.net;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const crypto = glowcap.foundation.crypto;
 
 const frame_cap: usize = 1 << 16;
 
@@ -59,24 +59,24 @@ const frame_cap: usize = 1 << 16;
 const handshake_budget_ms: i32 = 60_000;
 
 /// How long the dialing bracket waits for the vat to print what its netlayer
-/// concluded about the session. The vat writes that line as it reads pancake's
+/// concluded about the session. The vat writes that line as it reads glowcap's
 /// hello, line-buffered, so it is already on the wire by the time the echo call
 /// has answered; the budget is only there so a vat that says nothing ends this
 /// wait instead of parking a driver whose child runs until it is killed.
 const session_line_budget_ms: i32 = 10_000;
 
 const host_script = "conformance/goblins-peer/racket/goblins-iroh-host.rkt";
-const caller_script = "conformance/goblins-peer/racket/pancake-iroh-caller.rkt";
+const caller_script = "conformance/goblins-peer/racket/glowcap-iroh-caller.rkt";
 
-/// The swiss-num the pancake actor is published behind in the listening bracket.
-const actor_swiss = "pancakeIrohActorSwissnumABCD1234";
+/// The swiss-num the glowcap actor is published behind in the listening bracket.
+const actor_swiss = "glowcapIrohActorSwissnumABCD1234";
 /// What the Goblins client sends the actor.
 const greeting_arg = "world";
 
 /// The actor the listening bracket publishes for the Goblins client to call, and
 /// the reply that client has to read back. Both come off one template, so the
 /// assertion cannot drift from what the actor says.
-const greeting_template = "Hello {s}, from a pancake actor over iroh!";
+const greeting_template = "Hello {s}, from a glowcap actor over iroh!";
 const Greeter = harness.PositionalReplyActor(greeting_template);
 const expected_reply = std.fmt.comptimePrint(greeting_template, .{greeting_arg});
 
@@ -87,7 +87,7 @@ const serveGreeter = harness.AcceptServeOne(
     Greeter,
     actor_swiss,
     frame_cap,
-    "goblins-iroh: pancake accepted a QUIC stream and opened the keyed session",
+    "goblins-iroh: glowcap accepted a QUIC stream and opened the keyed session",
 ).run;
 
 pub fn main(init: std.process.Init) !void {
@@ -100,10 +100,10 @@ pub fn main(init: std.process.Init) !void {
     try dialGoblinsVat(io, allocator, init.environ_map);
     try serveGoblinsClient(io, allocator, init.environ_map);
 
-    std.debug.print("goblins-iroh: OK, a real Goblins vat and pancake held OCapN sessions over encrypted QUIC in both directions\n", .{});
+    std.debug.print("goblins-iroh: OK, a real Goblins vat and glowcap held OCapN sessions over encrypted QUIC in both directions\n", .{});
 }
 
-/// Bracket one: the Goblins vat hosts over iroh and pancake dials it.
+/// Bracket one: the Goblins vat hosts over iroh and glowcap dials it.
 fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.process.Environ.Map) !void {
     // The vat announces its endpoint id and direct addresses on its `vat-ready`
     // line and the echo cap's swiss-num on the line after it, so the readiness
@@ -131,7 +131,7 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
         .{ node_id, direct_addrs, swiss },
     );
 
-    // pancake's own endpoint. `direct` is relay-less and lookup-less: the dial
+    // glowcap's own endpoint. `direct` is relay-less and lookup-less: the dial
     // carries the vat's addresses, so nothing leaves the machine. Seeded,
     // because this dialer names itself: it binds an endpoint a partner can
     // reach, so it advertises that endpoint's id as its own designator. The
@@ -161,7 +161,7 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
     // What the vat's own netlayer concluded about the peer that just called it.
     // The accept side is where a transport proof used to be unreadable: QUIC
     // authenticated this dialer's endpoint id, and until the iroh C ABI handed
-    // that id out, the vat had nothing to weigh pancake's claim against and
+    // that id out, the vat had nothing to weigh glowcap's claim against and
     // reported an unproven partner. It reads the id off the connection now, so
     // a hello claiming the endpoint QUIC verified is the transport's own word.
     //
@@ -187,7 +187,7 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
         return claim.missing;
     }
 
-    std.debug.print("goblins-iroh: OK (pancake as client), keyed handshake + bootstrap fetch + echo call with a live Goblins vat over QUIC, and the vat proved the caller's endpoint id\n", .{});
+    std.debug.print("goblins-iroh: OK (glowcap as client), keyed handshake + bootstrap fetch + echo call with a live Goblins vat over QUIC, and the vat proved the caller's endpoint id\n", .{});
     child.kill(io);
     reaped = true;
 }
@@ -250,7 +250,7 @@ fn callEcho(
     defer arena_state.deinit();
     const settled = try cv.call(
         echo,
-        .{ .verb = "", .args = &.{.{ .bytes = "pancake-over-iroh" }} },
+        .{ .verb = "", .args = &.{.{ .bytes = "glowcap-over-iroh" }} },
         arena_state.allocator(),
     );
     switch (settled) {
@@ -260,7 +260,7 @@ fn callEcho(
                 .bytes, .string => |t| t,
                 else => return error.EchoWrongPayload,
             };
-            if (!std.mem.eql(u8, text, "pancake-over-iroh")) return error.EchoWrongPayload;
+            if (!std.mem.eql(u8, text, "glowcap-over-iroh")) return error.EchoWrongPayload;
         },
         .broken => |reason| {
             std.debug.print("goblins-iroh: echo broke: {s}\n", .{reason});
@@ -268,18 +268,18 @@ fn callEcho(
         },
         .give => return error.EchoGaveAnIntroduction,
     }
-    std.debug.print("goblins-iroh: the vat echoed pancake's argument back over QUIC\n", .{});
+    std.debug.print("goblins-iroh: the vat echoed glowcap's argument back over QUIC\n", .{});
 }
 
-/// Bracket two: pancake hosts over iroh and a real Goblins client dials it.
+/// Bracket two: glowcap hosts over iroh and a real Goblins client dials it.
 ///
 /// The proof this bracket exists for is the Goblins netlayer's own verdict. The
 /// vat dialed an endpoint id, QUIC completed a handshake only with the holder of
-/// that key, and pancake's hello claims the same id, so the netlayer reports
+/// that key, and glowcap's hello claims the same id, so the netlayer reports
 /// `authenticated-transport`. That is what makes a Goblins vat over iroh a peer
 /// whose durable name something checked, rather than one that merely asserted it.
 fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.process.Environ.Map) !void {
-    // Seeded, so pancake's accept signs under the very key its endpoint is named
+    // Seeded, so glowcap's accept signs under the very key its endpoint is named
     // by: iroh is a key-designator transport, and the vat pins the session to the
     // endpoint id it dialed.
     const seed: [32]u8 = @splat(0x5a);
@@ -295,7 +295,7 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
     const direct_addrs = try endpoint.directAddrsOwned(allocator);
     defer allocator.free(direct_addrs);
     std.debug.print(
-        "goblins-iroh: pancake is reachable at ocapn://{s}.iroh with direct addresses {s}\n",
+        "goblins-iroh: glowcap is reachable at ocapn://{s}.iroh with direct addresses {s}\n",
         .{ node_id, direct_addrs },
     );
 
@@ -358,7 +358,7 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
     }
 
     std.debug.print("goblins-iroh: {s}", .{stdout_text});
-    std.debug.print("goblins-iroh: OK (pancake as host), a real Goblins vat called a pancake actor over QUIC and named the partner an authenticated transport identity\n", .{});
+    std.debug.print("goblins-iroh: OK (glowcap as host), a real Goblins vat called a glowcap actor over QUIC and named the partner an authenticated transport identity\n", .{});
     child.kill(io);
     reaped = true;
 }

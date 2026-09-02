@@ -11,7 +11,7 @@ engineTest("dispatch add-peer creates a peer at the requested position", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const peerId = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 100, y: 50 },
 	});
 	assert(peerId, "dispatch should return the new peer id");
@@ -24,7 +24,7 @@ engineTest("undo reverses an add-peer; redo re-applies it", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const peerId = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 100, y: 50 },
 	})!;
 	assertEquals([...e.queries.peers].length, 1);
@@ -57,7 +57,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 100, y: 50 },
 		})!;
 		const stale = findPeer(e.world, peerId);
@@ -82,7 +82,7 @@ engineTest("undo restores a peer's previous position after reposition", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const peerId = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 100, y: 50 },
 	})!;
 	e.dispatch({
@@ -101,7 +101,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		// Simulate a peer drag: many reposition dispatches inside one
@@ -130,7 +130,7 @@ engineTest("a fresh dispatch invalidates the redo stack", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 10, y: 10 },
 	});
 	e.undo();
@@ -152,7 +152,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 100, y: 50 },
 		})!;
 		// History grew by 1 (the add-peer).
@@ -190,7 +190,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		});
 		// Open and close a transaction without dispatching anything —
@@ -210,7 +210,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		assertEquals(e.nextUndoLabel, "Add peer");
@@ -245,7 +245,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		e.beginTransaction("Edit designator");

@@ -5,10 +5,10 @@
 //! same contract as the file-length exception inventory.
 
 pub const justification_tic = [_][]const u8{
-    "apps/accountability-on-pancake/deno/identity.ts",
-    "apps/accountability-on-pancake/python/identity.py",
-    "apps/accountability-on-pancake/zig/identity.zig",
-    "apps/accountability-on-pancake/zig/kel.zig",
+    "apps/accountability-on-glowcap/deno/identity.ts",
+    "apps/accountability-on-glowcap/python/identity.py",
+    "apps/accountability-on-glowcap/zig/identity.zig",
+    "apps/accountability-on-glowcap/zig/kel.zig",
     "apps/ocapnviz/docs/data-model.md",
     "apps/ocapnviz/docs/era-collapse.md",
     "apps/ocapnviz/scripts/fake-viz-endpoint.ts",
@@ -74,7 +74,6 @@ pub const justification_tic = [_][]const u8{
     "apps/ocapnviz/src/ui/reference/Reference.tsx",
     "apps/ocapnviz/src/ui/session-name.ts",
     "apps/ocapnviz/src/ui/tokens.ts",
-    "apps/rooms/developing.md",
     "apps/rooms/irc/bridge/roster.ts",
     "apps/rooms/lib/attachment.ts",
     "apps/rooms/lib/protocol.ts",
@@ -82,7 +81,6 @@ pub const justification_tic = [_][]const u8{
     "apps/rooms/lib/room/message.ts",
     "apps/rooms/lib/room/policy.ts",
     "apps/rooms/lib/viz_publish.ts",
-    "apps/rooms/operating.md",
     "apps/rooms/server/capabilities.ts",
     "apps/rooms/server/files.ts",
     "apps/rooms/server/history.ts",

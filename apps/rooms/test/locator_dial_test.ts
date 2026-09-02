@@ -1,8 +1,8 @@
 // Attach dials the locator a tab-hosted session sturdyref names: WebRTC by
 // default, noise-relay when DMs use the sealed relay.
 
-import type { Locator, Session } from "@pancake/runtime";
-import { formatLocatorUri, TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import type { Locator, Session } from "@glowcap/runtime";
+import { formatLocatorUri, TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@glowcap/runtime";
 import {
 	dial,
 	formatRoomsSturdyref,

@@ -1,5 +1,5 @@
-import type { Argument } from "@pancake/runtime";
-import { type IrohConfig, listen, Reachability } from "@pancake/iroh";
+import type { Argument } from "@glowcap/runtime";
+import { type IrohConfig, listen, Reachability } from "@glowcap/iroh";
 
 // This listener is named by its node id. Partners can dial it from anywhere.
 const config: IrohConfig = { reachability: Reachability.Discovery };

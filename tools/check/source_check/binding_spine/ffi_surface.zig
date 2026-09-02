@@ -12,7 +12,7 @@ const extractBraceBlock = util.extractBraceBlock;
 
 /// The iroh sidecar C ABI is spelled four times by hand — the Rust
 /// definitions (`transports/iroh/src/lib.rs`), the C header
-/// (`transports/iroh/include/pancake_iroh_sidecar.h`), the Zig transport's
+/// (`transports/iroh/include/glowcap_iroh_sidecar.h`), the Zig transport's
 /// externs (`src/net/transport/iroh/sidecar.zig`), and the hermetic linker stub
 /// (`tools/gen/stub/iroh_sidecar.zig`) — and the hermetic gate never links the
 /// real sidecar, so a
@@ -42,8 +42,8 @@ const CoarseAbiType = enum {
 };
 
 /// One binding's generated driver FFI table and where its hand code lives. The
-/// table `gen_ffi` declares every `pancake_host_*` extern the binding can call;
-/// a `pancake_host_*` symbol that appears nowhere else in the binding's tree is
+/// table `gen_ffi` declares every `glowcap_host_*` extern the binding can call;
+/// a `glowcap_host_*` symbol that appears nowhere else in the binding's tree is
 /// reflected but dead.
 const ReflectedFfiBinding = struct {
     name: []const u8,
@@ -57,7 +57,7 @@ const ReflectedFfiBinding = struct {
 
 const reflected_ffi_bindings = [_]ReflectedFfiBinding{
     .{ .name = "rust", .prefix = "rust/", .gen_ffi = "rust/src/sys/host_fns_gen.rs" },
-    .{ .name = "python", .prefix = "python/", .gen_ffi = "python/pancake/_sigs_gen.py" },
+    .{ .name = "python", .prefix = "python/", .gen_ffi = "python/glowcap/_sigs_gen.py" },
     .{ .name = "ts", .prefix = "ts/", .gen_ffi = "ts/runtime/internal/ffi/host.ts" },
     .{ .name = "racket", .prefix = "racket/", .gen_ffi = "racket/private/ffi-host-gen.rkt" },
 };
@@ -74,12 +74,12 @@ const DeclaredDeferredFfi = struct {
 const declared_deferred_ffi = [_]DeclaredDeferredFfi{
     .{
         .binding = "rust",
-        .symbol = "pancake_host_session_feed_packet",
+        .symbol = "glowcap_host_session_feed_packet",
         .reason = "Rust wires only byte-stream host sessions today; message-framed host packets are owned by shared C ABI and TS WebRTC until a Rust message-framed transport frontend ships.",
     },
     .{
         .binding = "rust",
-        .symbol = "pancake_host_session_take_packet",
+        .symbol = "glowcap_host_session_take_packet",
         .reason = "Rust wires only byte-stream host sessions today; message-framed host packets are owned by shared C ABI and TS WebRTC until a Rust message-framed transport frontend ships.",
     },
 };
@@ -94,7 +94,7 @@ fn declaredDeferredReason(binding: []const u8, symbol: []const u8) ?[]const u8 {
 /// One reflected driver symbol and whether the binding wires it anywhere.
 const ReflectedSymbol = struct { name: []const u8, seen: bool = false };
 
-/// Every `pancake_host_*` symbol a binding's generated driver FFI table declares
+/// Every `glowcap_host_*` symbol a binding's generated driver FFI table declares
 /// must be wired by that binding (referenced somewhere outside the declaration
 /// file) or listed in `declared_deferred_ffi` with a reason. A symbol reflected
 /// into the table but called nowhere is dead generated FFI: a capability the C
@@ -116,7 +116,7 @@ pub fn checkBindingReflectedFfiWired(
         p.deinit(gpa);
     };
 
-    // 1. Collect the declared `pancake_host_*` symbols per binding, from its
+    // 1. Collect the declared `glowcap_host_*` symbols per binding, from its
     //    generated driver FFI table.
     for (reflected_ffi_bindings, 0..) |b, bi| {
         const gen_path = try std.fmt.allocPrint(gpa, "bindings/{s}", .{b.gen_ffi});
@@ -126,7 +126,7 @@ pub fn checkBindingReflectedFfiWired(
             continue;
         };
         defer gpa.free(gen);
-        const needle = "pancake_host_";
+        const needle = "glowcap_host_";
         var rest = gen;
         while (std.mem.indexOf(u8, rest, needle)) |start| {
             const after = rest[start..];
@@ -267,7 +267,7 @@ fn isAbiIdentChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_';
 }
 
-/// Extract `pancake_iroh_sidecar_*` declarations behind a fixed anchor —
+/// Extract `glowcap_iroh_sidecar_*` declarations behind a fixed anchor —
 /// Rust's `pub extern "C" fn ` or Zig's `extern fn ` — into `out` as name ->
 /// coarse signature. The return type runs from the closing parenthesis to `{`
 /// (Rust, where a leading `->` is stripped) or `;` (Zig).
@@ -297,10 +297,10 @@ fn extractAnchoredAbi(
     }
 }
 
-/// Extract `pancake_iroh_sidecar_*` declarations from the C header into `out`
+/// Extract `glowcap_iroh_sidecar_*` declarations from the C header into `out`
 /// as name -> coarse signature. Block comments are blanked first so prose
 /// mentions of the function names cannot match; a declaration is a
-/// `pancake_iroh_sidecar_` identifier directly followed by `(`, with its return
+/// `glowcap_iroh_sidecar_` identifier directly followed by `(`, with its return
 /// type read backward to the previous `;`.
 fn extractCHeaderAbi(
     arena: std.mem.Allocator,
@@ -346,7 +346,7 @@ const SidecarAbiSurface = struct { paths: []const []const u8, anchor: ?[]const u
 
 /// Hold every hand-spelled surface of a sidecar C ABI to the same function set,
 /// arity, and coarse type shape. `prefix` is the shared symbol prefix
-/// (`pancake_iroh_sidecar_`, `pancake_webrtc_sidecar_`); `label` names the
+/// (`glowcap_iroh_sidecar_`, `glowcap_webrtc_sidecar_`); `label` names the
 /// sidecar in the diagnostics. The iroh and webrtc checks are thin callers of
 /// this one spine.
 fn checkSidecarAbiParity(
@@ -413,7 +413,7 @@ pub fn checkIrohSidecarAbi(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    try checkSidecarAbiParity(io, gpa, root, violations, "iroh", "pancake_iroh_sidecar_", &.{
+    try checkSidecarAbiParity(io, gpa, root, violations, "iroh", "glowcap_iroh_sidecar_", &.{
         .{
             .paths = &.{
                 "transports/iroh/src/lib.rs",
@@ -424,7 +424,7 @@ pub fn checkIrohSidecarAbi(
             .anchor = "pub extern \"C\" fn ",
             .ret_end = '{',
         },
-        .{ .paths = &.{"transports/iroh/include/pancake_iroh_sidecar.h"}, .anchor = null, .ret_end = ';' },
+        .{ .paths = &.{"transports/iroh/include/glowcap_iroh_sidecar.h"}, .anchor = null, .ret_end = ';' },
         .{ .paths = &.{"src/net/transport/iroh/sidecar.zig"}, .anchor = "pub extern fn ", .ret_end = ';' },
         .{ .paths = &.{"tools/gen/stub/iroh_sidecar.zig"}, .anchor = "export fn ", .ret_end = '{' },
     });
@@ -432,8 +432,8 @@ pub fn checkIrohSidecarAbi(
     // Function parity sees the config as one pointer. Pin the pointed-to
     // representation separately so adding an endpoint knob cannot make a
     // shorter C caller or hermetic stub read beyond its object.
-    try expectFileContains(io, gpa, root, violations, "transports/iroh/include/pancake_iroh_sidecar.h", &.{
-        "typedef struct pancake_iroh_sidecar_endpoint_config {\n  uint32_t reachability;\n  uint64_t connect_timeout_ms;\n  uint64_t idle_timeout_ms;\n  uint32_t worker_threads;\n} pancake_iroh_sidecar_endpoint_config;",
+    try expectFileContains(io, gpa, root, violations, "transports/iroh/include/glowcap_iroh_sidecar.h", &.{
+        "typedef struct glowcap_iroh_sidecar_endpoint_config {\n  uint32_t reachability;\n  uint64_t connect_timeout_ms;\n  uint64_t idle_timeout_ms;\n  uint32_t worker_threads;\n} glowcap_iroh_sidecar_endpoint_config;",
     });
     try expectFileContains(io, gpa, root, violations, "src/net/transport/iroh/sidecar.zig", &.{
         "pub const CEndpointConfig = extern struct {\n    reachability: u32,\n    connect_timeout_ms: u64,\n    idle_timeout_ms: u64,\n    worker_threads: u32,\n};",
@@ -457,7 +457,7 @@ pub fn checkWebrtcSidecarAbi(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    try checkSidecarAbiParity(io, gpa, root, violations, "webrtc", "pancake_webrtc_sidecar_", &.{
+    try checkSidecarAbiParity(io, gpa, root, violations, "webrtc", "glowcap_webrtc_sidecar_", &.{
         .{
             .paths = &.{
                 "transports/webrtc/src/lib.rs",

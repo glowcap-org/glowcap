@@ -1,4 +1,4 @@
-use pancake::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+use glowcap::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 // Noise_XK seals the CapTP stream end to end through the relay.
 let peer_key = "<64 lowercase hex characters from the server>";

@@ -3,13 +3,13 @@
 ;; refusal, and same-seed-fresh-port restart — the Racket sibling of
 ;; `test/driver/keyed_tcp_restart_test.zig`.
 ;;
-;; Needs racket and the installed pancake archives; run via
+;; Needs racket and the installed glowcap archives; run via
 ;; `zig build racket-keyed-tcp-restart`.
 
 (require racket/tcp
          file/sha1
-         "../../racket/pancake.rkt"
-         "../../racket/pancake-tcp.rkt")
+         "../../racket/glowcap.rkt"
+         "../../racket/glowcap-tcp.rkt")
 
 (define GREETING "hello from the keyed listener")
 (define SEED-HAPPY (make-bytes 32 #x71))

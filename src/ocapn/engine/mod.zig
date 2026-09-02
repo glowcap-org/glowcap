@@ -1,7 +1,7 @@
 //! The `Peer` you hold, and the loop that drives it. Synchronous, no I/O.
 //!
 //! We call this the engine, not the runtime, and that difference is the whole
-//! point. pancake has no runtime in the usual sense: no scheduler, no background
+//! point. glowcap has no runtime in the usual sense: no scheduler, no background
 //! tasks, no ambient executor driving things behind your back. The engine is the
 //! explicit, synchronous alternative, you feed it frames, you call `step`, you
 //! drain and poll. When the project's values say "no hidden runtime", this layer
@@ -346,8 +346,8 @@ pub const Peer = struct {
     pub const sendKeyedStartSession = hello.sendKeyedStartSession;
     pub const sendKeyedStartSessionAdvertised = hello.sendKeyedStartSessionAdvertised;
     pub const sendKeyedStartSessionExact = hello.sendKeyedStartSessionExact;
-    pub const noteKnownPancakePartner = hello.noteKnownPancakePartner;
-    pub const dialedLocatorIdentifiesPancake = hello.dialedLocatorIdentifiesPancake;
+    pub const noteKnownGlowcapPartner = hello.noteKnownGlowcapPartner;
+    pub const dialedLocatorIdentifiesGlowcap = hello.dialedLocatorIdentifiesGlowcap;
     pub const answerDeferredHello = hello.answerDeferredHello;
     pub const advertisedLocator = hello.advertisedLocator;
     pub const HelloHints = hello.HelloHints;
@@ -458,17 +458,26 @@ pub const Peer = struct {
 /// per-session ceiling in `docs/ladder.md` step 2 still holds
 /// (`test/engine/footprint_budget_test.zig`).
 ///
-/// The number is where a 64-bit build measures today, so a field added here is
-/// a build failure rather than a withdrawal nobody watches.
+/// The number is where a 64-bit build measures today under runtime safety, so
+/// a field added here is a build failure rather than a withdrawal nobody
+/// watches. Forty of the bytes are std's, not glowcap's: each of the five
+/// embedded `std.ArrayList` headers (the four peer queues and the session's
+/// sturdyref cache) carries std's one-byte `pointer_stability` lock, padded to
+/// a word, in Debug and ReleaseSafe, the same lock every hash map here already
+/// pays. ReleaseFast and ReleaseSmall make the lock zero-sized and measure
+/// smaller. Every footprint number in `docs/ladder.md` step 2 is stated under
+/// the safe modes, because every gate runs there and `release-pack` names
+/// ReleaseSafe as the mode to ship.
 ///
 /// It is still a ceiling and not an equality, unlike the `Conn` slot overhead
 /// in `src/net/completion/loop/state.zig`. That one measures a *difference* between
 /// two sizes on whatever target is building, which is stable across targets;
 /// this one measures a whole struct full of pointers and `usize`s, and
 /// `wasm32` (the sans-io core under `zig build cross-check`) makes it
-/// genuinely smaller. So no single number is the measurement on every target,
-/// and an equality here would fail the narrow ones.
-pub const peer_session_struct_budget_bytes = 1136;
+/// genuinely smaller, as does a fast build. So no single number is the
+/// measurement on every target and mode, and an equality here would fail the
+/// narrow ones.
+pub const peer_session_struct_budget_bytes = 1176;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget (docs/ladder.md step 2). " ++

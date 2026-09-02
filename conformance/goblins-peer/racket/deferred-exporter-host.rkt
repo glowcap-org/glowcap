@@ -1,23 +1,23 @@
 #lang racket
 ;; deferred-exporter-host.rkt — Goblins Bob, the exporter whose capability does
 ;; not exist yet. He is the far end of the relayed-give proof
-;; (`zig build goblins-relayed-give`), where pancake introduces a third party to
+;; (`zig build goblins-relayed-give`), where glowcap introduces a third party to
 ;; a promise Bob has not settled.
 ;;
 ;; Bob hosts a promise, not a greeter. `spawn-promise-values` gives him a
 ;; promise and its resolver; the greeter is spawned later, when the driver asks
-;; for it. What he publishes is a rendezvous: pancake fetches it and calls
+;; for it. What he publishes is a rendezvous: glowcap fetches it and calls
 ;; `hold-with`, handing over a capability of its own, and Bob replies by sending
 ;; the unresolved promise *to* that capability as a delivered argument. That
 ;; direction matters. An answer carrying a local promise chains through Goblins'
-;; own promise machinery and stays pending on the wire, so pancake would be
+;; own promise machinery and stays pending on the wire, so glowcap would be
 ;; handed a pending answer rather than a promise it can name. An argument
-;; marshals as `desc:import-promise`, the form pancake needs to introduce it
+;; marshals as `desc:import-promise`, the form glowcap needs to introduce it
 ;; to somebody else.
 ;;
 ;; Bob settles the promise on the first line of stdin, so the driver decides
-;; when. Once it settles, Bob's listener fire carries the greeter to pancake,
-;; pancake signs a give for the third party, and Bob then answers that party's
+;; when. Once it settles, Bob's listener fire carries the greeter to glowcap,
+;; glowcap signs a give for the third party, and Bob then answers that party's
 ;; own `withdraw-gift` directly.
 ;;
 ;; Usage:
@@ -38,10 +38,10 @@
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
 
-;; The rendezvous swiss pancake fetches by. 32 ASCII bytes, like every other
+;; The rendezvous swiss glowcap fetches by. 32 ASCII bytes, like every other
 ;; fixed swiss in this directory.
 (define RENDEZVOUS-SWISS
-  (string->bytes/latin-1 "pancakeDeferredRendezvousSwiss01"))
+  (string->bytes/latin-1 "glowcapDeferredRendezvousSwiss01"))
 
 ;; The capability the promise settles to. It answers with the caller's name
 ;; embedded, so a recipient that reaches it through a relayed give proves the

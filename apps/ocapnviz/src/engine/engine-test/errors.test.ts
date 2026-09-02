@@ -16,7 +16,7 @@ engineTest("validate accepts ordinary playback and builder intents", () => {
 
 	const builderResult = e.validate({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	});
 	assert(builderResult.ok);
@@ -66,7 +66,7 @@ engineTest(
 
 		const first = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		});
 		assertEquals(first, undefined);
@@ -94,7 +94,7 @@ engineTest("onError fires when a post-tick subscriber throws", () => {
 	// Touch the engine so #notify fires.
 	e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	});
 
@@ -113,7 +113,7 @@ engineTest("onError unsubscribe stops further deliveries", () => {
 	});
 	e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	});
 	assertEquals(count, 1);
@@ -121,7 +121,7 @@ engineTest("onError unsubscribe stops further deliveries", () => {
 	unsubscribe();
 	e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 10, y: 10 },
 	});
 	assertEquals(count, 1);
@@ -144,7 +144,7 @@ engineTest(
 		});
 		e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		});
 
@@ -185,7 +185,7 @@ engineTest(
 
 		const first = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		});
 		assertEquals(first, undefined);
@@ -206,7 +206,7 @@ engineTest(
 		// burn the counter (otherwise we'd see `peer-2`).
 		const second = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 20, y: 20 },
 		});
 		assertEquals(second, "peer-1");
@@ -220,7 +220,7 @@ engineTest(
 		const e = new Engine(emptyAuthoredDoc());
 		const a = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		})!;
 		const b = e.dispatch({
@@ -291,7 +291,7 @@ engineTest(
 		// it eternal (entities-only, no peer-joined event).
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		});
 		assert(typeof peerId === "string");
@@ -321,7 +321,7 @@ engineTest("renamePeer rewrites entities + events + row state", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const a = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	const b = e.dispatch({
@@ -364,7 +364,7 @@ engineTest("rename-* rejects collisions; doc untouched", () => {
 	e.onError((err) => captured.push(err.code));
 	const a = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	const b = e.dispatch({
@@ -394,7 +394,7 @@ engineTest("validate(rename-*) surfaces collision without mutating", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const a = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	const b = e.dispatch({
@@ -434,7 +434,7 @@ engineTest("renameSession rewrites events + cross-refs", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const a = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	const b = e.dispatch({
@@ -462,7 +462,7 @@ engineTest("renameMessage rewrites sent + delivered events", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const a = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	const b = e.dispatch({
@@ -498,7 +498,7 @@ engineTest("update-message swap after rename mutates entity from/to", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const a = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	const b = e.dispatch({
@@ -534,7 +534,7 @@ engineTest("rename undo restores everything", () => {
 	const e = new Engine(emptyAuthoredDoc());
 	const a = e.dispatch({
 		kind: "add-peer",
-		profile: "pancake",
+		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
 	const baseline = JSON.stringify({

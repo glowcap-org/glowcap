@@ -71,7 +71,7 @@ const RelayRow = struct {
     /// root; the trailing "0" asks for an ephemeral port.
     relay_argv: []const []const u8,
     /// Environment `{key, value}` pairs the harness merges into the relay
-    /// subprocess (the idle proof sets a low `PANCAKE_RELAY_IDLE_MS`).
+    /// subprocess (the idle proof sets a low `GLOWCAP_RELAY_IDLE_MS`).
     relay_env: []const [2][]const u8 = &.{},
     /// A build step that must produce the relay program first (Rust's cargo build;
     /// Deno and Python relays are scripts and need none).
@@ -154,8 +154,8 @@ pub fn register(
     const deno_relay_tcp = [_][]const u8{ "deno", "run", "--allow-net", "--allow-read", "--allow-env", "bindings/ts/relay/serve.ts", "0" };
     const deno_relay_iroh = [_][]const u8{ "deno", "run", "--allow-net", "--allow-read", "--allow-ffi", "--unstable-ffi", "--allow-env", "bindings/ts/relay/serve.ts", "0" };
     const python_relay = [_][]const u8{ "uv", "run", "--project", "bindings/python", "--extra", "rendezvous", "--locked", "python3", "bindings/python/relay.py", "0" };
-    const rust_relay = [_][]const u8{ "bindings/rust/relay/target/release/pancake-relay", "0" };
-    const rust_relay_iroh = [_][]const u8{ "bindings/rust/relay/target/iroh/release/pancake-relay", "0" };
+    const rust_relay = [_][]const u8{ "bindings/rust/relay/target/release/glowcap-relay", "0" };
+    const rust_relay_iroh = [_][]const u8{ "bindings/rust/relay/target/iroh/release/glowcap-relay", "0" };
     // `-y` warms the binding's compiled bytecode so the relay starts promptly on
     // repeat runs; the iroh leg loads the iroh companion from zig-out/lib lazily.
     const racket_relay = [_][]const u8{ "racket", "-y", "bindings/racket/relay.rkt", "0" };
@@ -176,18 +176,18 @@ pub fn register(
             .{ .step_name = "deno-relay-backpressure-test", .description = "Prove a stalled reader backpressures the far sender through the Deno relay (needs deno)", .harness = .backpressure, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_tcp },
             .{ .step_name = "python-relay-backpressure-test", .description = "Prove a stalled reader backpressures the far sender through the Python relay (needs deno + uv)", .harness = .backpressure, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay, .build_dep = &python_relay_lifecycle.step },
             .{ .step_name = "rust-relay-backpressure-test", .description = "Prove a stalled reader backpressures the far sender through the Rust relay (needs deno + cargo)", .harness = .backpressure, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_build.step },
-            .{ .step_name = "deno-relay-idle-test", .description = "Prove the Deno relay reclaims an idle session (the bounded-resources clause) (needs deno)", .harness = .idle, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_tcp, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
-            .{ .step_name = "python-relay-idle-test", .description = "Prove the Python relay reclaims an idle session (the bounded-resources clause) (needs deno + uv)", .harness = .idle, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }}, .build_dep = &python_relay_lifecycle.step },
-            .{ .step_name = "rust-relay-idle-test", .description = "Prove the Rust relay reclaims an idle session (the bounded-resources clause) (needs deno + cargo)", .harness = .idle, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_build.step, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
+            .{ .step_name = "deno-relay-idle-test", .description = "Prove the Deno relay reclaims an idle session (the bounded-resources clause) (needs deno)", .harness = .idle, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_tcp, .relay_env = &.{.{ "GLOWCAP_RELAY_IDLE_MS", "500" }} },
+            .{ .step_name = "python-relay-idle-test", .description = "Prove the Python relay reclaims an idle session (the bounded-resources clause) (needs deno + uv)", .harness = .idle, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay, .relay_env = &.{.{ "GLOWCAP_RELAY_IDLE_MS", "500" }}, .build_dep = &python_relay_lifecycle.step },
+            .{ .step_name = "rust-relay-idle-test", .description = "Prove the Rust relay reclaims an idle session (the bounded-resources clause) (needs deno + cargo)", .harness = .idle, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_build.step, .relay_env = &.{.{ "GLOWCAP_RELAY_IDLE_MS", "500" }} },
             .{ .step_name = "racket-relay-test", .description = "Prove a browser peer holds a keyed session through the Racket relay (net/rfc6455) (needs deno + racket)", .harness = .tcp, .label = "Racket", .marker = "RACKET-RELAY-READY", .relay_argv = &racket_relay },
             .{ .step_name = "racket-relay-backpressure-test", .description = "Prove a stalled reader backpressures the far sender through the Racket relay (needs deno + racket)", .harness = .backpressure, .label = "Racket", .marker = "RACKET-RELAY-READY", .relay_argv = &racket_relay },
-            .{ .step_name = "racket-relay-idle-test", .description = "Prove the Racket relay reclaims an idle session (the bounded-resources clause) (needs deno + racket)", .harness = .idle, .label = "Racket", .marker = "RACKET-RELAY-READY", .relay_argv = &racket_relay, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
+            .{ .step_name = "racket-relay-idle-test", .description = "Prove the Racket relay reclaims an idle session (the bounded-resources clause) (needs deno + racket)", .harness = .idle, .label = "Racket", .marker = "RACKET-RELAY-READY", .relay_argv = &racket_relay, .relay_env = &.{.{ "GLOWCAP_RELAY_IDLE_MS", "500" }} },
         },
     }, wasm_driver_install_step, iroh_abi_step);
 
     // The iroh leg: each runtime's relay dials a real iroh endpoint over QUIC and
     // carries the browser peer's live session through it. The browser probe is
-    // bundled with the browser mapping so @pancake/iroh resolves to its browser arm.
+    // bundled with the browser mapping so @glowcap/iroh resolves to its browser arm.
     addRelayFamily(b, .{
         .aggregate_name = "bindings-relay-iroh",
         .aggregate_desc = "Prove the relay's iroh leg across every runtime's relay: a browser peer holds a live iroh session through Deno, Python, Rust, Racket relays (needs deno + uv + cargo + racket)",
@@ -233,7 +233,7 @@ pub fn register(
     goblins_relay_step.dependOn(&goblins_relay.step);
 
     // A real Goblins vat as an ordinary member of the rooms chat. The rooms
-    // fleet prefers pancake-next over Cap'n Proto and a Goblins vat speaks only
+    // fleet prefers glowcap-next over Cap'n Proto and a Goblins vat speaks only
     // the v1.0 Syrup baseline, so each session settles its own pair
     // (ADR-0103); the harness reads both profiles off the server's live trace
     // rather than taking either member's word for it.
@@ -242,7 +242,7 @@ pub fn register(
         "--allow-net", "--allow-run",    "--allow-env",
         "--allow-ffi", "--unstable-ffi", "interop/goblins_rooms/harness.ts",
     });
-    const goblins_rooms_step = b.step("goblins-rooms", "Live Goblins in the rooms chat: a real Goblins vat and a pancake peer hold one room, each on the profile its own session settled (needs deno + racket + goblins)");
+    const goblins_rooms_step = b.step("goblins-rooms", "Live Goblins in the rooms chat: a real Goblins vat and a glowcap peer hold one room, each on the profile its own session settled (needs deno + racket + goblins)");
     goblins_rooms_step.dependOn(&goblins_rooms.step);
 
     // Product-level Peering evidence: the generic handoff fixtures prove the
@@ -252,7 +252,7 @@ pub fn register(
     const goblins_rooms_peering = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_peering/harness.ts",
     });
-    const goblins_rooms_peering_step = b.step("goblins-rooms-peering", "Live Goblins through Rooms Peering: enter a pancake foreign listing over v1.0/Syrup, revoke discovery, and keep using the handed room (needs deno + racket + goblins)");
+    const goblins_rooms_peering_step = b.step("goblins-rooms-peering", "Live Goblins through Rooms Peering: enter a glowcap foreign listing over v1.0/Syrup, revoke discovery, and keep using the handed room (needs deno + racket + goblins)");
     goblins_rooms_peering_step.dependOn(&goblins_rooms_peering.step);
 
     // Both shipped IRC application edges against the outside protocol
@@ -308,7 +308,7 @@ pub fn register(
     goblins_rooms_dm.step.dependOn(browser_preflight_step);
     goblins_rooms_dm.step.dependOn(wasm_driver_install_step);
     goblins_rooms_dm.step.dependOn(b.getInstallStep());
-    const goblins_rooms_dm_step = b.step("goblins-rooms-dm", "Live Goblins direct message, both directions: a browser tab redeems a room introduction and reaches a real Goblins vat off-room over cleartext TCP, the vat answers over that same connection, and the vat starts a direct message of its own by redeeming a give that names a native pancake member as its exporter (needs deno + racket + goblins + a Playwright Chromium)");
+    const goblins_rooms_dm_step = b.step("goblins-rooms-dm", "Live Goblins direct message, both directions: a browser tab redeems a room introduction and reaches a real Goblins vat off-room over cleartext TCP, the vat answers over that same connection, and the vat starts a direct message of its own by redeeming a give that names a native glowcap member as its exporter (needs deno + racket + goblins + a Playwright Chromium)");
     goblins_rooms_dm_step.dependOn(&goblins_rooms_dm.step);
 
     // The same conversation over encrypted QUIC. Both Goblins-facing direct

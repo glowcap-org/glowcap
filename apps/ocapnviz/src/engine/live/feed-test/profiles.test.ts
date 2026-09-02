@@ -2,11 +2,11 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { makeBaseEventConverter } from "../feed.ts";
-import { GOBLINS_PROFILE, PANCAKE_PROFILE, UNNAMED_PROFILE } from "../../../schema/topology.ts";
+import { GLOWCAP_PROFILE, GOBLINS_PROFILE, UNNAMED_PROFILE } from "../../../schema/topology.ts";
 import { Observation } from "../../temporal/recording.ts";
 import type { TimelineEvent } from "../../timeline.ts";
 import { expectKind } from "./harness.ts";
-import { joinedProfiles, opened, SAYS_PANCAKE, wireName } from "./fixtures.ts";
+import { joinedProfiles, opened, SAYS_GLOWCAP, wireName } from "./fixtures.ts";
 
 /** Every profile a `peer-updated` stated, in order, as `peer@t=profile`. */
 function profileUpdates(evs: readonly TimelineEvent[]): string[] {
@@ -27,17 +27,17 @@ Deno.test("a producer's own end runs what it says it runs", () => {
 	const convert = makeBaseEventConverter();
 	const out = convert(
 		opened(0, "p0/s1", "rooms-key", "vat-key", "wire-1", true, {
-			profile: PANCAKE_PROFILE,
+			profile: GLOWCAP_PROFILE,
 		}),
 	);
 	assertEquals(joinedProfiles(out), {
-		"rooms-key": PANCAKE_PROFILE,
+		"rooms-key": GLOWCAP_PROFILE,
 		"vat-key": UNNAMED_PROFILE,
 	});
 });
 
 Deno.test("a Goblins vat publishing its own trace draws as a Goblins vat", () => {
-	// The `ocapn.*` kinds are a schema, not pancake's mark: the Goblins
+	// The `ocapn.*` kinds are a schema, not glowcap's mark: the Goblins
 	// conformance peer publishes the very same records. Its own end is drawn
 	// as what it says it is, and the stage has to be able to say `goblins`
 	// when a producer says `goblins` — the whole point of reading a statement
@@ -56,10 +56,10 @@ Deno.test("a Goblins vat publishing its own trace draws as a Goblins vat", () =>
 
 Deno.test("a producer that states nothing draws its OWN end unknown", () => {
 	// The defect this whole property exists to refuse, at the site it lived:
-	// the viewer used to read "a record arrived" as "a pancake host sent it",
-	// so every producer's own end was drawn pancake whatever it ran. A
+	// the viewer used to read "a record arrived" as "a glowcap host sent it",
+	// so every producer's own end was drawn glowcap whatever it ran. A
 	// producer that says nothing has said nothing about itself, and unknown
-	// is the honest answer for a pancake producer and any other alike.
+	// is the honest answer for a glowcap producer and any other alike.
 	const convert = makeBaseEventConverter();
 	const out = convert(
 		opened(0, "p0/s1", "rooms-key", "vat-key", "wire-1", true),
@@ -114,8 +114,8 @@ Deno.test("a non-string implementation claim is ignored", () => {
 	assertEquals(joinedProfiles(out)["vat-key"], UNNAMED_PROFILE);
 });
 
-Deno.test("a session on the pancake-private profile names both its ends", () => {
-	// `pancake-next` travels only between pancake peers (ADR-0003), so one
+Deno.test("a session on the glowcap-private profile names both its ends", () => {
+	// `glowcap-next` travels only between glowcap peers (ADR-0003), so one
 	// producer reporting it has said what runs at each end. It is the one
 	// implementation a feed concludes without being told, so it holds even
 	// when the producer stated nothing about itself.
@@ -126,14 +126,14 @@ Deno.test("a session on the pancake-private profile names both its ends", () => 
 		}),
 	);
 	assertEquals(joinedProfiles(out), {
-		"rooms-key": PANCAKE_PROFILE,
-		"member-key": PANCAKE_PROFILE,
+		"rooms-key": GLOWCAP_PROFILE,
+		"member-key": GLOWCAP_PROFILE,
 	});
 });
 
 Deno.test("the v1.0 floor names neither of its ends", () => {
 	// The converse of the profile above, and the reason it is not read: two
-	// pancake peers meeting on the OCapN interop floor speak `v1_0`, exactly
+	// glowcap peers meeting on the OCapN interop floor speak `v1_0`, exactly
 	// as a Goblins vat does. A session on it says nothing about either end,
 	// so a feed that carries no statement draws two unknowns.
 	const convert = makeBaseEventConverter();
@@ -190,7 +190,7 @@ Deno.test("a peer learns what it runs when it first speaks for itself", () => {
 			"member-key",
 			"wire-1",
 			true,
-			SAYS_PANCAKE,
+			SAYS_GLOWCAP,
 		),
 	);
 	assertEquals(joinedProfiles(first)["member-key"], UNNAMED_PROFILE);
@@ -203,10 +203,10 @@ Deno.test("a peer learns what it runs when it first speaks for itself", () => {
 			"other-key",
 			"wire-2",
 			true,
-			SAYS_PANCAKE,
+			SAYS_GLOWCAP,
 		),
 	);
-	assertEquals(profileUpdates(later), ["member-key@750=pancake"]);
+	assertEquals(profileUpdates(later), ["member-key@750=glowcap"]);
 	// Learning is not a re-join: the peer keeps the one lifetime it had.
 	assertEquals(
 		later.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
@@ -230,7 +230,7 @@ Deno.test("a named partner that then reports the same wire is known from there",
 			"member-key",
 			"shared-wire",
 			true,
-			SAYS_PANCAKE,
+			SAYS_GLOWCAP,
 		),
 	);
 	assertEquals(joinedProfiles(first)["member-key"], UNNAMED_PROFILE);
@@ -243,11 +243,11 @@ Deno.test("a named partner that then reports the same wire is known from there",
 			"rooms-key",
 			"shared-wire",
 			true,
-			SAYS_PANCAKE,
+			SAYS_GLOWCAP,
 		),
 	);
 	assertEquals(second.filter((e) => e.kind === "peer-joined"), []);
-	assertEquals(profileUpdates(second), ["member-key@600=pancake"]);
+	assertEquals(profileUpdates(second), ["member-key@600=glowcap"]);
 });
 
 Deno.test("an end a second producer speaks for is drawn as what that producer says it runs", () => {
@@ -260,10 +260,10 @@ Deno.test("an end a second producer speaks for is drawn as what that producer sa
 	const convert = makeBaseEventConverter();
 	const first = convert(
 		opened(0, "p0/s1", "tab-a", "claimed:0", "shared-wire", false, {
-			profile: PANCAKE_PROFILE,
+			profile: GLOWCAP_PROFILE,
 		}),
 	);
-	assertEquals(joinedProfiles(first), { "tab-a": PANCAKE_PROFILE });
+	assertEquals(joinedProfiles(first), { "tab-a": GLOWCAP_PROFILE });
 
 	const second = convert(
 		opened(400, "p1/s1", "tab-b", "claimed:0", "shared-wire", false, {

@@ -16,8 +16,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * speaker publishing its own trace of the same session: two hosts
  * agreeing on one OCapN Session ID, which is the weakest attribution
  * the vocabulary has and the picture says so.
- * Both peers run pancake, so this session settles on Cap'n Proto over
- * pancake-next. That is the pairing a pancake fleet configures
+ * Both peers run glowcap, so this session settles on Cap'n Proto over
+ * glowcap-next. That is the pairing a glowcap fleet configures
  * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
@@ -31,7 +31,7 @@ export const callARemoteMethod = TimelineDocument.parse({
 		"dct:title": "01 · Call a remote method",
 		"dct:description":
 			'A phone calls queue("Hot Knife") on a kitchen speaker, and the speaker answers. The phone then drops the reference it no longer needs. This is the whole shape of a CapTP call, and every program eventually makes it: op:deliver out, op:resolve back, op:gc-exports to tidy up.',
-		"dct:creator": "pancake project",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: { "prov:wasAttributedTo": AGENT },
@@ -43,7 +43,7 @@ export const callARemoteMethod = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9101",
 			label: "Phone",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9101",
 		},
 		{
@@ -52,7 +52,7 @@ export const callARemoteMethod = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9102",
 			label: "Speaker",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9102",
 		},
 		{

@@ -1,7 +1,7 @@
-//! Evidence item 1 of ADR-0108: the SOCKS5 bytes pancake writes to reach an
+//! Evidence item 1 of ADR-0108: the SOCKS5 bytes glowcap writes to reach an
 //! onion service are the bytes the two peers it must meet write.
 //!
-//! The expectations below are read off two sources, not off pancake's own code.
+//! The expectations below are read off two sources, not off glowcap's own code.
 //! One is the pinned Spritely Goblins netlayer helper
 //! `conformance/spritely-goblins/upstream/goblins/ocapn/netlayer/onion-socks.rkt`,
 //! whose `onion-socks5-setup!` writes the greeting, then a length byte of 62,
@@ -12,9 +12,9 @@
 //! prove only that the module agrees with itself.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const socks5 = pancake.net.onion.socks5;
+const socks5 = glowcap.net.onion.socks5;
 
 /// A real version 3 service id, taken from the pinned Goblins source, where it
 /// is the example in `structs-urls.rkt`. It decodes to 35 bytes whose version

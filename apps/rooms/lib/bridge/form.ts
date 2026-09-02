@@ -46,6 +46,15 @@ export const BridgeTextFieldSchema = z.strictObject({
 	id: FormId,
 	label: Label,
 	hint: z.optional(Hint),
+	/** A ghosted example of a good answer, in the bridge's own words:
+	 * `irc.libera.chat` for a server, a nick the reader might pick. It is shown,
+	 * never submitted, so it says what a value looks like without becoming one. */
+	placeholder: z.optional(Hint),
+	/** A fixed mark the bridge always puts in front of this value, drawn joined to
+	 * the box so a reader types the part that varies: IRC's `#` before a channel.
+	 * It is decoration, not part of what is typed, and the bridge reads the
+	 * submitted value knowing it owns the mark. */
+	prefix: z.optional(nonemptyText(8)),
 	/** What it starts as. A bridge fills this with what it already knows, so a
 	 * reader corrects rather than retypes. */
 	value: z.optional(boundedText(MAX_FORM_VALUE)),
@@ -62,6 +71,9 @@ export const BridgeSecretFieldSchema = z.strictObject({
 	id: FormId,
 	label: Label,
 	hint: z.optional(Hint),
+	/** A ghosted example, shown and never submitted. A secret has no starting
+	 * value, but it may still say what shape of answer it wants. */
+	placeholder: z.optional(Hint),
 	required: z.boolean(),
 });
 
@@ -105,6 +117,15 @@ export const BridgeActionSchema = z.strictObject({
 	 * to find again. An action that merely does something once is not, and a
 	 * bridge saying so is what keeps a one-shot act out of a checkpoint. */
 	remembered: z.boolean(),
+	/** When present, pressing this opens a second step before it runs, for an
+	 * act that takes something away: IRC's disconnect ends a link. The words are
+	 * the bridge's — the sentence about what is lost, the way out, and the
+	 * commitment — in the reader's terms. Absent for an ordinary act. */
+	confirm: z.optional(z.strictObject({
+		say: nonemptyText(MAX_FORM_SAID),
+		keep: Label,
+		commit: Label,
+	})),
 });
 
 export const BridgeFormSchema = z.strictObject({
@@ -197,12 +218,14 @@ export function splitBridgeSubmission(
 
 /** Build one action's submission from a drawn form and what the reader typed.
  *
- * Only the fields a reader was being asked ride: a toggle that is off keeps
- * its reveals out, and the toggle itself never travels because it is
- * disclosure rather than an answer. The primary action carries the answers;
- * the quiet and danger tones stand alone, so pressing a way out never sends
- * a credential the act does not need. A required visible field left empty
- * refuses with the field's own label instead of submitting it. */
+ * A toggle's own state travels as `"on"` or `""`, because a toggle is an answer
+ * in its own right: IRC's TLS decides whether the connection is encrypted, not
+ * merely whether more fields show. Its reveals ride only when it is on, so a
+ * disclosure toggle still keeps its hidden fields out when off while its state
+ * is recorded either way. The primary action carries the answers; the quiet and
+ * danger tones stand alone, so pressing a way out never sends a credential the
+ * act does not need. A required visible field left empty refuses with the
+ * field's own label instead of submitting it. */
 export function bridgeFormSubmission(
 	form: BridgeForm,
 	action: BridgeAction,
@@ -213,7 +236,9 @@ export function bridgeFormSubmission(
 	const asked: BridgeAnswers = {};
 	const visit = (field: BridgeField): string | null => {
 		if (field.kind === "toggle") {
-			if (!toggles.has(field.id)) return null;
+			const on = toggles.has(field.id);
+			asked[field.id] = on ? "on" : "";
+			if (!on) return null;
 			for (const leaf of field.reveals) {
 				const refused = visit(leaf);
 				if (refused != null) return refused;

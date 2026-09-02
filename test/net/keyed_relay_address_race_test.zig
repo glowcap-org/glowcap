@@ -1,7 +1,7 @@
 //! Shared resolver-order and pollable descriptor-retirement evidence.
 
 const std = @import("std");
-const relay = @import("pancake").net.relay;
+const relay = @import("glowcap").net.relay;
 
 test "relay address failures retain resolver order" {
     const Chain = struct {

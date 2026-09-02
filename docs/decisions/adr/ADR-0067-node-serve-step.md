@@ -3,7 +3,7 @@ id: ADR-0067
 status: accepted
 date: 2026-07-05
 tags: [engine, handoff, three-party, node, c-abi, bindings, sans-io]
-decision: "The three-party redeem and origination sequencing sinks into a sans-io serve step on `engine.Node`: the node owns the exporter cache, the pending dial/withdraw/gift tables, the per-exporter give-location override, and every decision, consuming feeds (`acceptGive`, `exporterDialed`/`dialFailed`, `claimResolve`, `interceptFulfilledRoute`, `provideGiftId`) and emitting data actions (`dial`, `flush`, `settle`, `fail`, `need_gift_id`) the embedder executes. I/O, scheduling, and entropy stay host-side, with entropy an explicit requested effect. At acceptance this was projected as pancake_node_* serve verbs over PancakeNodeAction in `libpancake_ocapn` (since deleted; CapTP product work drains the same decisions through `pancake_host_*` / `PancakeHostAction`); all four bindings and the native interop driver collapsed onto the serve step as dumb action executors, deleting their hand-rolled redeem/origination orchestration; proven hermetically by `test/engine/node_test.zig` and live by the goblins handoff/gift and iroh handoff matrices."
+decision: "The three-party redeem and origination sequencing sinks into a sans-io serve step on `engine.Node`: the node owns the exporter cache, the pending dial/withdraw/gift tables, the per-exporter give-location override, and every decision, consuming feeds (`acceptGive`, `exporterDialed`/`dialFailed`, `claimResolve`, `interceptFulfilledRoute`, `provideGiftId`) and emitting data actions (`dial`, `flush`, `settle`, `fail`, `need_gift_id`) the embedder executes. I/O, scheduling, and entropy stay host-side, with entropy an explicit requested effect. At acceptance this was projected as glowcap_node_* serve verbs over GlowcapNodeAction in `libglowcap_ocapn` (since deleted; CapTP product work drains the same decisions through `glowcap_host_*` / `GlowcapHostAction`); all four bindings and the native interop driver collapsed onto the serve step as dumb action executors, deleting their hand-rolled redeem/origination orchestration; proven hermetically by `test/engine/node_test.zig` and live by the goblins handoff/gift and iroh handoff matrices."
 supersedes: []
 superseded_by: []
 amends: []
@@ -13,14 +13,14 @@ amended_by: [ADR-0079, ADR-0113]
 # ADR-0067 The three-party redeem sequencing is a sans-io serve step on the node
 
 > **C-projection amendment.** The Zig `engine.Node` serve step and its
-> semantics remain accepted. The former pancake_node_* C serve verbs over
-> PancakeNodeAction were deleted with that waist; CapTP product work drains
-> the same decisions through `pancake_host_*` / `PancakeHostAction`. Historical
+> semantics remain accepted. The former glowcap_node_* C serve verbs over
+> GlowcapNodeAction were deleted with that waist; CapTP product work drains
+> the same decisions through `glowcap_host_*` / `GlowcapHostAction`. Historical
 > Decision and Consequences text below that names that C family describes the
 > shape at acceptance time, not the current public C surface.
 >
 > **Vocabulary amendment (ADR-0079).** The multi-session product is binding
-> `Host` / `PancakeHost`, not binding `Node`. Read historical binding-`Node`
+> `Host` / `GlowcapHost`, not binding `Node`. Read historical binding-`Node`
 > framing as acceptance-time vocabulary.
 
 ## Context
@@ -88,11 +88,11 @@ withdrawals without changing this boundary.
 - `nextAction()`: drains `dial` / `flush` / `settle` / `fail` /
   `need_gift_id`, byte views valid until the next drain.
 
-The step was projected into `libpancake_ocapn` as pancake_node_accept_give,
-pancake_node_exporter_dialed, pancake_node_dial_failed,
-pancake_node_claim_resolve, pancake_node_intercept_fulfilled_ref,
-pancake_node_provide_gift_id, pancake_node_set_exporter_location, and
-pancake_node_next_action over the PancakeNodeAction struct
+The step was projected into `libglowcap_ocapn` as glowcap_node_accept_give,
+glowcap_node_exporter_dialed, glowcap_node_dial_failed,
+glowcap_node_claim_resolve, glowcap_node_intercept_fulfilled_ref,
+glowcap_node_provide_gift_id, glowcap_node_set_exporter_location, and
+glowcap_node_next_action over the GlowcapNodeAction struct
 (`src/c_abi/ocapn/node.zig` at acceptance; that C waist is deleted: see banner),
 and all four bindings collapsed onto it:
 each binding's `redeem` / `withdraw` / `originate` orchestration, exporter
@@ -135,7 +135,7 @@ ordinary connection's reply path pays nothing for handoffs.
   the fail-closed empty-locator and unopened-session arms, dial dedup, dial
   failure fan-out, claim-or-pass, token settlement and routability, exporter
   cache reuse, and the gifter claim/pass verdicts.
-- At acceptance, `test/c_abi/node_test.zig` drove the projected pancake_node_*
-  verbs over `include/pancake_ocapn.h`; that C waist and its header family are
-  gone (see banner). CapTP product work uses `pancake_host_*` /
-  `PancakeHostAction` instead.
+- At acceptance, `test/c_abi/node_test.zig` drove the projected glowcap_node_*
+  verbs over `include/glowcap_ocapn.h`; that C waist and its header family are
+  gone (see banner). CapTP product work uses `glowcap_host_*` /
+  `GlowcapHostAction` instead.

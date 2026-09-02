@@ -61,9 +61,9 @@ roomsTest("the page origin carries viz sockets, admission and refusal alike", as
 		cwd: ROOT,
 		env: {
 			...Deno.env.toObject(),
-			PANCAKE_ROOMS_STATE: stateDir,
-			PANCAKE_ROOMS_VIZ: "1",
-			PANCAKE_ROOMS_VIZ_PORT: String(vizPort),
+			GLOWCAP_ROOMS_STATE: stateDir,
+			GLOWCAP_ROOMS_VIZ: "1",
+			GLOWCAP_ROOMS_VIZ_PORT: String(vizPort),
 		},
 		stdout: "null",
 		stderr: "null",

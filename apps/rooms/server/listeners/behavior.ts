@@ -1,6 +1,6 @@
 // CapTP command admission for listener administration.
 
-import { type Argument, type Behavior, currentSession } from "@pancake/runtime";
+import { type Argument, type Behavior, currentSession } from "@glowcap/runtime";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../../lib/argument_custody.ts";
 import { LISTENER_OPTION_NAMES, LISTENER_TRANSPORTS } from "../../lib/listeners.ts";
 import { LISTENER_UNSUPPORTED, RoomError } from "../../lib/errors.ts";

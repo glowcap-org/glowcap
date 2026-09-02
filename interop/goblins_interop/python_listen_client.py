@@ -11,9 +11,9 @@ from helpers import insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Argument, tcp  # noqa: E402
+from glowcap import Argument, tcp  # noqa: E402
 
-ACTOR_SWISS = "pancakeActorSwissnumABCDEFGH1234"
+ACTOR_SWISS = "glowcapActorSwissnumABCDEFGH1234"
 
 
 def greeter(_verb: str, args: list[Argument]) -> str:

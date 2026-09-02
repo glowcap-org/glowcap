@@ -1,7 +1,7 @@
-use pancake::onion::{self, Auth, Config};
-use pancake::Argument;
+use glowcap::onion::{self, Auth, Config};
+use glowcap::Argument;
 
-// pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+// glowcap starts no Tor. Name an already-running daemon's SOCKS (and control to host).
 let config = Config::dial_only("/run/tor/socks")
     .with_control("/run/tor/control", Auth::None);
 let server = onion::listen(config, onion::ListenOptions::default()).await?;

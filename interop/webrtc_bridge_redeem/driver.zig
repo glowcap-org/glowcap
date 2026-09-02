@@ -18,16 +18,16 @@
 //! `zig build webrtc-bridge-redeem`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const harness = @import("interop_harness");
 
-const crypto = pancake.foundation.crypto;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const driver = pancake.driver;
-const net = pancake.net;
+const crypto = glowcap.foundation.crypto;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -73,7 +73,7 @@ const Node = struct {
 const PairEnd = struct { node: *Node, fd: i32 };
 
 const Hub = struct {
-    mutex: pancake.net.sync.SpinLock = .{},
+    mutex: glowcap.net.sync.SpinLock = .{},
     allocator: std.mem.Allocator,
     nodes: [3]?*Node = .{ null, null, null },
     pairs: std.AutoHashMap(u64, PairEnd),

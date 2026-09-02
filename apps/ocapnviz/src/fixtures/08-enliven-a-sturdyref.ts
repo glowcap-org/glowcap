@@ -27,8 +27,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * claim, so the identity a sturdyref rests on would be one anybody on the
  * path could answer for. The Reference's transport section says which
  * netlayers prove a peer and which only address one.
- * Both peers run pancake, so this session settles on Cap'n Proto over
- * pancake-next. That is the pairing a pancake fleet configures
+ * Both peers run glowcap, so this session settles on Cap'n Proto over
+ * glowcap-next. That is the pairing a glowcap fleet configures
  * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
@@ -42,7 +42,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
 		"dct:title": "08 · Enliven a sturdyref",
 		"dct:description":
 			"A sturdyref is a capability you can write down: some authority bytes plus the locator of the peer holding it. Before sending to one you enliven it, which fetches a live reference over a session. Enlivening the same sturdyref a second time costs no round-trip, because the session already remembers the answer.",
-		"dct:creator": "pancake project",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: { "prov:wasAttributedTo": AGENT },
@@ -54,7 +54,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
 			label: "Client",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
 		},
 		{
@@ -63,7 +63,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
 			label: "Archive server",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
 		},
 		{

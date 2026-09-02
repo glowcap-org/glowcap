@@ -8,8 +8,8 @@
 ;; loopback interface.
 ;;
 ;; This is the Goblins-only real-socket control. It proves the reference
-;; netlayer independently of pancake; `goblins-interop` and the live
-;; handoff/gift/exporter rows cover pancake on the other end of that seam.
+;; netlayer independently of glowcap; `goblins-interop` and the live
+;; handoff/gift/exporter rows cover glowcap on the other end of that seam.
 
 (require goblins
          goblins/ocapn
@@ -74,7 +74,7 @@
    (printf "~n[demo] OK — TCP CapTP roundtrip~n")
    (printf "       Side-B heard back: ~a~n" (cadr reply))
    (printf "       The bytes flowed through real TCP sockets on 127.0.0.1.~n")
-   (printf "       This is the Goblins-only control used beside pancake's~n")
+   (printf "       This is the Goblins-only control used beside glowcap's~n")
    (printf "       live cross-implementation matrices.~n")
    (exit 0)]
   [(err)

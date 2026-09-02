@@ -5,7 +5,7 @@
 # Dev Containers labels a container with the exact host checkout it was
 # created for, and that label is the authority here. A presentation name
 # would select another clone of the same repository sooner or later.
-pancake_devcontainer_running_container() {
+glowcap_devcontainer_running_container() {
     local checkout="$1" ids count
     ids="$(docker ps --filter "label=devcontainer.local_folder=${checkout}" --format '{{.ID}}')" || return 1
     count="$(printf '%s\n' "${ids}" | sed '/^$/d' | wc -l | tr -d ' ')"
@@ -22,7 +22,7 @@ pancake_devcontainer_running_container() {
     esac
 }
 
-pancake_devcontainer_ensure_network() {
+glowcap_devcontainer_ensure_network() {
     local name="$1" ownership="$2"
     if docker network inspect "${name}" >/dev/null 2>&1; then
         return 0

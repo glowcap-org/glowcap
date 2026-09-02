@@ -1,18 +1,18 @@
 ---
-description: "pancake is prerelease: no compatibility debt, so the default verdict on a design event is to fix the root now, not defer it."
+description: "glowcap is prerelease: no compatibility debt, so the default verdict on a design event is to fix the root now, not defer it."
 alwaysApply: true
 ---
 
-# pancake — Prerelease Posture
+# glowcap — Prerelease Posture
 
-pancake ships under no compatibility promise yet: no pinned wire format, no
+glowcap ships under no compatibility promise yet: no pinned wire format, no
 frozen public API, no external consumer locked to a type's shape. That is a
 license, and it sets the default verdict on every design event, **fix the root
 now; do not defer it.**
 
 ABI fields reserve a compatibility mechanism; they do not manufacture history.
 Replacing an unsupported prerelease contract keeps its version at `1`; increment
-only when pancake intentionally supports a distinct older or released contract.
+only when glowcap intentionally supports a distinct older or released contract.
 
 Living-state docs and source comments describe the current shape, not the
 transition that produced it. Keep review labels, old names, and "formerly" or

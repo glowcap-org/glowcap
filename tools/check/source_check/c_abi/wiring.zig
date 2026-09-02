@@ -22,7 +22,7 @@ pub fn checkHostActionArmLockstep(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const header_path = "include/pancake_host.h";
+    const header_path = "include/glowcap_host.h";
     const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for HostAction arm lockstep with {s}", .{ header_path, @errorName(err) });
         return;
@@ -31,7 +31,7 @@ pub fn checkHostActionArmLockstep(
 
     var action_names: std.ArrayList([]const u8) = .empty;
     defer action_names.deinit(gpa);
-    const needle = "#define PANCAKE_HOST_ACTION_";
+    const needle = "#define GLOWCAP_HOST_ACTION_";
     var rest = header;
     while (std.mem.indexOf(u8, rest, needle)) |start| {
         const after = rest[start + needle.len ..];
@@ -41,7 +41,7 @@ pub fn checkHostActionArmLockstep(
         rest = after[name_end..];
     }
     if (action_names.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no PANCAKE_HOST_ACTION_* for HostAction arm lockstep", .{header_path});
+        try appendViolation(gpa, violations, "{s}: no GLOWCAP_HOST_ACTION_* for HostAction arm lockstep", .{header_path});
         return;
     }
 
@@ -53,7 +53,7 @@ pub fn checkHostActionArmLockstep(
     // Zig HostAction tags (snake) must match header constants (SCREAMING).
     const zig_tags = [_][]const u8{ "dial", "cancel_dial", "flush", "close", "need_gift_id", "settled", "failed", "resume_work" };
     if (action_names.items.len != zig_tags.len) {
-        try appendViolation(gpa, violations, "HostAction arm lockstep: header has {d} PANCAKE_HOST_ACTION_* but Zig HostAction expects {d} tags", .{ action_names.items.len, zig_tags.len });
+        try appendViolation(gpa, violations, "HostAction arm lockstep: header has {d} GLOWCAP_HOST_ACTION_* but Zig HostAction expects {d} tags", .{ action_names.items.len, zig_tags.len });
     }
     for (zig_tags) |tag| {
         if (std.mem.indexOf(u8, zig_action, tag) == null) {
@@ -68,15 +68,15 @@ pub fn checkHostActionArmLockstep(
     defer gpa.free(embedder);
     for (action_names.items) |name| {
         var token_buf: [96]u8 = undefined;
-        const token = std.fmt.bufPrint(&token_buf, "PANCAKE_HOST_ACTION_{s}", .{name}) catch {
+        const token = std.fmt.bufPrint(&token_buf, "GLOWCAP_HOST_ACTION_{s}", .{name}) catch {
             try appendViolation(gpa, violations, "HostAction arm lockstep: action name `{s}` too long", .{name});
             continue;
         };
         if (std.mem.indexOf(u8, embedder, token) == null) {
             // SETTLE and FAIL share the complete arm in embedder_pump.
             if (std.mem.eql(u8, name, "SETTLE") or std.mem.eql(u8, name, "FAIL")) {
-                if (std.mem.indexOf(u8, embedder, "PANCAKE_HOST_ACTION_SETTLE") != null and
-                    std.mem.indexOf(u8, embedder, "PANCAKE_HOST_ACTION_FAIL") != null) continue;
+                if (std.mem.indexOf(u8, embedder, "GLOWCAP_HOST_ACTION_SETTLE") != null and
+                    std.mem.indexOf(u8, embedder, "GLOWCAP_HOST_ACTION_FAIL") != null) continue;
             }
             try appendViolation(gpa, violations, "src/c_abi/host/embedder_pump.zig: missing drain arm for `{s}`", .{token});
         }
@@ -248,32 +248,32 @@ pub fn checkUnwiredHostPluginApis(
     if (try fileContains(io, gpa, root, "src/driver/core/host/action.zig", "locator: []const u8")) {
         try appendViolation(gpa, violations, "src/driver/core/host/action.zig: HostAction.dial must not carry locator — use pendingDial", .{});
     }
-    if (try fileContains(io, gpa, root, "src/driver/core/host/action.zig", "pancake_host_pending_dial_*")) {
-        try appendViolation(gpa, violations, "src/driver/core/host/action.zig: stale pending_dial_* plural — use pancake_host_pending_dial", .{});
+    if (try fileContains(io, gpa, root, "src/driver/core/host/action.zig", "glowcap_host_pending_dial_*")) {
+        try appendViolation(gpa, violations, "src/driver/core/host/action.zig: stale pending_dial_* plural — use glowcap_host_pending_dial", .{});
     }
     try expectFileContains(io, gpa, root, violations, "src/driver/core/handoff.zig", &.{
         "pub fn pendingDial",
         "PendingDialView",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host.zig", &.{
-        "pancake_host_pending_dial",
-        "PancakeLocatorHintView",
-        "PancakeLocatorView",
+        "glowcap_host_pending_dial",
+        "GlowcapLocatorHintView",
+        "GlowcapLocatorView",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/plan.zig", &.{
         "locator_adapter.project",
         "inst.core.pendingDial",
     });
-    if (try fileContains(io, gpa, root, "src/c_abi/host/mod.zig", "PancakePendingDial")) {
-        try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: fixed fragment pending-dial struct must stay deleted — shared PancakeLocatorView is the ABI vocabulary", .{});
+    if (try fileContains(io, gpa, root, "src/c_abi/host/mod.zig", "GlowcapPendingDial")) {
+        try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: fixed fragment pending-dial struct must stay deleted — shared GlowcapLocatorView is the ABI vocabulary", .{});
     }
     // Dual C pending-dial exports must stay deleted — one complete locator projection.
-    for ([_][]const u8{ "pancake_host_pending_dial_locator", "pancake_host_pending_dial_parts" }) |needle| {
+    for ([_][]const u8{ "glowcap_host_pending_dial_locator", "glowcap_host_pending_dial_parts" }) |needle| {
         if (try fileContains(io, gpa, root, "src/c_abi/host/host.zig", needle)) {
-            try appendViolation(gpa, violations, "src/c_abi/host/host.zig: `{s}` must stay deleted — use pancake_host_pending_dial", .{needle});
+            try appendViolation(gpa, violations, "src/c_abi/host/host.zig: `{s}` must stay deleted — use glowcap_host_pending_dial", .{needle});
         }
-        if (try fileContains(io, gpa, root, "include/pancake_host.h", needle)) {
-            try appendViolation(gpa, violations, "include/pancake_host.h: `{s}` must stay deleted — use pancake_host_pending_dial", .{needle});
+        if (try fileContains(io, gpa, root, "include/glowcap_host.h", needle)) {
+            try appendViolation(gpa, violations, "include/glowcap_host.h: `{s}` must stay deleted — use glowcap_host_pending_dial", .{needle});
         }
     }
     // Redeem dial must not re-parse the pending URI on Host/Bridge.

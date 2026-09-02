@@ -2,10 +2,10 @@
 //! settles, and gift-id failure breaks only that operation.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../../support/core_host.zig");
 
-const driver = pancake.driver;
+const driver = glowcap.driver;
 const Host = driver.core.Host;
 const harness = @import("../harness.zig");
 const frame_cap = harness.frame_cap;

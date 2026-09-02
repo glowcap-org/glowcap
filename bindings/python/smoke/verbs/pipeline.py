@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from pancake import FEATURE_FULL, Host, PancakeError, Tagged, enable_trace, tcp
-from pancake._constants import ERR_INVALID_ARGUMENT
+from glowcap import FEATURE_FULL, Host, GlowcapError, Tagged, enable_trace, tcp
+from glowcap._constants import ERR_INVALID_ARGUMENT
 
 from smoke.runtime import tcp_connect
 
@@ -89,7 +89,7 @@ async def drives_chain() -> None:
             raise AssertionError(
                 "a promise from another Host must not be reinterpreted"
             )
-        except PancakeError as error:
+        except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         assert await second.send(second_task, "label", []) == "second"
         await second.close()

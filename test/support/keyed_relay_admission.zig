@@ -7,10 +7,10 @@
 //! platform stub.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const crypto = pancake.foundation.crypto;
-const net = pancake.net;
+const crypto = glowcap.foundation.crypto;
+const net = glowcap.net;
 const keyed_relay = net.relay;
 
 const Io = std.Io;
@@ -27,7 +27,7 @@ pub const AdmissionPlatform = struct {
         return error.OperationUnsupported;
     }
 
-    pub fn wireFraming(_: *AdmissionPlatform, _: Fd) pancake.ocapn.model.transport.WireFraming {
+    pub fn wireFraming(_: *AdmissionPlatform, _: Fd) glowcap.ocapn.model.transport.WireFraming {
         return .byte_stream;
     }
 

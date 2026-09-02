@@ -1,8 +1,8 @@
 // One generic native-driver listener owner. Transport packages wrap this
 // object only to project their own locator metadata.
 
-import { CLOSED } from "@pancake/abi";
-import { PancakeError } from "../errors.ts";
+import { CLOSED } from "@glowcap/abi";
+import { GlowcapError } from "../errors.ts";
 import type { Host } from "../host.ts";
 import type { Locator } from "../locator.ts";
 import type { Session } from "../session.ts";
@@ -22,8 +22,8 @@ export interface ListenerLoop {
 	closeListener(listener: bigint): Promise<void>;
 }
 
-function closedError(): PancakeError {
-	return new PancakeError(CLOSED, "the loop is closed");
+function closedError(): GlowcapError {
+	return new GlowcapError(CLOSED, "the loop is closed");
 }
 
 export class DriverListener {

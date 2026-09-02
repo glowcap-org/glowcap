@@ -13,7 +13,7 @@ amended_by: [ADR-0113]
 
 ## Context
 
-An adapter-layer audit found that pancake's I/O surface hides the very
+An adapter-layer audit found that glowcap's I/O surface hides the very
 distinctions a reconnecting or keyed peer must act on. A dial fault collapses to
 one opaque reason on every transport: `socket_tcp` returns a single
 `SyscallFailed` for bind, listen, and setsockopt (while the kqueue sibling
@@ -57,7 +57,7 @@ caller can always tell *what* failed and *whether to retry*. Four contracts:
    bounded-read hook (a pump gated on `waitReadable(timeout_ms)` returning a
    typed `error.Timeout`); `driver.blocking_session` gates the handshake on an
    opt-in `handshake_timeout_ms` returning `Error.HandshakeTimedOut`. The
-   deadline *value* stays caller-supplied (policy lives above pancake) but the
+   deadline *value* stays caller-supplied (policy lives above glowcap) but the
    net layer owns exposing the bounded hook.
 
 3. **Liveness is surfaced.** A vanished or half-open peer is reclaimed during
@@ -90,7 +90,7 @@ typed reason, never blocks, never times out, holds no socket; `arch-check`'s
   inherently a `driver`/consumer concern; this ADR only makes the loop *surface*
   the disconnect a supervisor rebuilds on.
 - **Deadline and backoff *values* are not set here.** They stay caller-supplied,
-  per the resilience rule's "application deadlines belong above pancake."
+  per the resilience rule's "application deadlines belong above glowcap."
 - The DM-by-introduction endpoint and any application reconnection policy are out
   of scope.
 

@@ -1,6 +1,6 @@
 ---
 .title = "The modules",
-.description = "How pancake's layers fit together: the names you meet first, the socket-free protocol core, and what sits above it.",
+.description = "How glowcap's layers fit together: the names you meet first, the socket-free protocol core, and what sits above it.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "modules.shtml",
 .draft = false,
@@ -9,7 +9,7 @@
 Most applications use `driver.Session` and a transport. The modules below
 matter when you need to host many sessions, supply an event loop, add a codec,
 or drive the protocol without I/O. The diagram above is the map, and
-[architecture](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
+[architecture](https://github.com/jimisaacs/glowcap/blob/main/docs/architecture.md)
 is the full account.
 
 # Choose the right level
@@ -75,8 +75,8 @@ you can test it without a host runtime.
 applications.
 
 - **c_abi** is opaque handles, fixed-width codes, `ptr + len`, and explicit
-  release. `libpancake_host` is the CapTP host the bindings wrap. Native
-  bindings also load `libpancake_driver` to run the loop.
+  release. `libglowcap_host` is the CapTP host the bindings wrap. Native
+  bindings also load `libglowcap_driver` to run the loop.
 - **driver** is native Zig above `driver/core`: `Session` and `HostRuntime` for
   ordinary native use, plus `Bridge` when one readiness loop must carry many
   connections.

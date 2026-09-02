@@ -3,7 +3,7 @@ id: ADR-0050
 status: accepted
 date: 2026-06-11
 tags: [engine, session, pipelining, get, index, goblins-interop]
-decision: pancake answers `op:get` / `op:index` (CapTP § Receiving): the projected answer is exported the moment the op lands, a projection row anchors on the receiver's answer, and the resolve seam drains it: resolving the projected answer to the Struct field or List element, following promise-shaped resolutions, or breaking. The initiator half installs the outbound answer on send. The field name is a Syrup String on the wire, matching the spec and live Goblins.
+decision: glowcap answers `op:get` / `op:index` (CapTP § Receiving): the projected answer is exported the moment the op lands, a projection row anchors on the receiver's answer, and the resolve seam drains it: resolving the projected answer to the Struct field or List element, following promise-shaped resolutions, or breaking. The initiator half installs the outbound answer on send. The field name is a Syrup String on the wire, matching the spec and live Goblins.
   supersedes: []
   superseded_by: []
 ---
@@ -14,14 +14,14 @@ decision: pancake answers `op:get` / `op:index` (CapTP § Receiving): the projec
 
 ADR-0007 carried `op:get` / `op:index` through the model and codecs but named
 the responder a boundary: a received op surfaced an application event and
-nothing more, so a peer could ask and pancake never answered: field and element
+nothing more, so a peer could ask and glowcap never answered: field and element
 pipelining was half-built. The spec's receive contract (CapTP § op:get) is:
 export a promise at `new-answer-pos`, resolve it to the named field / element of
 the receiver's eventual Struct / List, break on a missing field, an
 out-of-bounds index, a non-container value, or a broken receiver, and follow
 intermediate promise resolutions. Goblins implements exactly this with a
 `hash-ref` / `list-ref` vow. Two wire details surfaced while closing the
-boundary: pancake encoded the field name as a Syrup Symbol where the spec says
+boundary: glowcap encoded the field name as a Syrup Symbol where the spec says
 String (and Goblins guards `string?` on receipt), and sending an `op:get` never
 installed the outbound answer, so the partner's eventual resolve for it would
 have been refused as unknown.
@@ -79,7 +79,7 @@ have been refused as unknown.
   re-anchor, the cyclic-chain bound, the cap), and live as the asker: the
   `goblins-interop` gate pipelines an `op:index` / `op:get` against a Goblins
   vat and Goblins resolves the projection. The same gate proves Goblins-written
-  `op:get` / `op:index` frames arrive at pancake's responders and that pancake
+  `op:get` / `op:index` frames arrive at glowcap's responders and that glowcap
   settles both projected answers through V1.0 resolver-callback fulfillments.
   The probe still bypasses a public Goblins application-level API for sending
   those projections because the pinned Goblins release does not expose one.

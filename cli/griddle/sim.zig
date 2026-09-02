@@ -32,16 +32,16 @@
 //! the wait.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const timeline_mod = @import("timeline.zig");
 
 pub const Event = timeline_mod.Event;
 pub const Timeline = timeline_mod.Timeline;
 
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
-const foundation = pancake.foundation;
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
+const foundation = glowcap.foundation;
 
 /// A frame in flight, with the tick it becomes deliverable. Latency is a
 /// property of the link, so `due` never goes backwards within one link and

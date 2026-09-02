@@ -12,8 +12,8 @@
 // set. Refiling down to nothing takes the line back, because a message with no
 // files and nothing said is not a message.
 
-import type { Argument, Session } from "@pancake/runtime";
-import { currentSession } from "@pancake/runtime";
+import type { Argument, Session } from "@glowcap/runtime";
+import { currentSession } from "@glowcap/runtime";
 import {
 	EDIT,
 	EDITED,

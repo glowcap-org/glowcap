@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2154
-# Open one host tmux session holding a grid of pancake devcontainer shells:
+# Open one host tmux session holding a grid of glowcap devcontainer shells:
 # one column per worktree. A column is one full-height shell until its
 # worktree's ignored .devcontainer/pane/panes.sh declares pane functions; the
 # highest paneN it declares sets that column's row count.
 #
 #   bash .devcontainer/bin/enter-grid.sh                   columns: every registered worktree
 #   bash .devcontainer/bin/enter-grid.sh main tree2        columns: only these
-#   bash .devcontainer/bin/enter-grid.sh --session review  tmux: pancake-grid-review
+#   bash .devcontainer/bin/enter-grid.sh --session review  tmux: glowcap-grid-review
 #   bash .devcontainer/bin/enter-grid.sh --rebuild         rebuild every column's container
 #   bash .devcontainer/bin/enter-grid.sh --cc | --no-cc    force or refuse control mode
 #
@@ -25,8 +25,8 @@
 # exists. Splitting by percentage needs tmux 3.1 or newer.
 #
 # Every pane's shell stays on the host, in its worktree, with the container
-# shell inside it, so `exit` ends the pane while `pancake_devcontainer_exit`
-# steps out to the host and `pancake_devcontainer_enter` goes back in.
+# shell inside it, so `exit` ends the pane while `glowcap_devcontainer_exit`
+# steps out to the host and `glowcap_devcontainer_enter` goes back in.
 set -euo pipefail
 
 # Resolve the checked-out launcher through any number of symlinks. Git's common
@@ -46,14 +46,14 @@ devcontainer_dir="$(dirname "${source_dir}")"
 # shellcheck source=../lib/launcher.sh
 source "${devcontainer_dir}/lib/launcher.sh"
 
-pancake_devcontainer_parse_launcher_args "enter-grid.sh" "${source_path}" "$@"
+glowcap_devcontainer_parse_launcher_args "enter-grid.sh" "${source_path}" "$@"
 
 # Explicitly named worktrees are a contract: validate them, and refuse a
 # duplicate, before anything else can fail.
 worktree_count="${launcher_positional_count}"
 for ((i = 0; i < worktree_count; i++)); do
     worktrees[i]="${launcher_positionals[i]}"
-    pancake_devcontainer_validate_worktree_name "${worktrees[i]}" "worktree name"
+    glowcap_devcontainer_validate_worktree_name "${worktrees[i]}" "worktree name"
     for ((j = 0; j < i; j++)); do
         if [[ "${worktrees[i]}" == "${worktrees[j]}" ]]; then
             echo "enter-grid.sh: worktree ${worktrees[i]} is listed more than once" >&2
@@ -61,11 +61,11 @@ for ((i = 0; i < worktree_count; i++)); do
         fi
     done
 done
-pancake_require_host "enter-grid.sh"
-pancake_devcontainer_require_launcher_tools "enter-grid.sh"
+glowcap_require_host "enter-grid.sh"
+glowcap_devcontainer_require_launcher_tools "enter-grid.sh"
 
 launcher_checkout="$(dirname "${devcontainer_dir}")"
-primary_checkout="$(pancake_devcontainer_primary_checkout "${launcher_checkout}")"
+primary_checkout="$(glowcap_devcontainer_primary_checkout "${launcher_checkout}")"
 
 # With no columns named, every registered worktree is one. Unlike an
 # explicitly named worktree, this inventory default is best-effort: a
@@ -75,18 +75,18 @@ primary_checkout="$(pancake_devcontainer_primary_checkout "${launcher_checkout}"
 # reason instead of swallowing it.
 if [[ ${worktree_count} -eq 0 ]]; then
     while IFS= read -r candidate; do
-        if ! pancake_devcontainer_validate_worktree_name "${candidate}" "worktree name" 2>/dev/null; then
+        if ! glowcap_devcontainer_validate_worktree_name "${candidate}" "worktree name" 2>/dev/null; then
             echo "enter-grid.sh: skipping registered worktree ${candidate}: not a devcontainer worktree name" >&2
             continue
         fi
-        if ! pancake_devcontainer_resolve_checkout "enter-grid.sh" \
+        if ! glowcap_devcontainer_resolve_checkout "enter-grid.sh" \
             "${primary_checkout}" "${candidate}" >/dev/null; then
             echo "enter-grid.sh: skipping registered worktree ${candidate}" >&2
             continue
         fi
         worktrees[worktree_count]="${candidate}"
         worktree_count=$((worktree_count + 1))
-    done < <(pancake_devcontainer_registered_worktrees "${primary_checkout}")
+    done < <(glowcap_devcontainer_registered_worktrees "${primary_checkout}")
 fi
 if [[ ${worktree_count} -eq 0 ]]; then
     echo "enter-grid.sh: no worktrees to open" >&2
@@ -94,15 +94,15 @@ if [[ ${worktree_count} -eq 0 ]]; then
 fi
 
 for ((i = 0; i < worktree_count; i++)); do
-    checkout="$(pancake_devcontainer_resolve_checkout "enter-grid.sh" "${primary_checkout}" "${worktrees[i]}")"
+    checkout="$(glowcap_devcontainer_resolve_checkout "enter-grid.sh" "${primary_checkout}" "${worktrees[i]}")"
     checkouts[i]="${checkout}"
 
     # The worktree's panes file is that column's configuration: which file
     # this session reads, and how many rows the column gets. The ceiling
     # pairs with the virtual window the grid is built on: 12 rows of six
     # lines each fill its 72-line height.
-    panes_names[i]="$(pancake_devcontainer_panes_name "${checkout}" "${launcher_session}")"
-    rows="$(pancake_devcontainer_grid_rows "${checkout}/.devcontainer/pane/${panes_names[i]}")"
+    panes_names[i]="$(glowcap_devcontainer_panes_name "${checkout}" "${launcher_session}")"
+    rows="$(glowcap_devcontainer_grid_rows "${checkout}/.devcontainer/pane/${panes_names[i]}")"
     if [[ "${rows}" -gt 12 ]]; then
         echo "enter-grid.sh: ${checkout}/.devcontainer/pane/${panes_names[i]} declares pane${rows}; a column holds at most 12 rows" >&2
         exit 1
@@ -116,15 +116,15 @@ done
 # The grid spans worktree containers, so its session takes the literal grid
 # in the worktree slot of the shared naming scheme. The trailing colon on the
 # window target qualifies the exact session, as in enter.sh.
-session="$(pancake_devcontainer_tmux_session_name grid "${launcher_session}")"
+session="$(glowcap_devcontainer_tmux_session_name grid "${launcher_session}")"
 session_target="=${session}"
 window_target="${session_target}:"
 
 for ((i = 0; i < worktree_count; i++)); do
-    containers[i]="$(pancake_devcontainer_column_container "${checkouts[i]}" "${launcher_mode}")"
+    containers[i]="$(glowcap_devcontainer_column_container "${checkouts[i]}" "${launcher_mode}")"
 done
 
-pancake_devcontainer_replace_dead_session "${session_target}" "${window_target}"
+glowcap_devcontainer_replace_dead_session "${session_target}" "${window_target}"
 
 if ! tmux has-session -t "${session_target}" 2>/dev/null; then
     # Build the grid on a generous virtual size so every pane fits before a
@@ -166,7 +166,7 @@ if ! tmux has-session -t "${session_target}" 2>/dev/null; then
         row=0
         for pane in "${row_panes[@]}"; do
             row=$((row + 1))
-            pane_command="$(pancake_devcontainer_pane_shell_command \
+            pane_command="$(glowcap_devcontainer_pane_shell_command \
                 "${checkouts[i]}" "${worktrees[i]}" "${panes_names[i]}" "${row}")"
             tmux select-pane -t "${pane}" -T "${worktrees[i]}"
             tmux send-keys -t "${pane}" "${pane_command}" C-m
@@ -182,4 +182,4 @@ if ! tmux has-session -t "${session_target}" 2>/dev/null; then
     tmux select-pane -t "${first_pane}"
 fi
 
-pancake_devcontainer_attach_session "${session_target}" "${launcher_cc_mode}"
+glowcap_devcontainer_attach_session "${session_target}" "${launcher_cc_mode}"

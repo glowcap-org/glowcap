@@ -8,9 +8,9 @@
 
 # Shared worktree-name grammar: lowercase letters and digits, starts with a
 # letter, at most 12 characters. The .env reader and enter.sh both use this.
-pancake_devcontainer_validate_worktree_name() {
+glowcap_devcontainer_validate_worktree_name() {
     local value="$1"
-    local what="${2:-PANCAKE_WORKTREE}"
+    local what="${2:-GLOWCAP_WORKTREE}"
     case "${value}" in
         [a-z]* ) ;;
         *)
@@ -33,7 +33,7 @@ pancake_devcontainer_validate_worktree_name() {
 # A tmux session designator is a human-facing suffix, not container identity.
 # Keep it target-safe and readable: tmux gives ':' and '.' special meaning,
 # while a compact lowercase label remains unambiguous in session listings.
-pancake_devcontainer_validate_session_designator() {
+glowcap_devcontainer_validate_session_designator() {
     local value="$1"
     case "${value}" in
         [a-z]* ) ;;
@@ -64,18 +64,18 @@ pancake_devcontainer_validate_session_designator() {
 # The default deliberately preserves the container-shaped session name used by
 # existing launchers. An explicit designator creates another tmux session while
 # retaining the worktree container as the shared execution identity.
-pancake_devcontainer_tmux_session_name() {
+glowcap_devcontainer_tmux_session_name() {
     local worktree="$1" designator="${2:-}"
-    pancake_devcontainer_validate_worktree_name "${worktree}" "worktree name" || return
+    glowcap_devcontainer_validate_worktree_name "${worktree}" "worktree name" || return
     if [[ -n "${designator}" ]]; then
-        pancake_devcontainer_validate_session_designator "${designator}" || return
-        printf 'pancake-%s-%s\n' "${worktree}" "${designator}"
+        glowcap_devcontainer_validate_session_designator "${designator}" || return
+        printf 'glowcap-%s-%s\n' "${worktree}" "${designator}"
     else
-        printf 'pancake-%s\n' "${worktree}"
+        printf 'glowcap-%s\n' "${worktree}"
     fi
 }
 
-pancake_devcontainer_validate_network_name() {
+glowcap_devcontainer_validate_network_name() {
     local value="$1"
     local what="${2:-Docker network name}"
     case "${value}" in

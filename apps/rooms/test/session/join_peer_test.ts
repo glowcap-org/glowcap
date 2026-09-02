@@ -1,6 +1,6 @@
 // Process proof for joining a directory through an initially empty durable session.
 
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import { RoomsSessionClient } from "../../lib/session/client.ts";
 import { loopbackTcpDesignator, roomsAddress, roomsHost, roomsLocator } from "../../lib/locator.ts";
 import { roomsPeerAuthority } from "../../lib/routes.ts";
@@ -17,8 +17,8 @@ import {
 import { announcedSturdyref, startRoomsSessionPeer } from "../support/standalone_peer.ts";
 
 roomsTest("an empty durable Rooms session realizes its first directory and room", async () => {
-	const sessionState = await Deno.makeTempDir({ prefix: "pancake-rooms-session-join-" });
-	const directoryState = await Deno.makeTempDir({ prefix: "pancake-rooms-session-join-directory-" });
+	const sessionState = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-join-" });
+	const directoryState = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-join-directory-" });
 	const sessionPort = freePort();
 	const directoryPort = freePort();
 	const directoryServer = startStatefulServer(directoryPort, directoryState);

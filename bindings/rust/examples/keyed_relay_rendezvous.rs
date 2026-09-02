@@ -7,7 +7,7 @@
 //! Run via `zig build rust-keyed-relay-rendezvous` (the harness passes
 //! `<locator>` after `--`).
 
-use pancake_rust_dogfood::{
+use glowcap_rust_dogfood::{
 	parse_locator, relay, Argument, CarrierPhase, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig,
 };
 use tokio::task::LocalSet;
@@ -58,11 +58,11 @@ async fn expect_native_refusal(
 
 async fn scene(locator: String) -> Result<(), String> {
 	let partner = parse_locator(&locator).map_err(|error| error.to_string())?;
-	let native_route = std::env::var("PANCAKE_PROOF_NATIVE_RELAY_URL").ok();
-	let ca_file = std::env::var("PANCAKE_PROOF_NATIVE_RELAY_CA_FILE").ok();
+	let native_route = std::env::var("GLOWCAP_PROOF_NATIVE_RELAY_URL").ok();
+	let ca_file = std::env::var("GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE").ok();
 	let copied_pem = match (&native_route, ca_file) {
 		(Some(_), Some(path)) => Some(std::fs::read(path).map_err(|error| error.to_string())?),
-		(Some(_), None) => return Err("native WSS proof needs PANCAKE_PROOF_NATIVE_RELAY_CA_FILE".to_string()),
+		(Some(_), None) => return Err("native WSS proof needs GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE".to_string()),
 		(None, _) => None,
 	};
 	if let (Some(route), Some(pem)) = (&native_route, &copied_pem) {

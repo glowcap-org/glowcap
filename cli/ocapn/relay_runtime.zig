@@ -1,12 +1,12 @@
 //! Process-owned native relay construction and deterministic close reporting.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const native_relay = @import("native_relay");
 const Ctx = @import("../ctx.zig").Ctx;
 
 pub const Provider = native_relay.Provider;
-pub const FailureChain = pancake.foundation.FailureChain;
+pub const FailureChain = glowcap.foundation.FailureChain;
 
 pub fn init(
     ctx: *Ctx,
@@ -16,9 +16,9 @@ pub fn init(
 ) !void {
     var trust_pem: ?[]u8 = null;
     defer if (trust_pem) |pem| ctx.gpa.free(pem);
-    const trust: native_relay.Trust = if (ctx.environ.get("PANCAKE_RELAY_CA_FILE")) |path| copied: {
+    const trust: native_relay.Trust = if (ctx.environ.get("GLOWCAP_RELAY_CA_FILE")) |path| copied: {
         if (path.len == 0) {
-            ctx.logErr("PANCAKE_RELAY_CA_FILE names no file", .{});
+            ctx.logErr("GLOWCAP_RELAY_CA_FILE names no file", .{});
             return error.RelayTrustReadFailed;
         }
         trust_pem = std.Io.Dir.cwd().readFileAlloc(

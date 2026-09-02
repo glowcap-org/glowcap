@@ -1,13 +1,13 @@
 const std = @import("std");
-const pancake = @import("pancake");
-const engine = pancake.ocapn.engine;
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const session = pancake.ocapn.session;
+const glowcap = @import("glowcap");
+const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const session = glowcap.ocapn.session;
 const cross_peer = @import("../support/cross_peer.zig");
 
 test "resolveForSwissnum fulfills with the mapped export, breaks on a miss" {
-    var sess = pancake.ocapn.session.Session.init(std.testing.allocator);
+    var sess = glowcap.ocapn.session.Session.init(std.testing.allocator);
     defer sess.deinit();
     const export_position = try sess.registerBootstrapCap("k");
 

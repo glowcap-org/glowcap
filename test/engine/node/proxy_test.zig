@@ -4,12 +4,12 @@
 //! arguments publish as one transaction.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesAllocator;
 
 const Node = engine.Node;
@@ -160,7 +160,7 @@ test "proxyForeignPromise home listen relays settlement to the recipient third-p
     const listener = blk: {
         var frame = node.peer(home).?.takeOutbound().?;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         try std.testing.expect(view == .listen);
         // Own-outbound decode flips near export → far import; position is the
         // listener export we allocated on the home peer.
@@ -210,8 +210,8 @@ test "a next proxy settling listener follows shortening on its home session" {
     defer initial_shortening.deinit();
     var initial_settling = home_peer.takeOutbound().?;
     defer initial_settling.deinit();
-    const initial_shortening_body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(.next, initial_shortening.view());
-    const initial_settling_body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(.next, initial_settling.view());
+    const initial_shortening_body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(.next, initial_shortening.view());
+    const initial_settling_body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(.next, initial_settling.view());
     try std.testing.expectEqual(model.ListenMode.shortening_only, initial_shortening_body.listen.mode);
     try std.testing.expectEqual(model.ListenMode.settling_only, initial_settling_body.listen.mode);
     const settling_listener = initial_settling_body.listen.listener.far.import_position.int();
@@ -220,7 +220,7 @@ test "a next proxy settling listener follows shortening on its home session" {
         .{ .symbol = "fulfill" },
         .{ .reference = .{ .near = model.NearRef.promise(target) } },
     };
-    var shortening = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+    var shortening = try glowcap.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(shortening_resolver.int()) },
         .args = &shortening_args,
     } });
@@ -232,8 +232,8 @@ test "a next proxy settling listener follows shortening on its home session" {
     defer recursive_shortening.deinit();
     var rearmed_settling = home_peer.takeOutbound().?;
     defer rearmed_settling.deinit();
-    const recursive_body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(.next, recursive_shortening.view());
-    const rearmed_body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(.next, rearmed_settling.view());
+    const recursive_body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(.next, recursive_shortening.view());
+    const rearmed_body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(.next, rearmed_settling.view());
     try std.testing.expectEqual(model.ListenMode.shortening_only, recursive_body.listen.mode);
     try std.testing.expectEqual(target, recursive_body.listen.target.near.export_position.int());
     try std.testing.expectEqual(model.ListenMode.settling_only, rearmed_body.listen.mode);
@@ -267,7 +267,7 @@ test "a next proxy settling listener follows shortening on its home session" {
         .{ .symbol = "fulfill" },
         .{ .reference = .{ .near = model.NearRef.promise(late_target) } },
     };
-    var late_shortening = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+    var late_shortening = try glowcap.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(late_shortening_resolver.int()) },
         .args = &late_shortening_args,
     } });
@@ -284,7 +284,7 @@ test "a next proxy settling listener follows shortening on its home session" {
     while ((try home_peer.step()) != .idle) {}
     var late_settling = home_peer.takeOutbound().?;
     defer late_settling.deinit();
-    const late_settling_body = try pancake.ocapn.codec.syrup.decodeBodyForProfile(.next, late_settling.view());
+    const late_settling_body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(.next, late_settling.view());
     try std.testing.expectEqual(model.ListenMode.settling_only, late_settling_body.listen.mode);
     try std.testing.expectEqual(late_target, late_settling_body.listen.target.near.export_position.int());
 }
@@ -315,7 +315,7 @@ test "proxyForeignPromise multi-introduce shares one home listen and materialize
     const listener = blk: {
         var frame = node.peer(home).?.takeOutbound().?;
         defer frame.deinit();
-        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
         try std.testing.expect(view == .listen);
         break :blk view.listen.listener.far.import_position.int();
     };

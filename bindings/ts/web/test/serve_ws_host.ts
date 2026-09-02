@@ -8,10 +8,10 @@
 //   --tcp-only: Listen on TCP instead of WebSocket (for relay tests)
 //   address: TCP bind address (host:port, e.g. 127.0.0.1:0); ignored for WebSocket
 
-import { type Channel, Host, Ref, Session, TRANSPORT_KEYED_TCP } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
-import { webSocketChannel } from "@pancake/runtime";
-import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
+import { type Channel, Host, Ref, Session, TRANSPORT_KEYED_TCP } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
+import { webSocketChannel } from "@glowcap/runtime";
+import { DESIGNATOR_SCHEME_KEY } from "@glowcap/abi";
 
 const tcpOnly = Deno.args.includes("--tcp-only");
 const addressArg = Deno.args.find((a) => !a.startsWith("-"));
@@ -49,7 +49,7 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 		{ hostname: "127.0.0.1", port: 0 },
 		(request) => {
 			if (request.headers.get("upgrade") !== "websocket") {
-				return new Response("pancake web-peer test host", { status: 200 });
+				return new Response("glowcap web-peer test host", { status: 200 });
 			}
 			const { socket, response } = Deno.upgradeWebSocket(request);
 			socket.onopen = () => {

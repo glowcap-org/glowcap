@@ -1,4 +1,4 @@
-import { Ref } from "@pancake/runtime";
+import { Ref } from "@glowcap/runtime";
 import type { Attachment } from "../../lib/attachment.ts";
 import { MAX_ROOM_MESSAGE_BACKLOG } from "../../lib/limits.ts";
 import type { Message } from "../../lib/room/client.ts";

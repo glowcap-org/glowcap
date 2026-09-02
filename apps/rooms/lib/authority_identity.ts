@@ -2,7 +2,7 @@
 // authority without disclosing that authority's unguessable swiss number.
 
 const encoder = new TextEncoder();
-const DOMAIN = "pancake.rooms.room-authority\u0000";
+const DOMAIN = "glowcap.rooms.room-authority\u0000";
 
 function hex(bytes: Uint8Array): string {
 	return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");

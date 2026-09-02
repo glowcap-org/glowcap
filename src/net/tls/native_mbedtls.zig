@@ -1,4 +1,4 @@
-//! Optional native composition of Pancake's TLS contract with Mbed TLS.
+//! Optional native composition of Glowcap's TLS contract with Mbed TLS.
 //!
 //! This is the only module that knows both names. Native relay initializers
 //! select trust policy here, then retain only the transport-neutral runtime.

@@ -1,5 +1,5 @@
-import { Host, Runtime, type Session } from "@pancake/runtime";
-import * as tcp from "@pancake/tcp";
+import { Host, Runtime, type Session } from "@glowcap/runtime";
+import * as tcp from "@glowcap/tcp";
 import { listen, Reachability } from "../impl.ts";
 import { assert } from "../../dogfood/assert.ts";
 

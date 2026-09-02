@@ -10,19 +10,19 @@ import select
 import socket
 import threading
 
-import pancake
+import glowcap
 
-from pancake import (
+from glowcap import (
     tcp,
     Forward,
     Host,
-    PancakeError,
+    GlowcapError,
     SendRedeemingResult,
     Ref,
     VowBroken,
     Runtime,
 )
-from pancake.onion import (
+from glowcap.onion import (
     AUTH_COOKIE,
     AUTH_PASSWORD,
     OnionConfig,
@@ -49,7 +49,7 @@ def _wait_for_native_call(owner, label: str) -> None:
 
 
 async def _send_redeeming_surfaces_the_direct_exporter() -> None:
-    """A three-party handoff with pancake as all three parties, over loopback:
+    """A three-party handoff with glowcap as all three parties, over loopback:
     the exporter (Bob) publishes a host-wide giftable inbox, the broker holds it
     and introduces members to it, and the recipient (Carol) asks for an
     introduction with ``send_redeeming``.
@@ -116,7 +116,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         # transfer it into the driver would fail and split ownership.
         carol_locator = tcp.locator("127.0.0.1", broker.port)
         carol_host = Host()
-        from pancake.tcp import connector as tcp_connector
+        from glowcap.tcp import connector as tcp_connector
 
         runtime = await Runtime.open(
             adopt_host=carol_host,
@@ -165,9 +165,9 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
 
 # --- The onion transport, against a fake Tor daemon ---------------------------
 #
-# `pancake.onion` is the one netlayer the OCapN draft standardizes. It reaches a
+# `glowcap.onion` is the one netlayer the OCapN draft standardizes. It reaches a
 # Tor daemon the deployment runs, so exercising it here means standing one up: two
-# loopback servers answering the exact requests pancake sends. The bytes those
+# loopback servers answering the exact requests glowcap sends. The bytes those
 # requests must contain are pinned on the Zig side against the pinned Spritely
 # Goblins netlayer and the upstream OCapN suite; this proves the Python surface
 # reaches them and reads the answers back.
@@ -229,7 +229,7 @@ def _address_of(sock: "socket.socket") -> str:
 # which is the other form OnionNetlayer accepts and the one a distribution's Tor
 # actually offers. Nothing is bound there, so a check that reached it would fail
 # rather than quietly connect somewhere.
-_ABSENT_SOCKS = "/run/pancake-smoke/absent.socks"
+_ABSENT_SOCKS = "/run/glowcap-smoke/absent.socks"
 
 
 def _fake_socks(sock: "socket.socket", wrote: list[bytes]) -> None:
@@ -293,8 +293,8 @@ def _loop_archive_stepping_parity() -> None:
     wrapper Host, so the trampoline, the fetch's settle (a real ``Ref``),
     and a missing-name break (``VowBroken``) all cross the loop tier.
     """
-    from pancake._loop import DriverLoop
-    from pancake.relay import RelayConfig, connector as relay_connector
+    from glowcap._loop import DriverLoop
+    from glowcap.relay import RelayConfig, connector as relay_connector
 
     # A managed WebSocket is only the carrier.  The byte-fed Host owns the
     # keyed/noise profile, so one connector truthfully advertises both.
@@ -344,7 +344,7 @@ def _loop_archive_stepping_parity() -> None:
         # as a real Ref, an eventual-send round-trips through the server's
         # trampoline, a missing name classifies as VowBroken, and close
         # releases through the loop's own verb.
-        session = await asyncio.wait_for(loop.connect_session(pancake.format_peer_uri("tcp", designator)), 10)
+        session = await asyncio.wait_for(loop.connect_session(glowcap.format_peer_uri("tcp", designator)), 10)
         widget = await asyncio.wait_for(session.fetch("widget"), 10)
         assert isinstance(widget, Ref), widget
         reply = await asyncio.wait_for(session.send(widget, "poke", []), 10)
@@ -367,7 +367,7 @@ def _loop_archive_stepping_parity() -> None:
 def _onion_against_a_fake_daemon() -> None:
     # The generic driver retains the package callback context after the onion
     # constructor reference is dropped by the transport-owned installer.
-    from pancake._loop import DriverLoop
+    from glowcap._loop import DriverLoop
 
     control = _loopback()
     seen: list[str] = []
@@ -526,12 +526,12 @@ def _onion_against_a_fake_daemon() -> None:
         try:
             nl.listen()
             raise AssertionError("a dial-only netlayer should not host")
-        except PancakeError:
+        except GlowcapError:
             pass
         # A designator that is not a well-formed version 3 address is refused before
         # any socket opens, so this is an argument fault rather than a dial failure.
         try:
             nl.connect("not-an-onion-address")
             raise AssertionError("a malformed designator should be refused")
-        except PancakeError:
+        except GlowcapError:
             pass

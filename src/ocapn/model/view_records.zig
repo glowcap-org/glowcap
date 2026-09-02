@@ -282,7 +282,7 @@ pub const Handoff = union(enum) {
 pub const StartSession = struct {
     /// The version the partner named, or null when it named one this build
     /// does not know. Optional because a codec's job is to say what the bytes
-    /// contain, not whether pancake likes it: an unrecognised token is a
+    /// contain, not whether glowcap likes it: an unrecognised token is a
     /// perfectly well-formed frame naming a version we do not speak, and
     /// calling that a malformed frame both lies to the operator and puts the
     /// decision in two decoders instead of the one validator that owns it.

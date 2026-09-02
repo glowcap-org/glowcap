@@ -1,12 +1,12 @@
 // Bounded wire answers and callbacks for a durable Rooms session.
 
-import type { Argument } from "@pancake/runtime";
+import type { Argument } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { type Attachment, ATTACHMENT_RECORD_SPAN, readAttachments } from "../attachment.ts";
 import { type ArchiveCoordinates, parseArchiveCoordinates } from "../archive/protocol.ts";
 import { DiagnosticRowSchema } from "../diagnostics.ts";
 import { DirectoryMemberSchema, RoomInfoSchema } from "../directory_publications.ts";
-import { IrcGatewayRowSchema, IrcNetworkRowSchema } from "../irc_gateway_client.ts";
+import { BridgeGatewaySchema } from "../bridge/gateway.ts";
 import { ListenerRowSchema } from "../listeners.ts";
 import {
 	lineCost,
@@ -160,8 +160,7 @@ const DiagnosticsSnapshotSchema = z.strictObject({
 });
 const IrcSnapshotSchema = z.strictObject({
 	capability: z.literal("irc"),
-	networks: z.array(IrcNetworkRowSchema).check(z.maxLength(MAX_OPERATIONS_ROWS)),
-	bridged: z.array(IrcGatewayRowSchema).check(z.maxLength(MAX_OPERATIONS_ROWS)),
+	gateway: BridgeGatewaySchema,
 });
 const VizSnapshotSchema = z.strictObject({
 	capability: z.literal("viz"),
@@ -276,11 +275,11 @@ export function parseOperationsSnapshot(
 	}
 	if (capability === "irc") {
 		if (typeof rows !== "object" || rows == null || Array.isArray(rows)) {
-			throw new Error("the Rooms session answered an invalid IRC snapshot");
+			throw new Error("the Rooms session answered an invalid gateway snapshot");
 		}
-		const parsed = z.safeParse(IrcSnapshotSchema, { capability, ...rows });
-		if (!parsed.success) throw new Error("the Rooms session answered an invalid IRC snapshot");
-		return parsed.data;
+		const parsed = z.safeParse(BridgeGatewaySchema, rows);
+		if (!parsed.success) throw new Error("the Rooms session answered an invalid gateway snapshot");
+		return { capability: "irc", gateway: parsed.data };
 	}
 	const schema = capability === "listeners" ? ListenerSnapshotSchema : DiagnosticsSnapshotSchema;
 	const parsed = z.safeParse(schema, { capability, rows });

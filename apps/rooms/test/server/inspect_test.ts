@@ -1,6 +1,6 @@
 // The separately published directory diagnostics capability and its failures.
 
-import { DURABLE_SWISS_ENTROPY_BYTES, type Ref, type Session } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES, type Ref, type Session } from "@glowcap/runtime";
 import { impossibleStatus } from "../../lib/errors.ts";
 import { loopbackTcpDesignator } from "../../lib/locator.ts";
 import { DIRECTORY, SNAPSHOT } from "../../lib/protocol.ts";
@@ -49,8 +49,8 @@ roomsTest("inspect is a fetched capability, not a directory method", async () =>
 			cwd: ROOT,
 			env: {
 				...Deno.env.toObject(),
-				PANCAKE_ROOMS_DIAGNOSTICS: "1",
-				PANCAKE_ROOMS_STATE: stateDir,
+				GLOWCAP_ROOMS_DIAGNOSTICS: "1",
+				GLOWCAP_ROOMS_STATE: stateDir,
 			},
 			stdout: "piped",
 			stderr: "piped",

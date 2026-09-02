@@ -9,7 +9,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/pancake-c-abi-extract.XXXXXX")
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/glowcap-c-abi-extract.XXXXXX")
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # Every port and fixture this run did not exercise, named in the summary so a
@@ -20,7 +20,7 @@ PREFIX=lib
 FIX="$WORKDIR/fixtures"
 mkdir -p "$FIX/good/$PREFIX" "$FIX/slip_src" "$FIX/link/$PREFIX"
 
-echo 'ok' >"$FIX/good/$PREFIX/pancake ocapn.so"
+echo 'ok' >"$FIX/good/$PREFIX/glowcap ocapn.so"
 (cd "$FIX/good" && tar -czf "$FIX/good.tar.gz" "$PREFIX")
 (cd "$FIX/good" && tar -cjf "$FIX/good.tar.bz2" "$PREFIX")
 
@@ -34,8 +34,8 @@ else
 fi
 
 # Symlink under lib/ (store the link itself, do not dereference).
-echo 'ok' >"$FIX/link/$PREFIX/pancake_ocapn.so"
-ln -s pancake_ocapn.so "$FIX/link/$PREFIX/evil.link"
+echo 'ok' >"$FIX/link/$PREFIX/glowcap_ocapn.so"
+ln -s glowcap_ocapn.so "$FIX/link/$PREFIX/evil.link"
 (cd "$FIX/link" && tar -czf "$FIX/link.tar.gz" "$PREFIX")
 
 # An owner blob with spaces in it. The parsers discriminate GNU from BSD by
@@ -110,7 +110,7 @@ UNSAFE="$UNSAFE $FIX/roothard.tar.gz"
 # A member that is neither a regular file, a directory, nor a link. Every port
 # refuses it; skipping it instead would extract partially.
 mkdir -p "$FIX/fifo/$PREFIX"
-echo 'ok' >"$FIX/fifo/$PREFIX/pancake_ocapn.so"
+echo 'ok' >"$FIX/fifo/$PREFIX/glowcap_ocapn.so"
 if mkfifo "$FIX/fifo/$PREFIX/evil.fifo" 2>/dev/null; then
 	(cd "$FIX/fifo" && tar -czf "$FIX/fifo.tar.gz" "$PREFIX")
 	UNSAFE="$UNSAFE $FIX/fifo.tar.gz"
@@ -195,7 +195,7 @@ if command -v python3 >/dev/null 2>&1; then
 import importlib.util, pathlib, sys, tarfile
 
 spec = importlib.util.spec_from_file_location(
-    "lib_resolve", "bindings/python/pancake/_lib_resolve.py"
+    "lib_resolve", "bindings/python/glowcap/_lib_resolve.py"
 )
 mod = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
@@ -250,7 +250,7 @@ fi
 # would hide the symlink from a tar inheriting it.
 if command -v deno >/dev/null 2>&1; then
 	mkdir -p "$WORKDIR/loader-clean"
-	if TAR_OPTIONS='--exclude=lib/evil.link --exclude=lib/pancake ocapn.so' deno eval --quiet '
+	if TAR_OPTIONS='--exclude=lib/evil.link --exclude=lib/glowcap ocapn.so' deno eval --quiet '
 import { safeExtractPrefix } from "./bindings/ts/runtime/internal/ffi/load.ts";
 const [unsafeTar, cleanTar, rootTar, stage] = Deno.args;
 
@@ -287,7 +287,7 @@ try {
 safeExtractPrefix(cleanTar, stage, "lib");
 const extracted = Deno.readDirSync(`${stage}/lib`);
 for (const entry of extracted) {
-  if (entry.name === "pancake ocapn.so") Deno.exit(0);
+  if (entry.name === "glowcap ocapn.so") Deno.exit(0);
 }
 console.error("extraction dropped a member under hostile TAR_OPTIONS");
 Deno.exit(3);

@@ -99,7 +99,7 @@ const web = spawnOwned("deno", {
 		String(roomPort),
 	],
 	cwd: ROOT,
-	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
+	env: { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "piped",
 	stderr: "piped",
 });

@@ -1,4 +1,4 @@
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { ask } from "./ask.ts";
 import type { OperatorResetScope } from "./operator_vocabulary.ts";
 import type { RoomAuthorityKind } from "./room/authority.ts";

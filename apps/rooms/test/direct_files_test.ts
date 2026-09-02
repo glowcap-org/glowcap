@@ -1,4 +1,4 @@
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import type { DirectMessage } from "../lib/direct_message.ts";
 import { type Attachment, type AttachmentSource, readRefileChange } from "../lib/attachment.ts";
 import { directReceivedLineBehavior, DurableDirectLine } from "../session/direct_line.ts";

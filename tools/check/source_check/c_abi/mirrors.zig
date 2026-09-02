@@ -106,11 +106,11 @@ pub fn checkAbiReturnShape(
 /// The layout-pin family: `tools/gen/binding/ffi_layouts.zig` reflects every C
 /// ABI struct's size, offsets, and widths off the real Zig type, and each
 /// binding checks its own hand-written mirror against those numbers at load
-/// time — Rust in a `const` assert block, Python in `pancake._pin.pin_struct`,
+/// time — Rust in a `const` assert block, Python in `glowcap._pin.pin_struct`,
 /// Racket in `pin-layout!`. A mirror that never calls its language's pin is
 /// simply not checked, and no load-time pin can report its own absence.
 ///
-/// That is how the trace record drifted: `PancakeTraceEvent` gained a
+/// That is how the trace record drifted: `GlowcapTraceEvent` gained a
 /// transport and a session id and turned a byte of provenance into a word,
 /// while the Python mirror kept declaring the field set the library had
 /// stopped sending. It sat below its module's pin call and no gate could see
@@ -180,9 +180,9 @@ pub fn checkBindingStructPins(
         prefix: []const u8,
         suffix: []const u8,
         generated_marker: []const u8,
-        /// Python declares `_TraceEvent`, dropping the ABI's `Pancake` prefix;
+        /// Python declares `_TraceEvent`, dropping the ABI's `Glowcap` prefix;
         /// Racket and Rust keep the full name.
-        drops_pancake_prefix: bool,
+        drops_glowcap_prefix: bool,
         declaration_before: []const u8,
         declaration_after: []const u8,
         pin_before: []const u8,
@@ -191,11 +191,11 @@ pub fn checkBindingStructPins(
     };
     const languages = [_]Language{
         .{
-            .dir = "bindings/python/pancake",
+            .dir = "bindings/python/glowcap",
             .prefix = "_ffi_",
             .suffix = ".py",
             .generated_marker = "_gen.py",
-            .drops_pancake_prefix = true,
+            .drops_glowcap_prefix = true,
             .declaration_before = "class _",
             .declaration_after = "(ctypes.Structure)",
             .pin_before = "pin_struct(_",
@@ -207,7 +207,7 @@ pub fn checkBindingStructPins(
             .prefix = "ffi-",
             .suffix = ".rkt",
             .generated_marker = "-gen.rkt",
-            .drops_pancake_prefix = false,
+            .drops_glowcap_prefix = false,
             .declaration_before = "(define-cstruct _",
             .declaration_after = "",
             .pin_before = "pin-layout! '_",
@@ -219,7 +219,7 @@ pub fn checkBindingStructPins(
             .prefix = "",
             .suffix = ".rs",
             .generated_marker = "_gen.rs",
-            .drops_pancake_prefix = false,
+            .drops_glowcap_prefix = false,
             .declaration_before = "pub struct ",
             .declaration_after = " {",
             .pin_before = "size_of::<",
@@ -246,8 +246,8 @@ pub fn checkBindingStructPins(
             };
             defer gpa.free(contents);
             for (abi_types.items) |abi_type| {
-                const name = if (lang.drops_pancake_prefix and std.mem.startsWith(u8, abi_type, "Pancake"))
-                    abi_type["Pancake".len..]
+                const name = if (lang.drops_glowcap_prefix and std.mem.startsWith(u8, abi_type, "Glowcap"))
+                    abi_type["Glowcap".len..]
                 else
                     abi_type;
                 if (!try mirrorTokenPresent(gpa, contents, lang.declaration_before, name, lang.declaration_after)) continue;
@@ -265,7 +265,7 @@ pub fn checkBindingStructPins(
 
 /// Whether `contents` names `name` in the `before`/`after` spelling one
 /// binding uses. An empty `after` still requires a word boundary, so
-/// `_PancakeFrame` does not match a longer sibling's declaration.
+/// `_GlowcapFrame` does not match a longer sibling's declaration.
 fn mirrorTokenPresent(
     gpa: std.mem.Allocator,
     contents: []const u8,
@@ -289,7 +289,7 @@ fn mirrorTokenPresent(
 ///
 /// A trace is a report about the wire, so it should say what the wire says.
 /// The wire word lives in one place, `model.CaptpVersion.wireString`, and
-/// the C ABI hands the version to a binding as a `PANCAKE_CAPTP_*` integer,
+/// the C ABI hands the version to a binding as a `GLOWCAP_CAPTP_*` integer,
 /// which carries no spelling at all. So each of the four bindings that shapes
 /// the trace JSON has to name the version itself, and four hands naming one
 /// fact is exactly how the fact stops being one.
@@ -317,9 +317,9 @@ fn mirrorTokenPresent(
 ///
 /// The rest of the trace record is deliberately not held here. Its remaining
 /// shared facts have no single authority to derive from — the four `ocapn.*`
-/// kind strings are not a mechanical reading of the three `PANCAKE_TRACE_*`
+/// kind strings are not a mechanical reading of the three `GLOWCAP_TRACE_*`
 /// constants and include one no constant names, and the payload cap is a
-/// per-embedder argument to `pancake_host_set_trace_queue` rather than one
+/// per-embedder argument to `glowcap_host_set_trace_queue` rather than one
 /// number. A check over either could only pin a table, which makes changing
 /// them one edit harder rather than one edit safer.
 pub fn checkTraceVocabulary(
@@ -367,9 +367,9 @@ pub fn checkTraceVocabulary(
         return;
     }
 
-    // Every binding that turns a `PancakeTraceEvent` into a JSON record.
+    // Every binding that turns a `GlowcapTraceEvent` into a JSON record.
     const trace_modules = [_][]const u8{
-        "bindings/python/pancake/_trace.py",
+        "bindings/python/glowcap/_trace.py",
         "bindings/racket/private/trace.rkt",
         "bindings/rust/src/trace/projection.rs",
         "bindings/ts/runtime/trace.ts",

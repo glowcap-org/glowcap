@@ -19,7 +19,7 @@ pub const Context = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     abi_version: std.SemanticVersion,
-    /// The public `pancake` module.
+    /// The public `glowcap` module.
     lib_mod: *std.Build.Module,
     foundation_mod: *std.Build.Module,
     model_mod: *std.Build.Module,
@@ -44,7 +44,7 @@ pub const Registered = struct {
 /// The webrtc C ABI module: `common.transportAbiModule` over
 /// `src/c_abi/net_transport/webrtc/mod.zig` with the injected `webrtc`
 /// resident alongside the shared vocabulary leaf, keeping
-/// `libpancake_net_transport_webrtc` symbol-disjoint from `libpancake_ocapn`
+/// `libglowcap_net_transport_webrtc` symbol-disjoint from `libglowcap_ocapn`
 /// (ADR-0089 phase 3, mirroring the iroh companion).
 pub fn abiModule(
     b: *std.Build,
@@ -68,7 +68,7 @@ fn linkSidecar(
     mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
 ) void {
-    common.linkRustSidecar(b, mod, target, b.path("transports/webrtc/target/release/libpancake_webrtc_sidecar.a"));
+    common.linkRustSidecar(b, mod, target, b.path("transports/webrtc/target/release/libglowcap_webrtc_sidecar.a"));
 }
 
 const DriverImports = struct {
@@ -103,7 +103,7 @@ fn driverModule(
         .target = ctx.target,
         .optimize = ctx.optimize,
     });
-    mod.addImport("pancake", ctx.lib_mod);
+    mod.addImport("glowcap", ctx.lib_mod);
     mod.addImport("webrtc", resident_mod);
     if (drv.imports.webrtc_common) mod.addImport("webrtc_common", webrtc_common_mod);
     if (drv.imports.interop_harness) mod.addImport("interop_harness", ctx.interop_harness_mod);
@@ -190,7 +190,7 @@ pub fn register(ctx: Context) Registered {
     webrtc_datachannel_test_step.dependOn(&webrtc_datachannel_test.step);
 
     // The phase-2 resident compiles as its own module over the same layer
-    // instances, outside the `pancake` root namespace: its externs resolve only
+    // instances, outside the `glowcap` root namespace: its externs resolve only
     // when the sidecar staticlib links, so exporting it would drag the Rust
     // sidecar into every gate. A hermetic object build type-checks it under plain
     // `zig build check` with no cargo, catching resident rot the same way the
@@ -242,7 +242,7 @@ pub fn register(ctx: Context) Registered {
         .target = target,
         .optimize = optimize,
     });
-    webrtc_common_mod.addImport("pancake", lib_mod);
+    webrtc_common_mod.addImport("glowcap", lib_mod);
     webrtc_common_mod.addImport("webrtc", webrtc_resident_mod);
 
     // Each live native proof has the same build shape: a cargo-free compile
@@ -251,36 +251,36 @@ pub fn register(ctx: Context) Registered {
     const live_drivers = [_]LiveDriver{
         .{
             .step_name = "webrtc-interop",
-            .description = "Live WebRTC: two native pancake peers hold a keyed OCapN session over a real DataChannel (ADR-0089 phase 2; needs cargo)",
-            .exe_name = "pancake-webrtc-interop",
+            .description = "Live WebRTC: two native glowcap peers hold a keyed OCapN session over a real DataChannel (ADR-0089 phase 2; needs cargo)",
+            .exe_name = "glowcap-webrtc-interop",
             .root_source = "interop/webrtc_interop/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
         .{
             .step_name = "webrtc-mesh",
             .description = "Live WebRTC signaling mesh: two native peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (ADR-0089 phase 5; needs cargo)",
-            .exe_name = "pancake-webrtc-mesh",
+            .exe_name = "glowcap-webrtc-mesh",
             .root_source = "interop/webrtc_mesh/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
         .{
             .step_name = "webrtc-loop",
             .description = "Live WebRTC scale: many concurrent DataChannels served from one loop thread through the generic Host completion adapter (ADR-0089; needs cargo)",
-            .exe_name = "pancake-webrtc-loop",
+            .exe_name = "glowcap-webrtc-loop",
             .root_source = "interop/webrtc_loop/driver.zig",
             .imports = .{ .webrtc_common = true, .interop_harness = true },
         },
         .{
             .step_name = "webrtc-bridge-redeem",
             .description = "Live native three-party handoff over WebRTC: recipient loop redeems a bare webrtc give through configured signaling authority (ADR-0089; needs cargo)",
-            .exe_name = "pancake-webrtc-bridge-redeem",
+            .exe_name = "glowcap-webrtc-bridge-redeem",
             .root_source = "interop/webrtc_bridge_redeem/driver.zig",
             .imports = .{ .interop_harness = true },
         },
         .{
             .step_name = "webrtc-signaling-captp",
             .description = "Live WebRTC signaling capability over CapTP: signaling opens the DataChannel, then the keyed session runs over it (ADR-0089 phase 5; needs cargo)",
-            .exe_name = "pancake-webrtc-signaling-captp",
+            .exe_name = "glowcap-webrtc-signaling-captp",
             .root_source = "interop/webrtc_signaling_captp/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
@@ -289,7 +289,7 @@ pub fn register(ctx: Context) Registered {
 
     // The native answerer for the webrtc-browser-peer proof (ADR-0089 phase 6):
     // it serves a keyed session over the sidecar with signaling ferried over
-    // stdio, so a real browser (@pancake/webrtc + the wasm Host) is the offerer.
+    // stdio, so a real browser (@glowcap/webrtc + the wasm Host) is the offerer.
     // Rides `check` as a hermetic compile object; the sidecar-linked binary is
     // installed for the Playwright harness (added with the webrtc-browser-peer
     // step) to drive.
@@ -298,10 +298,10 @@ pub fn register(ctx: Context) Registered {
         .target = target,
         .optimize = optimize,
     });
-    webrtc_answerer_compile_mod.addImport("pancake", lib_mod);
+    webrtc_answerer_compile_mod.addImport("glowcap", lib_mod);
     webrtc_answerer_compile_mod.addImport("webrtc", webrtc_resident_mod);
     webrtc_answerer_compile_mod.addImport("webrtc_common", webrtc_common_mod);
-    const webrtc_answerer_compile = b.addObject(.{ .name = "pancake-webrtc-answerer-compile", .root_module = webrtc_answerer_compile_mod });
+    const webrtc_answerer_compile = b.addObject(.{ .name = "glowcap-webrtc-answerer-compile", .root_module = webrtc_answerer_compile_mod });
     check_step.dependOn(&webrtc_answerer_compile.step);
 
     const webrtc_answerer_run_mod = b.createModule(.{
@@ -309,11 +309,11 @@ pub fn register(ctx: Context) Registered {
         .target = target,
         .optimize = optimize,
     });
-    webrtc_answerer_run_mod.addImport("pancake", lib_mod);
+    webrtc_answerer_run_mod.addImport("glowcap", lib_mod);
     webrtc_answerer_run_mod.addImport("webrtc", webrtc_resident_mod);
     webrtc_answerer_run_mod.addImport("webrtc_common", webrtc_common_mod);
     linkSidecar(b, webrtc_answerer_run_mod, target);
-    const webrtc_answerer_exe = b.addExecutable(.{ .name = "pancake-webrtc-answerer", .root_module = webrtc_answerer_run_mod });
+    const webrtc_answerer_exe = b.addExecutable(.{ .name = "glowcap-webrtc-answerer", .root_module = webrtc_answerer_run_mod });
     webrtc_answerer_exe.step.dependOn(&webrtc_probe_build.step);
     const webrtc_answerer_install = b.addInstallArtifact(webrtc_answerer_exe, .{});
     b.step("webrtc-answerer", "Build the native answerer for the webrtc-browser-peer proof (ADR-0089 phase 6; needs cargo)").dependOn(&webrtc_answerer_install.step);
@@ -321,7 +321,7 @@ pub fn register(ctx: Context) Registered {
     const browser_proofs = [_]BrowserProof{
         .{
             .step_name = "webrtc-browser-peer",
-            .description = "Prove a real headless Chromium runs @pancake/web + @pancake/webrtc: a DataChannel to the native answerer carries a keyed OCapN session (ADR-0089 phase 6; needs cargo + deno + a Playwright Chromium)",
+            .description = "Prove a real headless Chromium runs @glowcap/web + @glowcap/webrtc: a DataChannel to the native answerer carries a keyed OCapN session (ADR-0089 phase 6; needs cargo + deno + a Playwright Chromium)",
             .script = "interop/webrtc_browser_peer/browser_peer_test.ts",
             .needs_answerer = true,
         },
@@ -352,7 +352,7 @@ pub fn register(ctx: Context) Registered {
         });
         for (seam_imports) |imp| seam_compile_mod.addImport(imp.name, imp.module);
         seam_compile_mod.addImport("c_abi_net_transport_webrtc", abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod));
-        const seam_compile = b.addObject(.{ .name = "pancake-webrtc-driver-provider-compile", .root_module = seam_compile_mod });
+        const seam_compile = b.addObject(.{ .name = "glowcap-webrtc-driver-provider-compile", .root_module = seam_compile_mod });
         check_step.dependOn(&seam_compile.step);
 
         const seam_run_mod = b.createModule(.{
@@ -363,7 +363,7 @@ pub fn register(ctx: Context) Registered {
         for (seam_imports) |imp| seam_run_mod.addImport(imp.name, imp.module);
         seam_run_mod.addImport("c_abi_net_transport_webrtc", abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod));
         linkSidecar(b, seam_run_mod, target);
-        const seam_exe = b.addExecutable(.{ .name = "pancake-webrtc-driver-provider", .root_module = seam_run_mod });
+        const seam_exe = b.addExecutable(.{ .name = "glowcap-webrtc-driver-provider", .root_module = seam_run_mod });
         seam_exe.step.dependOn(&webrtc_probe_build.step);
         const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
         seam_run.setCwd(b.path("."));
@@ -371,9 +371,9 @@ pub fn register(ctx: Context) Registered {
         b.step("webrtc-driver-provider", "Live WebRTC C-provider proof: raw C signaling transfers two open peers into generic driver loops (needs cargo)").dependOn(&seam_run.step);
     }
 
-    // libpancake_net_transport_webrtc: the WebRTC transport's public C ABI
+    // libglowcap_net_transport_webrtc: the WebRTC transport's public C ABI
     // companion (ADR-0089 phase 3). Like the iroh companion it links the Rust
-    // sidecar and exports only its own `pancake_webrtc_*` family, sharing the
+    // sidecar and exports only its own `glowcap_webrtc_*` family, sharing the
     // base ABI by layout, so it is a sibling of `check` (needs cargo). The
     // header generator and its staleness check are the root's
     // `gen-header-net-transport-webrtc` pair; this step builds and installs
@@ -381,27 +381,27 @@ pub fn register(ctx: Context) Registered {
     const webrtc_abi_link_mod = abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod);
     linkSidecar(b, webrtc_abi_link_mod, target);
     const webrtc_abi_shared = b.addLibrary(.{
-        .name = "pancake_net_transport_webrtc",
+        .name = "glowcap_net_transport_webrtc",
         .linkage = .dynamic,
         .root_module = webrtc_abi_link_mod,
         .version = ctx.abi_version,
     });
     if (target.result.ofmt == .elf) {
         // Keep the Rust sidecar and its runtime private to this artifact. The
-        // public companion surface is the generated pancake_webrtc_* family.
+        // public companion surface is the generated glowcap_webrtc_* family.
         webrtc_abi_shared.version_script = ctx.b.path("tools/build/exports/webrtc.map");
     }
     webrtc_abi_shared.step.dependOn(&webrtc_probe_build.step);
     const webrtc_abi_install = b.addInstallArtifact(webrtc_abi_shared, .{});
-    const webrtc_abi_header_install = b.addInstallHeaderFile(b.path("include/pancake_net_transport_webrtc.h"), "pancake_net_transport_webrtc.h");
-    const webrtc_abi_step = b.step("webrtc-abi", "Build libpancake_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0089 phase 3; needs cargo)");
+    const webrtc_abi_header_install = b.addInstallHeaderFile(b.path("include/glowcap_net_transport_webrtc.h"), "glowcap_net_transport_webrtc.h");
+    const webrtc_abi_step = b.step("webrtc-abi", "Build libglowcap_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0089 phase 3; needs cargo)");
     webrtc_abi_step.dependOn(&webrtc_abi_install.step);
     webrtc_abi_step.dependOn(&webrtc_abi_header_install.step);
     if (target.result.ofmt == .elf) {
         const export_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/sidecar-exports.sh" });
         export_check.addFileArg(webrtc_abi_shared.getEmittedBin());
-        export_check.addArg("pancake_webrtc_");
-        export_check.addArg("pancake_webrtc_sidecar_");
+        export_check.addArg("glowcap_webrtc_");
+        export_check.addArg("glowcap_webrtc_sidecar_");
         webrtc_abi_step.dependOn(&export_check.step);
     }
 

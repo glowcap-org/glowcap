@@ -8,6 +8,7 @@ import {
 	codecId,
 	consumedReleaseFailure,
 	ffi,
+	GlowcapError,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
@@ -15,14 +16,13 @@ import {
 	NativeHandle,
 	NativeParent,
 	outPointer,
-	PancakeError,
 	readBytes,
 	readErrorSlot,
 	releaseManagedFrame,
 	requireOffThreadFfi,
 	SingleFlight,
-} from "@pancake/runtime/transport";
-import type { Codec, Locator, Ptr } from "@pancake/runtime/transport";
+} from "@glowcap/runtime/transport";
+import type { Codec, Locator, Ptr } from "@glowcap/runtime/transport";
 import {
 	ONION_AUTH_COOKIE,
 	ONION_AUTH_NONE,
@@ -31,7 +31,7 @@ import {
 	ONION_SERVICE_KEY_CAP,
 	RAW_TRANSPORT_DEFAULT_FRAME_CAP,
 	TRANSPORT_ONION,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { onionS } from "./ffi.ts";
 
 const encoder = new TextEncoder();
@@ -83,13 +83,13 @@ export interface NetlayerOptions {
 /** Interpret one result through the onion archive's own diagnostic slot. */
 export function checkOnion(code: number): void {
 	if (code === 0) return;
-	throw new PancakeError(
+	throw new GlowcapError(
 		code,
-		readErrorSlot(onionS.pancake_onion_last_error) ?? `onion transport call failed (code ${code})`,
+		readErrorSlot(onionS.glowcap_onion_last_error) ?? `onion transport call failed (code ${code})`,
 	);
 }
 
-// `PancakeOnionConfig`: ptr,len ×2, padded u32 auth kind, then ptr,len ×3.
+// `GlowcapOnionConfig`: ptr,len ×2, padded u32 auth kind, then ptr,len ×3.
 // Keep every encoded field alive until the constructor returns because the
 // native call borrows the pointers held by the transient struct.
 function encodeConfig(options: NetlayerOptions): { struct: Uint8Array; keepAlive: Uint8Array[] } {
@@ -129,12 +129,12 @@ export function openNetlayer(options: NetlayerOptions): Ptr {
 	requireOffThreadFfi("onion", "native transport lifecycle");
 	const { struct, keepAlive } = encodeConfig(options);
 	const out = new Uint8Array(8);
-	checkOnion(onionS.pancake_onion_netlayer_new(struct, out));
+	checkOnion(onionS.glowcap_onion_netlayer_new(struct, out));
 	void keepAlive;
 	return outPointer(out);
 }
 
-/** A blocking onion connection: the `pancake_onion_*` frame shuttle over one
+/** A blocking onion connection: the `glowcap_onion_*` frame shuttle over one
  * circuit. Closed on `close` / `[Symbol.dispose]`. */
 export class Connection {
 	readonly #native: NativeHandle;
@@ -150,13 +150,13 @@ export class Connection {
 		this.#native = new NativeHandle(
 			"onion connection",
 			raw,
-			(pointer) => checkOnion(onionS.pancake_onion_conn_shutdown(pointer)),
+			(pointer) => checkOnion(onionS.glowcap_onion_conn_shutdown(pointer)),
 			async (pointer) => {
 				try {
 					await checkDiagnosedCall(
 						"onion",
 						"connection release",
-						(error, cap, errorLen) => onionS.pancake_onion_conn_release(pointer, error, cap, errorLen),
+						(error, cap, errorLen) => onionS.glowcap_onion_conn_release(pointer, error, cap, errorLen),
 					);
 				} catch (error) {
 					consumedReleaseFailure(error);
@@ -175,7 +175,7 @@ export class Connection {
 		this.close();
 	}
 
-	/** Wait for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF.
+	/** Wait for one whole frame. Throws GLOWCAP_ERR_CLOSED on clean EOF.
 	 *
 	 * The native operation may wait for the rest of a fragmented frame even after
 	 * `readinessFd()` reports readable. Deno dispatches this blocking FFI call away
@@ -188,7 +188,7 @@ export class Connection {
 				const frame = new Uint8Array(MANAGED_FRAME_SIZE);
 				try {
 					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
-						onionS.pancake_onion_conn_read_frame(raw, frame, error, cap, errorLen));
+						onionS.glowcap_onion_conn_read_frame(raw, frame, error, cap, errorLen));
 					const view = new DataView(frame.buffer);
 					return readBytes(
 						view.getBigUint64(MANAGED_FRAME_BYTES_OFF, true),
@@ -206,7 +206,7 @@ export class Connection {
 	 * it after `close`. */
 	readinessFd(): number {
 		const out = new Uint8Array(4);
-		checkOnion(onionS.pancake_onion_conn_readiness_fd(this.#native.borrow(), out));
+		checkOnion(onionS.glowcap_onion_conn_readiness_fd(this.#native.borrow(), out));
 		return new DataView(out.buffer).getInt32(0, true);
 	}
 
@@ -215,7 +215,7 @@ export class Connection {
 		return this.#writes.run(frame, (owned) =>
 			this.#native.use(async (raw) => {
 				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
-					onionS.pancake_onion_conn_write_frame(raw, owned.argument(), error, cap, errorLen));
+					onionS.glowcap_onion_conn_write_frame(raw, owned.argument(), error, cap, errorLen));
 			}));
 	}
 }
@@ -252,12 +252,12 @@ export class Listener {
 		this.#native = new NativeHandle(
 			"onion listener",
 			raw,
-			(pointer) => onionS.pancake_onion_listener_shutdown(pointer),
+			(pointer) => onionS.glowcap_onion_listener_shutdown(pointer),
 			async (pointer) => {
 				try {
 					await this.#releaseDiagnostic.check(
 						"listener release",
-						(error, cap, errorLen) => onionS.pancake_onion_listener_release(pointer, error, cap, errorLen),
+						(error, cap, errorLen) => onionS.glowcap_onion_listener_release(pointer, error, cap, errorLen),
 					);
 				} catch (error) {
 					consumedReleaseFailure(error);
@@ -289,7 +289,7 @@ export class Listener {
 			this.#native.use(async (raw) => {
 				const out = new Uint8Array(8);
 				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
-					onionS.pancake_onion_accept(raw, codecId(codec), BigInt(frameLimit), out, error, cap, errorLen));
+					onionS.glowcap_onion_accept(raw, codecId(codec), BigInt(frameLimit), out, error, cap, errorLen));
 				return new Connection(outPointer(out), this.#parent, frameLimit);
 			})
 		);
@@ -303,7 +303,7 @@ export class Listener {
 	 * Owned by the listener: do not close it, and do not use it after `close`. */
 	readinessFd(): number {
 		const out = new Uint8Array(4);
-		checkOnion(onionS.pancake_onion_listener_readiness_fd(this.#native.borrow(), out));
+		checkOnion(onionS.glowcap_onion_listener_readiness_fd(this.#native.borrow(), out));
 		return new DataView(out.buffer).getInt32(0, true);
 	}
 
@@ -316,7 +316,7 @@ export class Listener {
 			this.#native.use(async (raw) => {
 				const out = new Uint8Array(4);
 				await this.#waitDiagnostic.check("wait for accept", (error, cap, errorLen) =>
-					onionS.pancake_onion_listener_wait(raw, timeoutMs, out, error, cap, errorLen));
+					onionS.glowcap_onion_listener_wait(raw, timeoutMs, out, error, cap, errorLen));
 				return new DataView(out.buffer).getUint32(0, true) !== 0;
 			})
 		);
@@ -332,11 +332,11 @@ export class Netlayer {
 		this.#native = new NativeParent(
 			"onion netlayer",
 			openNetlayer(options),
-			(pointer) => onionS.pancake_onion_netlayer_shutdown(pointer),
+			(pointer) => onionS.glowcap_onion_netlayer_shutdown(pointer),
 			(pointer) =>
 				new NativeDiagnostic("onion").check(
 					"netlayer release",
-					(error, cap, errorLen) => onionS.pancake_onion_netlayer_release(pointer, error, cap, errorLen),
+					(error, cap, errorLen) => onionS.glowcap_onion_netlayer_release(pointer, error, cap, errorLen),
 				),
 		);
 	}
@@ -370,7 +370,7 @@ export class Netlayer {
 				"onion",
 				"listen",
 				(error, cap, errorLen) =>
-					onionS.pancake_onion_listen(
+					onionS.glowcap_onion_listen(
 						raw,
 						id,
 						BigInt(id.length),
@@ -414,7 +414,7 @@ export class Netlayer {
 				"onion",
 				"connect",
 				(error, cap, errorLen) =>
-					onionS.pancake_onion_connect(
+					onionS.glowcap_onion_connect(
 						raw,
 						designator,
 						BigInt(designator.length),

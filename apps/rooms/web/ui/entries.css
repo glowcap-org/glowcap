@@ -1,0 +1,194 @@
+/* The entry vocabulary: how a surface lists the things it knows about, one
+   row each, and the named door that launches a new one. An entry's head
+   carries the name, a short fact that qualifies it, and its acts at the
+   line's end; the body under it carries the longer facts, one line each. A
+   launch row is a mark, a name with one sentence, and the act that goes.
+   The questions and acts these rows carry are forms.css's, and plane.css
+   owns the ground both stand on; this sheet owns only the rows. It is
+   imported after forms.css because a launch row lays out the field rows it
+   contains. */
+
+/* ── Entries ────────────────────────────────────────────────────────────── */
+/* A list of things the surface knows about, one entry each: a listener, a
+   publication, a grant, a member, an operation waiting to be resumed. The
+   head carries the name, whatever short fact qualifies it, and the acts at
+   the line's end; the body under it carries the longer facts, one line each.
+   Rows rather than a table because the long fact in most of these is a piece
+   of wire text, and a column beside a locator only forces it to wrap against
+   its neighbors. */
+.entries {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-group);
+	min-width: 0;
+}
+.entry {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-tight);
+	min-width: 0;
+}
+/* A rule tells one row from the next. A row wearing its own `well` already has
+   an edge on every side, and a rule above it is that edge drawn twice. */
+.entry + .entry:not(.well) {
+	padding-top: 12px;
+	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+.entry-head {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--gap-row);
+	min-height: var(--control-h);
+}
+/* The reserved control height is there so a name sits centred against the
+   button at the end of its line. A head with nothing to press is a line of
+   text, and reserving a control's height under it opens a gap between the name
+   and the sentence that explains it, which are one unit to a reader. */
+.entry-head:not(:has(.actions, .button, .icon-button)) {
+	min-height: 0;
+}
+.entry-name {
+	flex: 1 1 10rem;
+	min-width: 0;
+	font-size: var(--type-ui);
+	font-weight: 700;
+	color: var(--ink);
+	overflow-wrap: anywhere;
+}
+/* A short fact beside the name stays on the head's line; the same voice as a
+   body line under the head carries wire text, which breaks anywhere. */
+.entry-meta {
+	margin: 0;
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+	overflow-wrap: anywhere;
+}
+.entry-head > .entry-meta {
+	white-space: nowrap;
+}
+.entry-head > .actions {
+	margin-inline-start: auto;
+}
+/* A head that tries to be one line. The name is the only part of one that can
+   be any length, and left to itself it claims a share of the line and pushes
+   the act off the end, where it stands alone with a hole beside it. Here the
+   name takes only what it needs, so what qualifies it and the act on it stay
+   where a reader looking down a column of acts expects them.
+
+   It never gives up more than its longest word: a name squeezed past that
+   breaks mid-word, which is worse than the act moving down. When even that
+   does not fit, the line wraps as any line does, and on a phone it is told
+   where to break — the name takes the line, and what qualifies it shares the
+   one below, one at each end. */
+.entry-head[data-one-line] > .entry-name {
+	flex: 0 1 auto;
+	min-width: min-content;
+}
+.entry-head[data-one-line] > .tag,
+.entry-head[data-one-line] > .actions {
+	flex: none;
+}
+@media (max-width: 520px) {
+	.entry-head[data-one-line] > .entry-name {
+		flex: 1 1 100%;
+	}
+}
+/* An entry that cannot act fades as one piece; the sentence saying why keeps
+   full ink so the reason stays readable. */
+.entry[data-idle="true"] .entry-name,
+.entry[data-idle="true"] > .hint:first-of-type {
+	opacity: .55;
+}
+/* Nothing to list says so in the well, quietly, instead of an empty grid. */
+.card-plane .empty {
+	margin: 0;
+	padding: 4px 0;
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+}
+
+/* ── The launch row ─────────────────────────────────────────────────────── */
+/* A named door: a mark, the name and one sentence, and the act that goes
+   through it at the line's end. Session setup's two choices and the Session
+   tab's managers are this row. On a phone the act drops under the copy at
+   full width, so a long name and a wide button never fight for one line. */
+.launch {
+	display: grid;
+	grid-template-columns: 38px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--gap-group);
+	min-width: 0;
+}
+.launch-mark {
+	width: 38px;
+	height: 38px;
+	display: grid;
+	place-items: center;
+	border: 1px solid color-mix(in srgb, var(--teal) 28%, var(--rule));
+	border-radius: 50%;
+	color: var(--teal);
+	background: color-mix(in srgb, var(--teal) 8%, transparent);
+}
+.launch-copy {
+	display: grid;
+	gap: var(--gap-line);
+	min-width: 0;
+}
+.launch-copy .group-label,
+.launch-copy .hint {
+	margin: 0;
+}
+.launch-title {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--gap-tight);
+	margin: 0;
+	font-size: var(--type-body);
+	font-weight: 700;
+	color: var(--ink);
+}
+/* A launch whose act is a field and its button spans the copy's own column
+   with them, one line below the sentence. */
+.launch > .field-row,
+.launch > .field-stack {
+	grid-column: 2 / -1;
+}
+/* A launch whose door is not open carries a state where the act would be. */
+.launch > .tag {
+	justify-self: end;
+}
+/* In a modal card the row is too narrow for a name, a sentence, and a wide
+   act on one line, so the act drops under the copy, at the line's end like
+   every other act. The setup page's wider card keeps the one-line form. */
+.modal-card .launch {
+	grid-template-columns: 38px minmax(0, 1fr);
+}
+.modal-card .launch > .button {
+	grid-column: 2 / -1;
+	justify-self: end;
+}
+@media (max-width: 520px) {
+	.launch {
+		grid-template-columns: 38px minmax(0, 1fr);
+	}
+	.launch > .button,
+	.modal-card .launch > .button {
+		grid-column: 1 / -1;
+		justify-self: stretch;
+		width: 100%;
+	}
+	.launch > .field-row,
+	.launch > .field-stack {
+		grid-column: 1 / -1;
+	}
+	.launch > .tag {
+		grid-column: 2 / -1;
+		justify-self: start;
+	}
+}
+

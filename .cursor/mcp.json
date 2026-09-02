@@ -10,8 +10,8 @@
         "${workspaceFolder}"
       ]
     },
-    "pancake": {
-      "command": "${workspaceFolder}/pancake",
+    "glowcap": {
+      "command": "${workspaceFolder}/glowcap",
       "args": ["mcp", "--tools", "default"]
     }
   }

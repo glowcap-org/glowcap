@@ -1,17 +1,17 @@
 ---
 .title = "What you can depend on",
-.description = "The recurring evidence behind pancake's protocol, transports, bindings, and platforms.",
+.description = "The recurring evidence behind glowcap's protocol, transports, bindings, and platforms.",
 .date = .date("2026-07-25T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-pancake has no stable release yet. Pin a commit, and treat the API as able to
+glowcap has no stable release yet. Pin a commit, and treat the API as able to
 move. None of the checks below is a compatibility or security promise.
 
 Three kinds of evidence sit behind a claim:
 
-- In-tree checks (`zig build check`) show pancake agrees with itself: scenarios,
+- In-tree checks (`zig build check`) show glowcap agrees with itself: scenarios,
   fixtures, budgets, and public examples.
 - Recurring live checks on every main-branch push talk to the upstream OCapN
   suite and to a [Spritely Goblins](https://spritely.institute/goblins/) vat.
@@ -23,15 +23,15 @@ endpoint proves the transport stack, not agreement with another CapTP
 implementation.
 
 The evidence is current only when the
-[checks workflow](https://github.com/jimisaacs/pancake/actions/workflows/check.yml)
+[checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
 is green for the commit you are evaluating. The
-[repository stability page](https://github.com/jimisaacs/pancake/blob/main/docs/stability.md)
+[repository stability page](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)
 owns the row-by-row matrix, including what each check does not prove.
-[Community review](https://github.com/jimisaacs/pancake/blob/main/docs/community-review.md)
+[Community review](https://github.com/jimisaacs/glowcap/blob/main/docs/community-review.md)
 is the outside-peer brief.
 
 Use [Choosing a transport]($link.page('transports/choosing')) for deployment
 tradeoffs and [Performance]($link.page('performance')) for measured costs. The
 repository keeps the complete [feature
-inventory](https://github.com/jimisaacs/pancake/blob/main/docs/shipped.md) and
-[known limitations](https://github.com/jimisaacs/pancake/blob/main/docs/boundaries.md).
+inventory](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md) and
+[known limitations](https://github.com/jimisaacs/glowcap/blob/main/docs/boundaries.md).

@@ -8,12 +8,12 @@
 
 An OCapN locator names one transport and one designator, so a program listening
 on two transports is two peers as far as the wire can say. A sturdyref written
-against one of them is welded to that path. pancake's multi-home prototype
+against one of them is welded to that path. glowcap's multi-home prototype
 closes that gap: the `id` locator names a peer by a durable public key, and the
 paths that reach it ride underneath as hints. Use this page when one program
 should be reachable over more than one transport without giving every sturdyref
-a new address. The feature works in pancake today, but the on-the-wire names
-are still pancake's private trial profile (`pancake-next`) until OCapN
+a new address. The feature works in glowcap today, but the on-the-wire names
+are still glowcap's private trial profile (`glowcap-next`) until OCapN
 standardizes them. The standing section at the end says exactly what that means.
 
 # One peer, several routes
@@ -55,9 +55,9 @@ locator cannot buy unbounded work or smuggle in a second identity.
 # What the other peer sees
 
 Route vocabulary is a negotiated feature named `multi_location`, offered under
-pancake's own `pancake-next` profile and stamped into both signed hellos before
+glowcap's own `glowcap-next` profile and stamped into both signed hellos before
 either side may use it. A first hello never carries it. The floor is per
-session: one process can speak route vocabulary with another pancake host while
+session: one process can speak route vocabulary with another glowcap host while
 its session with a [Spritely Goblins](https://spritely.institute/) vat stays on
 the standard profile.
 
@@ -85,7 +85,7 @@ two in publisher order, refilling that window from the list as attempts fail;
 the first channel that proves the key carries the fetch, and the losing dials
 are cancelled. Only after every strong route fails does it try the weak
 fallbacks, one at a time in their declared order. The
-[multi-home route diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/08-multihome-routes.md)
+[multi-home route diagrams](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/08-multihome-routes.md)
 draw each of these flows one at a time.
 
 # Rooms runs it
@@ -104,7 +104,7 @@ to a reader stays live.
 
 Multi-homing is something the OCapN community has wanted for years and not yet
 specified; the meeting record reaches from multi-netlayer locators to a
-transport-agnostic vat id. pancake builds it now because it already holds the
+transport-agnostic vat id. glowcap builds it now because it already holds the
 ingredients: keyed transports on several byte paths, and a sealed channel that
 proves a durable key over any of them.
 
@@ -115,12 +115,12 @@ sturdyrefs, and the rooms peering suite that exercises them live.
 
 One shape ships. An earlier design carried a second, comparison-only
 vocabulary beside this one so their costs could be weighed; the comparison is
-[settled](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md),
+[settled](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md),
 and only the `id` locator described above remains. The alternative supplied a
 list but no proof that its entries reached one peer, drove no dial, and backed
 no sturdyref, so keeping it would have grown the vocabulary without growing
 what the product could do. What stays open is the wire vocabulary itself,
-which remains a `pancake-next` extension until OCapN specifies a compatible
+which remains a `glowcap-next` extension until OCapN specifies a compatible
 shape. Peers that never agree on the extension never see these route hints. A
 Goblins peer keeps getting ordinary locators.
 [What you can depend on]($link.page('stability')) is the wider evidence

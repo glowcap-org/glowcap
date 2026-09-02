@@ -2,7 +2,7 @@
 //!
 //! This staticlib wraps WebRTC peers and their reliable, ordered
 //! `RTCDataChannel`s behind a narrow C ABI, emitting
-//! `libpancake_webrtc_sidecar.a`. The Zig resident
+//! `libglowcap_webrtc_sidecar.a`. The Zig resident
 //! (`src/net/transport/webrtc.zig`) is the only consumer. It mirrors the iroh
 //! sidecar's shape (ADR-0055), with the differences WebRTC forces:
 //!
@@ -55,7 +55,7 @@ use webrtc::peer_connection::{
 use lifecycle::{CloseTasks, RuntimeOwner};
 use readiness::Readiness;
 
-/// The label of the one data channel a pancake `webrtc` session runs over. Both
+/// The label of the one data channel a glowcap `webrtc` session runs over. Both
 /// peers agree on it out of band; the offerer creates it under this name.
 const CHANNEL_LABEL: &str = "ocapn";
 
@@ -65,7 +65,7 @@ const CHANNEL_LABEL: &str = "ocapn";
 /// holding many peers, should say what it wants instead.
 const WORKER_THREADS: usize = 2;
 
-/// Maximum time the crate may retain one peer after pancake has committed its
+/// Maximum time the crate may retain one peer after glowcap has committed its
 /// local close. WebRTC close is control-plane teardown, not application grace;
 /// it must not make the endpoint's final release barrier unbounded. Fifteen
 /// seconds matches the transport-level dead-peer bound used by the iroh
@@ -90,7 +90,7 @@ const WOULD_BLOCK: i32 = -2;
 /// A string out-parameter whose buffer was too small; `*out_len` is set to the
 /// length the caller must provide, and nothing is written.
 const BUFFER_TOO_SMALL: i32 = -3;
-/// A signaling string exceeded Pancake's hard signaling cap; retrying with a
+/// A signaling string exceeded Glowcap's hard signaling cap; retrying with a
 /// larger caller buffer cannot make it valid.
 const SIGNAL_TOO_LARGE: i32 = -4;
 /// A peer reached an orderly terminal state before opening.
@@ -107,7 +107,7 @@ const EV_CLOSED: u32 = 16;
 /// Borrowed UTF-8 text in the sidecar ABI.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PancakeWebrtcStringView {
+pub struct GlowcapWebrtcStringView {
 	pub ptr: *const u8,
 	pub len: usize,
 }
@@ -116,21 +116,21 @@ pub struct PancakeWebrtcStringView {
 /// endpoint-owned WebRTC configuration during construction.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PancakeWebrtcIceServer {
-	pub urls: *const PancakeWebrtcStringView,
+pub struct GlowcapWebrtcIceServer {
+	pub urls: *const GlowcapWebrtcStringView,
 	pub url_count: usize,
-	pub username: PancakeWebrtcStringView,
-	pub credential: PancakeWebrtcStringView,
+	pub username: GlowcapWebrtcStringView,
+	pub credential: GlowcapWebrtcStringView,
 }
 
 /// One endpoint's configuration, passed by pointer so a new setting is a field
 /// rather than a wider signature every caller has to agree on. What the setting
-/// means is documented once, on the C ABI's `PancakeWebrtcConfig`.
+/// means is documented once, on the C ABI's `GlowcapWebrtcConfig`.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PancakeWebrtcEndpointConfig {
+pub struct GlowcapWebrtcEndpointConfig {
 	/// Borrowed ICE server records. Null or empty is host candidates only.
-	pub ice_servers: *const PancakeWebrtcIceServer,
+	pub ice_servers: *const GlowcapWebrtcIceServer,
 	pub ice_server_count: usize,
 	/// Nonzero offers loopback ICE candidates, which is what lets two peers in
 	/// one process or on one host connect with no STUN.
@@ -143,12 +143,12 @@ pub struct PancakeWebrtcEndpointConfig {
 /// endpoint and never reused during its lifetime.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PancakeWebrtcReadyEvent {
+pub struct GlowcapWebrtcReadyEvent {
 	pub subject: usize,
 	pub events: u32,
 }
 
-/// Largest DataChannel message pancake sends or admits. The Zig transport
+/// Largest DataChannel message glowcap sends or admits. The Zig transport
 /// profile publishes the same ceiling so the Host narrows the session frame cap
 /// before traffic starts.
 const MAX_PACKET_BYTES: usize = constants_gen::TRANSPORT_WEBRTC_MAX_PACKET_BYTES;
@@ -323,7 +323,7 @@ impl EndpointInner {
 	}
 }
 
-unsafe fn view_text(view: PancakeWebrtcStringView, max_len: usize) -> Option<String> {
+unsafe fn view_text(view: GlowcapWebrtcStringView, max_len: usize) -> Option<String> {
 	if view.len == 0 {
 		return Some(String::new());
 	}
@@ -354,7 +354,7 @@ fn starts_with_ascii_ignore_case(value: &str, prefix: &str) -> bool {
 		.is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
-unsafe fn ice_servers_from_config(cfg: &PancakeWebrtcEndpointConfig) -> Option<Vec<RTCIceServer>> {
+unsafe fn ice_servers_from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<Vec<RTCIceServer>> {
 	if cfg.ice_server_count == 0 {
 		return Some(Vec::new());
 	}
@@ -398,13 +398,13 @@ unsafe fn ice_servers_from_config(cfg: &PancakeWebrtcEndpointConfig) -> Option<V
 
 /// Opaque endpoint handle. One resident owns one of these and creates every
 /// peer it multiplexes from it.
-pub struct PancakeWebrtcEndpoint {
+pub struct GlowcapWebrtcEndpoint {
 	inner: Arc<EndpointInner>,
 }
 
 /// One WebRTC peer: its shared endpoint, peer connection, the single data
 /// channel once it exists, and the buffers the async callbacks feed. Opaque to C.
-pub struct PancakeWebrtcPeer {
+pub struct GlowcapWebrtcPeer {
 	shared: Arc<PeerShared>,
 	pc: Arc<dyn PeerConnection>,
 }
@@ -412,9 +412,9 @@ pub struct PancakeWebrtcPeer {
 /// Create one endpoint: the runtime and readiness namespace shared by all peers
 /// a resident multiplexes. Returns null if either resource cannot be created.
 #[no_mangle]
-pub extern "C" fn pancake_webrtc_sidecar_endpoint_new(
-	config: *const PancakeWebrtcEndpointConfig,
-) -> *mut PancakeWebrtcEndpoint {
+pub extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
+	config: *const GlowcapWebrtcEndpointConfig,
+) -> *mut GlowcapWebrtcEndpoint {
 	catch_unwind(AssertUnwindSafe(|| {
 		if config.is_null() {
 			return std::ptr::null_mut();
@@ -437,14 +437,14 @@ pub extern "C" fn pancake_webrtc_sidecar_endpoint_new(
 		};
 		let rt = match tokio::runtime::Builder::new_multi_thread()
 			.worker_threads(workers)
-			.thread_name("pancake-webrtc")
+			.thread_name("glowcap-webrtc")
 			.enable_all()
 			.build()
 		{
 			Ok(rt) => rt,
 			Err(_) => return std::ptr::null_mut(),
 		};
-		Box::into_raw(Box::new(PancakeWebrtcEndpoint {
+		Box::into_raw(Box::new(GlowcapWebrtcEndpoint {
 			inner: Arc::new(EndpointInner {
 				rt: RuntimeOwner::new(rt),
 				close_tasks: Arc::new(CloseTasks::new()),
@@ -461,7 +461,7 @@ pub extern "C" fn pancake_webrtc_sidecar_endpoint_new(
 
 /// Borrow the endpoint's readiness fd. It remains valid until endpoint free.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const PancakeWebrtcEndpoint) -> i32 {
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const GlowcapWebrtcEndpoint) -> i32 {
 	catch_unwind(AssertUnwindSafe(|| {
 		endpoint
 			.as_ref()
@@ -473,9 +473,9 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: 
 
 /// Drain up to `out_cap` endpoint readiness records without allocation.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_drain_ready(
-	endpoint: *const PancakeWebrtcEndpoint,
-	out: *mut PancakeWebrtcReadyEvent,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_ready(
+	endpoint: *const GlowcapWebrtcEndpoint,
+	out: *mut GlowcapWebrtcReadyEvent,
 	out_cap: usize,
 ) -> isize {
 	catch_unwind(AssertUnwindSafe(|| {
@@ -496,8 +496,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_drain_ready(
 /// The subscription is created lazily so raw-only endpoints pay no second
 /// queue. Events published after this call are copied into both subscriptions.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_driver_readiness_fd(
-	endpoint: *const PancakeWebrtcEndpoint,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(
+	endpoint: *const GlowcapWebrtcEndpoint,
 ) -> i32 {
 	catch_unwind(AssertUnwindSafe(|| {
 		endpoint
@@ -511,9 +511,9 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_driver_readiness_fd(
 
 /// Drain the generic driver's independent readiness subscription.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(
-	endpoint: *const PancakeWebrtcEndpoint,
-	out: *mut PancakeWebrtcReadyEvent,
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(
+	endpoint: *const GlowcapWebrtcEndpoint,
+	out: *mut GlowcapWebrtcReadyEvent,
 	out_cap: usize,
 ) -> isize {
 	catch_unwind(AssertUnwindSafe(|| {
@@ -537,7 +537,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(
 /// Release an endpoint. Peers retain the runtime defensively, but callers must
 /// still release every peer first so no readiness can outlive its owner.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_free(endpoint: *mut PancakeWebrtcEndpoint) -> i32 {
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_free(endpoint: *mut GlowcapWebrtcEndpoint) -> i32 {
 	if endpoint.is_null() {
 		return OK;
 	}

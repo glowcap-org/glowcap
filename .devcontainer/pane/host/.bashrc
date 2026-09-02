@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Interactive rc for one pancake tmux pane's shell on the host: the host half
+# Interactive rc for one glowcap tmux pane's shell on the host: the host half
 # of the pane runtime, whose container half is ../container/.zshrc. bin/enter.sh
 # and bin/enter-grid.sh name this file on every pane's shell command, and it
 # sources your own ~/.bashrc first, so the shell stays yours with the runtime
@@ -13,9 +13,9 @@
 #
 # The pane's shell stays here, on the host, in this worktree's checkout, and
 # the container shell runs as its child. That is what makes leaving the
-# container something other than losing the pane: pancake_devcontainer_exit
+# container something other than losing the pane: glowcap_devcontainer_exit
 # inside the container comes back to this shell, and
-# pancake_devcontainer_enter goes back in. Plain exit still ends the pane,
+# glowcap_devcontainer_enter goes back in. Plain exit still ends the pane,
 # because the shell it ends is the one this file entered from.
 #
 # What it leaves behind is two verbs, a few variables, and a marker on the
@@ -31,12 +31,12 @@
 # This file is <launcher>/.devcontainer/pane/host/.bashrc. The checkout it
 # wraps is handed in so one launcher can open a column whose `.devcontainer/`
 # is older; without that, the checkout is the tree this file lives in.
-pancake_tmux_launcher_root="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-pancake_tmux_checkout="${PANCAKE_TMUX_CHECKOUT:-$(cd -P "${pancake_tmux_launcher_root}/.." && pwd)}"
+glowcap_tmux_launcher_root="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+glowcap_tmux_checkout="${GLOWCAP_TMUX_CHECKOUT:-$(cd -P "${glowcap_tmux_launcher_root}/.." && pwd)}"
 
 # Where the workspace is mounted inside the container. Three things the
 # runtime hands across the boundary are built from it, so it is written once.
-pancake_tmux_workspace=/workspaces/pancake
+glowcap_tmux_workspace=/workspaces/glowcap
 
 # The status the container shell exits with to mean "leave the container,
 # keep this pane". It is declared here, where the comparison happens, and
@@ -44,12 +44,12 @@ pancake_tmux_workspace=/workspaces/pancake
 # runtime cannot disagree about it. It sits below 125 so it lands in the band
 # this file reads as "the shell ended on its own terms", and away from the
 # statuses a shell reaches for by itself.
-PANCAKE_TMUX_DETACH_STATUS=89
+GLOWCAP_TMUX_DETACH_STATUS=89
 
 # This shell is the pane's host side. Naming the way out of the container
 # from outside it is worth an answer rather than a "command not found".
-pancake_devcontainer_exit() {
-    echo "pancake_devcontainer_exit: this shell is already on the host; exit ends the pane, pancake_devcontainer_enter opens the container" >&2
+glowcap_devcontainer_exit() {
+    echo "glowcap_devcontainer_exit: this shell is already on the host; exit ends the pane, glowcap_devcontainer_enter opens the container" >&2
     return 1
 }
 
@@ -57,14 +57,14 @@ pancake_devcontainer_exit() {
 # the pane does when that shell ends. With --bare the pane's startup command
 # stays behind, for a look around that must not restart what the pane runs.
 # shellcheck disable=SC2120
-pancake_devcontainer_enter() {
+glowcap_devcontainer_enter() {
     local bare=false container pane_status
     local -a shell_argv
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --bare) bare=true ;;
             *)
-                echo "pancake_devcontainer_enter: unknown option: $1" >&2
+                echo "glowcap_devcontainer_enter: unknown option: $1" >&2
                 return 2
                 ;;
         esac
@@ -76,22 +76,22 @@ pancake_devcontainer_enter() {
     # instead of sending the reader to another window for it. The lookup is
     # this launcher's: the column checkout may still keep `up.sh` beside
     # compose, or have no `bin/container-id.sh` of its own.
-    container="$(bash "${pancake_tmux_launcher_root}/bin/container-id.sh" "${pancake_tmux_checkout}")" || return 1
-    shell_argv=(docker exec -it --user vscode --workdir "${pancake_tmux_workspace}")
-    if [[ -f "${pancake_tmux_checkout}/.devcontainer/pane/container/.zshrc" ]]; then
-        shell_argv+=(-e "ZDOTDIR=${pancake_tmux_workspace}/.devcontainer/pane/container")
-        shell_argv+=(-e "PANCAKE_TMUX_DETACH_STATUS=${PANCAKE_TMUX_DETACH_STATUS}")
-        shell_argv+=(-e "PANCAKE_TMUX_PANES_FILE=${pancake_tmux_workspace}/.devcontainer/pane/${PANCAKE_TMUX_PANES_NAME:-panes.sh}")
-        if [[ "${bare}" == false && -n "${PANCAKE_TMUX_ROW:-}" ]]; then
-            shell_argv+=(-e "PANCAKE_TMUX_ROW=${PANCAKE_TMUX_ROW}")
+    container="$(bash "${glowcap_tmux_launcher_root}/bin/container-id.sh" "${glowcap_tmux_checkout}")" || return 1
+    shell_argv=(docker exec -it --user vscode --workdir "${glowcap_tmux_workspace}")
+    if [[ -f "${glowcap_tmux_checkout}/.devcontainer/pane/container/.zshrc" ]]; then
+        shell_argv+=(-e "ZDOTDIR=${glowcap_tmux_workspace}/.devcontainer/pane/container")
+        shell_argv+=(-e "GLOWCAP_TMUX_DETACH_STATUS=${GLOWCAP_TMUX_DETACH_STATUS}")
+        shell_argv+=(-e "GLOWCAP_TMUX_PANES_FILE=${glowcap_tmux_workspace}/.devcontainer/pane/${GLOWCAP_TMUX_PANES_NAME:-panes.sh}")
+        if [[ "${bare}" == false && -n "${GLOWCAP_TMUX_ROW:-}" ]]; then
+            shell_argv+=(-e "GLOWCAP_TMUX_ROW=${GLOWCAP_TMUX_ROW}")
         fi
     fi
     shell_argv+=("${container}" /bin/zsh)
     "${shell_argv[@]}"
     pane_status=$?
-    if [[ "${pane_status}" -eq "${PANCAKE_TMUX_DETACH_STATUS}" ]]; then
-        printf 'pancake: on the host in %s. pancake_devcontainer_enter returns; exit ends this pane.\n' \
-            "${pancake_tmux_checkout}"
+    if [[ "${pane_status}" -eq "${GLOWCAP_TMUX_DETACH_STATUS}" ]]; then
+        printf 'glowcap: on the host in %s. glowcap_devcontainer_enter returns; exit ends this pane.\n' \
+            "${glowcap_tmux_checkout}"
         return 0
     fi
     # Below 125 the shell ended on its own terms, by exit or by the status a
@@ -101,7 +101,7 @@ pancake_devcontainer_enter() {
     # and says so: a container rebuilt from another window is re-entered from
     # right here.
     if [[ "${pane_status}" -ge 125 ]]; then
-        printf 'pancake: the container shell ended with status %d. This pane is still here; pancake_devcontainer_enter returns.\n' \
+        printf 'glowcap: the container shell ended with status %d. This pane is still here; glowcap_devcontainer_enter returns.\n' \
             "${pane_status}" >&2
         return "${pane_status}"
     fi
@@ -113,14 +113,14 @@ pancake_devcontainer_enter() {
 # from PROMPT_COMMAND would otherwise paint the marker away on the first
 # command. Whatever your own rc set stands behind the marker; the rest of the
 # prompt is yours.
-pancake_tmux_prompt_mark="(host ${PANCAKE_TMUX_WORKTREE:-${pancake_tmux_checkout##*/}}) "
-pancake_tmux_mark_prompt() {
-    [[ "${PS1}" == "${pancake_tmux_prompt_mark}"* ]] ||
-        PS1="${pancake_tmux_prompt_mark}${PS1}"
+glowcap_tmux_prompt_mark="(host ${GLOWCAP_TMUX_WORKTREE:-${glowcap_tmux_checkout##*/}}) "
+glowcap_tmux_mark_prompt() {
+    [[ "${PS1}" == "${glowcap_tmux_prompt_mark}"* ]] ||
+        PS1="${glowcap_tmux_prompt_mark}${PS1}"
 }
-PROMPT_COMMAND="pancake_tmux_mark_prompt${PROMPT_COMMAND:+; ${PROMPT_COMMAND}}"
+PROMPT_COMMAND="glowcap_tmux_mark_prompt${PROMPT_COMMAND:+; ${PROMPT_COMMAND}}"
 
-if ! pancake_devcontainer_enter; then
-    printf 'pancake: on the host in %s. pancake_devcontainer_enter tries again.\n' \
-        "${pancake_tmux_checkout}" >&2
+if ! glowcap_devcontainer_enter; then
+    printf 'glowcap: on the host in %s. glowcap_devcontainer_enter tries again.\n' \
+        "${glowcap_tmux_checkout}" >&2
 fi

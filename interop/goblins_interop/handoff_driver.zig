@@ -1,8 +1,8 @@
-//! Live three-party handoff, with pancake as the recipient (Carol), driven
+//! Live three-party handoff, with glowcap as the recipient (Carol), driven
 //! through `driver.core.Host` + `driver.Bridge` + `net.TcpLoop` (ADR-0068,
 //! ADR-0076).
 //!
-//! pancake dials a Goblins introducer (Alice) through one Host, enlivens the
+//! glowcap dials a Goblins introducer (Alice) through one Host, enlivens the
 //! introducer, and calls `get-greeter`. A three-party introduction hands the
 //! greeter over as a `desc:handoff-give` naming the exporter (Bob), and the
 //! host redeems it inside the settle: it claims the give, dials Bob under the
@@ -15,17 +15,17 @@
 //! `zig build goblins-handoff`, not in the in-tree check.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const harness = @import("interop_harness");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
-const crypto = pancake.foundation.crypto;
-const driver = pancake.driver;
-const net = pancake.net;
-const tcp = pancake.net.tcp;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const crypto = glowcap.foundation.crypto;
+const driver = glowcap.driver;
+const net = glowcap.net;
+const tcp = glowcap.net.tcp;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
@@ -82,7 +82,7 @@ const RecipientState = struct {
                     },
                 };
                 std.debug.print("goblins-handoff: redeemed greeter; calling it directly\n", .{});
-                const vow = self.host.send(conn, greeter, .{ .verb = "", .args = &.{.{ .string = "pancake-carol" }} }) catch |err| {
+                const vow = self.host.send(conn, greeter, .{ .verb = "", .args = &.{.{ .string = "glowcap-carol" }} }) catch |err| {
                     std.debug.print("goblins-handoff: greet send: {s}\n", .{@errorName(err)});
                     self.greeter_done.store(true, .release);
                     return;
@@ -126,7 +126,7 @@ fn recipientOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) 
     if (conn.leg != .app_dial or conn.session.role != .dialed) return;
     if (state.alice_conn != null) return;
     state.alice_conn = conn.session;
-    std.debug.print("goblins-handoff: session open (pancake as recipient -> alice)\n", .{});
+    std.debug.print("goblins-handoff: session open (glowcap as recipient -> alice)\n", .{});
     const vow = try state.host.enliven(conn.session, state.sturdyref);
     try state.host.vowOn(vow, .{ .ctx = state, .func = RecipientState.onEnlivened });
     try bridge.drainActions();

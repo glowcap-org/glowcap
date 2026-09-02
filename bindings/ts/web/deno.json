@@ -1,5 +1,5 @@
 {
-	"name": "@pancake/web",
+	"name": "@glowcap/web",
 	"version": "0.1.0",
 	"exports": {
 		".": "./mod.ts"

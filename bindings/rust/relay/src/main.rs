@@ -15,8 +15,8 @@
 //!
 //! Two transports, dispatched by what the WebSocket names:
 //!   - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
-//!                      pancake dependency, the default build).
-//!   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the pancake
+//!                      glowcap dependency, the default build).
+//!   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the glowcap
 //!                      Rust binding's `Netlayer::connect_owned`, only with
 //!                      `--features iroh`.
 //!
@@ -100,10 +100,10 @@ impl std::fmt::Display for RelayFailure {
 	}
 }
 
-/// The idle timeout, overridable by `PANCAKE_RELAY_IDLE_MS` for the conformance
+/// The idle timeout, overridable by `GLOWCAP_RELAY_IDLE_MS` for the conformance
 /// idle-timeout proof; a production run leaves it unset and gets the default.
 fn idle_timeout() -> Duration {
-	std::env::var("PANCAKE_RELAY_IDLE_MS")
+	std::env::var("GLOWCAP_RELAY_IDLE_MS")
 		.ok()
 		.and_then(|s| s.parse::<u64>().ok())
 		.map(Duration::from_millis)
@@ -277,7 +277,7 @@ where
 			}
 			// Named boundary copy: tokio-tungstenite's `Message::binary` owns its
 			// bytes, so the read chunk is copied once into an owned buffer before
-			// the async send. Bounded by `READ_CHUNK` and off pancake's
+			// the async send. Bounded by `READ_CHUNK` and off glowcap's
 			// own wire path — the WebSocket-sink shape of memory.md's binding
 			// outbound flush copy.
 			if let Err(error) = ws_write.send(Message::binary(buf[..n].to_vec())).await {
@@ -338,8 +338,8 @@ where
 
 #[cfg(feature = "iroh")]
 async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
-	use pancake_rust_dogfood::iroh::{Config, Netlayer, Reachability};
-	use pancake_rust_dogfood::parse_locator;
+	use glowcap_rust_dogfood::iroh::{Config, Netlayer, Reachability};
+	use glowcap_rust_dogfood::parse_locator;
 
 	let loc = match parse_locator(locator) {
 		Ok(loc) if loc.transport == "iroh" => loc,

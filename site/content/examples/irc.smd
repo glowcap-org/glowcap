@@ -56,5 +56,5 @@ a real socket and speak the same CapTP dialect Goblins expects, and they run
 inside `zig build check`; `zig build goblins-rooms-irc` runs both edges live against a real
 [Spritely Goblins](https://spritely.institute/) vat, including a direct
 message the vat answers. The
-[IRC README](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/irc/README.md)
+[IRC README](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/irc/README.md)
 carries the full flag surface, deployment postures, and bounds.

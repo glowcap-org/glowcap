@@ -12,7 +12,7 @@ import {
 	TRANSPORT_NOISE_TCP,
 	TRANSPORT_ONION,
 	TRANSPORT_TCP,
-} from "@pancake/runtime";
+} from "@glowcap/runtime";
 import { roomsLocator } from "./locator.ts";
 
 const ROUTE_ORDER = [TRANSPORT_IROH, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP] as const;

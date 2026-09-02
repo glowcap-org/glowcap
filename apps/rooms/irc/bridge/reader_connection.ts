@@ -141,7 +141,7 @@ export function openIrcMemberConnection(
 			try {
 				if (sasl !== undefined) await writer.send("CAP", ["LS", "302"]);
 				await writer.send("NICK", [nick]);
-				await writer.send("USER", [nick, "0", "*", "pancake rooms member"]);
+				await writer.send("USER", [nick, "0", "*", "glowcap rooms member"]);
 				let authenticated = sasl === undefined;
 				for await (const message of readIrcLines(conn.readable)) {
 					if (message.command === "PING") {

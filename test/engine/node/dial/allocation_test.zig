@@ -1,10 +1,10 @@
 //! Transactional dial settlement under allocator pressure.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
 
 const Node = engine.Node;
 const harness = @import("../harness.zig");

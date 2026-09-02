@@ -7,13 +7,13 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const tcp = pancake.net.tcp;
-const Loop = pancake.net.TcpLoop;
-const completion = pancake.net.completion;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const tcp = glowcap.net.tcp;
+const Loop = glowcap.net.TcpLoop;
+const completion = glowcap.net.completion;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
 const no_dial = @import("../support/no_dial_locator.zig");
@@ -29,8 +29,6 @@ const FakeEvent = fixtures.FakeEvent;
 
 test "completion loop supported surface and footprint stay exact" {
     const LoopType = completion.Loop(FakeBackend, no_dial.Unsupported);
-    try std.testing.expectEqual(@as(usize, 880), @sizeOf(LoopType));
-    try std.testing.expectEqual(@as(usize, 8), @alignOf(LoopType));
 
     const expected_names = .{
         "initWithBackend",
@@ -94,6 +92,11 @@ test "completion loop supported surface and footprint stay exact" {
             *const fn (?*anyopaque) void,
         }, void);
     }
+    // Stated under runtime safety, where the loop's own hash map carries
+    // std's one-word `pointer_stability` lock.
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    try std.testing.expectEqual(@as(usize, 880), @sizeOf(LoopType));
+    try std.testing.expectEqual(@as(usize, 8), @alignOf(LoopType));
 }
 
 fn expectSignature(comptime Function: type, comptime Params: []const type, comptime Payload: type) void {

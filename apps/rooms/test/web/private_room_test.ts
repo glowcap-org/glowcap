@@ -109,7 +109,7 @@ spawnOwned("deno", {
 	// A relay dials iroh anywhere and cleartext TCP only where it is told, so
 	// the two addresses this scenario's links name are named here. Production
 	// cross-server joins use authenticated iroh, which needs no such list.
-	env: { PANCAKE_RELAY_TCP_PEERS: `127.0.0.1:${foreignRoomPort},127.0.0.1:${deadPort}` },
+	env: { GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${foreignRoomPort},127.0.0.1:${deadPort}` },
 	stdout: "null",
 	stderr: "inherit",
 });

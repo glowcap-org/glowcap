@@ -1,9 +1,9 @@
-//! An agent, written on pancake actors in native Zig, on the connection driver.
+//! An agent, written on glowcap actors in native Zig, on the connection driver.
 //! It connects to the tools coordinator (which may be written in any language)
 //! and proves the three capability properties (delegation, attenuation, and
 //! revocation) over the wire.
 //!
-//!   pancake-tools-agent <port> <nick>
+//!   glowcap-tools-agent <port> <nick>
 //!
 //! One owning `driver.connect` is the whole setup. Each request is one
 //! `session.call`, which blocks until the reply settles and returns the outcome
@@ -11,14 +11,14 @@
 //! ownership, and I/O stay visible without a callback in sight.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const demo_check = @import("demo_tools_check");
 const demo_usage = @import("demo_usage");
 
-const actors = pancake.actors;
-const driver = pancake.driver;
-const tcp = pancake.net.tcp;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const tcp = glowcap.net.tcp;
 
 const host = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
@@ -95,5 +95,5 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn fail(message: []const u8) error{Usage} {
-    return demo_usage.usage("usage: pancake-tools-agent <port> <nick>", message);
+    return demo_usage.usage("usage: glowcap-tools-agent <port> <nick>", message);
 }

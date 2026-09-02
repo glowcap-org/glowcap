@@ -4,7 +4,7 @@
 ;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
 ;; (part of `check`) fails when this is stale.
 ;;
-;; The raw `ffi/unsafe` table of libpancake_ocapn, the core archive. The
+;; The raw `ffi/unsafe` table of libglowcap_ocapn, the core archive. The
 ;; hand-written sibling (`ffi-ocapn.rkt`) owns the prose and re-provides
 ;; this module together with the shared cstruct vocabulary.
 (require ffi/unsafe
@@ -12,154 +12,154 @@
          "ffi-shared.rkt"
          "constants-gen.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
-                     pancake_abi_version*
-                     pancake_context_next_failure*
-                     pancake_locator_record_encode*
-                     pancake_uri_parse_peer*
-                     pancake_uri_parse_peer_in*
-                     pancake_uri_parse_sturdyref*
-                     pancake_uri_parse_sturdyref_in*
-                     pancake_uri_format_peer*
-                     pancake_uri_format_sturdyref*
-                     pancake_locator_new*
-                     pancake_locator_new_in*
-                     pancake_locator_clone*
-                     pancake_locator_clone_in*
-                     pancake_locator_borrow_view*
-                     pancake_sturdyref_borrow_locator*
-                     pancake_sturdyref_swissnum*
-                     pancake_locator_transport*
-                     pancake_locator_designator*
-                     pancake_designator_host_port*
-                     pancake_locator_hint_count*
-                     pancake_locator_hint_wire_form*
-                     pancake_context_new*))
+                     glowcap_abi_version*
+                     glowcap_context_next_failure*
+                     glowcap_locator_record_encode*
+                     glowcap_uri_parse_peer*
+                     glowcap_uri_parse_peer_in*
+                     glowcap_uri_parse_sturdyref*
+                     glowcap_uri_parse_sturdyref_in*
+                     glowcap_uri_format_peer*
+                     glowcap_uri_format_sturdyref*
+                     glowcap_locator_new*
+                     glowcap_locator_new_in*
+                     glowcap_locator_clone*
+                     glowcap_locator_clone_in*
+                     glowcap_locator_borrow_view*
+                     glowcap_sturdyref_borrow_locator*
+                     glowcap_sturdyref_swissnum*
+                     glowcap_locator_transport*
+                     glowcap_locator_designator*
+                     glowcap_designator_host_port*
+                     glowcap_locator_hint_count*
+                     glowcap_locator_hint_wire_form*
+                     glowcap_context_new*))
 
-(define ocapn-lib (open-pancake-archive "pancake_ocapn"))
+(define ocapn-lib (open-glowcap-archive "glowcap_ocapn"))
 
-(define-ffi-definer define-pancake ocapn-lib)
+(define-ffi-definer define-glowcap ocapn-lib)
 
-(define-pancake pancake_ocapn_archive_fingerprint (_fun -> _uint64))
-(define-pancake pancake_abi_version*
+(define-glowcap glowcap_ocapn_archive_fingerprint (_fun -> _uint64))
+(define-glowcap glowcap_abi_version*
   (_fun _pointer _pointer _pointer -> _void)
-  #:c-id pancake_abi_version)
-(define (pancake_abi_version)
+  #:c-id glowcap_abi_version)
+(define (glowcap_abi_version)
   (define-values (_rc out0 out1 out2)
     (call/outs (list (cons _uint32 0) (cons _uint32 0) (cons _uint32 0))
              (lambda (out0 out1 out2)
-               (pancake_abi_version* out0 out1 out2)
+               (glowcap_abi_version* out0 out1 out2)
                0)))
   (values out0 out1 out2))
-(define-pancake pancake_last_error (_fun _pointer _size -> _size))
-(define-pancake pancake_context_report_failure (_fun _pointer (_or-null _PancakeFailureReport-pointer) -> _int32))
-(define-pancake pancake_context_next_failure*
-  (_fun _pointer (_or-null _PancakeFailureEvent-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_context_next_failure)
-(define pancake_context_next_failure (wrap-out1 pancake_context_next_failure* _size 0))
-(define-pancake pancake_context_release (_fun _pointer -> _void))
-(define-pancake pancake_managed_frame_release (_fun (_or-null _PancakeManagedFrame-pointer) -> _void))
-(define-pancake pancake_locator_record_encode*
-  (_fun (_or-null _PancakeLocatorView-pointer) _pointer _pointer -> _int32)
-  #:c-id pancake_locator_record_encode)
-(define (pancake_locator_record_encode locator)
+(define-glowcap glowcap_last_error (_fun _pointer _size -> _size))
+(define-glowcap glowcap_context_report_failure (_fun _pointer (_or-null _GlowcapFailureReport-pointer) -> _int32))
+(define-glowcap glowcap_context_next_failure*
+  (_fun _pointer (_or-null _GlowcapFailureEvent-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_context_next_failure)
+(define glowcap_context_next_failure (wrap-out1 glowcap_context_next_failure* _size 0))
+(define-glowcap glowcap_context_release (_fun _pointer -> _void))
+(define-glowcap glowcap_managed_frame_release (_fun (_or-null _GlowcapManagedFrame-pointer) -> _void))
+(define-glowcap glowcap_locator_record_encode*
+  (_fun (_or-null _GlowcapLocatorView-pointer) _pointer _pointer -> _int32)
+  #:c-id glowcap_locator_record_encode)
+(define (glowcap_locator_record_encode locator)
   (call/outs (list (cons _pointer #f) (cons _size 0))
              (lambda (out0 out1)
-               (pancake_locator_record_encode* locator out0 out1))))
-(define-pancake pancake_locator_record_bytes_release (_fun _pointer _size -> _void))
-(define-pancake pancake_uri_parse_peer*
+               (glowcap_locator_record_encode* locator out0 out1))))
+(define-glowcap glowcap_locator_record_bytes_release (_fun _pointer _size -> _void))
+(define-glowcap glowcap_uri_parse_peer*
   (_fun _pointer _size _pointer -> _int32)
-  #:c-id pancake_uri_parse_peer)
-(define pancake_uri_parse_peer (wrap-out1 pancake_uri_parse_peer* _pointer #f))
-(define-pancake pancake_uri_parse_peer_in*
+  #:c-id glowcap_uri_parse_peer)
+(define glowcap_uri_parse_peer (wrap-out1 glowcap_uri_parse_peer* _pointer #f))
+(define-glowcap glowcap_uri_parse_peer_in*
   (_fun _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_uri_parse_peer_in)
-(define pancake_uri_parse_peer_in (wrap-out1 pancake_uri_parse_peer_in* _pointer #f))
-(define-pancake pancake_uri_parse_sturdyref*
+  #:c-id glowcap_uri_parse_peer_in)
+(define glowcap_uri_parse_peer_in (wrap-out1 glowcap_uri_parse_peer_in* _pointer #f))
+(define-glowcap glowcap_uri_parse_sturdyref*
   (_fun _uint32 _pointer _size _pointer -> _int32)
-  #:c-id pancake_uri_parse_sturdyref)
-(define pancake_uri_parse_sturdyref (wrap-out1 pancake_uri_parse_sturdyref* _pointer #f))
-(define-pancake pancake_uri_parse_sturdyref_in*
+  #:c-id glowcap_uri_parse_sturdyref)
+(define glowcap_uri_parse_sturdyref (wrap-out1 glowcap_uri_parse_sturdyref* _pointer #f))
+(define-glowcap glowcap_uri_parse_sturdyref_in*
   (_fun _pointer _uint32 _pointer _size _pointer -> _int32)
-  #:c-id pancake_uri_parse_sturdyref_in)
-(define pancake_uri_parse_sturdyref_in (wrap-out1 pancake_uri_parse_sturdyref_in* _pointer #f))
-(define-pancake pancake_uri_format_peer*
+  #:c-id glowcap_uri_parse_sturdyref_in)
+(define glowcap_uri_parse_sturdyref_in (wrap-out1 glowcap_uri_parse_sturdyref_in* _pointer #f))
+(define-glowcap glowcap_uri_format_peer*
   (_fun _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size _pointer _size _pointer -> _int32)
-  #:c-id pancake_uri_format_peer)
-(define pancake_uri_format_peer (wrap-out1 pancake_uri_format_peer* _size 0))
-(define-pancake pancake_uri_format_sturdyref*
+  #:c-id glowcap_uri_format_peer)
+(define glowcap_uri_format_peer (wrap-out1 glowcap_uri_format_peer* _size 0))
+(define-glowcap glowcap_uri_format_sturdyref*
   (_fun _uint32 _pointer _size _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size _pointer _size _pointer -> _int32)
-  #:c-id pancake_uri_format_sturdyref)
-(define pancake_uri_format_sturdyref (wrap-out1 pancake_uri_format_sturdyref* _size 0))
-(define-pancake pancake_locator_new*
+  #:c-id glowcap_uri_format_sturdyref)
+(define glowcap_uri_format_sturdyref (wrap-out1 glowcap_uri_format_sturdyref* _size 0))
+(define-glowcap glowcap_locator_new*
   (_fun _pointer _size _pointer _size _uint32 _pointer -> _int32)
-  #:c-id pancake_locator_new)
-(define pancake_locator_new (wrap-out1 pancake_locator_new* _pointer #f))
-(define-pancake pancake_locator_new_in*
+  #:c-id glowcap_locator_new)
+(define glowcap_locator_new (wrap-out1 glowcap_locator_new* _pointer #f))
+(define-glowcap glowcap_locator_new_in*
   (_fun _pointer _pointer _size _pointer _size _uint32 _pointer -> _int32)
-  #:c-id pancake_locator_new_in)
-(define pancake_locator_new_in (wrap-out1 pancake_locator_new_in* _pointer #f))
-(define-pancake pancake_locator_clone*
-  (_fun (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
-  #:c-id pancake_locator_clone)
-(define pancake_locator_clone (wrap-out1 pancake_locator_clone* _pointer #f))
-(define-pancake pancake_locator_clone_in*
-  (_fun _pointer (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
-  #:c-id pancake_locator_clone_in)
-(define pancake_locator_clone_in (wrap-out1 pancake_locator_clone_in* _pointer #f))
-(define-pancake pancake_locator_borrow_view*
+  #:c-id glowcap_locator_new_in)
+(define glowcap_locator_new_in (wrap-out1 glowcap_locator_new_in* _pointer #f))
+(define-glowcap glowcap_locator_clone*
+  (_fun (_or-null _GlowcapLocatorView-pointer) _pointer -> _int32)
+  #:c-id glowcap_locator_clone)
+(define glowcap_locator_clone (wrap-out1 glowcap_locator_clone* _pointer #f))
+(define-glowcap glowcap_locator_clone_in*
+  (_fun _pointer (_or-null _GlowcapLocatorView-pointer) _pointer -> _int32)
+  #:c-id glowcap_locator_clone_in)
+(define glowcap_locator_clone_in (wrap-out1 glowcap_locator_clone_in* _pointer #f))
+(define-glowcap glowcap_locator_borrow_view*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_locator_borrow_view)
-(define pancake_locator_borrow_view (wrap-out1 pancake_locator_borrow_view* _PancakeLocatorView-pointer/null #f))
-(define-pancake pancake_sturdyref_borrow_locator*
+  #:c-id glowcap_locator_borrow_view)
+(define glowcap_locator_borrow_view (wrap-out1 glowcap_locator_borrow_view* _GlowcapLocatorView-pointer/null #f))
+(define-glowcap glowcap_sturdyref_borrow_locator*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_sturdyref_borrow_locator)
-(define pancake_sturdyref_borrow_locator
-  (wrap-out1 pancake_sturdyref_borrow_locator* _PancakeLocatorView-pointer/null #f))
-(define-pancake pancake_sturdyref_swissnum*
+  #:c-id glowcap_sturdyref_borrow_locator)
+(define glowcap_sturdyref_borrow_locator
+  (wrap-out1 glowcap_sturdyref_borrow_locator* _GlowcapLocatorView-pointer/null #f))
+(define-glowcap glowcap_sturdyref_swissnum*
   (_fun _pointer _pointer _pointer -> _int32)
-  #:c-id pancake_sturdyref_swissnum)
-(define (pancake_sturdyref_swissnum sturdyref)
+  #:c-id glowcap_sturdyref_swissnum)
+(define (glowcap_sturdyref_swissnum sturdyref)
   (call/outs (list (cons _pointer #f) (cons _size 0))
              (lambda (out0 out1)
-               (pancake_sturdyref_swissnum* sturdyref out0 out1))))
-(define-pancake pancake_sturdyref_release (_fun _pointer -> _void))
-(define-pancake pancake_locator_add_string (_fun _pointer _pointer _size _pointer _size -> _int32))
-(define-pancake pancake_locator_add_bytes (_fun _pointer _pointer _size _pointer _size -> _int32))
-(define-pancake pancake_locator_add_boolean (_fun _pointer _pointer _size _uint8 -> _int32))
-(define-pancake pancake_locator_add_integer (_fun _pointer _pointer _size _int64 -> _int32))
-(define-pancake pancake_locator_transport*
+               (glowcap_sturdyref_swissnum* sturdyref out0 out1))))
+(define-glowcap glowcap_sturdyref_release (_fun _pointer -> _void))
+(define-glowcap glowcap_locator_add_string (_fun _pointer _pointer _size _pointer _size -> _int32))
+(define-glowcap glowcap_locator_add_bytes (_fun _pointer _pointer _size _pointer _size -> _int32))
+(define-glowcap glowcap_locator_add_boolean (_fun _pointer _pointer _size _uint8 -> _int32))
+(define-glowcap glowcap_locator_add_integer (_fun _pointer _pointer _size _int64 -> _int32))
+(define-glowcap glowcap_locator_transport*
   (_fun _pointer _pointer _pointer -> _int32)
-  #:c-id pancake_locator_transport)
-(define (pancake_locator_transport loc)
+  #:c-id glowcap_locator_transport)
+(define (glowcap_locator_transport loc)
   (call/outs (list (cons _pointer #f) (cons _size 0))
              (lambda (out0 out1)
-               (pancake_locator_transport* loc out0 out1))))
-(define-pancake pancake_locator_designator*
+               (glowcap_locator_transport* loc out0 out1))))
+(define-glowcap glowcap_locator_designator*
   (_fun _pointer _pointer _pointer -> _int32)
-  #:c-id pancake_locator_designator)
-(define (pancake_locator_designator loc)
+  #:c-id glowcap_locator_designator)
+(define (glowcap_locator_designator loc)
   (call/outs (list (cons _pointer #f) (cons _size 0))
              (lambda (out0 out1)
-               (pancake_locator_designator* loc out0 out1))))
-(define-pancake pancake_designator_host_port*
+               (glowcap_locator_designator* loc out0 out1))))
+(define-glowcap glowcap_designator_host_port*
   (_fun _pointer _size _pointer _pointer _pointer -> _int32)
-  #:c-id pancake_designator_host_port)
-(define (pancake_designator_host_port designator designator-len)
+  #:c-id glowcap_designator_host_port)
+(define (glowcap_designator_host_port designator designator-len)
   (call/outs (list (cons _pointer #f) (cons _size 0) (cons _uint16 0))
              (lambda (out0 out1 out2)
-               (pancake_designator_host_port* designator designator-len out0 out1 out2))))
-(define-pancake pancake_locator_hint_count*
+               (glowcap_designator_host_port* designator designator-len out0 out1 out2))))
+(define-glowcap glowcap_locator_hint_count*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_locator_hint_count)
-(define pancake_locator_hint_count (wrap-out1 pancake_locator_hint_count* _size 0))
-(define-pancake pancake_locator_hint_at
-  (_fun _pointer _size (_or-null _PancakeLocatorHintView-pointer) -> _int32))
-(define-pancake pancake_locator_hint_wire_form*
+  #:c-id glowcap_locator_hint_count)
+(define glowcap_locator_hint_count (wrap-out1 glowcap_locator_hint_count* _size 0))
+(define-glowcap glowcap_locator_hint_at
+  (_fun _pointer _size (_or-null _GlowcapLocatorHintView-pointer) -> _int32))
+(define-glowcap glowcap_locator_hint_wire_form*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_locator_hint_wire_form)
-(define pancake_locator_hint_wire_form (wrap-out1 pancake_locator_hint_wire_form* _uint32 0))
-(define-pancake pancake_locator_release (_fun _pointer -> _void))
-(define-pancake pancake_context_new*
+  #:c-id glowcap_locator_hint_wire_form)
+(define glowcap_locator_hint_wire_form (wrap-out1 glowcap_locator_hint_wire_form* _uint32 0))
+(define-glowcap glowcap_locator_release (_fun _pointer -> _void))
+(define-glowcap glowcap_context_new*
   (_fun _pointer -> _int32)
-  #:c-id pancake_context_new)
-(define pancake_context_new (wrap-out1 pancake_context_new* _pointer #f))
+  #:c-id glowcap_context_new)
+(define glowcap_context_new (wrap-out1 glowcap_context_new* _pointer #f))

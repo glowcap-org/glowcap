@@ -19,7 +19,7 @@ import type {
 	SymbolDef,
 	Symbols,
 } from "../runtime.ts";
-import { BINDING_STREAM_READ_CHUNK_BYTES } from "@pancake/abi";
+import { BINDING_STREAM_READ_CHUNK_BYTES } from "@glowcap/abi";
 import { type PtrBridge, wrapCallbackFn, wrapSymbols } from "./ptr_wrap.ts";
 
 // deno-lint-ignore no-explicit-any

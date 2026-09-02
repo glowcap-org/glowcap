@@ -6,14 +6,14 @@
 //! module owns the one Rust projection of that fixed C record; policy remains
 //! native.
 
-use crate::sys::driver::{self as ffi, PancakeDriverFailure, PancakeDriverLoop};
-use crate::sys::PancakeTransportProvider;
+use crate::sys::driver::{self as ffi, GlowcapDriverFailure, GlowcapDriverLoop};
+use crate::sys::GlowcapTransportProvider;
 use crate::{Error, Result};
 
-fn empty() -> PancakeDriverFailure {
-	PancakeDriverFailure {
+fn empty() -> GlowcapDriverFailure {
+	GlowcapDriverFailure {
 		abi_version: crate::sys::DRIVER_FAILURE_ABI_VERSION,
-		struct_size: core::mem::size_of::<PancakeDriverFailure>(),
+		struct_size: core::mem::size_of::<GlowcapDriverFailure>(),
 		primary_result: crate::sys::OK,
 		secondary_result: crate::sys::OK,
 		secondary_count: 0,
@@ -45,7 +45,7 @@ unsafe fn name(ptr: *const u8, len: usize, field: &str) -> Result<String> {
 	Ok(text.to_owned())
 }
 
-fn decode(code: i32, raw: PancakeDriverFailure, operation: &str) -> Result<()> {
+fn decode(code: i32, raw: GlowcapDriverFailure, operation: &str) -> Result<()> {
 	let carrier = crate::carrier_failure::decode(
 		raw.carrier_phase,
 		raw.carrier_detail_flags,
@@ -92,24 +92,24 @@ fn decode(code: i32, raw: PancakeDriverFailure, operation: &str) -> Result<()> {
 	Err(error)
 }
 
-pub(crate) fn add_provider(loop_: *mut PancakeDriverLoop, provider: *const PancakeTransportProvider) -> Result<()> {
+pub(crate) fn add_provider(loop_: *mut GlowcapDriverLoop, provider: *const GlowcapTransportProvider) -> Result<()> {
 	let mut failure = empty();
-	let code = unsafe { ffi::pancake_driver_add_provider(loop_, provider, &mut failure) };
+	let code = unsafe { ffi::glowcap_driver_add_provider(loop_, provider, &mut failure) };
 	decode(code, failure, "driver add_provider")
 }
 
-pub(crate) fn close_listener(loop_: *mut PancakeDriverLoop, listener: u64) -> Result<bool> {
+pub(crate) fn close_listener(loop_: *mut GlowcapDriverLoop, listener: u64) -> Result<bool> {
 	let mut failure = empty();
-	let code = unsafe { ffi::pancake_driver_listener_close(loop_, listener, &mut failure) };
+	let code = unsafe { ffi::glowcap_driver_listener_close(loop_, listener, &mut failure) };
 	if code == crate::sys::WOULD_BLOCK {
 		return Ok(false);
 	}
 	decode(code, failure, "driver listener_close").map(|()| true)
 }
 
-pub(crate) fn release(loop_: *mut PancakeDriverLoop) -> (i32, Result<()>) {
+pub(crate) fn release(loop_: *mut GlowcapDriverLoop) -> (i32, Result<()>) {
 	let mut failure = empty();
-	let code = unsafe { ffi::pancake_driver_release(loop_, &mut failure) };
+	let code = unsafe { ffi::glowcap_driver_release(loop_, &mut failure) };
 	(code, decode(code, failure, "driver release"))
 }
 

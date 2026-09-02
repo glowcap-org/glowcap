@@ -1,6 +1,6 @@
 // Whether Share may publish a WebRTC sturdyref.
 
-import { TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { TRANSPORT_WEBRTC } from "@glowcap/runtime";
 import { webrtcHomeShareReady, webrtcShareRefusal } from "../web/ui/session/host_reach.ts";
 import { assertEquals } from "./assert.ts";
 

@@ -1,7 +1,7 @@
 // Internal: the one place the binding touches a runtime.
 //
 // The whole binding is runtime-neutral TypeScript except for two seams: the FFI
-// that loads the pancake archives and calls their symbols, and the sockets the
+// that loads the glowcap archives and calls their symbols, and the sockets the
 // async transport rides. This module declares both as interfaces, detects which
 // JavaScript runtime is hosting the binding (Deno or Bun), and loads the
 // matching adapter. Everything above — `mod.ts`, the transport modules, the
@@ -175,9 +175,9 @@ function detectRuntime(): RuntimeName {
  * imports the runtime. The browser package (`bindings/ts/web`) instantiates the
  * wasm module, builds its adapter (FFI over linear memory, sockets over
  * WebSocket, layout from the module's own descriptor), sets this global, and
- * only then imports `@pancake/runtime`, so this seam resolves it here instead
+ * only then imports `@glowcap/runtime`, so this seam resolves it here instead
  * of probing for a runtime the browser does not have. */
-export const injected_adapter_key = Symbol.for("pancake.runtime.adapter");
+export const injected_adapter_key = Symbol.for("glowcap.runtime.adapter");
 
 /** The active adapter, resolved without a top-level await. An injected
  * adapter (the wasm browser binding) and Deno resolve here synchronously; Bun
@@ -252,7 +252,7 @@ function active(): RuntimeAdapter {
 	adoptInjectedAdapter();
 	if (!selected) {
 		throw new Error(
-			"pancake: FFI runtime not ready — await ensureRuntimeReady() before " +
+			"glowcap: FFI runtime not ready — await ensureRuntimeReady() before " +
 				"the first FFI/socket use (Bun); Deno and the browser resolve synchronously",
 		);
 	}

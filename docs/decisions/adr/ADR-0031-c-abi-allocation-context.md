@@ -3,7 +3,7 @@ id: ADR-0031
 status: accepted
 date: 2026-06-06
 tags: [c_abi, memory, performance, api]
-decision: "Allocation policy for the C ABI is a `PancakeContext`: an explicit, caller-owned handle that owns the allocator for a whole handle family. The simple constructors keep the library-owned allocator; the `*_in` constructors allocate a peer or netlayer (and everything it owns (managed outbound/event frames, adopted inbound frames, TCP connection/listener payloads and their buffers, the context object itself)) through one context, freed back through it. The host surface is `alloc` + `free` only (size + alignment explicit, no `realloc`); the context must outlive its handles. Teardown vocabulary is `_release` for `_new`-created handles, `_close` for endpoints."
+decision: "Allocation policy for the C ABI is a `GlowcapContext`: an explicit, caller-owned handle that owns the allocator for a whole handle family. The simple constructors keep the library-owned allocator; the `*_in` constructors allocate a peer or netlayer (and everything it owns (managed outbound/event frames, adopted inbound frames, TCP connection/listener payloads and their buffers, the context object itself)) through one context, freed back through it. The host surface is `alloc` + `free` only (size + alignment explicit, no `realloc`); the context must outlive its handles. Teardown vocabulary is `_release` for `_new`-created handles, `_close` for endpoints."
 supersedes: []
 superseded_by: []
 ---
@@ -13,11 +13,11 @@ superseded_by: []
 ## Context
 
 A C embedder must be able to choose allocation policy for the C ABI: an arena,
-a tracked heap, a guarded pool: and have _every_ pancake allocation honor it,
-not just some. The naive shape, a per-handle `pancake_peer_new_in`,
+a tracked heap, a guarded pool: and have _every_ glowcap allocation honor it,
+not just some. The naive shape, a per-handle `glowcap_peer_new_in`,
 is a footgun: it scatters the policy across constructors, says nothing about the
 frames and buffers a handle later allocates, and tempts a caller to `free` a
-pancake-owned object by hand. A Zig `std.mem.Allocator` cannot cross the C ABI
+glowcap-owned object by hand. A Zig `std.mem.Allocator` cannot cross the C ABI
 at all.
 
 This sits on three [First Principles](../../../AGENTS.md#first-principles):
@@ -32,13 +32,13 @@ introduced for the netlayer handle.
 
 ## Decision
 
-**`PancakeContext` is the explicit owner of allocation policy for a handle
+**`GlowcapContext` is the explicit owner of allocation policy for a handle
 family** ([`src/c_abi/ocapn/mod.zig`](../../../src/c_abi/ocapn/mod.zig)).
-`pancake_context_new` routes through the library allocator;
-`pancake_context_new_with_allocator` routes through host `alloc` / `free`
-callbacks. The `*_in` constructors (`pancake_peer_new_in`,
-`pancake_tcp_netlayer_new_in`) allocate from a context, and the simple
-constructors (`pancake_peer_new`, `pancake_tcp_netlayer_new`) keep the
+`glowcap_context_new` routes through the library allocator;
+`glowcap_context_new_with_allocator` routes through host `alloc` / `free`
+callbacks. The `*_in` constructors (`glowcap_peer_new_in`,
+`glowcap_tcp_netlayer_new_in`) allocate from a context, and the simple
+constructors (`glowcap_peer_new`, `glowcap_tcp_netlayer_new`) keep the
 library-owned policy for the common caller who does not care.
 
 **Every allocation a context-scoped handle makes frees back through that
@@ -49,7 +49,7 @@ a host-backed family frees entirely through host policy). The mechanism is
 _derive-from-parent_: a peer keeps its allocator (`engine.Peer.allocator`), a
 netlayer keeps its allocator, and every managed-frame / connection / listener
 payload carries the allocator it was minted from. Release routes through the
-stored allocator, so the _same_ `pancake_*_release` works for both the simple
+stored allocator, so the _same_ `glowcap_*_release` works for both the simple
 and `*_in` paths, and a frame can even move between contexts because each
 allocation remembers its own origin. C callers free only through the explicit
 release functions: the context is policy, never a `free` a caller invokes by
@@ -76,21 +76,21 @@ created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
 ## Scope (what this does not decide)
 
 - **No per-allocation hooks.** A context binds one `alloc` / `free` pair;
-  pancake does not expose per-call tags, categories, or instrumentation seams.
+  glowcap does not expose per-call tags, categories, or instrumentation seams.
 - **No `realloc` / in-place resize callback.** It cannot preserve the
   size-equals-size invariant or guarantee alignment of a relocated block, so it
   is absent by construction, not deferred.
 - **No reference-counted context lifetime.** The context outlives its handles by
-  caller contract; pancake does not track or enforce live-handle counts.
+  caller contract; glowcap does not track or enforce live-handle counts.
 - **No allocation policy below `c_abi`.** The core layers neither know nor name
-  a `PancakeContext`; allocation policy crosses as plain C callbacks at the C
+  a `GlowcapContext`; allocation policy crosses as plain C callbacks at the C
   ABI and as a `std.mem.Allocator` argument inside Zig.
 
 ## Alternatives Considered
 
-- **Per-handle `pancake_peer_new_in`.** Rejected: scatters policy
+- **Per-handle `glowcap_peer_new_in`.** Rejected: scatters policy
   across constructors, silent about the frames/buffers a handle later allocates,
-  and invites a caller to `free` a pancake-owned object directly.
+  and invites a caller to `free` a glowcap-owned object directly.
 - **Expose a `std.mem.Allocator` across the C ABI.** Rejected: a Zig allocator
   vtable cannot be named or constructed by a C host; policy must cross as plain
   `alloc` / `free` callbacks.
@@ -106,11 +106,11 @@ created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
 
 ## Consequences
 
-- `c_abi` gains `PancakeContext` / `PancakeAllocator` and the
-  `pancake_context_*` / `*_in` constructors; the C ABI handle payloads carry a
-  `std.mem.Allocator`, and `pancake_tcp_netlayer_release` is renamed
-  `pancake_tcp_netlayer_release` to make teardown uniform.
-- `pancake.h`, `README.md`, `docs/architecture.md`, and `bindings/README.md`
+- `c_abi` gains `GlowcapContext` / `GlowcapAllocator` and the
+  `glowcap_context_*` / `*_in` constructors; the C ABI handle payloads carry a
+  `std.mem.Allocator`, and `glowcap_tcp_netlayer_release` is renamed
+  `glowcap_tcp_netlayer_release` to make teardown uniform.
+- `glowcap.h`, `README.md`, `docs/architecture.md`, and `bindings/README.md`
   state the contract authoritatively.
 - Evidence: balance and lifecycle tests over default and host-backed contexts,
   including session-table growth, outbound/event/adopted frames, `feed_owned`
@@ -125,8 +125,8 @@ created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
 The C ABI carries a typed driving surface, so a non-Zig binding can drive OCapN
 directly: construct an `op:deliver` or `op:resolve`, and read a delivery or
 resolution as structured values: instead of only shuttling opaque frames. The
-outbound path marshals fixed-layout C structs (`PancakeReference` /
-`PancakeArgument`) into a model message through `Peer.sendCopying`, the named
+outbound path marshals fixed-layout C structs (`GlowcapReference` /
+`GlowcapArgument`) into a model message through `Peer.sendCopying`, the named
 boundary copy. The inbound path materializes one event into a per-event arena
 and projects C views that alias it, released by a `*_free`. The struct layouts
 are frozen ABI. This is what lets a binding _drive_ OCapN rather than relay

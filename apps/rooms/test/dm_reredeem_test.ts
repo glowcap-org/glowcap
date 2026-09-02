@@ -17,7 +17,7 @@
 //   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/test/dm_reredeem_test.ts
 
 import process from "node:process";
-import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
+import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@glowcap/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
 import { RoomServer } from "../server/room_server.ts";

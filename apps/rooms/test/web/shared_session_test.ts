@@ -42,10 +42,10 @@ const roomPort = freePort();
 const sessionPort = freePort();
 const adoptionSessionPort = freePort();
 const setupSessionPort = freePort();
-const roomState = await Deno.makeTempDir({ prefix: "pancake-rooms-shared-web-room-" });
-const sessionState = await Deno.makeTempDir({ prefix: "pancake-rooms-shared-web-session-" });
-const adoptionState = await Deno.makeTempDir({ prefix: "pancake-rooms-adoption-web-session-" });
-const setupState = await Deno.makeTempDir({ prefix: "pancake-rooms-setup-web-session-" });
+const roomState = await Deno.makeTempDir({ prefix: "glowcap-rooms-shared-web-room-" });
+const sessionState = await Deno.makeTempDir({ prefix: "glowcap-rooms-shared-web-session-" });
+const adoptionState = await Deno.makeTempDir({ prefix: "glowcap-rooms-adoption-web-session-" });
+const setupState = await Deno.makeTempDir({ prefix: "glowcap-rooms-setup-web-session-" });
 const checkpointPath = `${sessionState}/checkpoint.json`;
 const locator = loopbackTcpDesignator(roomPort);
 const directory = roomsPeerAuthority(roomsLocator(locator));
@@ -64,7 +64,7 @@ function startSessionPeer(state: string, port: number, checkpoint?: string): Den
 			`--allow-read=${ROOT},${state}`,
 			`--allow-write=${state}`,
 			"--allow-net=127.0.0.1",
-			"--allow-env=PANCAKE_LIB_DIR",
+			"--allow-env=GLOWCAP_LIB_DIR",
 			SESSION,
 			`--state=${state}`,
 			...(checkpoint == null ? [] : [`--checkpoint=${checkpoint}`]),
@@ -72,7 +72,7 @@ function startSessionPeer(state: string, port: number, checkpoint?: string): Den
 			`--port=${port}`,
 		],
 		cwd: ROOT,
-		env: { PANCAKE_ROOMS_SESSION_RELAY_URL: `ws://127.0.0.1:${httpPort}/relay` },
+		env: { GLOWCAP_ROOMS_SESSION_RELAY_URL: `ws://127.0.0.1:${httpPort}/relay` },
 		stdout: "piped",
 		stderr: "inherit",
 	});
@@ -94,10 +94,10 @@ try {
 		],
 		cwd: ROOT,
 		env: {
-			PANCAKE_RELAY_TCP_PEERS:
+			GLOWCAP_RELAY_TCP_PEERS:
 				`127.0.0.1:${sessionPort},127.0.0.1:${adoptionSessionPort},127.0.0.1:${setupSessionPort}`,
-			PANCAKE_ROOMS_STATE: roomState,
-			PANCAKE_ROOMS_OPERATOR: "1",
+			GLOWCAP_ROOMS_STATE: roomState,
+			GLOWCAP_ROOMS_OPERATOR: "1",
 		},
 		stdout: "piped",
 		stderr: "inherit",

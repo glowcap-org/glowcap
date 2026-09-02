@@ -32,7 +32,7 @@
 ;; vanished from. The worker therefore syncs on the connection itself, not on
 ;; `ws-conn-closed?`, which a socket nobody reads can never flip.
 ;;
-;; Nothing is published unless an endpoint is configured. `PANCAKE_ROOMS_VIZ_URL` names
+;; Nothing is published unless an endpoint is configured. `GLOWCAP_ROOMS_VIZ_URL` names
 ;; one; with the variable unset the vat holds no socket and emits no record.
 
 (require json
@@ -54,16 +54,16 @@
 (define publish-path "publish")
 
 ;; The environment variable that names the endpoint.
-(define trace-endpoint-variable "PANCAKE_ROOMS_VIZ_URL")
+(define trace-endpoint-variable "GLOWCAP_ROOMS_VIZ_URL")
 
 ;; What this producer answers when a record asks what it runs. A constant and
 ;; not an argument: the vat behind this publisher is a Goblins vat, and letting
 ;; a caller name itself something else would put a claim on the wire that
 ;; nothing here could stand behind. The schema is not one implementation's mark
-;; — pancake's own hosts publish the same records, saying `pancake` — so a
+;; — glowcap's own hosts publish the same records, saying `glowcap` — so a
 ;; consumer cannot read an implementation off the fact that a record arrived,
 ;; and this is how the vat's own end is named on screen. This word must never
-;; be folded into the one pancake's bindings state: it is a different producer
+;; be folded into the one glowcap's bindings state: it is a different producer
 ;; reporting a different fact, and a shared constant would erase exactly the
 ;; distinction the field exists to carry. `zig build source-check`
 ;; (`checkTraceViewerVocabulary`) pins both words so neither can drift into the

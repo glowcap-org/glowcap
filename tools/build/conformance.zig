@@ -1,5 +1,5 @@
 //! External conformance pressure: the upstream OCapN suite against a
-//! pancake peer (TCP and onion), the pinned-source findings, Syrup corpus
+//! glowcap peer (TCP and onion), the pinned-source findings, Syrup corpus
 //! parity through the upstream encoder, the `check-external` baseline that
 //! bundles them with the live Goblins steps, and the hermetic C-ABI extract
 //! matrix that stays inside `check`.
@@ -9,7 +9,7 @@ const common = @import("common.zig");
 const execution = @import("execution.zig");
 const goblins_build = @import("goblins.zig");
 
-const pancakeExecutable = common.pancakeExecutable;
+const glowcapExecutable = common.glowcapExecutable;
 
 pub fn register(
     b: *std.Build,
@@ -21,22 +21,22 @@ pub fn register(
     goblins_reg: goblins_build.Registered,
 ) void {
     // ── External conformance pressure (siblings of `check`) ──────────────────
-    // A pancake peer the upstream OCapN test suite can dial: it serves the
+    // A glowcap peer the upstream OCapN test suite can dial: it serves the
     // canonical conformance swiss-nums over `tcp-testing-only`. The orchestrator
-    // `run-against-pancake.sh` starts it and runs the suite against it, pointing
-    // the external authority back at pancake. Not part of `check`; needs uv +
+    // `run-against-glowcap.sh` starts it and runs the suite against it, pointing
+    // the external authority back at glowcap. Not part of `check`; needs uv +
     // the suite submodule. The peer installs only for this step, not on every
     // default build.
-    const ocapn_peer_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-ocapn-peer", "conformance/ocapn-conformance/pancake_peer.zig");
+    const ocapn_peer_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-ocapn-peer", "conformance/ocapn-conformance/glowcap_peer.zig");
     const ocapn_tcp_peer_options = b.addOptions();
     ocapn_tcp_peer_options.addOption(bool, "use_onion", false);
     ocapn_peer_exe.root_module.addOptions("ocapn_peer_options", ocapn_tcp_peer_options);
-    // The peer is pure Zig over the pancake API; running the suite needs uv, but
+    // The peer is pure Zig over the glowcap API; running the suite needs uv, but
     // compiling the peer does not, so it rides `check`. A core-API change that
     // breaks this consumer then fails fast on `zig build check` rather than only
     // under the uv-driven ocapn-conformance sibling.
     check_step.dependOn(&ocapn_peer_exe.step);
-    const ocapn_conformance = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "conformance/ocapn-conformance/run-against-pancake.sh", "--peer" });
+    const ocapn_conformance = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--peer" });
     ocapn_conformance.addArtifactArg(ocapn_peer_exe);
     ocapn_conformance.setCwd(b.path("."));
     ocapn_conformance.has_side_effects = true;
@@ -48,23 +48,23 @@ pub fn register(
     const ocapn_peer_install = b.addInstallArtifact(ocapn_peer_exe, .{});
     ocapn_conformance.step.dependOn(&ocapn_peer_install.step);
     if (pin_port) |p| ocapn_conformance.addArg(b.fmt("--port={d}", .{p}));
-    const ocapn_conformance_step = b.step("ocapn-conformance", "Run portable upstream OCapN modules plus the strict abort probe against pancake (needs uv + the ocapn-conformance submodule)");
+    const ocapn_conformance_step = b.step("ocapn-conformance", "Run portable upstream OCapN modules plus the strict abort probe against glowcap (needs uv + the ocapn-conformance submodule)");
     ocapn_conformance_step.dependOn(&ocapn_conformance.step);
 
     // Dedicated upstream pressure over the standardized onion netlayer.
-    // Pancake uses the operator-configured Tor; the pinned suite owns its own
-    // Tor through its upstream OnionNetlayer. The harness starts the pancake
+    // Glowcap uses the operator-configured Tor; the pinned suite owns its own
+    // Tor through its upstream OnionNetlayer. The harness starts the glowcap
     // peer but never replaces the foreign implementation. This remains opt-in
     // because it needs Tor and live network access.
-    const ocapn_onion_peer_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-ocapn-onion-peer", "conformance/ocapn-conformance/pancake_peer.zig");
+    const ocapn_onion_peer_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-ocapn-onion-peer", "conformance/ocapn-conformance/glowcap_peer.zig");
     const ocapn_onion_peer_options = b.addOptions();
     ocapn_onion_peer_options.addOption(bool, "use_onion", true);
     ocapn_onion_peer_exe.root_module.addOptions("ocapn_peer_options", ocapn_onion_peer_options);
-    const ocapn_conformance_onion = execution.addSystemCommand(b, .real_internet, &.{ "bash", "conformance/ocapn-conformance/run-against-pancake-onion.sh", "--peer" });
+    const ocapn_conformance_onion = execution.addSystemCommand(b, .real_internet, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap-onion.sh", "--peer" });
     ocapn_conformance_onion.addArtifactArg(ocapn_onion_peer_exe);
     ocapn_conformance_onion.setCwd(b.path("."));
     ocapn_conformance_onion.has_side_effects = true;
-    const ocapn_conformance_onion_step = b.step("ocapn-conformance-onion", "Run the upstream OCapN suite against pancake over an operator-supplied Tor (needs uv + external Tor + network)");
+    const ocapn_conformance_onion_step = b.step("ocapn-conformance-onion", "Run the upstream OCapN suite against glowcap over an operator-supplied Tor (needs uv + external Tor + network)");
     ocapn_conformance_onion_step.dependOn(&ocapn_conformance_onion.step);
 
     // Reproduce neutral discrepancies across the exact OCapN spec, suite, and
@@ -95,8 +95,8 @@ pub fn register(
     // `check` is deliberately hermetic: it needs no network or live external
     // authority. Its small host tool set is declared by `check_runtimes`
     // above; CLI tests link the trap-on-use iroh stub, so Cargo and its cache
-    // stay outside this gate. A green `check` still proves only that pancake
-    // agrees with pancake. These
+    // stay outside this gate. A green `check` still proves only that glowcap
+    // agrees with glowcap. These
     // are the baseline that can contradict it — the upstream OCapN suite, a live
     // Goblins vat in both handoff roles, the pinned-source finding checks, and
     // the upstream Syrup encoder re-deriving the committed corpus. Run this

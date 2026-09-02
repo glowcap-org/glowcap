@@ -1,5 +1,5 @@
 //! The live timeline producer: a veneer over the native tap. The core is the
-//! one owner of the facts — `pancake_host_set_trace` reports every session's
+//! one owner of the facts — `glowcap_host_set_trace` reports every session's
 //! open (with the partner's designator, whether a durable identity verified
 //! the name, and the codec the handshake actually negotiated), every
 //! message's verb in both directions, and every close. This veneer only
@@ -54,12 +54,12 @@ pub struct TraceEvent {
 	/// and this text does not reach that decision.
 	pub a_label: Option<String>,
 	/// `SessionOpened`: the implementation this producer runs, always
-	/// `"pancake"` here. A statement about the producer, beside the designator
+	/// `"glowcap"` here. A statement about the producer, beside the designator
 	/// it calls itself by and the label it would like to be shown under, and on
 	/// the same footing as the `provenance` verdict below: a conclusion the
 	/// producer states rather than a raw wire fact.
 	///
-	/// It is stated because this schema is not pancake's alone — the Goblins
+	/// It is stated because this schema is not glowcap's alone — the Goblins
 	/// conformance peer publishes the same records — so a consumer cannot read
 	/// an implementation off the fact that a record arrived, and a host that
 	/// says nothing is honestly unknown to it.
@@ -71,7 +71,7 @@ pub struct TraceEvent {
 	pub session_id: Option<String>,
 	pub codec: Option<&'static str>,
 	/// `SessionOpened`: the negotiated CapTP profile by its wire spelling
-	/// (`"1.0"` / `"pancake-next"`). Reported beside the codec because the
+	/// (`"1.0"` / `"glowcap-next"`). Reported beside the codec because the
 	/// two are one decision (ADR-0003).
 	pub captp_version: Option<&'static str>,
 	/// `SessionOpened`: what proved the partner's durable name. Three answers
@@ -113,7 +113,7 @@ pub struct PayloadSummary {
 const PAYLOAD_CAP: usize = BINDING_TRACE_PAYLOAD_CAP_BYTES;
 
 /// What this producer answers when a record asks what it runs. A constant and
-/// not an option: the host behind this binding is a pancake host, and letting
+/// not an option: the host behind this binding is a glowcap host, and letting
 /// an application name itself something else would put a claim on the wire
 /// that nothing here could stand behind.
 ///
@@ -123,7 +123,7 @@ const PAYLOAD_CAP: usize = BINDING_TRACE_PAYLOAD_CAP_BYTES;
 /// (`checkTraceViewerVocabulary`) holds all four against each other, against
 /// the viewer that reads them, and against the Goblins conformance publisher,
 /// which states a different word and must keep stating it.
-const SELF_PROFILE: &str = "pancake";
+const SELF_PROFILE: &str = "glowcap";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraceKind {
@@ -186,7 +186,7 @@ pub fn annotate_session(session: &crate::Session, label: &str) {
 		return;
 	};
 	let mut id: u64 = 0;
-	let code = unsafe { ffi::pancake_host_session_trace_id(session_raw, &mut id) };
+	let code = unsafe { ffi::glowcap_host_session_trace_id(session_raw, &mut id) };
 	if code != 0 {
 		return;
 	}
@@ -221,7 +221,7 @@ pub fn annotate_session(session: &crate::Session, label: &str) {
 }
 
 struct TracedHost {
-	raw: *mut ffi::PancakeHost,
+	raw: *mut ffi::GlowcapHost,
 	/// The small integer passed as the callback ctx so a record can carry
 	/// which host it came from (the Names rule: a bare host-scoped id needs
 	/// its namespace named, or two hosts in one process collide).
@@ -257,7 +257,7 @@ thread_local! {
 
 fn project_native_event(
 	cookie: usize,
-	ev: &ffi::PancakeTraceEvent,
+	ev: &ffi::GlowcapTraceEvent,
 ) -> crate::Result<Option<(Rc<crate::ContextInner>, u64, Rc<dyn Fn(&TraceEvent)>, TraceEvent)>> {
 	STATE.with(|state| {
 		let state = state.try_borrow().map_err(|_| {
@@ -272,7 +272,7 @@ fn project_native_event(
 		let host = state.hosts.iter().find(|host| host.cookie == cookie).ok_or_else(|| {
 			crate::Error::with_detail(
 				crate::sys::ERR_INTERNAL,
-				format!("pancake ABI invoked trace callback for unknown host cookie {cookie}"),
+				format!("glowcap ABI invoked trace callback for unknown host cookie {cookie}"),
 			)
 		})?;
 		let sim_t_ns = state.t0.elapsed().as_nanos() as u64;
@@ -317,13 +317,13 @@ fn project_native_event(
 				} else if ev.frame_len > total_len {
 					return Err(crate::Error::with_detail(
 						crate::sys::ERR_INTERNAL,
-						"pancake ABI returned a trace frame prefix longer than its total length".into(),
+						"glowcap ABI returned a trace frame prefix longer than its total length".into(),
 					));
 				} else if ev.frame_len > 0 {
 					if ev.frame.is_null() {
 						return Err(crate::Error::with_detail(
 							crate::sys::ERR_INTERNAL,
-							"pancake ABI returned a null trace frame with nonzero length".into(),
+							"glowcap ABI returned a null trace frame with nonzero length".into(),
 						));
 					}
 					let frame = unsafe { std::slice::from_raw_parts(ev.frame, ev.frame_len) };
@@ -361,7 +361,7 @@ fn project_native_event(
 						other => {
 							return Err(crate::Error::with_detail(
 								crate::sys::ERR_INTERNAL,
-								format!("pancake ABI returned unknown trace direction {other}"),
+								format!("glowcap ABI returned unknown trace direction {other}"),
 							));
 						}
 					},
@@ -397,7 +397,7 @@ fn project_native_event(
 			other => {
 				return Err(crate::Error::with_detail(
 					crate::sys::ERR_INTERNAL,
-					format!("pancake ABI returned unknown trace event kind {other}"),
+					format!("glowcap ABI returned unknown trace event kind {other}"),
 				));
 			}
 		};
@@ -425,13 +425,13 @@ fn report_callback_failure(cookie: usize, operation: &str, error: crate::Error) 
 	}
 }
 
-unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::PancakeTraceEvent) {
+unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::GlowcapTraceEvent) {
 	let cookie = ctx as usize;
 	let projected = catch_unwind(AssertUnwindSafe(|| {
 		if event.is_null() {
 			return Err(crate::Error::with_detail(
 				crate::sys::ERR_INTERNAL,
-				"pancake ABI invoked trace callback with a null event".into(),
+				"glowcap ABI invoked trace callback with a null event".into(),
 			));
 		}
 		project_native_event(cookie, unsafe { &*event })
@@ -467,7 +467,7 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 		hosts
 	});
 	for (raw, cookie) in hosts {
-		unsafe { ffi::pancake_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
+		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
 	}
 	move || {
 		let hosts = STATE.with(|state| {
@@ -487,7 +487,7 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 			return;
 		};
 		for raw in hosts {
-			unsafe { ffi::pancake_host_set_trace(raw, None, std::ptr::null_mut()) };
+			unsafe { ffi::glowcap_host_set_trace(raw, None, std::ptr::null_mut()) };
 		}
 	}
 }
@@ -509,7 +509,7 @@ fn allocate_trace_cookie(state: &mut TraceState) -> usize {
 /// designator at construction so an installed trace covers it, and a trace
 /// installed later finds it.
 pub(crate) fn attach_host(
-	raw: *mut ffi::PancakeHost,
+	raw: *mut ffi::GlowcapHost,
 	designator: String,
 	context: Rc<crate::ContextInner>,
 	diagnostic_id: u64,
@@ -527,13 +527,13 @@ pub(crate) fn attach_host(
 		state.sink.is_some().then_some(cookie)
 	});
 	if let Some(cookie) = install {
-		unsafe { ffi::pancake_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
+		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
 	}
 }
 
 /// Binding-internal: a released Host leaves the registry. The core dropped
 /// its own sink row with the host, so no native call is needed.
-pub(crate) fn detach_host(raw: *mut ffi::PancakeHost) {
+pub(crate) fn detach_host(raw: *mut ffi::GlowcapHost) {
 	STATE.with(|state| {
 		state.borrow_mut().hosts.retain(|h| h.raw != raw);
 	});
@@ -583,7 +583,7 @@ mod tests {
 			});
 			cookie
 		});
-		let mut event: ffi::PancakeTraceEvent = unsafe { core::mem::zeroed() };
+		let mut event: ffi::GlowcapTraceEvent = unsafe { core::mem::zeroed() };
 		event.kind = u32::MAX;
 		unsafe { on_native_event(cookie as *mut c_void, &event) };
 		let failure = context.next_failure().unwrap().expect("decoder failure is retained");

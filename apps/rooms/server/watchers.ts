@@ -1,7 +1,7 @@
 // Directory-wide observers of live room and registration state.
 
 import type { TroubleJournal } from "./journal.ts";
-import { type Argument, type Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Ref, type Session } from "@glowcap/runtime";
 import { NOTIFY, type RoomRecordShape } from "../lib/protocol.ts";
 
 /** One directory watcher per session, bounded so notification work cannot be

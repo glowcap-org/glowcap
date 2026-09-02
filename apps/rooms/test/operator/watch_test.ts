@@ -1,4 +1,4 @@
-import { type Ref, type Session } from "@pancake/runtime";
+import { type Ref, type Session } from "@glowcap/runtime";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import { OPERATOR_CHANGED, OPERATOR_UNWATCH, OPERATOR_WATCH } from "../../lib/protocol_operator.ts";
 import { subscribeOperator } from "../../lib/operator.ts";

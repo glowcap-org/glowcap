@@ -39,7 +39,7 @@ Deno.test("live result retries join one executor without re-entering its Host", 
 });
 
 Deno.test("a result-bearing checkpoint closes initial workspace adoption", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-result-adoption-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-result-adoption-" });
 	try {
 		const apply = (
 			checkpoint: ReturnType<typeof emptyRoomsSessionState>,
@@ -90,7 +90,7 @@ Deno.test("a result-bearing effect preserves concurrent state and replays each c
 	};
 
 	for (const stage of ["result", "marker", "checkpoint"] as const) {
-		const directory = await Deno.makeTempDir({ prefix: `pancake-rooms-result-${stage}-` });
+		const directory = await Deno.makeTempDir({ prefix: `glowcap-rooms-result-${stage}-` });
 		try {
 			const state = await openSessionState(directory, apply);
 			assertEquals((await prepare(state, `result-${stage}`)).kind, "prepared");
@@ -138,7 +138,7 @@ Deno.test("a result-bearing effect preserves concurrent state and replays each c
 });
 
 Deno.test("a prepared result may be abandoned before it returns authority", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-result-abandon-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-result-abandon-" });
 	try {
 		const state = await openSessionState(directory);
 		await state.prepareResultEffect("private", 0, "private", "private-room", "intent");
@@ -161,7 +161,7 @@ Deno.test("a prepared result may be abandoned before it returns authority", asyn
 });
 
 Deno.test("foreign room-manager recovery refuses before durable effect admission", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-result-foreign-manager-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-result-foreign-manager-" });
 	try {
 		const state = await openSessionState(directory);
 		const checkpoint = workspaceFixture().session;
@@ -199,7 +199,7 @@ Deno.test("foreign room-manager recovery refuses before durable effect admission
 });
 
 Deno.test("a retired bridge abandons its stale capability effect when resumed", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-result-retired-bridge-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-result-retired-bridge-" });
 	try {
 		const state = await openSessionState(directory);
 		const conversation = workspaceFixture().session.conversations[0];
@@ -231,7 +231,7 @@ Deno.test("a retired bridge abandons its stale capability effect when resumed", 
 });
 
 Deno.test("result effect storage refuses obsolete envelopes, bounds authority, and checks markers", async () => {
-	const obsolete = await Deno.makeTempDir({ prefix: "pancake-rooms-result-obsolete-" });
+	const obsolete = await Deno.makeTempDir({ prefix: "glowcap-rooms-result-obsolete-" });
 	try {
 		await openSessionState(obsolete);
 		const path = `${obsolete}/effects.json`;
@@ -245,7 +245,7 @@ Deno.test("result effect storage refuses obsolete envelopes, bounds authority, a
 		await Deno.remove(obsolete, { recursive: true });
 	}
 
-	const bounded = await Deno.makeTempDir({ prefix: "pancake-rooms-result-bounded-" });
+	const bounded = await Deno.makeTempDir({ prefix: "glowcap-rooms-result-bounded-" });
 	try {
 		const state = await openSessionState(bounded);
 		await state.prepareResultEffect("bounded", 0, "bounded", "private-room", "intent");
@@ -264,7 +264,7 @@ Deno.test("result effect storage refuses obsolete envelopes, bounds authority, a
 		await Deno.remove(bounded, { recursive: true });
 	}
 
-	const malformed = await Deno.makeTempDir({ prefix: "pancake-rooms-result-marker-" });
+	const malformed = await Deno.makeTempDir({ prefix: "glowcap-rooms-result-marker-" });
 	try {
 		const state = await openSessionState(malformed);
 		await state.prepareResultEffect("marker", 0, "marker", "private-room", "intent");

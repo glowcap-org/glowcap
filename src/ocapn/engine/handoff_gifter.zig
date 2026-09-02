@@ -19,7 +19,7 @@ const lower = @import("lower.zig");
 const outbound = @import("outbound.zig");
 
 pub const RecipientLocatorPolicy = struct {
-    known_pancake: bool = false,
+    known_glowcap: bool = false,
     route_vocabulary: bool = false,
     /// The transport carrying this recipient's current session. A baseline
     /// peer advertises no outbound-provider set, so this is the only transport
@@ -44,7 +44,7 @@ pub const ExporterLocatorPolicy = struct {
 /// recipient-compatible baseline route; otherwise it fails closed. Private
 /// route hints (`via`) are stripped from a baseline locator instead of leaking
 /// private vocabulary. On onion the
-/// hello is hinted only toward a known-pancake partner (ADR-0118), an unknown
+/// hello is hinted only toward a known-glowcap partner (ADR-0118), an unknown
 /// receiver is always answered bare, and the pinned Goblins dial arm cannot
 /// dial a hinted onion locator at all, so profile hints shed there too.
 /// Bytes this walker cannot read still ship verbatim: both sources (our own
@@ -72,7 +72,7 @@ pub fn exporterLocationForRecipient(
         defer model.freePeerLocator(allocator, stripped);
         return try codec.signed.encodeLocatorRecord(allocator, stripped);
     }
-    if (recipient.known_pancake) return null;
+    if (recipient.known_glowcap) return null;
     if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return null;
     var stripped: usize = 0;
     for (locator.hints.entries) |entry| {
@@ -147,7 +147,7 @@ fn cloneLocatorForRecipient(
 ) !model.PeerLocator {
     var kept_count: usize = 0;
     for (locator.hints.entries) |entry| {
-        if (!recipient.known_pancake and model.transport.isProfileHintName(entry.name)) continue;
+        if (!recipient.known_glowcap and model.transport.isProfileHintName(entry.name)) continue;
         if (std.mem.eql(u8, locator.transport, model.transport.id) and
             std.mem.eql(u8, entry.name, model.transport.hint_via)) continue;
         kept_count += 1;
@@ -173,7 +173,7 @@ fn cloneLocatorForRecipient(
         for (entries[0..write]) |entry| model.freeHintEntry(allocator, entry);
     }
     for (locator.hints.entries) |entry| {
-        if (!recipient.known_pancake and model.transport.isProfileHintName(entry.name)) continue;
+        if (!recipient.known_glowcap and model.transport.isProfileHintName(entry.name)) continue;
         if (std.mem.eql(u8, locator.transport, model.transport.id) and
             std.mem.eql(u8, entry.name, model.transport.hint_via)) continue;
         const name = try allocator.dupe(u8, entry.name);

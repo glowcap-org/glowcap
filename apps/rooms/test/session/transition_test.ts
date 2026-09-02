@@ -1,7 +1,7 @@
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
-import { IO } from "@pancake/abi";
-import { PancakeError } from "@pancake/runtime";
+import { IO } from "@glowcap/abi";
+import { GlowcapError } from "@glowcap/runtime";
 import type { RoomsSessionSnapshot } from "../../lib/session/client.ts";
 import {
 	attachRoomsController,
@@ -90,7 +90,7 @@ Deno.test("an unreachable shared session produces an actionable attachment refus
 	const transition: RoomsControllerTransition = {
 		current: () => ({ kind: "local" }),
 		localCheckpoint: emptyRoomsSessionState,
-		connect: () => Promise.reject(new PancakeError(IO, "dial failed: NetworkUnreachable")),
+		connect: () => Promise.reject(new GlowcapError(IO, "dial failed: NetworkUnreachable")),
 		verifyOverAttached: () => null,
 		select: () => true,
 		reportCleanupFailure: () => {},
@@ -109,7 +109,7 @@ Deno.test("a missing WebRTC signaling inbox is not reported as a truncated paste
 		localCheckpoint: emptyRoomsSessionState,
 		connect: () =>
 			Promise.reject(
-				new Error("pancake error -12: peer-offline: no signaling inbox for that designator"),
+				new Error("glowcap error -12: peer-offline: no signaling inbox for that designator"),
 			),
 		verifyOverAttached: () => null,
 		select: () => true,
@@ -118,7 +118,7 @@ Deno.test("a missing WebRTC signaling inbox is not reported as a truncated paste
 	const said = await attachRoomsController("ocapn://session.example/s/admin", transition);
 	assertEquals(said.includes("hosting tab"), true);
 	assertEquals(said.includes("Check that you pasted"), false);
-	assertEquals(said.startsWith("pancake error"), false);
+	assertEquals(said.startsWith("glowcap error"), false);
 });
 
 // Two capabilities for one peer, and one for another. Written with the app's

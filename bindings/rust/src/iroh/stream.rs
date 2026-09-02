@@ -5,7 +5,7 @@ impl Stream {
 	/// because the peer held the secret for this key. `None` when the
 	/// connection is gone or the handshake proved nothing.
 	///
-	/// This is the fact a session is otherwise missing. pancake cannot see it —
+	/// This is the fact a session is otherwise missing. glowcap cannot see it —
 	/// it did not open this connection — so whoever did passes it on with
 	/// [`Session::bind_verified_channel_key`], which the accept and dial paths
 	/// below do for every session this module establishes.
@@ -13,7 +13,7 @@ impl Stream {
 		let mut buf = [0u8; 64];
 		let mut len: usize = 0;
 		let code = unsafe {
-			ffi::pancake_iroh_conn_remote_node_id(
+			ffi::glowcap_iroh_conn_remote_node_id(
 				self.conn.as_ref().expect("live iroh stream").0,
 				buf.as_mut_ptr(),
 				buf.len(),
@@ -27,12 +27,12 @@ impl Stream {
 	}
 
 	pub(super) fn new(
-		conn: *mut PancakeIrohConn,
+		conn: *mut GlowcapIrohConn,
 		iloop: Arc<IrohLoop>,
 		owned_netlayer: Option<Netlayer>,
 		owns_loop: bool,
 	) -> Stream {
-		let key = unsafe { ffi::pancake_iroh_conn_id(conn) };
+		let key = unsafe { ffi::glowcap_iroh_conn_id(conn) };
 		Stream {
 			conn: Some(ConnPtr(conn)),
 			key,
@@ -116,7 +116,7 @@ impl AsyncRead for Stream {
 			}
 			let mut count: usize = 0;
 			let rc = unsafe {
-				ffi::pancake_iroh_conn_try_read(
+				ffi::glowcap_iroh_conn_try_read(
 					me.conn.as_ref().expect("live iroh stream").0,
 					dst.as_mut_ptr(),
 					dst.len(),
@@ -162,7 +162,7 @@ impl AsyncWrite for Stream {
 		loop {
 			let mut count: usize = 0;
 			let rc = unsafe {
-				ffi::pancake_iroh_conn_try_write(
+				ffi::glowcap_iroh_conn_try_write(
 					me.conn.as_ref().expect("live iroh stream").0,
 					src.as_ptr(),
 					src.len(),

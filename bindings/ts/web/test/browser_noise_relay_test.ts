@@ -1,5 +1,5 @@
 // Real-browser proof for browser Noise rendezvous. Chromium runs the public
-// @pancake/web bundle over the shipped Wasm Host; the installed native CLI
+// @glowcap/web bundle over the shipped Wasm Host; the installed native CLI
 // cold-dials its advertised locator through the reference relay and calls an
 // object hosted in the page. Rooms is deliberately absent from this proof.
 
@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 import { bundleProbe, fail, freePort } from "./support.ts";
 
 declare global {
-	var pancakeNoiseReady: {
+	var glowcapNoiseReady: {
 		locator: string;
 		finish(): Promise<string[]>;
 	} | undefined;
@@ -15,7 +15,7 @@ declare global {
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const PROBE = new URL("./browser_noise_relay_probe.ts", import.meta.url).pathname;
-const WASM = new URL("../../../../zig-out/wasm/pancake_host.wasm", import.meta.url);
+const WASM = new URL("../../../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 const TLS_CERT = new URL("../../../../test/net/fixtures/tls_server.pem", import.meta.url).pathname;
 const TLS_KEY = new URL("../../../../test/net/fixtures/tls_server.key", import.meta.url).pathname;
 const TLS_ROOT = new URL("../../../../test/net/fixtures/tls_root.pem", import.meta.url).pathname;
@@ -55,14 +55,14 @@ export async function proveChromiumNoiseRelay(): Promise<void> {
 	const assets = new AbortController();
 	Deno.serve({ hostname: "127.0.0.1", port: pagePort, signal: assets.signal }, (request) => {
 		const path = new URL(request.url).pathname;
-		if (path === "/pancake_host.wasm") {
+		if (path === "/glowcap_host.wasm") {
 			return new Response(wasm, { headers: { "content-type": "application/wasm" } });
 		}
 		if (path === "/probe.js") {
 			return new Response(bundle, { headers: { "content-type": "text/javascript; charset=utf-8" } });
 		}
 		return new Response(
-			"<!doctype html><meta charset=utf-8><title>pancake browser Noise proof</title><script type=module src=/probe.js></script>",
+			"<!doctype html><meta charset=utf-8><title>glowcap browser Noise proof</title><script type=module src=/probe.js></script>",
 			{ headers: { "content-type": "text/html; charset=utf-8" } },
 		);
 	});
@@ -70,15 +70,15 @@ export async function proveChromiumNoiseRelay(): Promise<void> {
 		args: ["run", "--allow-net", "--allow-ffi", "--allow-env", "--allow-read", "bindings/ts/relay/serve.ts", "0"],
 		cwd: ROOT,
 		env: {
-			PANCAKE_RELAY_TLS_CERT: TLS_CERT,
-			PANCAKE_RELAY_TLS_KEY: TLS_KEY,
-			PANCAKE_RELAY_PLAINTEXT_CANARY: "PANCAKE_CAPTP_PLAINTEXT_CANARY",
+			GLOWCAP_RELAY_TLS_CERT: TLS_CERT,
+			GLOWCAP_RELAY_TLS_KEY: TLS_KEY,
+			GLOWCAP_RELAY_PLAINTEXT_CANARY: "GLOWCAP_CAPTP_PLAINTEXT_CANARY",
 		},
 		stdout: "piped",
 		stderr: "piped",
 	}).spawn();
 	const relayStderr = new Response(relay.stderr).text();
-	const state = await Deno.makeTempDir({ prefix: "pancake-chromium-noise-" });
+	const state = await Deno.makeTempDir({ prefix: "glowcap-chromium-noise-" });
 	let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 	let relayOutput: RelayOutput | null = null;
 	let relayStopped = false;
@@ -101,36 +101,36 @@ export async function proveChromiumNoiseRelay(): Promise<void> {
 		const relayUrl = `wss://localhost:${relayPort}/relay`;
 		await tab.goto(`http://127.0.0.1:${pagePort}/?relay=${encodeURIComponent(relayUrl)}`);
 		try {
-			await tab.waitForFunction(() => globalThis.pancakeNoiseReady !== undefined);
+			await tab.waitForFunction(() => globalThis.glowcapNoiseReady !== undefined);
 		} catch (error) {
 			const cause = error instanceof Error ? error.message : String(error);
 			const diagnostics = [...pageErrors, ...failedRequests];
 			fail(`browser Noise peer did not become ready: ${cause}; diagnostics: ${diagnostics.join("; ") || "none"}`);
 		}
-		const locator = await tab.evaluate(() => globalThis.pancakeNoiseReady!.locator);
-		const client = await new Deno.Command("./zig-out/bin/pancake", {
-			args: ["ocapn", "call", locator, "noise-greeter", "greet", "PANCAKE_CAPTP_PLAINTEXT_CANARY"],
+		const locator = await tab.evaluate(() => globalThis.glowcapNoiseReady!.locator);
+		const client = await new Deno.Command("./zig-out/bin/glowcap", {
+			args: ["ocapn", "call", locator, "noise-greeter", "greet", "GLOWCAP_CAPTP_PLAINTEXT_CANARY"],
 			cwd: ROOT,
 			env: {
-				PANCAKE_STATE: state,
-				PANCAKE_RENDEZVOUS: relayUrl,
-				PANCAKE_RELAY_CA_FILE: TLS_ROOT,
+				GLOWCAP_STATE: state,
+				GLOWCAP_RENDEZVOUS: relayUrl,
+				GLOWCAP_RELAY_CA_FILE: TLS_ROOT,
 			},
 			stdout: "piped",
 			stderr: "piped",
 		}).output();
 		const stdout = new TextDecoder().decode(client.stdout);
 		if (!client.success) {
-			const diagnostics = await tab.evaluate(() => globalThis.pancakeNoiseReady!.finish());
+			const diagnostics = await tab.evaluate(() => globalThis.glowcapNoiseReady!.finish());
 			fail(
 				`native caller exited ${client.code}: ${new TextDecoder().decode(client.stderr)}; ` +
 					`browser diagnostics: ${diagnostics.join("; ")}`,
 			);
 		}
-		if (!stdout.includes("hello PANCAKE_CAPTP_PLAINTEXT_CANARY from Chromium Noise")) {
+		if (!stdout.includes("hello GLOWCAP_CAPTP_PLAINTEXT_CANARY from Chromium Noise")) {
 			fail(`native caller returned ${JSON.stringify(stdout)}`);
 		}
-		const diagnostics = await tab.evaluate(() => globalThis.pancakeNoiseReady!.finish());
+		const diagnostics = await tab.evaluate(() => globalThis.glowcapNoiseReady!.finish());
 		if (diagnostics.length !== 0) fail(`browser Host diagnostics: ${diagnostics.join("; ")}`);
 		if (pageErrors.length !== 0) fail(`browser page errors: ${pageErrors.join("; ")}`);
 		relay.kill();

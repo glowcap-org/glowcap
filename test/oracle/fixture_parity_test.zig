@@ -1,9 +1,9 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
+const model = glowcap.ocapn.model;
 const protocol_oracle = @import("protocol_oracle.zig");
-const syrup = pancake.ocapn.codec.syrup;
+const syrup = glowcap.ocapn.codec.syrup;
 const handoff_fixtures = @import("../support/handoff_fixtures.zig");
 const peer_fixture = @import("../support/peer_fixture.zig");
 
@@ -44,7 +44,7 @@ test "oracle-check verifies core Syrup fixture encoding parity" {
         // regression to an `<error>`-record payload fails `zig build check`
         // without needing the opt-in live-Goblins gates.
         var args: [2]model.Argument = undefined;
-        const fire = pancake.ocapn.engine.pipeline.borrowedListenerFire(
+        const fire = glowcap.ocapn.engine.pipeline.borrowedListenerFire(
             9,
             .{ .@"break" = .{ .message = "target unreachable" } },
             &args,
@@ -65,9 +65,9 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
 
     var give_pair = try cross_peer.GivePair.init(allocator, &handoff_fixtures.recipient_key);
     defer give_pair.deinit();
-    var recipient_to_exporter = pancake.ocapn.engine.Peer.init(allocator);
+    var recipient_to_exporter = glowcap.ocapn.engine.Peer.init(allocator);
     defer recipient_to_exporter.deinit();
-    var exporter = pancake.ocapn.engine.Peer.init(allocator);
+    var exporter = glowcap.ocapn.engine.Peer.init(allocator);
     defer exporter.deinit();
 
     try cross_peer.deliverGive(&give_pair.sender, &give_pair.recipient, &exporter, handoff_fixtures.give());
@@ -76,7 +76,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     {
         var event = give_pair.recipient.pollEvent().?;
         defer event.deinit();
-        try std.testing.expectEqual(pancake.ocapn.engine.EventKind.deliver, event.kind());
+        try std.testing.expectEqual(glowcap.ocapn.engine.EventKind.deliver, event.kind());
     }
 
     try cross_peer.withdrawGift(
@@ -90,7 +90,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     {
         var event = exporter.pollEvent().?;
         defer event.deinit();
-        try std.testing.expectEqual(pancake.ocapn.engine.EventKind.deliver, event.kind());
+        try std.testing.expectEqual(glowcap.ocapn.engine.EventKind.deliver, event.kind());
     }
 }
 
@@ -118,7 +118,7 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     });
     var event = peer.pollEvent().?;
     defer event.deinit();
-    try std.testing.expectEqual(pancake.ocapn.engine.EventKind.deliver, event.kind());
+    try std.testing.expectEqual(glowcap.ocapn.engine.EventKind.deliver, event.kind());
     try std.testing.expect(peer.session_state.inboundAnswer(.from(11)) != null);
 
     var resolver = peer_fixture.openPeer(allocator);
@@ -138,7 +138,7 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     }
     try peer_fixture.receiveResolverCallback(&resolver, .from(42), .{ .fulfill = .void });
     try std.testing.expectEqual(
-        pancake.ocapn.session.AnswerStatus.fulfilled,
+        glowcap.ocapn.session.AnswerStatus.fulfilled,
         resolver.session_state.outboundAnswer(.from(42)).?.status,
     );
 }

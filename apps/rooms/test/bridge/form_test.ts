@@ -182,14 +182,16 @@ Deno.test("an action's submission carries only what the reader was asked", () =>
 	const [link, disconnect] = declared.actions;
 	const typed = { nick: "ada", account: "ada", password: "hunter2" };
 
-	// An off toggle keeps its reveals out, and the toggle itself never travels.
+	// An off toggle keeps its reveals out, but its own state still travels: a
+	// toggle is an answer, not only disclosure, and a bridge that treats one as a
+	// value (IRC's TLS) reads its "on"/"" back rather than a silent absence.
 	assertEquals(bridgeFormSubmission(declared, link, typed, new Set()), {
-		answers: { nick: "ada" },
+		answers: { nick: "ada", registered: "" },
 		secrets: {},
 	});
 	// An on toggle asks its reveals, and the declaration routes the secret.
 	assertEquals(bridgeFormSubmission(declared, link, typed, new Set(["registered"])), {
-		answers: { nick: "ada", account: "ada" },
+		answers: { nick: "ada", registered: "on", account: "ada" },
 		secrets: { password: "hunter2" },
 	});
 	// A required visible field left empty refuses with its own label.

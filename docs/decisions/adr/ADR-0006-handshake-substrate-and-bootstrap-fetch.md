@@ -110,7 +110,7 @@ Serving an inbound sturdyref enliven needs no separate code: enliven on the wire
 **Peer authentication.** The handshake is authenticated by an Ed25519 signature
 over the Goblins-canonical `<my-location $acceptable-location>` record, not the
 raw locator bytes. Signing the wrapped record matches Goblins's `pk-sign`
-domain, so a Goblins peer verifies a pancake signature and the reverse holds.
+domain, so a Goblins peer verifies a glowcap signature and the reverse holds.
 [`canonicalLocationSignedBytes`](../../../src/ocapn/codec/syrup/encode.zig) is
 the profile-level signing domain both `sign` and `verify` call, so signer and
 verifier cannot drift. Syrup verification uses the exact received locator record

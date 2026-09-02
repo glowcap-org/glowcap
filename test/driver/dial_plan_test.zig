@@ -5,10 +5,10 @@
 //! alias the caller's input) is pinned so the collapse stays zero-copy.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const driver = pancake.driver;
-const transport = pancake.ocapn.model.transport;
+const driver = glowcap.driver;
+const transport = glowcap.ocapn.model.transport;
 
 const planDial = driver.core.planDial;
 const planDialProfile = driver.core.planDialProfile;

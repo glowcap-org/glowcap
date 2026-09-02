@@ -18,16 +18,16 @@ the same import and expects batched `op:gc-exports` carrying positive
 wire-deltas. The OCapN `CapTP Specification.md` (§ `op:gc-exports`, §
 `op:gc-answers`, § `op:abort`) and Goblins's `captp.rkt` pin the wire shapes
 precisely, so the wire half is a transcription. The session-state half: where
-the counts live, what underflow does: is pancake's call.
+the counts live, what underflow does: is glowcap's call.
 
 `op:abort` rides the same profile. Goblins emits a single-string
-`<op:abort reason>`. pancake carries a typed kind on the model surface and
-projects it per profile, so a pancake-to-pancake session can route abort decisions
-on the kind while a pancake-to-Goblins session stays spec-strict.
+`<op:abort reason>`. glowcap carries a typed kind on the model surface and
+projects it per profile, so a glowcap-to-glowcap session can route abort decisions
+on the kind while a glowcap-to-Goblins session stays spec-strict.
 
 Engages the First Principles _session state is authoritative_ (counts live in
 the session tables, not the codec), _conformance is load-bearing_ (the shapes
-are pinned against the pancake-authored Syrup corpus and live Goblins /
+are pinned against the glowcap-authored Syrup corpus and live Goblins /
 suite arms), and _fail loud rather than succeed wrong_
 (underflow is an error, never a silent clamp).
 
@@ -66,14 +66,14 @@ answer-pos it never owned rejects the frame and projects an abort.
 `AbortReason { kind: AbortKind, message: []const u8 }` carries a
 `non_exhaustive`-style `AbortKind` enum. Projection per profile:
 
-- **`next`:** Cap'n Proto sessions carry both kind and message; a pancake-to-pancake
+- **`next`:** Cap'n Proto sessions carry both kind and message; a glowcap-to-glowcap
   session routes on the kind.
 - **`v1_0`:** emits the single-string `<op:abort message>` the spec requires.
   The kind rides as a discoverable prefix (`"<KindName>: <message>"`) which
   the Syrup decoder matches back to a kind, falling to `.other` when no prefix
   matches. The wire-string format is the codec's in both directions; the model
   carries only the typed `AbortReason`. Spec-strict on the wire, typed within
-  pancake.
+  glowcap.
 
 The taxonomy spans the conditions the protocol core originates
 (`protocol_error`, `malformed_frame`, the `*_not_negotiated` family,
@@ -106,7 +106,7 @@ maps a rejected inbound frame (codec-malformed or session-refused) to the typed
 
 - **Keep a single `release` operation with synthesized counters.** Rejected:
   Goblins's wire-delta is batched (one message, many ids); per-id release loses
-  the batching and keeps pancake diverging from Goblins on `v1_0`.
+  the batching and keeps glowcap diverging from Goblins on `v1_0`.
 - **One combined `gc` message carrying exports and answers.** Rejected: the wire
   is two operations; combining them forces a split-on-emit / merge-on-receive
   translation with no benefit.
@@ -132,7 +132,7 @@ maps a rejected inbound frame (codec-malformed or session-refused) to the typed
 
 ## Forward compatibility
 
-These are pancake's current `v1_0` compatibility shapes. An upstream change to
+These are glowcap's current `v1_0` compatibility shapes. An upstream change to
 the abort reason may revise that profile's projection of `AbortKind`, not the model. The
 wire-delta model is per-id additive: a future single-message flush of many ids
 is a batching optimization, not a wire change. New `AbortKind` variants land

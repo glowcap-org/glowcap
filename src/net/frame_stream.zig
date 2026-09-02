@@ -442,7 +442,7 @@ pub const FrameStream = struct {
     }
 
     /// The concrete read failure behind the last `ConnectionLost`, if any. The C
-    /// boundary surfaces this via `pancake_last_error`.
+    /// boundary surfaces this via `glowcap_last_error`.
     pub fn lastReadError(self: *const FrameStream) ?Stream.Reader.Error {
         return self.reader.err;
     }

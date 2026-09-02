@@ -265,7 +265,7 @@ fn a_finite_finish_close_reports_its_timeout_and_a_repeat_observes_it() {
 		let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 		let mut ptr = core::ptr::null_mut();
 		check_host(unsafe {
-			ffi::pancake_host_session_open_dialed_locator(host.shared.raw(), owned.borrow_view().unwrap(), &mut ptr)
+			ffi::glowcap_host_session_open_dialed_locator(host.shared.raw(), owned.borrow_view().unwrap(), &mut ptr)
 		})
 		.unwrap();
 

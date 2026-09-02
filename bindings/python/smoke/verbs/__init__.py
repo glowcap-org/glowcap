@@ -9,12 +9,12 @@ from contextvars import ContextVar
 import re
 
 
-from pancake import (
+from glowcap import (
     tcp,
     FetchFailed,
     ErrorValue,
     Host,
-    PancakeError,
+    GlowcapError,
     Ref,
     Set,
     Struct,
@@ -24,7 +24,7 @@ from pancake import (
     Runtime,
     format_locator_uri,
 )
-from pancake._constants import (
+from glowcap._constants import (
     ERR_INVALID_ARGUMENT,
 )
 
@@ -145,7 +145,7 @@ async def _enliven_round_trips_then_caches() -> None:
         session.serve()
         try:
             await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg")
-        except PancakeError as err:
+        except GlowcapError as err:
             assert err.code == ERR_INVALID_ARGUMENT, err
         else:
             raise AssertionError("enliven accepted a sturdyref for another peer")
@@ -175,7 +175,7 @@ async def _enliven_round_trips_then_caches() -> None:
         observation = session.listen(cap)
         try:
             await session.send(observation, "hello", [])
-        except PancakeError as err:
+        except GlowcapError as err:
             assert err.code == ERR_INVALID_ARGUMENT, err
         else:
             raise AssertionError("an op:listen observer became a remote pipeline target")
@@ -290,8 +290,8 @@ async def _distributed_release_reaches_each_capability_home() -> None:
 
 async def _fetch_failed_is_typed() -> None:
     """A fetch that fulfills with a plain value (not a capability) raises the
-    dedicated :class:`FetchFailed` — the foreign-bootstrap shape a non-pancake
-    partner can produce. A pancake host always answers a fetch with a
+    dedicated :class:`FetchFailed` — the foreign-bootstrap shape a non-glowcap
+    partner can produce. A glowcap host always answers a fetch with a
     capability, so a relay doctors the wire: the client's bootstrap-fetch
     deliver is retargeted from export 0 to the export of a published object
     that answers with a plain integer, so the client's fetch answer fulfills

@@ -16,11 +16,11 @@ const common = @import("common.zig");
 const trace_queue = @import("trace_queue.zig");
 
 pub fn setTrace(
-    host: ?*c.PancakeHost,
-    callback: ?c.PancakeTraceCallback,
+    host: ?*c.GlowcapHost,
+    callback: ?c.GlowcapTraceCallback,
     ctx: ?*anyopaque,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
+    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (callback == null and inst.trace_queue == null) {
         inst.core.setTrace(null) catch |err| return common.errToCode(err);
     } else {
@@ -28,11 +28,11 @@ pub fn setTrace(
     }
     inst.trace_cb = callback;
     inst.trace_ctx = ctx;
-    return shared.PANCAKE_OK;
+    return shared.GLOWCAP_OK;
 }
 
-pub fn setTraceQueue(host: ?*c.PancakeHost, capacity: usize, payload_cap: usize) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
+pub fn setTraceQueue(host: ?*c.GlowcapHost, capacity: usize, payload_cap: usize) i32 {
+    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (capacity == 0) {
         if (inst.trace_cb == null)
             inst.core.setTrace(null) catch |err| return common.errToCode(err);
@@ -41,11 +41,11 @@ pub fn setTraceQueue(host: ?*c.PancakeHost, capacity: usize, payload_cap: usize)
             inst.allocator.destroy(queue);
             inst.trace_queue = null;
         }
-        return shared.PANCAKE_OK;
+        return shared.GLOWCAP_OK;
     }
     if (payload_cap == 0) {
         shared.setLastError("host: set_trace_queue: payload_cap must be positive", .{});
-        return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+        return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     const queue = inst.allocator.create(trace_queue.TraceQueue) catch |err|
         return common.errToCode(err);
@@ -53,7 +53,7 @@ pub fn setTraceQueue(host: ?*c.PancakeHost, capacity: usize, payload_cap: usize)
         inst.allocator.destroy(queue);
         if (err == error.SizeOverflow) {
             shared.setLastError("host: set_trace_queue: capacity times payload_cap overflows", .{});
-            return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+            return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
         }
         return common.errToCode(err);
     };
@@ -68,28 +68,28 @@ pub fn setTraceQueue(host: ?*c.PancakeHost, capacity: usize, payload_cap: usize)
         old.deinit(inst.allocator);
         inst.allocator.destroy(old);
     }
-    return shared.PANCAKE_OK;
+    return shared.GLOWCAP_OK;
 }
 
-pub fn nextTrace(host: ?*c.PancakeHost, out: ?*c.PancakeTraceEvent) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.PANCAKE_ERR_NULL_POINTER;
-    const slot = out orelse return shared.PANCAKE_ERR_NULL_POINTER;
-    const queue = inst.trace_queue orelse return shared.PANCAKE_ERR_WOULD_BLOCK;
-    if (!queue.pop(slot)) return shared.PANCAKE_ERR_WOULD_BLOCK;
-    return shared.PANCAKE_OK;
+pub fn nextTrace(host: ?*c.GlowcapHost, out: ?*c.GlowcapTraceEvent) i32 {
+    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const slot = out orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const queue = inst.trace_queue orelse return shared.GLOWCAP_ERR_WOULD_BLOCK;
+    if (!queue.pop(slot)) return shared.GLOWCAP_ERR_WOULD_BLOCK;
+    return shared.GLOWCAP_OK;
 }
 
 fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
     const inst: *common.Instance = @ptrCast(@alignCast(ctx.?));
     if (inst.trace_queue) |queue| queue.push(event);
     const callback = inst.trace_cb orelse return;
-    var out = c.PancakeTraceEvent{
+    var out = c.GlowcapTraceEvent{
         .kind = 0,
         .session = 0,
         .outbound = 0,
-        .provenance = c.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED,
-        .codec = shared.PANCAKE_CODEC_UNKNOWN,
-        .captp_version = shared.PANCAKE_CAPTP_V1_0,
+        .provenance = c.GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED,
+        .codec = shared.GLOWCAP_CODEC_UNKNOWN,
+        .captp_version = shared.GLOWCAP_CAPTP_V1_0,
         .designator = null,
         .designator_len = 0,
         .transport = null,
@@ -106,7 +106,7 @@ fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
     };
     switch (event) {
         .session_open => |open| {
-            out.kind = c.PANCAKE_TRACE_SESSION_OPEN;
+            out.kind = c.GLOWCAP_TRACE_SESSION_OPEN;
             out.session = open.session.int();
             out.provenance = common.provenanceToC(open.provenance);
             out.codec = shared.codecToC(open.codec);
@@ -121,7 +121,7 @@ fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
             }
         },
         .message => |message| {
-            out.kind = c.PANCAKE_TRACE_MESSAGE;
+            out.kind = c.GLOWCAP_TRACE_MESSAGE;
             out.session = message.session.int();
             out.outbound = @intFromBool(message.outbound);
             out.verb = message.verb.ptr;
@@ -134,7 +134,7 @@ fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
             }
         },
         .session_close => |close| {
-            out.kind = c.PANCAKE_TRACE_SESSION_CLOSE;
+            out.kind = c.GLOWCAP_TRACE_SESSION_CLOSE;
             out.session = close.session.int();
         },
     }

@@ -10,9 +10,9 @@
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
-const pancake = @import("pancake");
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
+const glowcap = @import("glowcap");
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
 
 pub fn main() !void {
     var gpa: std.heap.DebugAllocator(.{}) = .{};
@@ -21,10 +21,10 @@ pub fn main() !void {
 
     var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
-    // `pancake.Peer` is the front-door alias for `engine.Peer`, the type this
+    // `glowcap.Peer` is the front-door alias for `engine.Peer`, the type this
     // whole chapter drives by hand.
-    const phone: *pancake.Peer = &pair.p1;
-    const speaker: *pancake.Peer = &pair.p2;
+    const phone: *glowcap.Peer = &pair.p1;
+    const speaker: *glowcap.Peer = &pair.p2;
 
     try speaker.exportObject(1);
     try phone.importObject(1);

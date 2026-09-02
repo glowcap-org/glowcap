@@ -1,7 +1,7 @@
 // Room invitations received over direct connections.
 
 import * as store from "../store.ts";
-import { Ref, type Session } from "@pancake/runtime";
+import { Ref, type Session } from "@glowcap/runtime";
 import { MAX_PENDING_INVITES } from "../../../lib/limits.ts";
 import { roomLinkDestination } from "../joining.ts";
 import type { DirId } from "../types.ts";

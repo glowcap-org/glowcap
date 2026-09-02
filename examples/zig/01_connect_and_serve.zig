@@ -13,9 +13,9 @@
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const driver = pancake.driver;
+const driver = glowcap.driver;
 
 /// The published actor: answers `greet(name)` with a greeting built in the
 /// turn's arena, which outlives the reply encode and nothing more.
@@ -43,8 +43,8 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var tcp_resident = glowcap.net.tcp.Resident{ .io = io };
+    const netlayers = [_]glowcap.net.netlayer.Netlayer{tcp_resident.netlayer()};
     // Listen on a designator, the peer's name on its transport: for tcp a
     // `host:port`, with port 0 letting the OS pick one.
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
@@ -61,15 +61,15 @@ pub fn main(init: std.process.Init) !void {
     var hosting = try io.concurrent(host, .{server});
 
     {
-        // `pancake.Session` is the front-door alias for the owning
+        // `glowcap.Session` is the front-door alias for the owning
         // `driver.Session` this call hands back.
         // Finite budgets, named on purpose: the compiler requires a choice here,
         // and writing `.unbounded` would park this program with no way out
         // against a peer that never answers.
-        var session: *pancake.Session = try driver.connect(
+        var session: *glowcap.Session = try driver.connect(
             allocator,
             &netlayers,
-            pancake.net.tcp.locator(designator),
+            glowcap.net.tcp.locator(designator),
             .ephemeral,
             .{
                 .handshake = driver.default_handshake_budget,

@@ -6,11 +6,11 @@
 //! session-closure roots in `test/driver/core_host/`.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
 
-const driver = pancake.driver;
-const net = pancake.net;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const dial_opts: driver.SessionOptions = .{

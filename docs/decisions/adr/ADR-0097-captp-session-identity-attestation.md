@@ -44,7 +44,7 @@ signature and every named mutation negative verified by the attestation vector
 test that ADR-0109 removed with the mechanism.
 The live foreign-decode evidence is green: `zig build goblins-gift-hints`
 drives a real Goblins exporter whose hello advertises the credential hint
-dict, a pancake gifter that embeds that signed location verbatim in its give,
+dict, a glowcap gifter that embeds that signed location verbatim in its give,
 and a real Goblins recipient that decodes the mapping-shaped hints, dials the
 hinted node, and redeems — with the Goblins exporter verifying the gifter's
 signature over its own re-encoding of the hint dict. The upstream proposal
@@ -79,7 +79,7 @@ restart, and relay checks run green over the new contracts.
 Migration step 3 ships. `PartnerIdentity` carries a third field,
 `provenance`, so session identity, durable identity, and what authenticated
 that durable name are three separate facts at every tier: the native struct,
-one `PancakePartnerIdentity` in C (a `PANCAKE_DURABLE_PROVENANCE_*` value),
+one `GlowcapPartnerIdentity` in C (a `GLOWCAP_DURABLE_PROVENANCE_*` value),
 and the Wasm and Rust, TypeScript, Python, and Racket surfaces that mirror
 it. `durableIdentityAuthenticated` is the predicate an API requiring a proved
 durable peer asks, and `Host.matchSturdyrefPeer` now asks it;
@@ -125,7 +125,7 @@ both are load-bearing:
   key for both yields a credential binding a session key the hello does not
   carry, which the verifier correctly refuses.
 
-The byte-fed tier draws its own keys too. `pancake_host_new` requires a 64-byte
+The byte-fed tier draws its own keys too. `glowcap_host_new` requires a 64-byte
 seed: the first 32 stay the durable identity, which must remain stable because
 a keyed locator's designator derives from it, and the next 32 are the
 session-key root, which must be fresh per process. A durable-only 32-byte call
@@ -217,7 +217,7 @@ identity-separation parts remain current as stated in Status.
 ### Context at adoption
 
 OCapN defines `session_pubkey` as the public half of a per-session key pair.
-Goblins generates a fresh pair for every CapTP session. pancake instead seeds
+Goblins generates a fresh pair for every CapTP session. glowcap instead seeds
 every session in a Host from one durable Host key. The reuse made handoff and
 reconnect code convenient, but it collapsed two identities:
 
@@ -332,17 +332,17 @@ sturdyref or poison URI projection; the next session creates its own.
 
 The hint encoding is provisional. Canonical codec and signing vectors are
 committed before implementation, and a live Goblins recipient must decode a
-signed give whose pancake exporter locator carries the credential. The current
+signed give whose glowcap exporter locator carries the credential. The current
 Goblins locator constructor accepts only false or string hints while the draft
-describes hints as a mapping and pancake encodes a non-empty mapping as a Syrup
+describes hints as a mapping and glowcap encodes a non-empty mapping as a Syrup
 dict; the wire unmarshaller builds nodes through the raw constructor, so the
 mapping shape does decode live. The pinned Goblins withdrawal lookup
 additionally requires a give's exporter locator to equal the exporter's
 hello-declared location including hints — which the verbatim reuse of the
 exporter's signed location record already guarantees; the checked finding in
 [`conformance/ocapn-findings/`](../../../conformance/ocapn-findings/README.md)
-records it. pancake will propose the credential shape upstream before claiming
-interoperability. If upstream selects another shape, pancake changes its
+records it. glowcap will propose the credential shape upstream before claiming
+interoperability. If upstream selects another shape, glowcap changes its
 unshipped encoding and vectors; it does not freeze the provisional dict into
 signed handoff locators.
 
@@ -418,7 +418,7 @@ each one.
    The accept side verifies a remote attestation before recording that remote
    durable identity and refuses every negative case without indexing the claim.
 5. Carry a credential-bearing keyed-TCP exporter locator through a signed
-   pancake handoff. Verify the credential in the descriptor, omit it from
+   glowcap handoff. Verify the credential in the descriptor, omit it from
    URI/dial projection, preserve `direct-addresses`, and redeem successfully.
 6. Carry the same locator through a live Goblins recipient's signed-give decode
    path and prove its locator constructor accepts the chosen interoperable
@@ -529,5 +529,5 @@ each one.
 ## Notes
 
 ADR-0096 owns Host-scoped capability identity and exact gifts. ADR-0098 owns
-sturdyref peer authority. Neither requires pancake to claim fresh session keys
+sturdyref peer authority. Neither requires glowcap to claim fresh session keys
 before the keyed-TCP chain is complete.

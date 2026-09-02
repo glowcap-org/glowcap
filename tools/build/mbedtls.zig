@@ -117,7 +117,7 @@ const crypto_accelerator_sources = [_][]const u8{
     "tf-psa-crypto/drivers/p256-m/p256-m/p256-m.c",
 };
 
-/// Build Pancake's private, pinned Mbed TLS engine dependency. This function is
+/// Build Glowcap's private, pinned Mbed TLS engine dependency. This function is
 /// called unconditionally so the named step exists, but its source acquisition
 /// remains lazy until a consumer depends on the returned compile step.
 pub const Dependency = struct {
@@ -149,8 +149,8 @@ pub const Dependency = struct {
             .optimize = optimize,
         });
         addIncludes(b, self.source, translate);
-        translate.defineCMacro("MBEDTLS_CONFIG_FILE", "\"pancake_mbedtls_config.h\"");
-        translate.defineCMacro("TF_PSA_CRYPTO_CONFIG_FILE", "\"pancake_psa_crypto_config.h\"");
+        translate.defineCMacro("MBEDTLS_CONFIG_FILE", "\"glowcap_mbedtls_config.h\"");
+        translate.defineCMacro("TF_PSA_CRYPTO_CONFIG_FILE", "\"glowcap_psa_crypto_config.h\"");
         return translate.createModule();
     }
 };
@@ -272,7 +272,7 @@ pub fn relayAbiModules(
 
 /// Prove the installed archive shape that module-level tests cannot see: the
 /// static archive links without a separately installed vendor library, while
-/// the shared archive exports only Pancake's relay family.
+/// the shared archive exports only Glowcap's relay family.
 pub fn addArchiveChecks(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -333,7 +333,7 @@ pub fn addFamily(
     const dependency = add(b);
     const engine = engineModule(b, target, optimize, dependency, foundation, net);
     const native_tls = nativeCompositionModule(b, target, optimize, net, engine);
-    const native_relay = b.addModule("pancake_native_relay", .{
+    const native_relay = b.addModule("glowcap_native_relay", .{
         .root_source_file = b.path("src/net/transport/keyed_relay/native_mbedtls.zig"),
         .target = target,
         .optimize = optimize,
@@ -399,7 +399,7 @@ pub fn addFamily(
     const live = execution.addSystemCommand(b, .real_internet, &.{"bash"});
     live.addFileArg(b.path("tools/check/native-tls-relay-live.sh"));
     live.addArtifactArg(live_client);
-    const secure_check = b.step("native-tls-build", "Fetch by checksum, compile, and test Pancake's private Mbed TLS engine (needs network)");
+    const secure_check = b.step("native-tls-build", "Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)");
     secure_check.dependOn(&execution.addZigTest(b, tests, .{ .deterministic = 30 }).step);
     secure_check.dependOn(&live.step);
     return .{
@@ -411,7 +411,7 @@ pub fn addFamily(
 }
 
 /// Compile the relay Zig first-calls against the native relay module. They
-/// stay out of the default pancake snippet walk for the same reason iroh does:
+/// stay out of the default glowcap snippet walk for the same reason iroh does:
 /// Mbed TLS is an optional composition, not part of `lib_mod`.
 pub fn addSiteRelayExamples(
     b: *std.Build,
@@ -428,7 +428,7 @@ pub fn addSiteRelayExamples(
     };
     for (examples) |example| {
         common.addSiteZigExampleCompile(b, target, optimize, example.name, example.path, &.{
-            .{ .name = "pancake", .module = lib_mod },
+            .{ .name = "glowcap", .module = lib_mod },
             .{ .name = "native_relay", .module = native_relay },
         }, site_zig_examples_check);
     }
@@ -487,15 +487,15 @@ fn addSources(
     const production_flags: []const []const u8 = &.{
         "-std=c11",
         "-fvisibility=hidden",
-        "-DMBEDTLS_CONFIG_FILE=\"pancake_mbedtls_config.h\"",
-        "-DTF_PSA_CRYPTO_CONFIG_FILE=\"pancake_psa_crypto_config.h\"",
+        "-DMBEDTLS_CONFIG_FILE=\"glowcap_mbedtls_config.h\"",
+        "-DTF_PSA_CRYPTO_CONFIG_FILE=\"glowcap_psa_crypto_config.h\"",
     };
     const probe_flags: []const []const u8 = &.{
         "-std=c11",
         "-fvisibility=hidden",
-        "-DMBEDTLS_CONFIG_FILE=\"pancake_mbedtls_config.h\"",
-        "-DTF_PSA_CRYPTO_CONFIG_FILE=\"pancake_psa_crypto_config.h\"",
-        "-DPANCAKE_MBEDTLS_ALLOCATION_PROBE=1",
+        "-DMBEDTLS_CONFIG_FILE=\"glowcap_mbedtls_config.h\"",
+        "-DTF_PSA_CRYPTO_CONFIG_FILE=\"glowcap_psa_crypto_config.h\"",
+        "-DGLOWCAP_MBEDTLS_ALLOCATION_PROBE=1",
     };
     const flags = if (allocation_probe) probe_flags else production_flags;
     module.addCSourceFiles(.{ .root = source, .files = &tls_sources, .flags = flags });

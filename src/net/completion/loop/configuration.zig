@@ -185,7 +185,7 @@ pub const Options = struct {
     /// with a read error, and `on_close` fires under `run`. Without it, and
     /// without application-level heartbeats, such a slot is reclaimed only at
     /// `closeAndDrain`. The detection deadline is deliberately the caller's — a
-    /// liveness policy lives above pancake, which is why this stays opt-in
+    /// liveness policy lives above glowcap, which is why this stays opt-in
     /// rather than a silent default. See `tcp_keepalive.Keepalive`.
     keepalive: ?tcp_keepalive.Keepalive = null,
     /// Fan-in source throttle (ADR-0082): when any live connection is parked

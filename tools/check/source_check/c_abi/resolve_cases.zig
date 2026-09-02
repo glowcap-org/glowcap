@@ -122,8 +122,8 @@ pub fn checkCAbiResolveCases(
             };
         };
 
-        const skip = envTruthyFromObject(env_obj, "PANCAKE_SKIP_DOWNLOAD");
-        const download = envTruthyFromObject(env_obj, "PANCAKE_DOWNLOAD");
+        const skip = envTruthyFromObject(env_obj, "GLOWCAP_SKIP_DOWNLOAD");
+        const download = envTruthyFromObject(env_obj, "GLOWCAP_DOWNLOAD");
         const got_fetch = if (releases_published) !skip else download;
         if (got_fetch != want_fetch) {
             try appendViolation(gpa, violations, "{s}: case `{s}` want_fetch mismatch", .{ cases_path, id });
@@ -131,7 +131,7 @@ pub fn checkCAbiResolveCases(
 
         const base = blk: {
             if (env_obj) |o| {
-                if (o.get("PANCAKE_RELEASE_BASE_URL")) |v| {
+                if (o.get("GLOWCAP_RELEASE_BASE_URL")) |v| {
                     switch (v) {
                         .string => |s| break :blk s,
                         else => {},

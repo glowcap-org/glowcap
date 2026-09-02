@@ -7,7 +7,7 @@ CPython 3.11 or newer on an LP64 platform is required.
 ```python
 import asyncio
 
-from pancake import Runtime, tcp, VowBroken
+from glowcap import Runtime, tcp, VowBroken
 
 
 async def main():
@@ -31,7 +31,7 @@ makes calls does not need `session.serve()`.
 
 ## Sessions and actors
 
-Python values map directly to pancake values: integers, floats, booleans,
+Python values map directly to glowcap values: integers, floats, booleans,
 bytes, strings, and lists, plus `Symbol`, `Keyword`, `Set`, `Tagged`, `Struct`,
 the fulfilled-data `ErrorValue`, and the capability type `Ref`. `ErrorValue`
 does not reject a `RemotePromise`; raising an exception or returning a broken
@@ -43,7 +43,7 @@ callables. `send` returns a `RemotePromise`, implemented as an
 `asyncio.Future`, and that promise can be the target of another send.
 
 Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
-connection runs on pancake's native loop posture: Python loads the separate
+connection runs on glowcap's native loop posture: Python loads the separate
 Host and driver archives, and one stepping native loop owns the provider,
 framing, pumping, and session release while asyncio parks on its readiness
 descriptor. The application supplies `iroh.provider(config)`,
@@ -62,7 +62,7 @@ barrier.
 `Runtime.connect`; pass a 32-byte `seed` to keep a durable designator across restarts.
 The native loop owns admission. A wildcard `bind_host` requires
 `advertised_host`, the dialable name or address placed in the Host locator;
-pancake does not guess that reachability from the bind.
+glowcap does not guess that reachability from the bind.
 
 `relay.keyed.listen` and `relay.noise.listen` return the same `DriverServer`
 shape over a registered relay route. Their `locator` and `uri` carry the
@@ -77,12 +77,12 @@ only in the session where it was exported.
 
 | Module | Purpose |
 | --- | --- |
-| `pancake` | Async sessions, hosts, values, locators, and actors. |
-| `pancake.tcp` | Typed TCP-profile locators, the complete provider package, and blocking frame handles. |
-| `pancake.inproc` | Blocking in-process connections. |
-| `pancake.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for an embedder-owned loop. |
-| `pancake.iroh` | Optional encrypted QUIC and `listen`. |
-| `pancake.relay` | Native `keyed-relay`/`noise-relay` provider composition and managed listeners. |
+| `glowcap` | Async sessions, hosts, values, locators, and actors. |
+| `glowcap.tcp` | Typed TCP-profile locators, the complete provider package, and blocking frame handles. |
+| `glowcap.inproc` | Blocking in-process connections. |
+| `glowcap.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for an embedder-owned loop. |
+| `glowcap.iroh` | Optional encrypted QUIC and `listen`. |
+| `glowcap.relay` | Native `keyed-relay`/`noise-relay` provider composition and managed listeners. |
 
 The application imports only the transport modules it composes. A TCP-only
 program never loads the iroh library.
@@ -94,14 +94,14 @@ For a bare locator, use `relay.connector(config)`: the route comes from the
 locator's hint or the connector's own configuration, the same two authorities
 every binding reads. The connector is an explicit byte-fed
 integration, not an automatic fallback. Its client is the one optional
-dependency, kept out of the core: install `pancake[rendezvous]`. Repository
+dependency, kept out of the core: install `glowcap[rendezvous]`. Repository
 proofs resolve that extra from the committed lock with
 `uv run --project bindings/python --extra rendezvous --locked`.
 
 The lower-level transports are also available directly:
 
 ```python
-from pancake.tcp import TcpNetlayer
+from glowcap.tcp import TcpNetlayer
 
 with TcpNetlayer() as netlayer:
     listener = netlayer.listen("127.0.0.1", 0)

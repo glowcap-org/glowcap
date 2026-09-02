@@ -6,7 +6,7 @@
 .draft = false,
 ---
 
-`noise-tcp` seals a CapTP session between two pancake peers over ordinary TCP.
+`noise-tcp` seals a CapTP session between two glowcap peers over ordinary TCP.
 Before any CapTP byte moves, the peers run a
 [Noise_XK](https://noiseprotocol.org/noise.html) handshake with each other.
 After that they speak only sealed records. Completing the handshake proves the
@@ -15,16 +15,16 @@ refusal.
 
 `keyed-tcp` uses the same designator but leaves CapTP frames in the clear.
 `noise-tcp` keeps that designator and seals the stream.
-[ADR-0107](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0107-sealed-byte-channel.md)
+[ADR-0107](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0107-sealed-byte-channel.md)
 covers the channel.
 
 [keyed-tcp is cleartext; noise-tcp seals the same sockets; noise-relay seals the CapTP stream so a relay only forwards ciphertext.]($image.siteAsset('diagram-noise-seal.svg'))
 
 Upstream [Spritely Goblins](https://spritely.institute/goblins/) ships no Noise
-netlayer, so these symbols are pancake to pancake. To meet Goblins, use
+netlayer, so these symbols are glowcap to glowcap. To meet Goblins, use
 [onion]($link.page('transports/onion')), [iroh]($link.page('transports/iroh'))
 with this repository's Goblins adapter, or cleartext `tcp` for testing. Prefer
-`noise-tcp` when two pancake peers already share a TCP route and only need the
+`noise-tcp` when two glowcap peers already share a TCP route and only need the
 stream sealed. Prefer iroh when those peers also need discovery or NAT
 traversal.
 [Choosing a transport]($link.page('transports/choosing')) has the full decision
@@ -43,16 +43,16 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Same TCP sockets as cleartext keyed dialing; Noise_XK seals the CapTP stream.
->     var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
->     const netlayers = [_]pancake.net.netlayer.Netlayer{noise_resident.netlayer()};
+>     var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
 >     // The designator is the peer's durable key; the hint is where to dial.
->     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+>     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
->     const partner = pancake.net.tcp.noise.locator(
+>     const partner = glowcap.net.tcp.noise.locator(
 >         peer_key,
 >         "127.0.0.1:9099",
 >         &hint_storage,
@@ -60,8 +60,8 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > ```
 > **TypeScript**
 > ```ts
-> import { noise, provider } from "@pancake/tcp";
-> import { Runtime } from "@pancake/runtime";
+> import { noise, provider } from "@glowcap/tcp";
+> import { Runtime } from "@glowcap/runtime";
 >
 > // Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > const peerKey = "<64 lowercase hex characters from the server>";
@@ -71,7 +71,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > ```
 > **Python**
 > ```python
-> from pancake import Runtime, tcp
+> from glowcap import Runtime, tcp
 >
 > # Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > peer_key = "<64 lowercase hex characters from the server>"
@@ -81,7 +81,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > ```
 > **Rust**
 > ```rust
-> use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > let peer_key = "<64 lowercase hex characters from the server>";
@@ -91,7 +91,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt" "pancake-tcp.rkt")
+> (require "glowcap.rkt" "glowcap-tcp.rkt")
 >
 > ;; Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -106,7 +106,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
@@ -118,15 +118,15 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const netlayers = [_]pancake.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
->     var hint_storage: [1]pancake.ocapn.model.HintEntry = undefined;
+>     const netlayers = [_]glowcap.net.netlayer.Netlayer{relay.resident(.noise).netlayer()};
+>     var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
 >     const peer_key = "<64 lowercase hex characters from the server>";
->     const partner = pancake.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
+>     const partner = glowcap.net.relay.noise.locator(peer_key, relay_url, &hint_storage);
 > ```
 > **TypeScript**
 > ```ts
-> import { Runtime } from "@pancake/runtime";
-> import { noise, provider } from "@pancake/relay";
+> import { Runtime } from "@glowcap/runtime";
+> import { noise, provider } from "@glowcap/relay";
 >
 > // Noise_XK seals the session end to end; the relay forwards ciphertext.
 > const peerKey = "<64 lowercase hex characters from the server>";
@@ -139,12 +139,12 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > ```
 > **Browser**
 > ```ts
-> import { connector, noise } from "@pancake/relay";
-> import { init } from "@pancake/web";
+> import { connector, noise } from "@glowcap/relay";
+> import { init } from "@glowcap/web";
 >
 > const relayUrl = "wss://relay.example/relay";
 > const web = await init({
-> 	wasm: fetch("/pancake_host.wasm"),
+> 	wasm: fetch("/glowcap_host.wasm"),
 > 	connectors: [connector()],
 > });
 > await using runtime = web.runtime;
@@ -152,7 +152,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > ```
 > **Python**
 > ```python
-> from pancake import Runtime, relay
+> from glowcap import Runtime, relay
 >
 > # Noise_XK seals the CapTP stream end to end through the relay.
 > peer_key = "<64 lowercase hex characters from the server>"
@@ -163,7 +163,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > ```
 > **Rust**
 > ```rust
-> use pancake::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+> use glowcap::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 >
 > // Noise_XK seals the CapTP stream end to end through the relay.
 > let peer_key = "<64 lowercase hex characters from the server>";
@@ -176,7 +176,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt" "pancake-relay.rkt")
+> (require "glowcap.rkt" "glowcap-relay.rkt")
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
@@ -205,13 +205,13 @@ relay and waits there.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
->     var noise_resident = pancake.net.tcp.noise.Resident{ .io = io };
->     const server = try pancake.driver.listen(
+>     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
+>     var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         noise_resident.netlayer(),
 >         .{ .designator = "127.0.0.1:9099" },
@@ -220,7 +220,7 @@ relay and waits there.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise proves this durable key to dialers
 >
@@ -229,8 +229,8 @@ relay and waits there.
 > ```
 > **TypeScript**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { noise } from "@pancake/tcp";
+> import type { Argument } from "@glowcap/runtime";
+> import { noise } from "@glowcap/tcp";
 >
 > // Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > const seed = crypto.getRandomValues(new Uint8Array(32));
@@ -239,7 +239,7 @@ relay and waits there.
 > **Python**
 > ```python
 > import os
-> from pancake import Argument, tcp
+> from glowcap import Argument, tcp
 >
 > # Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > # Persist the 32-byte seed to keep the same key.
@@ -248,7 +248,7 @@ relay and waits there.
 > ```
 > **Rust**
 > ```rust
-> use pancake::{tcp, Argument};
+> use glowcap::{tcp, Argument};
 >
 > // Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > let seed = [7u8; 32]; // replace with durable secret bytes across restarts
@@ -264,8 +264,8 @@ relay and waits there.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-tcp.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-tcp.rkt")
 >
 > ;; Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -281,13 +281,13 @@ relay and waits there.
 > **Zig**
 > ```zig
 > const std = @import("std");
-> const pancake = @import("pancake");
+> const glowcap = @import("glowcap");
 > const native_relay = @import("native_relay");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
->     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
+>     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
 >     var relay: native_relay.Provider = undefined;
 >     switch (relay.init(
 >         io,
@@ -300,7 +300,7 @@ relay and waits there.
 >         .failed => return error.RelayUnavailable,
 >     }
 >     defer if (relay.deinit()) |chain| std.log.err("relay teardown failed: {s}", .{chain.primaryName()});
->     const server = try pancake.driver.listen(
+>     const server = try glowcap.driver.listen(
 >         allocator,
 >         relay.resident(.noise).netlayer(),
 >         .{ .designator = "" },
@@ -309,7 +309,7 @@ relay and waits there.
 >     );
 >     defer server.deinit();
 >
->     const uri = try pancake.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
+>     const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
 >     defer allocator.free(uri);
 >     std.debug.print("{s}\n", .{uri}); // Noise seals the relay path end to end
 >
@@ -318,8 +318,8 @@ relay and waits there.
 > ```
 > **TypeScript**
 > ```ts
-> import type { Argument } from "@pancake/runtime";
-> import { noise } from "@pancake/relay";
+> import type { Argument } from "@glowcap/runtime";
+> import { noise } from "@glowcap/relay";
 >
 > // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > const seed = crypto.getRandomValues(new Uint8Array(32));
@@ -332,7 +332,7 @@ relay and waits there.
 > **Python**
 > ```python
 > import os
-> from pancake import Argument, relay
+> from glowcap import Argument, relay
 >
 > # Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > seed = os.urandom(32)  # load durable secret bytes in a real service
@@ -344,7 +344,7 @@ relay and waits there.
 > ```
 > **Rust**
 > ```rust
-> use pancake::{relay, Argument};
+> use glowcap::{relay, Argument};
 >
 > // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > let seed = [7u8; 32]; // replace with durable secret bytes across restarts
@@ -360,8 +360,8 @@ relay and waits there.
 > ```
 > **Racket**
 > ```scheme
-> (require "pancake.rkt"
->          "pancake-relay.rkt")
+> (require "glowcap.rkt"
+>          "glowcap-relay.rkt")
 >
 > ;; Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 > (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
@@ -388,7 +388,7 @@ ocapn://<64 hex chars>.noise-tcp?direct-addresses=127.0.0.1%3A9099
 ```
 
 A listener binds a durable key. The advertised locator is what partners dial.
-In Zig the profile is `pancake.net.tcp.noise`. `driver.connect` and
+In Zig the profile is `glowcap.net.tcp.noise`. `driver.connect` and
 `driver.listen` open sealed sessions over real sockets. The C driver loop and
 all four native bindings dial and listen through the TCP provider package,
 which owns `noise-tcp`, `keyed-tcp`, and testing `tcp` together.

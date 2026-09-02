@@ -24,10 +24,10 @@
 //! is what turns a wrong refcount from a silent condition into a failure.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const actors = pancake.actors;
-const model = pancake.ocapn.model;
+const actors = glowcap.actors;
+const model = glowcap.ocapn.model;
 
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it

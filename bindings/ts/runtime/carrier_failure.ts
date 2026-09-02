@@ -11,8 +11,8 @@ import {
 	CARRIER_PHASE_TRANSMIT,
 	CARRIER_PHASE_WEBSOCKET_UPGRADE,
 	INTERNAL,
-} from "@pancake/abi";
-import { PancakeError } from "./errors.ts";
+} from "@glowcap/abi";
+import { GlowcapError } from "./errors.ts";
 
 export type CarrierPhase =
 	| "resolve"
@@ -70,6 +70,6 @@ export function decodeCarrierFailure(
 	};
 }
 
-function invalid(detail: string): PancakeError {
-	return new PancakeError(INTERNAL, `driver returned ${detail}`);
+function invalid(detail: string): GlowcapError {
+	return new GlowcapError(INTERNAL, `driver returned ${detail}`);
 }

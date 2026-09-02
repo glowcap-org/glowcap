@@ -4,13 +4,13 @@
 //! the bare Symbol Goblins unmarshals.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
-const codec = pancake.ocapn.codec;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
+const codec = glowcap.ocapn.codec;
 const pairing = engine.pairing;
 const handshake = @import("../../support/handshake.zig");
 
@@ -101,7 +101,7 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
         try std.testing.expectEqualSlices(u8, "unknown swissnum", payload.symbol);
     }
 
-    // Symmetry: the receiving pancake peer projects the same semantic break it
+    // Symmetry: the receiving glowcap peer projects the same semantic break it
     // accepted before the shape change.
     try pair.p1.feedOwned(break_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());

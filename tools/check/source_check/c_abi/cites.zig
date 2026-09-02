@@ -1,5 +1,5 @@
 //! Documentation surfaces over the C ABI: the served-surface list, the
-//! deleted-projection guard, and every `pancake_*` citation in the docs held
+//! deleted-projection guard, and every `glowcap_*` citation in the docs held
 //! to a symbol the headers actually export.
 
 const std = @import("std");
@@ -15,17 +15,17 @@ const getField = util.getField;
 const jsonStringEquals = util.jsonStringEquals;
 
 const doc_c_abi_header_paths = [_][]const u8{
-    "include/pancake_ocapn.h",
-    "include/pancake_host.h",
-    "include/pancake_driver.h",
-    "include/pancake_transport_provider.h",
-    "include/pancake_net_transport_tcp.h",
-    "include/pancake_net_transport_relay.h",
-    "include/pancake_net_transport_inproc.h",
-    "include/pancake_net_transport_onion.h",
-    "include/pancake_net_transport_iroh.h",
-    "include/pancake_net_transport_webrtc.h",
-    "transports/iroh/include/pancake_iroh_sidecar.h",
+    "include/glowcap_ocapn.h",
+    "include/glowcap_host.h",
+    "include/glowcap_driver.h",
+    "include/glowcap_transport_provider.h",
+    "include/glowcap_net_transport_tcp.h",
+    "include/glowcap_net_transport_relay.h",
+    "include/glowcap_net_transport_inproc.h",
+    "include/glowcap_net_transport_onion.h",
+    "include/glowcap_net_transport_iroh.h",
+    "include/glowcap_net_transport_webrtc.h",
+    "transports/iroh/include/glowcap_iroh_sidecar.h",
 };
 
 /// The C ABI consumes `Served` through its surface verbs (`spawnHosted`,
@@ -58,7 +58,7 @@ pub fn checkCAbiServedSurface(
     }
 }
 
-/// CapTP C product is `pancake_host_*` only: the demoted `pancake_node_*`
+/// CapTP C product is `glowcap_host_*` only: the demoted `glowcap_node_*`
 /// projection must not return in generated headers or binding FFI maps.
 pub fn checkDeletedNodeCProjection(
     io: std.Io,
@@ -66,12 +66,12 @@ pub fn checkDeletedNodeCProjection(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const banned = "pancake_node_";
+    const banned = "glowcap_node_";
     const paths = [_][]const u8{
-        "include/pancake_ocapn.h",
-        "include/pancake_host.h",
+        "include/glowcap_ocapn.h",
+        "include/glowcap_host.h",
         "bindings/ts/runtime/internal/ffi/ocapn.ts",
-        "bindings/python/pancake/_ffi_ocapn.py",
+        "bindings/python/glowcap/_ffi_ocapn.py",
         "bindings/racket/private/ffi-ocapn.rkt",
         "bindings/rust/src/sys/ocapn.rs",
     };
@@ -82,16 +82,16 @@ pub fn checkDeletedNodeCProjection(
         };
         defer gpa.free(contents);
         if (std.mem.indexOf(u8, contents, banned) != null) {
-            try appendViolation(gpa, violations, "{s}: contains `{s}` — CapTP C product is pancake_host_* only; the demoted node waist must not return", .{ path, banned });
+            try appendViolation(gpa, violations, "{s}: contains `{s}` — CapTP C product is glowcap_host_* only; the demoted node waist must not return", .{ path, banned });
         }
     }
     // The companion header itself must stay deleted.
-    if (root.access(io, "include/pancake_ocapn_node.h", .{})) |_| {
-        try appendViolation(gpa, violations, "include/pancake_ocapn_node.h: file must stay deleted (demoted node waist)", .{});
+    if (root.access(io, "include/glowcap_ocapn_node.h", .{})) |_| {
+        try appendViolation(gpa, violations, "include/glowcap_ocapn_node.h: file must stay deleted (demoted node waist)", .{});
     } else |_| {}
 }
 
-/// Every `pancake_[a-z0-9_]+` token inside backticks in docs and site content
+/// Every `glowcap_[a-z0-9_]+` token inside backticks in docs and site content
 /// must exist in the generated headers (or name a wildcard family that does).
 pub fn checkDocCAbiCites(
     io: std.Io,
@@ -109,7 +109,7 @@ pub fn checkDocCAbiCites(
             try appendViolation(gpa, violations, "{s}: failed to read for doc C-ABI cite check with {s}", .{ header_path, @errorName(err) });
             continue;
         };
-        try collectPancakeSymbols(contents, &symbols);
+        try collectGlowcapSymbols(contents, &symbols);
     }
 
     var docs = root.openDir(io, "docs", .{ .iterate = true }) catch |err| {
@@ -149,14 +149,14 @@ pub fn checkDocCAbiCites(
     }
 }
 
-fn collectPancakeSymbols(
+fn collectGlowcapSymbols(
     contents: []const u8,
     out: *std.StringHashMap(void),
 ) !void {
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, contents, search, "pancake_")) |start| {
-        var end = start + "pancake_".len;
-        while (end < contents.len and isPancakeIdentChar(contents[end])) end += 1;
+    while (std.mem.indexOfPos(u8, contents, search, "glowcap_")) |start| {
+        var end = start + "glowcap_".len;
+        while (end < contents.len and isGlowcapIdentChar(contents[end])) end += 1;
         search = end;
         if (start > 0 and shared.isIdentChar(contents[start - 1])) continue;
         const name = contents[start..end];
@@ -164,7 +164,7 @@ fn collectPancakeSymbols(
     }
 }
 
-fn pancakeSymbolFamilyExists(prefix: []const u8, symbols: *const std.StringHashMap(void)) bool {
+fn glowcapSymbolFamilyExists(prefix: []const u8, symbols: *const std.StringHashMap(void)) bool {
     var it = symbols.keyIterator();
     while (it.next()) |key| {
         if (std.mem.startsWith(u8, key.*, prefix)) return true;
@@ -173,12 +173,12 @@ fn pancakeSymbolFamilyExists(prefix: []const u8, symbols: *const std.StringHashM
 }
 
 fn docCAbiTokenValid(token: []const u8, symbols: *const std.StringHashMap(void)) bool {
-    if (token.len < "pancake_".len) return false;
+    if (token.len < "glowcap_".len) return false;
 
-    if (std.mem.eql(u8, token, "pancake_*_release")) {
+    if (std.mem.eql(u8, token, "glowcap_*_release")) {
         var it = symbols.keyIterator();
         while (it.next()) |key| {
-            if (!std.mem.startsWith(u8, key.*, "pancake_")) continue;
+            if (!std.mem.startsWith(u8, key.*, "glowcap_")) continue;
             if (!std.mem.endsWith(u8, key.*, "_release")) continue;
             return true;
         }
@@ -188,7 +188,7 @@ fn docCAbiTokenValid(token: []const u8, symbols: *const std.StringHashMap(void))
     if (std.mem.endsWith(u8, token, "*")) {
         const prefix = token[0 .. token.len - 1];
         if (std.mem.endsWith(u8, prefix, "_")) {
-            return pancakeSymbolFamilyExists(prefix, symbols);
+            return glowcapSymbolFamilyExists(prefix, symbols);
         }
         var it = symbols.keyIterator();
         while (it.next()) |key| {
@@ -198,7 +198,7 @@ fn docCAbiTokenValid(token: []const u8, symbols: *const std.StringHashMap(void))
     }
 
     if (std.mem.endsWith(u8, token, "_")) {
-        return pancakeSymbolFamilyExists(token, symbols);
+        return glowcapSymbolFamilyExists(token, symbols);
     }
 
     if (symbols.contains(token)) return true;
@@ -206,14 +206,14 @@ fn docCAbiTokenValid(token: []const u8, symbols: *const std.StringHashMap(void))
     return false;
 }
 
-fn extractPancakeCiteToken(span: []const u8) ?[]const u8 {
-    if (!std.mem.startsWith(u8, span, "pancake_")) return null;
+fn extractGlowcapCiteToken(span: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, span, "glowcap_")) return null;
     if (std.mem.indexOfAny(u8, span, "<>") != null) return null;
     if (std.mem.endsWith(u8, span, ".h") or std.mem.endsWith(u8, span, ".wasm")) return null;
-    var end: usize = "pancake_".len;
-    while (end < span.len and isPancakeIdentChar(span[end])) end += 1;
+    var end: usize = "glowcap_".len;
+    while (end < span.len and isGlowcapIdentChar(span[end])) end += 1;
     if (end < span.len and span[end] == '*') end += 1;
-    if (end == "pancake_".len) return null;
+    if (end == "glowcap_".len) return null;
     return span[0..end];
 }
 
@@ -223,14 +223,14 @@ fn extractPancakeCiteToken(span: []const u8) ?[]const u8 {
 /// cite allowlist.
 fn isRetiredAdrCAbiToken(path: []const u8, token: []const u8) bool {
     if (!std.mem.startsWith(u8, path, "docs/decisions/adr/")) return false;
-    if (std.mem.startsWith(u8, token, "pancake_peer_")) return true;
-    if (std.mem.startsWith(u8, token, "pancake_tcp_session_")) return true;
-    return std.mem.eql(u8, token, "pancake_event_release") or
-        std.mem.eql(u8, token, "pancake_any_event_release") or
-        std.mem.eql(u8, token, "pancake_tcp_settled_release") or
-        std.mem.eql(u8, token, "pancake_host_session_enroll_capability") or
-        std.mem.eql(u8, token, "pancake_host_session_release_import") or
-        std.mem.eql(u8, token, "pancake_host_gc_release");
+    if (std.mem.startsWith(u8, token, "glowcap_peer_")) return true;
+    if (std.mem.startsWith(u8, token, "glowcap_tcp_session_")) return true;
+    return std.mem.eql(u8, token, "glowcap_event_release") or
+        std.mem.eql(u8, token, "glowcap_any_event_release") or
+        std.mem.eql(u8, token, "glowcap_tcp_settled_release") or
+        std.mem.eql(u8, token, "glowcap_host_session_enroll_capability") or
+        std.mem.eql(u8, token, "glowcap_host_session_release_import") or
+        std.mem.eql(u8, token, "glowcap_host_gc_release");
 }
 
 fn scanDocCAbiCitesInContents(
@@ -241,18 +241,18 @@ fn scanDocCAbiCitesInContents(
     violations: *std.ArrayList([]const u8),
 ) !void {
     var rest = contents;
-    while (std.mem.indexOf(u8, rest, "`pancake_")) |start| {
+    while (std.mem.indexOf(u8, rest, "`glowcap_")) |start| {
         const after_tick = rest[start + 1 ..];
         const close = std.mem.indexOfScalar(u8, after_tick, '`') orelse break;
         const span = after_tick[0..close];
         rest = after_tick[close + 1 ..];
-        const token = extractPancakeCiteToken(span) orelse continue;
+        const token = extractGlowcapCiteToken(span) orelse continue;
         if (!docCAbiTokenValid(token, symbols) and !isRetiredAdrCAbiToken(path, token)) {
             try appendViolation(gpa, violations, "{s}: backtick cite `{s}` has no matching symbol in include/*.h (doc C-ABI cite check)", .{ path, token });
         }
     }
 }
 
-fn isPancakeIdentChar(c: u8) bool {
+fn isGlowcapIdentChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_';
 }

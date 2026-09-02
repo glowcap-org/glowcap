@@ -11,9 +11,9 @@
 //! client meets a spec-shaped far end without Deno.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const keyed_relay = pancake.net.relay;
+const keyed_relay = glowcap.net.relay;
 const Io = std.Io;
 const ip = Io.net;
 

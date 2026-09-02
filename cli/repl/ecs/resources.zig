@@ -28,7 +28,7 @@ pub const Resources = struct {
     geom: layout.Geom = undefined,
     panel: PanelFocus = .prompt,
     reduced_motion: bool = false,
-    /// When true, mouse reporting is off (`PANCAKE_REPL_NO_MOUSE=1`).
+    /// When true, mouse reporting is off (`GLOWCAP_REPL_NO_MOUSE=1`).
     no_mouse: bool = false,
     /// Jump-to-live button is held (mouse-down visual).
     jump_pressed: bool = false,

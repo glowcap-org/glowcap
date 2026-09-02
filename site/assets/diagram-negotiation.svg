@@ -4,7 +4,7 @@
   width="760"
   height="372"
   role="img"
-  aria-label="How two peers settle a version and codec. Each peer brings a preference-ordered menu: the CapTP versions and codecs it can speak, best first. Each side sees both menus, in hand when the peers share a process, or set by configuration on each side over a network, and both run the same rule, keeping the most-preferred version and codec the two share. The result, here pancake-next over Cap'n Proto, is what op:start-session carries, with no extra round trip. If the two menus share no version or codec, no session opens."
+  aria-label="How two peers settle a version and codec. Each peer brings a preference-ordered menu: the CapTP versions and codecs it can speak, best first. Each side sees both menus, in hand when the peers share a process, or set by configuration on each side over a network, and both run the same rule, keeping the most-preferred version and codec the two share. The result, here glowcap-next over Cap'n Proto, is what op:start-session carries, with no extra round trip. If the two menus share no version or codec, no session opens."
 >
   <defs>
     <marker
@@ -53,13 +53,13 @@
     text-anchor="middle"
     class="node"
     fill="var(--accent-deep, #a4560c)"
-  >pancake A</text>
+  >glowcap A</text>
   <text
     x="184"
     y="78"
     text-anchor="middle"
     class="label muted"
-  >versions: pancake-next &#183; 1.0</text>
+  >versions: glowcap-next &#183; 1.0</text>
   <text
     x="184"
     y="100"
@@ -89,13 +89,13 @@
     text-anchor="middle"
     class="node"
     fill="var(--accent-deep, #a4560c)"
-  >pancake B</text>
+  >glowcap B</text>
   <text
     x="576"
     y="78"
     text-anchor="middle"
     class="label muted"
-  >versions: pancake-next &#183; 1.0</text>
+  >versions: glowcap-next &#183; 1.0</text>
   <text
     x="576"
     y="100"
@@ -175,7 +175,7 @@
     text-anchor="middle"
     class="result"
     fill="var(--teal-deep, #1b5f66)"
-  >pancake-next &#183; Cap'n Proto</text>
+  >glowcap-next &#183; Cap'n Proto</text>
   <text
     x="380"
     y="352"

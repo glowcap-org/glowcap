@@ -1,7 +1,7 @@
 // The CapTP host — multi-session CapTP product over the byte-fed host archive
-// (libpancake_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns — never
-// a single-type equation. The `PancakeHost` owns every decision: the retained
+// a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
 // the embedder contract leaves to the binding: the host handle, the
@@ -18,9 +18,9 @@ import {
 	INVALID_ARGUMENT,
 	NOT_FOUND,
 	SESSION_LIMIT_OPTIONS_ABI_VERSION,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { refStruct } from "../abi_value.ts";
-import { checkHost, PancakeError } from "../errors.ts";
+import { checkHost, GlowcapError } from "../errors.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { L } from "../internal/layout.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
@@ -59,14 +59,14 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		for (const connector of connectors) {
 			for (const transport of connector.transports) {
 				if (transport.length === 0) {
-					throw new PancakeError(
+					throw new GlowcapError(
 						INVALID_ARGUMENT,
 						"connector transport symbols must not be empty",
 					);
 				}
 				const installed = pending.get(transport) ?? this._connectors.get(transport);
 				if (installed != null && installed !== connector) {
-					throw new PancakeError(
+					throw new GlowcapError(
 						INVALID_ARGUMENT,
 						`host already has a different connector for transport ${JSON.stringify(transport)}`,
 					);
@@ -95,8 +95,8 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		const out = new Uint8Array(8);
 		checkHost(
 			captpVersion === undefined
-				? hostS.pancake_host_enliven(raw, ab(swiss), BigInt(swiss.length), ab(out))
-				: hostS.pancake_host_enliven_for_version(
+				? hostS.glowcap_host_enliven(raw, ab(swiss), BigInt(swiss.length), ab(out))
+				: hostS.glowcap_host_enliven_for_version(
 					raw,
 					captpVersionId(captpVersion),
 					ab(swiss),
@@ -116,7 +116,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		const out = new Uint8Array(8);
 		withOwnedLocator(locator, (owned) =>
 			checkHost(
-				hostS.pancake_host_fetch_at(
+				hostS.glowcap_host_fetch_at(
 					raw,
 					owned.borrowView(),
 					ab(encodedName),
@@ -143,14 +143,14 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	setAdvertisedLocator(locator: Locator): void {
 		withOwnedLocator(
 			locator,
-			(owned) => checkHost(hostS.pancake_host_set_advertised_locator(this._raw, owned.borrowView())),
+			(owned) => checkHost(hostS.glowcap_host_set_advertised_locator(this._raw, owned.borrowView())),
 		);
 	}
 
 	/** Remove this Host's retained locator for `transport`. */
 	removeAdvertisedLocator(transport: string): void {
 		const bytes = utf8Encoder.encode(transport);
-		checkHost(hostS.pancake_host_remove_advertised_locator(
+		checkHost(hostS.glowcap_host_remove_advertised_locator(
 			this._raw,
 			ab(bytes),
 			BigInt(bytes.length),
@@ -191,7 +191,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 			L.SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF,
 			maxRetainedSentAnswerBytes,
 		);
-		checkHost(hostS.pancake_host_set_session_limits(
+		checkHost(hostS.glowcap_host_set_session_limits(
 			this._raw,
 			ab(raw),
 		));
@@ -202,7 +202,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	 * (ADR-0075). */
 	designator(): string {
 		const out = new Uint8Array(64);
-		checkHost(hostS.pancake_host_designator_from_seed(
+		checkHost(hostS.glowcap_host_designator_from_seed(
 			ab(this._seed),
 			32n,
 			ab(out),
@@ -222,7 +222,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null }, true);
 		const bytes = utf8Encoder.encode(name);
 		try {
-			checkHost(hostS.pancake_host_publish(
+			checkHost(hostS.glowcap_host_publish(
 				this._raw,
 				ab(bytes),
 				BigInt(bytes.length),
@@ -253,7 +253,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 			? crypto.getRandomValues(new Uint8Array(HOST_DURABLE_ENTROPY_LEN))
 			: new Uint8Array(entropy);
 		if (entropyBytes.length !== HOST_DURABLE_ENTROPY_LEN) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`durable entropy must be exactly ${HOST_DURABLE_ENTROPY_LEN} bytes`,
 			);
@@ -262,7 +262,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		const swiss = new Uint8Array(HOST_DURABLE_SWISS_LEN);
 		let written: number;
 		try {
-			written = hostS.pancake_host_publish_durable(
+			written = hostS.glowcap_host_publish_durable(
 				this._raw,
 				ab(entropyBytes),
 				BigInt(entropyBytes.length),
@@ -313,7 +313,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	 * exact actor. Returns false when no such durable name exists. */
 	unpublishDurable(swiss: string): boolean {
 		const bytes = utf8Encoder.encode(swiss);
-		const rc = hostS.pancake_host_remove_durable(this._raw, ab(bytes), BigInt(bytes.length));
+		const rc = hostS.glowcap_host_remove_durable(this._raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;
 		checkHost(rc);
 		this._giftables.delete(swiss);
@@ -327,7 +327,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	 * Returns false when no such alias exists. */
 	unpublishGiftable(name: string): boolean {
 		const bytes = utf8Encoder.encode(name);
-		const rc = hostS.pancake_host_unpublish(this._raw, ab(bytes), BigInt(bytes.length));
+		const rc = hostS.glowcap_host_unpublish(this._raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;
 		checkHost(rc);
 		this._giftables.delete(name);
@@ -407,7 +407,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 			ptr = this._driverLoop.claimReferenceExporter(refBuf) ?? NULL;
 		} else {
 			const out = new Uint8Array(8);
-			checkHost(hostS.pancake_host_reference_exporter(this._raw, ab(refBuf), ab(out)));
+			checkHost(hostS.glowcap_host_reference_exporter(this._raw, ab(refBuf), ab(out)));
 			ptr = outPointer(out);
 		}
 		if (ptr === NULL) return null;
@@ -426,12 +426,12 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 function sessionLimit(name: string, value: bigint | number | undefined, ceiling?: bigint): bigint {
 	if (value === undefined) return 0n;
 	if (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0)) {
-		throw new PancakeError(INVALID_ARGUMENT, `${name} must be a non-negative safe integer or bigint`);
+		throw new GlowcapError(INVALID_ARGUMENT, `${name} must be a non-negative safe integer or bigint`);
 	}
 	const exact = BigInt(value);
 	const max = ceiling ?? (L.ptrSize === 4 ? 0xffff_ffffn : 0xffff_ffff_ffff_ffffn);
 	if (exact < 0n || exact > max) {
-		throw new PancakeError(INVALID_ARGUMENT, `${name} exceeds this target's supported range`);
+		throw new GlowcapError(INVALID_ARGUMENT, `${name} exceeds this target's supported range`);
 	}
 	return exact;
 }

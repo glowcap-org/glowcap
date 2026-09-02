@@ -1,10 +1,10 @@
 // DENO-SPECIFIC: the Tor an onion room server listens through.
 //
-// pancake itself starts no Tor: the onion netlayer only receives configured
+// glowcap itself starts no Tor: the onion netlayer only receives configured
 // SOCKS and control endpoints, the same contract the demo harness
 // (`apps/rooms/demos/run-onion.sh`) holds. This module is the web supervisor's
 // side of that contract. When the environment already names endpoints
-// (`PANCAKE_ONION_SOCKS` and `PANCAKE_ONION_CONTROL`), it uses them and owns
+// (`GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL`), it uses them and owns
 // nothing; otherwise it starts a private Tor on Unix sockets under a temporary
 // directory, waits for those sockets to appear, and stops the daemon and
 // removes the directory on `stop`.
@@ -18,8 +18,8 @@ export interface TorEndpoints {
 	stop(): Promise<void>;
 }
 
-const SOCKS_ENV = "PANCAKE_ONION_SOCKS";
-const CONTROL_ENV = "PANCAKE_ONION_CONTROL";
+const SOCKS_ENV = "GLOWCAP_ONION_SOCKS";
+const CONTROL_ENV = "GLOWCAP_ONION_CONTROL";
 
 function configured(name: string): string | undefined {
 	const allowed = Deno.permissions.querySync({ name: "env", variable: name }).state === "granted";
@@ -62,7 +62,7 @@ export async function ensureTor(): Promise<TorEndpoints> {
 		);
 	}
 
-	const state = await Deno.makeTempDir({ prefix: "pancake-rooms-tor-" });
+	const state = await Deno.makeTempDir({ prefix: "glowcap-rooms-tor-" });
 	const socksPath = `${state}/socks.sock`;
 	const controlPath = `${state}/control.sock`;
 	const removeState = () => Deno.remove(state, { recursive: true }).catch(() => {});

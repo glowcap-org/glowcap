@@ -15,8 +15,8 @@ const webrtc_build = @import("webrtc.zig");
 /// The iroh C ABI module: `transportAbiModule` over
 /// `src/c_abi/net_transport/iroh/mod.zig` with the injected `iroh` resident
 /// alongside the shared layer instances. The shared vocabulary leaf (not the
-/// `c_abi` ocapn root) keeps `libpancake_net_transport_iroh` symbol-disjoint
-/// from `libpancake_ocapn`.
+/// `c_abi` ocapn root) keeps `libglowcap_net_transport_iroh` symbol-disjoint
+/// from `libglowcap_ocapn`.
 pub fn irohAbiModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
@@ -204,81 +204,81 @@ pub fn register(ctx: Context) void {
     const header_gens = [_]HeaderGen{
         .{
             .check_step_name = "gen-header-locator-check",
-            .check_desc = "Verify include/pancake_locator.h matches the shared locator ABI (fails if stale)",
+            .check_desc = "Verify include/glowcap_locator.h matches the shared locator ABI (fails if stale)",
             .write_step_name = "gen-header-locator",
-            .write_desc = "Regenerate include/pancake_locator.h from c_abi/shared/locator.zig",
+            .write_desc = "Regenerate include/glowcap_locator.h from c_abi/shared/locator.zig",
             .generator = "tools/gen/header/locator.zig",
             .import_name = "c_abi_shared",
             .import_module = host_mods[layerIndex("c_abi_shared")],
         },
         .{
             .check_step_name = "gen-header-ocapn-check",
-            .check_desc = "Verify include/pancake_ocapn.h matches src/c_abi/ocapn (fails if stale)",
+            .check_desc = "Verify include/glowcap_ocapn.h matches src/c_abi/ocapn (fails if stale)",
             .write_step_name = "gen-header-ocapn",
-            .write_desc = "Regenerate include/pancake_ocapn.h from src/c_abi/ocapn",
+            .write_desc = "Regenerate include/glowcap_ocapn.h from src/c_abi/ocapn",
             .generator = "tools/gen/header/ocapn.zig",
             .import_name = "c_abi",
             .import_module = host_mods[layerIndex("c_abi")],
         },
         .{
             .check_step_name = "gen-header-host-check",
-            .check_desc = "Verify include/pancake_host.h matches src/c_abi/host (fails if stale)",
+            .check_desc = "Verify include/glowcap_host.h matches src/c_abi/host (fails if stale)",
             .write_step_name = "gen-header-host",
-            .write_desc = "Regenerate include/pancake_host.h from src/c_abi/host",
+            .write_desc = "Regenerate include/glowcap_host.h from src/c_abi/host",
             .generator = "tools/gen/header/host.zig",
             .import_name = "c_abi_host",
             .import_module = host_abi_mod,
         },
         .{
             .check_step_name = "gen-header-transport-provider-check",
-            .check_desc = "Verify include/pancake_transport_provider.h matches the shared provider ABI (fails if stale)",
+            .check_desc = "Verify include/glowcap_transport_provider.h matches the shared provider ABI (fails if stale)",
             .write_step_name = "gen-header-transport-provider",
-            .write_desc = "Regenerate include/pancake_transport_provider.h from c_abi/shared",
+            .write_desc = "Regenerate include/glowcap_transport_provider.h from c_abi/shared",
             .generator = "tools/gen/header/transport_provider.zig",
             .import_name = "c_abi_shared",
             .import_module = host_mods[layerIndex("c_abi_shared")],
         },
         .{
             .check_step_name = "gen-header-driver-check",
-            .check_desc = "Verify include/pancake_driver.h matches src/c_abi/driver (fails if stale)",
+            .check_desc = "Verify include/glowcap_driver.h matches src/c_abi/driver (fails if stale)",
             .write_step_name = "gen-header-driver",
-            .write_desc = "Regenerate include/pancake_driver.h from src/c_abi/driver",
+            .write_desc = "Regenerate include/glowcap_driver.h from src/c_abi/driver",
             .generator = "tools/gen/header/driver.zig",
             .import_name = "c_abi_driver",
             .import_module = driver_abi_mod,
         },
         .{
             .check_step_name = "gen-header-net-transport-tcp-check",
-            .check_desc = "Verify include/pancake_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale)",
+            .check_desc = "Verify include/glowcap_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale)",
             .write_step_name = "gen-header-net-transport-tcp",
-            .write_desc = "Regenerate include/pancake_net_transport_tcp.h from src/c_abi/net_transport/tcp",
+            .write_desc = "Regenerate include/glowcap_net_transport_tcp.h from src/c_abi/net_transport/tcp",
             .generator = "tools/gen/header/net_tcp.zig",
             .import_name = "c_abi_net_transport_tcp",
             .import_module = reflected_archives.tcp,
         },
         .{
             .check_step_name = "gen-header-net-transport-inproc-check",
-            .check_desc = "Verify include/pancake_net_transport_inproc.h matches src/c_abi/net_transport/inproc (fails if stale)",
+            .check_desc = "Verify include/glowcap_net_transport_inproc.h matches src/c_abi/net_transport/inproc (fails if stale)",
             .write_step_name = "gen-header-net-transport-inproc",
-            .write_desc = "Regenerate include/pancake_net_transport_inproc.h from src/c_abi/net_transport/inproc",
+            .write_desc = "Regenerate include/glowcap_net_transport_inproc.h from src/c_abi/net_transport/inproc",
             .generator = "tools/gen/header/net_inproc.zig",
             .import_name = "c_abi_net_transport_inproc",
             .import_module = reflected_archives.inproc,
         },
         .{
             .check_step_name = "gen-header-net-transport-relay-check",
-            .check_desc = "Verify include/pancake_net_transport_relay.h matches src/c_abi/net_transport/relay (fails if stale)",
+            .check_desc = "Verify include/glowcap_net_transport_relay.h matches src/c_abi/net_transport/relay (fails if stale)",
             .write_step_name = "gen-header-net-transport-relay",
-            .write_desc = "Regenerate include/pancake_net_transport_relay.h from src/c_abi/net_transport/relay",
+            .write_desc = "Regenerate include/glowcap_net_transport_relay.h from src/c_abi/net_transport/relay",
             .generator = "tools/gen/header/net_relay.zig",
             .import_name = "c_abi_net_transport_relay",
             .import_module = reflected_archives.relay,
         },
         .{
             .check_step_name = "gen-header-net-transport-onion-check",
-            .check_desc = "Verify include/pancake_net_transport_onion.h matches src/c_abi/net_transport/onion (fails if stale)",
+            .check_desc = "Verify include/glowcap_net_transport_onion.h matches src/c_abi/net_transport/onion (fails if stale)",
             .write_step_name = "gen-header-net-transport-onion",
-            .write_desc = "Regenerate include/pancake_net_transport_onion.h from src/c_abi/net_transport/onion",
+            .write_desc = "Regenerate include/glowcap_net_transport_onion.h from src/c_abi/net_transport/onion",
             .generator = "tools/gen/header/net_onion.zig",
             .import_name = "c_abi_net_transport_onion",
             .import_module = reflected_archives.onion,
@@ -352,9 +352,9 @@ pub fn registerMirrors(
     // The resident-backed archives join after their Zig resident modules exist.
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-header-net-transport-iroh-check",
-        .check_desc = "Verify include/pancake_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale)",
+        .check_desc = "Verify include/glowcap_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale)",
         .write_step_name = "gen-header-net-transport-iroh",
-        .write_desc = "Regenerate include/pancake_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig",
+        .write_desc = "Regenerate include/glowcap_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig",
         .generator = "tools/gen/header/iroh.zig",
         .import_name = "c_abi_net_transport_iroh",
         .import_module = iroh_abi_mod,
@@ -373,9 +373,9 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-header-net-transport-webrtc-check",
-        .check_desc = "Verify include/pancake_net_transport_webrtc.h matches src/c_abi/net_transport/webrtc/mod.zig (fails if stale)",
+        .check_desc = "Verify include/glowcap_net_transport_webrtc.h matches src/c_abi/net_transport/webrtc/mod.zig (fails if stale)",
         .write_step_name = "gen-header-net-transport-webrtc",
-        .write_desc = "Regenerate include/pancake_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig",
+        .write_desc = "Regenerate include/glowcap_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig",
         .generator = "tools/gen/header/webrtc.zig",
         .import_name = "c_abi_net_transport_webrtc",
         .import_module = webrtc_abi_mod,
@@ -458,6 +458,7 @@ pub fn registerCapnpFixtures(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     lib_mod: *std.Build.Module,
+    check_step: *std.Build.Step,
 ) void {
     {
         const gen_mod = b.createModule(.{
@@ -465,15 +466,9 @@ pub fn registerCapnpFixtures(
             .target = target,
             .optimize = optimize,
         });
-        gen_mod.addImport("pancake", lib_mod);
-        const handoff_fixtures_mod = b.createModule(.{
-            .root_source_file = b.path("test/support/handoff_fixtures.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        handoff_fixtures_mod.addImport("pancake", lib_mod);
-        gen_mod.addImport("handoff_fixtures", handoff_fixtures_mod);
+        gen_mod.addImport("glowcap", lib_mod);
         const gen_exe = b.addExecutable(.{ .name = "capnp-fixture-gen", .root_module = gen_mod });
+        check_step.dependOn(&gen_exe.step);
         const gen_run = execution.addArtifact(b, .build_tool, gen_exe);
         gen_run.setCwd(b.path("."));
         gen_run.has_side_effects = true;

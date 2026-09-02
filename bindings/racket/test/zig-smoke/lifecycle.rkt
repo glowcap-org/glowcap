@@ -5,11 +5,11 @@
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
-         "../../pancake.rkt"
-         "../../pancake-tcp.rkt"
-         "../../pancake-inproc.rkt"
-         "../../pancake-onion.rkt"
-         "../../pancake-iroh.rkt"
+         "../../glowcap.rkt"
+         "../../glowcap-tcp.rkt"
+         "../../glowcap-inproc.rkt"
+         "../../glowcap-onion.rkt"
+         "../../glowcap-iroh.rkt"
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -55,7 +55,7 @@
       (call-with-host m
         (lambda ()
           (define-values (rc _session)
-            (pancake_host_session_open_dialed_locator (host-ptr m) view))
+            (glowcap_host_session_open_dialed_locator (host-ptr m) view))
           (check/host rc))))))
 
 ;; ── Mid-turn close defers handle release ─────────────────────────────────────
@@ -96,7 +96,7 @@
 (define mc-client
   (thread
    (lambda ()
-     (with-handlers ([exn:fail:pancake? void])
+     (with-handlers ([exn:fail:glowcap? void])
        (session-send mc-session mc-svc 'die)))))
 (define mc-parked (sync/timeout 10 mc-during))
 (expect (equal? 1 mc-parked)
@@ -144,7 +144,7 @@
 (define hr-client
   (thread
    (lambda ()
-     (with-handlers ([exn:fail:pancake? void])
+     (with-handlers ([exn:fail:glowcap? void])
        (session-send hr-session hr-svc 'release-host)))))
 (expect (equal? '(#f 1) (sync/timeout 10 hr-during))
         "mid-turn Host close records intent and parks one handle-release barrier")
@@ -209,7 +209,7 @@
      re-host
      (lambda ()
        (define-values (rc lifecycle)
-         (pancake_host_close_progress (host-ptr re-host) (monotonic-ms)))
+         (glowcap_host_close_progress (host-ptr re-host) (monotonic-ms)))
        (check/host rc)
        lifecycle)))
   (unless (= state LIFECYCLE-FINISHING)
@@ -254,19 +254,19 @@
 (define gt-host (make-fresh-host))
 (open-pending-dialed! gt-host)
 (define gt-first
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (host-close! gt-host #:pending 'finish #:grace-ms 50)
     'completed))
-(expect (and (exn:fail:pancake? gt-first)
-             (= ERR-TIMEOUT (exn:fail:pancake-code gt-first))
+(expect (and (exn:fail:glowcap? gt-first)
+             (= ERR-TIMEOUT (exn:fail:glowcap-code gt-first))
              (unbox (host-released? gt-host)))
         "finish grace expiry surfaces ERR-TIMEOUT after terminal release")
 (define gt-second
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (host-close! gt-host)
     'completed))
-(expect (and (exn:fail:pancake? gt-second)
-             (= ERR-TIMEOUT (exn:fail:pancake-code gt-second)))
+(expect (and (exn:fail:glowcap? gt-second)
+             (= ERR-TIMEOUT (exn:fail:glowcap-code gt-second)))
         "a repeated close re-observes the retained timeout outcome")
 
 (printf "racket zig-smoke OK: repeated Host close re-observes the finish timeout\n")
@@ -300,7 +300,7 @@
 ;; dial still negotiating against a silent TCP partner is admitted pending
 ;; work, so a finish close whose finite grace expires reports ERR-TIMEOUT
 ;; through the loop close barrier and still crosses terminal release. The
-;; expiry takes effect only inside a `pancake_driver_step`, so this also
+;; expiry takes effect only inside a `glowcap_driver_step`, so this also
 ;; exercises the loop close driver's deadline-timer park.
 (define lg-listener (tcp-listen 0 4 #t "127.0.0.1"))
 (define lg-port
@@ -322,11 +322,11 @@
 ;; CapTP handshake can never finish inside the grace.
 (define-values (lg-in lg-out) (tcp-accept lg-listener))
 (define lg-first
-  (with-handlers ([exn:fail:pancake? values])
+  (with-handlers ([exn:fail:glowcap? values])
     (host-close! (runtime-host lg-runtime) #:pending 'finish #:grace-ms 50)
     'completed))
-(expect (and (exn:fail:pancake? lg-first)
-             (= ERR-TIMEOUT (exn:fail:pancake-code lg-first))
+(expect (and (exn:fail:glowcap? lg-first)
+             (= ERR-TIMEOUT (exn:fail:glowcap-code lg-first))
              (unbox (host-released? (runtime-host lg-runtime))))
         "loop finish grace expiry surfaces ERR-TIMEOUT after terminal release")
 (expect (exn? (sync/timeout 10 lg-dial-result))
@@ -359,8 +359,8 @@
                                      (tcp-locator "127.0.0.1" hd-port)))))))
 (define-values (hd-in hd-out) (tcp-accept hd-listener))
 (define hd-outcome (sync/timeout 2 hd-result))
-(expect (and (exn:fail:pancake? hd-outcome)
-             (= ERR-TIMEOUT (exn:fail:pancake-code hd-outcome)))
+(expect (and (exn:fail:glowcap? hd-outcome)
+             (= ERR-TIMEOUT (exn:fail:glowcap-code hd-outcome)))
         "a silent loop dial did not reach its native handshake deadline")
 (thread-wait hd-thread)
 (runtime-close! hd-runtime)
@@ -368,7 +368,7 @@
 (close-output-port hd-out)
 (tcp-close hd-listener)
 
-(printf "racket zig-smoke OK: a silent loop dial reaches pancake's native handshake deadline\n")
+(printf "racket zig-smoke OK: a silent loop dial reaches glowcap's native handshake deadline\n")
 
 ;; Session close has the same ownership contract. A negotiating byte-fed
 ;; session keeps unbounded FINISH pending; killing the first waiter must not

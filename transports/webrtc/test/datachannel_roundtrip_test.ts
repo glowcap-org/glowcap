@@ -2,7 +2,7 @@
 //
 // A real headless Chromium is the browser peer (the offerer). It creates a
 // reliable, ordered RTCDataChannel to the native Rust peer
-// (`pancake-webrtc-datachannel-probe`, the answerer over the `webrtc` crate),
+// (`glowcap-webrtc-datachannel-probe`, the answerer over the `webrtc` crate),
 // and this focused phase-1 harness ferries the signaling — the SDP offer/answer
 // and trickled ICE candidates — between the two out of band, over the probe's
 // stdio. The capability-routed signaling shape is covered by
@@ -43,7 +43,7 @@ interface ProbeGlobals {
 }
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
-const PROBE = `${ROOT}transports/webrtc/target/release/pancake-webrtc-datachannel-probe`;
+const PROBE = `${ROOT}transports/webrtc/target/release/glowcap-webrtc-datachannel-probe`;
 
 const PING = "ping-from-browser";
 const EXPECTED_REPLY = `pong-from-native:${PING}`;

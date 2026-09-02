@@ -1,6 +1,6 @@
 // WebRTC signaling relayed between exact live directory registrations.
 
-import { type Argument, type Behavior, Ref, type Session } from "@pancake/runtime";
+import { type Argument, type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { NOT_REGISTERED, PEER_OFFLINE, RoomError } from "../lib/errors.ts";
 import { MAX_SIGNAL_EXCHANGES, MAX_SIGNAL_SDP, relayedSignalFits, SIGNAL_EXCHANGE_TIMEOUT_MS } from "../lib/limits.ts";
 import {

@@ -29,8 +29,8 @@
 ;; Needs `racket` plus the iroh ABI companion library (`zig build iroh-abi`); run
 ;; via `zig build racket-iroh-redeem-posture`.
 
-(require "../../racket/pancake.rkt"
-         "../../racket/pancake-iroh.rkt"
+(require "../../racket/glowcap.rkt"
+         "../../racket/glowcap-iroh.rkt"
          "../../../interop/_common/racket/helpers.rkt")
 
 (define NAME "racket-redeem-posture-carol")

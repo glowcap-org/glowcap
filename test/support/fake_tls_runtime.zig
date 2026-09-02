@@ -4,10 +4,10 @@
 //! ciphertext is deliberately identical to plaintext so completion tests can
 //! drive the existing WebSocket fixture without a second protocol oracle.
 
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const tls = pancake.net.tls;
+const foundation = glowcap.foundation;
+const tls = glowcap.net.tls;
 
 pub const FakeRuntime = struct {
     opens: usize = 0,

@@ -103,7 +103,7 @@ Mutable aliases remain available under an explicitly different discovery API.
 The safe publication surface never mints or labels a sturdyref from one: equal
 sturdyref bytes must not silently acquire different authority after a rebind.
 Low-level code may parse a remote `(peer, swiss)` supplied by another system,
-but pancake does not thereby vouch that the remote registry keeps that swiss
+but glowcap does not thereby vouch that the remote registry keeps that swiss
 non-reassignable.
 
 ### Namespace separation is the retention rule
@@ -189,7 +189,7 @@ proofs live in the
 [TypeScript Wasm handshake smoke](../../../bindings/ts/web/test/wasm_handshake_smoke.ts).
 
 Steps 3–4 ship the namespace split and the select-or-dial front door. The
-session core reserves the versioned durable prefix (`pancake-durable-1-` plus
+session core reserves the versioned durable prefix (`glowcap-durable-1-` plus
 32 random hex digits) and refuses a mutable bind under it with a typed
 `ReservedDurableNamespace`; `driver_core.Host.publishDurable` mints in that
 namespace from caller-supplied entropy, checks the active table, and
@@ -197,7 +197,7 @@ namespace from caller-supplied entropy, checks the active table, and
 entropy at the adapter boundary and returns the complete sturdyref URI, and
 `driver.HostRuntime.enliven` selects a live matching session or dials the
 sturdyref peer before fetching. The C ABI carries the same verbs as
-`pancake_host_publish_durable` / `pancake_host_remove_durable`, wrapped by all
+`glowcap_host_publish_durable` / `glowcap_host_remove_durable`, wrapped by all
 four bindings; a C embedder composes select-or-dial from its own dial actions.
 The namespace refusal, mint, removal, restart miss, and issued-authority
 survival are held by

@@ -3,17 +3,17 @@
 // signature) — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// Internal: the FFI mirror of `libpancake_net_transport_inproc` — the
+// Internal: the FFI mirror of `libglowcap_net_transport_inproc` — the
 // in-process transport archive (ADR-0059).
 //
 // Nothing here is public; `inproc.ts` is the ergonomic surface over it. This
 // loader opens *only* the inproc archive, so importing `inproc.ts` never pulls
 // in the TCP or iroh archives. The inproc family is symbol-disjoint from the
 // core and shares the frame/context types by layout; it carries its own
-// thread-local last-error read through `pancake_inproc_last_error`.
+// thread-local last-error read through `glowcap_inproc_last_error`.
 
-import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-import { INPROC_ARCHIVE_FINGERPRINT } from "@pancake/abi";
+import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+import { INPROC_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 
 const P = "pointer",
 	B = "buffer",
@@ -22,38 +22,38 @@ const P = "pointer",
 	V = "void",
 	U64 = "u64";
 
-export const inprocS = lazySymbols(() => libPath("pancake_net_transport_inproc"), {
-	pancake_inproc_archive_fingerprint: { parameters: [], result: U64 },
-	pancake_inproc_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_inproc_netlayer_new: { parameters: [B], result: I, outBuffers: [0] },
-	pancake_inproc_netlayer_release: { parameters: [P], result: V, nonblocking: true },
-	pancake_inproc_connect: {
+export const inprocS = lazySymbols(() => libPath("glowcap_net_transport_inproc"), {
+	glowcap_inproc_archive_fingerprint: { parameters: [], result: U64 },
+	glowcap_inproc_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
+	glowcap_inproc_netlayer_new: { parameters: [B], result: I, outBuffers: [0] },
+	glowcap_inproc_netlayer_release: { parameters: [P], result: V, nonblocking: true },
+	glowcap_inproc_connect: {
 		parameters: [P, B, U, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [5, 6, 8],
 		nonblocking: true,
 	},
-	pancake_inproc_listen: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
-	pancake_inproc_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_inproc_accept: {
+	glowcap_inproc_listen: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
+	glowcap_inproc_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
+	glowcap_inproc_accept: {
 		parameters: [P, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [3, 4, 6],
 		nonblocking: true,
 	},
-	pancake_inproc_conn_read_frame: {
+	glowcap_inproc_conn_read_frame: {
 		parameters: [P, B, B, U, B],
 		result: I,
 		outBuffers: [1, 2, 4],
 		nonblocking: true,
 	},
-	pancake_inproc_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
-	pancake_inproc_conn_shutdown: { parameters: [P], result: V },
-	pancake_inproc_conn_release: { parameters: [P], result: V, nonblocking: true },
-	pancake_inproc_listener_shutdown: { parameters: [P], result: V },
-	pancake_inproc_listener_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+	glowcap_inproc_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
+	glowcap_inproc_conn_shutdown: { parameters: [P], result: V },
+	glowcap_inproc_conn_release: { parameters: [P], result: V, nonblocking: true },
+	glowcap_inproc_listener_shutdown: { parameters: [P], result: V },
+	glowcap_inproc_listener_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
 }, {
-	symbol: "pancake_inproc_archive_fingerprint",
+	symbol: "glowcap_inproc_archive_fingerprint",
 	expected: INPROC_ARCHIVE_FINGERPRINT,
-	archive: "pancake_net_transport_inproc",
+	archive: "glowcap_net_transport_inproc",
 });

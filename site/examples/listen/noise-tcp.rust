@@ -1,4 +1,4 @@
-use pancake::{tcp, Argument};
+use glowcap::{tcp, Argument};
 
 // Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 let seed = [7u8; 32]; // replace with durable secret bytes across restarts

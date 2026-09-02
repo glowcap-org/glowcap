@@ -1,4 +1,4 @@
-//! Where pancake meets a real byte stream.
+//! Where glowcap meets a real byte stream.
 //!
 //! The protocol core (foundation, model, codec, session, engine) is synchronous
 //! and does no I/O. This layer is where a host's `std.Io` drives an `engine.Peer`
@@ -8,7 +8,7 @@
 //!
 //! ## Bring your own transport (ADR-0030)
 //!
-//! A stream transport gives pancake a `*std.Io.Reader` and `*std.Io.Writer`.
+//! A stream transport gives glowcap a `*std.Io.Reader` and `*std.Io.Writer`.
 //! `pumpOver` uses that pair for one peer step, and the `FrameStream` family
 //! reads and writes one outer-framed codec frame at a time. Any transport that
 //! can provide those interfaces can drive a peer here: TCP, TLS or Unix streams
@@ -92,7 +92,7 @@ pub const tcp = @import("transport/tcp.zig");
 /// the two headless byte helpers (SOCKS5 out, the Tor control protocol for
 /// hosting), the streams that carry them, and the resident that dials and accepts
 /// over the netlayer contract (ADR-0108). Reached through a Tor daemon the
-/// deployment runs; pancake starts none.
+/// deployment runs; glowcap starts none.
 pub const onion = @import("transport/onion/mod.zig");
 
 /// The socket library: raw OS socket + stream plumbing beneath a netlayer,
@@ -225,7 +225,7 @@ else
 /// needs a non-`tcp.DialResolver` locator grammar can bind its own
 /// `completion.Loop(net.Backend, CustomDialResolver)` without re-declaring the
 /// per-OS backend selection. The OCapN conformance harness does exactly that
-/// (`conformance/ocapn-conformance/pancake_peer.zig`), binding a locator whose
+/// (`conformance/ocapn-conformance/glowcap_peer.zig`), binding a locator whose
 /// address lives in the locator hints. `Backend.initWithListenerIp4` selects a
 /// native listener interface before the value is moved into `TcpLoop`; the
 /// ordinary constructor deliberately defaults to loopback. An empty struct off

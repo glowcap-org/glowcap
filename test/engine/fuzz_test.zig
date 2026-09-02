@@ -36,10 +36,10 @@
 //! the check, and this reads the counts back after every step.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
 const pairing = engine.pairing;
 
 /// An allocator that runs out of memory where the fuzzer says. A session's
@@ -120,12 +120,12 @@ const program_seeds = blk: {
 fn firstHeldImport(peer: *engine.Peer) ?u64 {
     const Found = struct {
         position: ?u64 = null,
-        fn take(self: *@This(), view: pancake.ocapn.session.ImportView) void {
+        fn take(self: *@This(), view: glowcap.ocapn.session.ImportView) void {
             if (self.position == null and view.refcount > 0) self.position = view.position.int();
         }
     };
     var found: Found = .{};
-    pancake.ocapn.session.inspect.forEachImport(&peer.session_state, &found, Found.take);
+    glowcap.ocapn.session.inspect.forEachImport(&peer.session_state, &found, Found.take);
     return found.position;
 }
 

@@ -52,10 +52,11 @@
 	color: var(--ink-soft);
 }
 
-/* The IRC mark: a small cap beside a bridged identity or room name, in the
-   bridge's own color. The surrounding mark keeps its own identity; this cap
-   says where the projection came from. Not a control; it states a fact. */
-.irc-chip {
+/* The bridge mark: a small cap beside a bridged identity or room name, wearing
+   the bridge's own badge word and color. The surrounding mark keeps its own
+   identity; this cap says where the projection came from. Not a control; it
+   states a fact. */
+.bridge-chip {
 	display: inline-block;
 	margin-left: 6px;
 	padding: 1px 5px 2px;
@@ -68,16 +69,16 @@
 	line-height: 1.2;
 	vertical-align: 0.12em;
 }
-.irc-chip[data-network="rooms"] {
+.bridge-chip[data-network="rooms"] {
 	background: var(--ink-soft);
 }
-.irc-chip[data-network="rooms-connecting"] {
+.bridge-chip[data-network="rooms-connecting"] {
 	background: var(--accent-ink);
 }
-.irc-chip[data-network="rooms-linked"] {
+.bridge-chip[data-network="rooms-linked"] {
 	background: var(--teal-ink);
 }
-.irc-chip[data-network="rooms-failed"] {
+.bridge-chip[data-network="rooms-failed"] {
 	background: var(--danger);
 }
 

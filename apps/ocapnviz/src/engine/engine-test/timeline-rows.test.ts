@@ -411,12 +411,12 @@ engineTest(
 		const e = new Engine(structuredClone(doc));
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			label: "Carol",
 			position: { x: 10, y: 20 },
 		}) as string;
 		const def = e.doc.entities?.peers?.[peerId];
-		assertEquals(def?.profile, "pancake");
+		assertEquals(def?.profile, "glowcap");
 		assertEquals(def?.label, "Carol");
 		assertEquals(def?.position, { x: 10, y: 20 });
 	},
@@ -480,7 +480,7 @@ engineTest(
 		const before = structuredClone(e.doc.entities);
 		const peerId = e.dispatch({
 			kind: "add-peer",
-			profile: "pancake",
+			profile: "glowcap",
 			label: "Test",
 			position: { x: 0, y: 0 },
 		}) as string;
@@ -508,7 +508,7 @@ engineTest(
 		// it in entities first so the eternal-replay pass keeps it
 		// in the world.
 		(e.doc as TimelineDocument).entities = {
-			peers: { a: { profile: "pancake" } },
+			peers: { a: { profile: "glowcap" } },
 		};
 		e.dispatch({ kind: "clear-peer-start", peerId: "a" });
 		// Peer 'a' now implicit-start = 0 (world start). Session s1

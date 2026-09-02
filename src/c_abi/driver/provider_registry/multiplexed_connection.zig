@@ -53,7 +53,7 @@ pub fn close(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutc
 
 pub fn takeFailure(ctx: *anyopaque, conn: usize) ?foundation.FailureChain {
     const self = of(ctx);
-    var report = std.mem.zeroes(shared.PancakeProviderFailure);
+    var report = std.mem.zeroes(shared.GlowcapProviderFailure);
     self.table.conn_take_failure.?(self.table.ctx, @intCast(conn), &report);
     if (providerFailureIsEmpty(report)) return null;
     return failureChainFromProvider(report.result, report) catch {

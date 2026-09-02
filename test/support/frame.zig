@@ -1,7 +1,7 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
+const foundation = glowcap.foundation;
 
 pub fn copyFromBorrowed(
     allocator: std.mem.Allocator,

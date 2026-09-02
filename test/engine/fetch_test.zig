@@ -1,9 +1,9 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
 
 const fetch = engine.fetch;
 
@@ -108,7 +108,7 @@ test "tryMatchFetchOutcome settles on a resolver-callback deliver" {
 
 test "tryMatchFetchOutcome reads a symbol-shaped resolver-callback break" {
     const allocator = std.testing.allocator;
-    // The shape pancake itself emits on V1.0 (and Goblins accepts): the break
+    // The shape glowcap itself emits on V1.0 (and Goblins accepts): the break
     // reason as a bare Symbol, mirroring the listener-fire payload.
     const args = try allocator.alloc(model.Argument, 2);
     args[0] = .{ .symbol = try allocator.dupe(u8, "break") };

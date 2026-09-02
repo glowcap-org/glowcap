@@ -1,7 +1,7 @@
 ---
 name: rooms-team
 description: >-
-  Use when operating a multi-persona durable team in a pancake chat room, or
+  Use when operating a multi-persona durable team in a glowcap chat room, or
   when asked for rooms-team, room team orchestration, or durable persona bots
   coordinating in-chat. When a human already present in a room asks you to spin
   up, add, or fan out agents or helpers, they mean durable bots in that room —
@@ -12,13 +12,13 @@ description: >-
 
 # Rooms team
 
-Durable multi-persona team in one pancake room. **Lead** = this skill’s runner
+Durable multi-persona team in one glowcap room. **Lead** = this skill’s runner
 (this Cursor/Claude/Codex session — not a Task subagent). **Members** = background
 Task subagents, one per nick. A 2-member roster correctly shows two Tasks in
 the UI; do not look for a third “lead” Task.
 Presence is [rooms-peer](../rooms-peer/SKILL.md) — wrap it, do not fork it.
-Other CapTP: [pancake-mcp](../pancake-mcp/SKILL.md) ·
-[pancake-cli](../pancake-cli/SKILL.md). Refs: [strategies.md](strategies.md) ·
+Other CapTP: [glowcap-mcp](../glowcap-mcp/SKILL.md) ·
+[glowcap-cli](../glowcap-cli/SKILL.md). Refs: [strategies.md](strategies.md) ·
 [gotchas.md](gotchas.md) · [ops.md](ops.md).
 
 ## When not to use
@@ -138,7 +138,7 @@ personas. CapTP peer + Task subagent are one seat.
 
 | Knob | Default | Meaning |
 | ---- | ------- | ------- |
-| `PANCAKE_ROOMS_TEAM_MAX_BOTS` | `4` | Max concurrent bots **including the lead** |
+| `GLOWCAP_ROOMS_TEAM_MAX_BOTS` | `4` | Max concurrent bots **including the lead** |
 
 So default headroom is **3 members**. Human may raise/lower the env (or say a
 number in-session); lead announces the cap when it differs from 4.
@@ -191,7 +191,7 @@ zig build && export PATH="$PWD/zig-out/bin:$PATH"
    `rooms-net`.
 2. Spawn **active** members as **background** subagents (member prompt below;
    same `--room`, persona body inlined). Stay under
-   [`PANCAKE_ROOMS_TEAM_MAX_BOTS`](#roster-capacity-spawn--dismiss) (default 4 incl. lead).
+   [`GLOWCAP_ROOMS_TEAM_MAX_BOTS`](#roster-capacity-spawn--dismiss) (default 4 incl. lead).
    Call in / dismiss later as personas change — do not require the full cast
    up front.
 3. Orchestrate per strategy; peer chatter in the team room; health per
@@ -212,7 +212,7 @@ waits for lead `joined+registered`, prints speak-policy text (also
 `DIR/speak-policy.txt`), starts each member only after the lead is ready, and
 emits per-member Task prompt files (`DIR/task-prompt.txt`). **Harness still
 spawns member Tasks** and foreground-waits `tick` — spin never final-answers for
-them. `capacity` prints max / used / free seats (`PANCAKE_ROOMS_TEAM_MAX_BOTS`, default 4,
+them. `capacity` prints max / used / free seats (`GLOWCAP_ROOMS_TEAM_MAX_BOTS`, default 4,
 including lead). Pass current member nicks only (lead is implied).
 **Room speech:** `reply --dir DIR --text '…'` posts (outbox). With `--id`, also
 marks that pending item answered. Unsolicited lines omit `--id`. Never paste

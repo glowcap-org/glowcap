@@ -1,4 +1,4 @@
-import { parseSturdyRef } from "@pancake/runtime";
+import { parseSturdyRef } from "@glowcap/runtime";
 import { RoomsSessionClient } from "../../lib/session/client.ts";
 import { loopbackTcpDesignator, roomsAddress, roomsHost, roomsLocator } from "../../lib/locator.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
@@ -28,7 +28,7 @@ function startPeer(directory: string, port: number): Deno.ChildProcess {
 			`--allow-read=${ROOT},${directory}`,
 			`--allow-write=${directory}`,
 			"--allow-net=127.0.0.1",
-			"--allow-env=PANCAKE_LIB_DIR",
+			"--allow-env=GLOWCAP_LIB_DIR",
 			PEER,
 			`--state=${directory}`,
 			`--checkpoint=${directory}/checkpoint.json`,
@@ -42,9 +42,9 @@ function startPeer(directory: string, port: number): Deno.ChildProcess {
 }
 
 roomsTest("two durable Rooms sessions restore and exchange one direct conversation", async () => {
-	const serverState = await Deno.makeTempDir({ prefix: "pancake-rooms-session-dm-server-" });
-	const aliceState = await Deno.makeTempDir({ prefix: "pancake-rooms-session-dm-alice-" });
-	const bobState = await Deno.makeTempDir({ prefix: "pancake-rooms-session-dm-bob-" });
+	const serverState = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-dm-server-" });
+	const aliceState = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-dm-alice-" });
+	const bobState = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-dm-bob-" });
 	const roomPort = freePort();
 	const alicePort = freePort();
 	const bobPort = freePort();

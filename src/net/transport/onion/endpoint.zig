@@ -4,7 +4,7 @@
 //! same two ways: an address and port, or a Unix socket path. The pinned Spritely
 //! Goblins uses Unix sockets for both and defaults them under
 //! `~/.cache/goblins/tor/`; a distribution's Tor commonly offers a loopback
-//! `SocksPort` instead. pancake takes either, and takes it from configuration
+//! `SocksPort` instead. glowcap takes either, and takes it from configuration
 //! rather than guessing, because a daemon it did not start is not one it can
 //! assume the shape of.
 //!

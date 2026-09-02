@@ -1,7 +1,7 @@
 //! CapTP lab pedagogy: stages, gloss keys, coach triggers, tour targets.
 const std = @import("std");
-const pancake = @import("pancake");
-const session_mod = pancake.ocapn.session;
+const glowcap = @import("glowcap");
+const session_mod = glowcap.ocapn.session;
 const copy = @import("copy.zig");
 const Ctx = @import("../ctx.zig").Ctx;
 
@@ -34,7 +34,7 @@ pub const Progress = struct {
     has_tables: bool = false,
     /// Optional CapTP walkthrough (stage strip + coach tips). Off by default.
     guide_active: bool = false,
-    /// Suppress the one-line workbench greeting (`PANCAKE_REPL_QUIET=1`).
+    /// Suppress the one-line workbench greeting (`GLOWCAP_REPL_QUIET=1`).
     quiet: bool = false,
     /// Hashes of the verbs whose gloss has already been shown, so a lesson the
     /// user has read once does not repeat on every later turn. Bounded: a full
@@ -43,7 +43,7 @@ pub const Progress = struct {
     glossed_len: u8 = 0,
 
     pub fn fromEnv(environ: *const std.process.Environ.Map) Progress {
-        return .{ .quiet = environ.get("PANCAKE_REPL_QUIET") != null };
+        return .{ .quiet = environ.get("GLOWCAP_REPL_QUIET") != null };
     }
 
     pub fn enterGuide(self: *Progress) void {

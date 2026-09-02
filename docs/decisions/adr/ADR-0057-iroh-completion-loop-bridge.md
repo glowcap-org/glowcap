@@ -3,7 +3,7 @@ id: ADR-0057
 status: accepted
 date: 2026-06-12
 tags: [net, netlayer, iroh, transport, driver, completion-loop, performance]
-decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, adapted by `iroh.Backend` to `completion.Loop` so CapTP fan-out rides `driver.Bridge` + Host (ADR-0076) (N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, `iroh.Backend` is the completion consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only) `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface: and `zig build iroh-loop` proves many concurrent connections served from one thread through Bridge + Host. Every binding parks on the readiness fd natively in its own idiom; `zig build bindings-iroh-loop` gates Deno, Python, Rust, and Racket together."
+decision: "iroh stays a sidecar (ADR-0055), and reaching glowcap-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, adapted by `iroh.Backend` to `completion.Loop` so CapTP fan-out rides `driver.Bridge` + Host (ADR-0076) (N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, `iroh.Backend` is the completion consumer, the public iroh netlayer C ABI (`glowcap_iroh_netlayer_*`) is loop-only) `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface: and `zig build iroh-loop` proves many concurrent connections served from one thread through Bridge + Host. Every binding parks on the readiness fd natively in its own idiom; `zig build bindings-iroh-loop` gates Deno, Python, Rust, and Racket together."
 supersedes: []
 superseded_by: []
 amends: []
@@ -17,11 +17,11 @@ amended_by: [ADR-0112]
 ADR-0055 ships iroh as a Rust sidecar. iroh's QUIC streams are **userspace**,
 they live inside the sidecar's tokio runtime, on top of one UDP socket: so a
 host has no per-stream kernel fd to wait on. The question this ADR settles is
-how a pancake host serves pancake-scale concurrency over that sidecar.
+how a glowcap host serves glowcap-scale concurrency over that sidecar.
 
 Two settled facts shape the answer:
 
-- **ADR-0051** gives pancake a completion loop that multiplexes I/O over
+- **ADR-0051** gives glowcap a completion loop that multiplexes I/O over
   **kernel file descriptors**. iroh's streams have no per-stream fd to register,
   so ADR-0051 reserved this case for the Netlayer contract rather than the loop.
 - **ADR-0053**'s footprint target is ~500k connections at a sub-gigabyte
@@ -29,7 +29,7 @@ Two settled facts shape the answer:
   and the ceiling is the per-connection thread, **not QUIC**: iroh's own runtime
   already multiplexes every stream over one socket on a small thread pool. The
   cost to remove is the thread-per-connection bridging the sidecar's I/O onto a
-  pancake host.
+  glowcap host.
 
 This engages three [First Principles](../../../AGENTS.md#first-principles): **no
 hidden runtime** (the sidecar's tokio reactor is a runtime, so a scale bridge
@@ -39,10 +39,10 @@ the ADR-0051 reservation that userspace transports integrate _through_ the
 Netlayer contract, never by smuggling a second event loop into the core.
 
 Peer discovery and hole-punching are sidecar-internal: iroh performs
-relay-assisted hole-punching and pkarr/DNS discovery, and pancake exposes the
+relay-assisted hole-punching and pkarr/DNS discovery, and glowcap exposes the
 posture choice as the no-default `Reachability` (ADR-0055). What scaling iroh
-signs pancake up for is _serving the hundreds of thousands of connections those
-mechanisms produce from pancake's own loop_: and that is what this ADR scopes.
+signs glowcap up for is _serving the hundreds of thousands of connections those
+mechanisms produce from glowcap's own loop_: and that is what this ADR scopes.
 
 ## Decision
 
@@ -54,7 +54,7 @@ netlayer is constructed. The sidecar exposes a readiness-based surface:
 
 - **One runtime, one wakeup fd.** Each endpoint runs a single tokio runtime
   multiplexing all its connections. It exposes **one** OS-level readiness handle
-  that a pancake loop registers **once**, alongside its kernel fds. The
+  that a glowcap loop registers **once**, alongside its kernel fds. The
   readiness fd is **per-endpoint**: the sidecar runs one runtime per endpoint
   (ADR-0055), so each endpoint owns its own wakeup fd and `endpoint_drain_ready`
   takes the endpoint; the loop registers as many fds as it has local endpoints
@@ -71,7 +71,7 @@ netlayer is constructed. The sidecar exposes a readiness-based surface:
 - **A drained ready-queue.** When any connection becomes readable, writable, or
   closed, the sidecar enqueues a `(stable ConnId, direction)` event and writes the wakeup
   fd. When the loop wakes, it calls a non-blocking
-  `pancake_iroh_sidecar_endpoint_drain_ready(...)` that returns the pending events
+  `glowcap_iroh_sidecar_endpoint_drain_ready(...)` that returns the pending events
   (`ptr + len`, no allocation per call). That operation clears coalesced wake
   bytes before draining authoritative records, so callers cannot reverse the
   order and lose a concurrent wake. It resumes exactly the fibers waiting on
@@ -97,11 +97,11 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
 ## Scope (what this decides, and what it leaves)
 
 - **Implemented and gated.** The readiness surface ships in the sidecar
-  (`pancake_iroh_sidecar_endpoint_readiness_fd` / `_drain_ready` /
+  (`glowcap_iroh_sidecar_endpoint_readiness_fd` / `_drain_ready` /
   `_set_nonblocking_accept` / `_try_accept`, and `_conn_set_nonblocking` /
   `_try_read` / `_try_write`), the resident carries `iroh.Backend` under
   `completion.Loop` + `driver.Bridge` + Host, the public iroh netlayer C ABI is
-  loop-only (`pancake_iroh_netlayer_readiness_fd` + `_drain_ready`, armed at
+  loop-only (`glowcap_iroh_netlayer_readiness_fd` + `_drain_ready`, armed at
   `netlayer_new`), and `zig build iroh-loop` serves many concurrent connections
   from one loop thread. The public netlayer surface carries no blocking frame ABI.
 - **The wakeup primitive is a self-pipe** (`socketpair`, both ends
@@ -169,7 +169,7 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
 ## Consequences
 
 - New surfaces, shipped: an event-driven superset of the
-  `pancake_iroh_sidecar_*` seam (held to one shape by the `tools/check/source_check.zig`
+  `glowcap_iroh_sidecar_*` seam (held to one shape by the `tools/check/source_check.zig`
   parity check, like the rest of the seam) and a non-blocking variant of the
   resident's stream wrappers driven by `iroh.Backend` + Bridge.
 - **The loop consumer lives in the internal iroh transport package
@@ -196,7 +196,7 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
   because the loop is the evented netlayer model, every binding inherits the
   same teardown safety.
 - The honest boundary reads: **iroh is encrypted, discoverable, and
-  identity-unified pancake-to-pancake (ADR-0055 + A/B/F), and serves many
+  identity-unified glowcap-to-glowcap (ADR-0055 + A/B/F), and serves many
   connections from one loop thread (this ADR), measured at ~1.1 GiB of core
   state for 500k. A live 500k-connection socket run still needs a load harness
   (`bench-peer-scaling` Phase 2).**
@@ -207,8 +207,8 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
 scale bar as a native one ("a peer written against any binding… with no
 asterisks"; The Number is the whole project's, not Zig's). The loop is the
 netlayer's one model, and the public ABI hands every host the same primitive: a
-single OS **readiness fd** (`pancake_iroh_netlayer_readiness_fd`) it parks on
-with its own poller, plus a non-blocking `pancake_iroh_netlayer_drain_ready`.
+single OS **readiness fd** (`glowcap_iroh_netlayer_readiness_fd`) it parks on
+with its own poller, plus a non-blocking `glowcap_iroh_netlayer_drain_ready`.
 Each binding parks on that fd natively, with no dedicated polling thread and no
 busy-poll, and each is proven by a many-connection gate the way `iroh-loop`
 proves the Zig resident:

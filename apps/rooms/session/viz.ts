@@ -1,6 +1,6 @@
 // Timeline capability custody for one durable Rooms session runtime.
 
-import { enableTrace, retainSecondaryFailure, type TraceEvent } from "@pancake/runtime";
+import { enableTrace, retainSecondaryFailure, type TraceEvent } from "@glowcap/runtime";
 import { publishViz, type VizPublisher } from "../lib/viz_publish.ts";
 import type { RoomsSessionState } from "../lib/rooms_state.ts";
 import { ReconciliationBlocked } from "./reconnect.ts";

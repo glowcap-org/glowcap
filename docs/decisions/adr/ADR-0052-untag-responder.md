@@ -3,7 +3,7 @@ id: ADR-0052
 status: accepted
 date: 2026-06-11
 tags: [engine, session, pipelining, untag, tagged]
-decision: `op:untag` is an OCapN 1.0 operation and both profiles answer it through the ADR-0050 projection substrate. Pancake sends it only when the partner explicitly advertised the `untag` feature; an absent feature hint excludes it because Goblins has no such operation. A matching tag unwraps the Tagged payload (the single value when the payload has one, the value List otherwise) and a mismatched tag or a non-Tagged fulfillment breaks the projected answer. The tag is a Syrup String on the wire, matching op:get's field-name choice.
+decision: `op:untag` is an OCapN 1.0 operation and both profiles answer it through the ADR-0050 projection substrate. Glowcap sends it only when the partner explicitly advertised the `untag` feature; an absent feature hint excludes it because Goblins has no such operation. A matching tag unwraps the Tagged payload (the single value when the payload has one, the value List otherwise) and a mismatched tag or a non-Tagged fulfillment breaks the projected answer. The tag is a Syrup String on the wire, matching op:get's field-name choice.
 supersedes: []
 superseded_by: []
 ---
@@ -20,7 +20,7 @@ op:untag): `<op:untag receiver-desc tag new-answer-pos>` exports a promise at
 `new-answer-pos` that resolves to the Tagged payload when the asserted tag
 matches the receiver's eventual Tagged, and rejects when it does not. One model
 mismatch needed a decision: the spec's Tagged carries a single value, while
-pancake's `model.Tagged` carries the Goblins `user-record` payload as a slice
+glowcap's `model.Tagged` carries the Goblins `user-record` payload as a slice
 (ADR-0021), and real payloads in the tree are zero-, one-, and two-valued.
 
 ## Decision
@@ -42,17 +42,17 @@ pancake's `model.Tagged` carries the Goblins `user-record` payload as a slice
   negotiated `FeatureSet.untag`. Refusal occurs before answer state mutates.
 - **Inbound support is not feature-gated.** The pinned 1.0 draft defines the
   operation. A conforming peer may send it even when it knows nothing about
-  Pancake's hint vocabulary, so both owned and borrowed receive paths validate
+  Glowcap's hint vocabulary, so both owned and borrowed receive paths validate
   and answer it on 1.0.
 
 ## Scope (what this does not decide)
 
 - Goblins has no `op:untag` marshaller. Its absent feature hint therefore keeps
-  Pancake from sending the operation accidentally, while accepting one remains
+  Glowcap from sending the operation accidentally, while accepting one remains
   the standards-correct behavior. The authority is the pinned spec text, the
   wire-driven engine scenarios, and the upstream-Racket-generated fixture.
 - The tag-namespace question upstream is discussing for user tags (meeting
-  minutes 2025-10-14) is the application's: pancake matches the tag bytes the
+  minutes 2025-10-14) is the application's: glowcap matches the tag bytes the
   wire carries.
 
 ## Consequences

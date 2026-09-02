@@ -1,6 +1,6 @@
 // File the directory signaling inbox a webrtc member locator needs.
 
-import { type Host, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { type Host, TRANSPORT_WEBRTC } from "@glowcap/runtime";
 import { decodeIceServers, type IceServer } from "../lib/ice.ts";
 import { roomsLocator } from "../lib/locator.ts";
 import type { Directory } from "../lib/room/client.ts";

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Repo-root shim → zig-out/bin/glowcap (ADR-0084). Requires `zig build` first.
+# Symlink-safe (the devcontainer links it onto PATH), so the repo root comes
+# from the resolved script path, and the fallback build runs there too. The
+# loop uses plain `readlink`; macOS does not provide GNU `readlink -f`.
+set -euo pipefail
+GLOWCAP_SHIM="${BASH_SOURCE[0]}"
+while [[ -L "${GLOWCAP_SHIM}" ]]; do
+	GLOWCAP_SHIM_DIR="$(cd "$(dirname "${GLOWCAP_SHIM}")" && pwd)"
+	GLOWCAP_SHIM_TARGET="$(readlink "${GLOWCAP_SHIM}")"
+	if [[ "${GLOWCAP_SHIM_TARGET}" = /* ]]; then
+		GLOWCAP_SHIM="${GLOWCAP_SHIM_TARGET}"
+	else
+		GLOWCAP_SHIM="${GLOWCAP_SHIM_DIR}/${GLOWCAP_SHIM_TARGET}"
+	fi
+done
+ROOT="$(cd "$(dirname "${GLOWCAP_SHIM}")" && pwd)"
+BIN="${GLOWCAP_BIN:-$ROOT/zig-out/bin/glowcap}"
+if [[ ! -x "$BIN" ]]; then
+	(cd "$ROOT" && zig build)
+	if [[ ! -x "$BIN" ]]; then
+		echo "glowcap: missing executable at ${BIN} — run \`zig build\` from the repo root" >&2
+		exit 1
+	fi
+fi
+exec "$BIN" "$@"

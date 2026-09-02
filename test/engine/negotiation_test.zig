@@ -1,8 +1,8 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const negotiation = pancake.ocapn.engine.negotiation;
+const model = glowcap.ocapn.model;
+const negotiation = glowcap.ocapn.engine.negotiation;
 
 test "FeatureSet.intersect is the field-wise AND and is symmetric" {
     const a = model.FeatureSet.full();
@@ -56,8 +56,8 @@ test "an absent feature hint never grants outbound untag" {
     try std.testing.expect(!model.Preference.baseline.features.untag);
     try std.testing.expect(!negotiated.features.untag);
 
-    const pancake_peer = negotiation.settle(local, local);
-    try std.testing.expect(pancake_peer.features.untag);
+    const glowcap_peer = negotiation.settle(local, local);
+    try std.testing.expect(glowcap_peer.features.untag);
 }
 
 test "negotiate picks the most-preferred shared codec and intersects features" {
@@ -77,7 +77,7 @@ test "negotiate picks the most-preferred shared codec and intersects features" {
     try std.testing.expectEqual(model.FeatureSet.pipeliningAndHandoff(), n.features);
 }
 
-test "v1.0 negotiation drops the pancake-next multi-location feature" {
+test "v1.0 negotiation drops the glowcap-next multi-location feature" {
     const local = negotiation.Offer.v1_0Syrup(model.FeatureSet.full());
     const remote = negotiation.Offer.v1_0Syrup(model.FeatureSet.full());
 
@@ -144,11 +144,11 @@ test "interop target offers constrain target without collapsing profile and code
     try std.testing.expectEqual(@as(usize, 1), floor.codecs.len);
     try std.testing.expectEqual(model.CodecId.syrup, floor.codecs[0]);
 
-    const pancake_offer = negotiation.Offer.native(model.FeatureSet.full());
-    try std.testing.expect(pancake_offer.captp_versions.len >= 2);
-    try std.testing.expect(pancake_offer.codecs.len >= 2);
+    const glowcap_offer = negotiation.Offer.native(model.FeatureSet.full());
+    try std.testing.expect(glowcap_offer.captp_versions.len >= 2);
+    try std.testing.expect(glowcap_offer.codecs.len >= 2);
 
-    const negotiated = negotiation.negotiate(floor, pancake_offer).?;
+    const negotiated = negotiation.negotiate(floor, glowcap_offer).?;
     try std.testing.expectEqual(model.CaptpVersion.v1_0, negotiated.captp_version);
     try std.testing.expectEqual(model.CodecId.syrup, negotiated.codec);
 }

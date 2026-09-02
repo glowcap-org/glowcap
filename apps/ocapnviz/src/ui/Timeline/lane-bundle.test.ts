@@ -40,7 +40,7 @@ const joined: TimelineEvent = {
 	kind: "peer-joined",
 	t: 100,
 	peerId: "127.0.0.1:0",
-	profile: "pancake",
+	profile: "glowcap",
 	label: "127.0.0.1:0",
 };
 
@@ -81,7 +81,7 @@ Deno.test("a rename before the peer arrives paints at the peer's start", () => {
 
 Deno.test("a rename's diamond contrasts with the pill it sits on", () => {
 	// The reported defect: a muted grey diamond vanished into
-	// pancake's amber pill. The tone is chosen against the fill, so
+	// glowcap's amber pill. The tone is chosen against the fill, so
 	// the two profiles get opposite tones.
 	const rename = (peerId: string): TimelineEvent => ({
 		id: `${peerId}-rename`,
@@ -151,14 +151,14 @@ Deno.test("an end attaching is a diamond on the session's row", () => {
 			kind: "peer-joined",
 			t: 0,
 			peerId: "bob",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "p-alice",
 			kind: "peer-joined",
 			t: 0,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "s-open",
@@ -210,7 +210,7 @@ Deno.test("the feed going quiet stays a tick, not a change to the session", () =
 			kind: "peer-joined",
 			t: 0,
 			peerId: "bob",
-			profile: "pancake",
+			profile: "glowcap",
 		},
 		{
 			id: "s-open",

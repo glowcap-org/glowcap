@@ -1,6 +1,6 @@
 // One WebSocket adapted to the byte-`Channel` seam, shared by every place that
-// carries pancake bytes over a WebSocket: the browser adapter's dial, both
-// halves of the keyed-relay rendezvous (ADR-0088), and `@pancake/relay`. The
+// carries glowcap bytes over a WebSocket: the browser adapter's dial, both
+// halves of the keyed-relay rendezvous (ADR-0088), and `@glowcap/relay`. The
 // `WebSocket` global is a web standard every supported runtime ships (browser,
 // Deno, Bun), so this is runtime-neutral code, not a per-runtime adapter
 // seam. Each caller differs only in how it gets the socket — opening it, or
@@ -15,7 +15,7 @@ import {
 	BINDING_WEBSOCKET_DRAIN_POLL_MS,
 	BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES,
 	BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 
 // A `WebSocket` has no drain event, so `write` gates outbound flow by polling
 // `bufferedAmount` down below this high-water before it resolves: a producer

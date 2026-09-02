@@ -6,18 +6,18 @@
 //! resident opens an authenticated session through a ciphertext-only relay.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
 const ws_relay = @import("../support/ws_relay.zig");
 
-const foundation = pancake.foundation;
+const foundation = glowcap.foundation;
 const crypto = foundation.crypto;
 const sealed = foundation.sealed;
-const model = pancake.ocapn.model;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const net = glowcap.net;
 const completion = net.completion;
 const noise_completion = net.noise_completion;
-const driver = pancake.driver;
+const driver = glowcap.driver;
 
 const seal = @import("noise_relay_test.zig");
 const PipePlatform = seal.PipePlatform;

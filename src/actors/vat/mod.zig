@@ -1,6 +1,6 @@
 //! A vat: a turn loop over local actors and session Ports.
 //!
-//! This is pancake's Goblins-shaped actor model, expressed in native Zig. It is
+//! This is glowcap's Goblins-shaped actor model, expressed in native Zig. It is
 //! where local actors meet the OCapN engine. A Vat owns local actors and queued
 //! turns; one or more Ports own session-specific wire names and route remote
 //! sends. You drive it

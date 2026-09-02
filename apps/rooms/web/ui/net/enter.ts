@@ -6,7 +6,7 @@
 import * as store from "../store.ts";
 import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
 import type { RoomPolicy } from "../../../lib/room/policy.ts";
-import { PublicationNotFound, Ref, retainCleanupFailures } from "@pancake/runtime";
+import { PublicationNotFound, Ref, retainCleanupFailures } from "@glowcap/runtime";
 import { Room } from "../../../lib/room/client.ts";
 import { enterOrOpenResult } from "../../../lib/enter_room.ts";
 import { mayPresentNameVoucher, suggestedNick } from "../../../lib/limits.ts";

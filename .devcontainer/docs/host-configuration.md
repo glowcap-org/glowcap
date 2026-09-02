@@ -25,14 +25,14 @@ directories into every worktree:
 | Serena | `~/.serena` | User-level configuration |
 
 Build caches use the same bind pattern so they are findable on either side of
-the container: host `~/.cache/pancake` is container `/home/vscode/.cache/pancake`.
+the container: host `~/.cache/glowcap` is container `/home/vscode/.cache/glowcap`.
 `tool/` is shared downloads, `cargo/` is `CARGO_HOME`, and
 `work/<worktree>/` holds that container's Zig objects (`zig-local`) and
 extracted packages (`zig-pkg`). A `LAYOUT` file sits at the root of that
 directory. The [README](../README.md#persistent-paths) is the inventory.
 
 `initialize.sh` creates every host path before Docker starts. A login, user
-setting, or cache fill made on the host or in any pancake worktree is therefore
+setting, or cache fill made on the host or in any glowcap worktree is therefore
 available in every other worktree (caches: the shared `tool/` and `cargo/`
 trees; each worktree still has its own `work/<name>/`) and survives container
 replacement. A checkout can read and update these stores, so open only trusted
@@ -70,7 +70,7 @@ so `initialize.sh` copies that file the same way when the Linux store is empty.
 
 If `gh auth status` works on the host but not in the container, the host may
 keep its token in a desktop keyring instead of `~/.config/gh/hosts.yml`. Run
-`gh auth login` once inside any pancake container or provide `GH_TOKEN`; the
+`gh auth login` once inside any glowcap container or provide `GH_TOKEN`; the
 file-backed login is then shared by every worktree.
 
 Claude Code credentials live in `~/.claude/.credentials.json`, opencode uses

@@ -4,18 +4,18 @@
 //! allocation-free, and partner aborts retire without an echo.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
-const driver = pancake.driver;
+const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
-const engine = pancake.ocapn.engine;
-const crypto = pancake.foundation.crypto;
-const stream_framing = pancake.foundation.stream_framing;
+const engine = glowcap.ocapn.engine;
+const crypto = glowcap.foundation.crypto;
+const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 const frame_cap = harness.frame_cap;
@@ -50,11 +50,6 @@ const TaggedRow = harness.TaggedRow;
 const PublicationProbe = harness.PublicationProbe;
 
 test "Host owner extraction preserves the aggregate footprint and supported verb shapes" {
-    // 2232: `resume_pump_refused` (the action-drain pressure stand-down)
-    // crossed an alignment boundary. Per-Host, not per-session, so the eight
-    // bytes are a process cost, not a 500k-session withdrawal.
-    try std.testing.expectEqual(@as(usize, 2232), @sizeOf(Host));
-    try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expect(Host.InitError == error{ DurableBootstrapUnavailable, InvalidHostWorkQuantum });
     try std.testing.expect(Host.RuntimeAdoptionError == error{ ReenteredHost, HostClosing, HostNotQuiescent });
     try std.testing.expectEqual(@as(usize, 2), @typeInfo(Host.BootstrapDurability).@"enum".field_names.len);
@@ -89,6 +84,14 @@ test "Host owner extraction preserves the aggregate footprint and supported verb
         outbound_high_water,
         complete_pending_work,
     };
+    // Per-Host, not per-session, so a word here is a process cost, not a
+    // 500k-session withdrawal. Stated under runtime safety, where each
+    // embedded `std.ArrayList` header carries std's one-word
+    // `pointer_stability` lock: 72 of these bytes, and each hash map carries
+    // one more.
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    try std.testing.expectEqual(@as(usize, 2304), @sizeOf(Host));
+    try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
 }
 
 test "Host transport profiles own extension semantics and refuse ambiguity" {
@@ -370,7 +373,7 @@ test "abort encode OOM still closes authority and exposes close notification" {
         driver.core.testing.condemn(&host, session, .resource_exhausted, "allocation pressure"),
     );
     try std.testing.expect(session.isTerminating());
-    try std.testing.expectEqual(pancake.ocapn.session.State.closed, session.served.port.peer.session_state.state);
+    try std.testing.expectEqual(glowcap.ocapn.session.State.closed, session.served.port.peer.session_state.state);
 
     failing.fail_index = std.math.maxInt(usize);
     var saw_close = false;
@@ -439,7 +442,7 @@ test "partner abort before start-session retires an accepted session without an 
     try std.testing.expectEqual(session.peer_handle, hello_action.flush);
     try std.testing.expect((try host.takeAction()) == null);
 
-    var abort_frame = try pancake.ocapn.codec.syrup.encodeMessage(allocator, .{ .abort = .{
+    var abort_frame = try glowcap.ocapn.codec.syrup.encodeMessage(allocator, .{ .abort = .{
         .kind = .graceful_shutdown,
         .message = "partner stopped during negotiation",
     } });
@@ -492,7 +495,7 @@ test "a keyed dial to a malformed designator refuses without freeing it twice" {
     // has been minted. The refusal path unwinds the mint, and the dialed
     // designator has exactly one owner, so this is a plain error rather than a
     // second free of bytes the shell already released. Reachable straight from
-    // `pancake_host_session_open_dialed_locator`, which passes an embedder's
+    // `glowcap_host_session_open_dialed_locator`, which passes an embedder's
     // transport and designator through untouched.
     const allocator = std.testing.allocator;
     var host = test_host.init(allocator, @as([32]u8, @splat(0x21)), .{});

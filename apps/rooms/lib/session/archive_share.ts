@@ -1,6 +1,6 @@
 // Client protocol for archive shares offered through a durable Rooms session.
 
-import type { Ref, Session } from "@pancake/runtime";
+import type { Ref, Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
 import {
 	type ArchiveRecord,

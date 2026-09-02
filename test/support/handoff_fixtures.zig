@@ -5,9 +5,9 @@
 //! `desc:handoff-receive` shape, so the byte constants and builders live
 //! here once. Owned decode paths free through `model.freeHandoff`.
 
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
+const model = glowcap.ocapn.model;
 
 fn repeatedByte(comptime len: usize, byte: u8) [len]u8 {
     return @as([len]u8, @splat(byte));
@@ -43,7 +43,7 @@ pub fn give() model.HandoffGive {
 /// receive with `receiveFromRecipient` instead.
 pub const recipient_side = blk: {
     @setEvalBranchQuota(100_000);
-    break :blk pancake.ocapn.engine.handoff_recipient.sideName(recipient_key[0..]) catch unreachable;
+    break :blk glowcap.ocapn.engine.handoff_recipient.sideName(recipient_key[0..]) catch unreachable;
 };
 
 /// `receive`, but naming the side the exporter will derive. For tests that

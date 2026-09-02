@@ -34,7 +34,7 @@ pub(crate) async fn fetch_like(
 	shared: &Rc<SessionShared>,
 	swiss: &[u8],
 	label: &str,
-	mint: unsafe extern "C" fn(*mut ffi::PancakeHostSession, *const u8, usize, *mut u64) -> i32,
+	mint: unsafe extern "C" fn(*mut ffi::GlowcapHostSession, *const u8, usize, *mut u64) -> i32,
 	track: bool,
 ) -> Result<Ref> {
 	shared.guard_open()?;
@@ -70,7 +70,7 @@ pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> Rem
 		Err(error) => return failed(error, shared),
 	};
 	let mut vow: u64 = 0;
-	let rc = unsafe { ffi::pancake_host_session_listen(shared.ptr.get(), &wire, &mut vow) };
+	let rc = unsafe { ffi::glowcap_host_session_listen(shared.ptr.get(), &wire, &mut vow) };
 	if let Err(error) = check_host(rc) {
 		return failed(error, shared);
 	}
@@ -118,7 +118,7 @@ pub(crate) fn send_promise(
 				Err(error) => return failed(error, shared),
 			};
 			unsafe {
-				ffi::pancake_host_session_send(
+				ffi::glowcap_host_session_send(
 					shared.ptr.get(),
 					&wire,
 					verb.as_ptr(),
@@ -154,7 +154,7 @@ pub(crate) fn send_promise(
 				);
 			}
 			unsafe {
-				ffi::pancake_host_vow_send(
+				ffi::glowcap_host_vow_send(
 					shared.host.raw(),
 					*source,
 					verb.as_ptr(),
@@ -207,7 +207,7 @@ pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &
 			let mut arena = SendArena::default();
 			let (args_ptr, args_len) = arena.build(args)?;
 			check_host(unsafe {
-				ffi::pancake_host_vow_tell(
+				ffi::glowcap_host_vow_tell(
 					shared.host.raw(),
 					*source,
 					verb.as_ptr(),
@@ -383,13 +383,13 @@ impl RemotePromise {
 		let mut vow: u64 = 0;
 		let rc = match &op {
 			ProjectOp::Index(i) => unsafe {
-				ffi::pancake_host_vow_index(self.session.host.raw(), source, *i as u64, &mut vow)
+				ffi::glowcap_host_vow_index(self.session.host.raw(), source, *i as u64, &mut vow)
 			},
 			ProjectOp::Untag(tag) => unsafe {
-				ffi::pancake_host_vow_untag(self.session.host.raw(), source, tag.as_ptr(), tag.len(), &mut vow)
+				ffi::glowcap_host_vow_untag(self.session.host.raw(), source, tag.as_ptr(), tag.len(), &mut vow)
 			},
 			ProjectOp::Get(field) => unsafe {
-				ffi::pancake_host_vow_get(self.session.host.raw(), source, field.as_ptr(), field.len(), &mut vow)
+				ffi::glowcap_host_vow_get(self.session.host.raw(), source, field.as_ptr(), field.len(), &mut vow)
 			},
 		};
 		match check_host(rc) {

@@ -3,7 +3,7 @@ id: ADR-0003
 status: accepted
 date: 2026-04-30
 tags: [codec, syrup, capnp, wire-profile, goblins-interop, captp-version]
-decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is pancake's current Goblins 0.18.0 and pinned-suite interop floor, not an upstream maturity claim; `next` / `"pancake-next"` is pancake's forward private track for pancake-to-pancake (including Cap'n Proto sessions). Named offers (`Offer.goblins`, since renamed `Offer.v1_0Syrup`, / `Offer.native`) and `negotiate` settle the pair; ADR-0103 moved the production handshake offer from out-of-band configuration into signed locator hints while keeping `op:start-session`'s own shape at the baseline.
+decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is glowcap's current Goblins 0.18.0 and pinned-suite interop floor, not an upstream maturity claim; `next` / `"glowcap-next"` is glowcap's forward private track for glowcap-to-glowcap (including Cap'n Proto sessions). Named offers (`Offer.goblins`, since renamed `Offer.v1_0Syrup`, / `Offer.native`) and `negotiate` settle the pair; ADR-0103 moved the production handshake offer from out-of-band configuration into signed locator hints while keeping `op:start-session`'s own shape at the baseline.
 supersedes: []
 superseded_by: []
 amends: []
@@ -14,7 +14,7 @@ amended_by: [ADR-0103]
 
 ## Context
 
-pancake's semantics are codec-neutral: every type in
+glowcap's semantics are codec-neutral: every type in
 [`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig) carries the same
 meaning regardless of which codec rendered it. But version, codec, and interop
 target are different decisions. Two CapTP version jobs describe what makes a
@@ -23,8 +23,8 @@ shape legitimate:
 - **Current interop floor (`v1_0` / `"1.0"`).** Bytes used by the pinned suite
   and Goblins 0.18.0. Goblins interop lives here as authenticated `v1_0` over
   Syrup. The wire token does not mean the upstream draft is released or frozen.
-- **Pancake-forward (`next` / `"pancake-next"`).** pancake-to-pancake CapTP ahead of
-  a new shared interop version number: pancake-namespaced on the wire, not an
+- **Glowcap-forward (`next` / `"glowcap-next"`).** glowcap-to-glowcap CapTP ahead of
+  a new shared interop version number: glowcap-namespaced on the wire, not an
   upstream OCapN maturity stage. Cap'n Proto sessions typically run here.
 - **Codec plurality.** Syrup and Cap'n Proto are serialization choices for the
   selected version. A codec can be unsupported for a version if it cannot carry
@@ -32,8 +32,8 @@ shape legitimate:
 
 (Earlier drafts of this ADR called the forward track `pre_spec` and framed it as
 "upstream OCapN prerelease." That name collided with OCapN's "pre-specification"
-suite language and wrongly denied that the track is pancake-private. The rename
-to `next` / `"pancake-next"` and this rewrite correct that.)
+suite language and wrongly denied that the track is glowcap-private. The rename
+to `next` / `"glowcap-next"` and this rewrite correct that.)
 
 A second axis is where CapTP-version state lives. Pinning it to a codec instance
 ties version to construction; routing it per call keeps codec functions
@@ -76,7 +76,7 @@ pure `negotiate(Offer, Offer)`.
 ADR-0103 amends the production path: a peer states its preferred version, codec,
 and feature set in the signed locator hints, and both sides run `negotiate` over
 those offers. In-process pairing runs the same negotiation directly; the C ABI
-entry `pancake_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
+entry `glowcap_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
 
 ## Scope (what this does not decide)
 
@@ -91,7 +91,7 @@ entry `pancake_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
 ## Alternatives Considered
 
 - **One global posture for every codec.** Rejected: forcing the Cap'n Proto slot
-  to track Goblins shapes makes a pancake-to-pancake session pay compatibility
+  to track Goblins shapes makes a glowcap-to-glowcap session pay compatibility
   overhead it has no reader for; forcing Syrup ahead of spec text breaks it as
   the interop path.
 - **Carry `CaptpVersion` on a codec instance.** Rejected: version becomes
@@ -108,7 +108,7 @@ entry `pancake_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
 
 - Codec functions are stateless; the per-call `CaptpVersion` is the only
   version-bearing encode/decode surface.
-- A pancake-to-Goblins session sends `"1.0"` over Syrup. A native pancake-to-pancake
+- A glowcap-to-Goblins session sends `"1.0"` over Syrup. A native glowcap-to-glowcap
   session prefers `next` and Cap'n Proto via `Offer.native()`, falling back to
   `"1.0"` / Syrup when the partner only offers those.
 - **Symmetric refusal:** if a codec cannot represent a value, it fails loud
@@ -118,7 +118,7 @@ entry `pancake_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
   is arbitrary-precision per ADR-0049): it is refused on decode rather than
   mis-decoded or silently coerced. A codec that cannot render a value the model
   _does_ admit refuses the same way.
-- Wire-version work is validated against the pancake-authored Syrup corpus versus
+- Wire-version work is validated against the glowcap-authored Syrup corpus versus
   upstream Syrup encoders (`zig build oracle-check`), not Goblins byte captures
   and not byte-equality between codecs. Live Goblins and `ocapn-conformance` are
   the external wire arms. Cap'n Proto layout is pinned by golden frames under

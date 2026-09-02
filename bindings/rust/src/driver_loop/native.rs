@@ -10,8 +10,8 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use crate::driver_event::{decode as decode_event, LoopEvent};
-use crate::sys::driver::{self as ffi, PancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions};
-use crate::sys::PancakeTransportProvider;
+use crate::sys::driver::{self as ffi, GlowcapDriverEvent, GlowcapDriverLoop, GlowcapDriverOptions};
+use crate::sys::GlowcapTransportProvider;
 use crate::sys::{self, host as ffi_host};
 use crate::uri::OwnedLocator;
 use crate::{ContextInner, Error, Locator, PendingWork, Result};
@@ -19,14 +19,14 @@ use crate::{ContextInner, Error, Locator, PendingWork, Result};
 /// One archive-owned provider package. Registration acquires the package lease;
 /// the driver releases it after every copied callback and transport handle.
 pub struct ProviderPackage<'owner> {
-	pub(crate) package: PancakeTransportProvider,
+	pub(crate) package: GlowcapTransportProvider,
 	pub(crate) _owner: PhantomData<&'owner ()>,
 }
 
 /// One stepping native loop over one multi-session host.
 pub struct DriverLoop {
-	raw: *mut PancakeDriverLoop,
-	host: *mut ffi_host::PancakeHost,
+	raw: *mut GlowcapDriverLoop,
+	host: *mut ffi_host::GlowcapHost,
 	released: Cell<bool>,
 	_context: Option<Rc<ContextInner>>,
 }
@@ -63,10 +63,10 @@ impl Default for DriverLoopOptions {
 }
 
 impl DriverLoopOptions {
-	fn to_c(self) -> PancakeDriverOptions {
-		PancakeDriverOptions {
+	fn to_c(self) -> GlowcapDriverOptions {
+		GlowcapDriverOptions {
 			abi_version: sys::DRIVER_OPTIONS_ABI_VERSION,
-			struct_size: core::mem::size_of::<PancakeDriverOptions>(),
+			struct_size: core::mem::size_of::<GlowcapDriverOptions>(),
 			wire_buffer_bytes: self.wire_buffer_bytes,
 			max_pending_opens: self.max_pending_opens,
 			handshake_ms: self.handshake_ms,
@@ -92,12 +92,12 @@ impl DriverLoop {
 		let context = Rc::new(ContextInner::new()?);
 		crate::require_archive_fingerprint(
 			"host",
-			unsafe { ffi_host::pancake_host_archive_fingerprint() },
+			unsafe { ffi_host::glowcap_host_archive_fingerprint() },
 			sys::HOST_ARCHIVE_FINGERPRINT,
 		)?;
-		let mut host: *mut ffi_host::PancakeHost = core::ptr::null_mut();
+		let mut host: *mut ffi_host::GlowcapHost = core::ptr::null_mut();
 		crate::host::check_host(unsafe {
-			ffi_host::pancake_host_new_in(
+			ffi_host::glowcap_host_new_in(
 				context.raw,
 				seed.as_ptr(),
 				seed.len(),
@@ -116,7 +116,7 @@ impl DriverLoop {
 				Ok(loop_)
 			}
 			Err(primary) => {
-				let cleanup_rc = unsafe { ffi_host::pancake_host_release(host) };
+				let cleanup_rc = unsafe { ffi_host::glowcap_host_release(host) };
 				let cleanup = crate::host::check_host(cleanup_rc);
 				if !crate::lifecycle::release_consumed(cleanup_rc) {
 					core::mem::forget(context);
@@ -129,15 +129,15 @@ impl DriverLoop {
 	/// Transfer an existing quiescent Host to a native loop. The C transaction
 	/// leaves Host ownership unchanged on failure and makes this loop the sole
 	/// transport/action-drain/release owner on success.
-	pub(crate) fn take_host(host: *mut ffi_host::PancakeHost, options: DriverLoopOptions) -> Result<Self> {
+	pub(crate) fn take_host(host: *mut ffi_host::GlowcapHost, options: DriverLoopOptions) -> Result<Self> {
 		crate::require_archive_fingerprint(
 			"driver",
-			unsafe { ffi::pancake_driver_archive_fingerprint() },
+			unsafe { ffi::glowcap_driver_archive_fingerprint() },
 			sys::DRIVER_ARCHIVE_FINGERPRINT,
 		)?;
-		let mut raw: *mut PancakeDriverLoop = core::ptr::null_mut();
+		let mut raw: *mut GlowcapDriverLoop = core::ptr::null_mut();
 		let options = options.to_c();
-		check(unsafe { ffi::pancake_driver_take_host(host, &options, &mut raw) })?;
+		check(unsafe { ffi::glowcap_driver_take_host(host, &options, &mut raw) })?;
 		Ok(Self {
 			raw,
 			host,
@@ -150,9 +150,9 @@ impl DriverLoop {
 		self._context.as_ref().map(Rc::clone)
 	}
 
-	/// The wrapped `PancakeHost` handle for application verbs. Never release
+	/// The wrapped `GlowcapHost` handle for application verbs. Never release
 	/// it separately; dropping the loop releases both.
-	pub fn host(&self) -> *mut ffi_host::PancakeHost {
+	pub fn host(&self) -> *mut ffi_host::GlowcapHost {
 		self.host
 	}
 
@@ -166,7 +166,7 @@ impl DriverLoop {
 	pub fn has_transport(&self, transport: &str) -> Result<bool> {
 		let mut present = 0u8;
 		check(unsafe {
-			ffi::pancake_driver_has_transport(self.raw, transport.as_ptr(), transport.len(), &mut present)
+			ffi::glowcap_driver_has_transport(self.raw, transport.as_ptr(), transport.len(), &mut present)
 		})?;
 		Ok(present != 0)
 	}
@@ -175,13 +175,13 @@ impl DriverLoop {
 	/// after admission the outcome arrives as an `Opened`/`OpenFailed` event.
 	pub fn dial(&self, locator: &Locator, options: Option<&[u8]>) -> Result<u64> {
 		let owned = OwnedLocator::new(locator)?;
-		let operation_options = options.map(|data| ffi::PancakeTransportOperationOptions {
+		let operation_options = options.map(|data| ffi::GlowcapTransportOperationOptions {
 			data: data.as_ptr().cast::<c_void>(),
 			size: data.len(),
 		});
 		let mut operation_id = 0u64;
 		check(unsafe {
-			ffi::pancake_driver_dial(
+			ffi::glowcap_driver_dial(
 				self.raw,
 				owned.borrow_view()?,
 				operation_options
@@ -197,7 +197,7 @@ impl DriverLoop {
 	pub fn listen(&self, transport: &str, designator: &str) -> Result<u64> {
 		let mut listener = 0u64;
 		check(unsafe {
-			ffi::pancake_driver_listen(
+			ffi::glowcap_driver_listen(
 				self.raw,
 				transport.as_ptr(),
 				transport.len(),
@@ -212,8 +212,8 @@ impl DriverLoop {
 
 	/// Copy the listener's complete typed OCapN locator.
 	pub fn listener_locator(&self, listener: u64) -> Result<Locator> {
-		let mut view: sys::PancakeLocatorView = unsafe { core::mem::zeroed() };
-		check(unsafe { ffi::pancake_driver_listener_locator(self.raw, listener, &mut view) })?;
+		let mut view: sys::GlowcapLocatorView = unsafe { core::mem::zeroed() };
+		check(unsafe { ffi::glowcap_driver_listener_locator(self.raw, listener, &mut view) })?;
 		OwnedLocator::clone_view(&view)?.value()
 	}
 
@@ -221,7 +221,7 @@ impl DriverLoop {
 	pub fn listener_restoration_state(&self, listener: u64) -> Result<Vec<u8>> {
 		let mut needed = 0usize;
 		let rc = unsafe {
-			ffi::pancake_driver_listener_restoration_state(self.raw, listener, core::ptr::null_mut(), 0, &mut needed)
+			ffi::glowcap_driver_listener_restoration_state(self.raw, listener, core::ptr::null_mut(), 0, &mut needed)
 		};
 		if rc != sys::OK && rc != sys::ERR_BUFFER_TOO_SMALL {
 			check(rc)?;
@@ -232,7 +232,7 @@ impl DriverLoop {
 		let mut state = vec![0u8; needed];
 		let mut copied = 0usize;
 		check(unsafe {
-			ffi::pancake_driver_listener_restoration_state(
+			ffi::glowcap_driver_listener_restoration_state(
 				self.raw,
 				listener,
 				state.as_mut_ptr(),
@@ -252,12 +252,12 @@ impl DriverLoop {
 	/// Replace this listener's advertised locator through its native owner.
 	pub fn advertise_listener(&self, listener: u64, locator: &Locator) -> Result<()> {
 		let owned = OwnedLocator::new(locator)?;
-		check(unsafe { ffi::pancake_driver_listener_advertise(self.raw, listener, owned.borrow_view()?) })
+		check(unsafe { ffi::glowcap_driver_listener_advertise(self.raw, listener, owned.borrow_view()?) })
 	}
 
 	/// Select this active listener's locator as the Host's acceptable location.
 	pub fn select_listener(&self, listener: u64) -> Result<()> {
-		check(unsafe { ffi::pancake_driver_listener_select(self.raw, listener) })
+		check(unsafe { ffi::glowcap_driver_listener_select(self.raw, listener) })
 	}
 
 	/// Stop one listener while preserving already committed events.
@@ -267,23 +267,23 @@ impl DriverLoop {
 
 	pub(crate) fn claim_reference_exporter(
 		&self,
-		reference: &sys::PancakeReference,
-	) -> Result<Option<*mut ffi_host::PancakeHostSession>> {
+		reference: &sys::GlowcapReference,
+	) -> Result<Option<*mut ffi_host::GlowcapHostSession>> {
 		let mut session = core::ptr::null_mut();
-		check(unsafe { ffi::pancake_driver_claim_reference_exporter(self.raw, reference, &mut session) })?;
+		check(unsafe { ffi::glowcap_driver_claim_reference_exporter(self.raw, reference, &mut session) })?;
 		Ok((!session.is_null()).then_some(session))
 	}
 
 	/// The one descriptor to park on. Owned by the loop; never close it.
 	pub fn readiness_fd(&self) -> Result<i32> {
 		let mut fd: c_int = -1;
-		check(unsafe { ffi::pancake_driver_readiness_fd(self.raw, &mut fd) })?;
+		check(unsafe { ffi::glowcap_driver_readiness_fd(self.raw, &mut fd) })?;
 		Ok(fd)
 	}
 
 	/// One step plus a drain of the event queue into owned events.
 	pub fn step(&self, timeout_ms: i32) -> Result<Option<Vec<LoopEvent>>> {
-		let rc = unsafe { ffi::pancake_driver_step(self.raw, timeout_ms) };
+		let rc = unsafe { ffi::glowcap_driver_step(self.raw, timeout_ms) };
 		if rc == sys::WOULD_BLOCK {
 			return Ok(None);
 		}
@@ -294,8 +294,8 @@ impl DriverLoop {
 	pub(super) fn drain_events(&self) -> Result<Vec<LoopEvent>> {
 		let mut out = Vec::new();
 		loop {
-			let mut event: PancakeDriverEvent = unsafe { core::mem::zeroed() };
-			let rc = unsafe { ffi::pancake_driver_next_event(self.raw, &mut event) };
+			let mut event: GlowcapDriverEvent = unsafe { core::mem::zeroed() };
+			let rc = unsafe { ffi::glowcap_driver_next_event(self.raw, &mut event) };
 			if rc == sys::WOULD_BLOCK {
 				return Ok(out);
 			}
@@ -304,26 +304,26 @@ impl DriverLoop {
 		}
 	}
 
-	pub fn session_release(&self, session: *mut ffi_host::PancakeHostSession) -> Result<()> {
-		check(unsafe { ffi::pancake_driver_session_release(self.raw, session) })
+	pub fn session_release(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
+		check(unsafe { ffi::glowcap_driver_session_release(self.raw, session) })
 	}
 
-	pub fn session_serve(&self, session: *mut ffi_host::PancakeHostSession) -> Result<()> {
-		check(unsafe { ffi::pancake_driver_session_serve(self.raw, session) })
+	pub fn session_serve(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
+		check(unsafe { ffi::glowcap_driver_session_serve(self.raw, session) })
 	}
 
 	pub(super) fn begin_session_close(
 		&self,
-		session: *mut ffi_host::PancakeHostSession,
+		session: *mut ffi_host::GlowcapHostSession,
 		pending: PendingWork,
 	) -> Result<()> {
 		let options = pending.to_ffi()?;
-		check(unsafe { ffi::pancake_driver_session_close(self.raw, session, &options) })
+		check(unsafe { ffi::glowcap_driver_session_close(self.raw, session, &options) })
 	}
 
-	pub(super) fn session_lifecycle_state(&self, session: *mut ffi_host::PancakeHostSession) -> Result<(bool, i32)> {
+	pub(super) fn session_lifecycle_state(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<(bool, i32)> {
 		let mut lifecycle = 0;
-		let rc = unsafe { ffi::pancake_driver_session_lifecycle_state(self.raw, session, &mut lifecycle) };
+		let rc = unsafe { ffi::glowcap_driver_session_lifecycle_state(self.raw, session, &mut lifecycle) };
 		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 			check(rc)?;
 		}
@@ -331,21 +331,21 @@ impl DriverLoop {
 	}
 
 	pub fn wake(&self) -> Result<()> {
-		check(unsafe { ffi::pancake_driver_wake(self.raw) })
+		check(unsafe { ffi::glowcap_driver_wake(self.raw) })
 	}
 
 	pub fn detach_thread(&self) -> Result<()> {
-		check(unsafe { ffi::pancake_driver_detach_thread(self.raw) })
+		check(unsafe { ffi::glowcap_driver_detach_thread(self.raw) })
 	}
 
 	pub(super) fn begin_close(&self, pending: PendingWork) -> Result<()> {
 		let options = pending.to_ffi()?;
-		check(unsafe { ffi::pancake_driver_close(self.raw, &options) })
+		check(unsafe { ffi::glowcap_driver_close(self.raw, &options) })
 	}
 
 	pub(super) fn lifecycle_state(&self) -> Result<(bool, i32)> {
 		let mut lifecycle = 0;
-		let rc = unsafe { ffi::pancake_driver_lifecycle_state(self.raw, &mut lifecycle) };
+		let rc = unsafe { ffi::glowcap_driver_lifecycle_state(self.raw, &mut lifecycle) };
 		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 			check(rc)?;
 		}
@@ -354,7 +354,7 @@ impl DriverLoop {
 
 	pub(super) fn step_wait(&self) -> Result<Option<std::time::Duration>> {
 		let mut wait_ms: i32 = -1;
-		check(unsafe { ffi::pancake_driver_step_wait_ms(self.raw, &mut wait_ms) })?;
+		check(unsafe { ffi::glowcap_driver_step_wait_ms(self.raw, &mut wait_ms) })?;
 		Ok((wait_ms >= 0).then(|| std::time::Duration::from_millis(wait_ms as u64)))
 	}
 
@@ -376,7 +376,7 @@ impl DriverLoop {
 	}
 
 	/// Transfer a refused release to a durable retry owner.
-	pub(super) fn transfer_refused(&self) -> (*mut PancakeDriverLoop, Option<Rc<ContextInner>>) {
+	pub(super) fn transfer_refused(&self) -> (*mut GlowcapDriverLoop, Option<Rc<ContextInner>>) {
 		debug_assert!(!self.released.get());
 		self.released.set(true);
 		(self.raw, self.retained_context())

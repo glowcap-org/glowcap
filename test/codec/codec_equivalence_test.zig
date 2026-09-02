@@ -1,6 +1,6 @@
 //! Codec neutrality, proven per message arm.
 //!
-//! pancake's whole reason to exist is that the session state machine is
+//! glowcap's whole reason to exist is that the session state machine is
 //! codec-neutral: a `Deliver` means the same thing whether Syrup or Cap'n Proto
 //! carried it. The scenario traces in `test/oracle/scenario_trace_test.zig` show
 //! that for two whole conversations; this proves it for each message arm in the
@@ -35,10 +35,10 @@
 //! round-trip test, not this shared-set equivalence.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const codec = pancake.ocapn.codec;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 
 const default_profile = model.CaptpVersion.next;
@@ -251,7 +251,7 @@ fn expectDuplicateKeyStructRefused(codec_id: model.CodecId) !void {
     defer allocator.free(buf);
     const second_key = std.mem.indexOf(u8, buf, "k2") orelse return error.TestUnexpectedResult;
     @memcpy(buf[second_key .. second_key + 2], "k1");
-    const view = pancake.foundation.FrameView{ .bytes = buf, .shape = wire_frame.view().shape };
+    const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = wire_frame.view().shape };
 
     const refused = blk: {
         const body = codec.dispatch.decodeBodyForProfile(codec_id, default_profile, view) catch break :blk true;

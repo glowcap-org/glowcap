@@ -11,8 +11,8 @@
 // An evicted file breaks on read rather than answering empty, which a reader
 // can tell apart from a file that really was empty.
 
-import { currentSession, type Ref, type Session } from "@pancake/runtime";
-import type { Argument } from "@pancake/runtime";
+import { currentSession, type Ref, type Session } from "@glowcap/runtime";
+import type { Argument } from "@glowcap/runtime";
 import { attachmentArgs } from "../lib/attachment.ts";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "../lib/argument_custody.ts";
 import { DISCARD, LINE, NOTIFY, READ, REFILED, WRITE } from "../lib/protocol.ts";

@@ -1,13 +1,13 @@
 //! Owned, validated projection of the driver's borrowed event record.
 
 use crate::host_action_gen::{self, HostAction};
-use crate::sys::{self, driver::PancakeDriverEvent, host as ffi_host};
+use crate::sys::{self, driver::GlowcapDriverEvent, host as ffi_host};
 use crate::{Error, Result};
 
 pub enum LoopEvent {
 	Opened {
 		operation_id: u64,
-		session: *mut ffi_host::PancakeHostSession,
+		session: *mut ffi_host::GlowcapHostSession,
 	},
 	OpenFailed {
 		operation_id: u64,
@@ -22,10 +22,10 @@ pub enum LoopEvent {
 	},
 	Accepted {
 		listener: u64,
-		session: *mut ffi_host::PancakeHostSession,
+		session: *mut ffi_host::GlowcapHostSession,
 	},
 	SessionClosed {
-		session: *mut ffi_host::PancakeHostSession,
+		session: *mut ffi_host::GlowcapHostSession,
 		failure: Option<DriverEventFailure>,
 	},
 	Completion(HostAction),
@@ -41,7 +41,7 @@ pub struct DriverEventFailure {
 	pub secondary_name: String,
 }
 
-pub(crate) fn decode(event: &PancakeDriverEvent) -> Result<LoopEvent> {
+pub(crate) fn decode(event: &GlowcapDriverEvent) -> Result<LoopEvent> {
 	match event.kind {
 		sys::DRIVER_EVENT_OPENED => Ok(LoopEvent::Opened {
 			operation_id: event.operation_id,
@@ -78,7 +78,7 @@ pub(crate) fn decode(event: &PancakeDriverEvent) -> Result<LoopEvent> {
 	}
 }
 
-fn decode_failure(event: &PancakeDriverEvent) -> Result<DriverEventFailure> {
+fn decode_failure(event: &GlowcapDriverEvent) -> Result<DriverEventFailure> {
 	Ok(DriverEventFailure {
 		primary_result: event.primary_result,
 		primary_name: text(event.primary_name, event.primary_name_len, "primary failure name")?,

@@ -1,4 +1,4 @@
-from pancake import Runtime, tcp
+from glowcap import Runtime, tcp
 
 # Plain TCP uses a cleartext host and port.
 partner = tcp.locator("127.0.0.1", 9099)

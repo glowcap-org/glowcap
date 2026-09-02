@@ -4,7 +4,7 @@
 ;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
 ;; (part of `check`) fails when this is stale.
 ;;
-;; The raw `ffi/unsafe` table of libpancake_net_transport_onion. The
+;; The raw `ffi/unsafe` table of libglowcap_net_transport_onion. The
 ;; hand-written sibling (`ffi-onion.rkt`) owns the prose and re-provides
 ;; this module. The blocking rows (`#:blocking?`) park the calling thread
 ;; on a Tor circuit, which costs seconds rather than milliseconds; the mark
@@ -16,59 +16,59 @@
          "ffi-shared.rkt"
          "constants-gen.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
-                     pancake_onion_netlayer_new*
-                     pancake_onion_listener_readiness_fd*
-                     pancake_onion_conn_readiness_fd*))
+                     glowcap_onion_netlayer_new*
+                     glowcap_onion_listener_readiness_fd*
+                     glowcap_onion_conn_readiness_fd*))
 
-(define onion-lib (open-pancake-archive "pancake_net_transport_onion"))
+(define onion-lib (open-glowcap-archive "glowcap_net_transport_onion"))
 
-(define-ffi-definer define-pancake-onion onion-lib)
+(define-ffi-definer define-glowcap-onion onion-lib)
 
-(define-pancake-onion pancake_onion_archive_fingerprint (_fun -> _uint64))
-(define-pancake-onion pancake_onion_last_error (_fun _pointer _size -> _size))
-(define-pancake-onion pancake_onion_transport_provider
-  (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))
-(define-pancake-onion pancake_onion_netlayer_new*
-  (_fun (_or-null _PancakeOnionConfig-pointer) _pointer -> _int32)
-  #:c-id pancake_onion_netlayer_new)
-(define pancake_onion_netlayer_new (wrap-out1 pancake_onion_netlayer_new* _pointer #f))
-(define-pancake-onion pancake_onion_netlayer_shutdown (_fun _pointer -> _void))
-(define-pancake-onion pancake_onion_netlayer_release*
+(define-glowcap-onion glowcap_onion_archive_fingerprint (_fun -> _uint64))
+(define-glowcap-onion glowcap_onion_last_error (_fun _pointer _size -> _size))
+(define-glowcap-onion glowcap_onion_transport_provider
+  (_fun _pointer (_or-null _GlowcapTransportProvider-pointer) -> _int32))
+(define-glowcap-onion glowcap_onion_netlayer_new*
+  (_fun (_or-null _GlowcapOnionConfig-pointer) _pointer -> _int32)
+  #:c-id glowcap_onion_netlayer_new)
+(define glowcap_onion_netlayer_new (wrap-out1 glowcap_onion_netlayer_new* _pointer #f))
+(define-glowcap-onion glowcap_onion_netlayer_shutdown (_fun _pointer -> _void))
+(define-glowcap-onion glowcap_onion_netlayer_release*
   (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_netlayer_release)
-(define-pancake-onion pancake_onion_connect*
+  #:c-id glowcap_onion_netlayer_release)
+(define-glowcap-onion glowcap_onion_connect*
   (_fun #:blocking? #t _pointer _pointer _size _uint32 _size _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_connect)
-(define-pancake-onion pancake_onion_listen*
+  #:c-id glowcap_onion_connect)
+(define-glowcap-onion glowcap_onion_listen*
   (_fun #:blocking? #t _pointer _pointer _size _pointer _pointer _size _pointer _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_listen)
-(define-pancake-onion pancake_onion_listener_wait*
+  #:c-id glowcap_onion_listen)
+(define-glowcap-onion glowcap_onion_listener_wait*
   (_fun #:blocking? #t _pointer _int32 _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_listener_wait)
-(define-pancake-onion pancake_onion_listener_readiness_fd*
+  #:c-id glowcap_onion_listener_wait)
+(define-glowcap-onion glowcap_onion_listener_readiness_fd*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_onion_listener_readiness_fd)
-(define pancake_onion_listener_readiness_fd (wrap-out1 pancake_onion_listener_readiness_fd* _int32 0))
-(define-pancake-onion pancake_onion_conn_readiness_fd*
+  #:c-id glowcap_onion_listener_readiness_fd)
+(define glowcap_onion_listener_readiness_fd (wrap-out1 glowcap_onion_listener_readiness_fd* _int32 0))
+(define-glowcap-onion glowcap_onion_conn_readiness_fd*
   (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_onion_conn_readiness_fd)
-(define pancake_onion_conn_readiness_fd (wrap-out1 pancake_onion_conn_readiness_fd* _int32 0))
-(define-pancake-onion pancake_onion_accept*
+  #:c-id glowcap_onion_conn_readiness_fd)
+(define glowcap_onion_conn_readiness_fd (wrap-out1 glowcap_onion_conn_readiness_fd* _int32 0))
+(define-glowcap-onion glowcap_onion_accept*
   (_fun #:blocking? #t _pointer _uint32 _size _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_accept)
-(define-pancake-onion pancake_onion_conn_read_frame*
-  (_fun #:blocking? #t _pointer (_or-null _PancakeManagedFrame-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_conn_read_frame)
-(define-pancake-onion pancake_onion_conn_write_frame*
-  (_fun #:blocking? #t _pointer (_or-null _PancakeFrame-pointer) _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_conn_write_frame)
-(define-pancake-onion pancake_onion_conn_shutdown (_fun _pointer -> _int32))
-(define-pancake-onion pancake_onion_conn_release*
+  #:c-id glowcap_onion_accept)
+(define-glowcap-onion glowcap_onion_conn_read_frame*
+  (_fun #:blocking? #t _pointer (_or-null _GlowcapManagedFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_onion_conn_read_frame)
+(define-glowcap-onion glowcap_onion_conn_write_frame*
+  (_fun #:blocking? #t _pointer (_or-null _GlowcapFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id glowcap_onion_conn_write_frame)
+(define-glowcap-onion glowcap_onion_conn_shutdown (_fun _pointer -> _int32))
+(define-glowcap-onion glowcap_onion_conn_release*
   (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_conn_release)
-(define-pancake-onion pancake_onion_listener_shutdown (_fun _pointer -> _void))
-(define-pancake-onion pancake_onion_listener_release*
+  #:c-id glowcap_onion_conn_release)
+(define-glowcap-onion glowcap_onion_listener_shutdown (_fun _pointer -> _void))
+(define-glowcap-onion glowcap_onion_listener_release*
   (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32)
-  #:c-id pancake_onion_listener_release)
+  #:c-id glowcap_onion_listener_release)
 
-(require-archive-fingerprint! 'onion pancake_onion_archive_fingerprint ONION-ARCHIVE-FINGERPRINT)
+(require-archive-fingerprint! 'onion glowcap_onion_archive_fingerprint ONION-ARCHIVE-FINGERPRINT)

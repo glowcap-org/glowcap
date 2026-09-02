@@ -1,8 +1,8 @@
-use pancake::iroh::{self, Reachability};
-use pancake::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+use glowcap::iroh::{self, Reachability};
+use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 // Discovery resolves a bare iroh node ID without an address hint.
-// Cargo.toml: pancake = { …, features = ["iroh"] }
+// Cargo.toml: glowcap = { …, features = ["iroh"] }
 let node_id = "<64 lowercase hex characters from the server>";
 let partner = iroh::locator(node_id, None);
 

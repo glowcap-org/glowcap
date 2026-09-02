@@ -16,14 +16,14 @@ pub const hop_cap_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/c_abi/host/mod.zig" },
         .kind = .require,
-        .needles = &.{"PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_hops"},
+        .needles = &.{"GLOWCAP_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_hops"},
         .check = "local-forward-hop-cap",
         .why = "the Host C ABI projects the shared local Forward hop cap instead of restating the value",
     },
     .{
         .where = .{ .file = "src/c_abi/host/mod.zig" },
         .kind = .forbid,
-        .needles = &.{"PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = 256"},
+        .needles = &.{"GLOWCAP_MAX_LOCAL_FORWARD_HOPS: usize = 256"},
         .check = "local-forward-hop-cap",
         .why = "local Forward chase policy lives in driver_core; the Host C ABI is only the projection seam",
     },

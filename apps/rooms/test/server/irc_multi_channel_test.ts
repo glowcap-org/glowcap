@@ -1,14 +1,14 @@
 // One Rooms member is one IRC identity across a network, however many of that
 // network's channels the directory bridges.
 
-import { DIRECTORY, SNAPSHOT } from "../../lib/protocol.ts";
+import { DIRECTORY } from "../../lib/protocol.ts";
 import {
 	closeIrcNetwork,
 	joinIrcChannel,
 	openIrcNetwork,
 	partIrcChannel,
 	snapshotIrcGateway,
-} from "../../lib/irc_gateway_client.ts";
+} from "./irc_gateway/wire.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { Room } from "../../lib/room/client.ts";
 import { directoryBehavior } from "../../server/directory_behavior.ts";
@@ -36,26 +36,23 @@ roomsTest("an IRC network is durable authority before it has a channel or transp
 	const session = await dial(loopbackTcpDesignator(server.port));
 	try {
 		const gateway = await session.fetch("gw");
-		const network = await openIrcNetwork(session, gateway, {
+		await openIrcNetwork(session, gateway, {
 			network: "quiet",
 			host: "127.0.0.1",
 			port: ircPort,
 			tls: false,
 			nick: "feed",
 		});
-		const channels = await session.send(network, SNAPSHOT, []) as unknown[];
-		assert(channels.length === 0, "a new network capability already owned a channel");
-		session.release(network);
 		const snapshot = await snapshotIrcGateway(session, gateway);
-		assert(snapshot.networks[0]?.status === "dormant", "a zero-channel network enacted a transport");
-		assert(snapshot.bridged.length === 0, "a zero-channel network invented a bridge");
+		assert(snapshot.connections[0]?.status.label === "ready", "a zero-channel network enacted a transport");
+		assert((snapshot.connections[0]?.leases.length ?? 0) === 0, "a zero-channel network invented a bridge");
 		const connected = await Promise.race([
 			accepted,
 			new Promise<false>((resolve) => setTimeout(() => resolve(false), 30)),
 		]);
 		assert(!connected, "opening a zero-channel network opened its IRC socket");
 		await closeIrcNetwork(session, gateway, "quiet");
-		assert((await snapshotIrcGateway(session, gateway)).networks.length === 0, "closing retained the network");
+		assert((await snapshotIrcGateway(session, gateway)).connections.length === 0, "closing retained the network");
 	} finally {
 		await session.close().catch(() => {});
 		server.close();
@@ -125,21 +122,20 @@ roomsTest("an IRC registration refusal reaches the operator snapshot", async () 
 	const session = await dial(loopbackTcpDesignator(server.port));
 	try {
 		const gateway = await session.fetch("gw");
-		const network = await openIrcNetwork(session, gateway, {
+		await openIrcNetwork(session, gateway, {
 			network: "refused",
 			host: "127.0.0.1",
 			port: ircPort,
 			tls: false,
 			nick: "BusyNick",
 		});
-		session.release(network);
 		await joinIrcChannel(session, gateway, "refused", "#room");
 		await fixture;
 		const problem = await within(
 			(async () => {
 				while (true) {
 					const snapshot = await snapshotIrcGateway(session, gateway);
-					if (snapshot.networks[0]?.problem !== "") return snapshot.networks[0]?.problem ?? "";
+					if (snapshot.connections[0]?.problem !== "") return snapshot.connections[0]?.problem ?? "";
 					await new Promise((resolve) => setTimeout(resolve, 10));
 				}
 			})(),
@@ -176,14 +172,13 @@ roomsTest("one IRC network identity spans two bridged channels", async () => {
 	let two: Room | null = null;
 	try {
 		const gateway = await session.fetch("gw");
-		const network = await openIrcNetwork(session, gateway, {
+		await openIrcNetwork(session, gateway, {
 			network: "fixture",
 			host: "127.0.0.1",
 			port: ircPort,
 			tls: false,
 			nick: "feed",
 		});
-		session.release(network);
 		for (const channel of ["#one", "#two"]) {
 			await within(
 				joinIrcChannel(session, gateway, "fixture", channel),

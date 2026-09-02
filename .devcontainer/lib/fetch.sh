@@ -3,7 +3,7 @@
 # it can install for.
 #
 # Every file an installer downloads for itself comes through
-# pancake_fetch_verified and is checked against the SHA-256 pinned in
+# glowcap_fetch_verified and is checked against the SHA-256 pinned in
 # checksums.sh, so it never runs bytes it did not name in advance.
 #
 # Some installers do not download for themselves. They hand the work to a
@@ -16,7 +16,7 @@
 # upstream checksum, the installer asserts it after the fact, as
 # racket-goblins.sh does for the Goblins revision conformance answers to.
 
-pancake_verify_sha256() {
+glowcap_verify_sha256() {
     local file="$1"
     local expected="$2"
     if [[ -z "${expected}" ]]; then
@@ -32,19 +32,19 @@ pancake_verify_sha256() {
 }
 
 # Download a URL to a destination and verify it against a pinned SHA-256.
-pancake_fetch_verified() {
+glowcap_fetch_verified() {
     local url="$1"
     local dest="$2"
     local sha256="$3"
     echo "downloading ${url}" >&2
     curl --fail --location --silent --show-error --output "${dest}" "${url}"
-    pancake_verify_sha256 "${dest}" "${sha256}"
+    glowcap_verify_sha256 "${dest}" "${sha256}"
 }
 
 # Select a per-architecture value: x86_64 value first, then aarch64. The
 # mapping that calls this is the authority on which architectures its tool
 # supports, so an unsupported machine fails here, at the point of use.
-pancake_pick_by_arch() {
+glowcap_pick_by_arch() {
     local label="$1"
     local x86_64_value="$2"
     local aarch64_value="$3"
@@ -59,7 +59,7 @@ pancake_pick_by_arch() {
 }
 
 # For installers with no per-architecture mapping of their own.
-pancake_require_arch() {
+glowcap_require_arch() {
     case "$(uname -m)" in
         x86_64 | aarch64) return 0 ;;
         *)

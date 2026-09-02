@@ -44,7 +44,7 @@ function joinRoomState(
 }
 
 Deno.test("a durable Rooms session commits one revision and deduplicates retries", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-" });
 	try {
 		const state = await openSessionState(directory);
 		assertEquals(state.snapshot().revision, 0);
@@ -71,7 +71,7 @@ Deno.test("a durable Rooms session commits one revision and deduplicates retries
 });
 
 Deno.test("effect status and checkpoint reconciliation have separate observers", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-observers-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-observers-" });
 	try {
 		const state = await openSessionState(directory);
 		let statusChanges = 0;
@@ -104,7 +104,7 @@ Deno.test("effect status and checkpoint reconciliation have separate observers",
 });
 
 Deno.test("effect preflight refuses before persistence but never overrides a committed retry", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-effect-preflight-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-effect-preflight-" });
 	try {
 		const state = await openSessionState(directory);
 		const material = '["say","direct","hello"]';
@@ -131,7 +131,7 @@ Deno.test("effect preflight refuses before persistence but never overrides a com
 });
 
 Deno.test("effect inspection leaves the state serializer free before realized admission", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-effect-realization-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-effect-realization-" });
 	try {
 		const state = await openSessionState(directory);
 		const material = '["say","direct","hello"]';
@@ -166,7 +166,7 @@ Deno.test("effect inspection leaves the state serializer free before realized ad
 });
 
 Deno.test("an observer failure cannot turn a durable checkpoint commit into a refusal", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-observer-failure-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-observer-failure-" });
 	try {
 		const state = await openSessionState(directory);
 		state.onCheckpointChange(() => {
@@ -181,7 +181,7 @@ Deno.test("an observer failure cannot turn a durable checkpoint commit into a re
 });
 
 Deno.test("the durable checkpoint owner refuses invalid in-memory state before writing", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-invalid-write-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-invalid-write-" });
 	try {
 		const state = await openSessionState(directory);
 		const invalid = { ...emptyRoomsSessionState(), unexpectedRuntimeState: true } as unknown as ReturnType<
@@ -195,7 +195,7 @@ Deno.test("the durable checkpoint owner refuses invalid in-memory state before w
 });
 
 Deno.test("a checkpoint snapshot exposes no unrevisioned mutation path", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-frozen-snapshot-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-frozen-snapshot-" });
 	try {
 		const state = await openSessionState(directory);
 		const snapshot = state.snapshot();
@@ -217,7 +217,7 @@ Deno.test("a checkpoint snapshot exposes no unrevisioned mutation path", async (
 });
 
 Deno.test("corrupt durable Rooms session state refuses startup", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-corrupt-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-corrupt-" });
 	try {
 		await Deno.writeTextFile(`${directory}/session.json`, '{"version":1');
 		assertEquals(await refused(() => openSessionState(directory)), true);
@@ -227,7 +227,7 @@ Deno.test("corrupt durable Rooms session state refuses startup", async () => {
 });
 
 Deno.test("a checkpoint over the aggregate byte ceiling is refused before disk commit", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-size-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-size-" });
 	try {
 		const state = await openSessionState(directory);
 		const checkpoint = {
@@ -245,7 +245,7 @@ Deno.test("a checkpoint over the aggregate byte ceiling is refused before disk c
 });
 
 Deno.test("an existing checkpoint refuses a missing external-effect ledger", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-missing-effects-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-missing-effects-" });
 	try {
 		await openSessionState(directory);
 		await Deno.remove(`${directory}/effects.json`);
@@ -256,7 +256,7 @@ Deno.test("an existing checkpoint refuses a missing external-effect ledger", asy
 });
 
 Deno.test("a prepared external effect survives restart and never retries implicitly", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-session-pending-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-session-pending-" });
 	try {
 		const state = await openSessionState(directory);
 		const checkpointFile = await Deno.readTextFile(`${directory}/session.json`);

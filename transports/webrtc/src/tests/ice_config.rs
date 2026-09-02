@@ -1,28 +1,28 @@
 use super::*;
 
-fn text_view(text: &str) -> PancakeWebrtcStringView {
-	PancakeWebrtcStringView {
+fn text_view(text: &str) -> GlowcapWebrtcStringView {
+	GlowcapWebrtcStringView {
 		ptr: text.as_ptr(),
 		len: text.len(),
 	}
 }
 
-fn bytes_view(bytes: &[u8]) -> PancakeWebrtcStringView {
-	PancakeWebrtcStringView {
+fn bytes_view(bytes: &[u8]) -> GlowcapWebrtcStringView {
+	GlowcapWebrtcStringView {
 		ptr: bytes.as_ptr(),
 		len: bytes.len(),
 	}
 }
 
-fn no_text() -> PancakeWebrtcStringView {
-	PancakeWebrtcStringView {
+fn no_text() -> GlowcapWebrtcStringView {
+	GlowcapWebrtcStringView {
 		ptr: std::ptr::null(),
 		len: 0,
 	}
 }
 
-fn endpoint_config(servers: &[PancakeWebrtcIceServer]) -> PancakeWebrtcEndpointConfig {
-	PancakeWebrtcEndpointConfig {
+fn endpoint_config(servers: &[GlowcapWebrtcIceServer]) -> GlowcapWebrtcEndpointConfig {
+	GlowcapWebrtcEndpointConfig {
 		ice_servers: servers.as_ptr(),
 		ice_server_count: servers.len(),
 		include_loopback_candidates: 0,
@@ -30,16 +30,16 @@ fn endpoint_config(servers: &[PancakeWebrtcIceServer]) -> PancakeWebrtcEndpointC
 	}
 }
 
-fn endpoint_refuses(servers: &[PancakeWebrtcIceServer]) {
-	assert!(pancake_webrtc_sidecar_endpoint_new(&endpoint_config(servers)).is_null());
+fn endpoint_refuses(servers: &[GlowcapWebrtcIceServer]) {
+	assert!(glowcap_webrtc_sidecar_endpoint_new(&endpoint_config(servers)).is_null());
 }
 
 fn ice_server(
-	urls: &[PancakeWebrtcStringView],
-	username: PancakeWebrtcStringView,
-	credential: PancakeWebrtcStringView,
-) -> PancakeWebrtcIceServer {
-	PancakeWebrtcIceServer {
+	urls: &[GlowcapWebrtcStringView],
+	username: GlowcapWebrtcStringView,
+	credential: GlowcapWebrtcStringView,
+) -> GlowcapWebrtcIceServer {
+	GlowcapWebrtcIceServer {
 		urls: urls.as_ptr(),
 		url_count: urls.len(),
 		username,
@@ -61,26 +61,26 @@ fn ice_servers_reach_the_endpoint() {
 		text_view("turns:turn.example:5349"),
 	];
 	let servers = [
-		PancakeWebrtcIceServer {
+		GlowcapWebrtcIceServer {
 			urls: stun_urls.as_ptr(),
 			url_count: stun_urls.len(),
 			username: text_view(""),
 			credential: text_view(""),
 		},
-		PancakeWebrtcIceServer {
+		GlowcapWebrtcIceServer {
 			urls: turn_urls.as_ptr(),
 			url_count: turn_urls.len(),
 			username: text_view("user"),
 			credential: text_view("pass"),
 		},
 	];
-	let cfg = PancakeWebrtcEndpointConfig {
+	let cfg = GlowcapWebrtcEndpointConfig {
 		ice_servers: servers.as_ptr(),
 		ice_server_count: servers.len(),
 		include_loopback_candidates: 0,
 		worker_threads: 0,
 	};
-	let ep = pancake_webrtc_sidecar_endpoint_new(&cfg);
+	let ep = glowcap_webrtc_sidecar_endpoint_new(&cfg);
 	assert!(!ep.is_null());
 	assert_eq!(
 		unsafe { &*ep }.inner.ice_servers,
@@ -100,18 +100,18 @@ fn ice_servers_reach_the_endpoint() {
 			}
 		]
 	);
-	unsafe { pancake_webrtc_sidecar_endpoint_free(ep) };
+	unsafe { glowcap_webrtc_sidecar_endpoint_free(ep) };
 
-	let empty = PancakeWebrtcEndpointConfig {
+	let empty = GlowcapWebrtcEndpointConfig {
 		ice_servers: std::ptr::null(),
 		ice_server_count: 0,
 		include_loopback_candidates: 0,
 		worker_threads: 0,
 	};
-	let host_only = pancake_webrtc_sidecar_endpoint_new(&empty);
+	let host_only = glowcap_webrtc_sidecar_endpoint_new(&empty);
 	assert!(!host_only.is_null());
 	assert!(unsafe { &*host_only }.inner.ice_servers.is_empty());
-	unsafe { pancake_webrtc_sidecar_endpoint_free(host_only) };
+	unsafe { glowcap_webrtc_sidecar_endpoint_free(host_only) };
 }
 
 /// A null config is refused rather than silently taken as "no ICE servers",
@@ -119,7 +119,7 @@ fn ice_servers_reach_the_endpoint() {
 /// deployment where nothing can traverse NAT.
 #[test]
 fn a_null_config_is_refused() {
-	assert!(pancake_webrtc_sidecar_endpoint_new(std::ptr::null()).is_null());
+	assert!(glowcap_webrtc_sidecar_endpoint_new(std::ptr::null()).is_null());
 }
 
 #[test]

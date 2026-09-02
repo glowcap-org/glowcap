@@ -5,7 +5,7 @@ use crate::CaptpVersion;
 /// The CapTP Host: one identity, one actor graph, one routing and redeem
 /// authority, shared by every session minted against it. Owns `engine.Node`
 /// (router half of Goblins mycapn; Host carries the product role — ADR-0079).
-/// The cross-session machinery lives in the Zig core behind `libpancake_host`
+/// The cross-session machinery lives in the Zig core behind `libglowcap_host`
 /// (ADR-0072); this is the host-idiom residue over it — the session registry,
 /// the vow table, the action drain that performs the I/O the host asks for
 /// (dial, flush, settle, entropy), and the iroh redeem posture. Cloning shares
@@ -202,7 +202,7 @@ impl Host {
 	pub fn designator(&self) -> Result<String> {
 		let mut out = [0u8; 64];
 		check_host(unsafe {
-			ffi::pancake_host_designator_from_seed(
+			ffi::glowcap_host_designator_from_seed(
 				self.shared.seed.as_ptr(),
 				self.shared.seed.len(),
 				out.as_mut_ptr(),
@@ -267,7 +267,7 @@ impl Host {
 		let owned = OwnedLocator::new(locator)?;
 		let mut vow: u64 = 0;
 		check_host(unsafe {
-			ffi::pancake_host_fetch_at(
+			ffi::glowcap_host_fetch_at(
 				self.shared.raw(),
 				owned.borrow_view()?,
 				name.as_ptr(),
@@ -293,14 +293,14 @@ impl Host {
 		let mut vow: u64 = 0;
 		check_host(unsafe {
 			match captp_version {
-				Some(version) => ffi::pancake_host_enliven_for_version(
+				Some(version) => ffi::glowcap_host_enliven_for_version(
 					self.shared.raw(),
 					version.to_c(),
 					sturdyref.as_ptr(),
 					sturdyref.len(),
 					&mut vow,
 				),
-				None => ffi::pancake_host_enliven(self.shared.raw(), sturdyref.as_ptr(), sturdyref.len(), &mut vow),
+				None => ffi::glowcap_host_enliven(self.shared.raw(), sturdyref.as_ptr(), sturdyref.len(), &mut vow),
 			}
 		})?;
 		// The vow may be parked on a dial with no session of its own, which is
@@ -328,7 +328,7 @@ impl Host {
 			)
 		})?;
 		let mut resolver_id: u64 = 0;
-		check_host(unsafe { ffi::pancake_host_turn_defer(turn, &mut resolver_id) })?;
+		check_host(unsafe { ffi::glowcap_host_turn_defer(turn, &mut resolver_id) })?;
 		Ok(Resolver {
 			shared: Rc::clone(&self.shared),
 			id: Some(resolver_id),
@@ -350,7 +350,7 @@ impl Host {
 			.shared
 			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
 		let rc = unsafe {
-			ffi::pancake_host_publish(
+			ffi::glowcap_host_publish(
 				self.shared.raw.get(),
 				name.as_ptr(),
 				name.len(),
@@ -385,7 +385,7 @@ impl Host {
 			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
 		let mut swiss = [0u8; 64];
 		let rc = unsafe {
-			ffi::pancake_host_publish_durable(
+			ffi::glowcap_host_publish_durable(
 				self.shared.raw.get(),
 				entropy.as_ptr(),
 				entropy.len(),
@@ -412,7 +412,7 @@ impl Host {
 	/// exists.
 	pub fn remove_durable(&self, swiss: &str) -> Result<bool> {
 		self.shared.guard_handle()?;
-		let rc = unsafe { ffi::pancake_host_remove_durable(self.shared.raw.get(), swiss.as_ptr(), swiss.len()) };
+		let rc = unsafe { ffi::glowcap_host_remove_durable(self.shared.raw.get(), swiss.as_ptr(), swiss.len()) };
 		if rc == sys::ERR_NOT_FOUND {
 			return Ok(false);
 		}
@@ -428,7 +428,7 @@ impl Host {
 	/// returned with its native diagnostic.
 	pub fn unpublish_giftable(&self, name: &str) -> Result<bool> {
 		self.shared.guard_handle()?;
-		let rc = unsafe { ffi::pancake_host_unpublish(self.shared.raw.get(), name.as_ptr(), name.len()) };
+		let rc = unsafe { ffi::glowcap_host_unpublish(self.shared.raw.get(), name.as_ptr(), name.len()) };
 		if rc == sys::ERR_NOT_FOUND {
 			return Ok(false);
 		}
@@ -467,7 +467,7 @@ impl Resolver {
 		let id = self.live_id()?;
 		let mut arena = crate::SendArena::default();
 		let c_value = arena.one(value)?;
-		check_host(unsafe { ffi::pancake_host_resolver_fulfill(self.shared.raw.get(), id, &c_value) })?;
+		check_host(unsafe { ffi::glowcap_host_resolver_fulfill(self.shared.raw.get(), id, &c_value) })?;
 		self.id = None;
 		// A settle can advance a FINISH close; wake any parked close driver.
 		self.shared.note_close_activity();
@@ -480,7 +480,7 @@ impl Resolver {
 	pub fn break_with(&mut self, reason: &str) -> Result<()> {
 		let id = self.live_id()?;
 		check_host(unsafe {
-			ffi::pancake_host_resolver_break(self.shared.raw.get(), id, reason.as_ptr(), reason.len())
+			ffi::glowcap_host_resolver_break(self.shared.raw.get(), id, reason.as_ptr(), reason.len())
 		})?;
 		self.id = None;
 		// A settle can advance a FINISH close; wake any parked close driver.

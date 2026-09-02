@@ -4,13 +4,13 @@
 //! unregistered-codec shape is refused before it is sent or signed.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const foundation = pancake.foundation;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
-const codec = pancake.ocapn.codec;
+const foundation = glowcap.foundation;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
+const codec = glowcap.ocapn.codec;
 const pairing = engine.pairing;
 const handshake = @import("../../support/handshake.zig");
 
@@ -118,7 +118,7 @@ test "sendKeyedStartSession advertises non-baseline features into the signed hel
     try std.testing.expectEqual(model.FeatureSet.minimum(), p1.session_state.features);
     try std.testing.expectEqual(model.FeatureSet.minimum(), p2.session_state.features);
     // The recorded partner preference is what the partner's hello stated: p2
-    // stated minimum features, while the default Pancake peer stated its
+    // stated minimum features, while the default Glowcap peer stated its
     // ordinary default offer.
     try std.testing.expectEqual(model.FeatureSet.minimum(), p1.session_state.partner_preference.features);
     try std.testing.expectEqual(model.Preference{}, p2.session_state.partner_preference);

@@ -1,28 +1,27 @@
 // The IRC gateway capability, as this tab holds it.
 //
 // The same shape as every operations capability: the swiss is the authority,
-// fetching it on this directory's session is the take, and the rows in the
-// store are only what the gateway last said. It lives on the session it was
-// fetched on, so a reconnect drops it and the reader takes it again if they
-// still want it. Join and part act through the held reference and re-ask, so
-// the pane's list is always the gateway's own answer rather than this file's
-// bookkeeping.
+// fetching it on this directory's session is the take, and what the store holds
+// is only what the gateway last said. It lives on the session it was fetched
+// on, so a reconnect drops it and the reader takes it again if they still want
+// it. Opening, adding, removing, and closing act through the held reference and
+// re-ask, so the pane's view is always the gateway's own answer rather than
+// this file's bookkeeping.
 
 import * as store from "../store.ts";
 import {
-	closeIrcNetwork as requestCloseIrcNetwork,
-	joinIrcChannel as requestJoinIrcChannel,
-	openIrcNetwork as requestOpenIrcNetwork,
-	partIrcChannel,
-	snapshotIrcGateway,
-	takeIrcGateway,
+	addBridgeLease as requestAddLease,
+	closeBridgeConnection as requestCloseConnection,
+	openBridgeConnection as requestOpenConnection,
+	removeBridgeLease as requestRemoveLease,
+	snapshotBridgeGateway,
+	takeBridgeGateway,
 } from "../../../lib/room/client.ts";
 import type { RoomsPageContext } from "../page.ts";
 import { DIRECTORY_NOT_CONNECTED, liveHomeDir, opsLost, reason } from "./common.ts";
 import { forgetOpsSwiss, rememberOpsSwiss } from "./ops_memory.ts";
 import { invalidateOperations } from "../ops/invalidation.ts";
 import { type HeldDirectoryCapability, releaseHeldCapability } from "./held_capability.ts";
-import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
 
 /** The IRC gateway one page fetched. */
 export class PageIrcGateway {
@@ -55,7 +54,7 @@ export async function takeIrcGatewayCap(page: RoomsPageContext, pasted: string, 
 	const live = liveHomeDir(page);
 	if (live === null) return DIRECTORY_NOT_CONNECTED;
 	try {
-		const taken = await takeIrcGateway(live.dir.session, pasted);
+		const taken = await takeBridgeGateway(live.dir.session, pasted);
 		const stored = remember ? rememberOpsSwiss(page, "irc", live.id, pasted) : forgetOpsSwiss(page, "irc", live.id);
 		if (!stored) {
 			releaseHeldCapability(
@@ -67,7 +66,7 @@ export async function takeIrcGatewayCap(page: RoomsPageContext, pasted: string, 
 		const previous = page.irc.held;
 		page.irc.held = { session: live.dir.session, cap: taken.cap, dir: live.id };
 		releaseHeldCapability(previous, "replaced IRC gateway capability release failed");
-		store.setIrcGateway(page.projection, taken.snapshot);
+		store.setIrcGateway(page.projection, taken.gateway);
 		return "";
 	} catch (error) {
 		return reason(error);
@@ -81,9 +80,9 @@ export async function refreshIrcGateway(page: RoomsPageContext): Promise<void> {
 	const held = page.irc.held;
 	if (held === null) return;
 	try {
-		const snapshot = await snapshotIrcGateway(held.session, held.cap);
+		const gateway = await snapshotBridgeGateway(held.session, held.cap);
 		if (page.irc.held !== held) return;
-		store.setIrcGateway(page.projection, snapshot);
+		store.setIrcGateway(page.projection, gateway);
 	} catch (error) {
 		if (page.irc.held !== held) return;
 		dropIrcHold(page);
@@ -91,23 +90,12 @@ export async function refreshIrcGateway(page: RoomsPageContext): Promise<void> {
 	}
 }
 
-/** Retain one network configuration without coupling it to a channel lease. */
-export async function openIrcConnection(
-	page: RoomsPageContext,
-	choice: {
-		network: string;
-		host: string;
-		port: number;
-		tls: boolean;
-		nick: string;
-		sasl?: { account: string; password: string };
-	},
-): Promise<string> {
+/** Open a gateway connection from a reader's connection-form answers. */
+export async function openBridgeConnection(page: RoomsPageContext, answers: string): Promise<string> {
 	const held = page.irc.held;
 	if (held === null) return "This tab no longer holds the gateway.";
 	try {
-		const network = await requestOpenIrcNetwork(held.session, held.cap, choice);
-		settleCapabilityCleanup("IRC network capability release failed", () => held.session.release(network));
+		await requestOpenConnection(held.session, held.cap, answers);
 		await invalidateOperations(page, held.dir);
 		return "";
 	} catch (error) {
@@ -115,10 +103,10 @@ export async function openIrcConnection(
 	}
 }
 
-export async function closeIrcConnection(page: RoomsPageContext, network: string): Promise<string> {
+export async function closeBridgeConnection(page: RoomsPageContext, connectionId: string): Promise<string> {
 	if (page.irc.held === null) return "This tab no longer holds the gateway.";
 	try {
-		await requestCloseIrcNetwork(page.irc.held.session, page.irc.held.cap, network);
+		await requestCloseConnection(page.irc.held.session, page.irc.held.cap, connectionId);
 		await invalidateOperations(page, page.irc.held.dir);
 		return "";
 	} catch (error) {
@@ -126,11 +114,15 @@ export async function closeIrcConnection(page: RoomsPageContext, network: string
 	}
 }
 
-/** Part one bridged channel; the room leaves the directory with it. */
-export async function partIrcBridge(page: RoomsPageContext, network: string, channel: string): Promise<string> {
+/** Remove one lease from a connection; the room leaves the directory with it. */
+export async function removeBridgeLease(
+	page: RoomsPageContext,
+	connectionId: string,
+	leaseId: string,
+): Promise<string> {
 	if (page.irc.held === null) return "This tab no longer holds the gateway.";
 	try {
-		await partIrcChannel(page.irc.held.session, page.irc.held.cap, network, channel);
+		await requestRemoveLease(page.irc.held.session, page.irc.held.cap, connectionId, leaseId);
 		await invalidateOperations(page, page.irc.held.dir);
 		return "";
 	} catch (error) {
@@ -138,10 +130,14 @@ export async function partIrcBridge(page: RoomsPageContext, network: string, cha
 	}
 }
 
-export async function joinIrcBridge(page: RoomsPageContext, network: string, channel: string): Promise<string> {
+export async function addBridgeLease(
+	page: RoomsPageContext,
+	connectionId: string,
+	answers: string,
+): Promise<string> {
 	if (page.irc.held === null) return "This tab no longer holds the gateway.";
 	try {
-		await requestJoinIrcChannel(page.irc.held.session, page.irc.held.cap, network, channel);
+		await requestAddLease(page.irc.held.session, page.irc.held.cap, connectionId, answers);
 		await invalidateOperations(page, page.irc.held.dir);
 		return "";
 	} catch (error) {

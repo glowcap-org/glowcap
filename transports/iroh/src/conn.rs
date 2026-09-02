@@ -10,7 +10,7 @@ use super::*;
 /// same guarantee, since iroh refuses to connect to any endpoint but the id
 /// it was asked for. Returns 0 on success, -1 on failure. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_remote_node_id(conn: *const PancakeIrohConn, out_key32: *mut u8) -> i32 {
+pub extern "C" fn glowcap_iroh_sidecar_conn_remote_node_id(conn: *const GlowcapIrohConn, out_key32: *mut u8) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		*conn.conn.remote_id().as_bytes()
@@ -29,7 +29,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_remote_node_id(conn: *const PancakeI
 /// (the partner finished its send side or closed the connection cleanly), or
 /// -1 on error. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_read(conn: *mut PancakeIrohConn, buf: *mut u8, len: usize) -> isize {
+pub extern "C" fn glowcap_iroh_sidecar_conn_read(conn: *mut GlowcapIrohConn, buf: *mut u8, len: usize) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let dest = unsafe { std::slice::from_raw_parts_mut(buf, len) };
@@ -60,7 +60,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_read(conn: *mut PancakeIrohConn, buf
 /// the QUIC flow-control window. Returns `len`, or -1 on error. Borrows the
 /// handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_write(conn: *mut PancakeIrohConn, buf: *const u8, len: usize) -> isize {
+pub extern "C" fn glowcap_iroh_sidecar_conn_write(conn: *mut GlowcapIrohConn, buf: *const u8, len: usize) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let src = unsafe { std::slice::from_raw_parts(buf, len) };
@@ -84,7 +84,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_write(conn: *mut PancakeIrohConn, bu
 /// there is no buffered data to push; this returns 0 while the connection is
 /// alive and -1 once it is closed or lost. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_flush(conn: *mut PancakeIrohConn) -> i32 {
+pub extern "C" fn glowcap_iroh_sidecar_conn_flush(conn: *mut GlowcapIrohConn) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		if conn.conn.close_reason().is_some() {
@@ -98,9 +98,9 @@ pub extern "C" fn pancake_iroh_sidecar_conn_flush(conn: *mut PancakeIrohConn) ->
 
 /// Gracefully close the connection: finish the send stream (the partner's read
 /// sees clean end of stream) and queue a QUIC close. Idempotent; safe to call
-/// before `pancake_iroh_sidecar_conn_free`. Borrows the handle.
+/// before `glowcap_iroh_sidecar_conn_free`. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_close(conn: *mut PancakeIrohConn) {
+pub extern "C" fn glowcap_iroh_sidecar_conn_close(conn: *mut GlowcapIrohConn) {
 	if conn.is_null() {
 		return;
 	}
@@ -151,13 +151,13 @@ pub extern "C" fn pancake_iroh_sidecar_conn_close(conn: *mut PancakeIrohConn) {
 /// locks before the drop fences against it, once the locks are free, no
 /// blocking call is still borrowing this box, so the free below cannot race one.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_free(conn: *mut PancakeIrohConn) {
+pub extern "C" fn glowcap_iroh_sidecar_conn_free(conn: *mut GlowcapIrohConn) {
 	if conn.is_null() {
 		return;
 	}
 	// Unblock any parked blocking read/write (closes the connection without
 	// taking a stream lock, so a writer parked on flow control cannot deadlock).
-	pancake_iroh_sidecar_conn_close(conn);
+	glowcap_iroh_sidecar_conn_close(conn);
 	let nonblocking = unsafe { (&*conn).nb.get().is_some() };
 	if !nonblocking {
 		let _ = catch_unwind(AssertUnwindSafe(|| {

@@ -1,10 +1,10 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const foundation = pancake.foundation;
-const dispatch = pancake.ocapn.codec.dispatch;
-const registry = pancake.ocapn.codec.registry;
+const model = glowcap.ocapn.model;
+const foundation = glowcap.foundation;
+const dispatch = glowcap.ocapn.codec.dispatch;
+const registry = glowcap.ocapn.codec.registry;
 
 // A throwaway third codec, the kind a consumer would bring. It only needs the
 // shape `dispatch` resolves against: an `Error` set and the three entry points.

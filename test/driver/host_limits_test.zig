@@ -1,11 +1,11 @@
 //! Host full SessionLimits mint (ADR-0082) and Loop fan-in / park-kill Options.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const test_host = @import("../support/core_host.zig");
 
-const Host = pancake.driver.core.Host;
-const engine = pancake.ocapn.engine;
+const Host = glowcap.driver.core.Host;
+const engine = glowcap.ocapn.engine;
 const publishAndOpenAcceptedOver = @import("../support/host_pair.zig").publishAndOpenAcceptedOver;
 
 test "Host.Options projects full SessionLimits into minted peers" {
@@ -35,7 +35,7 @@ test "Host.Options.withFrameCap only overrides admission" {
 }
 
 test "Loop.Options fan_in_throttle and park_kill_ms default off" {
-    const opts = pancake.net.completion.Options{};
+    const opts = glowcap.net.completion.Options{};
     try std.testing.expect(!opts.fan_in_throttle);
     try std.testing.expect(opts.park_kill_ms == null);
     try std.testing.expect(opts.on_park == null);

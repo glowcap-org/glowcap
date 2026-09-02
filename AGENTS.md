@@ -1,7 +1,7 @@
-# pancake — Agent Guide
+# glowcap — Agent Guide
 
-This repository is `pancake`: a Zig implementation of the OCapN / CapTP
-substrate. pancake is the implementation. There is no released predecessor to
+This repository is `glowcap`: a Zig implementation of the OCapN / CapTP
+substrate. glowcap is the implementation. There is no released predecessor to
 defer to.
 
 OCapN behavior, Spritely Goblins fixtures, and Zig-local protocol scenarios are
@@ -28,8 +28,8 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 | Runtime seam — `actors`, `net`, or `driver` (`std.Io`, sockets, turn loop) | [architecture rule](.agents/rules/architecture.md) + [memory rule](.agents/rules/memory.md)     | `zig build test`                                        |
 | C ABI surface or a language binding                                        | [architecture rule](.agents/rules/architecture.md) + [`bindings/README.md`](bindings/README.md) | `zig build gen-header-ocapn` + `zig build gen-ts-abi` + `zig build rust-dogfood` |
 | Example or example app                                                     | [`examples/README.md`](examples/README.md) + [doc-voice](.agents/rules/doc-voice.md)            | `zig build examples`                                    |
-| Live CapTP from the shell (call/host/REPL)                                | [pancake-cli skill](.agents/skills/pancake-cli/SKILL.md) (+ [`docs/cli.md`](docs/cli.md) for humans) | `zig build cli-test`                              |
-| Live CapTP via project MCP tools                                          | [pancake-mcp skill](.agents/skills/pancake-mcp/SKILL.md) (+ `.cursor/mcp.json` / `.mcp.json`) | `zig build` then reload MCP                       |
+| Live CapTP from the shell (call/host/REPL)                                | [glowcap-cli skill](.agents/skills/glowcap-cli/SKILL.md) (+ [`docs/cli.md`](docs/cli.md) for humans) | `zig build cli-test`                              |
+| Live CapTP via project MCP tools                                          | [glowcap-mcp skill](.agents/skills/glowcap-mcp/SKILL.md) (+ `.cursor/mcp.json` / `.mcp.json`) | `zig build` then reload MCP                       |
 | Agent scaffolding (`.agents/`, overlays, hooks, skills)                    | [agent-scaffolding rule](.agents/rules/agent-scaffolding.md)                                    | `zig build source-check`                                 |
 | Persona lenses for review / rooms-team members                             | [`.agents/README.md` Personas](.agents/README.md#personas) + [lookup](.agents/personas/README.md) | `zig build source-check`                                 |
 | Doc edit                                                                   | [doc-drift](.agents/rules/doc-drift.md) + [doc-voice](.agents/rules/doc-voice.md)               | same change updates claims                              |
@@ -41,7 +41,7 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 - Concrete remaining work, ordered: [`docs/roadmap.md`](docs/roadmap.md)
 - Layer ownership: [`docs/architecture.md`](docs/architecture.md)
 - Settled decisions: [`docs/decisions/adr/`](docs/decisions/adr/)
-- pancake-authored Syrup oracle corpus and pressure: `test/oracle/` (corpus
+- glowcap-authored Syrup oracle corpus and pressure: `test/oracle/` (corpus
   under `test/oracle/corpus/`)
 - Live Goblins wire authority: `conformance/goblins-peer/`
 - OCapN spec corpus: `conformance/ocapn-spec/`
@@ -81,14 +81,14 @@ Match depth to the task: do not read the whole tree for a one-line fix.
   authority.
 - Conformance is load-bearing. A semantic claim needs a scenario or fixture.
 - Live CapTP runs through the product fronts — the
-  [pancake-mcp](.agents/skills/pancake-mcp/SKILL.md),
-  [pancake-cli](.agents/skills/pancake-cli/SKILL.md), and
+  [glowcap-mcp](.agents/skills/glowcap-mcp/SKILL.md),
+  [glowcap-cli](.agents/skills/glowcap-cli/SKILL.md), and
   [rooms-peer](.agents/skills/rooms-peer/SKILL.md) skills — never a throwaway
   Zig harness for a product-shaped CapTP act.
 - Engineering-taste reference names stay in prompts and plans, never in
   committed files; the taste lands as structure
   ([agent-scaffolding](.agents/rules/agent-scaffolding.md)).
-- pancake is AI-assisted and maintainer-directed, not an AI project. The
+- glowcap is AI-assisted and maintainer-directed, not an AI project. The
   maintainer is a human learning OCapN and networking by building, answerable
   for what lands, not an auditor of every line. Disclose assistance on
   landings; [`PROVENANCE.md`](PROVENANCE.md) owns the rest. Do not write that

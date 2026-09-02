@@ -1,5 +1,5 @@
 #lang racket/base
-;; An agent, written on pancake actors in native Racket. It connects to the tools
+;; An agent, written on glowcap actors in native Racket. It connects to the tools
 ;; coordinator (which may be written in any language) and proves the three
 ;; capability properties — delegation, attenuation, revocation — over the wire.
 ;;
@@ -7,7 +7,7 @@
 
 (require "../../_demo/bindings.rkt"
          "../../_demo/tools_check.rkt"
-         "../../../bindings/racket/pancake-tcp.rkt")
+         "../../../bindings/racket/glowcap-tcp.rkt")
 
 ;; `session-send`, summarized for the checks below: `(cons 'ok value)` on a
 ;; fulfilled reply, `(cons 'broken message)` on a broken one (revocation tests

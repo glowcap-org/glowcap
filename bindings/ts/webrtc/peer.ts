@@ -8,12 +8,12 @@
 // only produces and consumes the SDP and candidate strings, mirroring the
 // native sidecar's signaling surface.
 
-import type { Channel } from "@pancake/runtime";
+import type { Channel } from "@glowcap/runtime";
 import {
 	WEBRTC_MAX_ICE_CANDIDATE_BYTES,
 	WEBRTC_MAX_PENDING_ICE_CANDIDATES,
 	WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES,
-} from "@pancake/abi";
+} from "@glowcap/abi";
 import { rtcChannel } from "./channel.ts";
 import { assertSignalBytes, utf8ByteLengthUpTo } from "./signal.ts";
 

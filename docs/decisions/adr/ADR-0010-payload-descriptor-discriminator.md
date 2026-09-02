@@ -28,7 +28,7 @@ the receiver's import, and vice versa. Goblins does this in
 `incoming-post-unmarshall!` (`<desc:export>` becomes `(hash-ref exports-pos2val pos)`,
 a local refr; `<desc:import-*>` becomes `maybe-install-import!`, a remote refr); the
 Rust core does it in `reference_from_payload_desc`
-(`pancake-codec-syrup/src/ocapn/references.rs`). pancake's Zig codec matches
+(`glowcap-codec-syrup/src/ocapn/references.rs`). glowcap's Zig codec matches
 them.
 
 The flip must turn each wire tag into one receiver-perspective model reference
@@ -167,7 +167,7 @@ terse. This is an additive model widening with no profile-name bump.
 - Scenarios under
   [`src/oracle/`](../../../src/oracle/mod.zig) exercise each payload
   descriptor in a fulfill argument, an `op:listen` slot, and an `op:deliver`
-  arg; the byte shapes are pinned against the pancake-authored Syrup oracle
+  arg; the byte shapes are pinned against the glowcap-authored Syrup oracle
   corpus under `zig build oracle-check`.
 
 ## Forward compatibility

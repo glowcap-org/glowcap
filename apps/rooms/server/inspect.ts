@@ -5,8 +5,8 @@
 // the peers using it; this answers one operator-minted capability about the
 // directory itself, and the two share nothing but the tables they read.
 
-import type { Argument, Behavior } from "@pancake/runtime";
-import { currentSession, type Session } from "@pancake/runtime";
+import type { Argument, Behavior } from "@glowcap/runtime";
+import { currentSession, type Session } from "@glowcap/runtime";
 import { hasCapabilityArguments } from "../lib/argument_custody.ts";
 import { DIRECTORY, SNAPSHOT } from "../lib/protocol.ts";
 import type { RoomServerContext } from "./context.ts";

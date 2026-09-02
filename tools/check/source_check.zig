@@ -212,8 +212,8 @@ pub fn check(
     try cp_skills.checkApplicationSurfaceVerbs(io, gpa, root, &violations);
     try cp_cli_ux.checkDriverRootShadow(io, gpa, root, &violations);
     try ps_steps.checkGatedStepsRideCheck(io, gpa, root, &violations);
-    try cp_skills.checkPancakeCliSkillAuthority(io, gpa, root, &violations);
-    try cp_skills.checkPancakeMcpSkillAuthority(io, gpa, root, &violations);
+    try cp_skills.checkGlowcapCliSkillAuthority(io, gpa, root, &violations);
+    try cp_skills.checkGlowcapMcpSkillAuthority(io, gpa, root, &violations);
     try cp_skills.checkGriddleSkillTruth(io, gpa, root, &violations);
     try cp_skills.checkCaptpAgentDogfoodRouting(io, gpa, root, &violations);
     try ps_examples.checkExampleIndex(io, gpa, root, &violations);

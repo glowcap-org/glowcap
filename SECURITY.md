@@ -1,11 +1,11 @@
 # Security Policy
 
-pancake implements the CapTP rules for moving authority-bearing references
+glowcap implements the CapTP rules for moving authority-bearing references
 between peers. A vulnerability in its wire path or session state machine can
 affect every product built on top of it, so security reports take precedence
 over other work here.
 
-pancake has had no independent security review. It is prerelease software that
+glowcap has had no independent security review. It is prerelease software that
 has not been hardened or run in production, and the conformance and
 interoperability checks measure protocol behavior, which is not the same
 thing.
@@ -56,7 +56,7 @@ to trigger:
   comparison work) to exhaust memory or CPU, or to overflow the stack, instead
   of failing loud with a typed abort.
 
-pancake proves that a target reached directly and through three-party handoff
+glowcap proves that a target reached directly and through three-party handoff
 compares Equal when both paths converge on the same live exporter session. It
 does not infer target equality across independently established sessions that
 the protocol supplied no authenticated common identity for;
@@ -66,8 +66,8 @@ remaining edge defeats a revocation, report it.
 ## Out of scope
 
 A bug in example code that breaks none of the invariants above is an ordinary
-issue. Products built on pancake carry their own security policies, and a
-dependency issue that does not reach pancake's threat surface belongs
+issue. Products built on glowcap carry their own security policies, and a
+dependency issue that does not reach glowcap's threat surface belongs
 upstream.
 
 ## Handoff signature verification

@@ -8,8 +8,8 @@
 // Run via `zig build deno-keyed-relay-rendezvous` (the harness passes
 // `<locator>`).
 
-import { PancakeError, parseLocator, Runtime } from "@pancake/runtime";
-import { connector, keyed, provider } from "@pancake/relay";
+import { GlowcapError, parseLocator, Runtime } from "@glowcap/runtime";
+import { connector, keyed, provider } from "@glowcap/relay";
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -18,8 +18,8 @@ function fail(message: string): never {
 
 if (Deno.args.length < 1) fail("usage: deno_client.ts <locator>");
 const partner = parseLocator(Deno.args[Deno.args.length - 1]);
-const nativeRelayUrl = Deno.env.get("PANCAKE_PROOF_NATIVE_RELAY_URL");
-const nativeCaFile = Deno.env.get("PANCAKE_PROOF_NATIVE_RELAY_CA_FILE");
+const nativeRelayUrl = Deno.env.get("GLOWCAP_PROOF_NATIVE_RELAY_URL");
+const nativeCaFile = Deno.env.get("GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE");
 
 async function expectNativeRefusal(
 	route: string,
@@ -38,7 +38,7 @@ async function expectNativeRefusal(
 		await session.close();
 		fail(`native WSS unexpectedly accepted ${expectedCause}`);
 	}
-	if (!(refused instanceof PancakeError)) fail(`native WSS returned ${String(refused)}`);
+	if (!(refused instanceof GlowcapError)) fail(`native WSS returned ${String(refused)}`);
 	if (refused.carrierFailure?.phase !== "secureHandshake" || refused.carrierFailure.verificationFlags === 0) {
 		fail(`native WSS omitted secure-handshake verification detail: ${refused}`);
 	}
@@ -51,7 +51,7 @@ let runtime: Runtime;
 if (nativeRelayUrl == null) {
 	runtime = await Runtime.open({ connectors: [connector()] });
 } else {
-	if (nativeCaFile == null) fail("native WSS proof needs PANCAKE_PROOF_NATIVE_RELAY_CA_FILE");
+	if (nativeCaFile == null) fail("native WSS proof needs GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE");
 	const pem = await Deno.readFile(nativeCaFile);
 	const wrongHost = new URL(nativeRelayUrl);
 	wrongHost.hostname = "127.0.0.1";

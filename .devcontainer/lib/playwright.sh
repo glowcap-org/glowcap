@@ -14,7 +14,7 @@
 # browsers path, publishing them as `playwright_bins` (browser first). Zero
 # matches is a missing installation; more than one is an ambiguous store a
 # stale build number left behind. Both fail.
-pancake_playwright_binaries() {
+glowcap_playwright_binaries() {
     local browsers_path="$1"
     local restore_nullglob=false
     if ! shopt -q nullglob; then
@@ -34,6 +34,7 @@ pancake_playwright_binaries() {
     if [[ "${#chromium_candidates[@]}" -ne 1 || "${#headless_candidates[@]}" -ne 1 ]]; then
         return 1
     fi
-    # shellcheck disable=SC2034 -- the output array is read by the sourcing script.
+    # The sourcing scripts read this array; per-file analysis cannot see that.
+    # shellcheck disable=SC2034
     playwright_bins=("${chromium_candidates[0]}" "${headless_candidates[0]}")
 }

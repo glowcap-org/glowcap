@@ -2,7 +2,7 @@
 // drain runs. `Host` owns park/kick/vows and the Session registry; decode/types
 // come from the generated `internal/host_action.ts`
 // (`zig build gen-binding-host-action`); this module owns the canonical
-// pop-until-WOULD_BLOCK drain (`pancake_host_next_action`, the one-loop rule),
+// pop-until-WOULD_BLOCK drain (`glowcap_host_next_action`, the one-loop rule),
 // then runs each parked arm (dial, flush, close, gift-id entropy, settle,
 // fail) after the pops, so async I/O never runs while a borrowed action view
 // is live and no native callback is minted per drain. The pop-based drain is
@@ -14,9 +14,9 @@ import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";
-import { HOST_ACTION_RESUME, WOULD_BLOCK } from "@pancake/abi";
+import { HOST_ACTION_RESUME, WOULD_BLOCK } from "@glowcap/abi";
 import { decodeHostAction, dispatchHostAction, type HostAction } from "./internal/host_action.ts";
-import { checkHost, PancakeError, vowFailure } from "./errors.ts";
+import { checkHost, GlowcapError, vowFailure } from "./errors.ts";
 import type { Host } from "./host.ts";
 import type { Session } from "./session.ts";
 import type { Argument } from "./value.ts";
@@ -29,7 +29,7 @@ export type { HostAction };
 export interface ActionHost {
 	readonly raw: Ptr;
 	getSession(ptr: Ptr): Session | undefined;
-	settleVow(vow: bigint, outcome: { ok: Argument } | { err: PancakeError }): void;
+	settleVow(vow: bigint, outcome: { ok: Argument } | { err: GlowcapError }): void;
 }
 
 /** Complete one gift-id effect without letting a rejected native completion
@@ -50,7 +50,7 @@ export function answerGiftId(
 	provide(id);
 }
 
-/** Pop every pending embedder action (`pancake_host_next_action` until
+/** Pop every pending embedder action (`glowcap_host_next_action` until
  * WOULD_BLOCK); return them decoded, in queue order. A popped action's byte
  * views are host-owned and valid only until the next pop frees them, so
  * `decodeHostAction` copies each out before the loop continues. */
@@ -58,7 +58,7 @@ export function parkActions(host: ActionHost): { actions: HostAction[]; yielded:
 	const parked: HostAction[] = [];
 	const out = new Uint8Array(L.HOST_ACTION_SIZE);
 	while (true) {
-		const rc = hostS.pancake_host_next_action(host.raw, ab(out));
+		const rc = hostS.glowcap_host_next_action(host.raw, ab(out));
 		if (rc === WOULD_BLOCK) return { actions: parked, yielded: false };
 		checkHost(rc);
 		const action = decodeHostAction(new DataView(out.buffer));
@@ -81,7 +81,7 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			// loop that must read those replies awaits this very drain at its
 			// feed's unwind — awaiting the dial here starves the exchange the
 			// dial waits on. The ticket contract is already asynchronous:
-			// `runDialTicket` reports `pancake_host_dialed` / `dial_failed`
+			// `runDialTicket` reports `glowcap_host_dialed` / `dial_failed`
 			// whenever it settles, and the follow-up kick drains what that
 			// report queued. (Lazy import: action ↔ dial would cycle through
 			// Host if required eagerly.)
@@ -125,13 +125,13 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			answerGiftId(
 				() => crypto.getRandomValues(new Uint8Array(32)),
 				(id) =>
-					checkHost(hostS.pancake_host_provide_gift_id(
+					checkHost(hostS.glowcap_host_provide_gift_id(
 						host.raw,
 						a.ticket,
 						ab(id),
 						32n,
 					)),
-				() => checkHost(hostS.pancake_host_gift_id_failed(host.raw, a.ticket)),
+				() => checkHost(hostS.glowcap_host_gift_id_failed(host.raw, a.ticket)),
 			);
 		},
 		settle: (a) => {

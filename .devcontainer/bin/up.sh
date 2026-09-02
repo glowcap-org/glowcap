@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start or rebuild the pancake devcontainer from a host shell.
+# Start or rebuild the glowcap devcontainer from a host shell.
 #
 # The editor commands and this script share one engine, the devcontainer CLI
 # (@devcontainers/cli), so these are the same operations:
@@ -21,7 +21,7 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo="$(dirname "${dir}")"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-pancake_devcontainer_init "${dir}"
+glowcap_devcontainer_init "${dir}"
 
 # The header comment above is the usage text: print it from the line after the
 # shebang to the first non-comment line, so editing the header cannot strand a
@@ -53,14 +53,14 @@ for argument in "$@"; do
     esac
 done
 
-pancake_require_host "up.sh"
+glowcap_require_host "up.sh"
 
 if [[ ! -e "${dir}/.env" ]]; then
     bash "${dir}/bin/configure.sh"
 fi
 # Called for the refusal, not the name: an incomplete or mismatched .env
 # stops the lifecycle here rather than inside Compose.
-pancake_devcontainer_validate_checkout_env "${dir}" > /dev/null
+glowcap_devcontainer_validate_checkout_env "${dir}" > /dev/null
 
 command -v docker >/dev/null || {
     echo "up.sh: docker is not on PATH" >&2

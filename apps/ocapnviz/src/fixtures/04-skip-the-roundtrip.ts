@@ -16,8 +16,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * handshake proved the server holds the key the locator named. That is
  * the strongest attribution the vocabulary has, and it is the
  * difference a keyed netlayer makes.
- * Both peers run pancake, so this session settles on Cap'n Proto over
- * pancake-next. That is the pairing a pancake fleet configures
+ * Both peers run glowcap, so this session settles on Cap'n Proto over
+ * glowcap-next. That is the pairing a glowcap fleet configures
  * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
@@ -31,7 +31,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
 		"dct:title": "04 · Skip the round-trip",
 		"dct:description":
 			"The client sends two calls at once: fetch message 314, then mark it read. The second is addressed to the answer of the first, which does not exist yet. The server holds it until the first resolves and then delivers it to whatever came back. One round-trip buys any number of follow-ups.",
-		"dct:creator": "pancake project",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: { "prov:wasAttributedTo": AGENT },
@@ -43,7 +43,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
 			label: "Email client",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
 		},
 		{
@@ -52,7 +52,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
 			label: "Mail server",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
 		},
 		{

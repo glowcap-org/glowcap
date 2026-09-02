@@ -370,8 +370,8 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *Intr
 /// admission, which must reject before it copies a deposit id or parks an early
 /// withdrawal.
 ///
-/// The draft specifies 32 random bytes and pancake mints that everywhere, so the
-/// rule is right for `next`, where both ends are pancake's own. It is wrong as
+/// The draft specifies 32 random bytes and glowcap mints that everywhere, so the
+/// rule is right for `next`, where both ends are glowcap's own. It is wrong as
 /// an inbound rule for `1.0`: the pinned OCapN suite gives with a seven-byte
 /// `my-gift`, and refusing it retires the session before the handoff is read, so
 /// `tests.third_party_handoffs` loses its Exporter and Receiver cases to a

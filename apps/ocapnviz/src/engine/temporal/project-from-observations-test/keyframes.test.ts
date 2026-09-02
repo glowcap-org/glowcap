@@ -51,17 +51,17 @@ Deno.test("project: reads from recording.sources", () => {
 		recording: {
 			sources: [{
 				id: "live",
-				meta: { kind: "pancake-host" },
+				meta: { kind: "glowcap-host" },
 				observations: [{
 					id: "n1",
 					kind: "peer-joined",
 					t: 5,
 					peerId: "alice",
-					profile: "pancake",
+					profile: "glowcap",
 				}],
 			}],
 		},
-		entities: { peers: { alice: { profile: "pancake" } } },
+		entities: { peers: { alice: { profile: "glowcap" } } },
 	};
 	const out = projectFromObservations(doc);
 	assertEquals(out.entities?.peers?.alice?.timing, {

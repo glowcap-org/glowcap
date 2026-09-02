@@ -1,15 +1,15 @@
 #lang racket/base
-;; Internal: the raw `ffi/unsafe` loader for the `pancake_driver_*` loop
+;; Internal: the raw `ffi/unsafe` loader for the `glowcap_driver_*` loop
 ;; family (ADR-0112).
 ;;
-;; Nothing here is public. libpancake_driver exports only this family and
-;; adopts a Host from the symbol-disjoint libpancake_host archive. The result
+;; Nothing here is public. libglowcap_driver exports only this family and
+;; adopts a Host from the symbol-disjoint libglowcap_host archive. The result
 ;; is a stepping `driver.HostRuntime` behind one readiness descriptor and one
 ;; event queue.
 ;;
 ;; The loop tier over these verbs lives in `private/loop/`: park on the
-;; readiness fd, step zero-timeout, drain `pancake_driver_next_event` until
-;; WOULD-BLOCK. Behavior callbacks fire inside `pancake_driver_step` exactly
+;; readiness fd, step zero-timeout, drain `glowcap_driver_next_event` until
+;; WOULD-BLOCK. Behavior callbacks fire inside `glowcap_driver_step` exactly
 ;; as they fire inside a byte-fed feed, on the calling Racket thread.
 ;;
 ;; The bound functions and their out-cell wrappers are generated from the
@@ -23,6 +23,6 @@
          "ffi-driver-gen.rkt"
          "ffi-shared.rkt")
 (require-archive-fingerprint!
- 'driver pancake_driver_archive_fingerprint DRIVER-ARCHIVE-FINGERPRINT)
+ 'driver glowcap_driver_archive_fingerprint DRIVER-ARCHIVE-FINGERPRINT)
 (provide (all-from-out "ffi-driver-gen.rkt")
          (all-from-out "ffi-shared.rkt"))

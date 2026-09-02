@@ -1,4 +1,4 @@
-from pancake import Argument, tcp
+from glowcap import Argument, tcp
 
 # Plain TCP binds the host and port you choose.
 async with await tcp.listen("127.0.0.1", 9099) as server:

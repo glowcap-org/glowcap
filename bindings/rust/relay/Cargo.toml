@@ -1,29 +1,29 @@
 # A byte-transparent relay in Rust — the third-runtime reference for the ADR-0086
-# relay contract. Standalone (no pancake dependency for the TCP leg, since a raw
+# relay contract. Standalone (no glowcap dependency for the TCP leg, since a raw
 # socket is already byte-level and kernel-backpressured); its WebSocket server is
 # tokio-tungstenite, reusing the tokio the iroh sidecar already pulls in.
 [package]
-name = "pancake-relay"
+name = "glowcap-relay"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [[bin]]
-name = "pancake-relay"
+name = "glowcap-relay"
 path = "src/main.rs"
 
 [features]
 # Opt-in iroh leg: dispatch `?locator=<ocapn-uri>` to an iroh byte channel dialed
-# through the pancake Rust binding. The default TCP-only relay stays standalone
-# (no pancake dependency, no C-ABI linking), so `rust-relay-test` needs no
+# through the glowcap Rust binding. The default TCP-only relay stays standalone
+# (no glowcap dependency, no C-ABI linking), so `rust-relay-test` needs no
 # archives; `rust-relay-iroh-test` builds with `--features iroh`.
-iroh = ["dep:pancake-rust-dogfood"]
+iroh = ["dep:glowcap-rust-dogfood"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "time"] }
 tokio-tungstenite = "0.30"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-pancake-rust-dogfood = { path = "..", features = ["iroh", "async"], optional = true }
+glowcap-rust-dogfood = { path = "..", features = ["iroh", "async"], optional = true }
 
 [profile.release]
 opt-level = 2

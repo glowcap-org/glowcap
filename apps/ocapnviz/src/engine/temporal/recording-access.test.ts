@@ -23,7 +23,7 @@ Deno.test("observationsOf: flat input events project into recording on parse", (
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		}],
 	});
 	const obs = observationsOf(doc);
@@ -41,18 +41,18 @@ Deno.test("observationsOf: recording wins when both events and recording supplie
 			kind: "peer-joined",
 			t: 99,
 			peerId: "ignored",
-			profile: "pancake",
+			profile: "glowcap",
 		}],
 		recording: {
 			sources: [{
 				id: "live",
-				meta: { kind: "pancake-host" },
+				meta: { kind: "glowcap-host" },
 				observations: [{
 					id: "n1",
 					kind: "peer-joined",
 					t: 5,
 					peerId: "alice",
-					profile: "pancake",
+					profile: "glowcap",
 				}],
 			}],
 		},
@@ -70,14 +70,14 @@ Deno.test("observationsOf: multi-source flattens in source-declaration order", (
 			sources: [
 				{
 					id: "live",
-					meta: { kind: "pancake-host" },
+					meta: { kind: "glowcap-host" },
 					observations: [
 						{
 							id: "a",
 							kind: "peer-joined",
 							t: 1,
 							peerId: "alice",
-							profile: "pancake",
+							profile: "glowcap",
 						},
 						{ id: "b", kind: "peer-left", t: 10, peerId: "alice" },
 					],
@@ -90,7 +90,7 @@ Deno.test("observationsOf: multi-source flattens in source-declaration order", (
 						kind: "peer-joined",
 						t: 2,
 						peerId: "bob",
-						profile: "pancake",
+						profile: "glowcap",
 					}],
 				},
 			],
@@ -109,7 +109,7 @@ Deno.test("sourcesOf: flat input events project into a single 'input' source", (
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		}],
 	});
 	const sources = sourcesOf(doc);
@@ -127,7 +127,7 @@ Deno.test("sourcesOf: recording layer surfaces verbatim", () => {
 			sources: [
 				{
 					id: "live",
-					meta: { kind: "pancake-host" },
+					meta: { kind: "glowcap-host" },
 					observations: [],
 				},
 				{
@@ -167,7 +167,7 @@ Deno.test("observationsOf: the same document answers with the same list", () => 
 			kind: "peer-joined",
 			t: 5,
 			peerId: "alice",
-			profile: "pancake",
+			profile: "glowcap",
 		}],
 	});
 	assert(
@@ -191,7 +191,7 @@ Deno.test("observationsOf: appending to a source is a new list", () => {
 		kind: "peer-joined",
 		t: 5,
 		peerId: "alice",
-		profile: "pancake",
+		profile: "glowcap",
 	});
 	const after = observationsOf(doc);
 	assertEquals(before.length, 0);
@@ -206,24 +206,24 @@ Deno.test("observationsOf: several sources flatten once, and again when one grow
 			sources: [
 				{
 					id: "a",
-					meta: { kind: "pancake-host" },
+					meta: { kind: "glowcap-host" },
 					observations: [{
 						id: "e1",
 						kind: "peer-joined",
 						t: 1,
 						peerId: "alice",
-						profile: "pancake",
+						profile: "glowcap",
 					}],
 				},
 				{
 					id: "b",
-					meta: { kind: "pancake-host" },
+					meta: { kind: "glowcap-host" },
 					observations: [{
 						id: "e2",
 						kind: "peer-joined",
 						t: 2,
 						peerId: "bob",
-						profile: "pancake",
+						profile: "glowcap",
 					}],
 				},
 			],
@@ -240,7 +240,7 @@ Deno.test("observationsOf: several sources flatten once, and again when one grow
 		kind: "peer-joined",
 		t: 3,
 		peerId: "carol",
-		profile: "pancake",
+		profile: "glowcap",
 	});
 	const grown = observationsOf(doc);
 	assertEquals(grown.length, 3);

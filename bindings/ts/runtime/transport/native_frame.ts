@@ -67,7 +67,7 @@ export class AsyncFfiWriteQueue {
 			this.#pendingWrites >= maxPendingWrites ||
 			this.#pendingBytes + frame.byteLength > this.#highWaterBytes
 		) {
-			return Promise.reject(new Error(`pancake ${this.#label} outbound queue exceeded`));
+			return Promise.reject(new Error(`glowcap ${this.#label} outbound queue exceeded`));
 		}
 
 		const owned = new AsyncFfiFrame(frame);

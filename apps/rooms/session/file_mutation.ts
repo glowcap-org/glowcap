@@ -1,6 +1,6 @@
 // Bounded attachment materialization for session file mutations.
 
-import { Ref, retainCleanupFailures, type Session } from "@pancake/runtime";
+import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { fetchBlob } from "../lib/attachment.ts";
 import type { Attachment, AttachmentSource } from "../lib/attachment.ts";
 import type { LiveDirectory } from "./live.ts";

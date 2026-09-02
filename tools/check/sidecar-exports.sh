@@ -16,7 +16,7 @@ if ! command -v nm >/dev/null 2>&1; then
 	exit 1
 fi
 
-symbols=$(mktemp "${TMPDIR:-/tmp}/pancake-sidecar-exports.XXXXXX")
+symbols=$(mktemp "${TMPDIR:-/tmp}/glowcap-sidecar-exports.XXXXXX")
 trap 'rm -f "$symbols"' EXIT
 
 nm -D --defined-only "$library" | awk 'NF >= 3 { print $NF }' >"$symbols"

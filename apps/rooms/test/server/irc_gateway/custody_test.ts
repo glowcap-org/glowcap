@@ -1,7 +1,7 @@
 // Credential custody at the gateway boundary: a password may only be handed
 // to an encrypted IRC leg, and malformed pairs are refused before any dial.
 
-import { OPEN_IRC_NETWORK } from "../../../lib/protocol_irc.ts";
+import { openIrcNetwork } from "./wire.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../../../lib/locator.ts";
 import { ircGatewayBehavior } from "../../../server/irc_gateway_behavior.ts";
 import { assert, dial, roomsTest, within } from "../../support/rooms_server.ts";
@@ -22,7 +22,14 @@ roomsTest("a registered account is refused over cleartext, and validated", async
 		let refused = "";
 		try {
 			await within(
-				session.send(gw, OPEN_IRC_NETWORK, ["net2", "127.0.0.1", 6667n, false, "gwbot", "acct", "pw"]),
+				openIrcNetwork(session, gw, {
+					network: "net2",
+					host: "127.0.0.1",
+					port: 6667,
+					tls: false,
+					nick: "gwbot",
+					sasl: { account: "acct", password: "pw" },
+				}),
 				"the cleartext refusal",
 			);
 		} catch (error) {
@@ -32,7 +39,14 @@ roomsTest("a registered account is refused over cleartext, and validated", async
 		refused = "";
 		try {
 			await within(
-				session.send(gw, OPEN_IRC_NETWORK, ["net2", "127.0.0.1", 6697n, true, "gwbot", "acct", ""]),
+				openIrcNetwork(session, gw, {
+					network: "net2",
+					host: "127.0.0.1",
+					port: 6697,
+					tls: true,
+					nick: "gwbot",
+					sasl: { account: "acct", password: "" },
+				}),
 				"the malformed-credential refusal",
 			);
 		} catch (error) {

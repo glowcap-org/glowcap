@@ -5,12 +5,12 @@
 //! deterministic assertion instead of a timing race (ADR-0042).
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const tcp = pancake.net.tcp;
-const completion = pancake.net.completion;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const tcp = glowcap.net.tcp;
+const completion = glowcap.net.completion;
 const handshake = @import("handshake.zig");
 
 pub const frame_cap = 4096;
@@ -50,7 +50,7 @@ pub fn drainOutboundStreamBytes(peer: *engine.Peer, allocator: std.mem.Allocator
     while (peer.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
-        _ = try pancake.net.appendFrameBytes(sink, allocator, frame.bytes());
+        _ = try glowcap.net.appendFrameBytes(sink, allocator, frame.bytes());
     }
 }
 

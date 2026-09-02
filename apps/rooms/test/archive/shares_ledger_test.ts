@@ -1,4 +1,4 @@
-import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
+import { DURABLE_SWISS_ENTROPY_BYTES } from "@glowcap/runtime";
 import { assertEquals } from "../assert.ts";
 import { type ArchiveSharePublisher, type ArchiveShareRecord, DurableArchiveShares } from "../../archive/shares.ts";
 import { ALL_ARCHIVE_RECORDS } from "../../lib/archive/protocol.ts";
@@ -39,7 +39,7 @@ class FakePublisher implements ArchiveSharePublisher {
 }
 
 Deno.test("opening an archive share ledger has no publication effect", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-archive-shares-open-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-archive-shares-open-" });
 	try {
 		const publisher = new FakePublisher();
 		publisher.beforePublish = () => {
@@ -53,7 +53,7 @@ Deno.test("opening an archive share ledger has no publication effect", async () 
 });
 
 Deno.test("archive shares persist before publication and survive revoke tombstones", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-archive-shares-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-archive-shares-" });
 	try {
 		const publisher = new FakePublisher();
 		publisher.beforePublish = () => {
@@ -87,7 +87,7 @@ Deno.test("archive shares persist before publication and survive revoke tombston
 });
 
 Deno.test("archive share ledger refuses a 33rd active share", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-archive-shares-cap-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-archive-shares-cap-" });
 	try {
 		const shares = await DurableArchiveShares.open(directory, ROOT_ENTROPY, new FakePublisher());
 		for (let at = 1; at <= MAX_ACTIVE_ARCHIVE_SHARES; at += 1) {
@@ -103,7 +103,7 @@ Deno.test("archive share ledger refuses a 33rd active share", async () => {
 });
 
 Deno.test("listing archive shares waits for an in-flight publication", async () => {
-	const directory = await Deno.makeTempDir({ prefix: "pancake-rooms-archive-shares-list-" });
+	const directory = await Deno.makeTempDir({ prefix: "glowcap-rooms-archive-shares-list-" });
 	try {
 		const publisher = new FakePublisher();
 		const shares = await DurableArchiveShares.open(directory, ROOT_ENTROPY, publisher);

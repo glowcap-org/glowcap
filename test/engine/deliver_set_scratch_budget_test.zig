@@ -11,10 +11,10 @@
 //! flat constant, so a dropped reset (scratch retained turn over turn) fails.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const engine = pancake.ocapn.engine;
-const session = pancake.ocapn.session;
+const engine = glowcap.ocapn.engine;
+const session = glowcap.ocapn.session;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
 /// A no-answer (`#f` answer position) `op:deliver` to local export 7 carrying one

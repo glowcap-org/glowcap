@@ -9,12 +9,12 @@
 //! on its own fiber; the client watches atomics and owns only its own host.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
 
-const model = pancake.ocapn.model;
-const driver = pancake.driver;
-const net = pancake.net;
+const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
+const net = glowcap.net;
 const tcp = net.tcp;
 
 const dial_opts: driver.SessionOptions = .{

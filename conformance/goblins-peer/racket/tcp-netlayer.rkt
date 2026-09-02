@@ -11,9 +11,9 @@
 ;; `ocapn://<host>:<port>.tcp`. Sturdyrefs are
 ;; `ocapn://<host>:<port>.tcp/s/<base64url-swiss-num>`.
 ;;
-;; What this is for: pancake ↔ Goblins interop demo work. The netlayer
+;; What this is for: glowcap ↔ Goblins interop demo work. The netlayer
 ;; lives in the goblins-peer/ slim impl as the transport mechanism that
-;; lets the Goblins Vat be a network peer pancake can dial. The
+;; lets the Goblins Vat be a network peer glowcap can dial. The
 ;; accountability-on-goblins/ impl reuses it for cross-Vat demos via
 ;; relative-path require.
 ;;
@@ -89,7 +89,7 @@
 ;;
 ;; Optional `#:interop-message-sink sink` — test-only observation of decoded
 ;; inbound CapTP records before this netlayer hands them to Goblins. This is not
-;; an application API; it exists so pancake's interop probes can prove a
+;; an application API; it exists so glowcap's interop probes can prove a
 ;; canonical Goblins-written frame caused the partner's semantic response even
 ;; where the pinned Goblins release has no public API for creating that request.
 ;; `#:interop-outbound-message-sink` is the symmetric hook: it observes decoded

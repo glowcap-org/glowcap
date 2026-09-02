@@ -9,8 +9,8 @@
 // dialing that peer, WebRTC signaling routed between two members who cannot
 // dial each other at all.
 
-import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime";
-import type { Session } from "@pancake/runtime";
+import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime";
+import type { Session } from "@glowcap/runtime";
 import type { RoomsDirectoryDial } from "./locator.ts";
 import { isManagedRoomId, MAX_DM_INBOXES, newManagedRoomId, REQUEST_TIMEOUT_MS } from "./limits.ts";
 import type { RoomPolicy } from "./room/policy.ts";

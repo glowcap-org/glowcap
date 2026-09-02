@@ -13,7 +13,7 @@ superseded_by: []
 ## Context
 
 The OCapN passable data model has a Struct type: an unordered collection of
-(key, value) pairs where each key is a String (Model.md § Struct). pancake
+(key, value) pairs where each key is a String (Model.md § Struct). glowcap
 modeled every other passable but refused Struct fail-closed, and a test pinned
 that refusal. A complete, canonical OCapN data model needs Struct, and it is the
 container the beachhead features pass around, so it is a cross-cutting
@@ -25,7 +25,7 @@ answered it. Goblins is the wire authority. Its CapTP marshalling
 (`conformance/spritely-goblins/upstream/goblins/ocapn/captp.rkt`) marshals a
 hash straight to a Syrup dictionary, marshals the unspecified value `(void)` as
 the `<void>` record, and has **no** Null case at all. So Undefined is already
-pancake's existing `.void` arm: the `<void>` record both peers already speak,
+glowcap's existing `.void` arm: the `<void>` record both peers already speak,
 and Null has no settled wire encoding to implement. Inventing one would be
 folklore that cannot interop, which is the opposite of canonical.
 Arbitrary-precision Integer is a real, settled gap (Goblins uses Racket
@@ -58,7 +58,7 @@ structs, each a two-pointer struct holding the key text and the value Argument,
 mirroring how `.tagged` is carried.
 
 The typed C waist carries the same entry sequence without adding a second
-recursive ABI type: `PANCAKE_ARG_STRUCT` uses `PancakeArgument.items` as an
+recursive ABI type: `GLOWCAP_ARG_STRUCT` uses `GlowcapArgument.items` as an
 even-length alternating sequence of `_STRING` keys and values. The shared
 marshaller enforces the even count, String-only keys, and uniqueness once;
 Rust, TypeScript, Python, and Racket expose only idiomatic wrappers over that
@@ -78,7 +78,7 @@ different key order and still be Equal.
 
 - **Null stays unmodeled.** Goblins has no Null marshalling and the upstream
   encoding is unsettled (Model.md marks the Guile/Python mappings "tentative" /
-  "imported"). pancake does not invent a Null arm; unknown Syrup records project
+  "imported"). glowcap does not invent a Null arm; unknown Syrup records project
   as `Tagged` (break/exception leniency), not as a dedicated Null refuse.
 - **Undefined is not a new arm.** It is the existing `.void` arm, the `<void>`
   record Goblins uses for the unspecified value. This ADR only clarifies that

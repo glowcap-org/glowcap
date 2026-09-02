@@ -15,10 +15,10 @@ const c = @import("../mod.zig");
 const Internal = root.Internal;
 const Instance = Internal.Instance;
 const FailureProjection = c.FailureProjection;
-const PANCAKE_OK = shared.PANCAKE_OK;
-const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
-const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
-const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
+const GLOWCAP_OK = shared.GLOWCAP_OK;
+const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
+const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 const instanceFrom = Internal.instanceFrom;
 
 /// One queued loop event, in owned form; projection to C happens at pop.
@@ -101,7 +101,7 @@ pub fn enqueueReservedEvent(inst: *Instance, event: OwnedEvent) void {
 pub fn reentrancyCode(inst: *Instance, operation: []const u8) ?i32 {
     if (inst.stepping) {
         shared.setLastError("driver: {s} refused during driver execution", .{operation});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     inst.runtime.refuseReentry() catch |err| {
         shared.setLastError("driver: {s} refused during driver execution: {s}", .{ operation, @errorName(err) });
@@ -160,7 +160,7 @@ pub fn releaseSinkEvent(ctx: *anyopaque) void {
 }
 
 /// The close observer: a wire the pump closes queues a SESSION_CLOSED event.
-/// Clean EOF carries PANCAKE_OK and no message; a fault carries the stable
+/// Clean EOF carries GLOWCAP_OK and no message; a fault carries the stable
 /// driver classification plus its concrete Zig error name. Wire adoption
 /// reserved this event before the session could become visible.
 pub fn observeClose(
@@ -182,7 +182,7 @@ pub fn openSucceeded(ctx: *anyopaque, tag: u64, session: *driver_core.HostSessio
     const inst: *Instance = @ptrCast(@alignCast(ctx));
     try inst.runtime.claimSessionHandle(session);
     // The embedder has not seen this session; hold its inbound until
-    // `pancake_driver_session_serve` says the post-open setup is done, so a
+    // `glowcap_driver_session_serve` says the post-open setup is done, so a
     // partner's pipelined first frames cannot outrun a publish.
     inst.runtime.markSessionUnattended(session);
     enqueueReservedEvent(inst, .{ .opened = .{ .operation_id = tag, .session = .init(session) } });
@@ -229,16 +229,16 @@ pub fn acceptFailed(ctx: *anyopaque, tag: u64, failure: driver.OperationFailure)
     });
 }
 
-/// Pop the oldest loop event into `out`, or `PANCAKE_ERR_WOULD_BLOCK` when
+/// Pop the oldest loop event into `out`, or `GLOWCAP_ERR_WOULD_BLOCK` when
 /// none is pending (drain in a loop until that code). Borrowed views in the
 /// popped event — an OPEN_FAILED error name, a COMPLETION action's bytes and
 /// children — stay valid until the next call. Completion payloads are freed
 /// then; error names are static.
-pub export fn pancake_driver_next_event(raw: ?*c.PancakeDriverLoop, out: ?*c.PancakeDriverEvent) i32 {
+pub export fn glowcap_driver_next_event(raw: ?*c.GlowcapDriverLoop, out: ?*c.GlowcapDriverEvent) i32 {
     shared.lastErrorClear();
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "next_event")) |code| return code;
-    const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out orelse return GLOWCAP_ERR_NULL_POINTER;
     if (inst.handed_completion) |action| {
         inst.runtime.freeAction(action);
         inst.handed_completion = null;
@@ -246,47 +246,47 @@ pub export fn pancake_driver_next_event(raw: ?*c.PancakeDriverLoop, out: ?*c.Pan
     const event = while (popEvent(inst)) |candidate| {
         if (eventNamesLiveSession(inst, candidate)) break candidate;
         freeEventPayload(inst, candidate);
-    } else return PANCAKE_ERR_WOULD_BLOCK;
-    slot.* = std.mem.zeroes(c.PancakeDriverEvent);
+    } else return GLOWCAP_ERR_WOULD_BLOCK;
+    slot.* = std.mem.zeroes(c.GlowcapDriverEvent);
     switch (event) {
         .opened => |opened| {
-            slot.kind = c.PANCAKE_DRIVER_EVENT_OPENED;
+            slot.kind = c.GLOWCAP_DRIVER_EVENT_OPENED;
             slot.operation_id = opened.operation_id;
             slot.session = ch.embedding.sessionHandle(opened.session.hs);
         },
         .open_failed => |failed| {
-            slot.kind = c.PANCAKE_DRIVER_EVENT_OPEN_FAILED;
+            slot.kind = c.GLOWCAP_DRIVER_EVENT_OPEN_FAILED;
             slot.operation_id = failed.operation_id;
             failed.failure.project(slot);
         },
         .listener_ready => |listener| {
-            slot.kind = c.PANCAKE_DRIVER_EVENT_LISTENER_READY;
+            slot.kind = c.GLOWCAP_DRIVER_EVENT_LISTENER_READY;
             slot.listener_id = listener;
         },
         .listener_failed => |failed| {
-            slot.kind = c.PANCAKE_DRIVER_EVENT_LISTENER_FAILED;
+            slot.kind = c.GLOWCAP_DRIVER_EVENT_LISTENER_FAILED;
             slot.listener_id = failed.listener;
             failed.failure.project(slot);
         },
         .accepted => |a| {
-            slot.kind = c.PANCAKE_DRIVER_EVENT_ACCEPTED;
+            slot.kind = c.GLOWCAP_DRIVER_EVENT_ACCEPTED;
             slot.listener_id = a.listener;
             slot.session = ch.embedding.sessionHandle(a.session.hs);
         },
         .session_closed => |closed| {
-            slot.kind = c.PANCAKE_DRIVER_EVENT_SESSION_CLOSED;
+            slot.kind = c.GLOWCAP_DRIVER_EVENT_SESSION_CLOSED;
             slot.session = ch.embedding.sessionHandle(closed.session.hs);
             if (closed.failure) |failure| failure.project(slot);
         },
         .completion => |action| {
-            slot.kind = c.PANCAKE_DRIVER_EVENT_COMPLETION;
+            slot.kind = c.GLOWCAP_DRIVER_EVENT_COMPLETION;
             const code = ch.embedding.projectCompletion(inst.host_handle, action, &slot.action);
-            if (code != PANCAKE_OK) {
+            if (code != GLOWCAP_OK) {
                 inst.runtime.freeAction(action);
                 return code;
             }
             inst.handed_completion = action;
         },
     }
-    return PANCAKE_OK;
+    return GLOWCAP_OK;
 }

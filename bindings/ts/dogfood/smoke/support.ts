@@ -41,7 +41,7 @@ export async function within<T>(promise: Promise<T>, milliseconds: number, label
 }
 
 // A byte-level TCP relay between a client and a server that are both real
-// pancake connections: it shuttles raw bytes both ways, optionally rewriting
+// glowcap connections: it shuttles raw bytes both ways, optionally rewriting
 // the client->server stream and observing the traffic. This is how the smoke
 // watches the wire (a gc release frame) or doctors it (a retargeted fetch)
 // without either endpoint dropping out of the application surface.

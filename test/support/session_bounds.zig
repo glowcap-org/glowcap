@@ -12,9 +12,9 @@
 //! the reason they are small is written once.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const session = pancake.ocapn.session;
+const session = glowcap.ocapn.session;
 
 /// Caps small enough for a short program to cross.
 ///

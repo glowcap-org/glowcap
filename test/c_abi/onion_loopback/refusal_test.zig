@@ -4,12 +4,12 @@
 //! borrowed, and shutdown cancelling a stalled connect or listen.
 
 const std = @import("std");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
 const c = @import("c_abi");
 const co = @import("c_abi_net_transport_onion");
-const model = pancake.ocapn.model;
-const onion = pancake.net.onion;
+const model = glowcap.ocapn.model;
+const onion = glowcap.net.onion;
 const c_abi_loopback = @import("../../support/c_abi_loopback.zig");
 const handshake = @import("../../support/handshake.zig");
 const fake = @import("../../support/onion_fake_daemon.zig");
@@ -36,18 +36,18 @@ test "c-abi onion listener_wait reports a timeout rather than blocking forever" 
     var daemon = try fake.Daemon.start(allocator, io);
     defer daemon.stop();
 
-    var netlayer: ?*co.PancakeOnionNetlayer = null;
-    var config: co.PancakeOnionConfig = .{};
+    var netlayer: ?*co.GlowcapOnionNetlayer = null;
+    var config: co.GlowcapOnionConfig = .{};
     config.socks = daemon.socksText().ptr;
     config.socks_len = daemon.socksText().len;
     config.control_endpoint = daemon.controlText().ptr;
     config.control_endpoint_len = daemon.controlText().len;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_new(&config, &netlayer));
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_netlayer_new(&config, &netlayer));
     const netlayer_ptr = netlayer.?;
     defer releaseOnionNetlayer(netlayer_ptr);
 
-    var listener: ?*co.PancakeOnionListener = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listen(
+    var listener: ?*co.GlowcapOnionListener = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_listen(
         netlayer_ptr,
         null,
         0,
@@ -67,91 +67,91 @@ test "c-abi onion listener_wait reports a timeout rather than blocking forever" 
     // guard that lets a blocking accept loop check a stop flag.
     var ready: u32 = 7;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        co.pancake_onion_listener_wait(listener_ptr, 1, &ready, null, 0, null),
+        c.GLOWCAP_OK,
+        co.glowcap_onion_listener_wait(listener_ptr, 1, &ready, null, 0, null),
     );
     try std.testing.expectEqual(@as(u32, 0), ready);
 
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NULL_POINTER,
-        co.pancake_onion_listener_wait(null, 1, &ready, null, 0, null),
+        c.GLOWCAP_ERR_NULL_POINTER,
+        co.glowcap_onion_listener_wait(null, 1, &ready, null, 0, null),
     );
 
-    co.pancake_onion_listener_shutdown(listener_ptr);
+    co.glowcap_onion_listener_shutdown(listener_ptr);
     var readiness_fd: i32 = -1;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_CLOSED,
-        co.pancake_onion_listener_wait(listener_ptr, 0, &ready, null, 0, null),
+        c.GLOWCAP_ERR_CLOSED,
+        co.glowcap_onion_listener_wait(listener_ptr, 0, &ready, null, 0, null),
     );
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_CLOSED,
-        co.pancake_onion_listener_readiness_fd(listener_ptr, &readiness_fd),
+        c.GLOWCAP_ERR_CLOSED,
+        co.glowcap_onion_listener_readiness_fd(listener_ptr, &readiness_fd),
     );
 }
 
 test "c-abi onion refuses a bad configuration and a bad designator distinctly" {
     // A netlayer with no socks endpoint cannot dial, so it is refused at
     // construction rather than at some later call.
-    var netlayer: ?*co.PancakeOnionNetlayer = null;
-    var empty: co.PancakeOnionConfig = .{};
-    co.pancake_onion_clear_last_error();
+    var netlayer: ?*co.GlowcapOnionNetlayer = null;
+    var empty: co.GlowcapOnionConfig = .{};
+    co.glowcap_onion_clear_last_error();
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        co.pancake_onion_netlayer_new(&empty, &netlayer),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        co.glowcap_onion_netlayer_new(&empty, &netlayer),
     );
-    try std.testing.expect(co.pancake_onion_last_error(null, 0) > 0);
+    try std.testing.expect(co.glowcap_onion_last_error(null, 0) > 0);
 
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_NULL_POINTER,
-        co.pancake_onion_netlayer_new(null, &netlayer),
+        c.GLOWCAP_ERR_NULL_POINTER,
+        co.glowcap_onion_netlayer_new(null, &netlayer),
     );
 
     // Every C slice is a pointer/length pair. Null is valid only for an empty
     // slice, and the aggregate copy size must not wrap before allocation.
-    var bad_slice: co.PancakeOnionConfig = .{};
+    var bad_slice: co.GlowcapOnionConfig = .{};
     bad_slice.socks = "127.0.0.1:1";
     bad_slice.socks_len = "127.0.0.1:1".len;
     bad_slice.control_endpoint = null;
     bad_slice.control_endpoint_len = 1;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        co.pancake_onion_netlayer_new(&bad_slice, &netlayer),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        co.glowcap_onion_netlayer_new(&bad_slice, &netlayer),
     );
 
-    var overflowing: co.PancakeOnionConfig = .{};
+    var overflowing: co.GlowcapOnionConfig = .{};
     overflowing.socks = "x";
     overflowing.socks_len = std.math.maxInt(usize);
     overflowing.control_endpoint = "y";
     overflowing.control_endpoint_len = 1;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        co.pancake_onion_netlayer_new(&overflowing, &netlayer),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        co.glowcap_onion_netlayer_new(&overflowing, &netlayer),
     );
 
     // An unknown auth kind is refused rather than silently treated as none: a
     // caller that meant to authenticate must not end up not authenticating.
-    var bad_auth: co.PancakeOnionConfig = .{};
+    var bad_auth: co.GlowcapOnionConfig = .{};
     bad_auth.socks = "127.0.0.1:1";
     bad_auth.socks_len = "127.0.0.1:1".len;
     bad_auth.auth_kind = 99;
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_INVALID_ARGUMENT,
-        co.pancake_onion_netlayer_new(&bad_auth, &netlayer),
+        c.GLOWCAP_ERR_INVALID_ARGUMENT,
+        co.glowcap_onion_netlayer_new(&bad_auth, &netlayer),
     );
 
     // A dial-only netlayer: valid, and hosting is refused with a cause.
-    var dial_only: co.PancakeOnionConfig = .{};
+    var dial_only: co.GlowcapOnionConfig = .{};
     dial_only.socks = "127.0.0.1:1";
     dial_only.socks_len = "127.0.0.1:1".len;
     try std.testing.expectEqual(
-        c.PANCAKE_OK,
-        co.pancake_onion_netlayer_new(&dial_only, &netlayer),
+        c.GLOWCAP_OK,
+        co.glowcap_onion_netlayer_new(&dial_only, &netlayer),
     );
     const netlayer_ptr = netlayer.?;
     defer releaseOnionNetlayer(netlayer_ptr);
 
-    var listener: ?*co.PancakeOnionListener = null;
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, co.pancake_onion_listen(
+    var listener: ?*co.GlowcapOnionListener = null;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, co.glowcap_onion_listen(
         netlayer_ptr,
         null,
         0,
@@ -165,15 +165,15 @@ test "c-abi onion refuses a bad configuration and a bad designator distinctly" {
         null,
     ));
 
-    var conn: ?*co.PancakeOnionConn = null;
+    var conn: ?*co.GlowcapOnionConn = null;
     // A designator that is not a well-formed version 3 address is refused before
     // any socket opens, which is why this reports an invalid argument rather than
     // the connection refusal that reaching 127.0.0.1:1 would produce.
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, co.pancake_onion_connect(
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, co.glowcap_onion_connect(
         netlayer_ptr,
         "not-an-onion",
         "not-an-onion".len,
-        c.PANCAKE_CODEC_SYRUP,
+        c.GLOWCAP_CODEC_SYRUP,
         frame_cap,
         &conn,
         null,
@@ -181,18 +181,18 @@ test "c-abi onion refuses a bad configuration and a bad designator distinctly" {
         null,
     ));
     // A zero frame cap and an unknown codec are the ordinary argument faults.
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, co.pancake_onion_connect(
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, co.glowcap_onion_connect(
         netlayer_ptr,
         service_id.ptr,
         service_id.len,
-        c.PANCAKE_CODEC_SYRUP,
+        c.GLOWCAP_CODEC_SYRUP,
         0,
         &conn,
         null,
         0,
         null,
     ));
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, co.pancake_onion_connect(
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, co.glowcap_onion_connect(
         netlayer_ptr,
         service_id.ptr,
         service_id.len,
@@ -203,22 +203,22 @@ test "c-abi onion refuses a bad configuration and a bad designator distinctly" {
         0,
         null,
     ));
-    try std.testing.expect(co.pancake_onion_last_error(null, 0) > 0);
+    try std.testing.expect(co.glowcap_onion_last_error(null, 0) > 0);
     // A well-formed designator with nothing listening at the socks endpoint is an
     // I/O fault with a cause, distinct from the argument faults above.
-    co.pancake_onion_clear_last_error();
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, co.pancake_onion_connect(
+    co.glowcap_onion_clear_last_error();
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, co.glowcap_onion_connect(
         netlayer_ptr,
         service_id.ptr,
         service_id.len,
-        c.PANCAKE_CODEC_SYRUP,
+        c.GLOWCAP_CODEC_SYRUP,
         frame_cap,
         &conn,
         null,
         0,
         null,
     ));
-    try std.testing.expect(co.pancake_onion_last_error(null, 0) > 0);
+    try std.testing.expect(co.glowcap_onion_last_error(null, 0) > 0);
 }
 
 test "c-abi onion netlayer copies its configuration text" {
@@ -238,13 +238,13 @@ test "c-abi onion netlayer copies its configuration text" {
     @memcpy(socks_scratch[0..daemon.socksText().len], daemon.socksText());
     @memcpy(control_scratch[0..daemon.controlText().len], daemon.controlText());
 
-    var netlayer: ?*co.PancakeOnionNetlayer = null;
-    var config: co.PancakeOnionConfig = .{};
+    var netlayer: ?*co.GlowcapOnionNetlayer = null;
+    var config: co.GlowcapOnionConfig = .{};
     config.socks = &socks_scratch;
     config.socks_len = daemon.socksText().len;
     config.control_endpoint = &control_scratch;
     config.control_endpoint_len = daemon.controlText().len;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_new(&config, &netlayer));
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_netlayer_new(&config, &netlayer));
     const netlayer_ptr = netlayer.?;
     defer releaseOnionNetlayer(netlayer_ptr);
 
@@ -254,8 +254,8 @@ test "c-abi onion netlayer copies its configuration text" {
     @memset(&control_scratch, '#');
 
     // The control endpoint still works, which covers the copy `listen` reads.
-    var listener: ?*co.PancakeOnionListener = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listen(
+    var listener: ?*co.GlowcapOnionListener = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_listen(
         netlayer_ptr,
         null,
         0,
@@ -268,26 +268,26 @@ test "c-abi onion netlayer copies its configuration text" {
         0,
         null,
     ));
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listener_release(listener.?, null, 0, null));
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_listener_release(listener.?, null, 0, null));
 
     // And the socks endpoint still works, which covers the copy `connect` reads.
     // Without this the test would pass while the socks text was borrowed, because
     // `listen` never looks at it.
     var acceptor = try io.concurrent(acceptAndDrop, .{daemon});
-    var conn: ?*co.PancakeOnionConn = null;
-    const rc = co.pancake_onion_connect(
+    var conn: ?*co.GlowcapOnionConn = null;
+    const rc = co.glowcap_onion_connect(
         netlayer_ptr,
         service_id.ptr,
         service_id.len,
-        c.PANCAKE_CODEC_SYRUP,
+        c.GLOWCAP_CODEC_SYRUP,
         frame_cap,
         &conn,
         null,
         0,
         null,
     );
-    try std.testing.expectEqual(c.PANCAKE_OK, rc);
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_conn_release(conn.?, null, 0, null));
+    try std.testing.expectEqual(c.GLOWCAP_OK, rc);
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_conn_release(conn.?, null, 0, null));
     _ = acceptor.await(io) catch {};
 }
 
@@ -314,37 +314,37 @@ const SilentEndpoint = struct {
 };
 
 const ConnectAttempt = struct {
-    netlayer: *co.PancakeOnionNetlayer,
+    netlayer: *co.GlowcapOnionNetlayer,
     done: std.atomic.Value(bool) = .init(false),
-    result: i32 = c.PANCAKE_OK,
+    result: i32 = c.GLOWCAP_OK,
 
     fn run(self: *ConnectAttempt) void {
         defer self.done.store(true, .release);
-        var conn: ?*co.PancakeOnionConn = null;
-        self.result = co.pancake_onion_connect(
+        var conn: ?*co.GlowcapOnionConn = null;
+        self.result = co.glowcap_onion_connect(
             self.netlayer,
             service_id.ptr,
             service_id.len,
-            c.PANCAKE_CODEC_SYRUP,
+            c.GLOWCAP_CODEC_SYRUP,
             frame_cap,
             &conn,
             null,
             0,
             null,
         );
-        if (conn) |handle| _ = co.pancake_onion_conn_release(handle, null, 0, null);
+        if (conn) |handle| _ = co.glowcap_onion_conn_release(handle, null, 0, null);
     }
 };
 
 const ListenAttempt = struct {
-    netlayer: *co.PancakeOnionNetlayer,
+    netlayer: *co.GlowcapOnionNetlayer,
     done: std.atomic.Value(bool) = .init(false),
-    result: i32 = c.PANCAKE_OK,
+    result: i32 = c.GLOWCAP_OK,
 
     fn run(self: *ListenAttempt) void {
         defer self.done.store(true, .release);
-        var listener: ?*co.PancakeOnionListener = null;
-        self.result = co.pancake_onion_listen(
+        var listener: ?*co.GlowcapOnionListener = null;
+        self.result = co.glowcap_onion_listen(
             self.netlayer,
             null,
             0,
@@ -364,10 +364,10 @@ const ListenAttempt = struct {
 fn silentNetlayer(
     server: *std.Io.net.Server,
     use_control: bool,
-) !*co.PancakeOnionNetlayer {
+) !*co.GlowcapOnionNetlayer {
     var endpoint_buf: [48]u8 = undefined;
     const endpoint = try std.fmt.bufPrint(&endpoint_buf, "{f}", .{server.socket.address});
-    var config: co.PancakeOnionConfig = .{
+    var config: co.GlowcapOnionConfig = .{
         .socks = endpoint.ptr,
         .socks_len = endpoint.len,
     };
@@ -375,8 +375,8 @@ fn silentNetlayer(
         config.control_endpoint = endpoint.ptr;
         config.control_endpoint_len = endpoint.len;
     }
-    var netlayer: ?*co.PancakeOnionNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_new(&config, &netlayer));
+    var netlayer: ?*co.GlowcapOnionNetlayer = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, co.glowcap_onion_netlayer_new(&config, &netlayer));
     return netlayer.?;
 }
 
@@ -411,10 +411,10 @@ test "c-abi onion netlayer shutdown cancels a stalled connect" {
     var attempt: ConnectAttempt = .{ .netlayer = netlayer };
     var call = try io.concurrent(ConnectAttempt.run, .{&attempt});
     try wait.untilFlag(io, 5_000, &accepted);
-    co.pancake_onion_netlayer_shutdown(netlayer);
+    co.glowcap_onion_netlayer_shutdown(netlayer);
     try wait.untilFlag(io, 5_000, &attempt.done);
     call.await(io);
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, attempt.result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, attempt.result);
 }
 
 test "c-abi onion netlayer shutdown cancels a stalled listen" {
@@ -448,8 +448,8 @@ test "c-abi onion netlayer shutdown cancels a stalled listen" {
     var attempt: ListenAttempt = .{ .netlayer = netlayer };
     var call = try io.concurrent(ListenAttempt.run, .{&attempt});
     try wait.untilFlag(io, 5_000, &accepted);
-    co.pancake_onion_netlayer_shutdown(netlayer);
+    co.glowcap_onion_netlayer_shutdown(netlayer);
     try wait.untilFlag(io, 5_000, &attempt.done);
     call.await(io);
-    try std.testing.expectEqual(c.PANCAKE_ERR_IO, attempt.result);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, attempt.result);
 }

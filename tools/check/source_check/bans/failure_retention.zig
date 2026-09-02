@@ -27,7 +27,7 @@ pub const rows: []const Ban = &.{
         .why = "Rust's secondary failure list must consume the generated binding-policy cap instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/python/pancake/_errors.py" },
+        .where = .{ .file = "bindings/python/glowcap/_errors.py" },
         .kind = .require,
         .needles = &.{"_FAILURE_CHAIN_CAP = _abi.BINDING_SECONDARY_FAILURE_CAP"},
         .check = "secondary-failure-cap",

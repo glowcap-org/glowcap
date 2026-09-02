@@ -10,12 +10,12 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const pancake = @import("pancake");
+const glowcap = @import("glowcap");
 
-const codec = pancake.ocapn.codec;
-const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const foundation = pancake.foundation;
+const codec = glowcap.ocapn.codec;
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const foundation = glowcap.foundation;
 
 /// A representative outbound call: a method invocation on an imported object
 /// carrying a small mixed-type argument list and an answer position. This is the

@@ -1,6 +1,6 @@
 // OCapN locator URIs: parse an `ocapn://` URI into a `Locator`, format one, and
 // transport-owned locator constructors. Delegates the grammar to the core C ABI's
-// `pancake_uri_*` / `pancake_locator_*` functions. `mod.ts` re-exports the
+// `glowcap_uri_*` / `glowcap_locator_*` functions. `mod.ts` re-exports the
 // public members.
 
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
@@ -30,8 +30,8 @@ import {
 	TRANSPORT_ONION,
 	TRANSPORT_TCP,
 	TRANSPORT_WEBRTC,
-} from "@pancake/abi";
-import { check, PancakeError } from "./errors.ts";
+} from "@glowcap/abi";
+import { check, GlowcapError } from "./errors.ts";
 import { type CaptpVersion, captpVersionId } from "./value.ts";
 
 export {
@@ -52,7 +52,7 @@ export {
 
 //
 // The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN
-// vocabulary, defined once in libpancake_ocapn's `pancake_uri_*` / `pancake_locator_*`
+// vocabulary, defined once in libglowcap_ocapn's `glowcap_uri_*` / `glowcap_locator_*`
 // surface (so no binding hand-rolls a percent codec). These helpers wrap that
 // FFI: parse copies every borrowed view into JS strings before releasing the
 // handle, and format renders through the same grammar.
@@ -76,13 +76,13 @@ export interface SturdyRef {
 }
 
 /** Internal owner for the opaque locator handle exported by
- * `libpancake_ocapn`. Driver and provider calls borrow only its POD view. */
+ * `libglowcap_ocapn`. Driver and provider calls borrow only its POD view. */
 export class OwnedLocator {
 	#raw: Ptr;
 
 	private constructor(raw: Ptr) {
 		if (raw === NULL) {
-			throw new PancakeError(INVALID_ARGUMENT, "OCapN returned a null locator handle");
+			throw new GlowcapError(INVALID_ARGUMENT, "OCapN returned a null locator handle");
 		}
 		this.#raw = raw;
 	}
@@ -91,7 +91,7 @@ export class OwnedLocator {
 		const transport = new TextEncoder().encode(locator.transport);
 		const designator = new TextEncoder().encode(locator.designator);
 		const out = new Uint8Array(L.ptrSize);
-		check(s.pancake_locator_new(
+		check(s.glowcap_locator_new(
 			ab(transport),
 			BigInt(transport.length),
 			ab(designator),
@@ -106,7 +106,7 @@ export class OwnedLocator {
 				let rc: number;
 				if (typeof value === "string") {
 					const bytes = new TextEncoder().encode(value);
-					rc = s.pancake_locator_add_string(
+					rc = s.glowcap_locator_add_string(
 						owned.#raw,
 						ab(nameBytes),
 						BigInt(nameBytes.length),
@@ -114,7 +114,7 @@ export class OwnedLocator {
 						BigInt(bytes.length),
 					);
 				} else if (value instanceof Uint8Array) {
-					rc = s.pancake_locator_add_bytes(
+					rc = s.glowcap_locator_add_bytes(
 						owned.#raw,
 						ab(nameBytes),
 						BigInt(nameBytes.length),
@@ -122,14 +122,14 @@ export class OwnedLocator {
 						BigInt(value.length),
 					);
 				} else if (typeof value === "boolean") {
-					rc = s.pancake_locator_add_boolean(
+					rc = s.glowcap_locator_add_boolean(
 						owned.#raw,
 						ab(nameBytes),
 						BigInt(nameBytes.length),
 						value ? 1 : 0,
 					);
 				} else {
-					rc = s.pancake_locator_add_integer(
+					rc = s.glowcap_locator_add_integer(
 						owned.#raw,
 						ab(nameBytes),
 						BigInt(nameBytes.length),
@@ -151,35 +151,35 @@ export class OwnedLocator {
 
 	static cloneView(view: Uint8Array<ArrayBuffer>): OwnedLocator {
 		const out = new Uint8Array(L.ptrSize);
-		check(s.pancake_locator_clone(ab(view), ab(out)));
+		check(s.glowcap_locator_clone(ab(view), ab(out)));
 		return new OwnedLocator(outPointer(out));
 	}
 
 	borrowView(): Ptr {
 		if (this.#raw === NULL) {
-			throw new PancakeError(INVALID_ARGUMENT, "locator handle is released");
+			throw new GlowcapError(INVALID_ARGUMENT, "locator handle is released");
 		}
 		const out = new Uint8Array(L.ptrSize);
-		check(s.pancake_locator_borrow_view(this.#raw, ab(out)));
+		check(s.glowcap_locator_borrow_view(this.#raw, ab(out)));
 		return outPointer(out);
 	}
 
 	release(): void {
 		if (this.#raw === NULL) return;
-		s.pancake_locator_release(this.#raw);
+		s.glowcap_locator_release(this.#raw);
 		this.#raw = NULL;
 	}
 
 	value(): Locator {
 		if (this.#raw === NULL) {
-			throw new PancakeError(INVALID_ARGUMENT, "locator handle is released");
+			throw new GlowcapError(INVALID_ARGUMENT, "locator handle is released");
 		}
 		const countOut = new Uint8Array(L.ptrSize);
-		check(s.pancake_locator_hint_count(this.#raw, ab(countOut)));
+		check(s.glowcap_locator_hint_count(this.#raw, ab(countOut)));
 		const hints = new Map<string, HintValue>();
 		for (let index = 0; index < Number(outUsize(countOut)); index++) {
 			const bytes = new Uint8Array(L.LOCATOR_HINT_VIEW_SIZE);
-			check(s.pancake_locator_hint_at(this.#raw, BigInt(index), ab(bytes)));
+			check(s.glowcap_locator_hint_at(this.#raw, BigInt(index), ab(bytes)));
 			const hint = new DataView(bytes.buffer);
 			const name = new TextDecoder().decode(readBytes(
 				L.getPtr(hint, L.LOCATOR_HINT_VIEW_NAME_OFF),
@@ -200,7 +200,7 @@ export class OwnedLocator {
 			} else if (kind === HINT_BOOLEAN) {
 				const raw = hint.getUint8(L.LOCATOR_HINT_VIEW_BOOLEAN_VALUE_OFF);
 				if (raw > 1) {
-					throw new PancakeError(
+					throw new GlowcapError(
 						INVALID_ARGUMENT,
 						"OCapN returned an invalid boolean hint",
 					);
@@ -209,7 +209,7 @@ export class OwnedLocator {
 			} else if (kind === HINT_INTEGER) {
 				value = hint.getBigInt64(L.LOCATOR_HINT_VIEW_INTEGER_VALUE_OFF, true);
 			} else {
-				throw new PancakeError(
+				throw new GlowcapError(
 					INVALID_ARGUMENT,
 					`OCapN returned locator hint kind ${kind}, outside the typed hint ABI`,
 				);
@@ -218,18 +218,18 @@ export class OwnedLocator {
 		}
 
 		const wireOut = new Uint8Array(4);
-		check(s.pancake_locator_hint_wire_form(this.#raw, ab(wireOut)));
+		check(s.glowcap_locator_hint_wire_form(this.#raw, ab(wireOut)));
 		const wire = new DataView(wireOut.buffer).getUint32(0, true);
 		if (wire !== HINTS_MAP && wire !== HINTS_BOOLEAN_FALSE) {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				"OCapN returned an unknown locator hint wire form",
 			);
 		}
 
 		return {
-			transport: readLocatorField(s.pancake_locator_transport, this.#raw),
-			designator: readLocatorField(s.pancake_locator_designator, this.#raw),
+			transport: readLocatorField(s.glowcap_locator_transport, this.#raw),
+			designator: readLocatorField(s.glowcap_locator_designator, this.#raw),
 			hints,
 			hintWireForm: wire === HINTS_MAP ? "map" : "boolean-false",
 		};
@@ -262,7 +262,7 @@ export function formatLocatorUri(locator: Locator): string {
 	const hints = new Map<string, string>();
 	for (const [name, value] of locator.hints) {
 		if (typeof value !== "string") {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`locator hint ${JSON.stringify(name)} has no lossless URI spelling`,
 			);
@@ -303,11 +303,11 @@ export function parseLocator(uri: string): Locator {
 	// Same empty-input refusal as `designatorHostPort`, for the same
 	// null-pointer boundary reason.
 	if (uri.length === 0) {
-		throw new PancakeError(INVALID_ARGUMENT, "locator is empty");
+		throw new GlowcapError(INVALID_ARGUMENT, "locator is empty");
 	}
 	const uriBytes = new TextEncoder().encode(uri);
 	const outLoc = new Uint8Array(8);
-	check(s.pancake_uri_parse_peer(
+	check(s.glowcap_uri_parse_peer(
 		ab(uriBytes),
 		BigInt(uriBytes.length),
 		ab(outLoc),
@@ -325,7 +325,7 @@ export function parseLocator(uri: string): Locator {
 export function parseSturdyRef(uri: string, captpVersion: CaptpVersion): SturdyRef {
 	const uriBytes = new TextEncoder().encode(uri);
 	const out = new Uint8Array(L.ptrSize);
-	check(s.pancake_uri_parse_sturdyref(
+	check(s.glowcap_uri_parse_sturdyref(
 		captpVersionId(captpVersion),
 		ab(uriBytes),
 		BigInt(uriBytes.length),
@@ -334,10 +334,10 @@ export function parseSturdyRef(uri: string, captpVersion: CaptpVersion): SturdyR
 	const raw = outPointer(out);
 	try {
 		const viewOut = new Uint8Array(L.ptrSize);
-		check(s.pancake_sturdyref_borrow_locator(raw, ab(viewOut)));
+		check(s.glowcap_sturdyref_borrow_locator(raw, ab(viewOut)));
 		const view = outPointer(viewOut);
 		if (view === NULL) {
-			throw new PancakeError(INVALID_ARGUMENT, "OCapN returned a null sturdyref locator");
+			throw new GlowcapError(INVALID_ARGUMENT, "OCapN returned a null sturdyref locator");
 		}
 		const ownedLocator = OwnedLocator.cloneView(
 			new Uint8Array(ffi.readMemory(view, L.LOCATOR_VIEW_SIZE)),
@@ -351,7 +351,7 @@ export function parseSturdyRef(uri: string, captpVersion: CaptpVersion): SturdyR
 
 		const ptrOut = new Uint8Array(L.ptrSize);
 		const lenOut = new Uint8Array(L.ptrSize);
-		check(s.pancake_sturdyref_swissnum(raw, ab(ptrOut), ab(lenOut)));
+		check(s.glowcap_sturdyref_swissnum(raw, ab(ptrOut), ab(lenOut)));
 		return {
 			locator,
 			// `readBytes` owns an ArrayBuffer-backed copy; state that fact at the
@@ -359,7 +359,7 @@ export function parseSturdyRef(uri: string, captpVersion: CaptpVersion): SturdyR
 			swissnum: readBytes(outPointer(ptrOut), outUsize(lenOut)) as Uint8Array<ArrayBuffer>,
 		};
 	} finally {
-		s.pancake_sturdyref_release(raw);
+		s.glowcap_sturdyref_release(raw);
 	}
 }
 
@@ -382,7 +382,7 @@ export function formatSturdyRef(
 	const hints = new Map<string, string>();
 	for (const [name, value] of locator.hints) {
 		if (typeof value !== "string") {
-			throw new PancakeError(
+			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`formatSturdyRef: hint "${name}" is not string-valued`,
 			);
@@ -422,7 +422,7 @@ function formatUri(
 		const keyPtrs = pointerArray(keys), keyLens = lengthArray(keys);
 		const valPtrs = pointerArray(vals), valLens = lengthArray(vals);
 		return swissnum === null
-			? s.pancake_uri_format_peer(
+			? s.glowcap_uri_format_peer(
 				ab(t),
 				BigInt(t.length),
 				ab(d),
@@ -436,7 +436,7 @@ function formatUri(
 				BigInt(cap),
 				ab(outLen),
 			)
-			: s.pancake_uri_format_sturdyref(
+			: s.glowcap_uri_format_sturdyref(
 				captpVersionId(captpVersion!),
 				ab(t),
 				BigInt(t.length),
@@ -496,19 +496,19 @@ function lengthArray(bufs: Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
 }
 
 /** Split a bare designator as `host:port` through the core grammar
- * (`pancake_designator_host_port`). Prefer this over minting a peer URI
+ * (`glowcap_designator_host_port`). Prefer this over minting a peer URI
  * just to call `parseLocator`. */
 export function designatorHostPort(designator: string): { hostname: string; port: number } {
 	// A zero-length buffer crosses the FFI as a null pointer, so the archive
 	// would truthfully answer null-pointer for what is really empty input.
 	// The refusal the caller can act on is the grammar's own: not an address.
 	if (designator.length === 0) {
-		throw new PancakeError(INVALID_ARGUMENT, "designator is empty");
+		throw new GlowcapError(INVALID_ARGUMENT, "designator is empty");
 	}
 	const data = new TextEncoder().encode(designator);
 	const hPtr = new Uint8Array(8), hLen = new Uint8Array(8);
 	const portBuf = new Uint8Array(2);
-	check(s.pancake_designator_host_port(
+	check(s.glowcap_designator_host_port(
 		ab(data),
 		BigInt(data.length),
 		ab(hPtr),
@@ -526,13 +526,13 @@ export function encodePeerLocator(locator: Locator): Uint8Array {
 	const outLoc = new Uint8Array(8), outLen = new Uint8Array(8);
 	withOwnedLocator(
 		locator,
-		(owned) => check(s.pancake_locator_record_encode(owned.borrowView(), ab(outLoc), ab(outLen))),
+		(owned) => check(s.glowcap_locator_record_encode(owned.borrowView(), ab(outLoc), ab(outLen))),
 	);
 	const ptr = outPointer(outLoc);
 	const len = outUsize(outLen);
 	try {
 		return readBytes(ptr, len);
 	} finally {
-		s.pancake_locator_record_bytes_release(ptr, len);
+		s.glowcap_locator_record_bytes_release(ptr, len);
 	}
 }

@@ -1,6 +1,6 @@
 #lang racket
 ;; handoff-introducer-host.rkt — the Goblins side of a live three-party handoff,
-;; with pancake playing the recipient (Carol).
+;; with glowcap playing the recipient (Carol).
 ;;
 ;; Two Goblins vats in one process:
 ;;   * Bob  — hosts a `^greeter` cap (the exporter / gift origin).
@@ -8,7 +8,7 @@
 ;;             that live ref out. Alice is the gifter; the introducer is what the
 ;;             recipient enlivens and asks for the greeter.
 ;;
-;; A recipient (pancake) enlivens Alice's introducer over TCP, calls
+;; A recipient (glowcap) enlivens Alice's introducer over TCP, calls
 ;; `(introducer 'get-greeter)`, and receives Bob's greeter by OCapN three-party
 ;; handoff: Alice's mycapn sends a `desc:handoff-give`, and the recipient must dial
 ;; Bob directly and present a `desc:handoff-receive` to use the ref. The whole point

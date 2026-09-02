@@ -70,7 +70,7 @@ Deno.test("a replayed snapshot draws what a feed that never had to learn draws",
 	);
 });
 
-Deno.test("a room whose every end publishes is a room of pancake peers", () => {
+Deno.test("a room whose every end publishes is a room of glowcap peers", () => {
 	// The case the user actually watches: a room server and two browser tabs,
 	// each publishing its own trace, on the OCapN v1.0 floor. Every peer here
 	// is some producer's own end, so every peer is known — reached through the
@@ -90,7 +90,7 @@ Deno.test("a room whose every end publishes is a room of pancake peers", () => {
 	const drawnAs = joinedProfiles(resolved);
 	assertEquals(Object.keys(drawnAs).length, 3);
 	assertEquals(
-		Object.values(drawnAs).filter((p) => p !== "pancake"),
+		Object.values(drawnAs).filter((p) => p !== "glowcap"),
 		[],
 		"a snapshot holding every end's own report drew a peer it could not name",
 	);
@@ -105,8 +105,8 @@ Deno.test("a room whose every end publishes is a room of pancake peers", () => {
 	);
 	for (const [peer, joined] of Object.entries(liveJoined)) {
 		assert(
-			joined === "pancake" || learned.has(peer),
-			`${peer} publishes its own trace and is still not known to be pancake`,
+			joined === "glowcap" || learned.has(peer),
+			`${peer} publishes its own trace and is still not known to be glowcap`,
 		);
 	}
 });

@@ -28,9 +28,9 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake._ffi_host import _host as _host_ffi  # noqa: E402
-from pancake._loop import DriverLoop  # noqa: E402
-from pancake.iroh import (  # noqa: E402
+from glowcap._ffi_host import _host as _host_ffi  # noqa: E402
+from glowcap._loop import DriverLoop  # noqa: E402
+from glowcap.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
     adopt_loop_provider,
@@ -79,7 +79,7 @@ async def main() -> None:
     )
 
     vow = ctypes.c_uint64(0)
-    rc = _host_ffi.pancake_host_session_fetch(
+    rc = _host_ffi.glowcap_host_session_fetch(
         ctypes.c_void_p(session), b"greeter", 7, ctypes.byref(vow)
     )
     if rc != 0:

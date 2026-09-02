@@ -14,8 +14,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * server at `127.0.0.1:9502`, over plain `tcp`. The client's end is
  * its own report; the server's end is attached only because both hosts
  * publish traces of the same OCapN Session ID.
- * Both peers run pancake, so this session settles on Cap'n Proto over
- * pancake-next. That is the pairing a pancake fleet configures
+ * Both peers run glowcap, so this session settles on Cap'n Proto over
+ * glowcap-next. That is the pairing a glowcap fleet configures
  * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
@@ -29,7 +29,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
 		"dct:title": "05 · Do three things at once",
 		"dct:description":
 			"Three calls chained together: look up a name, ask that person for their calendar, ask the calendar for today. Only the first has anything to address yet, and all three ship together anchored on one answer. Cap'n Proto carries the whole chain as a single frame.",
-		"dct:creator": "pancake project",
+		"dct:creator": "glowcap project",
 		"dct:created": "2026-05-14T00:00:00Z",
 	},
 	provenance: { "prov:wasAttributedTo": AGENT },
@@ -41,7 +41,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9501",
 			label: "Calendar app",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9501",
 		},
 		{
@@ -50,7 +50,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
 			kind: "peer-joined",
 			peerId: "127.0.0.1:9502",
 			label: "Directory server",
-			profile: "pancake",
+			profile: "glowcap",
 			designator: "127.0.0.1:9502",
 		},
 		{

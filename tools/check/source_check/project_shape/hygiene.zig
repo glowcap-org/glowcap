@@ -319,10 +319,10 @@ fn checkDiscardedErrorsInFile(
 /// The two copies of the product I/O directory helper are one text.
 ///
 /// `cli/operability/path_io.zig` and
-/// `apps/accountability-on-pancake/zig/path_io.zig` work around the same Zig
+/// `apps/accountability-on-glowcap/zig/path_io.zig` work around the same Zig
 /// standard-library wart, and the application copies it rather than importing
 /// it because its whole claim is that it reaches for nothing in this repository
-/// but pancake's own public surface. The copy earns its place on that argument
+/// but glowcap's own public surface. The copy earns its place on that argument
 /// and on no other, so it has to stay a copy — and an identical one. A
 /// near-version drifts: the difference that matters here is swallowing every
 /// `openDir` error rather than only absence, which turns a permission failure
@@ -337,7 +337,7 @@ pub fn checkPathIoCopies(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const canonical_path = "cli/operability/path_io.zig";
-    const copy_path = "apps/accountability-on-pancake/zig/path_io.zig";
+    const copy_path = "apps/accountability-on-glowcap/zig/path_io.zig";
     const marker = "const std = @import(\"std\");";
 
     const canonical = root.readFileAlloc(io, canonical_path, gpa, .limited(1 << 20)) catch |err| {

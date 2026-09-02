@@ -115,7 +115,7 @@ export function runResultCommand(
 
 function resultEffectFailure(error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
-	return message.replace(/^(?:pancake error -?\d+:\s*)+/i, "");
+	return message.replace(/^(?:glowcap error -?\d+:\s*)+/i, "");
 }
 
 /** A resumed result may have completed the exact act the caller was about to
