@@ -249,26 +249,26 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
     // that can open a connection could name a designator we are dialing and
     // make us condemn our own verified outbound session to it, repeatedly, for
     // an exporter it never has to reach or hold a key for.
-    var victim = test_host.init(allocator, @as([32]u8, @splat(0x77)), Host.Options.withFrameCap(frame_cap));
-    defer victim.deinit();
+    var dialed = test_host.init(allocator, @as([32]u8, @splat(0x77)), Host.Options.withFrameCap(frame_cap));
+    defer dialed.deinit();
     var us = test_host.init(allocator, @as([32]u8, @splat(0x01)), Host.Options.withFrameCap(frame_cap));
     defer us.deinit();
-    var attacker = test_host.init(allocator, @as([32]u8, @splat(0xff)), Host.Options.withFrameCap(frame_cap));
-    defer attacker.deinit();
+    var claimant = test_host.init(allocator, @as([32]u8, @splat(0xff)), Host.Options.withFrameCap(frame_cap));
+    defer claimant.deinit();
 
-    // The attacker only wins the tiebreak when our identifier sorts lower, so
+    // The claimant only wins the tiebreak when our identifier sorts lower, so
     // the scenario needs that ordering to be the interesting one.
     const our_pid = crypto.derivePublicIdentifier(us.node.secretKey().publicKey());
-    const attacker_pid = crypto.derivePublicIdentifier(attacker.node.secretKey().publicKey());
-    try std.testing.expect(std.mem.order(u8, &our_pid.bytes, &attacker_pid.bytes) == .lt);
+    const claimant_pid = crypto.derivePublicIdentifier(claimant.node.secretKey().publicKey());
+    try std.testing.expect(std.mem.order(u8, &our_pid.bytes, &claimant_pid.bytes) == .lt);
 
-    // The victim's keyed designator: the identity we are dialing.
-    var victim_designator: [64]u8 = undefined;
-    _ = try std.fmt.bufPrint(&victim_designator, "{x}", .{victim.node.secretKey().publicKey().bytes});
+    // The dialed host's keyed designator: the identity we are dialing.
+    var dialed_designator: [64]u8 = undefined;
+    _ = try std.fmt.bufPrint(&dialed_designator, "{x}", .{dialed.node.secretKey().publicKey().bytes});
 
     const keyed_locator: glowcap.ocapn.model.PeerLocator = .{
         .transport = "keyed-tcp",
-        .designator = &victim_designator,
+        .designator = &dialed_designator,
         .hints = glowcap.ocapn.model.Hints.emptyFalse(),
     };
     const our_designator = us.node.secretKey().publicKey().toDesignator();
@@ -290,28 +290,28 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
 
     // A host of ours will not publish that locator: a key-designator transport
     // may name only the durable identity this node holds (ADR-0105).
-    var attacker_hint = [_]model.HintEntry{.{
+    var claimant_hint = [_]model.HintEntry{.{
         .name = model.transport.hint_direct_addresses,
         .value = .{ .string = "127.0.0.1:9201" },
     }};
     try std.testing.expectError(
         error.UnheldIdentity,
-        attacker.setAdvertisedLocator(.{
+        claimant.setAdvertisedLocator(.{
             .transport = "keyed-tcp",
-            .designator = &victim_designator,
-            .hints = .{ .entries = &attacker_hint },
+            .designator = &dialed_designator,
+            .hints = .{ .entries = &claimant_hint },
         }),
     );
 
-    // A hostile peer is not bound by our seams, so the attack is built by
-    // hand: an `op:start-session` claiming the victim's designator as its own
-    // location, signed with the attacker's own session key.
+    // An untrusted peer is not bound by our seams, so the hello is built by
+    // hand: an `op:start-session` claiming the dialed host's designator as its own
+    // location, signed with the claimant's own session key.
     const our_accepted = try us.openAcceptedAdvertised("tcp");
     var claim = try handshake_support.signedHelloFrame(
         allocator,
-        attacker.node.secretKey(),
+        claimant.node.secretKey(),
         "keyed-tcp",
-        &victim_designator,
+        &dialed_designator,
         glowcap.ocapn.model.Hints.emptyFalse(),
     );
     defer claim.deinit();
@@ -320,7 +320,7 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
 
     // Crossed-hello matching does not treat a key-shaped designator as a peer
     // identity unless it is the session key that signed the hello, so this
-    // unproved claim cannot condemn the dial to the real victim.
+    // unproved claim cannot condemn the dial to the real dialed host.
     try std.testing.expect(!our_dial.isTerminating());
 
     try us.releaseSession(our_accepted);

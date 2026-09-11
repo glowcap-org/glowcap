@@ -40,6 +40,24 @@ pub fn pendingDial(
     return shared.GLOWCAP_OK;
 }
 
+pub fn pendingDialIntroducer(
+    host: ?*c.GlowcapHost,
+    ticket: u64,
+    route_index: usize,
+    out_session: ?*?*c.GlowcapHostSession,
+) i32 {
+    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "pending_dial_introducer")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const slot = out_session orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const view = inst.core.pendingDial(ticket, route_index) orelse {
+        shared.setLastError("host: pending dial introducer: unknown ticket {d} route {d}", .{ ticket, route_index });
+        return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    };
+    const session = if (view.introducer) |peer| inst.core.sessionForPeer(peer) else null;
+    slot.* = if (session) |live| if (live.sessionOpen()) @ptrCast(live) else null else null;
+    return shared.GLOWCAP_OK;
+}
+
 pub fn referenceExporter(
     host: ?*c.GlowcapHost,
     reference: ?*const shared.GlowcapReference,

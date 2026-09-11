@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use glowcap_rust_dogfood::{tcp, Argument, ConnectOptions, Locator, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::{tcp, Argument, ConnectOptions, Locator, Runtime, RuntimeConfig};
 use tokio::sync::oneshot;
 use tokio::task::LocalSet;
 
@@ -28,9 +28,9 @@ async fn listen(seed: [u8; 32]) -> Result<tcp::Server, String> {
 	tcp::keyed::listen(
 		"127.0.0.1",
 		0,
-		tcp::KeyedListenOptions {
+		tcp::ListenOptions {
 			identity: tcp::ListenerIdentity::Seed(seed),
-			..tcp::KeyedListenOptions::default()
+			..tcp::ListenOptions::default()
 		},
 	)
 	.await
@@ -63,8 +63,10 @@ async fn host_one(server: Rc<tcp::Server>, published: oneshot::Sender<()>) {
 			if session.publish("greeter", greeter).is_ok() {
 				let _ = published.send(());
 			}
-			let _served: Session = session;
-			std::future::pending::<()>().await;
+			// An accepted session answers only while it is served. Parking the
+			// task here instead leaves the greeter published and unreachable,
+			// and the dialing half waits on a fetch nobody will answer.
+			let _ = session.serve().await;
 		}
 		Err(_) => {}
 	}

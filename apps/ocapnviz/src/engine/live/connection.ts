@@ -22,9 +22,23 @@ const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
 export const MAX_TRACE_RECORD_BYTES = 1 << 20;
 
+function retirementError(cause: unknown): EngineError {
+	return {
+		code: "internal",
+		title: "Live connection did not close cleanly",
+		detail: cause instanceof Error ? cause.message : String(cause),
+		recovery: "The feed is disconnected. Reconnect from Live if you still need it.",
+		cause,
+	};
+}
+
 export type LivePeer = {
-	close: () => void;
-	/** Settles when this exact CapTP session and its hosted inbox are gone. */
+	/** Retire this exact session. Resolves once its transport and hosted
+	 * inbox are released, and rejects with the exact retirement failure, which
+	 * the caller owns: a rejection left unobserved is fatal to the page. */
+	close: () => Promise<void>;
+	/** Settles when this exact CapTP session and its hosted inbox are gone,
+	 * including a retirement the peer started itself. */
 	closed: Promise<void>;
 };
 export type LivePeerFactory = (
@@ -85,10 +99,38 @@ export const browserPeerFactory: LivePeerFactory = async (
 	vizSocketCap = new TextDecoder().decode(swissnum);
 	const session = await runtime.connect(locator);
 	const closed = session.serve();
-	// Construction may still be enlivening when the session fails. Attach a
-	// handler immediately; callers still receive the original promise below.
-	void closed.catch(() => {});
-	let closing = false;
+	// One retirement per session, with one owner for its outcome. A retirement
+	// started while the pump is live (by the inbox, or by the feed) is adopted
+	// into the peer's `closed` the moment it starts, so no window exists in
+	// which it is unobserved; one requested after the pump has ended is
+	// returned to its caller instead.
+	let retirement: Promise<void> | null = null;
+	let adopt!: (outcome: Promise<void>) => void;
+	let pumpEnded = false;
+	const gone = new Promise<void>((resolve, reject) => {
+		adopt = resolve;
+		closed.then(
+			() => {
+				pumpEnded = true;
+				resolve(retirement ?? undefined);
+			},
+			(error) => {
+				pumpEnded = true;
+				reject(error);
+			},
+		);
+	});
+	// The inbox can receive records before subscribe returns. Keep its exact
+	// terminal outcome observed throughout construction; the caller receives
+	// this same promise once construction succeeds.
+	void gone.catch(() => {});
+	const retire = (): Promise<void> => {
+		if (retirement === null) {
+			retirement = Promise.resolve().then(() => session.close());
+			if (!pumpEnded) adopt(retirement);
+		}
+		return retirement;
+	};
 	try {
 		const inbox = session.spawn((verb, args) => {
 			if (
@@ -99,7 +141,7 @@ export const browserPeerFactory: LivePeerFactory = async (
 			}
 			const bytes = new TextEncoder().encode(args[0]).byteLength;
 			if (bytes > MAX_TRACE_RECORD_BYTES) {
-				void session.close();
+				void retire();
 				throw new Error("trace record exceeds the viewer bound");
 			}
 			onRecord(args[0]);
@@ -108,15 +150,14 @@ export const browserPeerFactory: LivePeerFactory = async (
 		const trace = await session.enliven(sturdyref);
 		await session.send(trace, "subscribe", [inbox]);
 		return {
-			closed,
+			closed: gone,
 			close: () => {
-				if (closing) return;
-				closing = true;
-				void session.close();
+				const started = retire();
+				return pumpEnded ? started : gone;
 			},
 		};
 	} catch (error) {
-		await Promise.resolve(session.close()).catch(() => {});
+		await retire().catch(() => {});
 		await closed.catch(() => {});
 		throw error;
 	}
@@ -183,7 +224,7 @@ export class LiveFeed {
 			(peer) => {
 				this.#connecting = false;
 				if (generation !== this.#generation || this.#closedByUser) {
-					peer.close();
+					this.#observeRetirement(peer.close());
 					return;
 				}
 				this.#peer = peer;
@@ -249,11 +290,23 @@ export class LiveFeed {
 		}
 	}
 
-	#peerClosed(generation: number, _cause?: unknown): void {
+	/** The live peer ended. A clean close is the connection change alone; a
+	 * fault is reported once with the reconnect as its recovery, so the
+	 * person watching Live learns why the stage went quiet. */
+	#peerClosed(generation: number, cause?: unknown): void {
 		if (generation !== this.#generation || this.#closedByUser) return;
 		this.#peer = null;
 		this.#connecting = false;
 		this.#onConnectionChange?.(false);
+		if (cause !== undefined) {
+			this.#emitError({
+				code: "internal",
+				title: "Live connection lost",
+				detail: cause instanceof Error ? cause.message : String(cause),
+				recovery: "Reconnecting. The stage keeps what it has; a replay fills in what changed.",
+				cause,
+			});
+		}
 		this.#scheduleReconnect();
 	}
 
@@ -270,8 +323,10 @@ export class LiveFeed {
 	}
 
 	/** Close for good. A disconnected feed never reconnects and never
-	 *  reports again: the connection slot is cleared here so the
-	 *  `onclose` the browser delivers after this call reaches nobody. */
+	 *  reports a connection change again: the slot is cleared here so the
+	 *  `onclose` the browser delivers after this call reaches nobody. A
+	 *  retirement that fails is still reported to `onError`, because it has
+	 *  no other owner. */
 	disconnect(): void {
 		this.#closedByUser = true;
 		this.#generation += 1;
@@ -281,10 +336,18 @@ export class LiveFeed {
 			this.#reconnectTimer = null;
 		}
 		if (this.#peer !== null) {
-			this.#peer.close();
+			this.#observeRetirement(this.#peer.close());
 			this.#peer = null;
 		}
 		this.#connecting = false;
+	}
+
+	/** A retirement has no caller to answer to: `disconnect()` returns before
+	 * the transport is gone, and a stale generation's close has nobody
+	 * waiting. Its failure still goes to the feed's one failure channel
+	 * rather than becoming an unowned rejection. */
+	#observeRetirement(retirement: Promise<void>): void {
+		void retirement.catch((cause) => this.#emitError(retirementError(cause)));
 	}
 
 	subscribe(cb: (ev: TimelineEvent) => void): () => void {

@@ -46,7 +46,7 @@ export function SessionMoves(
 						<Confirm
 							label="Share this session"
 							tone="primary"
-							say="This browser hosts the session. Join a room on this page's directory first. Other browsers attach with a capability copied from Holdings, including from a different Rooms page. Closing or reloading this tab ends sharing for everyone."
+							say="This browser hosts the session. Other browsers attach with a capability copied from Holdings, including from a different Rooms page. Closing or reloading this tab ends sharing for everyone."
 							keep="Keep it local"
 							commit="Share this session"
 							busy={sharing}

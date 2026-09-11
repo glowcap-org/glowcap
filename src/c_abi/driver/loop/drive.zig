@@ -17,9 +17,10 @@ const operationErrorCode = @import("events.zig").operationErrorCode;
 const releaseRetiredListenerMetadata = lifecycle.releaseRetiredListenerMetadata;
 
 /// The one descriptor to park on: readable while any wire, resident,
-/// listener, mailbox, or wake has pending work. Arm it once, before sharing
-/// the loop pointer with any waking thread, and call `glowcap_driver_step`
-/// whenever it reads ready. Owned by the loop; never close it.
+/// listener, mailbox, or wake has pending work. It exists from
+/// `glowcap_driver_take_host` on, so this only reads it; call
+/// `glowcap_driver_step` whenever it reads ready. Owned by the loop; never
+/// close it.
 pub export fn glowcap_driver_readiness_fd(raw: ?*c.GlowcapDriverLoop, out_fd: ?*i32) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -81,8 +82,9 @@ pub export fn glowcap_driver_detach_thread(raw: ?*c.GlowcapDriverLoop) i32 {
 }
 
 /// Make a parked loop return from its wait, from any thread — the one
-/// cross-thread verb on this family. Arm the readiness descriptor before
-/// sharing the loop pointer with a waking thread.
+/// cross-thread verb on this family. The wake channel exists from
+/// `glowcap_driver_take_host` on, so a loop pointer may be shared with a
+/// waking thread as soon as it is returned.
 pub export fn glowcap_driver_wake(raw: ?*c.GlowcapDriverLoop) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;

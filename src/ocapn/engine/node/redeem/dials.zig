@@ -19,6 +19,11 @@ const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 pub const PendingId = u64;
 pub const PendingDialView = struct {
     locator: model.PeerLocator,
+    /// Session that supplied the oldest remaining give. A shared dial may
+    /// serve several introducing sessions; this is one source for realizing
+    /// its route, not authority to act on behalf of every waiter. A purely
+    /// application-owned dial has no introducer.
+    introducer: ?PeerHandle = null,
     demanded_partner_key: ?crypto.PeerKey = null,
     authenticated_partner_required: bool = false,
 };
@@ -102,6 +107,7 @@ pub fn pendingDial(self: *const Node, pending: PendingId, route_index: usize) ?P
     const identity_required = entry.plan.pathRequiresIdentity(route_index);
     return .{
         .locator = locator,
+        .introducer = if (entry.waiters.items.len == 0) null else redeem.recipientPeer(entry.waiters.items[0].dest),
         .demanded_partner_key = demandedPartnerKeyForPath(self, entry.plan, route_index),
         .authenticated_partner_required = identity_required,
     };

@@ -187,7 +187,7 @@ CapTP names imports, exports, and answers with integer positions. glowcap keeps
 each namespace in its own hash table:
 
 - direct lookup stays constant-time;
-- a sparse number from a hostile peer cannot force a giant array;
+- a sparse number from an untrusted peer cannot force a giant array;
 - garbage collection removes an answer row before its position can be reused;
 - locally minted outbound answers fail closed in `session/answers/pipeline.zig`
   before their cursor can wrap;
@@ -198,10 +198,16 @@ Their semantic resolutions cannot be evicted without changing pipelining
 authority, so overflow fails loud as `resource_exhausted`; answer GC and local
 promise retirement release the exact durable charge (ADR-0121).
 
-A near reference, far reference, promise, and answer share one internal slot
-representation. The codec derives the corresponding wire descriptor only when
-it renders a frame. This keeps pipelining, settlement, and handoff on the same
-state.
+A near reference, promise, and answer share one internal slot representation,
+and the codec derives the corresponding wire descriptor only when it renders a
+frame. A far import is always the remote-mint value of its own position, so
+its row keeps only its retain counts. One count is how many references the
+partner's mentions granted. The other is how many of those the session itself
+will release, beside the fire, callback, or shortening closure that spends
+them. This keeps
+pipelining, settlement, and handoff on the same state, and it keeps an
+application's release from spending a retain the session still needs
+([ADR-0146](decisions/adr/ADR-0146-session-held-import-retains.md)).
 
 Recursive values are limited by `SessionLimits.max_nesting_depth`. Session
 state also decides which messages are legal while negotiating, open, or closed.
@@ -318,6 +324,12 @@ First-party applications live under [`apps/`](../apps/). Compilable teaching
 programs live under [`examples/`](../examples/README.md). Build checks and code
 generators live under [`tools/`](../tools/README.md).
 
-Protocol claims are checked against the upstream OCapN suite, live Goblins
+Rooms' [Rust migration boundary](decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
+places the shared Rooms protocol and application policy above the Zig Host,
+which continues to own CapTP. Rendering and platform I/O remain in adapters.
+The running application remains TypeScript; the
+[migration plan](planning/rooms-rust.md) records the implementation and evidence.
+
+CapTP and OCapN claims are checked against the upstream OCapN suite, live Goblins
 peers, and the in-tree reference corpus. [Community review](community-review.md)
 states exactly what that evidence covers.

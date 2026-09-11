@@ -8,7 +8,9 @@ Object.defineProperty(globalThis, "matchMedia", {
 });
 
 const { dmFrom, dmTransportFor, originVizUrl, vizFrom, writeSearch } = await import("../web/ui/prefs.ts");
-const { vizOverrideRefusal } = await import("../lib/viz_publish.ts");
+const { initializeApplication } = await import("./support/application.ts");
+await initializeApplication();
+const { vizOverrideRefusal } = await import("../web/ui/viz_endpoint.ts");
 
 Deno.test("dm: URL relay wins over stored webrtc", () => {
 	assertEquals(dmFrom(new URLSearchParams("dm=relay"), "webrtc"), "relay", "url relay");

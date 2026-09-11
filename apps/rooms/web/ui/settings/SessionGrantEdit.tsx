@@ -11,7 +11,7 @@
 // belongs to the control that asked for it.
 
 import { useState } from "react";
-import { MAX_SESSION_GRANT_NOTE } from "../../../lib/limits.ts";
+import { MAX_SESSION_GRANT_NOTE } from "../limits.ts";
 import type { RoomsSessionFacet, RoomsSessionGrantView } from "../../../lib/session/client.ts";
 import { Button } from "../Button.tsx";
 import { Checkbox } from "../Checkbox.tsx";

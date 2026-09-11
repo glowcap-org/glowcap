@@ -6,8 +6,10 @@ Object.defineProperty(globalThis, "matchMedia", {
 });
 
 const { AttachedSessionProjection } = await import("../../web/ui/session/projection.ts");
-const { AttachedSessionFiles } = await import("../../web/ui/session/attached_files.ts");
-const { attachedArchiveShareActions } = await import("../../web/ui/session/attached_archive_shares.ts");
+const {
+	AttachedSessionFiles,
+	EARLIER_CONNECTION_BYTES_UNAVAILABLE,
+} = await import("../../web/ui/session/attached_files.ts");
 type AttachedRoomsController = import("../../web/ui/session/attached.ts").AttachedRoomsController;
 const { emptyRoomsSessionState } = await import("../../lib/rooms_state.ts");
 type ArchiveLine = import("../../lib/archive/protocol.ts").ArchiveLine;
@@ -17,7 +19,172 @@ const { RoomsPage } = await import("../../web/ui/page.ts");
 const { dirId } = await import("../../web/ui/types.ts");
 const { assertEquals } = await import("../assert.ts");
 const { roomsSessionSnapshot } = await import("../support/session_snapshot.ts");
-const { registrationId } = await import("../support/registration.ts");
+const { reconcileAttachedHistory } = await import("../../web/ui/session/history_reconciliation.ts");
+
+Deno.test("archive rereads replace same-metadata files by digest and preserve unchanged custody", async () => {
+	const page = new RoomsPage();
+	const conv = store.restoreDm(page.projection, dirId("directory"), "alice", "reg", "direct", false);
+	if (conv == null) throw new Error("the conversation was not restored");
+	const fetched: string[] = [];
+	const files = new AttachedSessionFiles({
+		fetchArchivedAttachment(record: ArchiveLine, index: number) {
+			fetched.push(record.attachments[index].blob!);
+			return Promise.resolve(new Uint8Array([1]));
+		},
+	} as unknown as AttachedRoomsController, page.projection);
+	let recorded = 0;
+	page.projection.setLineRecorder(() => recorded++);
+	const record: ArchiveLine = {
+		kind: "line",
+		source: "source",
+		generation: "generation",
+		id: "file",
+		conversationKind: "direct",
+		directory: "directory",
+		conversation: "alice",
+		from: "alice",
+		text: "file",
+		mine: false,
+		at: 1,
+		order: 1,
+		state: "edited",
+		attachments: [{ name: "file.txt", mime: "text/plain", size: 1, width: 0, height: 0, blob: "a".repeat(64) }],
+	};
+	const drawn = () => {
+		const item = store.historyOf(page.projection, conv.key).find((item) => item.kind === "chat");
+		if (item?.kind !== "chat") throw new Error("archive line missing");
+		return item;
+	};
+	try {
+		reconcileAttachedHistory(page, conv.key, [record], files);
+		const firstId = drawn().attachments![0].id;
+		files.open(conv.key, firstId);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const loaded = drawn();
+		const oldUrl = loaded.attachments![0].url!;
+		assertEquals(typeof oldUrl, "string");
+		reconcileAttachedHistory(page, conv.key, [record], files);
+		assertEquals(drawn() === loaded, true, "an unchanged read must not redraw or replace file custody");
+		const replacement: ArchiveLine = {
+			...record,
+			from: "bob",
+			mine: true,
+			order: 2,
+			attachments: [{ ...record.attachments[0], blob: "b".repeat(64) }],
+		};
+		reconcileAttachedHistory(page, conv.key, [replacement], files);
+		const changed = drawn();
+		assertEquals(changed.id, loaded.id, "the message keeps its identity");
+		assertEquals([changed.from, changed.mine, changed.order], ["bob", true, 2]);
+		assertEquals(changed.attachments![0].id === firstId, false, "a second edit must replace the file");
+		assertEquals(await fetch(oldUrl).then(() => false, () => true), true, "the old object URL was not released");
+		files.open(conv.key, changed.attachments![0].id);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assertEquals(fetched, ["a".repeat(64), "b".repeat(64)]);
+		reconcileAttachedHistory(page, conv.key, [{ ...replacement, state: "withdrawn", attachments: [] }], files);
+		assertEquals(drawn().withdrawn, true);
+		assertEquals(drawn().attachments, undefined);
+		assertEquals(recorded, 0, "archive reads must never become archive writes");
+	} finally {
+		files.close();
+		store.forgetConv(page.projection, conv.key);
+	}
+});
+
+Deno.test("archive hydration adopts content identity without replacing live file custody", async () => {
+	const page = new RoomsPage();
+	const conv = store.restoreDm(page.projection, dirId("directory"), "alice", "reg", "direct", false);
+	if (conv == null) throw new Error("the conversation was not restored");
+	let released = 0;
+	let archivedFetches = 0;
+	const files = new AttachedSessionFiles({
+		fetchAttachment: () => Promise.resolve(new Uint8Array([1])),
+		fetchArchivedAttachment: () => {
+			archivedFetches += 1;
+			return Promise.resolve(new Uint8Array([2]));
+		},
+		releaseAttachment: () => {
+			released += 1;
+		},
+	} as unknown as AttachedRoomsController, page.projection);
+	const attachment = {
+		name: "live.png",
+		mime: "image/png",
+		size: 1,
+		width: 1,
+		height: 1,
+		blob: {},
+	} as unknown as Attachment;
+	const view = files.hold(attachment);
+	const item = store.chatItem(page.projection, "alice", "live", false, undefined, [view], 1);
+	store.deliver(page.projection, conv.key, {
+		...item,
+		history: { source: "source", generation: "generation", id: "live" },
+	});
+	files.open(conv.key, view.id);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	const loaded = store.historyOf(page.projection, conv.key)[0];
+	if (loaded?.kind !== "chat") throw new Error("the live file was not projected");
+	const url = loaded.attachments?.[0]?.url;
+	const record: ArchiveLine = {
+		kind: "line",
+		source: "source",
+		generation: "generation",
+		id: "live",
+		conversationKind: "direct",
+		directory: "directory",
+		conversation: "alice",
+		from: "alice",
+		text: "live",
+		mine: false,
+		at: 1,
+		order: 1,
+		state: "present",
+		attachments: [{ name: "live.png", mime: "image/png", size: 1, width: 1, height: 1, blob: "a".repeat(64) }],
+	};
+	reconcileAttachedHistory(page, conv.key, [record], files);
+	const adopted = store.historyOf(page.projection, conv.key)[0];
+	assertEquals(adopted?.kind === "chat" ? adopted.attachments?.[0] : null, {
+		...loaded.attachments?.[0],
+		archiveDigest: "a".repeat(64),
+	});
+	assertEquals(adopted?.kind === "chat" ? adopted.attachments?.[0]?.url : null, url);
+	assertEquals(released, 1, "digest adoption replaced already-settled live custody");
+
+	const waiting = files.hold({
+		...attachment,
+		name: "waiting.txt",
+		mime: "text/plain",
+	} as unknown as Attachment);
+	const waitingItem = store.chatItem(page.projection, "alice", "waiting", false, undefined, [waiting], 2);
+	store.deliver(page.projection, conv.key, {
+		...waitingItem,
+		history: { source: "source", generation: "generation", id: "waiting" },
+	});
+	const waitingRecord: ArchiveLine = {
+		...record,
+		id: "waiting",
+		text: "waiting",
+		at: 2,
+		attachments: [{
+			name: "waiting.txt",
+			mime: "text/plain",
+			size: 1,
+			width: 1,
+			height: 1,
+			blob: "b".repeat(64),
+		}],
+	};
+	reconcileAttachedHistory(page, conv.key, [record, waitingRecord], files);
+	files.markLost("the live connection ended");
+	const durable = store.historyOf(page.projection, conv.key)[1];
+	assertEquals(durable?.kind === "chat" ? durable.attachments?.[0]?.lost : true, undefined);
+	files.open(conv.key, waiting.id);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(archivedFetches, 1, "the adopted view did not fetch from durable custody");
+	files.close();
+	store.forgetConv(page.projection, conv.key);
+});
 
 Deno.test("attached hydration exposes loading, empty, shown, and unavailable history states", async () => {
 	const page = new RoomsPage();
@@ -50,6 +217,7 @@ Deno.test("attached hydration exposes loading, empty, shown, and unavailable his
 		text: "earlier",
 		mine: false,
 		at: 1,
+		order: 1,
 		state: "present",
 		attachments: [{ name: "earlier.png", mime: "image/png", size: 80, width: 4, height: 2, blob: null }],
 	};
@@ -62,8 +230,14 @@ Deno.test("attached hydration exposes loading, empty, shown, and unavailable his
 			onSnapshot = listener;
 			return () => {};
 		},
+		onHistoryInvalidated() {
+			return () => {};
+		},
 		onLine() {
 			return () => {};
+		},
+		ignoredNickname() {
+			return undefined;
 		},
 		readHistory(_kind: "room" | "direct", _dir: string, conversation: string) {
 			if (conversation === "history-shown") return Promise.resolve([line]);
@@ -117,6 +291,128 @@ Deno.test("attached hydration exposes loading, empty, shown, and unavailable his
 	store.forgetDir(page.projection, directory);
 });
 
+Deno.test("attached recovery reconciles missed rows and mutations into live history", async () => {
+	const page = new RoomsPage();
+	type Snapshot = import("../../lib/session/client.ts").RoomsSessionSnapshot;
+	let onSnapshot: ((snapshot: Snapshot) => void) | null = null;
+	let reads = 0;
+	const recovered = Promise.withResolvers<ArchiveLine[]>();
+	const archived = (id: string, text: string, at: number, state: ArchiveLine["state"] = "present"): ArchiveLine => ({
+		kind: "line",
+		source: "archive",
+		generation: "generation",
+		id,
+		conversationKind: "room",
+		directory: "directory",
+		conversation: "room-id",
+		from: "bo",
+		text,
+		mine: false,
+		at,
+		order: Number(id) || 1,
+		state,
+		attachments: [],
+	});
+	const controller = {
+		onSnapshot(listener: (snapshot: Snapshot) => void) {
+			onSnapshot = listener;
+			return () => {};
+		},
+		onHistoryInvalidated() {
+			return () => {};
+		},
+		onLine() {
+			return () => {};
+		},
+		ignoredNickname() {
+			return undefined;
+		},
+		readHistory() {
+			reads += 1;
+			return reads === 1 ? Promise.resolve([archived("initial", "retained before live", 10)]) : recovered.promise;
+		},
+		pendingDraft() {
+			return undefined;
+		},
+	} as unknown as AttachedRoomsController;
+	const projection = new AttachedSessionProjection(page);
+	const stop = projection.bind(controller);
+	const checkpoint = {
+		...emptyRoomsSessionState(),
+		directories: [{ id: "directory", locator: "127.0.0.1:3", home: true, nick: "ada", standing: null }],
+		conversations: [{
+			kind: "room" as const,
+			id: "room-id",
+			directory: "directory",
+			name: "general",
+			held: false,
+			standing: null,
+			draft: "",
+		}],
+		active: "room-id",
+	};
+	const view = (issues: Snapshot["issues"], connectedDirectories = ["directory"]): Snapshot =>
+		roomsSessionSnapshot({ revision: 1, checkpoint, issues, connectedDirectories });
+	onSnapshot!(view([]));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	const room = [...page.projection.get().convs.values()].find((conv) => conv.type === "room");
+	if (room == null) throw new Error("the attached recovery fixture did not project its room");
+	projection.line({
+		source: "events",
+		sequence: 1,
+		conversationId: "room-id",
+		from: "bo",
+		text: "live before suspension",
+		at: 20,
+		lineId: 2,
+		change: "said",
+		editable: false,
+		history: { source: "archive", generation: "generation", id: "live" },
+		system: false,
+		attachments: [],
+	});
+	projection.line({
+		source: "events",
+		sequence: 2,
+		conversationId: "room-id",
+		from: "bo",
+		text: "live before withdrawal",
+		at: 25,
+		lineId: 3,
+		change: "said",
+		editable: false,
+		history: { source: "archive", generation: "generation", id: "gone" },
+		system: false,
+		attachments: [],
+	});
+	onSnapshot!(view([{ subject: "session", reason: "the attached transport ended" }], []));
+	onSnapshot!(view([]));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	let recorded = 0;
+	page.projection.setLineRecorder(() => {
+		recorded += 1;
+	});
+	recovered.resolve([
+		archived("later", "missed while suspended", 30),
+		archived("earlier", "retained before this view", 5),
+		archived("live", "edited while suspended", 20, "edited"),
+		archived("gone", "", 25, "withdrawn"),
+	]);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	const chats = store.historyOf(page.projection, room.key)
+		.filter((item) => item.kind === "chat");
+	assertEquals(
+		chats.map((item) => item.kind === "chat" ? item.text : ""),
+		["retained before this view", "retained before live", "edited while suspended", "", "missed while suspended"],
+	);
+	assertEquals(chats[2]?.kind === "chat" ? chats[2].edited : false, true);
+	assertEquals(chats[3]?.kind === "chat" ? chats[3].withdrawn : false, true);
+	assertEquals(chats.map((item) => item.kind === "chat" ? item.at : -1), [5, 10, 20, 25, 30]);
+	assertEquals(recorded, 0, "archive reconciliation must not become a new archive write");
+	page.projection.setLineRecorder(null);
+	stop();
+});
+
 Deno.test("a replaced conversation cannot receive history from its previous identity", async () => {
 	const page = new RoomsPage();
 	type Snapshot = import("../../lib/session/client.ts").RoomsSessionSnapshot;
@@ -127,8 +423,14 @@ Deno.test("a replaced conversation cannot receive history from its previous iden
 			onSnapshot = listener;
 			return () => {};
 		},
+		onHistoryInvalidated() {
+			return () => {};
+		},
 		onLine() {
 			return () => {};
+		},
+		ignoredNickname() {
+			return undefined;
 		},
 		readHistory(_kind: "room" | "direct", directory: string) {
 			return new Promise<ArchiveLine[]>((resolve) => answers.set(directory, resolve));
@@ -186,6 +488,7 @@ Deno.test("a replaced conversation cannot receive history from its previous iden
 		text,
 		mine: false,
 		at: 1,
+		order: 1,
 		state: "present",
 		attachments: [],
 	});
@@ -203,47 +506,6 @@ Deno.test("a replaced conversation cannot receive history from its previous iden
 	if (current != null) store.forgetConv(page.projection, current.key);
 	store.forgetDir(page.projection, dirId("old-directory"));
 	store.forgetDir(page.projection, dirId("new-directory"));
-});
-
-Deno.test("attached archive target follows the shared session snapshot", () => {
-	const page = new RoomsPage();
-	const projection = new AttachedSessionProjection(page);
-	const checkpoint = {
-		...emptyRoomsSessionState(),
-		capabilities: {
-			operations: [],
-			archivePeer: "ocapn://127.0.0.1.tcp/s/archive",
-		},
-	};
-	const snapshot = (issues: { subject: string; reason: string }[]) =>
-		roomsSessionSnapshot({
-			revision: 1,
-			checkpoint,
-			issues,
-		});
-	projection.apply(snapshot([]));
-	assertEquals(page.projection.get().archiveTarget, {
-		owner: "session",
-		kind: "peer",
-		status: "connected",
-		label: "Shared session archive peer",
-		remembered: true,
-		error: "",
-	});
-	projection.apply(snapshot([{ subject: "archive", reason: "archive peer is down" }]));
-	assertEquals(page.projection.get().archiveTarget, {
-		owner: "session",
-		kind: "peer",
-		status: "unavailable",
-		label: "Shared session archive peer",
-		remembered: true,
-		error: "archive peer is down",
-	});
-	projection.apply(roomsSessionSnapshot({
-		...snapshot([]),
-		checkpoint: { ...checkpoint, capabilities: { operations: [], archivePeer: null } },
-	}));
-	assertEquals(page.projection.get().archiveTarget, { kind: "owned", owner: "session" });
 });
 
 Deno.test("attached live attachment views become lost when their controller is replaced", () => {
@@ -304,103 +566,24 @@ Deno.test("attached live attachment views become lost when their controller is r
 		"the attached session was replaced",
 	);
 	assertEquals(released, 1);
+	const orphaned = files.hold({ ...attachment, name: "orphaned.txt" });
+	store.deliver(
+		page.projection,
+		room.key,
+		store.chatItem(page.projection, "bo", "orphaned file", false, undefined, [orphaned]),
+	);
+	files.release([orphaned]);
+	files.open(room.key, orphaned.id);
+	const orphanedAfter = store.historyOf(page.projection, room.key)[1];
+	assertEquals(
+		orphanedAfter?.kind === "chat"
+			? [orphanedAfter.attachments?.[0]?.lost, orphanedAfter.attachments?.[0]?.error]
+			: null,
+		[true, EARLIER_CONNECTION_BYTES_UNAVAILABLE],
+		"a fetch intent with no surviving capability did not settle visibly",
+	);
+	assertEquals(released, 2);
 	files.close();
-	store.forgetConv(page.projection, room.key);
-	store.forgetDir(page.projection, directory);
-});
-
-Deno.test("reading an attached archive share prepends attributed history to its direct conversation", async () => {
-	const page = new RoomsPage();
-	const directory = dirId("shared-archive-directory");
-	store.openDir(page.projection, directory, "127.0.0.1:5");
-	store.patchDir(page.projection, directory, { nick: "ada" });
-	const conversation = store.restoreDm(page.projection, directory, "bo", registrationId(1), "shared-direct", false);
-	if (conversation == null) throw new Error("archive-share test did not create its direct conversation");
-	const record: ArchiveLine = {
-		kind: "line",
-		source: "sender-archive",
-		generation: "sender-generation",
-		id: "sender-line",
-		conversationKind: "direct",
-		directory: "shared-archive-directory",
-		conversation: "sender-conversation",
-		from: "ada",
-		text: "the earlier line",
-		mine: false,
-		at: 2,
-		state: "present",
-		attachments: [{ name: "shared.txt", mime: "text/plain", size: 12, width: 0, height: 0, blob: null }],
-	};
-	const controller = {
-		readArchiveShare: () =>
-			Promise.resolve({
-				view: {
-					id: "share",
-					directory: "shared-archive-directory",
-					conversationId: "shared-direct",
-					from: "bo",
-					status: "reading" as const,
-					error: "",
-					kind: "direct" as const,
-					scopeConversation: "sender-conversation",
-					custody: "live" as const,
-					sturdyref: "",
-				},
-				records: [record],
-			}),
-	} as unknown as AttachedRoomsController;
-	const actions = attachedArchiveShareActions(page.projection, page, controller, () => {});
-	assertEquals(await actions.readArchiveShare("share"), "");
-	const history = store.historyOf(page.projection, conversation.key);
-	assertEquals(history[0]?.kind === "chat" ? { text: history[0].text, mine: history[0].mine } : null, {
-		text: "the earlier line",
-		mine: false,
-	});
-	assertEquals(history[0]?.kind === "chat" ? history[0].attachments?.[0]?.lost : false, true);
-	assertEquals(history[1]?.kind === "sys" && history[1].text.includes("shared by bo"), true);
-	store.forgetConv(page.projection, conversation.key);
-	store.forgetDir(page.projection, directory);
-});
-
-Deno.test("an attached room archive share starts a DM without selecting it", async () => {
-	const page = new RoomsPage();
-	const directory = dirId("share-directory");
-	store.openDir(page.projection, directory, "127.0.0.1:6");
-	store.patchDir(page.projection, directory, { nick: "ada" });
-	store.setDmable(page.projection, directory, "bo", registrationId(1), true);
-	const room = store.ensureRoom(page.projection, directory, "lobby", { persistId: "room-1" });
-	const started: string[] = [];
-	const shared: string[] = [];
-	const checkpoint = {
-		...emptyRoomsSessionState(),
-		directories: [{ id: "share-directory", locator: "127.0.0.1:6", home: true, nick: "ada", standing: null }],
-		conversations: [{
-			kind: "room" as const,
-			id: "room-1",
-			directory: "share-directory",
-			name: "lobby",
-			held: false,
-			standing: null,
-			draft: "",
-		}],
-	};
-	const snapshot = roomsSessionSnapshot({ revision: 1, checkpoint });
-	const controller = {
-		current: snapshot,
-		startDirect(direct: { id: string; peer: string }) {
-			started.push(direct.peer);
-			return Promise.resolve(snapshot);
-		},
-		shareArchiveHistory(kind: string, conversationId: string, peer: string) {
-			shared.push(`${kind}:${conversationId}:${peer}`);
-			return Promise.resolve();
-		},
-	} as unknown as AttachedRoomsController;
-	const actions = attachedArchiveShareActions(page.projection, page, controller, () => {});
-	assertEquals(await actions.shareArchiveHistory(room.key, "bo"), "");
-	assertEquals(started, ["bo"]);
-	assertEquals(shared, ["room:room-1:bo"]);
-	assertEquals(snapshot.checkpoint.active, null);
 	store.forgetConv(page.projection, room.key);
 	store.forgetDir(page.projection, directory);
 });

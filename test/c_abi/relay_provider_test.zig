@@ -78,7 +78,7 @@ test "relay C configuration validates its version and trust before construction"
     try std.testing.expectEqual(null, runtime);
 }
 
-test "relay C runtime copies PEM trust and reports its immutable load result" {
+test "relay C runtime copies PEM trust before construction returns" {
     const allocator = std.testing.allocator;
     const pem = try allocator.dupe(u8, @embedFile("../net/fixtures/tls_root.pem"));
     defer allocator.free(pem);
@@ -96,15 +96,35 @@ test "relay C runtime copies PEM trust and reports its immutable load result" {
         relay_archive.glowcap_relay_runtime_release(runtime, null, 0, null),
     ) catch unreachable;
 
+    // The borrowed PEM is dead once construction returns. A runtime built
+    // from the intact fixture still compares equal on parsed trust, so the
+    // first runtime consumed its copy rather than the caller's buffer.
     @memset(pem, 0);
-    var summary: relay_archive.GlowcapRelayTrustSummary = .{};
+    const intact_config = copiedTrustConfig(url);
+    var intact_runtime: ?*relay_archive.GlowcapRelayRuntime = null;
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
-        relay_archive.glowcap_relay_runtime_trust_summary(runtime, &summary),
+        relay_archive.glowcap_relay_runtime_new(&intact_config, &intact_runtime),
     );
-    try std.testing.expectEqual(@as(usize, 1), summary.loaded);
-    try std.testing.expectEqual(@as(usize, 0), summary.skipped_by_engine);
-    try std.testing.expectEqual(@as(i32, 0), summary.first_skipped_engine_code);
+    defer std.testing.expectEqual(
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_runtime_release(intact_runtime, null, 0, null),
+    ) catch unreachable;
+
+    var provider: c.GlowcapTransportProvider = undefined;
+    var intact_provider: c.GlowcapTransportProvider = undefined;
+    try std.testing.expectEqual(
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_transport_provider(runtime, &provider),
+    );
+    try std.testing.expectEqual(
+        c.GLOWCAP_OK,
+        relay_archive.glowcap_relay_transport_provider(intact_runtime, &intact_provider),
+    );
+    try std.testing.expectEqual(
+        @as(u8, 1),
+        provider.same_configuration.?(provider.lease_ctx, intact_provider.lease_ctx),
+    );
 }
 
 test "relay provider equivalence includes the immutable trust snapshot" {

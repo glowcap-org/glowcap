@@ -22,7 +22,7 @@ import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 function fail(message: string): never {
@@ -33,19 +33,8 @@ function fail(message: string): never {
 const httpPort = freePort();
 const roomPort = freePort();
 
-spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-	],
+spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",

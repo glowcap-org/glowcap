@@ -454,9 +454,13 @@ async def _open_byte_channel(
     node_id: str,
     direct_addresses: str,
     reachability: "Union[int, Reachability]",
+    retry_discovery: bool = True,
+    worker_threads: "Optional[int]" = None,
 ) -> "tuple[_IrohTransport, str | None]":
     """Open one runtime-owned iroh channel and return its remote proof."""
-    netlayer = await IrohNetlayer.open(IrohConfig(reachability))
+    netlayer = await IrohNetlayer.open(
+        IrohConfig(reachability, worker_threads=worker_threads)
+    )
     loop = _IrohLoop(netlayer)
     loop.start()
     try:
@@ -464,7 +468,8 @@ async def _open_byte_channel(
             loop,
             node_id,
             direct_addresses,
-            int(reachability)
+            retry_discovery
+            and int(reachability)
             in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
         )
     except BaseException:
@@ -490,7 +495,9 @@ async def dial_locator_for_relay(
 
     Returns an ``_IrohTransport`` (``async read() -> bytes | None``,
     ``async write(bytes)``, ``close()``). ``close`` unregisters the connection,
-    stops the readiness loop, and releases the ephemeral netlayer it minted."""
+    stops the readiness loop, and releases the ephemeral netlayer it minted.
+    One call makes one transport attempt; the embedding application owns any
+    reconnect policy around that relay request."""
     from ._locator import parse_locator
 
     parsed = parse_locator(locator)
@@ -503,7 +510,13 @@ async def dial_locator_for_relay(
     if not isinstance(direct_addresses, str):
         raise ValueError("iroh direct-addresses hint must be a string")
 
-    channel, _proof = await _open_byte_channel(node_id, direct_addresses, reachability)
+    channel, _proof = await _open_byte_channel(
+        node_id,
+        direct_addresses,
+        reachability,
+        retry_discovery=False,
+        worker_threads=1,
+    )
     return channel
 
 

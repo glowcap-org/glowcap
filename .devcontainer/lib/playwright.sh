@@ -1,14 +1,17 @@
 # shellcheck shell=bash
 # Resolve the two Chromium executables the pinned Playwright installed.
 #
-# Playwright's Linux archives unpack with different inner names per
-# architecture: arm64 keeps `chrome-linux/` for both binaries, while x86_64
-# uses `chrome-linux64/` for the full browser and
-# `chrome-headless-shell-linux64/` for the headless shell. This module owns
-# both forms so the image verifier and its test agree on one resolver.
+# Playwright's Linux archives unpack with an architecture-named inner
+# directory: `chrome-linux64/` and `chrome-headless-shell-linux64/` on x86_64,
+# `chrome-linux-arm64/` and `chrome-headless-shell-linux-arm64/` on arm64.
+# Those names are the pinned Playwright's to choose, so a PLAYWRIGHT_VERSION
+# bump that renames them is finished here, in one place, and test/host-invariants.sh
+# holds both layouts. The image verifier, the browser-proof preflight, and that
+# test all resolve through this one function so they cannot disagree about
+# what an installed browser looks like.
 #
-# Not loaded by mod.sh: only the image verifier and test/host-invariants.sh
-# need it, so they source it directly, the same terms launcher.sh sits on.
+# Not loaded by mod.sh: only those three readers need it, so they source it
+# directly, the same terms launcher.sh sits on.
 
 # Find exactly one full browser and one headless shell under the given
 # browsers path, publishing them as `playwright_bins` (browser first). Zero
@@ -22,11 +25,11 @@ glowcap_playwright_binaries() {
         restore_nullglob=true
     fi
     local chromium_candidates=(
-        "${browsers_path}"/chromium-*/chrome-linux/chrome
+        "${browsers_path}"/chromium-*/chrome-linux-arm64/chrome
         "${browsers_path}"/chromium-*/chrome-linux64/chrome
     )
     local headless_candidates=(
-        "${browsers_path}"/chromium_headless_shell-*/chrome-linux/headless_shell
+        "${browsers_path}"/chromium_headless_shell-*/chrome-headless-shell-linux-arm64/chrome-headless-shell
         "${browsers_path}"/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell
     )
     if [[ "${restore_nullglob}" == true ]]; then shopt -u nullglob; fi

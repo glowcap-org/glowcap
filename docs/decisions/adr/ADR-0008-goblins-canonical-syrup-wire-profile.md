@@ -95,7 +95,7 @@ maps a rejected inbound frame (codec-malformed or session-refused) to the typed
   [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
 - Promise pipelining queue/drain and `op:listen`,
   [ADR-0007](ADR-0007-promise-pipelining-substrate.md).
-- The session table caps that bound these accumulators against a hostile peer,
+- The session table caps that bound these accumulators against an untrusted peer,
   [ADR-0025](ADR-0025-session-table-cap-policy.md).
 - Adapter detection of connection loss / crossed hellos / graceful shutdown. The
   core carries the kinds and projects them; an adapter decides when to raise

@@ -86,6 +86,11 @@ test "ready set reports update and wake faults" {
     defer drain_set.deinit();
     closeFd(drain_set.wake.read);
     drain_set.wake.read = -1;
+    // A drain reads only after a post; with nothing posted it is a load. The
+    // broken pair refuses a post outright, so record one the way a post
+    // would and let the drain meet the broken read half.
+    try drain_set.drainWake();
+    drain_set.wake_posted.store(true, .release);
     try std.testing.expectError(error.WakeDrainFailed, drain_set.drainWake());
 }
 

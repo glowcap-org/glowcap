@@ -5,7 +5,7 @@
 //! stream framer (`framePrefix`; ADR-0110), the owned materializer (`decodeOwned`,
 //! which is `decodeBody` followed by `model.view.Body.toOwned` — one decode
 //! vocabulary, full fidelity). Borrowed Passable projection lives in `values`,
-//! locator/hint projection in `locator`, and hostile-byte leaves in `syntax`.
+//! locator/hint projection in `locator`, and untrusted-byte leaves in `syntax`.
 //! The streaming entry still owns cap timing and this module owns profile and
 //! message dispatch. It reads bytes and holds no session authority.
 

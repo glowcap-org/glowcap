@@ -27,7 +27,11 @@ asyncio.run(main())
 ```
 
 `fetch` and `send` start the inbound loop on demand, so a client that only
-makes calls does not need `session.serve()`.
+makes calls does not need `session.serve()`. `await session.closed()` observes
+retirement without requesting close or starting that loop; cancelling the
+waiter leaves the session running. `Host.publish_durable(behavior, entropy=None)`
+mints a durable swiss name. Pass the same entropy to a Host reconstructed from
+the same seed to restore that name.
 
 ## Sessions and actors
 

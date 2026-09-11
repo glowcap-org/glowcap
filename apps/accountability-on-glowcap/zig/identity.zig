@@ -164,7 +164,7 @@ pub const Identity = struct {
 //
 // `currentVerkey` is the check that decides whether a host will attribute an
 // Episode at all, so each way it can refuse gets a test. A log a stranger hands
-// over is attacker-controlled input; these are the shapes an attacker would try.
+// over is untrusted input; these are the shapes a peer would try.
 // The tests forge with the same minting the honest path uses, so a forged event
 // is well-formed in every respect except the one under test.
 
@@ -235,7 +235,7 @@ test "a log that does not derive the claimed AID is refused" {
     var theirs = try Identity.inceptFrom(allocator, try seededKey(0x21), try seededKey(0x22));
     defer theirs.deinit();
 
-    // Naming somebody else's AID while presenting your own log, the attack the
+    // Naming somebody else's AID while presenting your own log, the case the
     // signed subject alone could not catch.
     try testing.expectError(
         LogError.AidMismatch,

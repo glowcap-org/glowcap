@@ -19,8 +19,7 @@ async function joinForeignRoom(tab: Page, foreignLocator: string): Promise<void>
 	await tab.waitForSelector("#joinForm", { timeout: 10_000 })
 		.catch(() => fail("the rail offered no way to reach a room on another server"));
 	await tab.fill("#locator", foreignLocator);
-	await reachDirectoryOnCard(tab);
-	await tab.click("#joinBtn");
+	if (await reachDirectoryOnCard(tab, "annex") === "question") await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 30_000 })
 		.catch(() => fail("the second directory's room did not open for the peering scene"));
 }

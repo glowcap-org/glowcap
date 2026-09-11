@@ -55,10 +55,12 @@ explicitly:
 | Completion-loop slot beyond its embedded peer | exactly 144 bytes |
 | Completion-backed keyed-relay adapter state | exactly 272 bytes per relay leg |
 | Sealing completion-adapter state (`noise-relay`) | exactly 952 bytes per sealed leg, on top of the leg it wraps |
+| iroh completion-adapter row | exactly 64 bytes per loop connection |
+| WebRTC completion-adapter row | exactly 104 bytes per open DataChannel |
 | Host session shell | at most 528 bytes |
 | Host session locator identity | one owned transport/designator block per session |
 | Warm local Vat queue batch | zero general-purpose allocations |
-| Retained queue spare in the Host-owned Vat | one 4,152-byte chunk per Host with at most 4 KiB of payload arena |
+| Retained queue spare in the Host-owned Vat | one chunk per Host: its row array within one 4 KiB list page plus a small header, its payload arena at most 4 KiB |
 | Steady delivery to a live export | one owned-frame allocation |
 
 These are Debug and ReleaseSafe measurements: Debug is where the checks run,

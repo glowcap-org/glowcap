@@ -123,7 +123,10 @@ const Exec = struct {
             else => return,
         }
         if (Internal.wouldClaimCompletion(self.runtime, action)) return;
-        if (self.runtime.completion_sink) |sink| try sink.reserve(sink.ctx);
+        switch (self.runtime.drive) {
+            .blocking => {},
+            .stepped => |*stepped| try stepped.completion_sink.reserve(stepped.completion_sink.ctx),
+        }
     }
 
     pub fn flush(self: Exec, peer_handle: engine.PeerHandle) !void {
@@ -155,9 +158,13 @@ const Exec = struct {
 
     pub fn complete(self: Exec, action: driver_core.HostAction) !void {
         if (Internal.claimCompletion(self.runtime, action)) return;
-        if (self.runtime.completion_sink) |sink| {
-            if (sink.take(sink.ctx, action)) return;
-            sink.release(sink.ctx);
+        switch (self.runtime.drive) {
+            .blocking => {},
+            .stepped => |*stepped| {
+                const sink = stepped.completion_sink;
+                if (sink.take(sink.ctx, action)) return;
+                sink.release(sink.ctx);
+            },
         }
         self.runtime.core.freeAction(action);
     }

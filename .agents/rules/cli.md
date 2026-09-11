@@ -26,9 +26,18 @@ compile-checks its benchmark client, Cargo checks the Rust client and links the
 CLI tests' iroh sidecar, `raco` compiles the Racket clients, Bash harnesses make
 `tar` part of the hard floor, and Deno type-checks TypeScript surfaces. **Run
 `check` in the devcontainer**, where the complete declared toolchain is pinned.
-`check_runtimes` in `tools/build/gates.zig` names every program visible in the
+`check_runtimes` in `tools/build/toolchain.zig` names every program visible in the
 build graph and the interpreter scripts or modules allowed to hide host-tool
 calls, so raising the hard floor is a reviewed edit rather than a silent one.
+`toolchain-check` reads that table both ways, so a declared program that is not
+installed here is named with its reason before the gate spends a compile on it.
+Its sibling `check_capabilities` covers what the graph cannot see, a toolchain
+target that is state inside a program rather than an argument to it, by
+declaring the command that reports the capability and the text that report must
+contain. Both failures usually mean the container is older than the image layer
+that installs the thing, and the report says so: rebuild rather than
+hand-install, because hand-installing answers one report and leaves the next
+layer of the same rebuild to find you.
 
 `check-external` is the other half, every check whose authority is outside
 glowcap, and `ci/gates.sh` runs the same set on every push to the mirror. Run it
@@ -85,7 +94,7 @@ zig build oracle-check
 zig build fmt                # format Zig sources in place
 zig build cli-test           # hermetic glowcap CLI goldens
 zig build examples
-zig build fuzz               # mutation-fuzz every hostile-input target
+zig build fuzz               # mutation-fuzz every untrusted-input target
 zig build glowcap            # run the CapTP CLI; pass `-- <command> …`
 ```
 
@@ -132,10 +141,10 @@ Generated state is ignored and must not be committed:
 - `bindings/rust/target/`
 - `bindings/rust/Cargo.lock`
 
-In the devcontainer, Zig's local cache and extracted packages live under
-`~/.cache/glowcap/work/<worktree>/` (`ZIG_LOCAL_CACHE_DIR`,
-`ZIG_LOCAL_PKG_DIR`), not in the checkout. `zig-out/` stays at the worktree
-root: it is the install prefix.
+In the devcontainer, Zig's local cache and extracted packages live in the
+per-worktree `glowcap-<worktree>-zig-work` Docker volume
+(`ZIG_LOCAL_CACHE_DIR`, `ZIG_LOCAL_PKG_DIR`), not in the checkout or a host
+bind. `zig-out/` stays at the worktree root: it is the install prefix.
 
 If generated cache appears in status, fix `.gitignore` rather than relying on
 manual cleanup.
@@ -152,6 +161,12 @@ and `tools/gen/header/*.zig`, then running that archive's `gen-*` step. The
 paired `gen-*-check` steps ride `check`, so a hand-edit is caught, but it is
 caught as staleness rather than as the signature change it was meant to be.
 
+`gen-mark` is the one generator whose authority is not Zig and whose check does
+not ride `check`: the mark's shape lives in a WebGPU shader, so both steps run
+the pinned browser and sit beside `check` like every other browser proof. What
+rides `check` is `source-check`, which holds the committed mark files to one
+geometry without rendering anything.
+
 ## Git Posture
 
 Each agent session owns one linked worktree, not the clone. All worktrees share
@@ -161,6 +176,12 @@ name are independent facts: read the branch with `git branch --show-current`,
 never infer it from a directory, container, another worktree, or an example in
 this rule. Git writes stay on that branch. Read-only git commands are fine:
 `status`, `diff`, `log`, `show`, `blame`, `branch`, `rev-parse`, `ls-files`.
+
+`git worktree add`, `remove`, and `prune` write the clone's worktree registry
+and are never run from a session. The registered paths resolve only on the
+host, so a `prune` from a container deletes the registry and submodule stores
+of every linked worktree it cannot see, its own included. Worktrees are
+created `--lock`ed so a prune skips them; leave the lock alone.
 
 `git checkout -- <path>` and `git restore` are working-tree writes, not reads:
 on a tree carrying uncommitted work they destroy that work. To undo a probe

@@ -127,3 +127,5 @@ pub const AcceptPlan = dial_plan.AcceptPlan;
 pub const planDial = dial_plan.planDial;
 pub const planDialProfile = dial_plan.planDialProfile;
 pub const planAccept = dial_plan.planAccept;
+pub const DialAdmission = dial_plan.DialAdmission;
+pub const admitDial = dial_plan.admitDial;

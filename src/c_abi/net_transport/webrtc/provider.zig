@@ -135,8 +135,9 @@ fn retain(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c
         c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
         return GLOWCAP_ERR_NULL_POINTER;
     }));
-    ownership.retainNetlayer(payload);
-    return GLOWCAP_OK;
+    if (ownership.retainNetlayer(payload)) return GLOWCAP_OK;
+    c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
+    return GLOWCAP_ERR_CLOSED;
 }
 
 fn release(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {

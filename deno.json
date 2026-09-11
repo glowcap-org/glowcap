@@ -1,5 +1,6 @@
 {
   "imports": {
+    "@glowcap/runtime/cleanup": "./bindings/ts/runtime/cleanup.ts",
     "@glowcap/runtime": "./bindings/ts/runtime/mod.ts",
     "@glowcap/runtime/ffi": "./bindings/ts/runtime/ffi.ts",
     "@glowcap/runtime/transport": "./bindings/ts/runtime/transport.ts",
@@ -12,7 +13,7 @@
     "@glowcap/relay": "./bindings/ts/relay/mod.ts",
     "@glowcap/web": "./bindings/ts/web/mod.ts",
     "@glowcap/webrtc": "./bindings/ts/webrtc/mod.ts",
-    "playwright": "npm:playwright@1.62.1",
+    "playwright": "npm:playwright@1.63.0",
     "react": "npm:react@19.2.8",
     "react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
     "react-dom": "npm:react-dom@19.2.8",

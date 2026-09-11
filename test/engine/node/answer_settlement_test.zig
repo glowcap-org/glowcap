@@ -51,7 +51,7 @@ fn installObservedAnswer(
         var event = event_in;
         defer event.deinit();
         if (event.kind() == .deliver)
-            found = try event.deliverAnswerName();
+            found = event.deliverAnswerName();
     }
     const answer = found orelse return error.MissingAnswer;
     switch (path) {

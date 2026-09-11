@@ -11,10 +11,9 @@ zig build rooms-web
 ```
 
 That serves the UI and carries the rooms over [iroh](https://www.iroh.computer/)'s
-encrypted QUIC, so it needs `cargo` for the transport sidecar alongside Deno.
-There is a cleartext `zig build rooms-web-tcp` that needs only Deno; it proves
-nothing about who is on the other end, so keep it for a peer that speaks nothing
-else.
+encrypted QUIC. Both web launchers need `cargo` for the native services and
+Deno to compile the browser assets. `zig build rooms-web-tcp` uses cleartext TCP for local testing with
+peers that only support that transport.
 
 Open `http://localhost:8000`, pick a room and a nickname, then open another
 tab. Entering a room that does not exist creates it. You can post messages,
@@ -35,9 +34,12 @@ server authors the whole link from its durable room authority and the routes it
 advertises to this connection, so a link can follow the same server across a
 restart and changed network hints. Anyone who has it can enter and pass it on.
 `/link` remains the terminal form: with no argument it links the current room,
-while `/link lobby` links a listed room. Without `--history`, rooms and
-messages live in memory and restarting the server drops them; the retention
-section below covers keeping them.
+while `/link lobby` links a listed room. A link the server has since retired
+is a state the reader recovers from by hand. A public room rejoins by name
+only after an explicit choice, and a private room needs a current link. A
+failed attempt restores the prompt rather than retrying in the background.
+Without `--history`, rooms and messages live in memory and restarting the
+server drops them; the retention section below covers keeping them.
 
 [Developing and operating Rooms](developing.md) covers the rail, Settings,
 operator capabilities (`--diagnostics`, `--admin-listeners`, `--viz`,
@@ -55,22 +57,34 @@ required. Python, Racket, and Rust join when `python3`, `racket`, or `cargo` is
 on `PATH`; missing optional runtimes are reported and skipped.
 
 The scripted clients also have a focused contract check for malformed directory
-events and slow-reader backpressure:
+events, the notice a room sends when it ends a membership, and slow-reader
+backpressure:
 
 ```sh
 zig build rooms-terminal-client-test
 ```
 
-It runs the Rust, Python, and Racket tests and therefore requires all three
-language toolchains.
+It runs the Zig, Rust, Python, and Racket tests and therefore requires the
+three language toolchains beside Zig. The Zig test also rides `zig build check`.
+
+Every client reads the wire grammar it switches on from a table generated into
+its own directory by `zig build gen-rooms-protocol`. That grammar is the
+directory's publication record, the watch and room notification shapes, the
+subscribe answer, and the session deadline. `tools/gen/rooms_protocol.zig`
+declares it once, and `lib/protocol.ts` remains the specification a person
+reads. `test/protocol_gen_test.ts` holds the generated Deno module to the
+server's own readers, so a new notification kind or record field is one edit
+rather than five.
 
 ## Prerelease distribution
 
 Rooms currently ships from this repository's source, identified by the exact
 Git commit. There is no separately versioned Rooms package or standalone OCI
-application image yet. The Compose image is a pinned, toolchain-free Deno
-runtime; it mounts the checkout and the native artifacts produced by `zig build
-rooms-deploy-prep`. Both inputs must come from the same commit.
+application image yet. The pinned Compose image runs native services without
+a compiler; it mounts the native artifacts and complete browser generation
+produced by `zig build rooms-deploy-prep`. That step records the checkout revision
+and browser digest after every artifact finishes. The deployment front checks
+both identities against the clean checkout before recreating the services.
 
 This prerelease also has no state-migration contract. Persistent room, archive,
 and shared-session stores accept their current schema and refuse an older or
@@ -84,7 +98,7 @@ A local browser owns one reconstructible workspace. For the same workspace and
 network identity in several browsers, run a durable session peer:
 
 ```sh
-zig build rooms-session -- --state=.local/rooms-session --transport=iroh
+zig build rooms-session -- --state=.local/.state/rooms
 ```
 
 The command prints one session-administration sturdyref. Attach it from the
@@ -133,7 +147,13 @@ The browser reconnects to the same durable peer after transport loss. Initial
 attachment requires a complete session snapshot from a still-live connection,
 and callbacks from a retired connection cannot overwrite its replacement. The
 session checkpoint remains intended state while bounded live views and issue
-rows report what has reconnected or been refused. See
+rows report what has reconnected or been refused. Changes to authority and
+reach made while online commit through the shared session owner and reach
+attached views at once; intent recorded while disconnected is kept and
+reconciled on reconnect, retiring exactly the generations that have moved on.
+An attached view also reconciles the retained history it missed into the live
+timeline, including rows newer than it already shows and changes to rows it
+already holds. See
 [ADR-0134](../../docs/decisions/adr/ADR-0134-shared-rooms-session-capability.md)
 and [ADR-0137](../../docs/decisions/adr/ADR-0137-durable-rooms-session-grants.md)
 for the capability and persistence contracts.
@@ -189,7 +209,10 @@ offers and introductions. Direct conversations retain that registration ID,
 so a later holder of the same nickname cannot inherit the thread or its
 history. The direct capability remains the authority; the registration ID only
 prevents data keyed by a nickname from changing hands. A browser-owned session
-releases the claim when its directory connection ends. A shared session keeps
+releases the claim when its directory connection ends. If it reconnects before
+the directory observes that ending, authenticated peer identity or a one-use
+proof minted by the live registration replaces its stale claim. The proof stays
+in runtime memory and never becomes a durable nickname identity. A shared session keeps
 the connection and claim while its browser views detach, like a bouncer; it
 releases them when the shared session leaves that directory or is cleared.
 
@@ -263,7 +286,19 @@ run archive peer hosts that same object behind a durable sturdyref. The
 archive-peer card the Holdings tab in Settings opens lets the reader select that
 peer for new history and optionally remember its bearer in this browser.
 A peer that cannot be reached is
-shown as unavailable and receives no silent browser-store fallback. A conversation
+shown as unavailable and writes refuse rather than falling back to the browser
+store. Reading is the combined view
+([ADR-0144](../../docs/decisions/adr/ADR-0144-combined-archive-views.md)):
+every archive the member holds answers together — the browser store beside a
+selected peer — and one conversation's account coalesces by recorder
+coordinates, each source and keeper named at its own divider, never drawn as
+live traffic. A peer that is down does not hide what this browser already kept,
+and reading a kept share again revises what it showed instead of doubling it.
+Archive and live delivery share one occurrence time: a later edit keeps the
+line's first time, and the conversation's own order resolves ties without
+reading archive identity. Attachment reads resolve exact content bytes across
+the held archives, and a recovered file view follows its content digest
+through successive edits. A conversation
 card can hand a live read-only facet or offer a durable archive-peer share over a
 direct line. Room and standing accounts use that pipe without taking the DM's
 identity as their facet scope. A live facet is read once or given back. A durable
@@ -408,19 +443,17 @@ For a terminal conversation over iroh, the same encrypted path as the browser:
 glowcap app rooms-peer
 ```
 
-[`docs/cli.md`](../../docs/cli.md) has the flags. The Deno client over loopback
+[`docs/cli.md`](../../docs/cli.md) has the flags. The native interactive client over loopback
 TCP is the cleartext sibling of `rooms-web-tcp`:
 
 ```sh
-deno run --allow-ffi --allow-read --allow-net \
-  apps/rooms/server/main.ts 9099
+zig build rooms-server -- --transport=tcp --port=9099
 ```
 
 Then join from another terminal:
 
 ```sh
-deno run --allow-ffi --allow-read --allow-net \
-  apps/rooms/clients/deno/chat.ts 127.0.0.1:9099 general alice
+zig build rooms-chat -- 127.0.0.1:9099 general alice
 ```
 
 The interactive client supports `/list`, `/open`, `/enter`, and `/leave`.
@@ -460,9 +493,10 @@ happen alongside the browser UI.
 
 ## Find your way around
 
-- [`server/`](server/) hosts the directory and rooms.
+- [`rust/`](rust/) owns the application, native services, and browser Wasm adapter.
 - [`lib/`](lib/) contains the TypeScript protocol and shared client logic.
-- [`clients/`](clients/) contains one terminal client per language.
+- [`clients/`](clients/) contains one terminal client per language, each beside
+  its generated protocol table.
 - [`web/`](web/) contains the browser peer, byte relay, and deployment files.
 - [`demos/`](demos/) and [`test/`](test/) drive the automated scenarios.
 

@@ -1,6 +1,6 @@
 // Issued archive-peer shares: independently revocable Host publications.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ArchiveDurableShareView } from "../../../lib/archive/facet.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { Button } from "../Button.tsx";
@@ -13,33 +13,40 @@ export function IssuedArchiveShares({ archiveTarget }: { archiveTarget: ArchiveT
 	const [shares, setShares] = useState<readonly ArchiveDurableShareView[]>([]);
 	const [why, setWhy] = useState("");
 	const [busy, setBusy] = useState<string | null>(null);
-	// Narrowed once, so the effect below can depend on the status without
-	// reaching for a field the owned target does not have.
-	const peerStatus = archiveTarget.kind === "peer" ? archiveTarget.status : null;
-	const onPeer = peerStatus === "connected";
-	const refresh = async () => {
-		if (!onPeer) {
-			setShares([]);
-			return;
-		}
-		try {
-			setShares(await session.listIssuedArchiveShares());
-			setWhy("");
-		} catch (error) {
-			setShares([]);
-			setWhy(error instanceof Error ? error.message : String(error));
-		}
-	};
+	const [revision, setRevision] = useState(0);
+	const generation = useRef(0);
+	const onPeer = archiveTarget.kind === "peer" && archiveTarget.status === "connected";
 	useEffect(() => {
-		void refresh();
-	}, [onPeer, archiveTarget.kind, peerStatus]);
+		const own = ++generation.current;
+		setShares([]);
+		setWhy("");
+		setBusy(null);
+		if (onPeer) {
+			void session.listIssuedArchiveShares().then((rows) => {
+				if (generation.current === own) setShares(rows);
+			}, (error) => {
+				if (generation.current === own) setWhy(error instanceof Error ? error.message : String(error));
+			});
+		}
+		return () => {
+			generation.current += 1;
+		};
+	}, [session, archiveTarget, revision]);
 	if (!onPeer) return null;
 	const revoke = async (id: string) => {
+		const own = generation.current;
 		setBusy(id);
-		const refused = await session.revokeIssuedArchiveShare(id);
-		setWhy(refused);
-		await refresh();
-		setBusy(null);
+		setWhy("");
+		try {
+			const refused = await session.revokeIssuedArchiveShare(id);
+			if (generation.current !== own) return;
+			setWhy(refused);
+			if (refused === "") setRevision((value) => value + 1);
+		} catch (error) {
+			if (generation.current === own) setWhy(error instanceof Error ? error.message : String(error));
+		} finally {
+			if (generation.current === own) setBusy(null);
+		}
 	};
 	return (
 		<>

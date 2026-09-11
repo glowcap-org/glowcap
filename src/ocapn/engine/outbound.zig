@@ -155,12 +155,15 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     }
 
     self.session_state.rewriteShortenedMessage(&message);
-    if (message == .gc_export) {
+    // A release may carry a shortening closure: trailing entries that are the
+    // session's own retains, recorded apart from the caller's below.
+    const closure_len: usize = if (message == .gc_export)
         self.session_state.expandShorteningGcExportReleases(self.allocator, &message.gc_export) catch |err| {
             freeMessage(self.allocator, message);
             return err;
-        };
-    }
+        }
+    else
+        0;
 
     if (self.session_state.captp_version == .next) {
         if ((passable.Outbound{ .message = message }).answerProduced()) |answer| {
@@ -177,7 +180,23 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     var appended = true;
     errdefer if (appended) self.popPendingBack().?.item.deinit(self);
 
-    try self.session_state.recordSend(message);
+    if (closure_len == 0) {
+        try self.session_state.recordSend(message);
+    } else {
+        // The caller's own entries are validated like any send; the closure
+        // behind them spends what the session adopted for exactly this
+        // release, so it cannot fail once the caller's part committed.
+        const gc_export = message.gc_export;
+        const own = gc_export.positions.len - closure_len;
+        try self.session_state.recordSend(.{ .gc_export = .{
+            .positions = gc_export.positions[0..own],
+            .deltas = gc_export.deltas[0..own],
+        } });
+        self.session_state.recordSessionImportRelease(.{
+            .positions = gc_export.positions[own..],
+            .deltas = gc_export.deltas[own..],
+        });
+    }
     if (message == .start_session) self.settleNegotiatedProfile();
     appended = false;
 }
@@ -364,7 +383,7 @@ pub fn stepPending(self: *Peer) !void {
                 const positions = [_]u64{answer.int()};
                 try emitRecordedPendingMessage(self, .{
                     .gc_answer = .{ .positions = &positions },
-                });
+                }, .prepared_send);
             }
             var consumed = self.takePending();
             consumed.item.deinit(self);
@@ -481,13 +500,18 @@ fn emitPendingListenerFire(self: *Peer, fire: listener_fire.Carrier) !void {
         .deltas = &deltas,
     } };
     if (message) |callback| {
-        try self.pushEncodedPairFromPending(callback, release, .record_at_commit);
+        try self.pushEncodedPairFromPending(callback, release, .session_release_at_commit);
     } else {
-        try emitRecordedPendingMessage(self, release);
+        try emitRecordedPendingMessage(self, release, .session_release);
     }
 }
 
-fn emitRecordedPendingMessage(self: *Peer, message: model.Message) !void {
+/// How a message the engine prepared records its session accounting when it
+/// is published alone: as any prepared send, or as the release of the
+/// session's own import retains (a fire whose callback fell moot).
+const PreparedAccounting = enum { prepared_send, session_release };
+
+fn emitRecordedPendingMessage(self: *Peer, message: model.Message, accounting: PreparedAccounting) !void {
     var frame = try codec.dispatch.encodeMessageForProfile(
         self.session_state.codec,
         self.allocator,
@@ -496,7 +520,10 @@ fn emitRecordedPendingMessage(self: *Peer, message: model.Message) !void {
     );
     errdefer frame.deinit();
     try self.ensureOutboundCapacity(1);
-    self.session_state.recordPreparedSend(message);
+    switch (accounting) {
+        .prepared_send => self.session_state.recordPreparedSend(message),
+        .session_release => self.session_state.recordSessionImportRelease(message.gc_export),
+    }
     self.outbound.pushAssumeCapacity(frame);
 }
 

@@ -8,8 +8,8 @@
 
 import type { DirId, DirView, SessionPhase } from "../types.ts";
 import type { DirectoryMember, RoomInfo } from "../../../lib/directory_publications.ts";
-import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../../../lib/limits.ts";
-import { type PageProjection } from "./core.ts";
+import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../limits.ts";
+import type { PageProjection } from "./core.ts";
 
 /** Replace one directory's view, leaving every other directory alone. */
 export function patchDir(projection: PageProjection, dir: DirId, fields: Partial<DirView>): void {
@@ -57,14 +57,17 @@ export function openDir(projection: PageProjection, dir: DirId, locator: string)
 	projection.set({ dirs });
 }
 
-/** Stop holding `dir`. Its conversations are forgotten by their own verb: this
- * is the directory's own state and nothing else. */
+/** Stop holding `dir`. Its conversations are forgotten by their own verb. A
+ * card about this directory is a view of the same authority, so removal closes
+ * it in the same state transition; retaining only its id would reopen the card
+ * if that authority were later acquired again. */
 export function forgetDir(projection: PageProjection, dir: DirId): void {
-	const current = projection.get().dirs;
+	const state = projection.get();
+	const current = state.dirs;
 	if (!current.has(dir)) return;
 	const dirs = new Map(current);
 	dirs.delete(dir);
-	projection.set({ dirs });
+	projection.set(state.aboutDir === dir ? { dirs, aboutDir: null, aboutDirLeave: false } : { dirs });
 }
 
 export function setDirSession(projection: PageProjection, dir: DirId, session: SessionPhase): void {

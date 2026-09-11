@@ -14,35 +14,18 @@ import {
 import { issueArchiveShare, listArchiveShares, revokeArchiveShare } from "../../lib/archive/client.ts";
 import { fetchBlob } from "../../lib/attachment.ts";
 import { roomsAddress, roomsHost } from "../../lib/locator.ts";
-import { spawnOwned, stopOwned } from "../support/children.ts";
-import { assert, dial, freePort, roomsTest, ROOT } from "../support/rooms_server.ts";
+import { stopOwned } from "../support/children.ts";
+import { assert, dial, freePort, roomsTest } from "../support/rooms_server.ts";
 import { announcedSturdyref } from "../support/standalone_peer.ts";
 
-const PEER = new URL("../../archive/main.ts", import.meta.url).pathname;
+import { startArchivePeer } from "../support/archive_peer.ts";
 
 function refused(work: () => Promise<unknown>): Promise<boolean> {
 	return work().then(() => false, () => true);
 }
 
 function startPeer(directory: string, port: number): Deno.ChildProcess {
-	return spawnOwned("deno", {
-		args: [
-			"run",
-			"--allow-ffi",
-			"--unstable-ffi",
-			`--allow-read=${ROOT},${directory}`,
-			`--allow-write=${directory}`,
-			"--allow-net=127.0.0.1",
-			"--allow-env=GLOWCAP_LIB_DIR",
-			PEER,
-			`--state=${directory}`,
-			"--transport=tcp",
-			`--port=${port}`,
-		],
-		cwd: ROOT,
-		stdout: "piped",
-		stderr: "piped",
-	});
+	return startArchivePeer(directory, ["--transport=tcp", `--port=${port}`]);
 }
 
 function record(): ArchiveLine {
@@ -58,6 +41,7 @@ function record(): ArchiveLine {
 		text: "survives the peer",
 		mine: false,
 		at: 1,
+		order: 1,
 		state: "present",
 		attachments: [],
 	};

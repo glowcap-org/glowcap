@@ -255,9 +255,9 @@ relay and waits there.
 > let server = tcp::noise::listen(
 >     "127.0.0.1",
 >     9099,
->     tcp::KeyedListenOptions {
+>     tcp::ListenOptions {
 >         identity: tcp::ListenerIdentity::Seed(seed),
->         ..tcp::KeyedListenOptions::default()
+>         ..tcp::ListenOptions::default()
 >     },
 > )
 > .await?;

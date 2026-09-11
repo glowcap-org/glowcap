@@ -63,8 +63,11 @@ pub fn init(
     };
     core_opts.limits.max_frame_bytes = opts.frame_cap;
     core.* = try driver_core.Host.init(allocator, seed, session_root, core_opts);
-    var result = HostRuntime{ .allocator = allocator, .io = io, .core = core, .opts = opts };
+    var result = HostRuntime{ .allocator = allocator, .io = io, .core = core, .opts = opts, .drive = .blocking };
     errdefer result.deinit();
+    // The drive is chosen inside the teardown's scope: a stepped face that
+    // cannot open its readiness set fails construction whole.
+    result.drive = try HostRuntime.Drive.init(opts.drive);
     try registerNetlayers(&result, netlayers);
     return result;
 }
@@ -96,9 +99,11 @@ pub fn initWithCore(
         .io = io,
         .core = core,
         .opts = opts,
+        .drive = .blocking,
         .owns_core = false,
     };
     errdefer result.deinitAfterFailedAdoption();
+    result.drive = try HostRuntime.Drive.init(adoption.drive);
     try registerNetlayers(&result, netlayers);
     return result;
 }
@@ -220,15 +225,18 @@ fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRun
     try self.residents.ensureUnusedCapacity(self.allocator, new_resident_count);
     var readiness_added: usize = 0;
     errdefer for (readiness_fds[0..readiness_added]) |fd| Internal.removeReadyFd(self, fd);
-    if (self.ready_set) |*ready_set| for (prepared) |plan| {
-        const fd = switch (plan.source) {
-            .new_resident => |value| value.readiness_fd,
-            else => continue,
-        };
-        try ready_set.add(fd);
-        readiness_fds[readiness_added] = fd;
-        readiness_added += 1;
-    };
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| for (prepared) |plan| {
+            const fd = switch (plan.source) {
+                .new_resident => |value| value.readiness_fd,
+                else => continue,
+            };
+            try stepped.ready_set.add(fd);
+            readiness_fds[readiness_added] = fd;
+            readiness_added += 1;
+        },
+    }
     try self.core.defineTransports(profiles, canonical);
     for (registrations, prepared, canonical, indices) |registration, plan, transport, *out_index| switch (registration) {
         .stream => |stream| {

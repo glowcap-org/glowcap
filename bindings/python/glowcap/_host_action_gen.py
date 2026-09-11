@@ -75,7 +75,7 @@ HostAction = Union[Dial, Flush, NeedGiftId, Settle, Fail, Close, Resume, CancelD
 
 def _view(ptr, length) -> str:
     # The bytes originate in a partner-authored give, so decode
-    # leniently rather than let hostile bytes raise mid-drain.
+    # leniently rather than let untrusted bytes raise mid-drain.
     return ctypes.string_at(ptr, length).decode(errors="replace") if ptr and length else ""
 
 

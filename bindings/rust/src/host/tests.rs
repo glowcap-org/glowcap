@@ -3,10 +3,120 @@ use std::cell::Cell;
 
 struct DropProbe(Rc<Cell<bool>>);
 
+#[cfg(feature = "tcp")]
+#[tokio::test]
+async fn dropped_deferred_reply_breaks_its_remote_answer_after_the_callback() {
+	tokio::task::LocalSet::new()
+		.run_until(async {
+			let host = Host::new_host();
+			let actor_host = host.clone();
+			host.publish_giftable("abandon", move || {
+				Box::new(move |_, _| {
+					drop(actor_host.defer_turn().unwrap());
+					Ok(Argument::Void)
+				})
+			})
+			.unwrap();
+			let server = crate::tcp::listen(
+				"127.0.0.1",
+				0,
+				crate::tcp::ListenOptions {
+					identity: ListenerIdentity::Host(host.clone()),
+					..Default::default()
+				},
+			)
+			.await
+			.unwrap();
+			let runtime = crate::Runtime::open(crate::RuntimeConfig::providers([crate::tcp::provider(
+				Default::default(),
+			)]))
+			.await
+			.unwrap();
+			let locator = server.locator().unwrap();
+			let (client, accepted) = tokio::join!(
+				runtime.connect(&locator, crate::ConnectOptions::default()),
+				server.accept()
+			);
+			let client = client.unwrap();
+			let accepted = accepted.unwrap();
+			let serving = tokio::task::spawn_local(async move { accepted.serve().await });
+			let target = client.fetch("abandon").await.unwrap();
+			let result = tokio::time::timeout(Duration::from_millis(500), client.send(&target, "drop", &[])).await;
+			server.close().await.unwrap();
+			runtime.close(PendingWork::Cancel).await.unwrap();
+			host.close(PendingWork::Cancel).await.unwrap();
+			serving.await.unwrap().unwrap();
+			let refusal = result
+				.expect("dropping a deferred reply must settle its caller")
+				.unwrap_err();
+			assert!(refusal.to_string().contains("deferred reply owner was dropped"));
+		})
+		.await;
+}
+
 impl Drop for DropProbe {
 	fn drop(&mut self) {
 		self.0.set(true);
 	}
+}
+
+#[cfg(feature = "tcp")]
+#[tokio::test]
+async fn dropping_a_resolver_after_its_session_closes_does_not_poison_host_progress() {
+	tokio::task::LocalSet::new()
+		.run_until(async {
+			let host = Host::new_host();
+			let saved = Rc::new(RefCell::new(None));
+			let (actor_host, actor_saved) = (host.clone(), saved.clone());
+			host.publish_giftable("defer", move || {
+				Box::new(move |_, _| {
+					*actor_saved.borrow_mut() = Some(actor_host.defer_turn().unwrap());
+					Ok(Argument::Void)
+				})
+			})
+			.unwrap();
+			let server = crate::tcp::listen(
+				"127.0.0.1",
+				0,
+				crate::tcp::ListenOptions {
+					identity: ListenerIdentity::Host(host.clone()),
+					..Default::default()
+				},
+			)
+			.await
+			.unwrap();
+			let runtime = crate::Runtime::open(crate::RuntimeConfig::providers([crate::tcp::provider(
+				Default::default(),
+			)]))
+			.await
+			.unwrap();
+			let locator = server.locator().unwrap();
+			let (client, accepted) = tokio::join!(
+				runtime.connect(&locator, crate::ConnectOptions::default()),
+				server.accept()
+			);
+			let (client, accepted) = (client.unwrap(), accepted.unwrap());
+			let serving = tokio::task::spawn_local(async move { accepted.serve().await });
+			let target = client.fetch("defer").await.unwrap();
+			let answer = client.send(&target, "work", &[]);
+			tokio::time::timeout(Duration::from_secs(2), async {
+				while saved.borrow().is_none() {
+					tokio::task::yield_now().await;
+				}
+			})
+			.await
+			.unwrap();
+			client.close(PendingWork::Cancel).await.unwrap();
+			serving.await.unwrap().unwrap();
+			drop(saved.borrow_mut().take());
+			let drained = crate::gc::drain(&host.shared);
+			server.close().await.unwrap();
+			runtime.close(PendingWork::Cancel).await.unwrap();
+			host.close(PendingWork::Cancel).await.unwrap();
+			drop(answer);
+			drained.expect("native session retirement already consumed this resolver");
+		})
+		.await;
 }
 
 #[test]
@@ -105,6 +215,74 @@ fn host_publication_results_cover_success_and_absence() {
 	});
 }
 
+#[tokio::test]
+async fn retained_entropy_restores_durable_names_and_refuses_live_collisions() {
+	tokio::task::LocalSet::new()
+		.run_until(async {
+			let host = Host::from_seed([7; 32]).unwrap();
+			let dropped = Rc::new(Cell::new(false));
+			let probe = DropProbe(dropped.clone());
+			let name = host
+				.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], move || {
+					Box::new(move |_, _| {
+						let _keep = &probe;
+						Ok(Argument::Void)
+					})
+				})
+				.unwrap();
+			let refused_drop = Rc::new(Cell::new(false));
+			let probe = refused_drop.clone();
+			assert!(host
+				.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], move || {
+					let probe = DropProbe(probe.clone());
+					Box::new(move |_, _| {
+						let _keep = &probe;
+						Ok(Argument::Void)
+					})
+				})
+				.is_err());
+			assert!(refused_drop.get(), "refused publication returns its behavior custody");
+			assert!(!dropped.get(), "collision does not retire the original actor");
+			assert!(host.remove_durable(&name).unwrap());
+			assert_eq!(
+				host.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], || Box::new(|_, _| Ok(
+					Argument::Void
+				)))
+				.unwrap(),
+				name
+			);
+			host.close(PendingWork::Cancel).await.unwrap();
+			assert!(dropped.get());
+			let calls = Cell::new(0);
+			assert!(host
+				.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], || {
+					calls.set(calls.get() + 1);
+					Box::new(|_, _| Ok(Argument::Void))
+				})
+				.is_err());
+			assert_eq!(calls.get(), 0, "closed-host refusal precedes behavior construction");
+			let restored = Host::from_seed([7; 32]).unwrap();
+			assert_eq!(
+				restored
+					.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], || Box::new(|_, _| Ok(
+						Argument::Void
+					)))
+					.unwrap(),
+				name
+			);
+			assert_ne!(
+				restored
+					.publish_durable_with_entropy([4; Host::DURABLE_ENTROPY_BYTES], || Box::new(|_, _| Ok(
+						Argument::Void
+					)))
+					.unwrap(),
+				name
+			);
+			restored.close(PendingWork::Cancel).await.unwrap();
+		})
+		.await;
+}
+
 #[test]
 fn cancel_dial_action_joins_its_ticketed_task() {
 	let runtime = tokio::runtime::Builder::new_current_thread()
@@ -201,19 +379,34 @@ fn refused_publication_attaches_panicking_actor_cell_drop() {
 
 	let host = Host::new_host();
 	let guard = PanicOnDrop;
-	let cell = Box::into_raw(Box::new(ActorCell {
-		behavior: RefCell::new(outcome_behavior(move |_verb, _args| {
+	let cell = host
+		.shared
+		.actor_cell(outcome_behavior(move |_verb, _args| {
 			let _keep_captured = &guard;
 			Ok(Argument::Void)
-		})),
-		context: host.shared.retained_context().unwrap(),
-		diagnostic_id: host.shared.diagnostic_id(),
-	}));
-	let cleanup = unsafe { reclaim_refused_cell(sys::ERR_INVALID_ARGUMENT, cell) };
-	let error = crate::retain_cleanup_failure(
-		Error::with_detail(sys::ERR_INVALID_ARGUMENT, "publication refused".to_string()),
-		cleanup,
-	);
+		}))
+		.unwrap();
+	let entropy = [0u8; Host::DURABLE_ENTROPY_BYTES - 1];
+	let mut swiss = [0u8; crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN];
+	let error = unsafe {
+		register_actor_cell(
+			cell,
+			|| {
+				ffi::glowcap_host_publish_durable(
+					host.shared.raw.get(),
+					entropy.as_ptr(),
+					entropy.len(),
+					trampoline,
+					cell.cast(),
+					ctx_free,
+					swiss.as_mut_ptr(),
+					swiss.len(),
+				)
+			},
+			|code| code > 0,
+		)
+	}
+	.unwrap_err();
 
 	assert_eq!(error.code(), sys::ERR_INVALID_ARGUMENT);
 	assert_eq!(error.secondary_error_count(), 1);
@@ -395,7 +588,7 @@ fn connector_installation_publishes_no_partial_batch() {
 		&["new-good", ""],
 		|_host: Host,
 		 _locator: &Locator,
-		 _redeem: bool,
+		 _origin: crate::DialOrigin,
 		 _transport_options: Option<&[u8]>,
 		 _timeout: Option<std::time::Duration>| {
 			Box::pin(async { Err(Error::with_detail(sys::ERR_INTERNAL, "unused".to_string())) })
@@ -409,7 +602,7 @@ fn connector_installation_publishes_no_partial_batch() {
 		&["new-good"],
 		|_host: Host,
 		 _locator: &Locator,
-		 _redeem: bool,
+		 _origin: crate::DialOrigin,
 		 _transport_options: Option<&[u8]>,
 		 _timeout: Option<std::time::Duration>| {
 			Box::pin(async { Err(Error::with_detail(sys::ERR_INTERNAL, "unused".to_string())) })

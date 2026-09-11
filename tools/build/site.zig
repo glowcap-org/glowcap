@@ -179,15 +179,50 @@ pub fn register(ctx: Context) Registered {
     const docs_step = b.step("docs", "Generate the Zig API reference (autodoc) under zig-out/docs/");
     docs_step.dependOn(&install_docs.step);
 
-    const site_cache_dir = common.rootPath(b, ".zig-cache");
+    // The brand mark on every page is the rooms shader mark, bundled from
+    // `site/brand_mark.ts` into a site asset the template links as a module.
+    // Bundled here rather than committed: the shader's source is the rooms
+    // app's, and a checked-in bundle would be a second copy of it that drifts.
+    // The bundle lands in the cache, and `tools/gen/site_brand_mark.zig` writes
+    // it into `site/assets` behind the generated-file header, so the tree's
+    // checks read it as generated rather than as source. Zine ships the file
+    // because the template names it.
+    const brand_mark_bundle = common.addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "bundle", "--quiet", "--platform", "browser", "--config", "deno.json", "site/brand_mark.ts", "--output",
+    });
+    const brand_mark_bundled = brand_mark_bundle.addOutputFileArg("mark.js");
+    brand_mark_bundle.has_side_effects = true;
+    const brand_mark_mod = b.createModule(.{
+        .root_source_file = b.path("tools/gen/site_brand_mark.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const brand_mark_exe = b.addExecutable(.{
+        .name = "site-brand-mark",
+        .root_module = brand_mark_mod,
+    });
+    const brand_mark_write = execution.addArtifact(b, .build_tool, brand_mark_exe);
+    brand_mark_write.setCwd(b.path("."));
+    brand_mark_write.addFileArg(brand_mark_bundled);
+    brand_mark_write.addArg("site/assets/mark.js");
+    brand_mark_write.has_side_effects = true;
+
     const translate_c_fork = common.rootPath(b, "third_party/site-build/translate-c");
     const superhtml_fork = common.rootPath(b, "third_party/site-build/superhtml");
     const render_site = execution.addSystemCommand(b, .build_tool, &.{
         b.graph.zig_exe, "build",
-        "--cache-dir",   site_cache_dir,
-        "--prefix",      common.rootPath(b, "zig-out"),
-        "--fork",        translate_c_fork,
-        "--fork",        superhtml_fork,
+    });
+    render_site.step.dependOn(&brand_mark_write.step);
+    // Forward the cache root Zig selected for the outer build. This preserves a
+    // native build's normal local cache and lets a container select a filesystem
+    // with the atomic-file semantics Zig requires; a hardcoded checkout path
+    // bypasses both decisions.
+    render_site.addArg("--cache-dir");
+    render_site.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
+    render_site.addArgs(&.{
+        "--prefix", common.rootPath(b, "zig-out"),
+        "--fork",   translate_c_fork,
+        "--fork",   superhtml_fork,
         "site",
     });
     render_site.setCwd(b.path("site"));
@@ -296,16 +331,23 @@ pub fn register(ctx: Context) Registered {
     // exit. It is the lifecycle detail of this step, not a new user command; the
     // public `zig build docs-serve` is unchanged.
     const serve_site = execution.addSystemCommand(b, .service, &.{
-        "bash",                        common.rootPath(b, "site/docs-serve.sh"),
-        b.graph.zig_exe,               "--cache-dir",
-        site_cache_dir,                "--prefix",
-        common.rootPath(b, "zig-out"), "--fork",
-        translate_c_fork,              "--fork",
-        superhtml_fork,                "docs-serve",
+        "bash",          common.rootPath(b, "site/docs-serve.sh"),
+        b.graph.zig_exe, "--cache-dir",
+    });
+    serve_site.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
+    serve_site.addArgs(&.{
+        "--prefix",
+        common.rootPath(b, "zig-out"),
+        "--fork",
+        translate_c_fork,
+        "--fork",
+        superhtml_fork,
+        "docs-serve",
     });
     if (ctx.pin_port) |p| serve_site.addArg(b.fmt("-Dport={d}", .{p}));
     serve_site.has_side_effects = true;
     serve_site.step.dependOn(site_examples_write_step);
+    serve_site.step.dependOn(&brand_mark_write.step);
     const docs_serve_step = b.step("docs-serve", "Serve the documentation site locally with Zine's development server (regenerates site example tabs; watches site/examples while running)");
     docs_serve_step.dependOn(&serve_site.step);
 

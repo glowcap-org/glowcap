@@ -552,7 +552,7 @@ test "a pipelined call whose arg references an unheld export is rejected, like a
     try p1.session_state.registerImport(.from(7));
     try p2.session_state.registerExport(.from(7));
     // p1 claims to hold import 99, which p2 never exported, a desynced or
-    // hostile partner naming a capability that does not exist on p2's side.
+    // untrusted peer naming a capability that does not exist on p2's side.
     try p1.session_state.registerImport(.from(99));
 
     // p1 calls p2's export, allocating answer 42 (now pending on p2).

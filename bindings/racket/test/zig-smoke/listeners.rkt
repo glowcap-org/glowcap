@@ -10,6 +10,7 @@
          "../../glowcap-inproc.rkt"
          "../../glowcap-onion.rkt"
          "../../glowcap-iroh.rkt"
+         (only-in "../../glowcap-relay.rkt" listen-keyed-relay)
          (combine-in "../../private/session.rkt"
                      "../../private/session/state.rkt"
                      "../../private/session/establish.rkt"
@@ -292,3 +293,108 @@
 (server-close! ca-server)
 
 (printf "racket zig-smoke OK: native listener admission bypasses a silent peer and wildcard reachability is explicit\n")
+
+;; ── Relay listeners honor the Host profile knobs ─────────────────────────────
+;; The relay listeners walk the same setup spine as the TCP listeners, so a
+;; codec they are handed is honored or refused, never replaced by the supplied
+;; Host's. No relay is needed: a conflicting codec is refused before the loop
+;; opens, and the relay provider refuses a foreign options value as the
+;; listener opens, before it registers anywhere.
+(define relay-dead-url "ws://127.0.0.1:9/relay")
+(define relay-dead-register "ws://127.0.0.1:9/register")
+(define relay-syrup-host (make-fresh-host))
+(define relay-codec-refusal
+  (with-handlers ([exn:fail:glowcap? values])
+    (listen-keyed-relay relay-dead-url relay-dead-register
+                        #:host relay-syrup-host #:codec 'capnp)
+    #f))
+(expect (and relay-codec-refusal
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code relay-codec-refusal))
+             (regexp-match? #rx"#:codec" (exn-message relay-codec-refusal)))
+        "relay listener: a codec differing from the supplied Host's was not refused")
+(expect (not (host-loop-of relay-syrup-host))
+        "relay listener: a refused codec still opened a loop on the supplied Host")
+(host-close! relay-syrup-host)
+;; A matching codec passes, and the TCP options value then reaches the relay
+;; provider, which owns the refusal: it defines no per-listen options.
+(define relay-capnp-host (make-fresh-host #:codec 'capnp))
+(define relay-options-refusal
+  (with-handlers ([exn:fail:glowcap? values])
+    (listen-keyed-relay relay-dead-url relay-dead-register
+                        #:host relay-capnp-host #:codec 'capnp
+                        #:options (make-tcp-options))
+    #f))
+(expect (and relay-options-refusal
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code relay-options-refusal))
+             (not (regexp-match? #rx"#:codec" (exn-message relay-options-refusal))))
+        "relay listener: a matching codec was refused, or a TCP options value was silently dropped")
+(expect (eq? 'capnp (host-codec relay-capnp-host))
+        "relay listener: the supplied Host's codec changed")
+(host-close! relay-capnp-host)
+(printf "racket zig-smoke OK: relay listeners honor the Host profile knobs or refuse them\n")
+
+;; ── The iroh and onion listeners walk the same spine ─────────────────────────
+;; A codec differing from the supplied Host's is refused before any loop
+;; opens, so no endpoint and no Tor are involved. A matching codec passes, and
+;; a TCP options value then reaches the provider, which refuses it as the
+;; listener opens: neither package defines per-listen options.
+(define (expect-profile-refusal who thunk)
+  (define refusal
+    (with-handlers ([exn:fail:glowcap? values])
+      (thunk)
+      #f))
+  (expect (and refusal
+               (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code refusal))
+               (regexp-match? #rx"#:codec" (exn-message refusal)))
+          (format "~a: a codec differing from the supplied Host's was not refused" who)))
+(define (expect-options-refusal who thunk)
+  (define refusal
+    (with-handlers ([exn:fail:glowcap? values])
+      (thunk)
+      #f))
+  (expect (and refusal
+               (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code refusal))
+               (not (regexp-match? #rx"#:codec" (exn-message refusal))))
+          (format "~a: a matching codec was refused, or a TCP options value was silently dropped" who)))
+
+(define iroh-syrup-host (make-fresh-host))
+(expect-profile-refusal
+ "iroh listener"
+ (lambda ()
+   (listen-iroh (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)
+                #:host iroh-syrup-host #:codec 'capnp)))
+(expect (not (host-loop-of iroh-syrup-host))
+        "iroh listener: a refused codec still opened a loop on the supplied Host")
+(host-close! iroh-syrup-host)
+(define iroh-capnp-host (make-fresh-host #:codec 'capnp))
+(expect-options-refusal
+ "iroh listener"
+ (lambda ()
+   (listen-iroh (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)
+                #:host iroh-capnp-host #:codec 'capnp
+                #:options (make-tcp-options))))
+(expect (eq? 'capnp (host-codec iroh-capnp-host))
+        "iroh listener: the supplied Host's codec changed")
+(host-close! iroh-capnp-host)
+
+(define onion-absent-socks "/nonexistent/glowcap-smoke/socks")
+(define onion-syrup-host (make-fresh-host))
+(expect-profile-refusal
+ "onion listener"
+ (lambda ()
+   (listen-onion #:socks onion-absent-socks
+                 #:host onion-syrup-host #:codec 'capnp)))
+(expect (not (host-loop-of onion-syrup-host))
+        "onion listener: a refused codec still opened a loop on the supplied Host")
+(host-close! onion-syrup-host)
+(define onion-capnp-host (make-fresh-host #:codec 'capnp))
+(expect-options-refusal
+ "onion listener"
+ (lambda ()
+   (listen-onion #:socks onion-absent-socks
+                 #:host onion-capnp-host #:codec 'capnp
+                 #:options (make-tcp-options))))
+(expect (eq? 'capnp (host-codec onion-capnp-host))
+        "onion listener: the supplied Host's codec changed")
+(host-close! onion-capnp-host)
+(printf "racket zig-smoke OK: iroh and onion listeners honor the Host profile knobs or refuse them\n")

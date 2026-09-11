@@ -87,8 +87,8 @@ fn vatOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
     // The actors exist before the program starts. Spawning them from a draw
     // meant most early operations found nothing to act on and returned, so the
-    // search spent its budget getting to a vat worth attacking rather than
-    // attacking one. Nothing spawns after this, so every snapshot describes the
+    // search spent its budget filling the vat rather than exercising one
+    // that already had actors. Nothing spawns after this, so every snapshot describes the
     // same set of actors.
     var refs: [max_actors]actors.Ref = undefined;
     var expected: [max_actors]i64 = @splat(0);

@@ -217,7 +217,7 @@ The id is load-bearing: a designator can name a later dial, so a delayed
 designator-keyed retirement could close the wrong exchange. Replacement,
 eviction, and expiry send `reject(reason)` to the old row's reply capability.
 
-The browser peer treats those strings as hostile signaling input. It snapshots
+The browser peer treats those strings as untrusted signaling input. It snapshots
 and validates the standard candidate fields, admits at most 4 Ki text units per
 candidate and 256 candidates / 64 Ki text units per pending peer, and bounds
 unresolved outbound candidate sends at 256. The rooms carrier allocates one
@@ -242,7 +242,7 @@ keyed session, and continues withdrawal there. The rooms app carries the
 production form: members file signaling inboxes with the directory
 (`offerSignaling`), and the directory routes `signalOffer` / `signalAnswer` /
 `signalCandidate` between designators without parsing a payload
-(`apps/rooms/server/main.ts`, `apps/rooms/lib/signaling.ts`).
+(`apps/rooms/rust/native/src/room_server/signaling.rs`, `apps/rooms/lib/signaling.ts`).
 
 **Where the redeeming host's signaling authority comes from.** The bootstrap
 question both proposals above leave open is settled by the same seam ADR-0088

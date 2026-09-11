@@ -49,7 +49,7 @@ the outer identity, never enters the identity's cache, and a sturdyref never
 dials it.
 
 Each list is bounded to eight routes, the two together to a few kilobytes,
-and every `via` route must name the same key as the designator, so a hostile
+and every `via` route must name the same key as the designator, so an untrusted
 locator cannot buy unbounded work or smuggle in a second identity.
 
 # What the other peer sees

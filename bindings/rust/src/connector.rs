@@ -27,8 +27,21 @@ pub trait TransportOperationOptions: core::fmt::Debug {
 	}
 }
 
+/// Why the Host is opening a byte channel. Pending dials include handoff
+/// redemption and select-or-dial application calls. The introducer, when
+/// present, is the session that supplied the oldest remaining give, captured
+/// before the connector starts. Its view does not keep a closed connection
+/// open and dropping it does not close the introducing connection.
+///
+/// Applications can resolve signaling context from this exact session. The
+/// binding neither chooses an application route nor serializes introductions.
+pub enum DialOrigin {
+	Explicit,
+	Pending { introducer: Option<Session> },
+}
+
 pub type ConnectFuture<'a> = Pin<Box<dyn Future<Output = Result<Session>> + 'a>>;
-type ConnectFn = dyn for<'a> Fn(Host, &'a Locator, bool, Option<&'a [u8]>, Option<Duration>) -> ConnectFuture<'a>;
+type ConnectFn = dyn for<'a> Fn(Host, &'a Locator, DialOrigin, Option<&'a [u8]>, Option<Duration>) -> ConnectFuture<'a>;
 
 struct ContainedConnectFuture<'a> {
 	inner: ConnectFuture<'a>,
@@ -54,7 +67,7 @@ impl Future for ContainedConnectFuture<'_> {
 /// A configured byte-channel connector supplied explicitly by an embedder.
 ///
 /// Native applications normally use a transport module's
-/// [`Provider`](crate::driver_loop::Provider). Connectors are for runtimes that
+/// `driver_loop::Provider`. Connectors are for runtimes that
 /// own channel establishment themselves, including browser-style embeddings.
 #[derive(Clone)]
 pub struct Connector {
@@ -68,7 +81,7 @@ impl Connector {
 	/// normally uses their `connector` factory.
 	pub fn new<F>(transports: &'static [&'static str], connect: F) -> Result<Self>
 	where
-		F: for<'a> Fn(Host, &'a Locator, bool, Option<&'a [u8]>, Option<Duration>) -> ConnectFuture<'a> + 'static,
+		F: for<'a> Fn(Host, &'a Locator, DialOrigin, Option<&'a [u8]>, Option<Duration>) -> ConnectFuture<'a> + 'static,
 	{
 		if transports.is_empty() {
 			return Err(Error::with_detail(
@@ -98,12 +111,12 @@ impl Connector {
 		&self,
 		host: Host,
 		locator: &'a Locator,
-		redeem: bool,
+		origin: DialOrigin,
 		transport_options: Option<&'a [u8]>,
 		handshake_timeout: Option<Duration>,
 	) -> Result<Session> {
 		let future = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-			(self.connect)(host, locator, redeem, transport_options, handshake_timeout)
+			(self.connect)(host, locator, origin, transport_options, handshake_timeout)
 		}))
 		.map_err(|payload| {
 			Error::with_detail(
@@ -124,7 +137,7 @@ mod tests {
 
 	#[test]
 	fn empty_transport_inventory_is_a_typed_refusal() {
-		let result = Connector::new(&[], |_host, _locator, _redeem, _options, _timeout| {
+		let result = Connector::new(&[], |_host, _locator, _origin, _options, _timeout| {
 			Box::pin(async { Err(Error::with_detail(sys::ERR_INTERNAL, "unused".to_string())) })
 		});
 		let error = result.err().expect("empty inventory is refused");
@@ -134,14 +147,14 @@ mod tests {
 	#[cfg(feature = "async")]
 	#[tokio::test(flavor = "current_thread")]
 	async fn panicking_connector_future_is_a_typed_refusal() {
-		let connector = Connector::new(&["test"], |_host, _locator, _redeem, _options, _timeout| {
+		let connector = Connector::new(&["test"], |_host, _locator, _origin, _options, _timeout| {
 			Box::pin(async { panic!("connector exploded") })
 		})
 		.unwrap();
 		let host = Host::with_codec(crate::Codec::Syrup).unwrap();
 		let locator = crate::uri::parse_locator("ocapn://example.test?transport=test").unwrap();
 		let error = connector
-			.connect(host, &locator, false, None, None)
+			.connect(host, &locator, DialOrigin::Explicit, None, None)
 			.await
 			.err()
 			.expect("panic is contained");

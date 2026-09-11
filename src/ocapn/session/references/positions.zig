@@ -76,7 +76,8 @@ pub fn reserveExport(self: *Session, id: model.ExportPosition) !void {
     try self.exports.register(self.allocator, id);
 }
 
-/// Retain a partner-driven import. A new id is bounded by
+/// Retain a partner-driven import as the caller's: one the application will
+/// release through `recordSend`. A new id is bounded by
 /// `SessionLimits.max_imports`; an already-held id increments its wire-delta
 /// count so the later `op:gc-exports` releases the same total delta.
 pub fn registerImport(self: *Session, id: model.ImportPosition) !void {
@@ -84,9 +85,41 @@ pub fn registerImport(self: *Session, id: model.ImportPosition) !void {
     try self.imports.retain(self.allocator, id, self.limits.max_imports);
 }
 
+/// Retain a partner-driven import as the session's own: a mention the
+/// session consumed and will release beside the fire or callback that spends
+/// it, which no caller's `op:gc-exports` may address. `registerImport` and
+/// `adoptImportRetain` in one step.
+pub fn retainImportForSession(self: *Session, id: model.ImportPosition) !void {
+    if (id.int() == BOOTSTRAP_POSITION) return;
+    try self.imports.retain(self.allocator, id, self.limits.max_imports);
+    self.imports.adoptForSession(id);
+}
+
+/// Take one already counted retain on `id` as the session's own. The seams
+/// that adopt retained the mention in the same turn (a V1.0 deliver's
+/// resolver, a shortening callback's advanced-to promise), so the row is live
+/// with a retain left to adopt. The partner bootstrap carries no retain.
+pub fn adoptImportRetain(self: *Session, id: model.ImportPosition) void {
+    if (id.int() == BOOTSTRAP_POSITION) return;
+    self.imports.adoptForSession(id);
+}
+
+/// Whether a listener nominating `listener` carries the retain a listener
+/// entry owns: one the session holds on that import, or none at all for the
+/// partner bootstrap, which is permanently addressable. The listener install
+/// verbs assert this so an entry built without `retainImportForSession` fails
+/// where it is installed rather than where it fires.
+pub fn listenerRetainHeld(self: *const Session, listener: model.FarRef) bool {
+    if (listener.import_position.int() == BOOTSTRAP_POSITION) return true;
+    return self.imports.sessionHeld(listener.import_position) != 0;
+}
+
 /// Whether releasing one owned reference to `id` requires an outbound
 /// `op:gc-exports` delta. The partner bootstrap is permanently addressable and
 /// never enters the import table; every other owned import has a wire retain.
+/// The row's presence is an invariant here, not a runtime question: a caller's
+/// release is validated against `importReleasable`, so it can never spend the
+/// retain the session kept for this release.
 pub fn importRequiresWireRelease(self: *const Session, id: model.ImportPosition) bool {
     if (id.int() == BOOTSTRAP_POSITION) return false;
     std.debug.assert(self.imports.contains(id));
@@ -113,17 +146,21 @@ pub fn exportSlot(self: *const Session, id: model.ExportPosition) ?slot.Slot {
     return self.exports.slotOf(id);
 }
 
-/// Live import row's CapTP slot, or null if absent.
-pub fn importSlot(self: *const Session, id: model.ImportPosition) ?slot.Slot {
-    return self.imports.slotOf(id);
-}
-
 pub fn exportRefcount(self: *const Session, id: model.ExportPosition) u64 {
     return self.exports.count(id);
 }
 
+/// Every wire retain on `id`, the session's own included.
 pub fn importRefcount(self: *const Session, id: model.ImportPosition) u64 {
     return self.imports.count(id);
+}
+
+/// The retains on `id` a caller may release: `importRefcount` less the ones
+/// the session keeps for a release of its own. The bound on what the Host
+/// may lift as application handles, and what an outbound `op:gc-exports` may
+/// name.
+pub fn importReleasable(self: *const Session, id: model.ImportPosition) u64 {
+    return self.imports.releasable(id);
 }
 
 /// Allocate a fresh object export at its local baseline. The row can marshal,
@@ -158,6 +195,15 @@ pub fn releaseUnsharedExport(self: *Session, id: model.ExportPosition) void {
 pub fn releaseImportRetain(self: *Session, id: model.ImportPosition) void {
     if (id.int() == BOOTSTRAP_POSITION) return;
     self.imports.decrement(id, 1) catch unreachable;
+}
+
+/// Release one of the session's own retains on `id` without a wire message:
+/// a listener discarded before it fired, a queued fire torn down with its
+/// peer, or an install rolled back. A retain that reaches the wire leaves
+/// through `recordSessionImportRelease` instead.
+pub fn releaseSessionImportRetain(self: *Session, id: model.ImportPosition) void {
+    if (id.int() == BOOTSTRAP_POSITION) return;
+    self.imports.releaseSessionHeld(id, 1);
 }
 
 /// The node-unique route under which this import incarnation was enrolled.

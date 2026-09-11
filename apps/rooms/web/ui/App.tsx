@@ -12,7 +12,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { useLocation } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 import { useRoomsProjection, useRoomsState } from "./hooks.ts";
-import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsController } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { Topbar } from "./Topbar.tsx";
@@ -40,7 +40,7 @@ import {
 } from "./types.ts";
 import { directoryName, dirWhere, roomCalled } from "./text.ts";
 import { useCapabilitySetModel } from "./settings/CapabilitySetModel.tsx";
-import { mayInteract, mayObserve } from "../../lib/session/client.ts";
+import { mayInteract, mayObserve } from "../../lib/session/access_view.ts";
 import { effectiveRoomsSessionAccess } from "./controller/access.ts";
 import { loadOpsPage } from "./chunks.ts";
 import { LoadingSurface } from "./Loading.tsx";
@@ -94,14 +94,13 @@ export function App() {
 	const state = useRoomsState(useShallow(store.appShellState));
 	const conv = useRoomsState(store.activeConvOf);
 	const projection = useRoomsProjection();
-	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
 	// Where the address stands: on /ops the content cell shows the operations
 	// surface instead of the conversation, and the rest of the shell stays
 	// exactly what it was.
 	const ops = opsAddressOf(useLocation().pathname);
 	const mobile = state.mobile;
-	const controller = browser.roomsController();
+	const controller = useRoomsController();
 	const directoryContext = useMemo(
 		() =>
 			directoryDestinationContext(

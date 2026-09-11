@@ -5,25 +5,31 @@
 // command: `needsArgument` decides whether the completion list keeps the Enter
 // key, `grant` decides whether a conversation that can run it lists it, and
 // `place` decides whether this conversation can run it at all.
-// Both are written by hand next to a `run` that could disagree with them, and
+// Rust owns the metadata and interpretation; the browser gesture adapter could
+// still disagree with the displayed affordance, and
 // a disagreement is silent — a command wrongly marked as needing an argument
 // simply stops running on Enter, which looks like a dead key rather than like
 // a wrong flag. So each is asked of every command here.
 
 import { type Command, type CommandHere, type CommandPowers, held, hereOf, known } from "../web/ui/commands.ts";
 import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY } from "../web/ui/commands/targets.ts";
-import { DIRECTORY_NO_CHAT, prepareComposerSend } from "../web/ui/composer/send.ts";
+import { prepareComposerSend } from "../web/ui/composer/send.ts";
 import type { ComposerDraft } from "../web/ui/composer/send.ts";
 import type { Conv } from "../web/ui/types.ts";
+
+import { initializeApplication } from "./support/application.ts";
+await initializeApplication();
+const DIRECTORY_NO_CHAT = "This view does not carry messages. Use a command.";
 
 function fail(message: string): never {
 	throw new Error(message);
 }
 
-/** Powers that refuse to be touched, so a command that acts when it claimed to
- * need an argument fails loudly here rather than quietly acting. */
+/** Read-only context is available; reaching an effect before required input
+ * is admitted fails loudly. Rust interpretation cannot act through this port. */
 const TRAP: CommandPowers = new Proxy({}, {
 	get(_target, verb) {
+		if (verb === "you" || verb === "standingHere") return () => "";
 		return () => fail(`a command reached for ${String(verb)} when it should have refused`);
 	},
 }) as CommandPowers;

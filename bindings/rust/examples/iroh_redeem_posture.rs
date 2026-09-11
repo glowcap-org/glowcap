@@ -33,7 +33,7 @@
 use std::rc::Rc;
 
 use glowcap_rust_dogfood::iroh::Reachability;
-use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -61,7 +61,7 @@ async fn run() -> Result<(), Fail> {
 	);
 	exporter.host().publish_giftable("greeter", || Box::new(greeter))?;
 	let exporter_id = exporter.node_id().to_string();
-	accept_loop(Rc::clone(&exporter));
+	helpers::serve_iroh_sessions(Rc::clone(&exporter));
 	println!("rust-iroh-redeem-posture: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
@@ -98,7 +98,7 @@ async fn run() -> Result<(), Fail> {
 			}
 		})
 	})?;
-	accept_loop(Rc::clone(&gifter));
+	helpers::serve_iroh_sessions(Rc::clone(&gifter));
 	println!("rust-iroh-redeem-posture: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: configures its redeem posture, then redeems the hint-less give ─
@@ -139,18 +139,6 @@ async fn run() -> Result<(), Fail> {
 	recipient.close(PendingWork::Cancel).await?;
 	to_exporter.close(PendingWork::Cancel).await?;
 	Ok(())
-}
-
-// Serve every connection a server accepts for the life of the run: the loop holds
-// its own `Rc` to the server and parks on `accept().await`, so it is cancelled
-// with the enclosing `LocalSet` rather than awaited.
-fn accept_loop(server: Rc<glowcap_rust_dogfood::iroh::Server>) {
-	tokio::task::spawn_local(async move {
-		let mut held: Vec<Session> = Vec::new();
-		while let Ok(session) = server.accept().await {
-			held.push(session);
-		}
-	});
 }
 
 // The published actor: answer `greet` by echoing the caller's name.

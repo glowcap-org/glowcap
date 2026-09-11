@@ -13,7 +13,7 @@ import { type Block, blocksOf } from "./log_blocks.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./icons.tsx";
 import { roomMarkGlyph, roomMarkTitle } from "./room_mark.tsx";
-import { roomPreset } from "../../lib/room/policy.ts";
+import { roomPreset } from "./room_policy.ts";
 import { directoryName } from "./text.ts";
 import { useRoomsState } from "./hooks.ts";
 

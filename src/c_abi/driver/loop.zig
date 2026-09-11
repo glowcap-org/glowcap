@@ -78,6 +78,11 @@ const Instance = struct {
     /// queue's borrow contract, one tier up. Error names are static.
     handed_completion: ?driver_core.HostAction = null,
     stepping: bool = false,
+    /// Set for the whole of `glowcap_driver_release`: no projection survives
+    /// it, so the completion sink refuses and the close observer only gives
+    /// its reserved seat back, while both stay installed on the runtime for
+    /// its teardown.
+    releasing: bool = false,
 
     pub fn io(self: *Instance) std.Io {
         return self.threaded.io();

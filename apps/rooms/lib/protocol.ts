@@ -10,13 +10,14 @@
 //
 // The directory is the server's ordinary published capability. A client fetches it by
 // name and eventual-sends it `open` or `enter`, each of which *returns a room
-// capability* — a live reference to that specific room. The client then
-// eventual-sends the room `subscribe` and `post`. When subscribing, the client
-// hands the room a capability to its own `inbox` actor; the room keeps that
-// capability and calls the client back with `notify` whenever anyone posts. That
-// callback — the room holding a live capability to the client and invoking it —
-// is the shape everything here builds on, and a method returning a fresh room
-// capability is the move that makes "rooms" plural.
+// capability* — a live reference to that specific room. The client sends the
+// room `subscribe`, then sends membership verbs such as `post` to the seat that
+// call answers with. When subscribing, the client hands the room a capability
+// to its own `inbox` actor; the room keeps that capability and calls the client
+// back with `notify` whenever anyone posts. That callback — the room holding a
+// live capability to the client and invoking it — is the shape everything here
+// builds on, and a method returning a fresh room capability is the move that
+// makes "rooms" plural.
 
 /** The name the server publishes the directory under and clients fetch it by. */
 export const DIRECTORY = "directory";
@@ -100,11 +101,11 @@ export const REVOKE = "revoke";
  * location it authors for this exact session. */
 export const LINK = "link";
 
-/** Room methods a client sends. `subscribe(nick, inboxCap, voucher?)` returns
- * a welcome line; `post(text)` broadcasts to every subscriber; `typing(on)`
- * broadcasts an ephemeral "I am typing" flag to the other members and is never
- * stored or echoed; `leave()` drops this membership (so a client can switch
- * rooms on one connection) without closing the connection.
+/** Room and membership methods a client sends. `subscribe(nick, inboxCap,
+ * voucher?)` returns `[seat, kind, topic]`. The client sends `post(text)`,
+ * `typing(on)`, and `leave()` to that seat. A post broadcasts to every
+ * subscriber; typing is ephemeral and never stored or echoed; leaving drops
+ * this membership without closing the connection.
  *
  * The voucher is the third argument only a subscribe arriving on the wrong
  * connection needs: proof, minted by the name capability (`VOUCHER`), that the
@@ -212,8 +213,9 @@ export const MINT_INVITATION = "mintInvitation";
 /** Claim a one-shot entrance with a retry receipt chosen by the claimant. */
 export const CLAIM_INVITATION = "claimInvitation";
 
-/** The method on the reference `subscribe` answers with: what this room is
- * about.
+/** The method on the topic reference in `subscribe`'s answer: what this room is
+ * about. Participant answers carry this reference in their third slot;
+ * observer answers carry null.
  *
  * Same shape as a line's reference, one level up. Holding it is the authority
  * to set the topic, so the room asks nobody whether they may — and because it
@@ -264,14 +266,14 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
 
 /** Directory introduction methods (three-party handoff, gifter side).
  *
- * `register(nick, locator, inboxCap)` claims a name and answers
+ * `register(nick, locator, inboxCap, reconnectVoucher?)` claims a name and answers
  * `notify("registered", nick, registrationId)`. The opaque registration ID identifies this exact
  * live registration without granting authority. The locator is for the directory's own checks
  * (and nick identity); after ADR-0109, gift exporter location comes from the
  * member's signed hello, not from stamping this argument. A second `register` for the same nick replaces
- * the prior intro when it comes from the connection holding it, and is refused
- * `nick-taken` when it comes from another while that connection is open — a
- * registration is a claim on a name, and only its holder or its ending frees it.
+ * the prior intro when it comes from the connection holding it. A new connection
+ * may replace that exact live claim with a single-use voucher minted by the old
+ * name capability; another caller is refused `nick-taken` while the holder remains open.
  * `introduce(nick, registrationId)` returns the inbox that registration offered for
  * *this* caller (see
  * `offerInbox`) as a `desc:handoff-give`: the caller redeems by dialing the
@@ -299,9 +301,9 @@ export const REGISTER = "register";
  * being that member, on any connection. The proof is data — single-use
  * unguessable bytes, the gift-id move — because a reference cannot be
  * recognised by its minter after crossing sessions, while bytes can. A voucher
- * redeems in `subscribe` while the registration stands and dies with it, so
- * the name's lifetime is still the connection's; nothing durable is minted
- * here. */
+ * redeems in `subscribe` or a replacement `register` while the registration
+ * stands and dies with it, so the name's lifetime is still the connection's;
+ * nothing durable is minted here. */
 export const VOUCHER = "voucher";
 export const INTRODUCE = "introduce";
 

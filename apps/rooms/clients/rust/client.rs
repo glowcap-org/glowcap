@@ -21,7 +21,13 @@
 //! counted, so a busy room cannot fake or break the assertion. This is the same
 //! application as the Deno, Python, Racket, and Zig clients, on one wire.
 
+/// The wire grammar every rooms client switches on, generated from
+/// `tools/gen/rooms_protocol.zig` by `zig build gen-rooms-protocol`.
+pub mod protocol_gen;
 pub mod room;
+/// This client's reading of the values a directory or room answers with, against
+/// the generated grammar.
+pub mod wire;
 
 #[path = "../../../_demo/rust/run_local.rs"]
 mod demo_run;
@@ -30,8 +36,13 @@ mod rooms_cli;
 
 use std::collections::HashSet;
 
+use protocol_gen::{Effect, SESSION_DEADLINE_MS};
 use room::{Directory, Room};
 use rooms_cli::{error_code, NO_SUCH_ROOM, ROOM_EXISTS};
+use wire::RoomInfo;
+
+/// The whole-roster deadline every sibling client holds, in seconds.
+const SESSION_DEADLINE_S: u64 = SESSION_DEADLINE_MS / 1000;
 
 /// Enter `name`, opening the room if it does not exist yet.
 async fn enter_or_open(dir: &Directory, name: &str) -> Result<glowcap::Ref, String> {
@@ -48,7 +59,7 @@ async fn enter_or_open(dir: &Directory, name: &str) -> Result<glowcap::Ref, Stri
 }
 
 /// Render the live room list for one line of output.
-fn format_rooms(rooms: &[room::RoomInfo]) -> String {
+fn format_rooms(rooms: &[RoomInfo]) -> String {
 	if rooms.is_empty() {
 		return "(none yet)".to_string();
 	}
@@ -94,13 +105,17 @@ async fn run_client(locator: &str, room_name: &str, nick: &str, line: &str, rost
 		};
 		println!("[{nick}] {}: {}", message.from, message.text);
 		if let Some(presence) = &message.presence {
-			// Membership arrives as structure: the roster on entry, or a join/leave.
-			if presence.kind == "leave" {
-				for name in &presence.names {
-					present.remove(name);
+			// Membership arrives as structure. Only an arrival or a departure moves
+			// a member in or out; the other tails are facts about a member who is
+			// still here.
+			match presence.effect {
+				Effect::Depart => {
+					for name in &presence.names {
+						present.remove(name);
+					}
 				}
-			} else {
-				present.extend(presence.names.iter().cloned());
+				Effect::Arrive => present.extend(presence.names.iter().cloned()),
+				Effect::Stay => {}
 			}
 		} else if !message.system {
 			present.insert(message.from.clone()); // a line is presence too
@@ -114,8 +129,12 @@ async fn run_client(locator: &str, room_name: &str, nick: &str, line: &str, rost
 			posted = true;
 		}
 	}
+	let ended = room.ended();
 	room.leave().await?;
 
+	if let Some(reason) = ended {
+		return Err(format!("the room ended {nick}'s membership: {reason}"));
+	}
 	if !roster.iter().all(|n| seen.contains(n)) {
 		let missing: Vec<&str> = roster
 			.iter()
@@ -148,6 +167,11 @@ async fn main() {
 		None => vec![nick.clone()],
 	};
 
-	let result = demo_run::run_with_timeout(&nick, 15, run_client(&locator, &room_name, &nick, &line, &roster)).await;
+	let result = demo_run::run_with_timeout(
+		&nick,
+		SESSION_DEADLINE_S,
+		run_client(&locator, &room_name, &nick, &line, &roster),
+	)
+	.await;
 	demo_run::exit_on_result(&nick, "client", result);
 }

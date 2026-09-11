@@ -106,7 +106,7 @@ guarantee across reconnects.
 authority-neutral scheduler dependencies keyed by Gifter–Exporter `PeerHandle`
 plus a 128-bit BLAKE3 tag of the gift id, then receiver `PeerHandle`. A receiver
 owns one pending group for that key; multiple receives for the same gift share
-it. The relation stores no attacker-sized gift bytes, key, receive, or
+it. The relation stores no partner-sized gift bytes, key, receive, or
 capability. The digest is not authority: a collision can only cause an extra
 bounded retry because withdrawal still checks the exact signed gift id against
 the exact registry key.
@@ -174,7 +174,7 @@ therefore leaves no pending row, accepted count, or orphan dependency.
   and snapshot/restore must not rewind protocol authority.
 - **Keep per-gifter replay maps.** Rejected: `handoff-count` is monotonic within
   the live Receiver–Exporter session. One scalar expresses that namespace and
-  cannot grow from attacker-chosen identities.
+  cannot grow from partner-chosen identities.
 
 ## Consequences
 
@@ -192,7 +192,7 @@ therefore leaves no pending row, accepted count, or orphan dependency.
 - Host and Vat remain the one-to-one standard composition decided by ADR-0096,
   but neither becomes the owner of session transcript authority.
 - Scheduler rows are proportional to live `(gifter, gift-tag, receiver)`
-  groups. The fixed-size tag prevents attacker-selected gift-id length from
+  groups. The fixed-size tag prevents partner-chosen gift-id length from
   entering scheduler storage. While any dependency group
   remains, its receiver map and the outer/change tables may retain historical
   peak capacity; total scheduler quiescence frees all three backings. Deposit,

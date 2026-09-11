@@ -90,6 +90,12 @@ extern "C" {
 		out_locator: *mut GlowcapLocatorView,
 		out_hint_count: *mut usize,
 	) -> c_int;
+	pub fn glowcap_host_pending_dial_introducer(
+		host: *mut GlowcapHost,
+		ticket: u64,
+		route_index: usize,
+		out_session: *mut *mut GlowcapHostSession,
+	) -> c_int;
 	pub fn glowcap_host_reference_exporter(
 		host: *mut GlowcapHost,
 		reference: *const GlowcapReference,
@@ -246,7 +252,18 @@ extern "C" {
 		resolver_id: u64,
 		value: *const GlowcapArgument,
 	) -> c_int;
+	pub fn glowcap_host_resolver_fulfill_value(
+		host: *mut GlowcapHost,
+		resolver_id: u64,
+		value: *const GlowcapArgument,
+	) -> c_int;
 	pub fn glowcap_host_resolver_break(
+		host: *mut GlowcapHost,
+		resolver_id: u64,
+		message: *const c_uchar,
+		message_len: usize,
+	) -> c_int;
+	pub fn glowcap_host_resolver_abandon(
 		host: *mut GlowcapHost,
 		resolver_id: u64,
 		message: *const c_uchar,
@@ -255,6 +272,12 @@ extern "C" {
 	pub fn glowcap_host_session_listen(
 		session: *mut GlowcapHostSession,
 		target: *const GlowcapReference,
+		out_vow: *mut u64,
+	) -> c_int;
+	pub fn glowcap_host_session_resolve(
+		session: *mut GlowcapHostSession,
+		target: *const GlowcapReference,
+		out_reference: *mut GlowcapReference,
 		out_vow: *mut u64,
 	) -> c_int;
 	pub fn glowcap_host_session_send(

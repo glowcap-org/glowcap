@@ -28,11 +28,9 @@
 mod conn;
 mod connect;
 mod constants_gen;
-mod lifecycle;
 #[cfg(test)]
 mod lifecycle_test;
 mod nonblocking;
-mod readiness;
 
 use connect::*;
 use nonblocking::*;
@@ -51,8 +49,10 @@ use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
-use lifecycle::{RuntimeOwner, WriterTasks};
-use readiness::Readiness;
+use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier};
+
+/// The shared readiness channel, drained into this sidecar's own record layout.
+type Readiness = glowcap_sidecar_common::Readiness<GlowcapIrohReadyEvent>;
 
 fn teardown_status(f: impl FnOnce() -> Result<(), ()>) -> i32 {
 	match catch_unwind(AssertUnwindSafe(f)) {
@@ -160,6 +160,20 @@ const DIAL_LOST: i32 = 4;
 const DIAL_CANCELED: i32 = 5;
 const DIAL_PENDING: i32 = 6;
 const DIAL_BUSY: i32 = 7;
+/// The endpoint this dial was asked on is already closed: a local lifecycle
+/// fault, permanent for this endpoint, and never a reason to retry.
+const DIAL_CLOSED: i32 = 8;
+/// The partner refused the connection during the QUIC or TLS handshake, or
+/// this endpoint rejected it locally: a peer-refusal fault, not a path fault.
+const DIAL_REFUSED: i32 = 9;
+
+/// Bound on the text a failed dial keeps beside its code: iroh's own account
+/// of the fault, which the code alone cannot carry (which relay refused, which
+/// address stayed silent, the QUIC close reason). Mirrors
+/// `GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES` in the header and `dial_text_bytes`
+/// in the Zig resident, so a caller that sizes its buffer by the constant
+/// never sees a truncated copy.
+const DIAL_TEXT_BYTES: usize = 256;
 
 /// The non-blocking inbound/outbound buffer bound, per connection and direction
 /// (ADR-0057's back-pressure policy). A reader that fills the inbound buffer
@@ -202,6 +216,12 @@ const DIAL_ADMISSION_BOUND: usize = 32;
 pub struct GlowcapIrohReadyEvent {
 	subject: usize,
 	events: u32,
+}
+
+impl From<(usize, u32)> for GlowcapIrohReadyEvent {
+	fn from((subject, events): (usize, u32)) -> Self {
+		GlowcapIrohReadyEvent { subject, events }
+	}
 }
 
 /// The process-shared address book backing `REACH_LOCAL_DISCOVERY`. Every
@@ -250,8 +270,6 @@ fn publish_local(ep: &Endpoint) {
 /// scale surface (ADR-0057) is used on this endpoint; an endpoint driven only
 /// through the blocking calls never allocates them.
 pub struct GlowcapIrohEndpoint {
-	rt: RuntimeOwner,
-	ep: Endpoint,
 	/// The deadline every bi-stream establishment on this endpoint rides — the
 	/// dial's `connect` + `open_bi` and each `accept_bi` — so a partner that
 	/// stalls mid-handshake cannot park a thread forever. Configured per
@@ -262,8 +280,12 @@ pub struct GlowcapIrohEndpoint {
 	dials: OnceLock<Arc<DialState>>,
 	/// Terminal ownership for non-blocking writers. Completed tasks retain no
 	/// endpoint row; release waits only on the active count and claims failure.
-	writers: Arc<WriterTasks>,
+	writers: Arc<TaskBarrier>,
 	next_conn_id: AtomicUsize,
+	// Rust drops fields in declaration order. The endpoint, discovery services,
+	// dial registry, and task barriers must all retire before their runtime.
+	ep: Endpoint,
+	rt: RuntimeOwner,
 }
 
 /// Opaque connection handle: one QUIC connection carrying one bidirectional
@@ -288,7 +310,7 @@ pub struct GlowcapIrohConn {
 	/// the permit gives endpoint release its terminal drain barrier.
 	nb_tasks: OnceLock<(JoinHandle<()>, JoinHandle<()>)>,
 	/// Endpoint-scoped terminal owner for a writer detached at conn release.
-	writers: Arc<WriterTasks>,
+	writers: Arc<TaskBarrier>,
 }
 
 /// Create an endpoint. `secret_seed32` is either null (generate a fresh random
@@ -386,14 +408,14 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_new(
 			std::time::Duration::from_millis(connect_timeout_ms)
 		};
 		Some(Box::into_raw(Box::new(GlowcapIrohEndpoint {
-			rt,
-			ep,
 			connect_timeout,
 			readiness: OnceLock::new(),
 			accept: OnceLock::new(),
 			dials: OnceLock::new(),
-			writers: Arc::new(WriterTasks::new()),
+			writers: Arc::new(TaskBarrier::new()),
 			next_conn_id: AtomicUsize::new(1),
+			ep,
+			rt,
 		})))
 	}));
 	match result {

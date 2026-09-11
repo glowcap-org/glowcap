@@ -209,6 +209,61 @@
 
 (printf "racket zig-smoke OK: a cross-thread tell reaches the wire through session-flush!\n")
 
+;; ── Concurrent pump: a send waits under another thread's session-serve ────────
+;; The rooms client's `room-say` sends from the application thread while a
+;; background `session-serve` keeps the same session pumped. One thread reads a
+;; connection at a time (the pump's reader gate); a send arriving while the
+;; serve thread holds the gate parks on the host's progress event and re-checks
+;; its vow after every feed, so the answer, or the far side's refusal, lands on
+;; the sending thread through the serve thread's reads.
+(define sp-server (listen "127.0.0.1" 0))
+(define sp-ready (make-semaphore 0))
+(define sp-host
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
+       (define hsession (accept sp-server))
+       (session-publish hsession "svc"
+                     (lambda (bcom)
+                       (methods
+                        [(echo text) text]
+                        [(refuse) (error "observers cannot post")])))
+       (semaphore-post sp-ready)
+       (session-serve hsession)))))
+(define sp-session (open-test-session (tcp-locator "127.0.0.1" (server-port sp-server))))
+(semaphore-wait sp-ready)
+(define sp-svc (session-fetch sp-session "svc"))
+(define sp-serve
+  (thread (lambda ()
+            (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
+              (session-serve sp-session)))))
+;; THE PIN: send only once the serve thread holds the reader gate, so the send
+;; cannot claim the gate itself and read its own answer.
+(define (sp-wait-for-serve-gate!)
+  (let loop ([i 0])
+    (unless (eq? sp-serve (unbox (async-connection-reader (session-async sp-session))))
+      (expect (< i 200) "concurrent pump: the serve thread never claimed the reader gate")
+      (sleep 0.01)
+      (loop (add1 i)))))
+(sp-wait-for-serve-gate!)
+(expect (equal? "line" (session-send sp-session sp-svc 'echo "line"))
+        "concurrent pump: the application thread's send settled through the serve thread's reads")
+(sp-wait-for-serve-gate!)
+(define sp-refusal
+  (with-handlers ([exn:fail:glowcap? values])
+    (session-send sp-session sp-svc 'refuse)
+    'no-error))
+(expect (and (exn:fail:glowcap? sp-refusal)
+             (equal? ERR-BROKEN (exn:fail:glowcap-code sp-refusal))
+             (regexp-match? #rx"observers cannot post" (exn-message sp-refusal)))
+        "concurrent pump: the far refusal raised on the sending thread with the wire reason")
+(session-close! sp-session)
+(void (sync/timeout 2 (thread-dead-evt sp-serve)))
+(void (sync/timeout 2 (thread-dead-evt sp-host)))
+(server-close! sp-server)
+
+(printf "racket zig-smoke OK: a send from the application thread settled under another thread's session-serve\n")
+
 ;; ── Hosting: high-level listen/accept against connect ─────────────────────────
 ;; A host thread listens on an ephemeral port, accepts one partner on the
 ;; high-level surface, publishes `svc`, and serves. The main thread `connect`s,
@@ -411,6 +466,19 @@
 (define rv-broke (channel-get rv-broke-ch))
 (expect (and (string? rv-broke) (regexp-match? #rx"worker gave up" rv-broke))
         "resolver: the break carries the worker's words")
+(resolver-abandon! (unbox rv-parked) "already retired")
+(set-box! rv-parked #f)
+(define rv-abandoned-ch (make-channel))
+(void (thread
+       (lambda ()
+         (channel-put rv-abandoned-ch
+                      (with-handlers ([(lambda (_) #t) (lambda (e) (exn-message e))])
+                        (session-send rv-session rv-worker 'work))))))
+(semaphore-wait rv-parked-ready)
+(resolver-abandon! (unbox rv-parked) "worker dropped")
+(resolver-abandon! (unbox rv-parked) "worker dropped")
+(expect (regexp-match? #rx"worker dropped" (channel-get rv-abandoned-ch))
+        "resolver: abandonment is idempotent and breaks live deferred work")
 (session-close! rv-session)
 (server-close! rv-server)
 

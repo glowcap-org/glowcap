@@ -52,7 +52,7 @@ test "rooms-peer phase refused connect carries the countdown .dialing to .down" 
     phase = .{ .joined = .{
         .session = dummySession(),
         .directory = farRef(1),
-        .room = farRef(2),
+        .seat = farRef(2),
         .reg = .registered,
     } };
     phase_mod.connectRefused(&phase);
@@ -95,7 +95,7 @@ test "rooms-peer phase abandon request no-ops outside .joining" {
     phase = .{ .joined = .{
         .session = session,
         .directory = farRef(1),
-        .room = farRef(2),
+        .seat = farRef(2),
         .reg = .{ .pending = 3 },
     } };
     try std.testing.expect(!phase_mod.requestAbandon(&phase));
@@ -110,11 +110,11 @@ test "rooms-peer phase stays joining until subscribe fulfills" {
         .room = farRef(2),
     } };
     try std.testing.expect(phase == .joining);
-    try std.testing.expect(phase_mod.noteSubscribed(&phase, 7));
+    try std.testing.expect(phase_mod.noteSubscribed(&phase, farRef(5), 7));
     try std.testing.expect(phase == .joined);
     try std.testing.expectEqual(session, phase.joined.session);
     try std.testing.expectEqual(@as(u64, 1), phase.joined.directory.far.import_position.int());
-    try std.testing.expectEqual(@as(u64, 2), phase.joined.room.far.import_position.int());
+    try std.testing.expectEqual(@as(u64, 5), phase.joined.seat.far.import_position.int());
     try std.testing.expectEqual(@as(u32, 7), phase.joined.reg.pending);
 }
 
@@ -149,7 +149,7 @@ test "rooms-peer phase registered-notify flips only a live .joined" {
     var phase: Phase = .{ .joined = .{
         .session = session,
         .directory = farRef(1),
-        .room = farRef(2),
+        .seat = farRef(2),
         .reg = .{ .pending = 9 },
     } };
     try std.testing.expect(!phase.isRegistered());
@@ -202,7 +202,7 @@ test "rooms-peer phase status projection over every arm" {
     phase = .{ .joined = .{
         .session = session,
         .directory = farRef(1),
-        .room = farRef(2),
+        .seat = farRef(2),
         .reg = .{ .pending = 13 },
     } };
     // "joined" is written only from the .joined arm; registered stays false

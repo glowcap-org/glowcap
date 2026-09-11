@@ -61,6 +61,15 @@ export function attachmentMetadataEqual(left: AttachmentMetadata, right: Attachm
 		left.width === right.width && left.height === right.height;
 }
 
+/** Whether two archive rows name the same content-addressed bytes. Metadata
+ * may change around content that did not; the digest alone is byte identity. */
+export function sameArchivedBytes(
+	left: ArchivedAttachment | undefined,
+	right: ArchivedAttachment | undefined,
+): boolean {
+	return left?.blob != null && left.blob === right?.blob;
+}
+
 export function lineAttachmentAddress(record: ArchiveLine, index: number): ArchiveAttachmentAddress {
 	return {
 		source: record.source,

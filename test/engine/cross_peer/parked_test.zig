@@ -83,7 +83,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     var handoff_arg = model.Handoff{ .receive = receive };
     // Verification materializes exactly the receive that can outlive this
     // frame. The caller either admits that owned value to its bounded pending
-    // table or frees it without retaining attacker input.
+    // table or frees it without retaining untrusted input.
     const handoff_view = model.view.Handoff.fromOwned(&handoff_arg);
     switch (try engine.bootstrap.resolveForWithdraw(
         allocator,

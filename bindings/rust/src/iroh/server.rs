@@ -1,71 +1,20 @@
 use super::*;
 
 impl Server {
+	/// Bind through the shared [`crate::server::bind_loop_listener`] spine.
+	/// The iroh-shaped step is the provider install itself: the endpoint is
+	/// built from the Host's durable seed (ADR-0075), and the endpoint id it
+	/// reports is both the designator the listener binds and the node id this
+	/// server names.
 	pub(super) async fn bind(config: Config, options: ListenOptions) -> Result<Server> {
-		let (loop_shared, host, owns_loop) = match options.identity {
-			ListenerIdentity::Fresh => {
-				let lp = crate::driver_loop::LoopShared::open_with_durable_seed(
-					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-					None,
-				)?;
-				let host = Host::from_shared(lp.wrapper_host()?);
-				(lp, host, true)
-			}
-			ListenerIdentity::Seed(seed) => {
-				let lp = crate::driver_loop::LoopShared::open_with_durable_seed(
-					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-					Some(seed),
-				)?;
-				let host = Host::from_shared(lp.wrapper_host()?);
-				(lp, host, true)
-			}
-			ListenerIdentity::Host(host) => {
-				let shared = host.shared();
-				let lp = shared.ensure_driver_loop(
-					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-				)?;
-				(lp, host, false)
-			}
-		};
-		Server::bind_on_loop(loop_shared, host, config, owns_loop).await
-	}
-
-	async fn bind_on_loop(
-		loop_shared: Rc<crate::driver_loop::LoopShared>,
-		host: Host,
-		config: Config,
-		owns_loop: bool,
-	) -> Result<Server> {
-		let host_shared = host.shared();
-		let mut listener = None;
-		let result = async {
-			let node_id = ensure_loop_provider(&host_shared, &loop_shared, config).await?;
-			let id = loop_shared
-				.listen(crate::abi_constants::TRANSPORT_IROH, &node_id)
-				.await?;
-			listener = Some(id);
-			loop_shared.select_listener(id)?;
-			Ok(Server {
-				listener: crate::server::LoopListener::new(Rc::clone(&loop_shared), id, host),
-				node_id,
-			})
-		}
-		.await;
-		match result {
-			Ok(server) => Ok(server),
-			Err(mut error) => {
-				if let Some(id) = listener {
-					error = crate::retain_cleanup_failure(error, loop_shared.close_listener(id).await);
-				}
-				if owns_loop {
-					loop_shared.close();
-				}
-				Err(error)
-			}
-		}
+		let (listener, node_id) = crate::server::bind_loop_listener(
+			options.identity,
+			crate::abi_constants::TRANSPORT_IROH,
+			|host, lp| async move { ensure_loop_provider(&host, &lp, config).await },
+			|_lp, _listener, node_id| Ok(node_id),
+		)
+		.await?;
+		Ok(Server { listener, node_id })
 	}
 
 	pub fn host(&self) -> Host {
@@ -76,12 +25,15 @@ impl Server {
 		&self.node_id
 	}
 
-	pub fn direct_addresses(&self) -> Result<String> {
+	/// The comma-separated direct socket addresses the canonical locator
+	/// advertises, or `None` while the endpoint has gathered none: the provider
+	/// omits the hint until at least one address exists, and a relay-only
+	/// endpoint may never carry it.
+	pub fn direct_addresses(&self) -> Result<Option<String>> {
 		Ok(self
 			.locator()?
 			.string_hint(crate::abi_constants::HINT_DIRECT_ADDRESSES)?
-			.map(str::to_owned)
-			.unwrap_or_default())
+			.map(str::to_owned))
 	}
 
 	/// Return the canonical locator partners use to dial this listener.
@@ -93,6 +45,8 @@ impl Server {
 		crate::uri::format_locator_uri(&self.locator()?)
 	}
 
+	/// Await the next accepted session. It delivers its partner's inbound only
+	/// once served: publish what it should answer, then `session.serve()`.
 	pub async fn accept(&self) -> Result<Session> {
 		self.listener.accept().await
 	}
@@ -102,6 +56,12 @@ impl Server {
 	/// is the terminal endpoint and session release barrier.
 	pub async fn close(&self) -> Result<()> {
 		self.listener.close().await
+	}
+
+	/// Select this listener's locator as the shared Host's advertised
+	/// location; see [`crate::tcp::Server::select`].
+	pub fn select(&self) -> Result<()> {
+		self.listener.select()
 	}
 }
 

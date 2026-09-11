@@ -1,0 +1,86 @@
+{
+  "defaultLimit": 256,
+  "ircLimit": 65536,
+  "trace": [
+    {
+      "op": "offer",
+      "owner": 0,
+      "peer": "alice",
+      "id": 1,
+      "published": 1,
+      "removed": 0,
+      "offered": 1,
+      "errors": 0
+    },
+    {
+      "op": "offer",
+      "owner": 0,
+      "peer": "alice",
+      "id": 1,
+      "published": 1,
+      "removed": 0,
+      "offered": 2,
+      "errors": 0
+    },
+    {
+      "op": "offer",
+      "owner": 1,
+      "peer": "alice",
+      "id": 1,
+      "published": 2,
+      "removed": 0,
+      "offered": 3,
+      "errors": 0
+    },
+    {
+      "op": "offer",
+      "owner": 1,
+      "peer": "bob",
+      "id": 2,
+      "published": 2,
+      "removed": 0,
+      "offered": 3,
+      "errors": 1
+    },
+    {
+      "op": "forget",
+      "owner": 0,
+      "peer": "",
+      "id": 1,
+      "published": 2,
+      "removed": 1,
+      "offered": 3,
+      "errors": 1
+    },
+    {
+      "op": "offer",
+      "owner": 1,
+      "peer": "bob",
+      "id": 2,
+      "published": 3,
+      "removed": 1,
+      "offered": 4,
+      "errors": 1
+    },
+    {
+      "op": "close",
+      "owner": 1,
+      "peer": "",
+      "id": 0,
+      "published": 3,
+      "removed": 3,
+      "offered": 4,
+      "errors": 1
+    },
+    {
+      "op": "close",
+      "owner": 0,
+      "peer": "",
+      "id": 0,
+      "published": 3,
+      "removed": 3,
+      "offered": 4,
+      "errors": 1
+    }
+  ]
+}

@@ -304,7 +304,7 @@ test "Session finish waits for an admitted beginSendNamed chain" {
 fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var designator_buf: [net.tcp.plain.designator_buf_len]u8 = undefined;
+    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
     const client = try driver.connect(
         allocator,
         &netlayers,

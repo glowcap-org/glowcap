@@ -1,7 +1,7 @@
 // Presentation types that belong to directories and page chrome.
 
 import type { DirectoryMember, RoomInfo } from "../../lib/directory_publications.ts";
-import type { RoomPolicy } from "../../lib/room/policy.ts";
+import type { RoomPolicy } from "./room_policy.ts";
 
 export * from "./conversation.ts";
 

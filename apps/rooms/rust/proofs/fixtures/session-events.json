@@ -1,0 +1,2218 @@
+{
+  "rows": [
+    {
+      "name": "baseline",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "null-0",
+      "raw": [
+        null,
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "null-1",
+      "raw": [
+        "source",
+        null,
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "null-2",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        null,
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "null-3",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        null,
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "null-4",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        null,
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "null-5",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        null,
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "null-6",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        null,
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "null-7",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        null,
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "null-8",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        null,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "null-9",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "null-10",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "null-11",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "null-12",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "null-13",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "null-14",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "number-1-bigint--1",
+      "raw": [
+        "source",
+        {
+          "integer": "-1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-1-bigint-0",
+      "raw": [
+        "source",
+        {
+          "integer": "0"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-1-bigint-9007199254740991",
+      "raw": [
+        "source",
+        {
+          "integer": "9007199254740991"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "number-1-bigint-9007199254740992",
+      "raw": [
+        "source",
+        {
+          "integer": "9007199254740992"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-1-number-1",
+      "raw": [
+        "source",
+        1,
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-1-number-1.5",
+      "raw": [
+        "source",
+        1.5,
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-5-bigint--1",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "-1"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-5-bigint-0",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "number-5-bigint-9007199254740991",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "9007199254740991"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "number-5-bigint-9007199254740992",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "9007199254740992"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-5-number-1",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        1,
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-5-number-1.5",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        1.5,
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-6-bigint--1",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "-1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-6-bigint-0",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-6-bigint-9007199254740991",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "9007199254740991"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "number-6-bigint-9007199254740992",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-6-number-1",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        1,
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "number-6-number-1.5",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        1.5,
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "change-said",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "change-no-id-said",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        null,
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "change-edited",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "edited",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "change-no-id-edited",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        null,
+        "edited",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "change-refiled",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "refiled",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "change-no-id-refiled",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        null,
+        "refiled",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "change-withdrawn",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "withdrawn",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "change-no-id-withdrawn",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        null,
+        "withdrawn",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "change-other",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "other",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "change-no-id-other",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        null,
+        "other",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "presence-typing",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"typing\",\"name\":\"Ada\",\"on\":true}",
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "presence-roster",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"roster\",\"names\":[\"Ada\",\"Bob\"]}",
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "presence-join",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"join\",\"name\":\"Ada\"}",
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "presence-leave",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"leave\",\"name\":\"Ada\"}",
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "presence-away",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"away\",\"name\":\"Ada\",\"reason\":\"\"}",
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "presence-seat",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"seat\",\"name\":\"Ada\",\"state\":\"linked\",\"nick\":\"ada\",\"network\":\"net\",\"badge\":\"IRC\",\"said\":\"linked\"}",
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "presence-surrogate",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"typing\",\"name\":\"a\\ud800b\",\"on\":false}",
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "presence-empty",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"join\",\"name\":\"\"}",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "presence-unknown",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"other\",\"name\":\"Ada\"}",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "presence-extra",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"join\",\"name\":\"Ada\",\"extra\":true}",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "presence-nullName",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"leave\",\"name\":null}",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "presence-longName",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"join\",\"name\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "escaped-tag",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{\"kind\":\"j\\u006fin\",\"name\":\"Ada\"}",
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "facts-empty",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{}"
+      ],
+      "accepted": true
+    },
+    {
+      "name": "facts-all",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"topic\":\"\",\"lineBytes\":8192,\"listed\":false,\"bridge\":{\"prefix\":\"irc/\",\"badge\":\"IRC\",\"said\":\"network\",\"scope\":\"net\"}}"
+      ],
+      "accepted": true
+    },
+    {
+      "name": "facts-surrogate",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"topic\":\"a\\ud800b\"}"
+      ],
+      "accepted": true
+    },
+    {
+      "name": "facts-nullTopic",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"topic\":null}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-nullBridge",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"bridge\":null}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-extra",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"extra\":true}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-zeroBytes",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"lineBytes\":0}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-floatBytes",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"lineBytes\":1.5}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-largeBytes",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"lineBytes\":9007199254740992}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-longTopic",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"topic\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "metadata-13-{",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "{",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "metadata-13-null",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "null",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "metadata-13-[]",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "[]",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "metadata-13-true",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "true",
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "metadata-14-{",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "metadata-14-null",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "null"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "metadata-14-[]",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "[]"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "metadata-14-true",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "true"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "history",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        "source",
+        "generation",
+        "record",
+        false,
+        null,
+        null
+      ],
+      "accepted": true
+    },
+    {
+      "name": "history-partial",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        "source",
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "history-control",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        "source\u0001",
+        "generation",
+        "record",
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "text-bytes",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null
+      ],
+      "accepted": false
+    },
+    {
+      "name": "attachment-incomplete",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null,
+        "file"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "bridge-positional-array",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"bridge\":[\"irc/\",\"IRC\",\"network\",\"net\"]}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-trailing-json",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{}{}"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "presence-positional-array",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        "[\"join\",\"Ada\"]",
+        null
+      ],
+      "accepted": false
+    }
+  ]
+}

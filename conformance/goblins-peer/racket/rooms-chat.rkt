@@ -2,7 +2,7 @@
 ;; rooms-chat.rkt — sit in a glowcap chat room as a real Spritely Goblins vat
 ;; and talk.
 ;;
-;; This is the Goblins counterpart of `apps/rooms/clients/deno/chat.ts`: it
+;; This is the Goblins counterpart of `zig build rooms-chat`: it
 ;; enters a room, prints every line as it arrives, and posts whatever you type.
 ;; Lines that start with "/" are commands, not chat:
 ;;
@@ -57,6 +57,7 @@
          "rooms-client.rkt"
          "rooms-dm.rkt"
          "trace-publish.rkt"
+         racket/match
          racket/set
          racket/string)
 
@@ -91,7 +92,7 @@
 ;; thread and read on the terminal's, and that crossing is what a box is for. The values
 ;; are capability references, handed straight back into `chat-vat 'run`.
 (define directory-box (box #f))
-(define room-box (box #f))
+(define seat-box (box #f))
 
 ;; The inbox is spawned once and handed to every room this member enters, so a
 ;; room switch does not mint a fresh export for the same person.
@@ -124,13 +125,21 @@
     [(string=? from "room") (say "* ~a" text)]
     [else (say "<~a> ~a" from text)]))
 
-;; Subscribe to `room` and make it the current one. The room answers `subscribe`
-;; with a bare ack; the welcome and the roster arrive on the inbox.
+;; Subscribe to `room` and make its membership the current seat. The room
+;; answers `subscribe` with the seat, its kind, and the topic authority; every
+;; later membership verb (post, leave) goes to the seat, and the welcome and
+;; the roster arrive on the inbox.
 (define (enter-room room name #:then [then void])
   (on (<- room 'subscribe nick (unbox inbox-box))
-      (lambda (_ack)
-        (set-box! room-box room)
-        (say "* you are in ~a" name)
+      (lambda (answer)
+        (cond
+          [(match answer
+             [(list (? live-refr? seat) (or "observer" "participant") (or (? void?) (? live-refr?))) seat]
+             [_ #f])
+           => (lambda (seat)
+                (set-box! seat-box seat)
+                (say "* you are in ~a" name))]
+          [else (say "! could not join ~a: no membership seat in ~v" name answer)])
         (then))
       #:catch (lambda (err)
                 (say "! could not join ~a: ~v" name err)
@@ -149,8 +158,8 @@
 (define (switch-room verb name then)
   (on (<- (unbox directory-box) verb name)
       (lambda (room)
-        (define current (unbox room-box))
-        (set-box! room-box #f)
+        (define current (unbox seat-box))
+        (set-box! seat-box #f)
         (when current (on (<- current 'leave) void #:catch void))
         (enter-room room name #:then then))
       #:catch (lambda (err)
@@ -177,6 +186,18 @@
   (set-box! dm-box dm)
   (dm-register dm)
   (define registrations (make-hash))
+  ;; One member event, whether it arrived as a later notify or as a row of the
+  ;; baseline the watch answered with. Both reach the DM member the same way.
+  (define (heard-member event name registration-id)
+    (when (member event '("registered" "unregistered"))
+      (cond
+        [(string=? event "registered")
+         (hash-set! registrations (string-downcase name) registration-id)
+         (set-box! reachable-box (set-add (unbox reachable-box) name))]
+        [(equal? (hash-ref registrations (string-downcase name) #f) registration-id)
+         (hash-remove! registrations (string-downcase name))
+         (set-box! reachable-box (set-remove (unbox reachable-box) name))]))
+    (dm-notify dm event name registration-id))
   (define watcher
     (spawn (lambda (_bcom)
              (methods
@@ -186,17 +207,18 @@
                  (if (and (pair? rest) (pair? (cdr rest)) (pair? (cddr rest)))
                      (caddr rest)
                      ""))
-               (when (member event '("registered" "unregistered"))
-                 (cond
-                   [(string=? event "registered")
-                    (hash-set! registrations (string-downcase name) registration-id)
-                    (set-box! reachable-box (set-add (unbox reachable-box) name))]
-                   [(equal? (hash-ref registrations (string-downcase name) #f) registration-id)
-                    (hash-remove! registrations (string-downcase name))
-                    (set-box! reachable-box (set-remove (unbox reachable-box) name))]))
-               (dm-notify dm event name registration-id)]))))
+               (heard-member event name registration-id)]))))
+  ;; The watch answers with the baseline: the rooms, then the registrations
+  ;; already current when the watch began, then a count. A member who
+  ;; registered before this vat watched is only reachable through that answer,
+  ;; because the directory tells watchers about registrations as they happen
+  ;; and does not repeat the earlier ones.
   (on (<- directory 'watch watcher)
-      void
+      (lambda (snapshot)
+        (when (and (list? snapshot) (>= (length snapshot) 2) (list? (cadr snapshot)))
+          (for ([row (in-list (cadr snapshot))])
+            (when (and (list? row) (= (length row) 2) (string? (car row)) (string? (cadr row)))
+              (heard-member "registered" (car row) (cadr row))))))
       #:catch (lambda (err) (say "! could not watch the directory: ~v" err))))
 
 (chat-vat
@@ -258,23 +280,23 @@
          #:catch (lambda (err) (say "! list: ~v" err) (done))))))
 
 (define (post text)
-  (define room (unbox room-box))
-  (if room
+  (define seat (unbox seat-box))
+  (if seat
       (typed-command
        (lambda (done)
-         (on (<- room 'post text)
+         (on (<- seat 'post text)
              (lambda (_posted) (done))
              #:catch (lambda (err) (say "! post: ~v" err) (done)))))
       (say "! you are not in a room; /enter <name> first")))
 
 (define (leave-room)
-  (define room (unbox room-box))
+  (define seat (unbox seat-box))
   (cond
-    [room
-     (set-box! room-box #f)
+    [seat
+     (set-box! seat-box #f)
      (typed-command
       (lambda (done)
-        (on (<- room 'leave)
+        (on (<- seat 'leave)
             (lambda (_left) (say "* you left the room") (done))
             #:catch (lambda (err) (say "! leave: ~v" err) (done)))))]
     [else (say "! you are not in a room")]))

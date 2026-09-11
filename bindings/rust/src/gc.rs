@@ -1,4 +1,6 @@
-//! Distributed GC (ADR-0063), opt-in and off by default. Owns the
+//! Host reference, vow, and abandoned-reply retirement. Distributed reference
+//! GC (ADR-0063) is opt-in; vow and deferred-reply cleanup are always active.
+//! Owns the
 //! [`CapabilityGuard`] death rite, recursive application-value tracking, and the
 //! `glowcap_host_ref_release` drain. Session holds only the opt-in flag; the
 //! Host owns the pending queue because a Ref may outlive its arrival session.
@@ -89,11 +91,21 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 	}
 	loop {
 		let Some(vow) = host.vow_gc_pending.borrow().front().copied() else {
-			return Ok(());
+			break;
 		};
 		host.abandon_vow(vow);
 		crate::host::check_host(unsafe { ffi::glowcap_host_vow_release(host.raw(), vow) })?;
 		host.vow_gc_pending.borrow_mut().pop_front();
+	}
+	loop {
+		let Some(resolver) = host.resolver_abandon_pending.borrow().front().copied() else {
+			return Ok(());
+		};
+		let reason = b"deferred reply owner was dropped";
+		crate::host::check_host(unsafe {
+			ffi::glowcap_host_resolver_abandon(host.raw(), resolver, reason.as_ptr(), reason.len())
+		})?;
+		host.resolver_abandon_pending.borrow_mut().pop_front();
 	}
 }
 
@@ -101,18 +113,15 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 pub(crate) fn retire(host: &HostShared) {
 	host.gc_pending.borrow_mut().clear();
 	host.vow_gc_pending.borrow_mut().clear();
+	host.resolver_abandon_pending.borrow_mut().clear();
 }
 
-/// Build a [`CapabilityGuard`] when GC is on.
-pub(crate) fn guard_for_ref(session: &Rc<SessionShared>, id: u64) -> Option<Rc<CapabilityGuard>> {
-	if !session.gc.get() {
-		return None;
-	}
-	Some(Rc::new(CapabilityGuard {
+pub(crate) fn owned_guard(host: &Rc<HostShared>, id: u64) -> Rc<CapabilityGuard> {
+	Rc::new(CapabilityGuard {
 		token: id,
-		host: Rc::downgrade(&session.host),
+		host: Rc::downgrade(host),
 		armed: Cell::new(true),
-	}))
+	})
 }
 
 pub(crate) fn disarm(reference: &Ref) {
@@ -130,27 +139,30 @@ pub(crate) fn track_argument(shared: &Rc<SessionShared>, argument: &mut Argument
 	if !shared.gc.get() {
 		return;
 	}
+	track_owned_argument(&shared.host, argument);
+}
+
+/// Track an application-owned projection, independent of a Session opt-in.
+pub(crate) fn track_owned_argument(host: &Rc<HostShared>, argument: &mut Argument) {
 	match argument {
 		Argument::Reference(reference) => {
 			if reference.guard().is_none() {
-				if let Some(guard) = guard_for_ref(shared, reference.id()) {
-					reference.attach_guard(guard);
-				}
+				reference.attach_guard(owned_guard(host, reference.id()));
 			}
 		}
 		Argument::List(items) | Argument::Set(items) => {
 			for item in items {
-				track_argument(shared, item);
+				track_owned_argument(host, item);
 			}
 		}
 		Argument::Tagged { value, .. } => {
 			for item in value {
-				track_argument(shared, item);
+				track_owned_argument(host, item);
 			}
 		}
 		Argument::Struct(entries) => {
 			for (_, value) in entries {
-				track_argument(shared, value);
+				track_owned_argument(host, value);
 			}
 		}
 		Argument::Integer(_)
@@ -210,10 +222,12 @@ mod tests {
 		let host = owner.shared();
 		host.gc_pending.borrow_mut().push_back(17);
 		host.vow_gc_pending.borrow_mut().push_back(19);
+		host.resolver_abandon_pending.borrow_mut().push_back(23);
 
 		retire(&host);
 
 		assert!(host.gc_pending.borrow().is_empty());
 		assert!(host.vow_gc_pending.borrow().is_empty());
+		assert!(host.resolver_abandon_pending.borrow().is_empty());
 	}
 }

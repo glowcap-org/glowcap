@@ -11,7 +11,9 @@ use std::rc::Rc;
 use crate::context::ContextInner;
 use crate::host::{check_host, HostShared};
 use crate::session_shared::SessionShared;
-use crate::sys::{self, driver::GlowcapDriverLoop, host as ffi_host};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::sys::driver::GlowcapDriverLoop;
+use crate::sys::{self, host as ffi_host};
 use crate::{Error, FailureLayer, FailureScope, Result};
 
 enum PendingRelease {
@@ -21,6 +23,7 @@ enum PendingRelease {
 		context: Option<Rc<ContextInner>>,
 		refusal_reported: bool,
 	},
+	#[cfg(not(target_arch = "wasm32"))]
 	Driver {
 		raw: *mut GlowcapDriverLoop,
 		context: Option<Rc<ContextInner>>,
@@ -35,6 +38,7 @@ enum PendingRelease {
 	},
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct FailedDriverCompletion {
 	host: Rc<HostShared>,
 	failure: Error,
@@ -52,6 +56,7 @@ fn record(context: Option<&Rc<ContextInner>>, layer: FailureLayer, operation: &s
 	}
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn retain_driver_release_failure(primary: Error, outcome: Result<()>) -> Error {
 	match outcome {
 		Ok(()) => primary,
@@ -73,6 +78,7 @@ pub(crate) fn park_host(raw: *mut ffi_host::GlowcapHost, context: Option<Rc<Cont
 	});
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn park_driver(raw: *mut GlowcapDriverLoop, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Driver {
@@ -87,6 +93,7 @@ pub(crate) fn park_driver(raw: *mut GlowcapDriverLoop, context: Option<Rc<Contex
 /// Retain a refused live-loop release together with the wrapper state that can
 /// retire only after a later consuming attempt. The first failure is already
 /// the Host close result; retries preserve it rather than reporting duplicates.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn park_failed_driver(
 	raw: *mut GlowcapDriverLoop,
 	context: Option<Rc<ContextInner>>,
@@ -103,6 +110,7 @@ pub(crate) fn park_failed_driver(
 	});
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn discard_host_sessions(host: &Rc<HostShared>) {
 	PENDING.with(|pending| {
 		pending
@@ -177,6 +185,7 @@ pub(crate) fn drain() {
 					});
 				}
 			}
+			#[cfg(not(target_arch = "wasm32"))]
 			PendingRelease::Driver {
 				raw,
 				context,

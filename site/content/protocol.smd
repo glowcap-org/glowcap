@@ -23,7 +23,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | Message | What it does |
 | --- | --- |
 | `op:start-session` | Opens a session. Each side announces its location and the keys that bind the connection. |
-| `op:deliver` | Calls a method on a reference and registers an answer, so the caller holds a promise as soon as the call goes out. |
+| `op:deliver` | Calls a method on a reference. With an answer position the caller holds a promise; with `#f` it is a one-way send. |
 | `op:resolve` | Settles a promise to its final value, or to a break if the call failed. |
 | `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
 | `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
@@ -75,7 +75,7 @@ ocapn://<64 hex chars>.noise-tcp?direct-addresses=127.0.0.1%3A9099
 ocapn://127.0.0.1%3A46659.tcp
 ```
 
-The prototype `id` locator bundles several such routes under one durable key;
+The `id` locator bundles several such routes under one durable key;
 [Multi-home peers]($link.page('multihome')) covers it.
 
 If a name here is new, start with [Concepts]($link.page('concepts')).

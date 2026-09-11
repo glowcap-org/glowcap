@@ -167,13 +167,25 @@ export async function run(
 	// open this press is also what puts the card there, and the caret has to
 	// wait for that; the same hand-over from the menu's last row, where the
 	// card is already up, is proved in `opening.ts`.
-	if (await tab.evaluate(() => document.activeElement?.id ?? "") !== "locator") {
-		fail("changing directory from the rail left the reader in front of the card with the caret nowhere");
+	const focus = await tab.evaluate(() => ({
+		active: document.activeElement?.id ?? "",
+		activeTag: document.activeElement?.tagName ?? "",
+		activeText: document.activeElement?.textContent ?? "",
+		activeClass: (document.activeElement as HTMLElement | null)?.className ?? "",
+		activeRole: document.activeElement?.getAttribute("role") ?? "",
+		locatorVisible: (document.getElementById("locator") as HTMLElement | null)?.checkVisibility() ?? false,
+		panelVisible: (document.getElementById("newRoom") as HTMLElement | null)?.checkVisibility() ?? false,
+	}));
+	if (focus.active !== "locator") {
+		fail(
+			`changing directory from the rail left the reader in front of the card with the caret nowhere: ${
+				JSON.stringify(focus)
+			}`,
+		);
 	}
 	await tab.fill("#locator", foreignLocator);
 	await tab.fill("#nick", "bo");
-	await reachDirectoryOnCard(tab);
-	await tab.click("#joinBtn");
+	if (await reachDirectoryOnCard(tab, "elsewhere") === "question") await tab.click("#joinBtn");
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
 		.catch(() => fail("a directory that had been left could not be reached again"));
 	await openDirectoryCardFromCaption(tab, aboutOf("elsewhere"));

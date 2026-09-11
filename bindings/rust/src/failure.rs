@@ -215,6 +215,12 @@ impl Error {
 		self.detail.as_deref()
 	}
 
+	/// The bootstrap rejected an unknown publication. Keep this exact protocol
+	/// refusal distinct from an application break or a transport failure.
+	pub fn is_publication_not_found(&self) -> bool {
+		self.kind() == ErrorKind::Broken && self.message() == Some("unknown swissnum")
+	}
+
 	/// The typed abort cause the connection recorded when this failure refused
 	/// an inbound frame; `None` for other failures. The flat
 	/// [`code`](Error::code) names the failure family; this names the member.
@@ -247,7 +253,7 @@ impl Error {
 		self
 	}
 
-	#[cfg(feature = "async")]
+	#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 	pub(crate) fn with_carrier_failure(mut self, carrier: Option<CarrierFailure>) -> Self {
 		self.carrier = carrier;
 		self
@@ -327,6 +333,14 @@ impl std::fmt::Display for Error {
 	}
 }
 impl std::error::Error for Error {}
+
+/// Channel realizers use the same I/O failure projection as the byte pump.
+#[cfg(feature = "async")]
+impl From<std::io::Error> for Error {
+	fn from(error: std::io::Error) -> Self {
+		crate::session_shared::io_err(error)
+	}
+}
 
 /// The crate's result type: every fallible call fails with a typed [`Error`].
 pub type Result<T> = core::result::Result<T, Error>;

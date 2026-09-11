@@ -27,6 +27,7 @@ import {
 	INTERNAL,
 	INTEROP_CAPTP_VERSION as ABI_INTEROP_CAPTP_VERSION,
 	INTEROP_CODEC as ABI_INTEROP_CODEC,
+	INVALID_ARGUMENT,
 	IROH_REACH_DIRECT,
 	IROH_REACH_DISCOVERY,
 	IROH_REACH_DISCOVERY_NO_RELAY,
@@ -281,8 +282,8 @@ export class Ref {
 	}
 
 	// Set by Session.release. Not a memory flag: release deliberately spends the
-	// application's retain. The Host generation makes the stale id fail closed,
-	// and the binding refuses it before crossing the ABI.
+	// application's retain. Other occurrences may keep the same Host id live,
+	// so local dispatch and ABI projection both check this occurrence's flag.
 	#released = false;
 
 	/** True once {@link Session.release} has given this capability back. */
@@ -310,6 +311,15 @@ export class Ref {
  * native capability handle. */
 export function refFromId(id: bigint): Ref {
 	return mintRef(id);
+}
+
+/** Binding-internal use check shared by local dispatch and ABI projection.
+ * Equality and release bookkeeping still read the immutable identity. */
+export function liveRefId(ref: Ref): bigint {
+	if (ref.released) {
+		throw new GlowcapError(INVALID_ARGUMENT, "this capability was released and is no longer usable");
+	}
+	return ref.id;
 }
 
 /** A behavior's tail-forward of its answer to another capability, the

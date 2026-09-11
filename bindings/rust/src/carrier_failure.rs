@@ -1,6 +1,6 @@
 //! Typed, vendor-neutral projection of a native carrier failure location.
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 use crate::{Error, Result};
 
 #[non_exhaustive]
@@ -24,7 +24,7 @@ pub struct CarrierFailure {
 	pub engine_code: Option<i32>,
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 pub(crate) fn decode(
 	phase: u32,
 	detail_flags: u32,
@@ -66,7 +66,7 @@ pub(crate) fn decode(
 	}))
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 fn invalid(detail: &str) -> Error {
 	Error::with_detail(crate::sys::ERR_INTERNAL, format!("driver returned {detail}"))
 }

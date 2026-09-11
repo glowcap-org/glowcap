@@ -162,11 +162,15 @@ pub fn installListener(
 }
 
 /// Retain one POD listener on a known answer, bounded before lazy allocation.
+/// The entry owns one session-held retain on its listener import
+/// (`Session.retainImportForSession`), spent by the fire or discard that
+/// consumes it.
 pub fn installListenerNamed(
     self: *Session,
     answer_position: model.AnswerName,
     listener: ListenerEntry,
 ) !void {
+    std.debug.assert(self.listenerRetainHeld(listener.listener));
     const target = self.answerTargetNamed(answer_position) orelse return Error.InvalidReference;
     var prepared = try prepareListenerBatchTarget(self, target, 1);
     errdefer prepared.abandon(self);

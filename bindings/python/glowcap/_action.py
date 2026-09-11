@@ -84,76 +84,88 @@ def _park_actions(host) -> tuple[list[HostAction], bool]:
     return parked, yielded.value != 0
 
 
-async def _run_action(host, action: HostAction) -> None:
-    # The executor is deliberately dumb: every decision was already made in
-    # the core; each arm is pure I/O or marshalling. The kind inventory lives
-    # in generated `dispatch` — a new kind fails generate/check.
-    class _Handlers:
-        async def dial(self, a: Dial) -> None:
-            # A popped DIAL is no longer owned by the native action queue. Hand
-            # it to the Host before returning so teardown can cancel and join it
-            # without serializing this drain behind network establishment.
-            from ._dial import run_dial_ticket
+class _Handlers:
+    """The executor for popped host actions. Deliberately dumb: every decision
+    was already made in the core; each arm is pure I/O or marshalling. The
+    kind inventory lives in generated ``dispatch``, so a new kind fails
+    generate/check. One instance per Host: building this table per action
+    cost more than the action it dispatched."""
 
-            host.start_dial_task(
-                a.ticket,
-                a.route_index,
-                lambda: run_dial_ticket(host, a.ticket, a.route_index),
-            )
+    __slots__ = ("_host",)
 
-        async def cancel_dial(self, a: CancelDial) -> None:
-            await host.cancel_dial_task(a.ticket, a.route_index)
+    def __init__(self, host) -> None:
+        self._host = host
 
-        async def flush(self, a: Flush) -> None:
-            session = host.get_session(a.session_ptr)
-            if session is not None:
-                try:
-                    await session.flush_outbound()
-                except BaseException:
-                    # Session.flush_outbound retained the exact first cause and
-                    # retired this stream. Do not fail an unrelated Host drain.
-                    pass
+    async def dial(self, a: Dial) -> None:
+        # A popped DIAL is no longer owned by the native action queue. Hand
+        # it to the Host before returning so teardown can cancel and join it
+        # without serializing this drain behind network establishment.
+        from ._dial import run_dial_ticket
 
-        async def close(self, a: Close) -> None:
-            session = host.get_session(a.session_ptr)
-            if session is not None:
-                try:
-                    await session.flush_outbound()
-                except Exception:  # noqa: BLE001 — the session is ending either way
-                    # Session.flush_outbound owns terminal failure state.
-                    pass
-                session.close_transport()
-                session._finish_close(a.result)
+        self._host.start_dial_task(
+            a.ticket,
+            a.route_index,
+            lambda: run_dial_ticket(self._host, a.ticket, a.route_index),
+        )
 
-        async def need_gift_id(self, a: NeedGiftId) -> None:
-            def provide(gift_id: bytes) -> None:
-                buf, ptr = _byte_buf(gift_id)
-                _check_host(
-                    _host.glowcap_host_provide_gift_id(
-                        host.raw,
-                        a.ticket,
-                        ptr,
-                        32,
-                    )
+    async def cancel_dial(self, a: CancelDial) -> None:
+        await self._host.cancel_dial_task(a.ticket, a.route_index)
+
+    async def flush(self, a: Flush) -> None:
+        session = self._host.get_session(a.session_ptr)
+        if session is not None:
+            try:
+                await session.flush_outbound()
+            except Exception:  # noqa: BLE001 — the session owns this failure
+                # Session.flush_outbound retained the exact first cause and
+                # retired this stream. Do not fail an unrelated Host drain.
+                # Cancellation is not the session's failure: it is this drain
+                # being stopped, and it propagates like the close arm's.
+                pass
+
+    async def close(self, a: Close) -> None:
+        session = self._host.get_session(a.session_ptr)
+        if session is not None:
+            try:
+                await session.flush_outbound()
+            except Exception:  # noqa: BLE001 — the session is ending either way
+                # Session.flush_outbound owns terminal failure state.
+                pass
+            session.close_transport()
+            session._finish_close(a.result)
+
+    async def need_gift_id(self, a: NeedGiftId) -> None:
+        def provide(gift_id: bytes) -> None:
+            buf, ptr = _byte_buf(gift_id)
+            _check_host(
+                _host.glowcap_host_provide_gift_id(
+                    self._host.raw,
+                    a.ticket,
+                    ptr,
+                    32,
                 )
-
-            _answer_gift_id(
-                lambda: secrets.token_bytes(32),
-                provide,
-                lambda: _check_host(
-                    _host.glowcap_host_gift_id_failed(host.raw, a.ticket)
-                ),
             )
 
-        async def settle(self, a: Settle) -> None:
-            host.settle_vow(a.ticket, True, a.value)
+        _answer_gift_id(
+            lambda: secrets.token_bytes(32),
+            provide,
+            lambda: _check_host(
+                _host.glowcap_host_gift_id_failed(self._host.raw, a.ticket)
+            ),
+        )
 
-        async def fail(self, a: Fail) -> None:
-            host.settle_vow(a.ticket, False, _vow_failure(a.result, a.message))
+    async def settle(self, a: Settle) -> None:
+        self._host.settle_vow(a.ticket, True, a.value)
 
-        async def resume(self, a: Resume) -> None:
-            # The shared C pump reports this as `yielded` before dispatch; keep
-            # the exhaustive generated handler honest for direct callers.
-            _ = a
+    async def fail(self, a: Fail) -> None:
+        self._host.settle_vow(a.ticket, False, _vow_failure(a.result, a.message))
 
-    await dispatch(action, _Handlers())
+    async def resume(self, a: Resume) -> None:
+        # The shared C pump reports this as `yielded` before dispatch; keep
+        # the exhaustive generated handler honest for direct callers.
+        _ = a
+
+
+async def _run_action(host, action: HostAction) -> None:
+    await dispatch(action, host.action_handlers)
+

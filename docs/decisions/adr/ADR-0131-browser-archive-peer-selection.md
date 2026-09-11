@@ -7,7 +7,7 @@ decision: "A Rooms reader explicitly selects one whole-archive sturdyref in the 
 supersedes: []
 superseded_by: []
 amends: [ADR-0130]
-amended_by: [ADR-0132, ADR-0133, ADR-0136]
+amended_by: [ADR-0132, ADR-0133, ADR-0136, ADR-0144]
 ---
 
 # ADR-0131 Browser archive peer selection
@@ -50,6 +50,9 @@ remembered peer.
 
 When a remembered peer cannot be reached at startup, the page selects an
 unavailable target and says so. It does not write those lines to IndexedDB.
+(ADR-0144 later separated the read side: an unavailable peer no longer hides
+records the device store already holds, because the combined view's per-keeper
+attribution is the merge policy this record's fallback rejection asked for.)
 The same state change follows an operation that fails after the peer's session
 has ended; later operations refuse quickly until retry or an explicit return to
 the device recorder. A record refusal or unavailable blob remains local to that
@@ -92,7 +95,8 @@ only when the reader shares one direct conversation.
 
 `apps/rooms/test/archive/target_test.ts` proves serialized concurrent selection,
 ordered target retirement, post-commit cleanup refusal, operation-local failure,
-keeper attribution, and refusal without device fallback.
+keeper attribution, and write refusal without device fallback (ADR-0144 keeps
+reads of records the device already holds).
 `zig build rooms-web-archive` drives Chromium against a live iroh archive peer,
 writes direct-message history, closes the browser profile, and recovers the
 attributed line from the same sturdyref in a fresh profile.

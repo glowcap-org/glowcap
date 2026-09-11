@@ -58,26 +58,45 @@ test "rooms-peer untagged lines remain chat and self lines stay excluded" {
     try std.testing.expect(wire.roomLine(&own, "tree1") == null);
 }
 
-test "rooms-peer subscribe fulfillment accepts topic authority or intentional none" {
-    try std.testing.expectEqual(
-        wire.SubscribeSettlement.fulfilled,
-        wire.classifySubscribeSettlement(.{ .fulfilled = .{ .reference = farRef(9) } }),
-    );
-    try std.testing.expectEqual(
-        wire.SubscribeSettlement.fulfilled,
-        wire.classifySubscribeSettlement(.{ .fulfilled = .{ .void = {} } }),
-    );
+test "rooms-peer subscribe fulfillment yields the membership seat, with or without topic authority" {
+    const with_topic = wire.classifySubscribeSettlement(.{ .fulfilled = .{ .list = &.{
+        .{ .reference = farRef(9) },
+        .{ .string = "participant" },
+        .{ .reference = farRef(10) },
+    } } });
+    try std.testing.expect(with_topic == .fulfilled);
+    try std.testing.expectEqual(@as(u64, 9), with_topic.fulfilled.far.import_position.int());
+    const no_topic = wire.classifySubscribeSettlement(.{ .fulfilled = .{ .list = &.{
+        .{ .reference = farRef(9) },
+        .{ .string = "observer" },
+        .{ .void = {} },
+    } } });
+    try std.testing.expect(no_topic == .fulfilled);
+    try std.testing.expectEqual(@as(u64, 9), no_topic.fulfilled.far.import_position.int());
 }
 
 test "rooms-peer subscribe refusal and malformed fulfillment stay failures" {
-    try std.testing.expectEqual(
-        wire.SubscribeSettlement.refused,
-        wire.classifySubscribeSettlement(.{ .broken = "nick-taken" }),
+    try std.testing.expect(wire.classifySubscribeSettlement(.{ .broken = "nick-taken" }) == .refused);
+    try std.testing.expect(
+        wire.classifySubscribeSettlement(.{ .fulfilled = .{ .string = "invalid settlement" } }) == .malformed,
     );
-    try std.testing.expectEqual(
-        wire.SubscribeSettlement.malformed,
-        wire.classifySubscribeSettlement(.{ .fulfilled = .{ .string = "invalid settlement" } }),
+    // The old contract answered the topic authority alone; a bare reference or
+    // void is no longer a seat and must not publish a joined state.
+    try std.testing.expect(wire.classifySubscribeSettlement(.{ .fulfilled = .{ .reference = farRef(9) } }) == .malformed);
+    try std.testing.expect(wire.classifySubscribeSettlement(.{ .fulfilled = .{ .void = {} } }) == .malformed);
+    try std.testing.expect(
+        wire.classifySubscribeSettlement(.{ .fulfilled = .{ .list = &.{.{ .string = "no seat" }} } }) == .malformed,
     );
+    try std.testing.expect(wire.classifySubscribeSettlement(.{ .fulfilled = .{ .list = &.{
+        .{ .reference = farRef(9) },
+        .{ .string = "speaker" },
+        .{ .void = {} },
+    } } }) == .malformed);
+    try std.testing.expect(wire.classifySubscribeSettlement(.{ .fulfilled = .{ .list = &.{
+        .{ .reference = farRef(9) },
+        .{ .string = "participant" },
+        .{ .string = "no topic capability" },
+    } } }) == .malformed);
 }
 
 test "rooms-peer inbox persistence failure reaches process diagnostics" {

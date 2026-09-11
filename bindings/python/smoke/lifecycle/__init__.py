@@ -39,6 +39,7 @@ from .close import (
     _repeated_host_close_observes_recorded_timeout as _repeated_host_close_observes_recorded_timeout,
     _session_wire_failure_is_exact_and_retired as _session_wire_failure_is_exact_and_retired,
     _silent_loop_dial_reaches_native_handshake_deadline as _silent_loop_dial_reaches_native_handshake_deadline,
+    _observe_session_retirement_without_serve_or_close as _observe_session_retirement_without_serve_or_close,
 )
 from .session_coordinator import (
     cancelled_close_waiter_preserves_transport_coordinator as cancelled_close_waiter_preserves_transport_coordinator,

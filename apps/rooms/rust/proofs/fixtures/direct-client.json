@@ -1,0 +1,590 @@
+[
+  {
+    "name": "empty",
+    "verb": "dm",
+    "args": [
+      ""
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 0,
+      "reply": false,
+      "files": 0
+    }
+  },
+  {
+    "name": "text",
+    "verb": "dm",
+    "args": [
+      "hello"
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 5,
+      "reply": false,
+      "files": 0
+    }
+  },
+  {
+    "name": "reply",
+    "verb": "dm",
+    "args": [
+      "hello",
+      {
+        "capability": true
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 5,
+      "reply": true,
+      "files": 0
+    }
+  },
+  {
+    "name": "files",
+    "verb": "dm",
+    "args": [
+      "hello",
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 5,
+      "reply": false,
+      "files": 1
+    }
+  },
+  {
+    "name": "reply files",
+    "verb": "dm",
+    "args": [
+      "hello",
+      {
+        "capability": true
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 5,
+      "reply": true,
+      "files": 1
+    }
+  },
+  {
+    "name": "hostile suffix",
+    "verb": "dm",
+    "args": [
+      "hello",
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "bad",
+      {
+        "capability": true
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 5,
+      "reply": false,
+      "files": 1
+    }
+  },
+  {
+    "name": "nested reply",
+    "verb": "dm",
+    "args": [
+      "hello",
+      [
+        {
+          "capability": true
+        }
+      ]
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 5,
+      "reply": false,
+      "files": 0
+    }
+  },
+  {
+    "name": "nine files",
+    "verb": "dm",
+    "args": [
+      "hello",
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      },
+      "file",
+      "note",
+      "text/plain",
+      {
+        "integer": "3"
+      },
+      {
+        "capability": true
+      },
+      {
+        "integer": "0"
+      },
+      {
+        "integer": "0"
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 5,
+      "reply": false,
+      "files": 8
+    }
+  },
+  {
+    "name": "missing text",
+    "verb": "dm",
+    "args": [],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "wrong text",
+    "verb": "dm",
+    "args": [
+      {
+        "capability": true
+      }
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "byte boundary",
+    "verb": "dm",
+    "args": [
+      {
+        "text": "é",
+        "count": 4096
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "message",
+      "bytes": 8192,
+      "reply": false,
+      "files": 0
+    }
+  },
+  {
+    "name": "byte overflow",
+    "verb": "dm",
+    "args": [
+      {
+        "text": "é",
+        "count": 4097
+      }
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "ready",
+    "verb": "directReady",
+    "args": [
+      {
+        "capability": true
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "ready"
+    }
+  },
+  {
+    "name": "ready extra",
+    "verb": "directReady",
+    "args": [
+      {
+        "capability": true
+      },
+      {
+        "capability": true
+      }
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "ready nested",
+    "verb": "directReady",
+    "args": [
+      [
+        {
+          "capability": true
+        }
+      ]
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "typing",
+    "verb": "typing",
+    "args": [
+      true
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "typing",
+      "on": true
+    }
+  },
+  {
+    "name": "typing extra",
+    "verb": "typing",
+    "args": [
+      true,
+      {
+        "capability": true
+      }
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "typing wrong",
+    "verb": "typing",
+    "args": [
+      1
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "hand room",
+    "verb": "handRoom",
+    "args": [
+      "label",
+      {
+        "capability": true
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "handRoom",
+      "label": "label"
+    }
+  },
+  {
+    "name": "hand wrong",
+    "verb": "handRoom",
+    "args": [
+      "label",
+      "link"
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "offer room",
+    "verb": "offerRoom",
+    "args": [
+      "label",
+      "link"
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "offerRoom",
+      "label": "label",
+      "link": "link"
+    }
+  },
+  {
+    "name": "offer extra",
+    "verb": "offerRoom",
+    "args": [
+      "label",
+      "link",
+      {
+        "capability": true
+      }
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "hand archive",
+    "verb": "handArchive",
+    "args": [
+      "directory",
+      "direct",
+      null,
+      {
+        "capability": true
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "handArchive",
+      "directory": "directory",
+      "share": "direct",
+      "conversation": null
+    }
+  },
+  {
+    "name": "standing archive",
+    "verb": "handArchive",
+    "args": [
+      "directory",
+      "standing",
+      "conversation",
+      {
+        "capability": true
+      }
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "handArchive",
+      "directory": "directory",
+      "share": "standing",
+      "conversation": "conversation"
+    }
+  },
+  {
+    "name": "offer archive",
+    "verb": "offerArchive",
+    "args": [
+      "directory",
+      "room",
+      "conversation",
+      "link"
+    ],
+    "accepted": true,
+    "result": {
+      "kind": "offerArchive",
+      "directory": "directory",
+      "share": "room",
+      "conversation": "conversation",
+      "link": "link"
+    }
+  },
+  {
+    "name": "bad kind",
+    "verb": "handArchive",
+    "args": [
+      "directory",
+      "unknown",
+      null,
+      {
+        "capability": true
+      }
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "bad conversation",
+    "verb": "handArchive",
+    "args": [
+      "directory",
+      "room",
+      true,
+      {
+        "capability": true
+      }
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "bad offer",
+    "verb": "offerArchive",
+    "args": [
+      "directory",
+      "room",
+      null,
+      {
+        "capability": true
+      }
+    ],
+    "accepted": false,
+    "result": null
+  },
+  {
+    "name": "unknown",
+    "verb": "unknown",
+    "args": [
+      {
+        "capability": true
+      }
+    ],
+    "accepted": false,
+    "result": null
+  }
+]

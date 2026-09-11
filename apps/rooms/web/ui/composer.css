@@ -127,6 +127,10 @@
 .composer .hint {
 	font-size: var(--type-tiny);
 }
+/* The keys and syntax the hint names stand out by weight and ink alone. */
+.composer .hint b {
+	color: var(--ink);
+}
 /* The shortcut hint appears while the field has the caret and nothing typed
    yet: it teaches the first keystroke, and once words are down it is furniture
    under them. The room's cap stays as long as the caret does, because it is
@@ -183,15 +187,18 @@
 	flex-direction: column;
 	gap: var(--gap-line);
 	border: 1px solid var(--rule);
-	border-radius: var(--radius-card);
+	/* The well's corner: this is a box holding controls, and the card radius
+	   made it read as a second card under the conversation. */
+	border-radius: var(--radius-well);
 	padding: 8px;
 	background: var(--paper-raised);
 	/* A card resting on the column, which it can be now that the fade behind it
 	   is what ends the conversation. It used to carry two pixels of paper as a
 	   ring, because it was the only opaque thing in the band and its four corner
 	   arcs let messages through. With paper already behind it, the ring was
-	   filling notches that are no longer there. */
-	box-shadow: var(--shadow);
+	   filling notches that are no longer there. It rests rather than floats:
+	   --lift, not the menu's --shadow. */
+	box-shadow: var(--lift);
 }
 /* A field nobody can type in. Resting on the column is how this card says a
    message can be written here, so when one cannot be it stops resting: flat
@@ -225,9 +232,12 @@
 .composer-actions-left {
 	gap: var(--gap-hair);
 }
+/* The field with the caret is the lantern: the ring, and in syrup the bloom
+   from page.css around it, so the one place on the page you can act is also
+   the one place giving off light. */
 .composer form:focus-within {
 	border-color: var(--accent);
-	box-shadow: var(--ring);
+	box-shadow: var(--lift), var(--ring), var(--glow);
 }
 .composer textarea {
 	flex: 1;

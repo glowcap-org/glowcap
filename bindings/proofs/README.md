@@ -18,6 +18,7 @@ are in [`interop/_common/`](../../interop/_common/).
 | [`iroh_redeem_posture/`](iroh_redeem_posture/) | The recipient's redeem policy controls a hint-free iroh handoff | `zig build bindings-iroh-redeem-posture` and language siblings |
 | [`keyed_relay_rendezvous/`](keyed_relay_rendezvous/) | A binding cold-dials a registered non-listening peer through the reference relay's rendezvous bridge ([ADR-0088](../../docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)) | `zig build bindings-keyed-relay-rendezvous` and language siblings |
 | [`noise_relay_listen/`](noise_relay_listen/) | Each binding registers a durable key, advertises its relay locator, and serves a Noise-sealed session dialed by one fixed client | `zig build bindings-noise-relay-listen` and language siblings |
+| [`verb_spine/`](verb_spine/) | The promise, dial, listen, and GC verbs walked as behavior against one fixed peer. A far send's handle and its `index`/`untag`/`get` projections, the settled failure a send that could never be issued returns, a typed dial refusal, a listener served and closed, and a released capability refused afterwards | `zig build bindings-verb-spine` and language siblings |
 
 `zig build source-check` also reads these scripts. Every wrapped
 `glowcap_host_*` verb must appear in a script that a build step runs.

@@ -6,7 +6,7 @@ import type { OperatorReferenceKind, OperatorResetScope } from "../../../lib/ope
 import type { RoomsSessionFacet } from "../../../lib/session/client.ts";
 import type { BridgeForm } from "../../../lib/bridge/form.ts";
 import type { RoomAuthorityKind } from "../../../lib/room/authority.ts";
-import type { RoomPolicy } from "../../../lib/room/policy.ts";
+import type { RoomPolicy } from "../room_policy.ts";
 import type { DirId, DmConv, OperatorCategory, OpsCap, RoomDestination, ViewerDirection } from "../types.ts";
 
 export interface RoomsDirectoryController {

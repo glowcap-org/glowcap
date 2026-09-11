@@ -1,5 +1,5 @@
 {
-	"//": "The complete Rooms browser bundle map. Deno config inheritance does not merge import maps, so this application names both the binding-owned browser adapters and its own UI dependencies. source-check holds the adapter half against bindings/ts/web/browser-bundle.json, and browser_bundle_test.ts rejects host-runtime imports in the built artifact.",
+	"//": "Rooms runs its application and transports in Rust Wasm. This map contains generated ABI constants, runtime-free JavaScript cleanup, and presentation dependencies. The independent TypeScript binding owns its own browser map.",
 	"compilerOptions": {
 		"jsx": "react-jsx",
 		"jsxImportSource": "react",
@@ -7,19 +7,7 @@
 	},
 	"imports": {
 		"@glowcap/abi": "../../../bindings/ts/abi/constants.ts",
-		"@glowcap/web": "../../../bindings/ts/web/mod.ts",
-		"@glowcap/runtime": "../../../bindings/ts/runtime/mod.ts",
-		"@glowcap/runtime/websocket": "../../../bindings/ts/runtime/websocket.ts",
-		"@glowcap/runtime/ffi": "../../../bindings/ts/web/browser_ffi.ts",
-		"@glowcap/runtime/transport": "../../../bindings/ts/runtime/transport.ts",
-		"@glowcap/relay": "../../../bindings/ts/relay/mod.ts",
-		"@glowcap/iroh": "../../../bindings/ts/web/browser_iroh_stub.ts",
-		"@glowcap/iroh/internal": "../../../bindings/ts/web/browser_iroh_stub.ts",
-		"@glowcap/webrtc": "../../../bindings/ts/webrtc/mod.ts",
-		"@glowcap/webrtc/channel": "../../../bindings/ts/webrtc/channel.ts",
-		"@glowcap/tcp": "../../../bindings/ts/tcp/mod.ts",
-		"node:net": "../../../bindings/ts/web/browser_ffi_stubs.ts",
-		"bun:ffi": "../../../bindings/ts/web/browser_ffi_stubs.ts",
+		"@glowcap/runtime/cleanup": "../../../bindings/ts/runtime/cleanup.ts",
 		"react": "npm:react@19.2.8",
 		"@types/react": "npm:@types/react@19.2.18",
 		"@types/react-dom": "npm:@types/react-dom@19.2.4",

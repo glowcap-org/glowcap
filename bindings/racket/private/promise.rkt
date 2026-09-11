@@ -24,12 +24,13 @@
 ;; eagerly requires this module; pump lazy-requires session).
 (lazy-require
  ["session.rkt" (session-flush!)]
- ["pump.rkt" (pump-until with-host-drain)]
-["gc.rkt" (session-gc-enabled? track-argument! track-vow! park-vow-release!)]
- ["action.rkt" (drain-host-actions!)])
+ ["pump.rkt" (pump-until)]
+ ["gc.rkt" (session-gc-enabled? track-argument! track-vow! park-vow-release! release-host-unit!)])
 
 (provide (struct-out session-vow)
          listen-far
+         failed-vow
+         issue-through-handle
          adopt-minted-vow!
          settle-vow!
          session-vow-listen!
@@ -84,6 +85,29 @@
      (hash-remove! (host-vows m) id)
      (park-vow-release! m id armed))))
 
+;; A handle for an operation this session could never issue. The far verbs that
+;; return a handle hand one of these back instead of raising, because a caller
+;; must be able to project at the answer before it settles, so those verbs
+;; cannot be the blocking kind. A promise-returning verb whose failure arrives
+;; as a raise puts the failure on a channel the caller's settle-side handler
+;; never watches, and the caller goes on using a route it thinks it cleared.
+;; The handle owns no native vow, so it carries no id, joins no host table,
+;; releases nothing, and is settled the moment it exists.
+(define (failed-vow c error)
+  (session-vow c #f (cons 'failed error) '() #f #f #f))
+
+;; Whether this handle stands for an operation that never left: the tell is the
+;; missing native vow id, which every issued operation has.
+(define (unissued-vow? v) (not (session-vow-id v)))
+
+;; Run one handle-returning verb and report a synchronous issue failure on the
+;; handle it returns. A break is the operator interrupting the program, not the
+;; session refusing the operation, so it still escapes.
+(define (issue-through-handle c thunk)
+  (with-handlers ([(lambda (raised) (not (exn:break? raised)))
+                   (lambda (raised) (failed-vow c raised))])
+    (thunk)))
+
 (define (release-vow! v)
   (define c (session-vow-session v))
   (when c
@@ -91,18 +115,17 @@
 
 (define (release-vow-from-host! m v)
   (define armed (session-vow-release-armed v))
-  (when (and armed (box-cas! armed #t #f))
-    (with-handlers ([(lambda (_) #t)
-                     (lambda (failure)
-                       (set-box! armed #t)
-                       (raise failure))])
-      (with-host-drain
-       m
-       (lambda ()
+  (when (and armed (unbox armed))
+    (release-host-unit!
+     m
+     (lambda ()
+       ;; Recheck under the Host lock, then spend only after native success.
+       ;; A refusal needs no rollback, and a later interruption cannot rearm.
+       (when (unbox armed)
          (check/host (glowcap_host_vow_release
                       (host-ptr m) (session-vow-id v)))
-         (hash-remove! (host-vows m) (session-vow-id v))
-         (drain-host-actions! m))))))
+         (set-box! armed #f)
+         (hash-remove! (host-vows m) (session-vow-id v)))))))
 
 (define (vow-entry-value entry)
   (cond
@@ -193,21 +216,28 @@
   (unless (session-vow? a-vow)
     (raise-glowcap 'session-project ERR-INVALID-ARGUMENT
                    "projection target is not a far vow: ~a" a-vow))
-  (unless (session-vow-pipeline-target? a-vow)
-    (raise-glowcap 'session-project ERR-INVALID-ARGUMENT
-                   "this vow is await-only and cannot be projected"))
-  (define home (session-vow-session a-vow))
-  (unless (and home (eq? (session-host home) m))
-    (raise-glowcap 'session-project ERR-INVALID-ARGUMENT
-                   "this vow belongs to another Host"))
-  (define projected
-    (call-with-host m
-      (lambda ()
-        (define-values (rc id) (mint m (session-vow-id a-vow)))
-        (check/host rc)
-        (adopt-minted-vow! m home id (session-gc-enabled? home) #t))))
-  (session-flush! home)
-  projected)
+  (cond
+    ;; Projecting at a handle whose own operation never left keeps that first
+    ;; failure. Calling this one "await-only" instead would send the caller off
+    ;; debugging the projection rather than the send that failed to issue.
+    [(unissued-vow? a-vow)
+     (failed-vow (session-vow-session a-vow) (cdr (session-vow-state a-vow)))]
+    [else
+     (unless (session-vow-pipeline-target? a-vow)
+       (raise-glowcap 'session-project ERR-INVALID-ARGUMENT
+                      "this vow is await-only and cannot be projected"))
+     (define home (session-vow-session a-vow))
+     (unless (and home (eq? (session-host home) m))
+       (raise-glowcap 'session-project ERR-INVALID-ARGUMENT
+                      "this vow belongs to another Host"))
+     (define projected
+       (call-with-host m
+         (lambda ()
+           (define-values (rc id) (mint m (session-vow-id a-vow)))
+           (check/host rc)
+           (adopt-minted-vow! m home id (session-gc-enabled? home) #t))))
+     (session-flush! home)
+     projected]))
 
 ;; Publish every registered far operation through the same post-mint progress
 ;; transition. Inside a behavior turn the Session parks the flush for unwind;
@@ -222,12 +252,22 @@
 ;; minted on another thread (or ahead of this await) cannot sit unsent while
 ;; both peers wait on the socket.
 (define (await-vow c v who label)
-  (session-flush! c)
-  (pump-until c
-              (lambda () (and (not (eq? (session-vow-state v) 'pending)) (session-vow-state v)))
-              who
-              #:closed-message (format "connection closed before ~a settled" label))
-  (define r (session-vow-state v))
+  (cond
+    ;; A handle for an operation that never left is already settled and owns no
+    ;; wire, so awaiting it reports the retained failure without a flush or a
+    ;; pump. That is what lets a caller read the outcome after the session it
+    ;; was refused on has closed.
+    [(unissued-vow? v) (settled-vow-value (session-vow-state v) who label)]
+    [else
+     (session-flush! c)
+     (pump-until c
+                 (lambda () (and (not (eq? (session-vow-state v) 'pending)) (session-vow-state v)))
+                 who
+                 #:closed-message (format "connection closed before ~a settled" label))
+     (settled-vow-value (session-vow-state v) who label)]))
+
+;; Classify one settled vow outcome for the caller awaiting it.
+(define (settled-vow-value r who label)
   (case (car r)
     [(ok) (cdr r)]
     [(failed) (raise (cdr r))]
@@ -316,6 +356,9 @@
         (define minted
           (cond
           [(session-vow? target)
+           ;; Sending at a handle whose own operation never left carries that
+           ;; first failure forward, for the reason projection does.
+           (when (unissued-vow? target) (raise (cdr (session-vow-state target))))
            (unless (session-vow-pipeline-target? target)
              (raise-glowcap 'session-send ERR-INVALID-ARGUMENT
                             "this vow is await-only and has no remote pipeline target"))

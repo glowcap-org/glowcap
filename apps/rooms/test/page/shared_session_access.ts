@@ -454,6 +454,7 @@ export async function proveObserveGrantIsAttenuatedThenRevoked(
 		fail(`lifting a pause did not give back the access it was issued with: ${await composerSaid(observing)}`)
 	);
 	await editing.getByRole("button", { name: "Close" }).click();
+	await editing.waitFor({ state: "detached" });
 
 	await grantToRevoke.getByRole("button", { name: "Revoke…" }).click();
 	await grantToRevoke.getByRole("button", { name: "Revoke access" }).click();

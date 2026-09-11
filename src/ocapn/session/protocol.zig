@@ -108,6 +108,17 @@ pub fn recordPreparedSend(self: *Session, message: model.Message) void {
     }
 }
 
+/// Record the session's own outbound `op:gc-exports`: the release paired with
+/// a listener fire or a V1.0 resolver callback, and the shortening closure a
+/// caller's release carries. Every entry spends a retain the session adopted
+/// (`adoptImportRetain`) for exactly this message, so it cannot fail where
+/// `recordSend` validates: a caller's release is bounded by
+/// `importReleasable`, and these retains sit outside that bound.
+pub fn recordSessionImportRelease(self: *Session, gc_export: model.GcExport) void {
+    std.debug.assert(self.state == .open);
+    apply.applySessionImportRelease(self, gc_export);
+}
+
 /// Record one semantic inbound-answer settlement whose identity may be a wire
 /// position or a session-local virtual answer. Consumes `resolution` always.
 pub fn recordSentResolutionNamed(
@@ -172,7 +183,7 @@ pub fn recordRecvView(self: *Session, body: model.view.Body) !void {
     }
 }
 
-/// Refuse an unnegotiated kind before an attacker-selected owned copy.
+/// Refuse an unnegotiated kind before a partner-chosen owned copy.
 fn refuseUnnegotiatedKind(self: *const Session, body: model.view.Body) Error!void {
     switch (body) {
         .gc_export, .gc_answer => if (!self.features.wire_delta)

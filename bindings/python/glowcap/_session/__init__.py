@@ -73,6 +73,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
         # Native byte-fed progress is a child effect of the terminal
         # coordinator and must outlive cancellation of any one close waiter.
         self._close_task: Optional[asyncio.Task[None]] = None
+        self._retirement = asyncio.Event()
         self._write_lock = asyncio.Lock()
         # Reused only under _write_lock. Payload bytes are still copied before
         # await because Python cannot retain the native frame across it.

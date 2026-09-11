@@ -50,7 +50,7 @@ import {
 import { RoomStewardship } from "./stewardship.ts";
 import { managedRoomIdentity } from "./manager.ts";
 import type { RoomAuthorityChange } from "./authority.ts";
-import { isRoomMembershipKind, type RoomMembershipKind } from "./membership.ts";
+import { readMembershipAnswer, type RoomMembershipKind } from "./membership.ts";
 import { RoomMessageStream } from "./message_stream.ts";
 import { settleCapabilityCleanup } from "../capability_cleanup.ts";
 import { roomInboxBehavior } from "./inbox.ts";
@@ -119,7 +119,6 @@ export class Room {
 	/** What subscribe's arrival said about this occupancy, when it said so. */
 	#listed: boolean | undefined;
 	#endedReason: string | null = null;
-	#arrived = false;
 	#arrivalSettled = false;
 	#arrivalFailure: Error | null = null;
 	#arrival: Promise<void>;
@@ -188,14 +187,13 @@ export class Room {
 		const endStream = () => self.#endStream();
 		void session.serve().then(endStream, endStream);
 
-		// Subscribe, handing the room a capability to our inbox. Success is the
-		// resolution — the room delivers the welcome and the roster as our first
-		// `notify`, not as a return value. A rejected claim (e.g. the nickname is taken)
+		// Subscribe, handing the room a capability to our inbox. The answer carries
+		// the membership seat, kind, and optional topic authority; the room delivers
+		// the welcome and roster as `notify` calls. A rejected claim (e.g. the nickname is taken)
 		// propagates; the connection stays open, the directory owns it, and the caller
 		// may try another room or close the session itself.
-		// The room may answer with the capability to say what it is about. Topic
-		// authority is optional: holding one is the question a client asks rather
-		// than inferring authority from a role or protocol version.
+		// Topic authority is optional: holding one is the question a client asks
+		// rather than inferring authority from a role or protocol version.
 		// The voucher rides only when the caller has one to present: a subscribe
 		// arriving on a connection that is not the name's registrar proves itself
 		// with it, and every other subscribe needs nothing.
@@ -207,13 +205,10 @@ export class Room {
 				options.voucher === undefined ? [nick, inbox] : [nick, inbox, options.voucher],
 				`the room did not answer ${nick} joining`,
 			);
-			if (
-				!Array.isArray(answer) || answer.length !== 3 || !(answer[0] instanceof Ref) ||
-				!isRoomMembershipKind(answer[1]) || (answer[2] !== null && !(answer[2] instanceof Ref))
-			) throw new Error("the room answered subscribe without one membership capability");
-			self.#membership = answer[0];
-			self.#membershipKind = answer[1];
-			self.#topic = answer[2];
+			const membership = readMembershipAnswer(session, answer);
+			self.#membership = membership.seat;
+			self.#membershipKind = membership.kind;
+			self.#topic = membership.topic;
 			await answerWithin(self.#arrival, `the room did not announce ${nick} arriving`, REQUEST_TIMEOUT_MS);
 			if (self.#arrivalFailure !== null) throw self.#arrivalFailure;
 			return self;
@@ -620,7 +615,6 @@ export class Room {
 	}
 
 	#arrive(): void {
-		this.#arrived = true;
 		this.#finishArrival(null);
 	}
 

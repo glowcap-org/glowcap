@@ -8,16 +8,8 @@
 
 import { type DirId, dirId, dirMarkIn, type DirView, type RoomDestination } from "./types.ts";
 import { directoryName } from "./text.ts";
-import { parseRoomsSturdyref, roomsAddress } from "../../lib/locator.ts";
-import { roomsPeerAuthority } from "../../lib/routes.ts";
-import {
-	OPEN_ROOM_POLICY,
-	PRIVATE_ROOM_POLICY,
-	type RoomPolicy,
-	type RoomPreset,
-	standingOffered,
-} from "../../lib/room/policy.ts";
-import { invalidArgumentOrThrow } from "./parse_failure.ts";
+import { applicationModule, inspectCapability, inspectDirectory } from "./application.ts";
+import { openRoomPolicy, privateRoomPolicy, type RoomPolicy, type RoomPreset, standingOffered } from "./room_policy.ts";
 import {
 	type Act,
 	type Answer,
@@ -54,7 +46,7 @@ export function directoryDestinationContext(
  * path it carries. The same tell `/join` uses, so the command and the join
  * card cannot disagree about what a paste is. */
 export function looksLikeRoomLink(value: string): boolean {
-	return value.trim().includes("/s/");
+	return askedJoin(value)?.kind === "link";
 }
 
 export function privateRoomNameRefusal(name: string, liveNames: Iterable<string>): string | null {
@@ -75,15 +67,8 @@ export function privateRoomNameRefusal(name: string, liveNames: Iterable<string>
  * "Anybody" as the first token. Words after the locator are a label; nothing
  * after it means the room should say what it is called. */
 export function joinLinkIn(asked: string): { link: string; label: string } | null {
-	const text = asked.trim();
-	const match = text.match(/ocapn:\/\/\S*\/s\/\S+/i);
-	if (match !== null && match.index !== undefined) {
-		const link = match[0];
-		return { link, label: text.slice(match.index + link.length).trim() };
-	}
-	if (!looksLikeRoomLink(text)) return null;
-	const [link, ...rest] = text.split(/\s+/);
-	return { link, label: rest.join(" ").trim() };
+	const destination = askedJoin(asked);
+	return destination?.kind === "link" ? { link: destination.link, label: destination.label } : null;
 }
 
 /** What `/join` does with its argument: take up a room link, or enter a room
@@ -94,10 +79,8 @@ export type AskedJoin =
 	| { kind: "name"; name: string };
 
 export function askedJoin(asked: string): AskedJoin | null {
-	const linked = joinLinkIn(asked);
-	if (linked !== null) return { kind: "link", link: linked.link, label: linked.label };
-	const name = asked.trim().replace(/^#/, "");
-	return name === "" ? null : { kind: "name", name };
+	const encoded = applicationModule().readRoomJoin(asked);
+	return encoded == null ? null : JSON.parse(encoded) as AskedJoin;
 }
 
 /** The conversation this tab is already in that a room link names, or null.
@@ -165,7 +148,7 @@ export function planJoinDestination(destination: RoomDestination): JoinDestinati
 			kind: "directory",
 			room: destination.room,
 			locator: destination.locator,
-			policy: destination.policy ?? (destination.hidden === true ? PRIVATE_ROOM_POLICY : OPEN_ROOM_POLICY),
+			policy: destination.policy ?? (destination.hidden === true ? privateRoomPolicy() : openRoomPolicy()),
 		};
 	}
 	const planned = roomLinkDestination(linked.link, linked.label);
@@ -180,19 +163,16 @@ export function roomLinkDestination(
 	link: string,
 	label: string,
 ): RoomLinkDestination | null {
-	try {
-		const exact = link.trim();
-		const { locator } = parseRoomsSturdyref(exact);
-		return {
-			kind: "room-link",
-			link: exact,
-			label,
-			directory: dirId(roomsPeerAuthority(locator)),
-			address: roomsAddress(locator),
-		};
-	} catch (error) {
-		return invalidArgumentOrThrow(error);
-	}
+	const exact = link.trim();
+	const route = inspectCapability(exact);
+	if (route == null) return null;
+	return {
+		kind: "room-link",
+		link: exact,
+		label,
+		directory: dirId(route.authority),
+		address: route.address,
+	};
 }
 
 /** Empty and this page's own locator are one destination: the field that means
@@ -468,8 +448,10 @@ function aimedAt(answers: JoinAnswers, where: string): string {
  * directory yet. */
 export function joinLocatorPlaceholder(address: string | null): string {
 	if (address == null) return JOIN_LOCATOR_SHAPE;
-	const locator = address.trim();
+	let locator = address.trim();
 	if (locator === "") return JOIN_LOCATOR_SHAPE;
+	// Preserve the shared route reader's TCP host:port display form.
+	locator = inspectDirectory(locator)?.address ?? locator;
 	return shortenLocator(locator);
 }
 

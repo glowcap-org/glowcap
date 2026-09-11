@@ -20,6 +20,7 @@
 
 import * as store from "./store.ts";
 import { stopBootAsides } from "./boot_note.ts";
+import type { MarkLive } from "./mark_gpu_live.ts";
 import type { PageProjection } from "./store/core.ts";
 
 /** The two states this module puts the document in. `running` closes the window
@@ -138,8 +139,48 @@ export function pageDidNotOpen(reason: string): void {
 	root.dataset.boot = "lost";
 }
 
+/** The opening screen's mark, from the moment the bundle asks for it: the
+ * promise of one, then the one it got, or null where this browser has no
+ * device to draw it with. Held so handover can stop it, and so the wait for
+ * one assembled beat can ask it rather than a stylesheet. */
+let openingMark: Promise<MarkLive | null> = Promise.resolve(null);
+
+/** Start the opening screen's mark: the shader mushroom, looping its play in
+ * the box page.html left for it.
+ *
+ * The box is empty until this runs. The mark is drawn by code, so nothing
+ * can draw it before the code arrives, and the mark growing up out of the
+ * ground is how its arrival reads. Called from the entry module rather than
+ * at import, because asking for a device is asynchronous and the screen must
+ * not wait on it to be a screen.
+ *
+ * The shader is fetched here rather than imported at the top, so that the
+ * WGSL and its driver are their own chunk: the opening screen exists to be on
+ * screen before anything else has loaded, and the mark has no business in the
+ * bytes it waits on. */
+export function startOpeningMark(): void {
+	if (typeof document === "undefined") return;
+	const box = document.querySelector<HTMLElement>("#boot .boot-mark");
+	if (box === null) return;
+	openingMark = import("./mark_gpu_live.ts").then((m) => m.start(box, "loop")).then((mark) => {
+		// The screen may already be gone by the time a device arrives.
+		if (mark !== null && (!box.isConnected || handedOver())) {
+			mark.stop();
+			return null;
+		}
+		return mark;
+	}).catch(() => {
+		// best-effort: a chunk that will not load is an opening screen with an
+		// empty box where its mark would be, and nothing else about the page
+		// turns on that.
+		return null;
+	});
+}
+
 export function handOffNow(): void {
 	if (handedOver()) return;
+	void openingMark.then((mark) => mark?.stop());
+	openingMark = Promise.resolve(null);
 	stopBootAsides();
 	document.documentElement.dataset.boot = HANDED_OVER;
 	const boot = document.getElementById("boot");
@@ -169,29 +210,19 @@ export function handOffNow(): void {
 	const floor = setTimeout(gone, HANDOVER_FLOOR_MS);
 }
 
-/** Run `fn` once the mark has finished stacking its pancakes at least once.
+/** Run `fn` once the mark has assembled at least once.
  *
- * On a fast network the peer can answer before the first stack has landed,
- * and a splash that vanishes mid-fall reads as a glitch, not a mark. The
- * stylesheet owns the choreography, so it also states when one build is done:
- * `--boot-stacked` on the mark, declared beside the keyframes it summarizes.
- * How far in the animation is comes from the animation itself, which makes
- * the reduced-motion case free: its near-zero run has already finished, no
- * animation is left to read, and the wait is nothing — a reader who asked
- * for less motion is not made to sit through timing they never saw. */
-function onceStacked(fn: () => void): void {
-	const mark = document.querySelector(".boot-mark");
-	if (mark === null) return fn();
-	const stacked = parseFloat(getComputedStyle(mark).getPropertyValue("--boot-stacked")) * 1000;
-	const elapsed = mark.getAnimations()[0]?.currentTime;
-	if (!Number.isFinite(stacked) || typeof elapsed !== "number") return fn();
-	const wait = stacked - elapsed;
-	if (wait <= 0) return fn();
-	setTimeout(fn, wait);
+ * On a fast network the peer can answer before the lantern has lit, and a
+ * screen that vanishes mid-play reads as a glitch, not a mark. The mark owns
+ * its own play, so it is the one that says when a play has assembled: its
+ * `assembled` settles at that beat, at once for a reader who asked for less
+ * motion, and a browser with no mark to draw has nothing to wait through. */
+function onceAssembled(fn: () => void): void {
+	void openingMark.then((mark) => mark === null ? fn() : mark.assembled.then(fn));
 }
 
-/** Hold the screen until the controller has answered and the mark has stacked
- * one full set of pancakes, then hand over. An attached controller answers with
+/** Hold the screen until the controller has answered and the mark has
+ * assembled once, then hand over. An attached controller answers with
  * its complete initial snapshot; unlike local reconstruction, that snapshot
  * may correctly contain no directory whose attempt could settle the store.
  *
@@ -199,13 +230,27 @@ function onceStacked(fn: () => void): void {
  * the opening state page.html stamped, and so out of the reach of its watcher:
  * an error before this point is a page that never started and gets the
  * explanation, and an error after it belongs to the running page. */
-export function handOffWhenReady(projection: PageProjection, readiness: RoomsOpeningReadiness): void {
+export function handOffWhenReady(
+	projection: PageProjection,
+	readiness: RoomsOpeningReadiness,
+	readyWithoutDirectory?: Promise<void>,
+): void {
 	if (handedOver()) return;
 	document.documentElement.dataset.boot = RUNNING;
-	if (readiness === "controller-snapshot" || settled(projection)) return onceStacked(handOffNow);
-	const stop = projection.subscribe(() => {
-		if (!settled(projection)) return;
+	if (readiness === "controller-snapshot" || settled(projection)) return onceAssembled(handOffNow);
+	let finishing = false;
+	let stop = () => {};
+	const finish = () => {
+		if (finishing) return;
+		finishing = true;
 		stop();
-		onceStacked(handOffNow);
+		onceAssembled(handOffNow);
+	};
+	stop = projection.subscribe(() => {
+		if (!settled(projection)) return;
+		finish();
+	});
+	void readyWithoutDirectory?.then(() => {
+		if (projection.get().dirs.size === 0) finish();
 	});
 }

@@ -1,4 +1,4 @@
-import { claimRedeemWithin, RedeemRouteCoordinator } from "../lib/redeem_routes.ts";
+import { RedeemRouteCoordinator } from "../lib/redeem_routes.ts";
 import { Unanswered } from "../lib/deadline.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -82,20 +82,4 @@ Deno.test("a queued redeem times out or aborts without retaining its seat", asyn
 	active.resolve();
 	await running;
 	assert(routes.current() === null, "timed-out or aborted work retained a redeem route");
-});
-
-Deno.test("a redeem answer arriving after its deadline is handed to cleanup", async () => {
-	const redemption = Promise.withResolvers<string>();
-	const abandoned: string[] = [];
-	const failure = await claimRedeemWithin(redemption.promise, "the redeem did not answer", 5, (late) => {
-		abandoned.push(late);
-	}).then(
-		() => null,
-		(error) => error,
-	);
-	assert(failure instanceof Unanswered, `the redeem deadline answered ${failure}`);
-	redemption.resolve("late capability");
-	await Promise.resolve();
-	await Promise.resolve();
-	assert(abandoned.join() === "late capability", "the late redeem answer had no cleanup owner");
 });

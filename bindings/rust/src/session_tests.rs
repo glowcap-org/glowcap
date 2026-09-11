@@ -13,3 +13,15 @@ mod lifecycle;
 mod verbs;
 #[path = "session_tests/wire_ownership.rs"]
 mod wire_ownership;
+
+#[path = "session_tests/enliven_gc.rs"]
+mod enliven_gc;
+
+#[path = "session_tests/current_session.rs"]
+mod current_session;
+
+#[path = "session_tests/shared_ownership.rs"]
+mod shared_ownership;
+
+#[path = "session_tests/flush.rs"]
+mod flush;

@@ -268,6 +268,8 @@ fn deferringBehavior(
     var premature = argStr("early");
     if (cd.glowcap_host_resolver_fulfill(state.host, resolver_id, &premature) == c.GLOWCAP_OK)
         return c.GLOWCAP_ERR_INTERNAL;
+    if (cd.glowcap_host_resolver_abandon(state.host, resolver_id, "reentrant", 9) == c.GLOWCAP_OK)
+        return c.GLOWCAP_ERR_INTERNAL;
     state.resolver_id = resolver_id;
     out_reply.* = argBase();
     return c.GLOWCAP_OK;
@@ -340,4 +342,27 @@ test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-
     try std.testing.expect(broke.fired);
     try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, broke.kind);
     try std.testing.expectEqualStrings("worker gave up", broke.msg[0..broke.msg_len]);
+    try expectOk(cd.glowcap_host_resolver_abandon(server, state.resolver_id, "retired", 7));
+
+    var abandoned_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_send(pair.a, &worker_ref, "work", 4, null, 0, &abandoned_vow));
+    var abandoned = CapturedSettle{};
+    watches.add(client, abandoned_vow, &abandoned);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try expectOk(cd.glowcap_host_resolver_abandon(server, state.resolver_id, "owner dropped", 13));
+    try expectOk(cd.glowcap_host_resolver_abandon(server, state.resolver_id, "owner dropped", 13));
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(abandoned.fired);
+    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, abandoned.kind);
+    try std.testing.expectEqualStrings("owner dropped", abandoned.msg[0..abandoned.msg_len]);
+
+    // An id this Host never minted refuses NOT_FOUND, distinct from the
+    // consumed resolver's INVALID_ARGUMENT above.
+    for ([_]u64{ 0, std.math.maxInt(u64) }) |unminted| {
+        try std.testing.expectEqual(
+            c.GLOWCAP_ERR_NOT_FOUND,
+            cd.glowcap_host_resolver_break(server, unminted, "unminted", 8),
+        );
+        try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_resolver_abandon(server, unminted, "unminted", 8));
+    }
 }

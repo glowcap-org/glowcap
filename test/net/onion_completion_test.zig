@@ -262,7 +262,7 @@ test "native OnionLoop composes the onion adapter, completion Loop, and driver B
 }
 
 test "onion completion footprint is pinned" {
-    try std.testing.expectEqual(@as(usize, 248), Backend.connection_state_bytes);
+    try std.testing.expectEqual(@as(usize, 240), Backend.connection_state_bytes);
 }
 
 test "onion completion Loop owns the listener address across backend move" {

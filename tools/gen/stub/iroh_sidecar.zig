@@ -44,8 +44,11 @@ export fn glowcap_iroh_sidecar_connect_blocking(
     addr_hints: [*]const u8,
     addr_hints_len: usize,
     out_code: *i32,
+    out_text: ?[*]u8,
+    out_text_cap: usize,
+    out_text_len: ?*usize,
 ) ?*anyopaque {
-    _ = .{ ep, node_id, node_id_len, addr_hints, addr_hints_len, out_code };
+    _ = .{ ep, node_id, node_id_len, addr_hints, addr_hints_len, out_code, out_text, out_text_cap, out_text_len };
     @panic(msg);
 }
 export fn glowcap_iroh_sidecar_accept_timeout(ep: *anyopaque, timeout_ms: i32, out_code: *i32) ?*anyopaque {
@@ -93,8 +96,8 @@ export fn glowcap_iroh_sidecar_endpoint_start_connect(ep: *anyopaque, request_id
     _ = .{ ep, request_id, node_id, node_id_len, addr_hints, addr_hints_len };
     @panic(msg);
 }
-export fn glowcap_iroh_sidecar_endpoint_finish_connect(ep: *anyopaque, request_id: usize, out_conn: *?*anyopaque) i32 {
-    _ = .{ ep, request_id, out_conn };
+export fn glowcap_iroh_sidecar_endpoint_finish_connect(ep: *anyopaque, request_id: usize, out_conn: *?*anyopaque, out_text: ?[*]u8, out_text_cap: usize, out_text_len: ?*usize) i32 {
+    _ = .{ ep, request_id, out_conn, out_text, out_text_cap, out_text_len };
     @panic(msg);
 }
 export fn glowcap_iroh_sidecar_endpoint_cancel_connect(ep: *anyopaque, request_id: usize) i32 {

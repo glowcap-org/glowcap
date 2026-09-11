@@ -6,8 +6,9 @@
 //! `driver.connectVia`, `fetch` the directory by name, `call` it to enter or open
 //! the named room (which hands back a live reference to that room), `spawn` an
 //! inbox the room can call back, `send` the room a subscribe with that
-//! capability, `tell` it the post, and `step` the connection with one explicit pump
-//! per step, with the loop still owned by the caller the Zig way.
+//! capability, `call` the returned membership seat with the post, and `step`
+//! the connection with one explicit pump per step, with the loop still owned by
+//! the caller the Zig way.
 //!
 //!   glowcap-rooms-client <locator> <room> <nick> <line> [roster]
 //!
@@ -24,10 +25,18 @@
 //! exits 0 once it has seen a line from every roster member. Members outside the roster
 //! (people already chatting in an attached room, say) are printed but never
 //! counted, so a busy room cannot fake or break the assertion.
+//!
+//! The wire grammar this switches on, the verbs, the publication record, the
+//! watch kinds, the notify tails, and the subscribe answer, is the generated
+//! table every sibling client reads. `protocol.zig` beside this file is the Zig
+//! way of asking that table whether an argument fits.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
 const build_options = @import("rooms_client_build_options");
+
+const wire = @import("protocol.zig");
+const proto = wire.gen;
 
 const demo_rooms = @import("demo_rooms_cli");
 const demo_usage = @import("demo_usage");
@@ -42,19 +51,25 @@ const tcp = glowcap.net.tcp;
 const frame_cap: usize = 1 << 16;
 /// The whole roster wait is bounded, like the Deno/Python/Racket clients'
 /// deadlines: a member that never completes exits 1 with its seen-count
-/// instead of wedging the demo.
-const roster_wait_budget_ms: i64 = 15_000;
+/// instead of wedging the demo. The deadline itself is the generated one every
+/// sibling client holds.
+const roster_wait_budget_ms: i64 = proto.session_deadline_ms;
 /// One bounded readable-wait per loop turn, so the deadline above is checked
 /// even while the wire is silent.
 const step_poll_ms: i32 = 250;
 
 /// State the inbox actor and the main loop share: which roster members are
-/// present, and which we have seen a chat line from.
+/// present, which we have seen a chat line from, and whether the room has
+/// ended this membership.
 const State = struct {
     nick: []const u8,
     roster: []const []const u8,
     present: []bool,
     seen: []bool,
+    /// Set once the room said `membershipEnded` to our inbox: no more lines will
+    /// reach it, so the roster wait cannot complete. The reason was printed as
+    /// the last line.
+    ended: bool = false,
 
     fn markPresent(self: *State, name: []const u8) void {
         for (self.roster, 0..) |member, i| {
@@ -71,6 +86,15 @@ const State = struct {
     fn markAbsent(self: *State, name: []const u8) void {
         for (self.roster, 0..) |member, i| {
             if (std.mem.eql(u8, member, name)) self.present[i] = false;
+        }
+    }
+
+    /// Fold what one presence tail does to one member it names into the roster.
+    fn apply(self: *State, effect: proto.Effect, name: []const u8) void {
+        switch (effect) {
+            .arrive => self.markPresent(name),
+            .depart => self.markAbsent(name),
+            .stay => {},
         }
     }
 
@@ -96,77 +120,56 @@ const Inbox = struct {
 
     pub fn handle(self: *Inbox, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
-        const args = msg.args;
-        const from = if (args.len > 0 and args[0] == .string) args[0].string else "?";
-        const text = if (args.len > 1 and args[1] == .string) args[1].string else "";
-        std.debug.print("[{s}] {s}: {s}\n", .{ self.state.nick, from, text });
-        // A membership line carries its change as structured args; a plain chat
-        // line does not, and a line from a member is presence too.
-        if (!applyPresence(self.state, args) and !std.mem.eql(u8, from, "room")) {
-            self.state.markPresent(from);
-            self.state.markSeen(from);
-        }
+        if (!std.mem.eql(u8, msg.verb, proto.notify)) return error.NoSuchMethod;
+        try applyNotify(self.state, msg.args);
         return .{ .boolean = true };
     }
 };
 
-const RoomInfo = struct {
-    name: []const u8,
-    count: ?i64,
-    id: []const u8,
-    kind: []const u8,
-    origin: []const u8,
-    proof: []const u8,
-    offers: ?[]const u8,
-};
-
-fn roomInfo(fields: []const model.Argument) ?RoomInfo {
-    if (fields.len != 7 or fields[0] != .string or fields[2] != .string or
-        fields[3] != .string or fields[4] != .string or fields[5] != .string)
-        return null;
-    const count: ?i64 = switch (fields[1]) {
-        .integer => |value| if (value >= 0) value else return null,
-        .void => null,
-        else => return null,
-    };
-    const offers: ?[]const u8 = switch (fields[6]) {
-        .void => null,
-        .string => |kind| if (std.mem.eql(u8, kind, "observer") or std.mem.eql(u8, kind, "participant"))
-            kind
-        else
-            return null,
-        else => return null,
-    };
-    return .{
-        .name = fields[0].string,
-        .count = count,
-        .id = fields[2].string,
-        .kind = fields[3].string,
-        .origin = fields[4].string,
-        .proof = fields[5].string,
-        .offers = offers,
-    };
+/// The sender a notify names, or "?" when the line does not name one.
+fn senderOf(args: []const model.Argument) []const u8 {
+    return if (args.len > 0 and args[0] == .string) args[0].string else "?";
 }
 
-fn printRoomEvent(nick: []const u8, event_kind: []const u8, room: RoomInfo) void {
+/// The display text a notify carries, empty when it carries none.
+fn textOf(args: []const model.Argument) []const u8 {
+    return if (args.len > 1 and args[1] == .string) args[1].string else "";
+}
+
+/// Print one notified line, then fold it into the roster state.
+fn applyNotify(state: *State, args: []const model.Argument) !void {
+    std.debug.print("[{s}] {s}: {s}\n", .{ state.nick, senderOf(args), textOf(args) });
+    return readNotify(state, args);
+}
+
+/// The room's last word to an inbox, held to the shape the generated table
+/// gives it: the room says it, the reason is the display text, and nothing
+/// rides after the tag.
+const membership_ended_tail = wire.tailFor(proto.membership_ended);
+
+/// The pure half of a notify: presence, the membership-ended notice held to
+/// its shape, and who has been seen. A `membershipEnded` tail is the room's
+/// last word to this inbox (a steward's kick, say). Otherwise a membership line
+/// carries its change as structured args, a plain chat line does not, and a
+/// line from a member is presence too. Tests drive this so they print nothing.
+fn readNotify(state: *State, args: []const model.Argument) !void {
+    const from = senderOf(args);
+    const text = textOf(args);
+    if (args.len > 2 and args[2] == .string and std.mem.eql(u8, args[2].string, proto.membership_ended)) {
+        if (!wire.tailFits(membership_ended_tail, from, text, args[3..])) return error.MalformedMembershipEnded;
+        state.ended = true;
+        return;
+    }
+    if (!applyPresence(state, args) and !std.mem.eql(u8, from, proto.room_sender)) {
+        state.markPresent(from);
+        state.markSeen(from);
+    }
+}
+
+fn printRoomEvent(nick: []const u8, event_kind: []const u8, room: wire.RoomInfo) void {
     std.debug.print("[{s}] directory: {s} {s} (", .{ nick, event_kind, room.name });
     if (room.count) |count| std.debug.print("{d}", .{count}) else std.debug.print("unknown", .{});
     std.debug.print(")\n", .{});
-}
-
-fn validWatchSnapshot(arg: model.Argument) bool {
-    if (arg != .list or arg.list.len != 3) return false;
-    const fields = arg.list;
-    if (fields[0] != .list or fields[1] != .list or fields[2] != .integer or fields[2].integer < 0) return false;
-    for (fields[0].list) |row| {
-        if (row != .list or roomInfo(row.list) == null) return false;
-    }
-    for (fields[1].list) |row| {
-        if (row != .list or row.list.len != 2 or row.list[0] != .string or row.list[0].string.len == 0 or
-            row.list[1] != .string or row.list[1].string.len == 0) return false;
-    }
-    return true;
 }
 
 /// The directory's watch observer: the room list's live feed.
@@ -175,10 +178,8 @@ const Watcher = struct {
 
     pub fn handle(self: *Watcher, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
-        const args = msg.args;
-        const kind = if (args.len > 0 and args[0] == .string) args[0].string else "?";
-        if (args.len > 1) if (roomInfo(args[1..])) |room| printRoomEvent(self.nick, kind, room);
+        if (!std.mem.eql(u8, msg.verb, proto.notify)) return error.NoSuchMethod;
+        if (try wire.watchEvent(msg.args)) |room| printRoomEvent(self.nick, msg.args[0].string, room);
         return .{ .boolean = true };
     }
 };
@@ -203,7 +204,7 @@ fn printRooms(nick: []const u8, arg: model.Argument) !void {
     if (arg != .list) return error.InvalidRoomList;
     for (arg.list) |item| {
         if (item != .list) return error.InvalidRoomList;
-        const room = roomInfo(item.list) orelse return error.InvalidRoomList;
+        const room = wire.roomInfo(item.list) orelse return error.InvalidRoomList;
         std.debug.print(" {s} (", .{room.name});
         if (room.count) |count| std.debug.print("{d}", .{count}) else std.debug.print("unknown", .{});
         std.debug.print(")", .{});
@@ -214,31 +215,27 @@ fn printRooms(nick: []const u8, arg: model.Argument) !void {
 }
 
 /// Apply the structured presence a room line carries after its display text, if
-/// any: `notify("room", text, "roster", names…)` names everyone already here (our
-/// welcome), and `notify("room", text, "join"|"leave", nick)` marks that one member
-/// present or absent. Returns true when the line was a presence change, so the
-/// caller does not also count it as a chat line.
+/// any. The generated table says which tags are presence and what each does:
+/// `notify("room", text, "roster", names…)` names everyone already here (our
+/// welcome), `notify("room", text, "join"|"leave", nick)` moves that one member
+/// in or out, and the rest are facts about a member who is still here. Returns
+/// true when the line was a presence change, so the caller does not also count
+/// it as a chat line.
 fn applyPresence(state: *State, args: []const model.Argument) bool {
-    if (args.len < 3 or args[2] != .string) return false;
-    const kind = args[2].string;
-    if (std.mem.eql(u8, kind, "roster")) {
-        for (args[3..]) |name_arg| {
-            if (name_arg == .string) state.markPresent(name_arg.string);
-        }
-        return true;
+    const tail = wire.presenceTail(senderOf(args), textOf(args), args) orelse return false;
+    const effect = tail.effect.?;
+    const extra = args[3..];
+    // The members a tail names are its `name` arguments, then the roster riding
+    // after them when the tail admits a rest.
+    for (tail.trailing, extra[0..tail.trailing.len]) |field, arg| {
+        if (std.mem.eql(u8, field.name, "name") and arg == .string) state.apply(effect, arg.string);
     }
-    if (args.len > 3 and args[3] == .string) {
-        const name = args[3].string;
-        if (std.mem.eql(u8, kind, "join")) {
-            state.markPresent(name);
-            return true;
-        }
-        if (std.mem.eql(u8, kind, "leave")) {
-            state.markAbsent(name);
-            return true;
+    if (tail.rest != null) {
+        for (extra[tail.trailing.len..]) |arg| {
+            if (arg == .string) state.apply(effect, arg.string);
         }
     }
-    return false;
+    return true;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -371,6 +368,17 @@ fn roomRefFromArg(arg: model.Argument) !actors.Ref {
     return .{ .far = arg.reference.far };
 }
 
+/// Where the seat sits in the generated subscribe answer.
+const seat_at = wire.indexOf(&proto.subscribe_answer_fields, "seat");
+
+/// The membership seat out of a `subscribe` answer, the whole answer held to
+/// the generated fields. Every later membership verb goes to the seat, never to
+/// the room it was answered for.
+fn membershipSeatFromArg(arg: model.Argument) !actors.Ref {
+    if (arg != .list or !wire.fits(&proto.subscribe_answer_fields, arg.list)) return error.NotAMembership;
+    return roomRefFromArg(arg.list[seat_at]);
+}
+
 /// Enter-or-open lives here because it materializes settled outcomes through the
 /// Zig driver's blocking `session.call`; see `_demo/rooms_cli.{py,rkt,rs}` for the
 /// same CLI leniency in other languages.
@@ -385,7 +393,7 @@ fn enterOrOpen(session: *driver.BlockingSession, allocator: std.mem.Allocator, d
     const scratch = arena.allocator();
     const name_arg = model.Argument{ .string = room_name };
 
-    switch (try session.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, .{ .verb = proto.enter, .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.no_such_room)) {
             std.debug.print("rooms-client: enter \"{s}\" broke: {s}\n", .{ room_name, reason });
@@ -393,7 +401,7 @@ fn enterOrOpen(session: *driver.BlockingSession, allocator: std.mem.Allocator, d
         },
         .give => return error.UnexpectedHandoff,
     }
-    switch (try session.call(directory, .{ .verb = "open", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, .{ .verb = proto.open, .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.room_exists)) {
             std.debug.print("rooms-client: open \"{s}\" broke: {s}\n", .{ room_name, reason });
@@ -401,9 +409,27 @@ fn enterOrOpen(session: *driver.BlockingSession, allocator: std.mem.Allocator, d
         },
         .give => return error.UnexpectedHandoff,
     }
-    switch (try session.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, .{ .verb = proto.enter, .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => return error.EnterFailed,
+        .give => return error.UnexpectedHandoff,
+    }
+}
+
+/// Post one line on the membership seat and wait for the room's answer, so a
+/// refusal (an observer seat, a line past the room's limit) fails loud the way
+/// `subscribe` does instead of vanishing behind a fire-and-forget tell. The
+/// answer is the line's own reference, scratch here: this client never edits
+/// or withdraws.
+fn postLine(session: *driver.BlockingSession, allocator: std.mem.Allocator, seat: actors.Ref, line: []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    switch (try session.call(seat, .{ .verb = proto.post, .args = &.{.{ .string = line }} }, arena.allocator())) {
+        .fulfilled => {},
+        .broken => |reason| {
+            std.debug.print("rooms-client: post broke: {s}\n", .{reason});
+            return error.PostFailed;
+        },
         .give => return error.UnexpectedHandoff,
     }
 }
@@ -411,7 +437,7 @@ fn enterOrOpen(session: *driver.BlockingSession, allocator: std.mem.Allocator, d
 /// Enter the room, subscribe our inbox, and pump until every roster member's
 /// line has arrived, the transport-neutral body both dial paths share.
 fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
-    const directory = try session.fetch("directory");
+    const directory = try session.fetch(proto.directory);
 
     // Discovery: list the live rooms once, then watch the directory so the room
     // list's changes print as members come and go. The watcher actor outlives
@@ -420,14 +446,14 @@ fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allo
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
         const scratch = arena.allocator();
-        switch (try session.call(directory, .{ .verb = "listPublications" }, scratch)) {
+        switch (try session.call(directory, .{ .verb = proto.list_publications }, scratch)) {
             .fulfilled => |arg| try printRooms(nick, arg),
             .broken => |reason| std.debug.print("[{s}] list broke: {s}\n", .{ nick, reason }),
             .give => return error.UnexpectedHandoff,
         }
         const watcher = try session.spawn(Watcher, .{ .nick = nick });
-        switch (try session.call(directory, .{ .verb = "watchPublications", .args = &.{watcher.arg()} }, scratch)) {
-            .fulfilled => |arg| if (!validWatchSnapshot(arg)) return error.InvalidWatchSnapshot,
+        switch (try session.call(directory, .{ .verb = proto.watch_publications, .args = &.{watcher.arg()} }, scratch)) {
+            .fulfilled => |arg| if (!wire.validWatchSnapshot(arg)) return error.InvalidWatchSnapshot,
             .broken => |reason| std.debug.print("[{s}] watch broke: {s}\n", .{ nick, reason }),
             .give => return error.UnexpectedHandoff,
         }
@@ -436,10 +462,22 @@ fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allo
     const room = try enterOrOpen(session, allocator, directory, room_name);
     const inbox = try session.spawn(Inbox, .{ .state = state });
 
-    // Subscribe, handing the room a capability to our inbox. Success is the
-    // resolution; the room delivers the welcome and roster as our first `notify`
-    // (the roster line), not as a return value.
-    _ = try session.send(room, .{ .verb = "subscribe", .args = &.{ .{ .string = nick }, inbox.arg() } });
+    // Subscribe, handing the room a capability to our inbox. The room answers
+    // with the membership seat; the welcome and roster arrive as our first
+    // `notify` (the roster line), not as part of that answer.
+    const seat = blk: {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const subscribe_args = [_]model.Argument{ .{ .string = nick }, inbox.arg() };
+        switch (try session.call(room, .{ .verb = proto.subscribe, .args = &subscribe_args }, arena.allocator())) {
+            .fulfilled => |arg| break :blk try membershipSeatFromArg(arg),
+            .broken => |reason| {
+                std.debug.print("rooms-client: subscribe broke: {s}\n", .{reason});
+                return error.SubscribeFailed;
+            },
+            .give => return error.UnexpectedHandoff,
+        }
+    };
 
     // Bounded like every sibling client: if the roster never completes (a
     // member failed to join), fail loud with the seen-count message below
@@ -452,14 +490,110 @@ fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allo
             std.debug.print("rooms-client: step error: {s}\n", .{@errorName(err)});
             break;
         };
+        if (state.ended) {
+            std.debug.print("rooms-client: the room ended {s}'s membership\n", .{nick});
+            return error.MembershipEnded;
+        }
         if (!posted and state.allPresent()) {
-            try session.tell(room, .{ .verb = "post", .args = &.{.{ .string = line }} });
+            try postLine(session, allocator, seat, line);
             posted = true;
         }
         if (progress) |p| {
             if (p == .closed) break;
         }
     }
+}
+
+test "a wire null is an unknown count and an absent offer, not a malformed record" {
+    const foreign = [_]model.Argument{
+        .{ .string = "lobby" },     .void,                    .{ .string = "id-1" },        .{ .string = "foreign" },
+        .{ .string = "ocapn://x" }, .{ .string = "session" }, .{ .string = "participant" },
+    };
+    try std.testing.expectEqual(proto.publication_fields.len, foreign.len);
+    const known = wire.roomInfo(&foreign).?;
+    try std.testing.expect(known.count == null);
+    try std.testing.expectEqualStrings("participant", known.offers.?);
+    const closed = [_]model.Argument{
+        .{ .string = "lobby" }, .{ .integer = 2 },      .{ .string = "id-2" }, .{ .string = "local" },
+        .{ .string = "" },      .{ .string = "local" }, .void,
+    };
+    try std.testing.expectEqual(@as(?i64, 2), wire.roomInfo(&closed).?.count);
+    try std.testing.expect(wire.roomInfo(&closed).?.offers == null);
+    // Both enumerations are the generated ones, so a value outside either is a
+    // malformed record rather than a row this client prints.
+    const bad_offer = [_]model.Argument{
+        .{ .string = "lobby" }, .{ .integer = 2 },      .{ .string = "id-3" },    .{ .string = "local" },
+        .{ .string = "" },      .{ .string = "local" }, .{ .string = "steward" },
+    };
+    try std.testing.expect(wire.roomInfo(&bad_offer) == null);
+    const bad_proof = [_]model.Argument{
+        .{ .string = "lobby" }, .{ .integer = 2 },        .{ .string = "id-4" }, .{ .string = "local" },
+        .{ .string = "" },      .{ .string = "hearsay" }, .void,
+    };
+    try std.testing.expect(wire.roomInfo(&bad_proof) == null);
+}
+
+test "malformed and unknown watch callbacks are refused" {
+    const malformed = [_]model.Argument{ .{ .string = "opened" }, .{ .string = "only-a-name" } };
+    try std.testing.expectError(error.MalformedRoomWatchNotification, wire.watchEvent(&malformed));
+    const registered = [_]model.Argument{
+        .{ .string = "registered" },
+        .{ .string = "ada" },
+        .{ .integer = 1 },
+        .{ .string = "00000000-0000-4000-8000-000000000001" },
+    };
+    try std.testing.expect((try wire.watchEvent(&registered)) == null);
+    const bad_id = [_]model.Argument{
+        .{ .string = "registered" },
+        .{ .string = "ada" },
+        .{ .integer = 1 },
+        .{ .string = "not-a-registration-id" },
+    };
+    try std.testing.expectError(error.MalformedMemberWatchNotification, wire.watchEvent(&bad_id));
+    const truncated = [_]model.Argument{ .{ .string = "truncated" }, .{ .integer = 3 } };
+    try std.testing.expect((try wire.watchEvent(&truncated)) == null);
+    const unknown = [_]model.Argument{ .{ .string = "renamed" }, .{ .string = "lobby" } };
+    try std.testing.expectError(error.UnknownWatchEvent, wire.watchEvent(&unknown));
+}
+
+test "a membership-ended notice ends the roster wait and is held to its shape" {
+    var present = [_]bool{false};
+    var seen = [_]bool{false};
+    var state = State{ .nick = "zig", .roster = &.{"ada"}, .present = &present, .seen = &seen };
+    const room = model.Argument{ .string = proto.room_sender };
+    const tag = model.Argument{ .string = proto.membership_ended };
+    const notice = [_]model.Argument{ room, .{ .string = "kicked by the steward" }, tag };
+    try readNotify(&state, &notice);
+    try std.testing.expect(state.ended);
+    try std.testing.expect(!state.present[0]);
+    const blank = [_]model.Argument{ room, .{ .string = "" }, tag };
+    try std.testing.expectError(error.MalformedMembershipEnded, readNotify(&state, &blank));
+    const not_the_room = [_]model.Argument{ .{ .string = "ada" }, .{ .string = "bye" }, tag };
+    try std.testing.expectError(error.MalformedMembershipEnded, readNotify(&state, &not_the_room));
+    const trailing = [_]model.Argument{ room, .{ .string = "bye" }, tag, .{ .string = "extra" } };
+    try std.testing.expectError(error.MalformedMembershipEnded, readNotify(&state, &trailing));
+}
+
+test "presence follows the generated tails and the effect each declares" {
+    var present = [_]bool{ false, false };
+    var seen = [_]bool{ false, false };
+    var state = State{ .nick = "zig", .roster = &.{ "ada", "bo" }, .present = &present, .seen = &seen };
+    const room = model.Argument{ .string = proto.room_sender };
+    const welcome = [_]model.Argument{ room, .{ .string = "welcome" }, .{ .string = "roster" }, .{ .string = "ada" }, .{ .string = "bo" } };
+    try readNotify(&state, &welcome);
+    try std.testing.expect(state.allPresent());
+    const left = [_]model.Argument{ room, .{ .string = "bo left" }, .{ .string = "leave" }, .{ .string = "bo" } };
+    try readNotify(&state, &left);
+    try std.testing.expect(!state.present[1]);
+    // A tail that stays is a fact about a member who is still here, so it moves
+    // nobody and counts as nobody's chat line.
+    const typing = [_]model.Argument{ room, .{ .string = "" }, .{ .string = "typing" }, .{ .string = "ada" }, .{ .boolean = true } };
+    try readNotify(&state, &typing);
+    try std.testing.expect(!state.seen[0]);
+    // A line from a member is presence too, and the only thing counted as seen.
+    const said = [_]model.Argument{ .{ .string = "bo" }, .{ .string = "hi" } };
+    try readNotify(&state, &said);
+    try std.testing.expect(state.present[1] and state.seen[1]);
 }
 
 fn fail(message: []const u8) error{Usage} {

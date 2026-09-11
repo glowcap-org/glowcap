@@ -54,6 +54,22 @@ pub const Keepalive = tcp_keepalive.Keepalive;
 pub const BufferPool = @import("buffer_pool.zig").BufferPool;
 
 pub const AdapterNamespace = contract.AdapterNamespace;
+
+/// Vocabulary shared by the adapters that wrap another backend: which inner
+/// operations a leg has in flight, where its inner descriptor stands in its
+/// close, the try-I/O machine the multiplexed sidecar backends run, the
+/// terminal leg lifecycle, and owed-submission bookkeeping. Re-exported so
+/// out-of-graph transport modules reach one owner through `net.completion`.
+const adapter = @import("adapter.zig");
+const hinted_try_io = @import("hinted_try_io.zig");
+pub const PendingOps = adapter.PendingOps;
+pub const InnerClose = adapter.InnerClose;
+pub const HintedPending = hinted_try_io.HintedPending;
+pub const TryRead = hinted_try_io.TryRead;
+pub const TryWrite = hinted_try_io.TryWrite;
+pub const HintedTryIo = hinted_try_io.HintedTryIo;
+pub const InnerLegLifecycle = @import("inner_leg.zig").Lifecycle;
+pub const SubmissionDebt = @import("submission_debt.zig").State;
 pub const CloseReason = contract.CloseReason;
 pub const CloseReport = contract.CloseReport;
 pub const Completion = contract.Completion;

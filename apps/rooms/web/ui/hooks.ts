@@ -3,8 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 import { NO_MEMBERS, type PageProjection, type State } from "./store.ts";
-import { mayObserve } from "../../lib/session/client.ts";
-import { useRoomsBrowser } from "./controller/browser.ts";
+import { mayObserve } from "../../lib/session/access_view.ts";
+import { useRoomsController } from "./controller/browser.ts";
 import { effectiveRoomsSessionAccess } from "./controller/access.ts";
 import type { Standing } from "./types.ts";
 
@@ -44,7 +44,7 @@ export function useRoomsState<T>(selector: (state: Readonly<State>) => T): T {
  * is not paused either. Deciding that here a second time is how the two drift
  * into disagreeing about the same browser. */
 export function useSessionPaused(): boolean {
-	const controller = useRoomsBrowser().roomsController();
+	const controller = useRoomsController();
 	const attached = useRoomsState((state) => state.sessionAccess);
 	const access = effectiveRoomsSessionAccess(controller, attached);
 	return access !== null && !mayObserve(access);

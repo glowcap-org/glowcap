@@ -50,9 +50,9 @@ class Ref:
         """Return this capability for ABI marshalling.
 
         Refused once the capability has been released. Release deliberately
-        spends the application's retain; the Host generation makes the stale id
-        fail closed. This is the one chokepoint every outbound capability passes
-        through.
+        spends this occurrence's retain. Another occurrence may keep the same
+        Host identity live, so local dispatch and ABI projection both check
+        this occurrence before use.
         """
         if self.released:
             raise ValueError(

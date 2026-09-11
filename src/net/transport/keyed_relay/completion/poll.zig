@@ -23,7 +23,7 @@ pub fn Machine(
             // create capacity. Retry only after a wrapped buffer is recycled.
             if (backend.recv_recycle_progress) {
                 backend.recv_recycle_progress = false;
-                try retryPlatformRecvStarvation(backend);
+                retryPlatformRecvStarvation(backend);
             }
 
             const has_ready = backend.ready.len() > 0;
@@ -74,15 +74,17 @@ pub fn Machine(
             if (resolver.hasLiveJobs()) resolver.maintainWake(backend, resolver_wake_ud);
         }
 
-        fn retryPlatformRecvStarvation(backend: *Backend) !void {
-            while (backend.recv_retries.head != 0) {
-                const c = backend.conns.get(backend.recv_retries.head) orelse unreachable;
-                if (c.state == .closing or c.external_recv_ud == null) {
-                    backend.recv_retries.removeQueued(&backend.conns, c);
-                    continue;
-                }
-                try Access.armPlatformRecv(backend, c);
-                backend.recv_retries.removeQueued(&backend.conns, c);
+        /// Re-arm the receives the platform pool starved. A refused re-arm
+        /// leaves that seat owed for the next recycle edge rather than
+        /// failing the poll: the sealing and onion legs owe it the same way,
+        /// and a poll error would retire every connection on the loop for one
+        /// leg's transient submission pressure.
+        fn retryPlatformRecvStarvation(backend: *Backend) void {
+            const attempts = backend.recv_retries.count;
+            for (0..attempts) |_| {
+                const c = backend.recv_retries.pop(&backend.conns) orelse unreachable;
+                if (c.state == .closing or c.external_recv_ud == null) continue;
+                Access.armPlatformRecv(backend, c) catch backend.recv_retries.push(&backend.conns, c);
             }
         }
 

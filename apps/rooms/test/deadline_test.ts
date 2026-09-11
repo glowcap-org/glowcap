@@ -10,7 +10,7 @@
 // its timer down keeps an event loop scheduled for the full deadline after the
 // answer already arrived, and the op sanitiser does not report it.
 
-import { answerWithin, Unanswered } from "../lib/deadline.ts";
+import { answerWithin, claimWithin, Unanswered } from "../lib/deadline.ts";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("an answer that arrives is the answer, deadline or no deadline", async () => {
@@ -64,6 +64,32 @@ Deno.test("an answer that arrives late, after the wait ended, is not an unhandle
 	late(new Error("answered at last, to nobody"));
 	// A tick, so an unhandled rejection would have been reported by now.
 	await new Promise((resolve) => setTimeout(resolve, 5));
+});
+
+Deno.test("an owned answer that arrives after its deadline is transferred to cleanup", async () => {
+	const answer = Promise.withResolvers<string>();
+	const abandoned: string[] = [];
+	let cancelled = false;
+	const failure = await claimWithin(
+		(signal) => {
+			signal.addEventListener("abort", () => cancelled = true, { once: true });
+			return answer.promise;
+		},
+		"the claimed answer did not arrive",
+		5,
+		(late) => {
+			abandoned.push(late);
+		},
+	).then(
+		() => null,
+		(error) => error,
+	);
+	assertEquals(failure instanceof Unanswered, true, `the claim deadline answered ${failure}`);
+	assertEquals(cancelled, true, "the claimed operation was not cancelled at its deadline");
+	answer.resolve("late capability");
+	await Promise.resolve();
+	await Promise.resolve();
+	assertEquals(abandoned, ["late capability"], "the late answer had no cleanup owner");
 });
 
 Deno.test("a wait that ends puts its timer down", async () => {

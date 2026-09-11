@@ -3,6 +3,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { LiveFeed, type LivePeerFactory } from "../connection.ts";
 import { startLiveMode } from "../mode.ts";
+import type { EngineError } from "../../errors.ts";
 import type { TimelineEvent } from "../../timeline.ts";
 import type { GlowcapWebModule } from "../glowcap-web-api.ts";
 
@@ -53,11 +54,99 @@ function controlledFactory(): {
 			close: () => {
 				control.closeCount += 1;
 				finish();
+				return Promise.resolve();
 			},
 		});
 	};
 	return { factory, peers, records };
 }
+
+Deno.test("a retirement that fails after disconnect reaches the error listeners", async () => {
+	// `disconnect()` returns before the transport is gone, so a close that
+	// then fails has no caller. Left unobserved it is an unowned rejection,
+	// which is fatal to the page; the feed's error channel owns it instead.
+	const failure = new Error("WebSocket closed abnormally (code 0)");
+	const factory: LivePeerFactory = () =>
+		Promise.resolve({
+			closed: new Promise<void>(() => {}),
+			close: () => Promise.reject(failure),
+		});
+	const feed = new LiveFeed(
+		"ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+		factory,
+	);
+	const reported: EngineError[] = [];
+	feed.onError((error) => reported.push(error));
+	feed.connect();
+	await Promise.resolve();
+	feed.disconnect();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(reported.length, 1);
+	assertEquals(reported[0]!.cause, failure);
+	assert(reported[0]!.detail.includes("abnormally"), reported[0]!.detail);
+});
+
+Deno.test("a faulted drop is reported once with reconnect as its recovery; a clean close is not", async () => {
+	for (const failure of [new Error("WebSocket closed abnormally (code 1006)"), null]) {
+		let end!: () => void;
+		let fail!: (cause: unknown) => void;
+		const factory: LivePeerFactory = () =>
+			Promise.resolve({
+				closed: new Promise<void>((resolve, reject) => {
+					end = resolve;
+					fail = reject;
+				}),
+				close: () => Promise.resolve(),
+			});
+		const feed = new LiveFeed(
+			"ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+			factory,
+		);
+		const reported: EngineError[] = [];
+		feed.onError((error) => reported.push(error));
+		const connection: boolean[] = [];
+		feed.onConnectionChange((value) => connection.push(value));
+		feed.connect();
+		await Promise.resolve();
+		if (failure === null) end();
+		else fail(failure);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assertEquals(connection, [true, false]);
+		if (failure === null) {
+			assertEquals(reported.length, 0);
+		} else {
+			assertEquals(reported.length, 1);
+			assertEquals(reported[0]!.cause, failure);
+			assert(reported[0]!.recovery.includes("Reconnecting"), reported[0]!.recovery);
+		}
+		feed.disconnect();
+	}
+});
+
+Deno.test("a peer that arrives after disconnect is retired and its failure still owned", async () => {
+	// The peer of a stale generation is closed and never joins the live path,
+	// so its `closed` outcome would otherwise have no observer. The feed owns
+	// it through the same retirement report.
+	const failure = new Error("retire refused");
+	const factory: LivePeerFactory = () =>
+		new Promise((resolve) =>
+			setTimeout(() => {
+				const outcome = Promise.reject<void>(failure);
+				resolve({ closed: outcome, close: () => outcome });
+			}, 0)
+		);
+	const feed = new LiveFeed(
+		"ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+		factory,
+	);
+	const reported: EngineError[] = [];
+	feed.onError((error) => reported.push(error));
+	feed.connect();
+	feed.disconnect();
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assertEquals(reported.length, 1);
+	assertEquals(reported[0]!.cause, failure);
+});
 
 Deno.test("disconnect closes the exact peer once and a late close reaches nobody", async () => {
 	const controlled = controlledFactory();

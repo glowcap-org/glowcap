@@ -1,7 +1,7 @@
 // Attached-view actions over archive facets held by the durable session.
 
 import * as store from "../store.ts";
-import { prependSharedArchive } from "../net/history.ts";
+import { reconcileSharedArchive } from "./shared_archive_projection.ts";
 import { ensureAttachedDirect } from "./attached_command_powers.ts";
 import type { ArchiveShareKind } from "../../../lib/archive/handover.ts";
 import type { AttachedRoomsController } from "./attached.ts";
@@ -36,7 +36,7 @@ async function routeAttachedShare(
 	if (kind === "direct") return { kind, conversationId: conversation.persistId, peer: "" };
 	const who = peer?.trim() ?? "";
 	if (who === "") return "Name the member who should receive this archive account.";
-	await ensureAttachedDirect(projection, controller, conversation.dir, who);
+	await ensureAttachedDirect(controller, conversation.dir, who);
 	return { kind, conversationId: conversation.persistId, peer: who };
 }
 
@@ -70,12 +70,19 @@ export function attachedArchiveShareActions(
 		readArchiveShare: async (id) => {
 			try {
 				const { view, records } = await controller.readArchiveShare(id);
+				if (controller.closed) return "The Rooms session closed while reading the shared archive.";
 				const conversation = store.convByPersistId(projection, view.conversationId);
 				if (conversation == null) return "That shared archive's conversation is no longer open.";
-				prependSharedArchive(page, conversation.key, records, view.from);
-				return "";
+				reconcileSharedArchive(page, conversation.key, records, view.from);
 			} catch (error) {
 				return error instanceof Error ? error.message : String(error);
+			}
+			try {
+				await controller.dropArchiveShare(id);
+				return "";
+			} catch (error) {
+				const reason = error instanceof Error ? error.message : String(error);
+				return `History was added, but the shared-history offer could not be dismissed: ${reason}`;
 			}
 		},
 		dropArchiveShare: (id) => {

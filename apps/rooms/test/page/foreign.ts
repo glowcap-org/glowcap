@@ -225,8 +225,7 @@ export async function run(
 	await fillSettled(tab, "#nick", "bo");
 	// The directory first, then the room: this address has not been reached, so
 	// the card's act is a connect until it has been.
-	await reachDirectoryOnCard(tab);
-	await tab.click("#joinBtn");
+	if (await reachDirectoryOnCard(tab, "elsewhere") === "question") await tab.click("#joinBtn");
 	// This wait failed twice in runs nobody could reproduce afterwards, so it
 	// reports the card rather than only the disappointment. A bare "did not
 	// join" says nothing about whether the fields still held what was typed,

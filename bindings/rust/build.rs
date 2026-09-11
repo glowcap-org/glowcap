@@ -47,6 +47,31 @@ fn main() {
 		manifest_dir.join("c-abi-resolve.json").display()
 	);
 
+	if std::env::var("TARGET").as_deref() == Ok("wasm32-unknown-unknown") {
+		for feature in ["TCP", "INPROC", "ONION", "IROH", "WEBRTC", "RELAY"] {
+			assert!(
+				std::env::var_os(format!("CARGO_FEATURE_{feature}")).is_none(),
+				"Rust Wasm uses embedder-owned byte channels; disable native transport feature {feature}"
+			);
+		}
+		let directory = std::env::var_os("GLOWCAP_LIB_DIR")
+			.map(PathBuf::from)
+			.or_else(|| find_dev_root(&manifest_dir).map(|root| root.join("zig-out/wasm/lib")))
+			.expect("set GLOWCAP_LIB_DIR to the wasm32 glowcap archives");
+		println!("cargo:rustc-link-search=native={}", directory.display());
+		for archive in ["glowcap_host", "glowcap_ocapn"] {
+			let path = directory.join(format!("lib{archive}.a"));
+			assert!(
+				path.is_file(),
+				"missing Wasm archive {}; run zig build wasm-archives",
+				path.display()
+			);
+			println!("cargo:rerun-if-changed={}", path.display());
+			println!("cargo:rustc-link-lib=static={archive}");
+		}
+		return;
+	}
+
 	let lib_dir = resolve_lib_dir(&manifest_dir);
 	println!("cargo:rustc-link-search=native={}", lib_dir.display());
 

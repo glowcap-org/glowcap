@@ -114,12 +114,12 @@ const LoopbackResident = struct {
 
     fn waitAcceptable(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptError!bool {
         const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-        return tcp.waitAcceptableOnListener(&box.listener, timeout_ms);
+        return box.listener.waitAcceptable(timeout_ms);
     }
 
     fn localLocator(ctx: *anyopaque, allocator: std.mem.Allocator) net.netlayer.ListenError!model.PeerLocator {
         const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-        var designator_buf: [tcp.plain.designator_buf_len]u8 = undefined;
+        var designator_buf: [tcp.designator_buf_len]u8 = undefined;
         const tcp_locator = tcp.locatorFromAddress(&designator_buf, box.listener.localAddress());
         return model.clonePeerLocator(allocator, .{
             .transport = transport,

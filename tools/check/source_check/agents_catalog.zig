@@ -144,10 +144,11 @@ pub fn checkSkillCatalog(
     }
 }
 
-/// Project personas under `.agents/personas/` are anonymous lenses only.
-/// Named taste references and person-channeling phrasing belong in user XDG
-/// under `$XDG_CONFIG_HOME/agents/`, never in committed scaffolding. The
-/// smell-annihilation skill is gated the same way for channeling language.
+/// Project personas under `.agents/personas/` are anonymous lenses only. A
+/// named taste reference and person-channeling phrasing belong in one of the
+/// unpublished persona sources `.agents/personas/README.md` names, never in
+/// committed scaffolding. The smell-annihilation skill is gated the same way
+/// for channeling language.
 pub fn checkAgentPersonas(
     io: std.Io,
     gpa: std.mem.Allocator,

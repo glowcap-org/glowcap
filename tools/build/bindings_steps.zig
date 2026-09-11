@@ -128,11 +128,12 @@ pub fn register(
         },
         else => {},
     }
-    const python_relay_tests = [_][]const u8{
+    const python_unit_tests = [_][]const u8{
+        "bindings/python/test/action_drain_test.py",
         "bindings/python/test/relay_provider_test.py",
         "bindings/python/test/relay_test.py",
     };
-    for (python_relay_tests) |test_file| {
+    for (python_unit_tests) |test_file| {
         const run = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
             "uv", "run", "--project", "bindings/python", "--extra", "rendezvous", "--locked", "python3", test_file,
         });
@@ -163,6 +164,23 @@ pub fn register(
     });
     rust_async_only.step.dependOn(b.getInstallStep());
     dogfood_runs[0].step.dependOn(&rust_async_only.step);
+    // Each transport feature alone, on top of nothing: a module one feature
+    // reaches into (the driver listener, a locator formatter) must be gated on
+    // every feature that reaches it, and the default set always carries `tcp`,
+    // so only a feature-alone leg can see that gate missing. The iroh leg
+    // checks its tests too, because they call surface the other legs gate.
+    for ([_][]const u8{ "relay", "iroh", "onion", "webrtc" }) |feature| {
+        const leg = addRootedSystemCommand(b, .build_tool, &.{
+            "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", feature,
+        });
+        leg.step.dependOn(b.getInstallStep());
+        dogfood_runs[0].step.dependOn(&leg.step);
+    }
+    const rust_iroh_tests_only = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo", "check", "--tests", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", "iroh",
+    });
+    rust_iroh_tests_only.step.dependOn(b.getInstallStep());
+    dogfood_runs[0].step.dependOn(&rust_iroh_tests_only.step);
     // The application crates are consumers of the public Rust surface, not
     // fixtures inside it. Compile them separately so a binding API or feature
     // edge cannot leave the demos stale while the binding's own tests stay
@@ -196,6 +214,7 @@ pub fn register(
         "bindings/racket/private/driver-failure.rkt",
         "bindings/racket/private/host.rkt",
         "bindings/racket/private/lib-resolve.rkt",
+        "bindings/racket/private/listen-loop.rkt",
         "bindings/racket/private/promise.rkt",
         "bindings/racket/private/relay-provider.rkt",
         "bindings/racket/private/ws-transport.rkt",
@@ -303,6 +322,7 @@ pub fn registerChecks(
         "apps/rooms/clients/rust/Cargo.toml",
         "transports/iroh/Cargo.toml",
         "transports/webrtc/Cargo.toml",
+        "transports/sidecar-common/Cargo.toml",
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
     const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust and TypeScript formatting, the lint and type-check for every TypeScript scope, and ruff plus mypy over the Python binding (needs cargo + deno + uv)");
@@ -413,10 +433,10 @@ pub fn registerChecks(
     // These tests touch native FFI but open no sockets; keep that capability out
     // of the otherwise pure stack suite.
     const deno_native_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts",
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts",
     });
     const deno_native_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts",
+        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts",
     });
     deno_native_runtime_test.step.dependOn(&deno_native_runtime_cache.step);
     bindings_fmt_check_step.dependOn(&deno_native_runtime_test.step);

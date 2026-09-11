@@ -1,5 +1,16 @@
 //! The per-verb binding spines — promise, Rust connection, GC, dial, and
 //! listen — one shared shape per verb across the four bindings.
+//!
+//! `bindings/proofs/verb_spine/` is the behavioral half of this file: one
+//! scenario per binding, walking promise, dial, listen, and GC against a fixed
+//! peer, so a verb that is present but wrong fails a build step instead of
+//! passing a grep. That is the defect class this file cannot see, and it has
+//! bitten twice: the `failed` arm below once existed in Rust alone, and the
+//! proof's own first run found Racket still raising synchronously, with every
+//! marker here green. Each check states which of its marker lists that proof
+//! covers. A covered list is retired rather than kept beside the proof, since
+//! two authorities for one fact only drift; an uncovered one has nothing else
+//! holding it and stays.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -14,6 +25,23 @@ const readSourceSubject = util.readSourceSubject;
 /// Binding spine Pass 3a: each binding keeps a named `promise` module for the
 /// RemotePromise / session-vow handle and pipelined projection. Grep-level —
 /// catches silent deletes, not wrong semantics.
+/// `bindings/proofs/verb_spine/` covers the handle type, the `index`/`untag`/
+/// `get` projections with their `glowcap_host_vow_*` verbs, and the `failed`
+/// arm, through its `promise-handle`, `promise-index`, `promise-untag`,
+/// `promise-get`, `gc-released`, and `promise-failed` scenes. The markers for
+/// those three verbs and that arm are retired here: the proof runs them in
+/// every binding, so a grep for the same fact is a second authority that can
+/// only drift. What stays is what a running proof cannot see. It cannot see
+/// which module a symbol lives in or what it is called, so the names below
+/// hold the cross-binding shape, and `awaitMinted`, `fetchLike`, `promiseFor`,
+/// and `sendFar` hold surfaces the scenario does not walk. `listenFar` and its
+/// `op:listen` verb are uncovered outright, because the scenario issues no
+/// listen.
+///
+/// The `failed` arm's history is why the family exists, and it repeated while
+/// the family was being built: Rust carried the arm alone, TypeScript and
+/// Python had since grown it, and the proof's first run found Racket still
+/// raising synchronously.
 pub fn checkBindingPromiseSpine(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -33,19 +61,19 @@ pub fn checkBindingPromiseSpine(
             // synchronous failure channel on a promise and escapes the caller's
             // own `.catch`. Rust carried this arm alone for a while, and the
             // two that lacked it both shipped that trap.
-            .markers = &.{ "class RemotePromise", "index(", "untag(", "get(", "awaitMinted", "fetchLike", "promiseFor", "sendFar", "listenFar", "static failed", "\"failed\"", "glowcap_host_vow_index", "glowcap_host_vow_untag", "glowcap_host_vow_get" },
+            .markers = &.{ "class RemotePromise", "index(", "untag(", "get(", "awaitMinted", "fetchLike", "promiseFor", "sendFar", "listenFar" },
         },
         .{
             .path = "bindings/python/glowcap/_promise.py",
-            .markers = &.{ "class RemotePromise", "def index", "def untag", "def get", "_await_minted", "_fetch_like", "def _promise_for", "def _send_far", "def _listen_far", "def failed", "class Failed", "glowcap_host_vow_get" },
+            .markers = &.{ "class RemotePromise", "def index", "def untag", "def get", "_await_minted", "_fetch_like", "def _promise_for", "def _send_far", "def _listen_far" },
         },
         .{
             .path = "bindings/rust/src/promise.rs",
-            .markers = &.{ "struct RemotePromise", "fn index", "fn untag", "fn get", "glowcap_host_vow_index", "glowcap_host_vow_get", "await_minted", "fetch_like", "fn send_promise", "fn listen_far", "Failed(" },
+            .markers = &.{ "struct RemotePromise", "fn index", "fn untag", "fn get", "await_minted", "fetch_like", "fn send_promise", "fn listen_far" },
         },
         .{
             .path = "bindings/racket/private/promise.rkt",
-            .markers = &.{ "session-vow", "settle-vow!", "session-index", "session-untag", "session-get", "glowcap_host_vow_index", "glowcap_host_vow_get", "await-vow", "blocking-fetch", "session-far-send", "listen-far", "glowcap_host_session_send", "glowcap_host_session_tell", "glowcap_host_vow_send" },
+            .markers = &.{ "session-vow", "settle-vow!", "session-index", "session-untag", "session-get", "await-vow", "blocking-fetch", "session-far-send", "listen-far", "glowcap_host_session_send", "glowcap_host_session_tell", "glowcap_host_vow_send" },
         },
     };
     for (mods) |mod| {
@@ -98,6 +126,10 @@ pub fn checkBindingPromiseSpine(
 /// Binding spine Pass 5 (Rust): the one application `Ref` lives with
 /// `Argument` in `lib.rs`; `Caretaker` / `SessionShared` live in
 /// `session_shared.rs`, not `session.rs`. Grep-level.
+/// `bindings/proofs/verb_spine/` covers none of this: every marker is about
+/// which Rust file owns a type, and behavior cannot see a module boundary.
+/// `Caretaker` is not exercised at all, because the scenario spawns no
+/// revocable proxy.
 pub fn checkBindingRustConnSpine(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -141,6 +173,13 @@ pub fn checkBindingRustConnSpine(
 
 /// Binding spine Pass 3b: each binding keeps a named `gc` module for ADR-0063
 /// distributed GC (opt-in track + drain). Grep-level.
+/// `bindings/proofs/verb_spine/`'s `gc-released` scene covers the opt-in verb
+/// and the deterministic release path through `glowcap_host_ref_release`: a
+/// lifted capability answers, releases, and is then refused both a second
+/// release and a send through it. When a collector reclaims a handle is not
+/// observable from outside a binding, so the finalizer half — `trackArgument`,
+/// `drainGc`, and their queues — stays grep-held, as do the module names, the
+/// session bans, and the Python private-reach bans.
 pub fn checkBindingGcSpine(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -256,6 +295,14 @@ pub fn checkBindingGcSpine(
 /// Binding spine Pass 3c: every binding exposes one managed Runtime over
 /// explicit provider/connector composition. Generic dial code owns handoff
 /// redemption and terminal reporting, but never names a concrete transport.
+/// `bindings/proofs/verb_spine/` covers the managed Runtime's dial in both
+/// outcomes: `dial-ok` opens a session over an explicitly composed TCP
+/// provider, and `dial-refused` requires the binding's typed refusal for an
+/// address nothing listens on, where a hang or a crash is a red run. Handoff
+/// redemption (`dial_exporter`, `run_dial_ticket`) needs a give the scenario
+/// never mints, and `adopt_host` is untouched. The banned lists stay grep-held
+/// for the reason they exist: a generic dial module that names a concrete
+/// transport still dials correctly.
 pub fn checkBindingDialSpine(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -338,6 +385,13 @@ pub fn checkBindingDialSpine(
 /// Binding spine Pass 3d: each binding keeps transport-specific construction
 /// in its transport-owned listen module and generic listener lifecycle in its
 /// server module. Grep-level.
+/// `bindings/proofs/verb_spine/`'s `listen-served` scene covers the plain-TCP
+/// listener's lifecycle: it opens, advertises a locator the same process dials,
+/// serves the accepted session, and closes. No other transport is covered, nor
+/// the consolidated Rust listener surface names, nor — the important gap — the
+/// ACCEPTED listener-id routing list. Proving that needs one Host holding two
+/// listeners and a dial to each, so a binding that flattened accepts into one
+/// queue would still pass this scenario.
 pub fn checkBindingListenSpine(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -366,11 +420,23 @@ pub fn checkBindingListenSpine(
         },
         .{
             .path = "bindings/rust/src/tcp_listen.rs",
-            .markers = &.{ "struct Server", "crate::server::LoopListener", "pub(crate) async fn listen", "pub(crate) async fn listen_keyed", "ensure_loop_provider", "tcp::address_designator" },
+            .markers = &.{ "struct Server", "crate::server::LoopListener", "pub(crate) async fn listen", "transport: &'static str", "ensure_loop_provider", "tcp::address_designator" },
+        },
+        .{
+            .path = "bindings/racket/private/listen-loop.rkt",
+            .markers = &.{ "(define (listen-loop-profile", "open-driver-loop", "check-host-profile-conflicts", "loop-listen!", "loop-listener-ready!", "loop-listener-select!", "raise-after-cleanups", "make-loop-server" },
         },
         .{
             .path = "bindings/racket/private/tcp-listen.rkt",
-            .markers = &.{ "make-loop-server", "driver-loop-add-tcp!", "loop-listen!", "listen-keyed-tcp", "listen-noise-tcp", "(define (listen", "tcp-address-designator" },
+            .markers = &.{ "listen-loop-profile", "driver-loop-add-tcp!", "listen-keyed-tcp", "listen-noise-tcp", "(define (listen", "tcp-address-designator" },
+        },
+        .{
+            .path = "bindings/racket/private/iroh/surface.rkt",
+            .markers = &.{ "listen-loop-profile", "listen-loop-identity", "iroh-adopt-loop!", "(define (listen-iroh", "#:codec [codec #f]", "#:options [options #f]" },
+        },
+        .{
+            .path = "bindings/racket/glowcap-onion.rkt",
+            .markers = &.{ "listen-loop-profile", "resolve-host-profile", "onion-install-provider!", "(define (listen-onion", "#:codec [codec #f]", "#:options [options #f]" },
         },
         .{
             .path = "bindings/racket/private/server-verbs.rkt",
@@ -378,7 +444,7 @@ pub fn checkBindingListenSpine(
         },
         .{
             .path = "bindings/racket/private/relay-listen.rkt",
-            .markers = &.{ "make-loop-server", "driver-loop-add-relay!", "loop-listen!", "listen-keyed-relay", "listen-noise-relay", "(all-from-out \"server-verbs.rkt\")" },
+            .markers = &.{ "listen-loop-profile", "driver-loop-add-relay!", "listen-keyed-relay", "listen-noise-relay", "#:codec [codec #f]", "#:options [options #f]", "(all-from-out \"server-verbs.rkt\")" },
         },
     };
     for (mods) |mod| {
@@ -404,7 +470,7 @@ pub fn checkBindingListenSpine(
         return;
     };
     defer gpa.free(rust_surface);
-    const rust_markers = [_][]const u8{ "pub async fn listen", "pub mod keyed", "pub mod noise", "KeyedListenOptions", "ListenerIdentity" };
+    const rust_markers = [_][]const u8{ "pub async fn listen", "pub mod keyed", "pub mod noise", "ListenOptions", "ListenerIdentity" };
     for (rust_markers) |marker| {
         if (std.mem.indexOf(u8, rust_surface, marker) == null) {
             try appendViolation(gpa, violations, "{s}: missing consolidated listener surface `{s}`", .{ rust_surface_path, marker });
@@ -453,6 +519,24 @@ pub fn checkBindingListenSpine(
             if (std.mem.indexOf(u8, contents, banned) != null) {
                 try appendViolation(gpa, violations, "{s}: stale public spelling `{s}` — module context owns the transport name and options own variants", .{ surface.path, banned });
             }
+        }
+    }
+
+    // The Rust driver-loop listeners bind through the one spine in `server.rs`
+    // (identity to Host, loop, provider install, open, select, one failure
+    // ladder that leaves loop closure to the Host's drop). A transport module
+    // that re-derives the spine is where a second loop close came from, so
+    // each one calls the spine and none establishes the loop itself.
+    try expectFileContains(io, gpa, root, violations, "bindings/rust/src/server.rs", &.{"pub(crate) async fn bind_loop_listener"});
+    for ([_][]const u8{
+        "bindings/rust/src/tcp_listen.rs",
+        "bindings/rust/src/relay.rs",
+        "bindings/rust/src/onion.rs",
+        "bindings/rust/src/iroh/server.rs",
+    }) |path| {
+        try expectFileContains(io, gpa, root, violations, path, &.{"crate::server::bind_loop_listener("});
+        if (try fileContains(io, gpa, root, path, "ensure_driver_loop")) {
+            try appendViolation(gpa, violations, "{s}: `ensure_driver_loop` outside the shared listener spine; bind through `crate::server::bind_loop_listener`", .{path});
         }
     }
 

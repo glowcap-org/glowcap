@@ -417,6 +417,41 @@ test "a connection-owned transport failure is claimed exactly once" {
     try std.testing.expect(conn.takeFailure() == null);
 }
 
+test "connection cleanup owns its allocator independently of the retired peer" {
+    const Fixture = struct {
+        closed: bool = false,
+        fn close(ctx: *anyopaque) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.closed = true;
+        }
+        fn socket(_: *anyopaque) ?std.Io.net.Socket.Handle {
+            return null;
+        }
+    };
+    const allocator = std.testing.allocator;
+    var fixture = Fixture{};
+    var peer = stubNegotiatingPeer(allocator);
+    var reader = std.Io.Reader.fixed("");
+    var storage: [1]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&storage);
+    var conn = net.Connection.init(undefined, &peer, &reader, &writer, .{
+        .ctx = &fixture,
+        .close_fn = Fixture.close,
+        .socket_handle_fn = Fixture.socket,
+    });
+    conn.spill.absorbBytes(allocator, "retained frame prefix") catch |err| {
+        conn.deinit();
+        peer.deinit();
+        return err;
+    };
+    // Host session release may consume the peer before the physical carrier
+    // finishes closing. No pump may run now, but owned storage must still free.
+    peer.deinit();
+    peer = undefined;
+    conn.deinit();
+    try std.testing.expect(fixture.closed);
+}
+
 test "a connection close barrier retains its exact transport chain" {
     const Fixture = struct {
         advances: usize = 0,

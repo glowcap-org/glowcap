@@ -7,7 +7,7 @@
 //
 // Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts [--native-wss] -- <client argv...>
 
-import { awaitMarker, fail } from "../_support/harness.ts";
+import { awaitMarker, fail, runProofOrFail } from "../_support/harness.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const TLS_CERT = new URL("../../../test/net/fixtures/tls_server.pem", import.meta.url).pathname;
@@ -28,40 +28,37 @@ const nativeWss = harnessArgs.includes("--native-wss");
 const clientArgv = sep === -1 ? [...Deno.args] : Deno.args.slice(sep + 1);
 if (clientArgv.length === 0) fail("harness needs a client argv after --");
 
-const deadline = setTimeout(
-	() => fail("keyed-relay rendezvous proof timed out after 120s"),
-	120_000,
-);
-
-const relay = new Deno.Command("deno", {
-	args: [
-		"run",
-		"--allow-net",
-		"--allow-ffi",
-		"--allow-env",
-		"--allow-read",
-		"bindings/ts/relay/serve.ts",
-		"0",
-	],
-	cwd: ROOT,
-	env: nativeWss
-		? {
-			...installedArchiveEnv,
-			GLOWCAP_RELAY_TLS_CERT: TLS_CERT,
-			GLOWCAP_RELAY_TLS_KEY: TLS_KEY,
-		}
-		: installedArchiveEnv,
-	stdout: "piped",
-	stderr: "inherit",
-}).spawn();
-
-let peer: Deno.ChildProcess | null = null;
-let clientCode = 1;
-try {
+const clientCode = await runProofOrFail({
+	// The build owner stops this process at 30 seconds. Keep the diagnostic
+	// deadline inside it, with room for process-group teardown.
+	deadlineMs: 27_000,
+	timeoutMessage: () => "keyed-relay rendezvous proof timed out after 27s",
+}, async (processes) => {
+	const relay = processes.spawn("deno", {
+		args: [
+			"run",
+			"--allow-net",
+			"--allow-ffi",
+			"--allow-env",
+			"--allow-read",
+			"bindings/ts/relay/serve.ts",
+			"0",
+		],
+		cwd: ROOT,
+		env: nativeWss
+			? {
+				...installedArchiveEnv,
+				GLOWCAP_RELAY_TLS_CERT: TLS_CERT,
+				GLOWCAP_RELAY_TLS_KEY: TLS_KEY,
+			}
+			: installedArchiveEnv,
+		stdout: "piped",
+		stderr: "inherit",
+	});
 	const relayPort = await awaitMarker(relay, "DENO-RELAY-READY", "relay");
 	const relayUrl = `${nativeWss ? "wss" : "ws"}://localhost:${relayPort}/relay`;
 
-	peer = new Deno.Command("deno", {
+	const peer = processes.spawn("deno", {
 		args: [
 			"run",
 			...(nativeWss ? ["--unsafely-ignore-certificate-errors=localhost"] : []),
@@ -76,10 +73,10 @@ try {
 		env: installedArchiveEnv,
 		stdout: "piped",
 		stderr: "inherit",
-	}).spawn();
+	});
 	const locator = await awaitMarker(peer, "REGISTERED-PEER-READY", "peer");
 
-	const client = new Deno.Command(clientArgv[0], {
+	const client = processes.spawn(clientArgv[0], {
 		args: [...clientArgv.slice(1), locator],
 		cwd: ROOT,
 		env: nativeWss
@@ -91,19 +88,9 @@ try {
 			: installedArchiveEnv,
 		stdout: "inherit",
 		stderr: "inherit",
-	}).spawn();
-	clientCode = (await client.status).code;
-} finally {
-	clearTimeout(deadline);
-	try {
-		peer?.kill();
-	} catch { /* already gone */ }
-	try {
-		relay.kill();
-	} catch { /* already gone */ }
-	await peer?.status;
-	await relay.status;
-}
+	});
+	return (await processes.status(client)).code;
+});
 if (clientCode !== 0) fail(`client exited ${clientCode}`);
 console.log("PASS: harness relayed a green client run");
 Deno.exit(0);

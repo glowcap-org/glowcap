@@ -206,3 +206,31 @@ test "planAccept webrtc: signs the server key, and its netlayer offers no addres
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
 }
+
+test "admitDial: a route bundle has no single channel to open" {
+    var metadata = transport.Known.tcp.metadata();
+    metadata.dial_shape = .route_bundle;
+    try std.testing.expectError(error.UnknownTransport, driver.core.admitDial(metadata, "127.0.0.1:9000"));
+}
+
+test "admitDial: an address designator demands no key and seals nothing" {
+    const admission = try driver.core.admitDial(transport.Known.tcp.metadata(), "127.0.0.1:9000");
+    try std.testing.expect(!admission.sealed_channel);
+    try std.testing.expect(admission.demanded_key == null);
+}
+
+test "admitDial: a key designator is the partner's durable key to demand" {
+    const admission = try driver.core.admitDial(transport.Known.keyed_tcp.metadata(), key_designator);
+    const expected = glowcap.foundation.crypto.PeerKey.fromDesignator(key_designator).?;
+    try std.testing.expect(std.mem.eql(u8, &admission.demanded_key.?.bytes, &expected.bytes));
+}
+
+test "admitDial: a malformed key designator is refused before anything is minted" {
+    try std.testing.expectError(error.InvalidAddress, driver.core.admitDial(transport.Known.keyed_tcp.metadata(), "not-a-key"));
+}
+
+test "admitDial: a sealed transport says so" {
+    const admission = try driver.core.admitDial(transport.Known.noise_tcp.metadata(), key_designator);
+    try std.testing.expect(admission.sealed_channel);
+    try std.testing.expect(admission.demanded_key != null);
+}

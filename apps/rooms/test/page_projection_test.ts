@@ -1,3 +1,4 @@
+import "./support/browser_application.ts";
 // Two pages in one isolate keep separate presentation. Drafts, conversations,
 // rosters, histories, unreads, and who is composing belong to the page that wrote them.
 
@@ -28,7 +29,14 @@ Deno.test("two pages do not share drafts, conversations, members, typers, histor
 	const room = store.ensureRoom(first.projection, directory, "general");
 	store.switchTo(first.projection, room.key);
 	store.setDraft(first.projection, "only on the first page");
-	store.applyPresence(first.projection, room.key, { kind: "roster", names: ["ada"] });
+	store.setRoomView(first.projection, room.key, {
+		members: [["ada", { online: true, away: "" }]],
+		topic: null,
+		lineBytes: null,
+		bridge: null,
+		canSetTopic: false,
+		canModerate: false,
+	});
 	store.setTyper(first.projection, room.key, "ada", true);
 	store.deliver(first.projection, room.key, store.chatItem(first.projection, "ada", "hello", false));
 	const waiting = store.ensureRoom(first.projection, directory, "side");

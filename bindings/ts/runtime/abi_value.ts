@@ -32,17 +32,14 @@ import {
 	UNSUPPORTED_VALUE,
 } from "@glowcap/abi";
 import { GlowcapError } from "./errors.ts";
-import { type Argument, isReference, Kw, PSet, PStruct, Ref, refFromId, Sym, Tagged } from "./value.ts";
+import { type Argument, isReference, Kw, liveRefId, PSet, PStruct, Ref, refFromId, Sym, Tagged } from "./value.ts";
 
 const EMPTY_ARGS = new Uint8Array(0);
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
 
 function writeReference(dv: DataView, off: number, ref: Ref): void {
-	if (ref.released) {
-		throw new Error("glowcap: this capability was released and is no longer usable");
-	}
-	dv.setBigUint64(off + L.REF_ID_OFF, ref.id, true);
+	dv.setBigUint64(off + L.REF_ID_OFF, liveRefId(ref), true);
 }
 
 export function refStruct(ref: Ref): Uint8Array {

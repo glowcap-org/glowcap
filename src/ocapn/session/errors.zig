@@ -75,7 +75,7 @@ pub const Error = error{
     PendingWithdrawCapExceeded,
     /// An inbound argument tree nested deeper than
     /// `SessionLimits.max_nesting_depth`. The recursive validate / install walk
-    /// is bounded so a malicious deeply-nested frame fails loud instead of
+    /// is bounded so a deeply nested frame fails loud instead of
     /// overflowing the native stack. Projects to `resource_exhausted`.
     NestingTooDeep,
     /// One inbound message asked for more equality-comparison work than

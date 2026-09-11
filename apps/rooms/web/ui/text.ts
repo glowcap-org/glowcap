@@ -11,7 +11,7 @@ import {
 	type PeeringSource,
 	type SessionPhase,
 } from "./types.ts";
-import { lineCost, MAX_LINE, MAX_NICK, ROOM_MENTIONS } from "../../lib/limits.ts";
+import { lineCost, MAX_LINE, MAX_NICK, ROOM_MENTIONS } from "./limits.ts";
 
 /** What a surface says while this browser's access to the session is paused and
  * there is consequently nothing in it to show.
@@ -361,7 +361,7 @@ const PICKER_CODES = [
 	"100",
 	"eyes",
 	"rocket",
-	"pancakes",
+	"mushroom",
 	"coffee",
 	"sparkles",
 	"check",
@@ -411,7 +411,7 @@ const MENTION = new RegExp(String.raw`@([${NAME_CHARS}]*[\w\[\]\\\`^{|}])`, "g")
  * called one: the directory refuses to grant any of them (`nickRefusal`), so
  * the words stay vocabulary. The list itself lives beside that reservation in
  * `lib/limits.ts`, one authority for both readings. */
-export { ROOM_MENTIONS } from "../../lib/limits.ts";
+export { ROOM_MENTIONS } from "./limits.ts";
 
 /** The two the composer offers.
  *

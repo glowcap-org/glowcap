@@ -355,7 +355,7 @@ claims.
   authentication is a WebPKI certificate rather than a glowcap durable key, so
   it would prove the wrong thing and still need this layer on top.
 
-## Adversarial review
+## Review lenses
 
 **"The transport symbol decides whether the channel is sealed, which is the
 table ADR-0105 deleted."** ADR-0105 deleted a table mapping a symbol to *what
@@ -368,7 +368,7 @@ session at all.
 **"Reusing the Ed25519 key for Diffie-Hellman is a cross-protocol hazard."**
 Correct, and it is the weakest joint in this design. It is accepted rather than
 dismissed, and bounded by a mechanical invariant instead of a comment. If a
-future record needs the durable key to sign anything attacker-shaped, this
+future record needs the durable key to sign anything peer-supplied, this
 decision has to be revisited, and step 2's check is what forces that
 conversation.
 

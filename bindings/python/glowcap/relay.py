@@ -19,7 +19,7 @@ from . import _constants as _c
 from ._errors import GlowcapError
 from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _str_buf, _read_last_error
-from ._ffi_relay import _RelayConfig, _RelayTrustSummary, _relay_lib
+from ._ffi_relay import _RelayConfig, _relay_lib
 from ._locator import Locator
 from ._native import NativeHandle, _NativeHandleOwner
 from ._transport import (
@@ -36,7 +36,6 @@ if TYPE_CHECKING:
 __all__ = [
     "RelayConfig",
     "RelayRuntime",
-    "TrustSummary",
     "provider",
     "connector",
     "keyed",
@@ -243,15 +242,6 @@ class RelayConfig:
         return cls(relay_url)
 
 
-@dataclass(frozen=True, slots=True)
-class TrustSummary:
-    """Immutable result of loading the native relay trust snapshot."""
-
-    loaded: int
-    skipped_by_engine: int
-    first_skipped_engine_code: int | None
-
-
 def _release_runtime(raw) -> None:
     _check_relay(_relay_lib.glowcap_relay_runtime_release(raw, None, 0, None))
 
@@ -286,22 +276,6 @@ class RelayRuntime(_NativeHandleOwner):
             )
         )
         self._native = NativeHandle(out, _release_runtime, label="relay runtime")
-
-    def trust_summary(self) -> TrustSummary:
-        raw_summary = _RelayTrustSummary()
-        with self._native.lease() as raw:
-            _check_relay(
-                _relay_lib.glowcap_relay_runtime_trust_summary(
-                    raw, ctypes.byref(raw_summary)
-                )
-            )
-        return TrustSummary(
-            loaded=raw_summary.loaded,
-            skipped_by_engine=raw_summary.skipped_by_engine,
-            first_skipped_engine_code=(
-                raw_summary.first_skipped_engine_code or None
-            ),
-        )
 
     def release(self) -> None:
         self._native.close()

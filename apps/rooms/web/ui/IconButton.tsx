@@ -22,6 +22,9 @@ export type IconButtonProps =
 		icon: IconName;
 		label: string;
 		size?: IconButtonSize;
+		/** Glyph size inside the control. Leave this off to take the size
+		 * step; pass it only when a glyph has to disagree with that step. */
+		iconSize?: number;
 		variant?: IconButtonVariant;
 		tone?: IconButtonTone;
 		shape?: IconButtonShape;
@@ -42,6 +45,7 @@ export function IconButton({
 	icon,
 	label,
 	size = "normal",
+	iconSize,
 	variant = "outline",
 	tone = "neutral",
 	shape = "rounded",
@@ -68,7 +72,7 @@ export function IconButton({
 			aria-label={label}
 			title={title ?? label}
 		>
-			<Icon name={icon} size={iconSizes[size]} />
+			<Icon name={icon} size={iconSize ?? iconSizes[size]} />
 			{badge !== undefined && <span className="icon-button-badge" aria-hidden="true">{badge}</span>}
 		</button>
 	);

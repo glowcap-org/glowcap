@@ -7,7 +7,7 @@
 //! because they prove transport and framing seams, not the handshake. The
 //! refusal matrices instead need a *validly signed* hello carrying exactly the
 //! hints they name, including hints a peer this project wrote would refuse to
-//! send, so `signedHelloFrame` builds one the way a hostile or mistaken
+//! send, so `signedHelloFrame` builds one the way an untrusted or mistaken
 //! partner would: message first, with exactly the requested hint list.
 //! `engine.Peer.sendKeyedStartSession` is the production builder and is under
 //! both disciplines, which is why it cannot serve these arms.

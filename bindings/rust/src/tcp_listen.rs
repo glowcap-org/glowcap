@@ -6,8 +6,8 @@
 //! the loop before its first network operation. The loop owns sockets,
 //! admission, pumping, and session release. [`LoopListener`] is the one
 //! binding owner of a generic driver listener. The driver's locator is the
-//! server's sole metadata authority; profile-specific constructors do not mint
-//! parallel server types or cache another rendering of it.
+//! server's public locator authority. The constructor retains the physical bind
+//! address separately, before caller policy can advertise a different host.
 
 #[cfg(feature = "tcp")]
 use crate::abi_constants::{HINT_DIRECT_ADDRESSES, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP};
@@ -23,7 +23,7 @@ use crate::session_shared::io_err;
 use crate::ConnectOptions;
 #[cfg(feature = "tcp")]
 use crate::{ListenerIdentity, Result};
-#[cfg(feature = "tcp")]
+#[cfg(all(test, feature = "tcp"))]
 use std::rc::Rc;
 
 /// A listening server, the host-side counterpart of [`crate::Runtime::connect`]. Call
@@ -39,36 +39,20 @@ use std::rc::Rc;
 #[cfg(feature = "tcp")]
 pub struct Server {
 	listener: LoopListener,
+	bound: std::net::SocketAddr,
 }
 
-/// Plain-TCP listener options. `advertised_host` is required for a wildcard
-/// bind; `host` shares an existing capability identity and session directory.
+/// Listener options shared by the `tcp`, `keyed-tcp`, and `noise-tcp`
+/// profiles. `advertised_host` is required for a wildcard bind. The identity
+/// is a sum rather than two optional fields, so conflicting seed and Host
+/// authority is unrepresentable; [`ListenerIdentity::Host`] shares an existing
+/// capability identity and session directory.
 #[cfg(feature = "tcp")]
 #[derive(Default)]
 pub struct ListenOptions {
 	pub advertised_host: Option<String>,
 	pub identity: ListenerIdentity,
 	pub config: crate::tcp::Config,
-}
-
-/// Keyed and Noise TCP listener options. The identity is a sum rather than two
-/// optional fields, so conflicting seed and Host authority is unrepresentable.
-#[cfg(feature = "tcp")]
-pub struct KeyedListenOptions {
-	pub advertised_host: Option<String>,
-	pub identity: ListenerIdentity,
-	pub config: crate::tcp::Config,
-}
-
-#[cfg(feature = "tcp")]
-impl Default for KeyedListenOptions {
-	fn default() -> Self {
-		Self {
-			advertised_host: None,
-			identity: ListenerIdentity::Fresh,
-			config: crate::tcp::Config::default(),
-		}
-	}
 }
 
 #[cfg(feature = "tcp")]
@@ -82,6 +66,8 @@ impl Server {
 	///
 	/// The native driver owns bounded admission and advances independent
 	/// handshakes without binding listener progress to application `accept`.
+	/// Await the next accepted session. It delivers its partner's inbound only
+	/// once served: publish what it should answer, then `session.serve()`.
 	pub async fn accept(&self) -> Result<Session> {
 		self.listener.accept().await
 	}
@@ -99,9 +85,14 @@ impl Server {
 	/// The bound port. This remains the physical listener's port when an
 	/// advertised host replaces a wildcard bind address.
 	pub fn port(&self) -> Result<u16> {
-		let locator = self.locator()?;
-		let direct = direct_address(&locator)?;
-		Ok(crate::uri::designator_host_port(direct)?.1)
+		// Preserve the live-listener check of this existing fallible accessor.
+		self.listener.locator()?;
+		Ok(self.bound.port())
+	}
+
+	/// The socket's bound address, independent of its advertised locator.
+	pub fn local_addr(&self) -> std::net::SocketAddr {
+		self.bound
 	}
 
 	/// This server's [`Host`], one retained identity and session directory
@@ -119,53 +110,32 @@ impl Server {
 	pub async fn close(&self) -> Result<()> {
 		self.listener.close().await
 	}
+
+	/// Select this listener's locator as the shared [`Host`]'s advertised
+	/// location. Every listener bound later on the same Host takes the
+	/// selection when it opens, so the one a server announced is re-selected
+	/// after each of them.
+	pub fn select(&self) -> Result<()> {
+		self.listener.select()
+	}
 }
 
-#[cfg(feature = "tcp")]
-pub(crate) async fn listen(bind_host: &str, port: u16, options: ListenOptions) -> Result<Server> {
-	let host = options.identity.into_host()?;
-	listen_tcp_profile(
-		bind_host,
-		port,
-		TRANSPORT_TCP,
-		host,
-		options.advertised_host,
-		options.config,
-	)
-	.await
-}
-
-#[cfg(feature = "tcp")]
-pub(crate) async fn listen_keyed(
-	bind_host: &str,
-	port: u16,
-	transport: &'static str,
-	options: KeyedListenOptions,
-) -> Result<Server> {
-	let host = options.identity.into_host()?;
-	listen_tcp_profile(
-		bind_host,
-		port,
-		transport,
-		host,
-		options.advertised_host,
-		options.config,
-	)
-	.await
-}
-
+// The locator is the provider's own, so a missing hint is a provider fault
+// rather than a caller's malformed input: the refusal names the listener, the
+// way the TypeScript and Racket listen spines word the same fault, instead of
+// asking the caller to supply a hint they never wrote.
 #[cfg(feature = "tcp")]
 fn direct_address(locator: &crate::Locator) -> Result<&str> {
 	match locator.transport.as_str() {
 		TRANSPORT_TCP => Ok(&locator.designator),
 		TRANSPORT_KEYED_TCP | TRANSPORT_NOISE_TCP => locator.string_hint(HINT_DIRECT_ADDRESSES)?.ok_or_else(|| {
-			io_err(std::io::Error::new(
-				std::io::ErrorKind::InvalidData,
+			crate::Error::with_detail(
+				crate::sys::ERR_INVALID_ARGUMENT,
 				format!(
 					"the {} listener locator has no {HINT_DIRECT_ADDRESSES} hint",
 					locator.transport
 				),
-			))
+			)
 		}),
 		transport => Err(io_err(std::io::Error::new(
 			std::io::ErrorKind::InvalidData,
@@ -192,15 +162,25 @@ fn advertised_direct_address(host: &str, port: u16) -> Result<String> {
 	Ok(crate::tcp::address_designator(bare, port))
 }
 
+/// Bind one TCP-provider profile. `transport` is the symbol the caller's
+/// `tcp::listen`, `tcp::keyed::listen`, or `tcp::noise::listen` names; the
+/// bind, admission, and server lifecycle are the same for all three, and the
+/// shared [`crate::server::bind_loop_listener`] spine runs them. This module
+/// owns only the two TCP-shaped steps: the resolved bind address the listener
+/// binds to, and the advertised address it publishes when that differs from
+/// the bound one.
 #[cfg(feature = "tcp")]
-async fn listen_tcp_profile(
+pub(crate) async fn listen(
 	bind_host: &str,
 	port: u16,
 	transport: &'static str,
-	host: Host,
-	advertised_host: Option<String>,
-	config: crate::tcp::Config,
+	options: ListenOptions,
 ) -> Result<Server> {
+	let ListenOptions {
+		advertised_host,
+		identity,
+		config,
+	} = options;
 	let bind = tokio::net::lookup_host((bind_host, port))
 		.await
 		.map_err(io_err)?
@@ -211,55 +191,48 @@ async fn listen_tcp_profile(
 				"listen address resolved to nothing",
 			))
 		})?;
-	let shared = host.shared();
-	let lp = shared.ensure_driver_loop(
-		crate::abi_constants::DRIVER_DEFAULT_HANDSHAKE_MS,
-		crate::abi_constants::DRIVER_DEFAULT_SETTLE_MS,
-	)?;
-	crate::tcp::ensure_loop_provider(&lp, config)?;
-	let listener = lp
-		.listen(
-			transport,
-			&crate::tcp::address_designator(&bind.ip().to_string(), bind.port()),
-		)
-		.await?;
-	let opened = (|| {
-		let locator = lp.listener_locator(listener)?;
-		let bound_direct = direct_address(&locator)?.to_owned();
-		let bound: std::net::SocketAddr = bound_direct.parse().map_err(|_| {
-			io_err(std::io::Error::new(
-				std::io::ErrorKind::InvalidData,
-				format!("the listener reported an unparsable direct address {bound_direct:?}"),
-			))
-		})?;
-		let advertised_direct = match advertised_host.as_deref() {
-			Some(value) => advertised_direct_address(value, bound.port())?,
-			None if bound.ip().is_unspecified() => {
-				return Err(io_err(std::io::Error::new(
-					std::io::ErrorKind::InvalidInput,
-					"a wildcard bind has no dialable address; provide an advertised host",
-				)))
-			}
-			None => bound_direct.clone(),
-		};
-		if advertised_direct != bound_direct {
-			let (designator, direct_hint) = if transport == TRANSPORT_TCP {
-				(advertised_direct.as_str(), "")
-			} else {
-				(locator.designator.as_str(), advertised_direct.as_str())
+	let (listener, bound) = crate::server::bind_loop_listener(
+		identity,
+		transport,
+		|_host, lp| {
+			std::future::ready(
+				crate::tcp::ensure_loop_provider(&lp, config)
+					.map(|()| crate::tcp::address_designator(&bind.ip().to_string(), bind.port())),
+			)
+		},
+		|lp, listener, _bound_designator| {
+			let locator = lp.listener_locator(listener)?;
+			let bound_direct = direct_address(&locator)?.to_owned();
+			let bound: std::net::SocketAddr = bound_direct.parse().map_err(|_| {
+				io_err(std::io::Error::new(
+					std::io::ErrorKind::InvalidData,
+					format!("the listener reported an unparsable direct address {bound_direct:?}"),
+				))
+			})?;
+			let advertised_direct = match advertised_host.as_deref() {
+				Some(value) => advertised_direct_address(value, bound.port())?,
+				None if bound.ip().is_unspecified() => {
+					return Err(io_err(std::io::Error::new(
+						std::io::ErrorKind::InvalidInput,
+						"a wildcard bind has no dialable address; provide an advertised host",
+					)))
+				}
+				None => bound_direct.clone(),
 			};
-			let locator_uri = crate::uri::format_peer_locator(transport, designator, direct_hint)?;
-			lp.advertise_listener(listener, &locator_uri)?;
-		}
-		lp.select_listener(listener)?;
-		Ok(Server {
-			listener: LoopListener::new(Rc::clone(&lp), listener, host),
-		})
-	})();
-	match opened {
-		Ok(server) => Ok(server),
-		Err(error) => Err(crate::retain_cleanup_failure(error, lp.close_listener(listener).await)),
-	}
+			if advertised_direct != bound_direct {
+				let (designator, direct_hint) = if transport == TRANSPORT_TCP {
+					(advertised_direct.as_str(), "")
+				} else {
+					(locator.designator.as_str(), advertised_direct.as_str())
+				};
+				let locator_uri = crate::uri::format_peer_locator(transport, designator, direct_hint)?;
+				lp.advertise_listener(listener, &locator_uri)?;
+			}
+			Ok(bound)
+		},
+	)
+	.await?;
+	Ok(Server { listener, bound })
 }
 
 #[cfg(all(test, feature = "tcp"))]
@@ -280,7 +253,7 @@ mod tests {
 
 	async fn listen(address: &str) -> Result<Server> {
 		let (host, port) = crate::designator_host_port(address)?;
-		super::listen(&host, port, ListenOptions::default()).await
+		super::listen(&host, port, TRANSPORT_TCP, ListenOptions::default()).await
 	}
 
 	async fn listen_with_host(address: &str, host: Host) -> Result<Server> {
@@ -288,6 +261,7 @@ mod tests {
 		super::listen(
 			&bind_host,
 			port,
+			TRANSPORT_TCP,
 			ListenOptions {
 				identity: ListenerIdentity::Host(host),
 				..ListenOptions::default()
@@ -407,6 +381,7 @@ mod tests {
 				let server = super::listen(
 					"0.0.0.0",
 					0,
+					TRANSPORT_TCP,
 					ListenOptions {
 						advertised_host: Some("127.0.0.1".into()),
 						..ListenOptions::default()
@@ -526,24 +501,24 @@ mod tests {
 			.run_until(async {
 				let host = Host::from_seed([0x43; 32]).unwrap();
 				for server in [
-					super::listen_keyed(
+					super::listen(
 						"127.0.0.1",
 						0,
 						TRANSPORT_KEYED_TCP,
-						KeyedListenOptions {
+						ListenOptions {
 							identity: ListenerIdentity::Host(host.clone()),
-							..KeyedListenOptions::default()
+							..ListenOptions::default()
 						},
 					)
 					.await
 					.unwrap(),
-					super::listen_keyed(
+					super::listen(
 						"127.0.0.1",
 						0,
 						TRANSPORT_NOISE_TCP,
-						KeyedListenOptions {
+						ListenOptions {
 							identity: ListenerIdentity::Host(host.clone()),
-							..KeyedListenOptions::default()
+							..ListenOptions::default()
 						},
 					)
 					.await

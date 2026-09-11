@@ -5,7 +5,8 @@
 // The proof is one conversation driven in order, so these are the only things
 // shared across its phases. Everything else a phase needs, it is handed.
 import type { Locator, Page } from "playwright";
-export const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
+export { WEB };
 export const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 // Throw rather than exit: `Deno.exit` skips the `finally` below, which is what

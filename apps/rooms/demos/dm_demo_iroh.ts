@@ -1,3 +1,4 @@
+import { startServer } from "../test/support/native_server.ts";
 // Rooms direct-message-by-introduction over iroh (three-party handoff), the
 // `Direct` posture: the gift names Bob's node id and its direct addresses.
 // Sibling of `dm_demo.ts` over encrypted QUIC; the handoff choreography is
@@ -45,17 +46,5 @@ runDmHandoff({
 			},
 		};
 	},
-	async startRoom() {
-		const seed = crypto.getRandomValues(new Uint8Array(32));
-		const room = await iroh.listen(
-			{ reachability: iroh.Reachability.Direct },
-			{ host: roomsHost(seed) },
-		);
-		await waitUntil(
-			() => room.directAddresses.length > 0,
-			DIRECT_ADDRESSES_MS,
-			"Room direct addresses",
-		);
-		return { host: room.host, listener: room, locator: room.uri, close: () => room.close() };
-	},
+	startRoom: () => startServer(["--transport=iroh", "--reachability=direct"]),
 });

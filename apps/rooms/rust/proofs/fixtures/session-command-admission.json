@@ -1,0 +1,1259 @@
+{
+  "rows": [
+    {
+      "name": "ordinary",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "away"
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 22
+    },
+    {
+      "name": "unicode-controls",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "\"\\\b\t\n\f\r\u0000é水😀"
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 47
+    },
+    {
+      "name": "empty-id",
+      "access": "admin",
+      "args": [
+        {
+          "text": ""
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 15
+    },
+    {
+      "name": "id-limit",
+      "access": "admin",
+      "args": [
+        {
+          "text": "😀",
+          "repeat": 64
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 15
+    },
+    {
+      "name": "id-over",
+      "access": "admin",
+      "args": [
+        {
+          "text": "😀",
+          "repeat": 65
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 15
+    },
+    {
+      "name": "revision--1",
+      "access": "admin",
+      "args": [
+        {
+          "text": "op"
+        },
+        {
+          "integer": "-1"
+        },
+        {
+          "text": "setStanding"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 15
+    },
+    {
+      "name": "revision-9007199254740991",
+      "access": "admin",
+      "args": [
+        {
+          "text": "op"
+        },
+        {
+          "integer": "9007199254740991"
+        },
+        {
+          "text": "setStanding"
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 15
+    },
+    {
+      "name": "revision-9007199254740992",
+      "access": "admin",
+      "args": [
+        {
+          "text": "op"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        {
+          "text": "setStanding"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 15
+    },
+    {
+      "name": "revision-170141183460469231731687303715884105727",
+      "access": "admin",
+      "args": [
+        {
+          "text": "op"
+        },
+        {
+          "integer": "170141183460469231731687303715884105727"
+        },
+        {
+          "text": "setStanding"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 15
+    },
+    {
+      "name": "float-revision",
+      "access": "admin",
+      "args": [
+        {
+          "text": "op"
+        },
+        {
+          "float": 0
+        },
+        {
+          "text": "setStanding"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 15
+    },
+    {
+      "name": "missing",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "envelope": false,
+      "accepted": false,
+      "bytes": 2
+    },
+    {
+      "name": "non-string",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "null": true
+        }
+      ],
+      "envelope": false,
+      "accepted": false,
+      "bytes": null
+    },
+    {
+      "name": "count-limit",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 207
+    },
+    {
+      "name": "count-over",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": ""
+        }
+      ],
+      "envelope": false,
+      "accepted": false,
+      "bytes": 210
+    },
+    {
+      "name": "argument-limit",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 65554
+    },
+    {
+      "name": "argument-over",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "x",
+          "repeat": 65537
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 65555
+    },
+    {
+      "name": "astral-limit",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "😀",
+          "repeat": 32768
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 131090
+    },
+    {
+      "name": "astral-over",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "😀",
+          "repeat": 32769
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 131094
+    },
+    {
+      "name": "material-limit",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65497
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 524288
+    },
+    {
+      "name": "material-over",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65536
+        },
+        {
+          "text": "x",
+          "repeat": 65498
+        }
+      ],
+      "envelope": false,
+      "accepted": false,
+      "bytes": 524289
+    },
+    {
+      "name": "access-none",
+      "access": "none",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "away"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 22
+    },
+    {
+      "name": "selectArchive-none",
+      "access": "none",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "selectArchive"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 17
+    },
+    {
+      "name": "replaceOperationsCapabilities-none",
+      "access": "none",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "replaceOperationsCapabilities"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 33
+    },
+    {
+      "name": "access-observe",
+      "access": "observe",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "away"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 22
+    },
+    {
+      "name": "selectArchive-observe",
+      "access": "observe",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "selectArchive"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 17
+    },
+    {
+      "name": "replaceOperationsCapabilities-observe",
+      "access": "observe",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "replaceOperationsCapabilities"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 33
+    },
+    {
+      "name": "access-interact",
+      "access": "interact",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "away"
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 22
+    },
+    {
+      "name": "selectArchive-interact",
+      "access": "interact",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "selectArchive"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 17
+    },
+    {
+      "name": "replaceOperationsCapabilities-interact",
+      "access": "interact",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "replaceOperationsCapabilities"
+        }
+      ],
+      "envelope": true,
+      "accepted": false,
+      "bytes": 33
+    },
+    {
+      "name": "access-admin",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "setStanding"
+        },
+        {
+          "text": "away"
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 22
+    },
+    {
+      "name": "selectArchive-admin",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "selectArchive"
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 17
+    },
+    {
+      "name": "replaceOperationsCapabilities-admin",
+      "access": "admin",
+      "args": [
+        {
+          "text": "operation"
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "text": "replaceOperationsCapabilities"
+        }
+      ],
+      "envelope": true,
+      "accepted": true,
+      "bytes": 33
+    }
+  ],
+  "handed": [
+    {
+      "name": "new",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}",
+      "args": [
+        "handoff",
+        "new-room"
+      ],
+      "after": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://directory.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://directory.id/s/aGFuZGVk\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}"
+    },
+    {
+      "name": "conversation-collision",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}",
+      "args": [
+        "handoff",
+        "dm-id"
+      ],
+      "after": null
+    },
+    {
+      "name": "empty-conversation",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}",
+      "args": [
+        "handoff",
+        ""
+      ],
+      "after": null
+    },
+    {
+      "name": "existing-id",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}",
+      "args": [
+        "invite-1",
+        "new-room"
+      ],
+      "after": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://directory.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}"
+    },
+    {
+      "name": "deduplicated-other-id",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"different\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}",
+      "args": [
+        "different",
+        "new-room"
+      ],
+      "after": null
+    },
+    {
+      "name": "bad-link",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"broken\"}",
+      "args": [
+        "handoff",
+        "new-room"
+      ],
+      "after": null
+    },
+    {
+      "name": "nick-conflict",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"different\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}",
+      "args": [
+        "handoff",
+        "new-room"
+      ],
+      "after": null
+    },
+    {
+      "name": "invalid-nick",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"invalid nick\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}",
+      "args": [
+        "handoff",
+        "new-room"
+      ],
+      "after": null
+    },
+    {
+      "name": "wrong-directory",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://other.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}",
+      "args": [
+        "handoff",
+        "new-room"
+      ],
+      "after": null
+    },
+    {
+      "name": "another-directory",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://other.id\",\"locator\":\"ocapn://other.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://other.id/s/bmV3\"}",
+      "args": [
+        "handoff",
+        "new-room"
+      ],
+      "after": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null},{\"id\":\"ocapn://other.id\",\"locator\":\"ocapn://other.id\",\"home\":false,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://other.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://other.id/s/bmV3\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}"
+    },
+    {
+      "name": "invitation-capacity",
+      "before": "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"i0\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMA\"},{\"kind\":\"room-link\",\"id\":\"i1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMQ\"},{\"kind\":\"room-link\",\"id\":\"i2\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMg\"},{\"kind\":\"room-link\",\"id\":\"i3\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMw\"},{\"kind\":\"room-link\",\"id\":\"i4\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNA\"},{\"kind\":\"room-link\",\"id\":\"i5\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNQ\"},{\"kind\":\"room-link\",\"id\":\"i6\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNg\"},{\"kind\":\"room-link\",\"id\":\"i7\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNw\"},{\"kind\":\"room-link\",\"id\":\"i8\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlOA\"},{\"kind\":\"room-link\",\"id\":\"i9\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlOQ\"},{\"kind\":\"room-link\",\"id\":\"i10\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTA\"},{\"kind\":\"room-link\",\"id\":\"i11\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTE\"},{\"kind\":\"room-link\",\"id\":\"i12\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTI\"},{\"kind\":\"room-link\",\"id\":\"i13\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTM\"},{\"kind\":\"room-link\",\"id\":\"i14\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTQ\"},{\"kind\":\"room-link\",\"id\":\"i15\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTU\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}",
+      "invitation": "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}",
+      "args": [
+        "handoff",
+        "new-room"
+      ],
+      "after": null
+    }
+  ],
+  "locatorAuthorities": {
+    "ocapn://directory.id": "ocapn://directory.id",
+    "ocapn://directory.id/s/cm9vbS1saW5r": null,
+    "ocapn://directory.id/s/bW9kZXJhdG9y": null,
+    "ocapn://directory.id/s/aW52aXRlZC1yb29t": null,
+    "ws://rooms.test/viz": null,
+    "ocapn://archive.iroh/s/YXJjaGl2ZQ": null,
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null,
+    "ocapn://directory.id/s/aGFuZGVk": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}": null,
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://directory.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://directory.id/s/aGFuZGVk\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null,
+    "{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}": null,
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://directory.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null,
+    "{\"kind\":\"room-link\",\"id\":\"different\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"broken\"}": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"different\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"invalid nick\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}": null,
+    "ocapn://other.id": "ocapn://other.id",
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://other.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}": null,
+    "ocapn://other.id/s/bmV3": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://other.id\",\"locator\":\"ocapn://other.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://other.id/s/bmV3\"}": null,
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null},{\"id\":\"ocapn://other.id\",\"locator\":\"ocapn://other.id\",\"home\":false,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://other.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://other.id/s/bmV3\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null,
+    "ocapn://directory.id/s/aW52aXRlMA": null,
+    "ocapn://directory.id/s/aW52aXRlMQ": null,
+    "ocapn://directory.id/s/aW52aXRlMg": null,
+    "ocapn://directory.id/s/aW52aXRlMw": null,
+    "ocapn://directory.id/s/aW52aXRlNA": null,
+    "ocapn://directory.id/s/aW52aXRlNQ": null,
+    "ocapn://directory.id/s/aW52aXRlNg": null,
+    "ocapn://directory.id/s/aW52aXRlNw": null,
+    "ocapn://directory.id/s/aW52aXRlOA": null,
+    "ocapn://directory.id/s/aW52aXRlOQ": null,
+    "ocapn://directory.id/s/aW52aXRlMTA": null,
+    "ocapn://directory.id/s/aW52aXRlMTE": null,
+    "ocapn://directory.id/s/aW52aXRlMTI": null,
+    "ocapn://directory.id/s/aW52aXRlMTM": null,
+    "ocapn://directory.id/s/aW52aXRlMTQ": null,
+    "ocapn://directory.id/s/aW52aXRlMTU": null,
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"i0\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMA\"},{\"kind\":\"room-link\",\"id\":\"i1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMQ\"},{\"kind\":\"room-link\",\"id\":\"i2\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMg\"},{\"kind\":\"room-link\",\"id\":\"i3\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMw\"},{\"kind\":\"room-link\",\"id\":\"i4\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNA\"},{\"kind\":\"room-link\",\"id\":\"i5\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNQ\"},{\"kind\":\"room-link\",\"id\":\"i6\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNg\"},{\"kind\":\"room-link\",\"id\":\"i7\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNw\"},{\"kind\":\"room-link\",\"id\":\"i8\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlOA\"},{\"kind\":\"room-link\",\"id\":\"i9\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlOQ\"},{\"kind\":\"room-link\",\"id\":\"i10\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTA\"},{\"kind\":\"room-link\",\"id\":\"i11\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTE\"},{\"kind\":\"room-link\",\"id\":\"i12\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTI\"},{\"kind\":\"room-link\",\"id\":\"i13\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTM\"},{\"kind\":\"room-link\",\"id\":\"i14\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTQ\"},{\"kind\":\"room-link\",\"id\":\"i15\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTU\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null
+  },
+  "sturdyrefAuthorities": {
+    "ocapn://directory.id": null,
+    "ocapn://directory.id/s/cm9vbS1saW5r": "ocapn://directory.id",
+    "ocapn://directory.id/s/bW9kZXJhdG9y": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlZC1yb29t": "ocapn://directory.id",
+    "ws://rooms.test/viz": null,
+    "ocapn://archive.iroh/s/YXJjaGl2ZQ": "ocapn://archive.id",
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null,
+    "ocapn://directory.id/s/aGFuZGVk": "ocapn://directory.id",
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}": null,
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://directory.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://directory.id/s/aGFuZGVk\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null,
+    "{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}": null,
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://directory.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null,
+    "{\"kind\":\"room-link\",\"id\":\"different\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"broken\"}": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"different\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"invalid nick\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}": null,
+    "ocapn://other.id": null,
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://other.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aGFuZGVk\"}": null,
+    "ocapn://other.id/s/bmV3": "ocapn://other.id",
+    "{\"kind\":\"room-link\",\"id\":\"handoff\",\"directory\":\"ocapn://other.id\",\"locator\":\"ocapn://other.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://other.id/s/bmV3\"}": null,
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null},{\"id\":\"ocapn://other.id\",\"locator\":\"ocapn://other.id\",\"home\":false,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"},{\"kind\":\"room\",\"id\":\"new-room\",\"directory\":\"ocapn://other.id\",\"name\":\"private study\",\"held\":true,\"link\":\"ocapn://other.id/s/bmV3\",\"standing\":null,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"invite-1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlZC1yb29t\"}],\"active\":\"new-room\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null,
+    "ocapn://directory.id/s/aW52aXRlMA": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMQ": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMg": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMw": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlNA": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlNQ": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlNg": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlNw": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlOA": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlOQ": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMTA": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMTE": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMTI": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMTM": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMTQ": "ocapn://directory.id",
+    "ocapn://directory.id/s/aW52aXRlMTU": "ocapn://directory.id",
+    "{\"version\":1,\"directories\":[{\"id\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"home\":true,\"nick\":\"ada\",\"standing\":null}],\"conversations\":[{\"kind\":\"room\",\"id\":\"room-id\",\"directory\":\"ocapn://directory.id\",\"name\":\"general\",\"held\":false,\"link\":\"ocapn://directory.id/s/cm9vbS1saW5r\",\"steward\":\"ocapn://directory.id/s/bW9kZXJhdG9y\",\"standing\":null,\"draft\":\"half written\",\"bridgeIntent\":{\"scope\":\"Libera\",\"action\":\"link\",\"answers\":{\"nick\":\"glowcap\",\"account\":\"acct\"},\"secretsGiven\":true,\"credentialRevision\":\"fixture-revision\"}},{\"kind\":\"direct\",\"id\":\"dm-id\",\"directory\":\"ocapn://directory.id\",\"peer\":\"bo\",\"peerRegistrationId\":\"00000000-0000-4000-8000-000000000001\",\"closed\":false,\"draft\":\"\"}],\"invitations\":[{\"kind\":\"room-link\",\"id\":\"i0\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMA\"},{\"kind\":\"room-link\",\"id\":\"i1\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMQ\"},{\"kind\":\"room-link\",\"id\":\"i2\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMg\"},{\"kind\":\"room-link\",\"id\":\"i3\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMw\"},{\"kind\":\"room-link\",\"id\":\"i4\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNA\"},{\"kind\":\"room-link\",\"id\":\"i5\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNQ\"},{\"kind\":\"room-link\",\"id\":\"i6\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNg\"},{\"kind\":\"room-link\",\"id\":\"i7\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlNw\"},{\"kind\":\"room-link\",\"id\":\"i8\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlOA\"},{\"kind\":\"room-link\",\"id\":\"i9\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlOQ\"},{\"kind\":\"room-link\",\"id\":\"i10\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTA\"},{\"kind\":\"room-link\",\"id\":\"i11\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTE\"},{\"kind\":\"room-link\",\"id\":\"i12\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTI\"},{\"kind\":\"room-link\",\"id\":\"i13\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTM\"},{\"kind\":\"room-link\",\"id\":\"i14\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTQ\"},{\"kind\":\"room-link\",\"id\":\"i15\",\"directory\":\"ocapn://directory.id\",\"locator\":\"ocapn://directory.id\",\"nick\":\"ada\",\"label\":\"private study\",\"from\":\"bo\",\"link\":\"ocapn://directory.id/s/aW52aXRlMTU\"}],\"active\":\"dm-id\",\"standing\":\"\",\"ignored\":[\"noise\"],\"keepHistory\":true,\"join\":{\"room\":\"general\",\"locator\":\"\",\"nick\":\"ada\"},\"dmMode\":\"webrtc\",\"vizOverride\":\"\",\"capabilities\":{\"operations\":[{\"capability\":\"listeners\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"listeners-swiss\"},{\"capability\":\"diagnostics\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"diagnostics-swiss\"},{\"capability\":\"irc\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"irc-swiss\"},{\"capability\":\"operator\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"operator-swiss\"},{\"capability\":\"peering\",\"scope\":\"ocapn://directory.id\",\"swiss\":\"peering-swiss\"},{\"capability\":\"viz\",\"scope\":\"ws://rooms.test/viz\",\"swiss\":\"viz-swiss\"}],\"archivePeer\":\"ocapn://archive.iroh/s/YXJjaGl2ZQ\"},\"peering\":[]}": null
+  }
+}

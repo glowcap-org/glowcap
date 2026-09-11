@@ -3,119 +3,70 @@
 use super::support::*;
 use tokio::io::AsyncReadExt;
 
-struct PendingFlushStream {
-	flush_polled: Rc<Cell<bool>>,
-}
-
-impl AsyncRead for PendingFlushStream {
-	fn poll_read(
-		self: std::pin::Pin<&mut Self>,
-		_cx: &mut std::task::Context<'_>,
-		_buf: &mut tokio::io::ReadBuf<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
-		std::task::Poll::Pending
-	}
-}
-
-impl AsyncWrite for PendingFlushStream {
-	fn poll_write(
-		self: std::pin::Pin<&mut Self>,
-		_cx: &mut std::task::Context<'_>,
-		src: &[u8],
-	) -> std::task::Poll<std::io::Result<usize>> {
-		std::task::Poll::Ready(Ok(src.len()))
-	}
-
-	fn poll_flush(
-		self: std::pin::Pin<&mut Self>,
-		_cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
-		self.flush_polled.set(true);
-		std::task::Poll::Pending
-	}
-
-	fn poll_shutdown(
-		self: std::pin::Pin<&mut Self>,
-		_cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
-		std::task::Poll::Ready(Ok(()))
-	}
-}
-
 #[tokio::test]
-async fn cancelling_during_transport_flush_tears_the_stream() {
-	let local = LocalSet::new();
-	local
-		.run_until(async {
-			let host = Host::new_host();
-			let shared_host = host.shared();
-			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
-			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
-			let mut ptr = core::ptr::null_mut();
-			crate::host::check_host(unsafe {
-				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
-			})
-			.unwrap();
+async fn ended_precedes_physical_retirement_without_taking_close_ownership() {
+	use std::cell::RefCell;
+	use std::task::{Poll, Waker};
 
-			let flush_polled = Rc::new(Cell::new(false));
-			let shared = SessionShared::new(
-				ptr,
-				shared_host,
-				PendingFlushStream {
-					flush_polled: Rc::clone(&flush_polled),
-				},
-			);
-			let cancelled = tokio::time::timeout(
-				std::time::Duration::from_millis(20),
-				crate::pump::flush_outbound(&shared),
-			)
-			.await;
-			assert!(cancelled.is_err(), "the pending transport flush was cancelled");
-			assert!(flush_polled.get(), "the frame reached the transport flush");
-			assert!(shared.torn.get(), "cancellation marks the byte stream torn");
-			let refused = crate::pump::flush_outbound(&shared).await.unwrap_err();
-			assert_eq!(refused.kind(), ErrorKind::Closed);
-			host.close(crate::PendingWork::Cancel).await.unwrap();
-		})
-		.await;
-}
-
-#[tokio::test]
-async fn closing_cancels_a_backpressured_transport_flush() {
-	let local = LocalSet::new();
-	local
-		.run_until(async {
-			let host = Host::new_host();
-			let shared_host = host.shared();
-			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
-			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
-			let mut ptr = core::ptr::null_mut();
-			crate::host::check_host(unsafe {
-				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
-			})
-			.unwrap();
-
-			let flush_polled = Rc::new(Cell::new(false));
-			let shared = SessionShared::new(
-				ptr,
-				shared_host,
-				PendingFlushStream {
-					flush_polled: Rc::clone(&flush_polled),
-				},
-			);
-			let flushing = {
-				let shared = Rc::clone(&shared);
-				tokio::task::spawn_local(async move { crate::pump::flush_outbound(&shared).await })
-			};
-			while !flush_polled.get() {
-				tokio::task::yield_now().await;
+	struct HeldClose {
+		ready: Rc<Cell<bool>>,
+		waker: Rc<RefCell<Option<Waker>>>,
+	}
+	impl crate::ChannelClose for HeldClose {
+		fn poll_close(&mut self, cx: &mut std::task::Context<'_>) -> Poll<std::io::Result<()>> {
+			if self.ready.get() {
+				Poll::Ready(Ok(()))
+			} else {
+				*self.waker.borrow_mut() = Some(cx.waker().clone());
+				Poll::Pending
 			}
+		}
+	}
+
+	LocalSet::new()
+		.run_until(async {
+			let host = Host::new_host();
+			let shared_host = host.shared();
+			let locator = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
+			let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
+			let mut ptr = core::ptr::null_mut();
+			crate::host::check_host(unsafe {
+				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
+			})
+			.unwrap();
+
+			let ready = Rc::new(Cell::new(false));
+			let waker = Rc::new(RefCell::new(None));
+			let (stream, _peer) = tokio::io::duplex(64);
+			let mut channel = crate::Channel::stream(stream);
+			channel.close = Some(Box::new(HeldClose {
+				ready: Rc::clone(&ready),
+				waker: Rc::clone(&waker),
+			}));
+			let shared = SessionShared::new_channel(ptr, shared_host, channel);
+			let session = Session::owning(Rc::clone(&shared));
+
 			shared.close_transport();
-			let result = tokio::time::timeout(std::time::Duration::from_millis(100), flushing)
+			tokio::time::timeout(Duration::from_millis(100), session.ended())
 				.await
-				.expect("session close wakes the pending flush")
-				.expect("flush task did not panic");
-			assert_eq!(result.unwrap_err().kind(), ErrorKind::Closed);
+				.expect("end observation waited for physical retirement")
+				.unwrap();
+			assert!(!session.is_open());
+			assert!(!shared.released.get());
+			assert!(tokio::time::timeout(Duration::from_millis(20), session.closed())
+				.await
+				.is_err());
+
+			ready.set(true);
+			waker
+				.borrow_mut()
+				.take()
+				.expect("retirement registered its wake")
+				.wake();
+			tokio::time::timeout(Duration::from_millis(100), session.closed())
+				.await
+				.expect("physical retirement did not resume")
+				.unwrap();
 			host.close(crate::PendingWork::Cancel).await.unwrap();
 		})
 		.await;
@@ -299,8 +250,10 @@ async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release(
 					Ok(Argument::Void)
 				})
 				.unwrap();
-			let reply = observer.send(&me, "die", &[]).await.unwrap();
-			assert_eq!(reply, Argument::Symbol("closing".into()));
+			// Cancelling the causal session wins before its queued answer is
+			// projected. The native Host owns this order for local calls too.
+			let error = observer.send(&me, "die", &[]).await.unwrap_err();
+			assert_eq!(error.code(), crate::sys::ERR_CLOSED);
 			assert!(
 				!released_in_behavior.get(),
 				"session released beneath its behavior frame"
@@ -450,6 +403,43 @@ async fn a_host_retained_view_does_not_close_on_drop() {
 			host.await.unwrap();
 		})
 		.await;
+}
+
+#[tokio::test]
+async fn a_session_dropped_outside_its_local_set_latches_the_refused_close() {
+	// A byte-fed session, so no loop tier stands between the drop and its
+	// Host: the refusal below reaches the Host only through the drop's own
+	// fallback.
+	let local = LocalSet::new();
+	let (host, session) = local
+		.run_until(async {
+			let host = Host::new_host();
+			let shared_host = host.shared();
+			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
+			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
+			let mut ptr = core::ptr::null_mut();
+			crate::host::check_host(unsafe {
+				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
+			})
+			.unwrap();
+			let shared = SessionShared::new(
+				ptr,
+				shared_host,
+				super::flush::FlushStream::pending(Rc::new(Cell::new(false))),
+			);
+			(host, Session::owning(shared))
+		})
+		.await;
+
+	// A drop has no result channel, and outside its LocalSet it cannot spawn
+	// the close driver either. The connection still ends, and the exact
+	// refusal waits for the next barrier that can report it.
+	drop(session);
+	let error = local
+		.run_until(host.close(crate::PendingWork::Cancel))
+		.await
+		.expect_err("the refused close driver was not reported at the Host's close barrier");
+	assert!(error.to_string().contains("LocalSet"), "{error}");
 }
 
 // One partner that publishes `svc`, serves it, and ends when the client closes.

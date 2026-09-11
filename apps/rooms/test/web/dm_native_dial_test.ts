@@ -40,7 +40,7 @@ import { reapOwned, spawnOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { awaitBubble, fail, openDmTo, until } from "../support/page.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi web-bob, from a native peer that cold-dialed your identity";
@@ -82,19 +82,8 @@ const roomPort = freePort();
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`), so the proof needs no cargo.
-spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-	],
+spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",

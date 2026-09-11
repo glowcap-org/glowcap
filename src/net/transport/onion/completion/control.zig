@@ -97,7 +97,7 @@ pub fn Transaction(
                 for (out[0..n]) |comp| {
                     if (comp.user_data == wanted and found == null) {
                         found = comp;
-                    } else if (Namespace.ownsUserData(comp.user_data) and Types.internalId(comp.user_data) != 0) {
+                    } else if (Namespace.ownsUserData(comp.user_data) and Types.Identity.id(comp.user_data) != 0) {
                         try dispatch_internal(backend, comp);
                     } else if (!Namespace.ownsUserData(comp.user_data)) {
                         backend.ready.appendAssumeCapacity(comp);
@@ -170,7 +170,7 @@ pub fn Transaction(
                     close_done.* = true;
                     close_failed.* = comp.result < 0;
                     if (comp.borrowed.active()) backend.inner.recycleBorrowed(comp);
-                } else if (Namespace.ownsUserData(comp.user_data) and Types.internalId(comp.user_data) != 0) {
+                } else if (Namespace.ownsUserData(comp.user_data) and Types.Identity.id(comp.user_data) != 0) {
                     try dispatch_internal(backend, comp);
                 } else if (!Namespace.ownsUserData(comp.user_data)) {
                     backend.ready.appendAssumeCapacity(comp);

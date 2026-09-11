@@ -128,6 +128,7 @@ pub fn register(
     wasm_driver_install_step: *std.Build.Step,
     browser_preflight_step: *std.Build.Step,
     iroh_abi_step: *std.Build.Step,
+    rooms_native_install: *std.Build.Step,
 ) void {
     // The cross-runtime relay matrix (ADR-0086). One shared harness per proof —
     // TCP forwarding, the non-optional backpressure clause, and the iroh leg —
@@ -237,11 +238,14 @@ pub fn register(
     // the v1.0 Syrup baseline, so each session settles its own pair
     // (ADR-0103); the harness reads both profiles off the server's live trace
     // rather than taking either member's word for it.
-    const goblins_rooms = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+    const goblins_rooms = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
+    goblins_rooms.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms.addArgs(&.{
         "deno",        "run",            "--allow-read",
         "--allow-net", "--allow-run",    "--allow-env",
         "--allow-ffi", "--unstable-ffi", "interop/goblins_rooms/harness.ts",
     });
+    goblins_rooms.step.dependOn(rooms_native_install);
     const goblins_rooms_step = b.step("goblins-rooms", "Live Goblins in the rooms chat: a real Goblins vat and a glowcap peer hold one room, each on the profile its own session settled (needs deno + racket + goblins)");
     goblins_rooms_step.dependOn(&goblins_rooms.step);
 
@@ -261,15 +265,17 @@ pub fn register(
     // and a real Goblins vat, including reply on the IRC-initiated DM session.
     // They are serialized so logs and resource ownership name one edge at a
     // time, and both fit the ordinary deterministic ceiling without a browser.
-    const goblins_rooms_irc_bridge = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=bridge",
-    });
+    const goblins_rooms_irc_bridge = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
+    goblins_rooms_irc_bridge.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
+    goblins_rooms_irc_bridge.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=bridge" });
+    goblins_rooms_irc_bridge.step.dependOn(rooms_native_install);
     const goblins_rooms_irc_bridge_step = b.step("goblins-rooms-irc-bridge", "Live Goblins through the IRC bridge: fixture IRC and a real vat exchange room lines both ways (needs deno + racket + goblins)");
     goblins_rooms_irc_bridge_step.dependOn(&goblins_rooms_irc_bridge.step);
 
-    const goblins_rooms_irc_front = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=front",
-    });
+    const goblins_rooms_irc_front = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
+    goblins_rooms_irc_front.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_irc_front.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-irc-front" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_FRONT_BIN=", .make_absolute = true });
+    goblins_rooms_irc_front.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=front" });
     goblins_rooms_irc_front.step.dependOn(&goblins_rooms_irc_bridge.step);
     const goblins_rooms_irc_front_step = b.step("goblins-rooms-irc-front", "Live Goblins through the IRC front: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs deno + racket + goblins)");
     goblins_rooms_irc_front_step.dependOn(&goblins_rooms_irc_front.step);
@@ -282,7 +288,9 @@ pub fn register(
     // for every connection it accepts, and this is where that stays true: the
     // vat is refused without it, and reads the refusal as a decode error
     // because a refusal is framed in the room's own profile.
-    const goblins_rooms_iroh = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+    const goblins_rooms_iroh = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
+    goblins_rooms_iroh.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_iroh.addArgs(&.{
         "deno",        "run",            "--allow-read",
         "--allow-net", "--allow-run",    "--allow-env",
         "--allow-ffi", "--unstable-ffi", "interop/goblins_rooms/harness.ts",
@@ -290,6 +298,7 @@ pub fn register(
     });
     // Server and vat both reach iroh through the C ABI companion library.
     goblins_rooms_iroh.step.dependOn(iroh_abi_step);
+    goblins_rooms_iroh.step.dependOn(rooms_native_install);
     const goblins_rooms_iroh_step = b.step("goblins-rooms-iroh", "Live Goblins in the rooms chat over iroh's encrypted QUIC: the accepting side records the endpoint id QUIC authenticated (needs cargo + deno + racket + goblins)");
     goblins_rooms_iroh_step.dependOn(&goblins_rooms_iroh.step);
 
@@ -300,7 +309,11 @@ pub fn register(
     // Three peers across two implementations take the three handoff roles,
     // with nothing changed in Goblins to allow it and the whole conversation
     // drawn on the live timeline from both ends.
-    const goblins_rooms_dm = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
+    const goblins_rooms_dm = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
+    goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+    goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_dm.step.dependOn(rooms_native_install);
+    goblins_rooms_dm.addArgs(&.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts",
     });
     goblins_rooms_dm.setCwd(b.path("."));
@@ -315,7 +328,11 @@ pub fn register(
     // lines use iroh: the browser redeems the vat's introduction, then the vat
     // redeems the native member's. Each accepting endpoint records the key
     // QUIC authenticated as its channel testimony.
-    const goblins_rooms_dm_iroh = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
+    const goblins_rooms_dm_iroh = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
+    goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+    goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_dm_iroh.step.dependOn(rooms_native_install);
+    goblins_rooms_dm_iroh.addArgs(&.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts", "--iroh",
     });
     goblins_rooms_dm_iroh.setCwd(b.path("."));
@@ -334,7 +351,11 @@ pub fn register(
     };
     var previous_goblins_rooms_matrix_phase: ?*std.Build.Step = null;
     for (goblins_rooms_matrix_phases) |phase| {
-        const run = execution.addSystemCommand(b, .{ .browser_proof = 630 }, &.{
+        const run = execution.addSystemCommand(b, .{ .browser_proof = 630 }, &.{"env"});
+        run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+        run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+        run.step.dependOn(rooms_native_install);
+        run.addArgs(&.{
             "deno",                         "run", "--allow-all", "interop/goblins_rooms_matrix/harness.ts",
             b.fmt("--phase={s}", .{phase}),
         });

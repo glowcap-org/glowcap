@@ -37,7 +37,10 @@ use std::rc::Rc;
 
 use crate::error_slot::error_slot;
 use crate::sys::onion as ffi;
-use crate::{Codec, Context, Error, HintWireForm, Locator, Result};
+use crate::{Codec, Error, HintWireForm, Locator, Result};
+
+/// Maximum opaque service-key restoration state the provider can return.
+pub const MAX_SERVICE_KEY_BYTES: usize = ffi::ONION_SERVICE_KEY_CAP;
 
 #[cfg(feature = "async")]
 pub use crate::ListenerIdentity;
@@ -131,13 +134,6 @@ impl<'a> Config<'a> {
 	pub fn with_control(mut self, control: &'a str, auth: Auth<'a>) -> Config<'a> {
 		self.control = control;
 		self.auth = auth;
-		self
-	}
-
-	/// Restore the service `key` names instead of asking for a fresh one, so the
-	/// same onion address comes back across a restart.
-	pub fn with_service_key(mut self, key: &'a [u8]) -> Config<'a> {
-		self.service_key = key;
 		self
 	}
 
@@ -249,11 +245,10 @@ fn ensure_loop_provider(lp: &Rc<crate::driver_loop::LoopShared>, config: &Config
 
 /// Owns where Tor listens and the one I/O backend its streams block on.
 /// Connections and listeners borrow it, so neither can outlive the netlayer
-/// that produced it. The context lifetime also pins context-backed storage.
-pub struct Netlayer<'ctx> {
+/// that produced it.
+pub struct Netlayer {
 	raw: *mut ffi::GlowcapOnionNetlayer,
 	listener_close_failure: Arc<Mutex<Option<Error>>>,
-	_ctx: PhantomData<&'ctx Context>,
 }
 
 /// A live onion service and the control session that keeps it published.
@@ -289,64 +284,6 @@ pub struct Server {
 
 #[cfg(feature = "async")]
 impl Server {
-	async fn bind(config: Config<'_>, options: ListenOptions) -> Result<Self> {
-		let owns_loop = !matches!(&options.identity, ListenerIdentity::Host(_));
-		let host = options.identity.into_host()?;
-		let shared = host.shared();
-		let lp = shared.ensure_driver_loop(
-			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-		)?;
-		Self::bind_on_loop(lp, host, config, owns_loop).await
-	}
-
-	async fn bind_on_loop(
-		lp: Rc<crate::driver_loop::LoopShared>,
-		host: crate::Host,
-		config: Config<'_>,
-		owns_loop: bool,
-	) -> Result<Self> {
-		let mut listener = None;
-		let result = async {
-			ensure_loop_provider(&lp, &config)?;
-			let id = lp.listen(crate::abi_constants::TRANSPORT_ONION, "").await?;
-			listener = Some(id);
-			lp.select_listener(id)?;
-			Ok::<_, crate::Error>(())
-		}
-		.await;
-		if let Err(mut err) = result {
-			if let Some(id) = listener {
-				if let Err(cleanup) = lp.close_listener(id).await {
-					err = err.with_secondary(cleanup);
-				}
-			}
-			if owns_loop {
-				lp.close();
-			}
-			return Err(err);
-		}
-		let listener = listener.expect("onion listener is set after successful bind");
-
-		let service_key = match lp.listener_restoration_state(listener) {
-			Ok(key) => key,
-			Err(err) => {
-				let err = match lp.close_listener(listener).await {
-					Ok(()) => err,
-					Err(cleanup) => err.with_secondary(cleanup),
-				};
-				if owns_loop {
-					lp.close();
-				}
-				return Err(err);
-			}
-		};
-		Ok(Self {
-			listener: crate::server::LoopListener::new(Rc::clone(&lp), listener, host),
-			service_key,
-		})
-	}
-
 	/// The Host shared by every accepted session.
 	pub fn host(&self) -> crate::Host {
 		self.listener.host()
@@ -367,12 +304,15 @@ impl Server {
 		Ok(self.locator()?.designator)
 	}
 
-	/// The provider-owned bytes needed to restore this exact Tor service.
+	/// The provider-owned key Tor minted for this service. Empty when Tor
+	/// restored the supplied key instead; retain that supplied key unchanged.
 	pub fn service_key(&self) -> &[u8] {
 		&self.service_key
 	}
 
 	/// Accept the next partner as a ready high-level [`Session`].
+	/// Await the next accepted session. It delivers its partner's inbound only
+	/// once served: publish what it should answer, then `session.serve()`.
 	pub async fn accept(&self) -> Result<crate::Session> {
 		self.listener.accept().await
 	}
@@ -382,12 +322,30 @@ impl Server {
 	pub async fn close(&self) -> Result<()> {
 		self.listener.close().await
 	}
+
+	/// Select this listener's locator as the shared Host's advertised
+	/// location; see [`crate::tcp::Server::select`].
+	pub fn select(&self) -> Result<()> {
+		self.listener.select()
+	}
 }
 
 #[cfg(feature = "async")]
-/// Bind an onion service and return its high-level listener.
+/// Bind an onion service and return its high-level listener. The shared
+/// `crate::server::bind_loop_listener` spine mints or adopts the Host, puts
+/// the onion provider on its loop, and opens the listener; Tor names the
+/// service, so the listener binds an empty designator, and the one
+/// onion-shaped step reads the provider's restoration key off the open
+/// listener.
 pub async fn listen(config: Config<'_>, options: ListenOptions) -> Result<Server> {
-	Server::bind(config, options).await
+	let (listener, service_key) = crate::server::bind_loop_listener(
+		options.identity,
+		crate::abi_constants::TRANSPORT_ONION,
+		|_host, lp| std::future::ready(ensure_loop_provider(&lp, &config).map(|()| String::new())),
+		|lp, listener, _designator| lp.listener_restoration_state(listener),
+	)
+	.await?;
+	Ok(Server { listener, service_key })
 }
 
 #[cfg(test)]

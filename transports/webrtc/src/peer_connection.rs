@@ -9,7 +9,7 @@ use webrtc::peer_connection::{
 };
 use webrtc::runtime::TokioRuntime;
 
-use crate::lifecycle::RuntimeOwner;
+use glowcap_sidecar_common::RuntimeOwner;
 
 pub(crate) fn build(
 	runtime: &RuntimeOwner,

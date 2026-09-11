@@ -1,7 +1,7 @@
 //! Differential prefix-decode property test for the one-parser stream framer.
 //!
 //! Profile-aware session paths run `decodePrefix`; peer-less byte streams run
-//! the same codec's structural `framePrefix`. Both are untrusted-input attack
+//! the same codec's structural `framePrefix`. Both are untrusted-input
 //! surfaces and must agree on frame boundaries:
 //!
 //!   * report `.incomplete` for every strict prefix of a valid frame, and

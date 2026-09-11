@@ -374,13 +374,13 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
     );
     const prologue = prologue_buf[0 .. noise_tcp.len + 1 + responder_designator.len];
 
-    var malicious = noise.HandshakeState.initInitiator(
+    var other_hs = noise.HandshakeState.initInitiator(
         &initiator_static,
         responder_static.public,
         &initiator_ephemeral,
         prologue,
     );
-    defer malicious.deinit();
+    defer other_hs.deinit();
     var responder = try glowcap.foundation.sealed.SealedChannel.initResponder(
         &responder_identity,
         @as([32]u8, @splat(0x70)),
@@ -390,7 +390,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
 
     var wire: [glowcap.foundation.sealed.msg3_wire_bytes]u8 = undefined;
     var payload: [crypto.PEER_KEY_BYTES + crypto.SIGNATURE_BYTES]u8 = undefined;
-    const msg1 = try malicious.writeMessage(&.{}, &wire);
+    const msg1 = try other_hs.writeMessage(&.{}, &wire);
     const first = try responder.ingest(allocator, msg1);
     try std.testing.expectEqual(msg1.len, first.consumed);
     try std.testing.expectEqual(
@@ -399,7 +399,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
     );
     var msg2_frame = (try responder.takeWire(allocator)) orelse return error.MissingMessageTwo;
     defer msg2_frame.deinit();
-    _ = try malicious.readMessage(msg2_frame.bytes(), &payload);
+    _ = try other_hs.readMessage(msg2_frame.bytes(), &payload);
 
     const actual = initiator_identity.publicKey();
     var alias = actual;
@@ -412,7 +412,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
     );
     payload = @splat(0);
     payload[0..crypto.PEER_KEY_BYTES].* = alias.bytes;
-    const msg3 = try malicious.writeMessage(&payload, &wire);
+    const msg3 = try other_hs.writeMessage(&payload, &wire);
     try std.testing.expectError(error.IdentityMismatch, responder.ingest(allocator, msg3));
     try std.testing.expect(!responder.isOpen());
 }

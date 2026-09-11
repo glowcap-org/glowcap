@@ -1,9 +1,9 @@
 // The rooms web page as a real browser peer, end to end. A headless Chromium
-// loads the ACTUAL page serve.ts serves — the
+// loads the ACTUAL page rooms-web serves — the
 // bundled `@glowcap/web` graph, `glowcap_host.wasm`, and the UI — joins a
 // room, sends a line, and sees the room echo it back. Every hop is the shipped
 // path: the page's wasm Host holds the room capability, dials the room server
-// through serve.ts's `/relay`, and drives `lib/room/client.ts` directly. No JSON
+// through rooms-web's `/relay`, and drives `lib/room/client.ts` directly. No JSON
 // bridge is on the page's path.
 //
 // Before that it watches the load itself, frame by frame from the first one,
@@ -18,12 +18,14 @@
 // its own says nothing about either.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
-// (serve.ts's room server is native), and a Playwright Chromium
+// (the web front and room server run Rust), and a Playwright Chromium
 // (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web/page_test.ts`.
 
+import { SERVER } from "../support/server_binary.ts";
+import { WEB } from "../support/web_binary.ts";
 import { chromium } from "playwright";
-import { fail, freePort, ROOT, waitForHttp, WEB } from "../page/harness.ts";
+import { fail, freePort, ROOT, waitForHttp } from "../page/harness.ts";
 import * as opening from "../page/opening.ts";
 import * as firstRail from "../page/first_rail.ts";
 import * as details from "../page/details.ts";
@@ -64,33 +66,16 @@ const holding = (async () => {
 // relay is explicitly allowed to reach this one TCP peer for the scenario;
 // production cross-server joins use authenticated iroh, whose destinations do
 // not need an address allow-list.
-const foreignRoom = spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-net",
-		"--allow-env",
-		`${ROOT}apps/rooms/server/main.ts`,
-		String(foreignRoomPort),
-	],
+const foreignRoom = spawnOwned(SERVER, {
+	args: ["--transport=tcp", `--port=${foreignRoomPort}`],
 	cwd: ROOT,
 	stdout: "null",
 	stderr: "inherit",
 });
 
-spawnOwned("deno", {
+spawnOwned(WEB, {
 	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		// Somewhere to keep room state. Given no directory of its own, serve.ts
-		// makes a temporary one at startup, so it cannot come up without this.
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
+		"--transport=tcp",
 		String(httpPort),
 		String(roomPort),
 	],
@@ -169,8 +154,8 @@ try {
 		"PASS: the rooms page ran as a browser peer through every phase of one " +
 			"conversation — joining, completing, posting and changing files, holding " +
 			"two rooms and two directories at once, saying where its reader stands, " +
-			"holding the operator capabilities over its own server, and answering " +
-			"who one person is the same way from both doors that ask",
+			"holding the operator capabilities over its own server, and recognizing " +
+			"one person across the directory-scoped names both doors use",
 	);
 } finally {
 	clearTimeout(deadline);

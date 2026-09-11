@@ -16,6 +16,8 @@
 //! carries its own per-thread last-error slot, read through
 //! `glowcap_tcp_last_error`.
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const std = @import("std");
 
 const net = @import("net");
@@ -202,7 +204,7 @@ const TcpConnPayload = struct {
 };
 
 const TcpListenerPayload = struct {
-    listener: net.tcp.plain.Listener,
+    listener: net.tcp.Listener,
     operations: c.ForeignCallBarrier,
     io: std.Io,
     stream_options: net.tcp.StreamOptions,
@@ -232,7 +234,7 @@ const ConnectJob = struct {
 
     fn run(job: *ConnectJob) std.Io.Cancelable!void {
         defer job.done.signal(job.netlayer.io());
-        job.payload.stream = net.tcp.plain.connectFrameStream(
+        job.payload.stream = net.tcp.connectFrameStream(
             job.netlayer.io(),
             job.netlayer.allocator,
             job.address,
@@ -353,7 +355,7 @@ pub export fn glowcap_tcp_listen(
     const payload = nl.allocator.create(TcpListenerPayload) catch |err|
         return c.failInternal("tcp listen", err);
     payload.* = .{
-        .listener = net.tcp.plain.Listener.bind(nl.io(), address) catch |err| {
+        .listener = net.tcp.Listener.bind(nl.io(), address) catch |err| {
             nl.allocator.destroy(payload);
             setLastError("listen: {s}", .{@errorName(err)});
             return GLOWCAP_ERR_IO;

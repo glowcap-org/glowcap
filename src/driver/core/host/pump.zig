@@ -6,7 +6,6 @@ const std = @import("std");
 
 const model = @import("model");
 const engine = @import("engine");
-const actors = @import("actors");
 
 const host_mod = @import("../host.zig");
 const host_close = @import("close.zig");
@@ -67,7 +66,7 @@ pub fn finishVerb(self: *Host) !void {
 /// dispatch (`feed`'s latched `feedBorrowed`) never reaches here: it
 /// keeps `failDispatch` semantics and fails that feed.
 fn drainWork(self: *Host) !void {
-    var remaining = self.opts.host_work_quantum orelse std.math.maxInt(usize);
+    var remaining = self.opts.host_work_quantum;
     work: while (remaining != 0) {
         var lanes_checked: u2 = 0;
         while (lanes_checked < 3) : (lanes_checked += 1) {
@@ -90,20 +89,7 @@ fn drainWork(self: *Host) !void {
                         continue :work;
                     }
                     std.debug.assert(!session.isTerminating());
-                    const progress = if (self.opts.host_work_quantum == null) blk: {
-                        session.served.driveFed(&self.vat) catch |err| switch (err) {
-                            error.EventServeOutOfMemory => {
-                                try condemn(self, session, .resource_exhausted, "event serve failed under memory pressure");
-                                continue :work;
-                            },
-                            error.OutOfMemory, error.OutboundBackpressure => {
-                                markDirty(self, peer_handle);
-                                return err;
-                            },
-                            else => return err,
-                        };
-                        break :blk actors.Vat.DriveProgress.drained;
-                    } else session.served.driveFedBudgeted(&self.vat) catch |err| switch (err) {
+                    const progress = session.served.driveFedBudgeted(&self.vat) catch |err| switch (err) {
                         error.EventServeOutOfMemory => {
                             // The event was already removed from Peer.events before
                             // serveEvent failed; retrying would silently lose it.
@@ -159,23 +145,71 @@ fn drainWork(self: *Host) !void {
         }
         return;
     }
-    // A finite quantum is a yield point. Preserve liveness even when the
-    // exhausted work was entirely Node-owned and therefore produced neither a
-    // session flush nor an embedder effect.
-    if (self.opts.host_work_quantum != null and hasInternalWork(self))
-        try pump_schedule.queueResumeAction(self);
+    // The quantum is a yield point. Preserve liveness even when the exhausted
+    // work was entirely Node-owned and therefore produced neither a session
+    // flush nor an embedder effect.
+    if (hasInternalWork(self)) try pump_schedule.queueResumeAction(self);
 }
+
+/// What executing one Node action concluded. A settle or break that could not
+/// reach its recipient because that session's outbound is full is not done
+/// and not failed: it parks on that recipient until its bytes move.
+pub const ActionOutcome = union(enum) {
+    done,
+    parked_on: engine.PeerHandle,
+};
 
 fn drainNodeAction(self: *Host) !bool {
     if (!self.node.hasAction()) return false;
     // Reserve the largest Host-side consequence, then execute through the
     // Node's peek/commit seam. A fulfilled settle may still need a fallible
-    // Vat clone; if it fails, the action remains parked.
+    // Vat clone; if it fails, the action remains at the queue head.
     try self.reserveActions(1);
     const action = self.node.peekAction().?;
-    try execNodeAction(self, action);
-    try self.node.consumePeekedAction();
+    switch (try execNodeAction(self, action)) {
+        .done => try self.node.consumePeekedAction(),
+        .parked_on => |recipient| try parkNodeAction(self, recipient),
+    }
     return true;
+}
+
+/// Move the peeked Node action off the shared queue into `recipient`'s parked
+/// row (ADR-0145): the recipient's outbound pressure is that partner's flow
+/// control, and the queue behind it belongs to other sessions. Every fallible
+/// step precedes the take, including the queue seat the action returns to, so
+/// a refusal here leaves the action at the queue head and this pass ends on
+/// the pressure as before, while the return never allocates.
+fn parkNodeAction(self: *Host, recipient: engine.PeerHandle) !void {
+    const gop = try self.parked_node_actions.getOrPut(self.allocator, recipient);
+    if (!gop.found_existing) gop.value_ptr.* = .empty;
+    errdefer if (!gop.found_existing) {
+        gop.value_ptr.deinit(self.allocator);
+        std.debug.assert(self.parked_node_actions.remove(recipient));
+    };
+    try gop.value_ptr.ensureUnusedCapacity(self.allocator, 1);
+    gop.value_ptr.appendAssumeCapacity(try self.node.parkPeekedAction());
+}
+
+/// Return `recipient`'s parked Node actions to the queue, in the order they
+/// parked, on the seats their parking reserved. Called when the embedder
+/// takes that recipient's outbound bytes, the one event that can have moved
+/// its pressure, and when the recipient's session is released: a parked
+/// deferred settle also owes projections to other sessions, and an action
+/// bound only for the released recipient finds no session and is consumed.
+pub fn requeueParkedNodeActions(self: *Host, recipient: engine.PeerHandle) void {
+    var row = (self.parked_node_actions.fetchRemove(recipient) orelse return).value;
+    for (row.items) |action| self.node.pushParked(action);
+    row.deinit(self.allocator);
+}
+
+/// Free every parked row at Host teardown, when nothing will run again.
+pub fn deinitParkedNodeActions(self: *Host) void {
+    var rows = self.parked_node_actions.valueIterator();
+    while (rows.next()) |row| {
+        for (row.items) |action| self.node.freeParked(action);
+        row.deinit(self.allocator);
+    }
+    self.parked_node_actions.deinit(self.allocator);
 }
 
 fn drainHandoffChange(self: *Host) bool {
@@ -195,7 +229,7 @@ fn drainHandoffChange(self: *Host) bool {
 /// fails fire the recipient vat's listener directly (`Vat.settleFar`);
 /// dials and gift-id draws are host effects, queued for the embedder;
 /// flushes mark the session dirty so the encode loop drives it.
-fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
+fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!ActionOutcome {
     switch (action) {
         .dial => |d| {
             // Attempt-only action: pending row owns URI + parsed parts.
@@ -204,7 +238,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
             // identity cache may have missed (earlier app dial, accepted
             // inbound hello). ADR-0012 session-pair uniqueness would refuse a
             // duplicate dial and break the redeem.
-            const view = self.node.pendingDial(d.pending, d.route_index) orelse return;
+            const view = self.node.pendingDial(d.pending, d.route_index) orelse return .done;
             const locator = view.locator;
             const existing = if (view.demanded_partner_key) |key|
                 self.authenticatedSessionForKey(key)
@@ -214,7 +248,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
                 if (session.lifecyclePhase() == .active and session.sessionOpen() and
                     pending_dial_identity.selectedSessionSatisfies(self, d.pending, d.route_index, session))
                 {
-                    if (!self.node.beginDialEffect(d.pending, d.route_index)) return;
+                    if (!self.node.beginDialEffect(d.pending, d.route_index)) return .done;
                     const adopted = self.completeSelectedExporter(
                         d.pending,
                         d.route_index,
@@ -225,7 +259,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
                     };
                     if (!adopted)
                         self.node.rollbackDialEffect(d.pending, d.route_index);
-                    return;
+                    return .done;
                 }
             }
             try pump_schedule.queueHostAction(self, .{ .dial = .{
@@ -241,7 +275,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
         .settle => |s| {
             switch (s.dest) {
                 .answer => |answer| {
-                    const session = self.sessions.get(answer.recipient_peer) orelse return;
+                    const session = self.sessions.get(answer.recipient_peer) orelse return .done;
                     try session.served.port.settleFar(
                         &self.vat,
                         answer.answer,
@@ -249,7 +283,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
                     );
                     markDirty(self, answer.recipient_peer);
                 },
-                .deferred => |deferred| try capability_promise.fulfill(
+                .deferred => |deferred| return capability_promise.fulfill(
                     self,
                     @fromBackingInt(@intCast(deferred.id)),
                     s.route_id,
@@ -259,19 +293,22 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
         .fail => |f| {
             switch (f.dest) {
                 .answer => |answer| {
-                    const session = self.sessions.get(answer.recipient_peer) orelse return;
+                    const session = self.sessions.get(answer.recipient_peer) orelse return .done;
                     try session.served.port.settleFar(&self.vat, answer.answer, .{ .broken = f.reason.bytes() });
                     markDirty(self, answer.recipient_peer);
                 },
                 .served_answer => |answer| {
-                    const session = self.sessions.get(answer.recipient_peer) orelse return;
-                    try session.served.port.peer.sendAnswerTargetResolutionCopying(
+                    const session = self.sessions.get(answer.recipient_peer) orelse return .done;
+                    session.served.port.peer.sendAnswerTargetResolutionCopying(
                         answer.answer,
                         .{ .@"break" = .{ .message = f.reason.bytes() } },
-                    );
+                    ) catch |err| switch (err) {
+                        error.OutboundBackpressure => return .{ .parked_on = answer.recipient_peer },
+                        else => return err,
+                    };
                     markDirty(self, answer.recipient_peer);
                 },
-                .deferred => |deferred| try capability_promise.breakPromise(
+                .deferred => |deferred| return capability_promise.breakPromise(
                     self,
                     @fromBackingInt(@intCast(deferred.id)),
                     f.reason.bytes(),
@@ -279,17 +316,18 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
             }
         },
         .retire_exporter => |peer_handle| {
-            if (!self.node.claimExporterRetirement(peer_handle)) return;
-            const session = self.sessions.get(peer_handle) orelse return;
+            if (!self.node.claimExporterRetirement(peer_handle)) return .done;
+            const session = self.sessions.get(peer_handle) orelse return .done;
             try retireRedeemOnlyExporter(self, session);
         },
         .need_gift_id => |n| if (self.node.hasPendingGift(n.ticket))
             try pump_schedule.queueHostAction(self, .{ .need_gift_id = .{ .ticket = n.ticket } }),
         .release_capability => |raw| {
-            const ref = self.capabilities.refForRaw(raw) orelse return;
+            const ref = self.capabilities.refForRaw(raw) orelse return .done;
             self.releaseCapabilityTerminal(ref, null);
         },
     }
+    return .done;
 }
 
 /// The one dispatch-failure arm under every feed verb: the peer has

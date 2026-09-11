@@ -20,9 +20,9 @@ import { Said } from "./Said.tsx";
 import { locatorRefusal } from "./error_text.ts";
 import type { RoomConv } from "./types.ts";
 import { useChangeGroup, useCommitSettling } from "./commitment.tsx";
-import { roomAuthorityToken } from "../../lib/room/authority.ts";
+import { roomAuthorityToken } from "./application.ts";
 import { RoomRecovery } from "./settings/RoomRecovery.tsx";
-import { policyForRoomPreset, roomIsListed, type RoomPreset } from "../../lib/room/policy.ts";
+import { policyForRoomPreset, roomIsListed, type RoomPreset } from "./room_policy.ts";
 import { RoomAccessControl } from "./RoomAccess.tsx";
 
 type AuthorityAct = "drop-manager" | "drop-steward" | "revoke-steward" | "revoke-room" | "unregister-room";

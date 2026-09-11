@@ -19,7 +19,17 @@ export function BridgeIdentityForm(
 	{ conv, connected, stateKey }: { conv: RoomConv; connected: boolean; stateKey: string },
 ) {
 	const session = useRoomsSession();
-	const [form, setForm] = useState<BridgeForm | null>(null);
+	const [loaded, setLoaded] = useState<
+		{
+			session: typeof session;
+			key: string;
+			stateKey: string;
+			form: BridgeForm | null;
+		} | null
+	>(null);
+	const form = loaded?.session === session && loaded.key === conv.key && loaded.stateKey === stateKey
+		? loaded.form
+		: null;
 	const [fetchWhy, setFetchWhy] = useState("");
 	// A superseded promise no longer owns this form: a seat change refetching
 	// the declaration must not install a stale one over the newer state.
@@ -27,13 +37,16 @@ export function BridgeIdentityForm(
 
 	useEffect(() => {
 		const own = ++fetchRequest.current;
-		void session.bridgeForm(conv.key).then((declared) => {
-			if (fetchRequest.current !== own || declared == null) return;
+		void Promise.resolve().then(() => session.bridgeForm(conv.key)).then((declared) => {
+			if (fetchRequest.current !== own) return;
 			setFetchWhy("");
-			setForm(declared);
+			setLoaded({ session, key: conv.key, stateKey, form: declared });
 		}).catch((error) => {
 			if (fetchRequest.current === own) setFetchWhy(error instanceof Error ? error.message : String(error));
 		});
+		return () => {
+			fetchRequest.current += 1;
+		};
 	}, [session, conv.key, stateKey]);
 
 	if (form == null) {

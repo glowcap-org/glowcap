@@ -1,8 +1,10 @@
+import type { AttachedLineEvent as RoomsSessionLineEvent } from "./remote.ts";
 // Revisioned observations from one attached durable Rooms session.
 
-import type { RoomsSessionLineEvent, RoomsSessionSnapshot } from "../../../lib/session/client.ts";
+import type { HistoryChange } from "../../../lib/session/history.ts";
+import type { RoomsSessionSnapshot } from "../../../lib/session/client.ts";
 import type { AttachedRoomsRemote } from "./remote.ts";
-import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
+import { settleViewCleanup } from "./cleanup.ts";
 
 const WATCH_SETTLE_MS = 1_000;
 const INITIAL_EVENT_BUFFER = 256;
@@ -19,6 +21,7 @@ export class AttachedSessionFeed {
 	#line: LineListener | null = null;
 	readonly #pendingLines: RoomsSessionLineEvent[] = [];
 	readonly #operationsChanged = new Set<(scope: string) => void>();
+	readonly #historyChanged = new Set<(change: HistoryChange) => void>();
 	#revisionWaiter: { revision: number; resolve(): void } | null = null;
 	#snapshot: RoomsSessionSnapshot | null = null;
 	#eventSource: string | null = null;
@@ -42,6 +45,9 @@ export class AttachedSessionFeed {
 			(scope) => {
 				for (const changed of this.#operationsChanged) changed(scope);
 			},
+			(change) => {
+				for (const changed of this.#historyChanged) changed(change);
+			},
 		);
 		this.#accept(initial);
 		return initial;
@@ -58,6 +64,20 @@ export class AttachedSessionFeed {
 		this.#assertOpen();
 		if (this.#line != null) throw new Error("the attached Rooms feed already has a line owner");
 		this.#line = listener;
+		if (this.#remote.listenLines != null) {
+			try {
+				this.#remote.listenLines(listener);
+			} catch (error) {
+				this.#line = null;
+				throw error;
+			}
+			return () => {
+				if (this.#line === listener) {
+					this.#line = null;
+					if (!this.#closed) this.#remote.listenLines!(undefined);
+				}
+			};
+		}
 		let delivered = 0;
 		let completed = false;
 		try {
@@ -81,6 +101,12 @@ export class AttachedSessionFeed {
 		this.#assertOpen();
 		this.#operationsChanged.add(listener);
 		return () => this.#operationsChanged.delete(listener);
+	}
+
+	onHistoryInvalidated(listener: (change: HistoryChange) => void): () => void {
+		this.#assertOpen();
+		this.#historyChanged.add(listener);
+		return () => this.#historyChanged.delete(listener);
 	}
 
 	async refresh(): Promise<RoomsSessionSnapshot> {
@@ -109,6 +135,10 @@ export class AttachedSessionFeed {
 
 	async settleRevision(revision: number): Promise<RoomsSessionSnapshot> {
 		this.#assertOpen();
+		if (this.#remote.settleRevision != null) {
+			this.#accept(await this.#remote.settleRevision(revision));
+			return this.requireSnapshot();
+		}
 		if ((this.#snapshot?.revision ?? -1) >= revision) return this.requireSnapshot();
 		if (this.#revisionWaiter != null) throw new Error("the attached Rooms controller admitted parallel commands");
 		let timer: ReturnType<typeof setTimeout> | null = null;
@@ -139,6 +169,7 @@ export class AttachedSessionFeed {
 		if (this.#closed) return;
 		this.#closed = true;
 		this.#snapshots.clear();
+		this.#remote.listenLines?.(undefined);
 		this.#line = null;
 		for (const event of this.#pendingLines) this.#releaseLine(event);
 		this.#pendingLines.length = 0;
@@ -147,6 +178,7 @@ export class AttachedSessionFeed {
 		this.#eventSequence = 0;
 		this.#initialEventGapReported = false;
 		this.#operationsChanged.clear();
+		this.#historyChanged.clear();
 		this.#revisionWaiter = null;
 	}
 
@@ -194,7 +226,7 @@ export class AttachedSessionFeed {
 
 	#releaseLine(event: RoomsSessionLineEvent): void {
 		for (const attachment of event.attachments) {
-			settleCapabilityCleanup(
+			settleViewCleanup(
 				"buffered attached file capability release failed",
 				() => this.#remote.releaseAttachment(attachment),
 			);

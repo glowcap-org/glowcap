@@ -18,6 +18,10 @@ const value_mod = @import("../value.zig");
 const crossed_hellos = @import("../crossed_hellos.zig");
 const capability_lower = @import("capabilities/lower.zig");
 
+/// Bound on the backing a proxy fan-out's recipient arena keeps between
+/// recipients of one fire; a larger staging is released at the next reset.
+const steady_proxy_recipient_arena_bytes = 4096;
+
 const Host = host_mod.Host;
 const HostError = host_mod.HostError;
 const HostSession = host_mod.HostSession;
@@ -168,7 +172,7 @@ pub fn hostResolveInterceptor(
 /// materialization and application projection happen after the exact export
 /// has been identified.
 fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *const engine.Event) !bool {
-    const body = try event.wireView();
+    const body = event.wireView();
     if (body != .deliver) return false;
     const deliver = body.deliver;
     const export_pos = switch (deliver.target) {
@@ -211,9 +215,17 @@ fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *c
     };
     defer capability_lower.releaseValueCapabilitiesTerminalAt(host, &.{value}, null);
 
+    // One arena serves every recipient of this fire, reset between them:
+    // each recipient's staging dies before the next begins, so the walk pays
+    // one backing allocation rather than one per recipient, and a fire at
+    // `Node.max_proxy_recipients` cannot turn into a thousand page churns.
+    // `arena_state` above is not reusable here because `value` lives in it.
+    var recipient_arena = std.heap.ArenaAllocator.init(host.allocator);
+    defer recipient_arena.deinit();
     const Projection = struct {
         host: *Host,
         value: *const value_mod.Value,
+        arena: *std.heap.ArenaAllocator,
 
         fn recipient(context: *@This(), relay: *engine.Node.RelayRecipient) void {
             // Every refusal below is best-effort toward this one recipient:
@@ -221,9 +233,8 @@ fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *c
             // stays armed, and the fire walk delivers that break to any
             // recipient left unadopted. The other recipients are unaffected.
             const recipient_session = context.host.sessions.get(relay.peerHandle()) orelse return;
-            var recipient_arena = std.heap.ArenaAllocator.init(context.host.allocator);
-            defer recipient_arena.deinit();
-            const allocator = recipient_arena.allocator();
+            _ = context.arena.reset(.{ .retain_with_limit = steady_proxy_recipient_arena_bytes });
+            const allocator = context.arena.allocator();
             const values = [_]value_mod.Value{context.value.*};
             const retained = capability_lower.retainValueCapabilities(
                 context.host,
@@ -249,7 +260,7 @@ fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *c
             if (adopted) _ = prepared.commit();
         }
     };
-    var projection: Projection = .{ .host = host, .value = &value };
+    var projection: Projection = .{ .host = host, .value = &value, .arena = &recipient_arena };
     std.debug.assert(host.node.projectProxyListenerFire(
         peer_handle,
         export_pos,

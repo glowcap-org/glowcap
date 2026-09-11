@@ -46,6 +46,7 @@ class _LifecycleMixin:
         _transport_lost: bool
         _transport_close_started: bool
         _close_task: Optional[asyncio.Task[None]]
+        _retirement: asyncio.Event
 
     # ── The pump ────────────────────────────────────────────────────────────
 
@@ -68,6 +69,34 @@ class _LifecycleMixin:
                     _pump._serve_loop(self),
                 )
         return self._serve_task
+
+    def _publish_retirement(self) -> None:
+        retirement = getattr(self, "_retirement", None)
+        if retirement is None:
+            retirement = asyncio.Event()
+            self._retirement = retirement
+        retirement.set()
+
+    async def closed(self) -> None:
+        """Observe terminal session retirement without requesting close or
+        starting inbound delivery.
+
+        Independent and late observers share the terminal result. Cancelling
+        an observer leaves the connection and its other observers live.
+        ``serve`` remains the inbound loop.
+        """
+        self._host._assert_owner()
+        if getattr(self, "_retirement", None) is None:
+            self._retirement = asyncio.Event()
+        await self._retirement.wait()
+        terminal = self._terminal_task
+        if terminal is not None:
+            await asyncio.shield(terminal)
+            return
+        failures = self.terminal_failures
+        if failures:
+            raise failures[0]
+        self.raise_wire_failure()
 
     def last_abort(self) -> Optional[AbortDetail]:
         """The typed cause of the most recent local dispatch failure."""
@@ -335,6 +364,7 @@ class _LifecycleMixin:
         self._released = True
         self._release_pending = False
         self._ptr = None
+        self._publish_retirement()
         if not self._transport_close_started:
             self._transport_close_started = True
             try:
@@ -377,6 +407,7 @@ class _LifecycleMixin:
             self._release_pending = False
             self._host.unregister_session(self._key)
             self._ptr = None
+            self._publish_retirement()
             self._host.signal_close_activity()
             self._host.schedule_kick()
 

@@ -28,7 +28,7 @@ whose readers can no longer resume.
 
 ## Decision
 
-`apps/rooms/archive/main.ts` runs one standalone archive peer. Its state
+`zig build rooms-archive` runs the native Rust standalone archive peer. Its state
 directory is required. `peer.json` retains a 32-byte Host seed and independent
 durable-publication entropy. The peer uses them to republish ADR-0129's
 unchanged behavior and prints the complete `ROOMS-ARCHIVE-LISTENING`
@@ -93,10 +93,13 @@ owns only commit and recovery. Transport code owns only reachability. Neither
 can redefine what an archive record means.
 
 The printed sturdyref is bearer authority to read and write the whole archive.
-It should be protected like the archive contents until narrowed facets exist.
+Protect it like the archive contents; share a narrowed facet or revocable share
+when a recipient needs less authority.
 
 ## Evidence
 
+`zig build rooms-peers-test` proves native identity, exclusive custody,
+TCP/direct-iroh restart and signal shutdown of the installed executable.
 `zig build rooms-archive-test` proves the application contract, storage
 restart, update continuity, torn-tail recovery, strict corruption refusal,
 resident and disk bounds, single-writer custody, the v1/Syrup wire profile, and

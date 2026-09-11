@@ -61,7 +61,7 @@ test "an inbound set carrying two Equal elements is refused on both walk shapes"
 
 test "a Cap'n Proto set with duplicate elements is refused on the session inbound spine" {
     // Cap'n Proto decode admits sets without uniqueness (unlike Syrup). The
-    // session walk is the codec-neutral backstop. Craft the hostile frame by
+    // session walk is the codec-neutral backstop. Craft the untrusted frame by
     // encoding a list of two Equal integers (legal), then flipping that
     // argument's ArgKind discriminant to set — the same patch pattern as the
     // duplicate-key struct cases in `test/codec/capnp_test.zig`.

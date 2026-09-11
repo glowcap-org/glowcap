@@ -5,9 +5,9 @@ let seed = [7u8; 32]; // replace with durable secret bytes across restarts
 let server = tcp::noise::listen(
     "127.0.0.1",
     9099,
-    tcp::KeyedListenOptions {
+    tcp::ListenOptions {
         identity: tcp::ListenerIdentity::Seed(seed),
-        ..tcp::KeyedListenOptions::default()
+        ..tcp::ListenOptions::default()
     },
 )
 .await?;

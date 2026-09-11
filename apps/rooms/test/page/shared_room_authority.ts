@@ -6,7 +6,12 @@ import { fail } from "./harness.ts";
  * leaves the subscribed membership able to use its manager to replace it. */
 export async function proveSharedRoomAuthorityRotation(page: Page): Promise<void> {
 	await page.click("#roomAbout");
-	await page.click("#convcardCapabilitiesTab");
+	await page.click("#convcardCapabilitiesTab").catch(async (error) =>
+		fail(
+			`the restarted room card has no capabilities tab: ${String(error)}; ${await page.locator("body")
+				.innerText()}`,
+		)
+	);
 	await page.waitForSelector("#convcardManager", { timeout: 30_000 })
 		.catch(() => fail("the restarted attached room did not retain its manager capability"));
 	const retiredLink = (await page.textContent("#convcardRoomLink"))?.trim() ?? "";

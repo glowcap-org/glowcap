@@ -21,19 +21,26 @@
 //! and re-exported here, because the driver and transport archives agree on
 //! their *layout* rather than re-exporting the symbols.
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 pub mod driver;
 #[cfg(feature = "async")]
 pub mod host;
-mod layouts_gen;
+#[cfg_attr(target_arch = "wasm32", path = "wasm_layouts_gen.rs")]
+pub(crate) mod layouts_gen;
 mod ocapn;
 pub use ocapn::*;
-#[cfg(any(feature = "async", feature = "tcp", feature = "onion", feature = "webrtc"))]
+#[cfg(all(
+	not(target_arch = "wasm32"),
+	any(feature = "async", feature = "tcp", feature = "onion", feature = "webrtc")
+))]
 mod provider;
-#[cfg(any(feature = "async", feature = "tcp", feature = "onion", feature = "webrtc"))]
+#[cfg(all(
+	not(target_arch = "wasm32"),
+	any(feature = "async", feature = "tcp", feature = "onion", feature = "webrtc")
+))]
 pub use provider::*;
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 mod driver_fns_gen;
 #[cfg(feature = "async")]
 mod host_fns_gen;

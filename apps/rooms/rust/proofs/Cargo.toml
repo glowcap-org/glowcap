@@ -1,0 +1,37 @@
+[package]
+name = "rooms-migration-proofs"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+async-host = ["glowcap/browser", "dep:rooms-glowcap", "dep:rooms-runtime", "dep:rooms-browser", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers", "dep:tokio", "dep:web-sys"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rooms-application = { path = "../application" }
+serde_json.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Runtime proofs execute in the async embedding. The portable contract must
+# not link browser entropy/timers merely because their crate is in the workspace.
+rooms-runtime = { path = "../runtime", optional = true }
+rooms-glowcap = { path = "../glowcap", optional = true }
+rooms-browser = { path = "../browser", optional = true }
+wasm-bindgen = { version = "=0.2.128", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true, features = ["WebSocket", "RtcDataChannel", "RtcConfiguration"] }
+gloo-timers = { version = "0.4", features = ["futures"], optional = true }
+tokio = { version = "=1.53.1", default-features = false, features = ["rt", "macros", "sync", "io-util"], optional = true }
+glowcap = { package = "glowcap-rust-dogfood", path = "../../../../bindings/rust", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+glowcap.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rooms-glowcap = { path = "../glowcap" }
+glowcap = { workspace = true, features = ["tcp"] }
+tokio.workspace = true

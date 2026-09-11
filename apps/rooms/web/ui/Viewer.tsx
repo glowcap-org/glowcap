@@ -14,7 +14,7 @@
 // picture has two sizes, fitted and actual, and the stage scrolls the second
 // natively; `ViewerImage` says why there is no third.
 
-import { type CSSProperties, memo, useEffect, useRef, useState } from "react";
+import { type CSSProperties, memo, useRef, useState } from "react";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { IconButton } from "./IconButton.tsx";
@@ -49,12 +49,15 @@ export const Viewer = memo(function Viewer() {
 	// bar can stop short of it. See `.viewer-bar` for why it cannot simply
 	// stop taking the pointer there.
 	const [gutter, setGutter] = useState(0);
-	const shownId = shown?.id;
-	useEffect(() => {
+	const [shownId, setShownId] = useState(shown?.id);
+	// Reset before rendering the new stage. A passive effect can overwrite
+	// the new image's load/layout measurement after it has already arrived.
+	if (shownId !== shown?.id) {
+		setShownId(shown?.id);
 		setActual(false);
 		setOversized(false);
 		setGutter(0);
-	}, [shownId]);
+	}
 	if (!held || shown == null) return null;
 
 	return (

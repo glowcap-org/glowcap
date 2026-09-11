@@ -62,7 +62,7 @@ package-local metadata.
    - Require `SHA256SUMS` and verify the exact tarball entry before extract
      (never install unverified bytes; do not rely on `--ignore-missing`).
    - Extract only the `lib/` prefix; reject path traversal, absolute paths, and
-     every member that is not a regular file or a directory (the zip-slip
+     every member that is not a regular file or a directory (the archive path escape
      class, and symlinks and hardlinks with it). Ports that read `tar -tv`
      output run it under `LC_ALL=C`, accept only the GNU and BSD column
      layouts, and refuse a listing they cannot parse rather than guess where
@@ -115,10 +115,10 @@ package-local metadata.
   release workflow to attest and publish the archives; only after those assets
   can be downloaded and verified does a separate commit set
   `releases_published` true. Hygiene and security refusals (non-HTTPS without a
-  typed escape, checksum miss, zip-slip / link members) always fail closed;
+  typed escape, checksum miss, archive path escape / link members) always fail closed;
   `GLOWCAP_STRICT` only hardens soft network/tooling failures.
   `zig build c-abi-extract-check` (part of `check`) runs each port's own
-  validator against hostile fixtures in tree: zip-slip, symlink, an owner
+  validator against malformed fixtures in tree: archive path escape, symlink, an owner
   field shaped like a date to move a naive parser's column guess, and a
   regular file whose name contains tar's `" -> "` separator. Flipping
   `releases_published` to true is the consumer-enablement commit for that

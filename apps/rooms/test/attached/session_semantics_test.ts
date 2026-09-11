@@ -80,6 +80,25 @@ class SettledSelectionController extends FakeController {
 	}
 }
 
+class RefusedRetirementController extends FakeController {
+	readonly cancelledDrafts: string[] = [];
+	readonly resumedDrafts: { conversation: string; text: string }[] = [];
+
+	override cancelDraftSave(conversation: string): void {
+		this.cancelledDrafts.push(conversation);
+	}
+	override scheduleDraft(conversation: string, text: string): Promise<RoomsSessionSnapshot> {
+		this.resumedDrafts.push({ conversation, text });
+		return Promise.resolve(this.current);
+	}
+	override leaveConversation(_id: string): Promise<RoomsSessionSnapshot> {
+		return Promise.reject(new Error("the conversation is still in use"));
+	}
+	override leaveDirectory(_id: string): Promise<RoomsSessionSnapshot> {
+		return Promise.reject(new Error("the directory is still in use"));
+	}
+}
+
 Deno.test("attached DM creation opens the conversation in one command", async () => {
 	const page = new RoomsPage();
 	resetStore(page);
@@ -122,7 +141,6 @@ Deno.test("attached command DM creation opens the conversation in one command", 
 		page.projection,
 		controller as unknown as import("../../web/ui/session/attached.ts").AttachedRoomsController,
 		{} as RoomsBrowserController,
-		() => {},
 	);
 	powers.directMessage("bo");
 	await new Promise((resolve) => setTimeout(resolve, 0));
@@ -159,7 +177,6 @@ Deno.test("attached DM creation reuses an existing open conversation", async () 
 		page.projection,
 		controller as unknown as import("../../web/ui/session/attached.ts").AttachedRoomsController,
 		{} as RoomsBrowserController,
-		() => {},
 	);
 	powers.directMessage("bo");
 	await new Promise((resolve) => setTimeout(resolve, 0));
@@ -180,6 +197,38 @@ Deno.test("attached DM removal forgets live and closed conversations in one act"
 	session.closeDm(closed);
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	assertEquals(controller.removedConversationIds, [live.persistId, closed.persistId]);
+});
+
+Deno.test("refused conversation and directory retirement preserve and resume exact draft intents", async () => {
+	const page = new RoomsPage();
+	resetStore(page);
+	const directory = dirId("retirement-directory");
+	store.openDir(page.projection, directory, "127.0.0.1:1");
+	const room = store.ensureRoom(page.projection, directory, "general", { persistId: "room-id" });
+	const direct = store.restoreDm(page.projection, directory, "bo", registrationId(1), "direct-id", false);
+	if (direct == null) throw new Error("the retirement fixture created no direct conversation");
+	store.setDraft(page.projection, "room draft", room.key);
+	store.setDraft(page.projection, "direct draft", direct.key);
+	const controller = new RefusedRetirementController();
+	controller.stageDraft("room-id", "room draft");
+	controller.stageDraft("direct-id", "direct draft");
+	const session = sessionFor(page, controller);
+	session.leaveRoom(room.key);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(store.draftFor(page.projection, room.key).text, "room draft");
+	assertEquals(controller.stagedDrafts.get("room-id"), "room draft");
+	assertEquals(controller.resumedDrafts, [{ conversation: "room-id", text: "room draft" }]);
+	controller.cancelledDrafts.length = 0;
+	controller.resumedDrafts.length = 0;
+	session.leaveDirectory(directory);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(controller.cancelledDrafts.sort(), ["direct-id", "room-id"]);
+	assertEquals(controller.resumedDrafts.sort((a, b) => a.conversation.localeCompare(b.conversation)), [
+		{ conversation: "direct-id", text: "direct draft" },
+		{ conversation: "room-id", text: "room draft" },
+	]);
+	assertEquals(store.draftFor(page.projection, direct.key).text, "direct draft");
+	assertEquals(controller.stagedDrafts.get("direct-id"), "direct draft");
 });
 
 Deno.test("attached /quit retires its staged draft before removing the directory", async () => {
@@ -208,7 +257,6 @@ Deno.test("attached ignore and unignore wait for the shared snapshot", () => {
 		page.projection,
 		controller as unknown as import("../../web/ui/session/attached.ts").AttachedRoomsController,
 		{} as RoomsBrowserController,
-		() => {},
 	);
 	page.projection.set({ ignored: new Set(["bo"]) });
 	powers.ignore("cy");

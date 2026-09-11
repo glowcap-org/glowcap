@@ -174,12 +174,15 @@ export async function _connectIroh(
 
 /** Dial an iroh locator and return a byte channel for relay/bridge use.
  * Unlike `_connectIroh`, this returns just the channel, not a Session.
+ * One call makes one transport attempt. A relay request is already one attempt
+ * in its embedding application's reconnect policy, so retrying discovery here
+ * would nest a second retry owner inside it.
  * The channel owns the loop and netlayer; calling `close()` cleans up
  * both and terminates the connection. For transparent relay endpoints
  * (e.g., browser peer → relay → native iroh). */
 export async function dialLocatorForRelay(
 	locator: string,
-	reachability: Reachability = Reachability.Discovery,
+	reachability: Reachability,
 ): Promise<Channel> {
 	const parsed = parseLocator(locator);
 	if (parsed.transport !== TRANSPORT_IROH) {
@@ -192,12 +195,12 @@ export async function dialLocatorForRelay(
 	const nodeId = parsed.designator;
 	const directAddresses = stringHint(parsed, HINT_DIRECT_ADDRESSES) ?? "";
 
-	const netlayer = await IrohNetlayer.open({ reachability });
+	const netlayer = await IrohNetlayer.open({ reachability, workerThreads: 1 });
 	const loop = new IrohLoop(netlayer);
 	loop.start();
 	let conn: IrohConnection;
 	try {
-		conn = await dialResolving(loop, nodeId, directAddresses, reachability);
+		conn = await loop.dial(nodeId, directAddresses);
 	} catch (e) {
 		loop.close();
 		await netlayer.release();

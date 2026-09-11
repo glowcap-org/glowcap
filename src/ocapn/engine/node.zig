@@ -186,7 +186,7 @@ pub const Node = struct {
     /// Ranges released sessions gave back, reused oldest-first. Reclamation is
     /// what keeps the session field a bound on *concurrent* sessions rather
     /// than on how many a node may ever mint: a node that churns connections
-    /// would otherwise spend its slot and stop minting, which an attacker who
+    /// would otherwise spend its slot and stop minting, which a peer who
     /// can open and close connections reaches on purpose. Oldest-first, so a
     /// range is reused only after every other freed one has been, and a stale
     /// capability from the released session is as far as it can be from naming
@@ -525,6 +525,9 @@ pub const Node = struct {
     pub const hasAction = node_actions.hasAction;
     pub const peekAction = node_actions.peekAction;
     pub const consumePeekedAction = node_actions.consumePeekedAction;
+    pub const parkPeekedAction = node_actions.parkPeekedAction;
+    pub const pushParked = node_actions.pushParked;
+    pub const freeParked = node_actions.freeParked;
     pub const nextAction = node_actions.nextAction;
 
     pub const acceptGive = redeem_dial_admission.acceptGive;

@@ -26,7 +26,7 @@ from ._errors import GlowcapError
 
 # A WebSocket message is a transport chunk and may coalesce several CapTP
 # frames. Keep this independent from DEFAULT_FRAME_CAP; `websockets` enforces
-# it before retaining a hostile message for the binding.
+# it before retaining an untrusted message for the binding.
 _WS_MESSAGE_HIGH_WATER = _abi.BINDING_WEBSOCKET_MESSAGE_CAP_BYTES
 
 

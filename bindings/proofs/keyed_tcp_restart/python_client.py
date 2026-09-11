@@ -83,7 +83,7 @@ async def scene_happy() -> None:
     task = asyncio.create_task(serve_once(server))
     await call_greeter(server.locator, server.designator)
     await task
-    server.close()
+    await server.close()
     print("python-keyed-tcp-restart: happy path ok")
 
 
@@ -91,7 +91,7 @@ async def scene_squatter() -> None:
     # Listener holds a different key than the dialed designator.
     honest = await tcp.keyed.listen("127.0.0.1", 0, seed=SEED_HONEST)
     designator = honest.designator
-    honest.close()
+    await honest.close()
     squatter = await tcp.keyed.listen("127.0.0.1", 0, seed=SEED_SQUATTER)
     squatter.host.publish_giftable("greeter", greeter)
     task = asyncio.create_task(serve_once(squatter))
@@ -102,7 +102,7 @@ async def scene_squatter() -> None:
     except GlowcapError as e:
         print(f"python-keyed-tcp-restart: squatter refused ({e})")
     await asyncio.wait([task], timeout=2)
-    squatter.close()
+    await squatter.close()
     print("python-keyed-tcp-restart: squatter refusal ok")
 
 
@@ -113,7 +113,7 @@ async def scene_restart() -> None:
     task = asyncio.create_task(serve_once(first))
     await call_greeter(first.locator, designator)
     await task
-    first.close()
+    await first.close()
 
     second = await tcp.keyed.listen("127.0.0.1", 0, seed=SEED_RESTART)
     second.host.publish_giftable("greeter", greeter)
@@ -123,7 +123,7 @@ async def scene_restart() -> None:
     # Same designator, only the hint (port) updated.
     await call_greeter(tcp.keyed.locator(designator, "127.0.0.1", second.port), designator)
     await task
-    second.close()
+    await second.close()
     print("python-keyed-tcp-restart: restart ok")
 
 

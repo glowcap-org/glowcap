@@ -83,8 +83,10 @@
       (define c (host-session-for-ptr m (cadr act)))
       (cond
         [c
+         ;; The drain runs with breaks off, so a break can only land at its
+         ;; edges, where it is the operator's interrupt and escapes as itself.
          (define failure
-           (with-handlers ([(lambda (_) #t) values])
+           (with-handlers ([(lambda (raised) (not (exn:break? raised))) values])
              (drain-outbound! c)
              #f))
          (when failure (record-session-outbound-failure! c failure))
@@ -103,8 +105,10 @@
       (define c (host-session-for-ptr m (cadr act)))
       (cond
         [c
+         ;; The drain runs with breaks off, so a break can only land at its
+         ;; edges, where it is the operator's interrupt and escapes as itself.
          (define failure
-           (with-handlers ([(lambda (_) #t) values])
+           (with-handlers ([(lambda (raised) (not (exn:break? raised))) values])
              (drain-outbound! c)
              #f))
          (when failure (record-session-outbound-failure! c failure))

@@ -3,101 +3,28 @@
 import * as store from "../store.ts";
 import { directoryName, roomCalled } from "../text.ts";
 import { dirId, liveRoomCounts } from "../types.ts";
-import { roomsPeerAuthority } from "../../../lib/routes.ts";
-import { parseRoomsSturdyref } from "../../../lib/locator.ts";
 import type { AttachedRoomsController } from "./attached.ts";
 import type { RoomsBrowserController } from "../controller/browser.ts";
 import type { PageProjection } from "../store/core.ts";
 import type { CommandPowers } from "../commands.ts";
 import type { WorkspaceDirectConversation as DirectConversation } from "../../../lib/rooms_state.ts";
-import {
-	DIRECT_NOT_SELF,
-	NO_DIRECTORY_TO_GIVE_BACK,
-	NOT_ON_A_DIRECTORY,
-	notRegisteredForDirect,
-	thatLinkDidNotOpen,
-} from "../commands/targets.ts";
+import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY, thatLinkDidNotOpen } from "../commands/targets.ts";
 
-const JOIN_LINK_NEEDS_HELD_DIRECTORY =
-	"Join the directory named by that room entry link before taking it up in this shared session.";
 const NO_GRANTS: ReadonlySet<string> = new Set();
 
-function intendedAttachedDirect(
-	projection: PageProjection,
-	controller: AttachedRoomsController,
-	directory: string,
-	who: string,
-): { error: string } | { existing: DirectConversation } | { created: DirectConversation } {
-	if (store.isSelf(projection, dirId(directory), who)) {
-		return { error: DIRECT_NOT_SELF };
-	}
-	const registration = store.peerRegistration(projection, dirId(directory), who);
-	if (registration == null) {
-		return { error: notRegisteredForDirect(who) };
-	}
-	const existing = controller.current?.checkpoint.conversations.find((conversation) =>
-		conversation.kind === "direct" && !conversation.closed && conversation.directory === directory &&
-		conversation.peerRegistrationId === registration.registrationId
-	);
-	if (existing?.kind === "direct") return { existing };
-	return {
-		created: {
-			kind: "direct",
-			id: crypto.randomUUID(),
-			directory,
-			peer: registration.name,
-			peerRegistrationId: registration.registrationId,
-			closed: false,
-			draft: "",
-		},
-	};
-}
-
-/** Open one attached direct conversation, reusing the live intended record when
- * this tab already has one for the same directory and peer. A second record for
- * the same peer makes the durable session's inbound route ambiguous.
- * `null` when the line was opened or selected. A sentence when this tab does
- * not hold an introduction to them — the caller explains that, the way the
- * catalog does for `/msg` and a click does for the sidebar. */
-export function startAttachedDirectMessage(
-	projection: PageProjection,
-	controller: AttachedRoomsController,
-	directory: string,
-	who: string,
-	onFailure: (error: unknown) => void,
-): string | null {
-	const intended = intendedAttachedDirect(projection, controller, directory, who);
-	if ("error" in intended) return intended.error;
-	if ("existing" in intended) {
-		void controller.select(intended.existing.id).catch(onFailure);
-		return null;
-	}
-	void controller.openDirect(intended.created).catch(onFailure);
-	return null;
-}
-
-/** Ensure a same-directory DM exists without changing the reader's selection.
- * Room-card person-to-person acts (invite, archive share) use this so a pipe
- * can open beside the room they are already looking at. */
-export async function ensureAttachedDirect(
-	projection: PageProjection,
+/** Open a direct route for an invitation or archive share without changing selection. */
+export function ensureAttachedDirect(
 	controller: AttachedRoomsController,
 	directory: string,
 	who: string,
 ): Promise<DirectConversation> {
-	const intended = intendedAttachedDirect(projection, controller, directory, who);
-	if ("error" in intended) throw new Error(intended.error);
-	if ("existing" in intended) return intended.existing;
-	if (controller.current == null) throw new Error("the shared session has not produced its workspace yet");
-	await controller.startDirect(intended.created);
-	return intended.created;
+	return controller.chooseDirect(directory, who, false);
 }
 
 export function attachedCommandPowers(
 	projection: PageProjection,
 	controller: AttachedRoomsController,
 	view: Pick<RoomsBrowserController, "aboutConversation" | "setTheme" | "showRoster">,
-	onFailure: (error: unknown) => void,
 ): CommandPowers {
 	const active = () => store.activeConv(projection);
 	const activeDirectory = () => {
@@ -107,43 +34,26 @@ export function attachedCommandPowers(
 		return home == null ? null : dirId(home.id);
 	};
 	return {
-		say: (text) => store.deliverActive(projection, store.sysItem(projection, text)),
+		say: (text, key = projection.get().activeKey ?? undefined) => {
+			if (key != null) store.deliver(projection, key, store.sysItem(projection, text));
+		},
 		joinRoom: (name) => {
 			const directory = activeDirectory();
 			if (directory == null) return NOT_ON_A_DIRECTORY;
-			const room = {
-				kind: "room" as const,
-				id: crypto.randomUUID(),
-				directory,
-				name,
-				held: false,
-				standing: null,
-				draft: "",
-			};
-			void controller.joinRoom(room).catch(onFailure);
-			return null;
+			return controller.chooseRoom(directory, name).then(() => null);
 		},
 		joinLink: (link, label) => {
-			let authority: string;
-			try {
-				authority = roomsPeerAuthority(parseRoomsSturdyref(link).locator);
-			} catch (error) {
-				return thatLinkDidNotOpen(error instanceof Error ? error.message : String(error));
-			}
-			const directory = controller.current?.checkpoint.directories.find((entry) => entry.id === authority);
-			if (directory == null) return JOIN_LINK_NEEDS_HELD_DIRECTORY;
-			const room = {
-				kind: "room" as const,
-				id: crypto.randomUUID(),
-				directory: directory.id,
-				name: label || "private room",
-				held: true,
-				link,
-				standing: null,
-				draft: "",
-			};
-			void controller.joinRoom(room).catch(onFailure);
-			return null;
+			const key = active()?.key ?? null;
+			return controller.takeRoomLink(link, label ?? "").then((already) => {
+				if (already && key != null) {
+					store.deliver(projection, key, store.sysItem(projection, "You are already in this room."));
+				}
+				return null;
+			}, (error) => {
+				throw new Error(thatLinkDidNotOpen(error instanceof Error ? error.message : String(error)), {
+					cause: error,
+				});
+			});
 		},
 		leaveHere: () => {
 			const conversation = active();
@@ -152,12 +62,12 @@ export function attachedCommandPowers(
 				store.dismissDirectoryView(projection, conversation.key);
 				return;
 			}
-			void controller.leaveConversation(conversation.persistId).catch(onFailure);
+			return controller.leaveConversation(conversation.persistId).then(() => {});
 		},
 		directMessage: (who) => {
 			const directory = activeDirectory();
 			if (directory == null) return NOT_ON_A_DIRECTORY;
-			return startAttachedDirectMessage(projection, controller, directory, who, onFailure);
+			return controller.chooseDirect(directory, who, true).then(() => null);
 		},
 		you: () => {
 			const directory = activeDirectory();
@@ -170,125 +80,73 @@ export function attachedCommandPowers(
 			if (key != null) store.clearHistory(projection, key);
 		},
 		ignore: (name) => {
-			const next = new Set(projection.get().ignored);
-			next.add(name.toLowerCase());
-			void controller.setIgnoredNames([...next]).catch(onFailure);
+			return controller.preferences.setIgnoredName(name, true).then(() => {});
 		},
 		unignore: (name) => {
-			const next = new Set(projection.get().ignored);
-			const changed = next.delete(name.toLowerCase());
-			if (changed) void controller.setIgnoredNames([...next]).catch(onFailure);
-			return changed;
+			const changed = projection.get().ignored.has(name.toLowerCase());
+			return controller.preferences.setIgnoredName(name, false).then(() => changed);
 		},
 		ignored: () => [...projection.get().ignored].sort(),
 		editLast: (text) => {
 			const conversation = active();
-			const line = conversation == null
-				? null
-				: [...store.historyOf(projection, conversation.key)].reverse().find((item) =>
-					item.kind === "chat" && item.mine && !item.withdrawn && item.lineId != null
-				);
-			if (
-				conversation == null || conversation.type === "directory" || line?.kind !== "chat" ||
-				line.lineId == null
-			) return false;
-			void controller.editLine(conversation.persistId, line.lineId, text).catch(onFailure);
-			return true;
+			if (conversation == null || conversation.type === "directory") return false;
+			const line = controller.lastEditableLine(conversation.persistId);
+			if (line == null) return false;
+			return controller.editLine(conversation.persistId, line, text).then(() => true);
 		},
 		withdrawLast: () => {
 			const conversation = active();
-			const line = conversation == null
-				? null
-				: [...store.historyOf(projection, conversation.key)].reverse().find((item) =>
-					item.kind === "chat" && item.mine && !item.withdrawn && item.lineId != null
-				);
-			if (
-				conversation == null || conversation.type === "directory" || line?.kind !== "chat" ||
-				line.lineId == null
-			) return false;
-			void controller.withdrawLine(conversation.persistId, line.lineId).catch(onFailure);
-			return true;
+			if (conversation == null || conversation.type === "directory") return false;
+			const line = controller.lastEditableLine(conversation.persistId);
+			if (line == null) return false;
+			return controller.withdrawLine(conversation.persistId, line).then(() => true);
 		},
 		setTopic: (text) => {
 			const conversation = active();
 			if (conversation?.type !== "room") return false;
-			void controller.setRoomTopic(conversation.persistId, text).catch(onFailure);
-			return true;
+			return controller.setRoomTopic(conversation.persistId, text).then(() => true);
 		},
 		setAway: (reason) => {
 			const conversation = active();
 			if (conversation?.type !== "room") return false;
-			if (conversation.standing != null) {
-				void controller.setRoomStanding(conversation.persistId, reason === "" ? null : reason).catch(onFailure);
-			} else if (projection.get().dirs.get(conversation.dir)?.standing != null) {
-				void controller.setDirectoryStanding(conversation.dir, reason === "" ? null : reason).catch(onFailure);
-			} else void controller.setStanding(reason).catch(onFailure);
-			return true;
+			return controller.preferences.setEffectiveStanding(conversation.persistId, reason).then(() => true);
 		},
 		invite: (name) => {
 			const conversation = active();
 			if (conversation?.type !== "room") return false;
-			void (async () => {
-				const direct = await ensureAttachedDirect(projection, controller, conversation.dir, name);
-				const room = controller.current?.checkpoint.conversations.find((candidate) =>
-					candidate.kind === "room" && candidate.id === conversation.persistId
-				);
-				if (room?.kind !== "room") throw new Error("that room is no longer in the shared session");
-				await controller.offerRoom(room.id, direct.id);
+			return controller.inviteToRoom(conversation.persistId, name).then(() => {
 				store.deliver(
 					projection,
 					conversation.key,
 					store.sysItem(projection, `${name} has been offered this room.`),
 				);
-			})().catch(onFailure);
-			return true;
+				return true;
+			});
 		},
 		kick: (name) => {
 			const conversation = active();
 			if (conversation?.type !== "room") return false;
-			void controller.kickRoomMember(conversation.persistId, name).catch(onFailure);
-			return true;
+			return controller.kickRoomMember(conversation.persistId, name).then(() => true);
 		},
 		steward: (link) => {
 			const conversation = active();
 			if (conversation?.type !== "room") return false;
-			void controller.takeRoomModerator(conversation.persistId, link).catch(onFailure);
-			return true;
+			return controller.takeRoomModerator(conversation.persistId, link).then(() => true);
 		},
 		roomLink: (name) => {
 			const conversation = active();
 			if (conversation?.type !== "room") return false;
-			const room = name == null || name === ""
-				? conversation
-				: [...projection.get().convs.values()].find((candidate) =>
-					candidate.type === "room" && candidate.dir === conversation.dir && candidate.id === name
-				);
-			if (room?.type !== "room") return false;
-			if (room.link != null) {
-				store.deliverActive(
+			return controller.roomLinkFor(conversation.persistId, name).then((room) => {
+				store.deliver(
 					projection,
+					conversation.key,
 					store.sysItem(
 						projection,
-						`Anybody who holds this link can be in ${roomCalled(room.id, room.held)}:\n  ${room.link}`,
+						`Anybody who holds this link can be in ${roomCalled(room.name, room.held)}:\n  ${room.link}`,
 					),
 				);
 				return true;
-			}
-			void controller.ensureRoomLink(room.persistId).then((snapshot) => {
-				const linked = snapshot.checkpoint.conversations.find((candidate) => candidate.id === room.persistId);
-				if (linked?.kind === "room" && linked.link != null) {
-					store.deliverActive(
-						projection,
-						store.sysItem(
-							projection,
-							`Anybody who holds this link can be in ${
-								roomCalled(linked.name, linked.held)
-							}:\n  ${linked.link}`,
-						),
-					);
-				}
-			}).catch(onFailure);
-			return true;
+			});
 		},
 		standingHere: () => {
 			const conversation = active();
@@ -329,8 +187,7 @@ export function attachedCommandPowers(
 		quitDirectory: () => {
 			const directory = activeDirectory();
 			if (directory == null) return NO_DIRECTORY_TO_GIVE_BACK;
-			void controller.leaveDirectory(directory).catch(onFailure);
-			return null;
+			return controller.leaveDirectory(directory).then(() => null);
 		},
 		aboutConversation: view.aboutConversation,
 	};

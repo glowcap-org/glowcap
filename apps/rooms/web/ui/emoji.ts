@@ -136,6 +136,7 @@ export const EMOJI_TABLE: readonly EmojiEntry[] = [
 	{ glyph: "🐈", code: "cat", keywords: ["kitten"] },
 	{ glyph: "🦄", code: "unicorn", keywords: ["magic"] },
 	{ glyph: "🌱", code: "seedling", keywords: ["plant", "grow"] },
+	{ glyph: "🍄", code: "mushroom", keywords: ["glowcap", "fungi", "toadstool"] },
 	{ glyph: "🌲", code: "evergreen", keywords: ["tree", "forest"] },
 	{ glyph: "🍂", code: "fallen_leaf", keywords: ["autumn"] },
 	{ glyph: "🌊", code: "wave_water", keywords: ["ocean", "sea"] },

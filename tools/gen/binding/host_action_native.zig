@@ -45,7 +45,7 @@ pub fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\def _view(ptr, length) -> str:
         \\    # The bytes originate in a partner-authored give, so decode
-        \\    # leniently rather than let hostile bytes raise mid-drain.
+        \\    # leniently rather than let untrusted bytes raise mid-drain.
         \\    return ctypes.string_at(ptr, length).decode(errors="replace") if ptr and length else ""
         \\
         \\
@@ -233,7 +233,7 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     try ha.tline(&out, gpa, 3, "String::new()");
     try ha.tline(&out, gpa, 2, "} else {");
     try ha.tline(&out, gpa, 3, "// The bytes originate in a partner-authored give, so decode");
-    try ha.tline(&out, gpa, 3, "// leniently rather than let hostile bytes fault mid-drain.");
+    try ha.tline(&out, gpa, 3, "// leniently rather than let untrusted bytes fault mid-drain.");
     try ha.tline(&out, gpa, 3, "String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()");
     try ha.tline(&out, gpa, 2, "}");
     try ha.tline(&out, gpa, 1, "};");

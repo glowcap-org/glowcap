@@ -64,9 +64,9 @@ const retired_icon_button_css = [_][]const u8{
 
 const bans = [_]Ban{
     .{
-        .file = ui_dir ++ "/net.ts",
+        .file = ui_dir ++ "/session/projection.ts",
         .needles = &dom_needles,
-        .because = "the data layer owns a CapTP session that outlives every render, and it stays that way by never reaching into the tree",
+        .because = "Rust observations update the presentation store without reading the DOM",
     },
     .{
         .file = ui_dir ++ "/store.ts",
@@ -96,11 +96,6 @@ const bans = [_]Ban{
 };
 
 const tree_bans = [_]Ban{
-    .{
-        .file = ui_dir ++ "/net",
-        .needles = &dom_needles,
-        .because = "the data layer owns a CapTP session that outlives every render, and it stays that way by never reaching into the tree",
-    },
     .{
         .file = ui_dir ++ "/store",
         .needles = &dom_needles,
@@ -195,10 +190,10 @@ pub fn checkRoomsLayerBans(
     }
 
     // The store's own field is exempt from nothing above, but the one writer of
-    // it lives in hooks.ts, which is allowed the document. What net.ts may not
+    // it lives in hooks.ts, which is allowed the document. What the projection may not
     // do is import a component.
-    const net = root.readFileAlloc(io, ui_dir ++ "/net.ts", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}/net.ts: cannot be read for the rooms UI check ({s})", .{ ui_dir, @errorName(err) });
+    const net = root.readFileAlloc(io, ui_dir ++ "/session/projection.ts", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}/session/projection.ts: cannot be read for the rooms UI check ({s})", .{ ui_dir, @errorName(err) });
         return;
     };
     defer gpa.free(net);
@@ -208,18 +203,18 @@ pub fn checkRoomsLayerBans(
         try appendViolation(
             gpa,
             violations,
-            "{s}/net.ts imports a component; the interface reads the store, and the data layer must not know the interface exists",
+            "{s}/session/projection.ts imports a component; the interface reads the store, and the data layer must not know the interface exists",
             .{ui_dir},
         );
     }
 
-    try checkRoomsVizStartupOrder(io, gpa, root, violations);
+    try checkRoomsStartupComposition(io, gpa, root, violations);
     try checkRoomsJoinDoesNotAskPrivate(io, gpa, root, violations);
 }
 
-/// Remembered capability state must exist before the visualizer publisher is
-/// armed, and the publisher must be armed before the first local session.
-fn checkRoomsVizStartupOrder(
+/// Restore workspace intent before opening the Rust application; session setup
+/// must retain its projection provider even when no session exists.
+fn checkRoomsStartupComposition(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
@@ -232,20 +227,9 @@ fn checkRoomsVizStartupOrder(
     };
     defer gpa.free(main);
     const restore = std.mem.indexOf(u8, main, "restoreWorkspaceState(");
-    const arm = std.mem.indexOf(u8, main, "await net.ensureVizPublisher(");
-    const connect = std.mem.indexOf(u8, main, "net.connect(");
-    if (restore == null or arm == null or connect == null or !(restore.? < arm.? and arm.? < connect.?)) {
-        try appendViolation(gpa, violations, "{s}: local visualizer startup must restore workspace state, arm the remembered capability, then connect", .{main_path});
-    }
-
-    const boot_path = ui_dir ++ "/net/runtime_boot.ts";
-    const boot = root.readFileAlloc(io, boot_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot read visualizer runtime boot ({s})", .{ boot_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(boot);
-    if (std.mem.indexOf(u8, boot, "ensureVizPublisher") != null) {
-        try appendViolation(gpa, violations, "{s}: visualizer capability state is not restored during runtime boot; arm it from main.tsx after workspace restoration", .{boot_path});
+    const connect = std.mem.indexOf(u8, main, "await connectLocalRoomsSession(page)");
+    if (restore == null or connect == null or restore.? >= connect.?) {
+        try appendViolation(gpa, violations, "{s}: restore workspace intent before opening the Rust local session", .{main_path});
     }
 
     const setup_at = std.mem.indexOf(u8, main, "function showSessionSetup") orelse {

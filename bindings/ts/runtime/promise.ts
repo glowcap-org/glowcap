@@ -268,7 +268,7 @@ export type PromiseState =
 	// at the answer before it settles (ADR-0050). Throwing instead put a
 	// synchronous failure channel on a promise-returning method, and a caller's
 	// `.catch` could not see it. Rust has carried this arm from the start.
-	| { readonly tag: "failed"; readonly error: GlowcapError };
+	| { readonly tag: "failed"; readonly error: unknown };
 
 export class RemotePromise extends Promise<Argument> {
 	readonly #state: PromiseState;
@@ -325,7 +325,7 @@ export class RemotePromise extends Promise<Argument> {
 	 * and projecting at it yields another failed handle carrying the same
 	 * reason, so a pipeline built behind a dead anchor fails where it is
 	 * awaited rather than where it was written. */
-	static failed(error: GlowcapError): RemotePromise {
+	static failed(error: unknown): RemotePromise {
 		// The begin thunk is what rejects, and it runs only on observation, so
 		// a handle nobody awaits is not an unhandled rejection. Projection is
 		// answered by `#projectOp` from the state, not by a thunk.

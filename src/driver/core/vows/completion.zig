@@ -25,8 +25,7 @@ pub fn queueVowCompletion(self: *Host, peer_handle: engine.PeerHandle, vow_id: u
                     .peer_handle = peer_handle,
                     .vow_id = vow_id,
                     .failure = .broken,
-                    .message = host_action.failure_detail_allocation_message,
-                    .message_owned = false,
+                    .message = .fallback,
                 } });
                 return;
             };
@@ -38,8 +37,7 @@ pub fn queueVowCompletion(self: *Host, peer_handle: engine.PeerHandle, vow_id: u
                 .peer_handle = peer_handle,
                 .vow_id = vow_id,
                 .failure = classifyFailure(self, peer_handle),
-                .message = retained.bytes,
-                .message_owned = retained.owned,
+                .message = retained,
             } });
         },
         .give => {
@@ -48,8 +46,7 @@ pub fn queueVowCompletion(self: *Host, peer_handle: engine.PeerHandle, vow_id: u
                 .peer_handle = peer_handle,
                 .vow_id = vow_id,
                 .failure = .broken,
-                .message = retained.bytes,
-                .message_owned = retained.owned,
+                .message = retained,
             } });
         },
     }

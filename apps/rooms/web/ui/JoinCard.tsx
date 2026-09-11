@@ -9,7 +9,7 @@
 // holding "this is in flight" except the label itself.
 
 import { memo, useActionState, useRef } from "react";
-import { MAX_NICK, MAX_ROOM, nickRefusal } from "../../lib/limits.ts";
+import { MAX_NICK, MAX_ROOM, nickRefusal } from "./limits.ts";
 import { tooLong } from "./text.ts";
 import { identifierField } from "./field.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
@@ -19,7 +19,7 @@ import { useSuggest } from "./Suggest.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Button } from "./Button.tsx";
 import { Icon } from "./icons.tsx";
-import { nextRoomPreset, policyForRoomPreset } from "../../lib/room/policy.ts";
+import { nextRoomPreset, policyForRoomPreset } from "./room_policy.ts";
 import {
 	destination,
 	type DirectoryDestinationContext,

@@ -164,7 +164,7 @@ Deno.test("a bridged room states one member's IRC seat without exposing an accou
 			["room", "", "seat", "alice", "linked", "alice_irc", "Libera", "LINKED"],
 			["room", "", "seat", "alice", "linked", "alice_irc", "Libera", "", "Rooms + Libera"],
 			["room", "", "seat", "alice", "linked", "alice_irc", "Libera", "LINKED", ""],
-			// And words past what a room admits, which a hostile bridge is the
+			// And words past what a room admits, which an untrusted bridge is the
 			// reason to bound rather than a careless one.
 			["room", "", "seat", "alice", "linked", "alice_irc", "Libera", "L".repeat(MAX_SEAT_BADGE + 1), "l"],
 			["room", "", "seat", "alice", "linked", "alice_irc", "Libera", "L", "l".repeat(MAX_SEAT_SAID + 1)],

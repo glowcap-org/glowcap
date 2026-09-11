@@ -1,8 +1,9 @@
 #!/bin/sh
 # Bring the rooms deployment up fresh and say what an operator needs next:
-# the room's locator, every directory-operator capability, and the durable
-# workspace's administrator sturdyref. This saves fishing bearer authority out
-# of container logs and says which UI control receives it.
+# the room's locator, browser interface build, every directory-operator
+# capability, and the durable workspace's administrator sturdyref. This saves
+# fishing bearer authority out of container logs and says which UI control
+# receives it.
 #
 #   ./up.sh
 #
@@ -11,6 +12,29 @@
 set -eu
 cd "$(dirname "$0")"
 compose="./compose.sh"
+repo_root=$(CDPATH= cd -- ../../../.. && pwd)
+deployment_version="$repo_root/zig-out/rooms-deployment.version"
+
+if [ -n "$(git -C "$repo_root" status --porcelain)" ]; then
+	echo "rooms: refusing to deploy a checkout with local changes"
+	echo "rooms: commit the intended source, then run: zig build rooms-deploy-prep"
+	exit 1
+fi
+source_version=$(git -C "$repo_root" rev-parse --short=12 HEAD)
+prepared_version=$(sed -n '1p' "$deployment_version" 2>/dev/null || true)
+if [ "$prepared_version" != "$source_version" ]; then
+	echo "rooms: prepared deployment ${prepared_version:-missing} does not match checkout $source_version"
+	echo "rooms: run: zig build rooms-deploy-prep"
+	exit 1
+fi
+
+browser_version=$(sed -n '2p' "$deployment_version")
+selected_version=$(cat "$repo_root/zig-out/rooms-web/current/source.version" 2>/dev/null || true)
+if [ -z "$browser_version" ] || [ "$selected_version" != "$browser_version" ]; then
+	echo "rooms: selected browser assets do not match the prepared deployment"
+	echo "rooms: run: zig build rooms-deploy-prep"
+	exit 1
+fi
 
 # Bound every post-health Docker read too. A container can wedge after its last
 # probe, and a retry count around an unbounded Compose exec is not a
@@ -45,18 +69,19 @@ if ! "$compose" up -d --build --force-recreate --wait --wait-timeout 210; then
 	exit 1
 fi
 
-printer="deno run --allow-read --allow-env --no-lock /repo/apps/rooms/server/capabilities.ts"
-session_printer="deno run --allow-read=/run/rooms-session --no-lock /repo/apps/rooms/web/deploy/session_healthcheck.ts --print"
+printer="/runtime/bin/rooms-server --capabilities"
+session_printer="/runtime/bin/rooms-session --check-ready=/run/rooms-session/admin.sturdyref"
 
 # Compose has already joined both declared healthchecks. Read each ready value
 # once rather than maintaining a second polling state machine whose individual
 # Compose exec can outlive its nominal retry budget.
-locator=$(bounded_exec "$compose" exec -T rooms deno eval --no-lock '
-	const answer = await fetch("http://127.0.0.1:8000/locator");
-	if (!answer.ok) Deno.exit(1);
-	console.log((await answer.text()).trim());
-') || {
+locator=$(bounded_exec "$compose" exec -T rooms /runtime/bin/rooms-web --locator) || {
 	echo "rooms: the healthy server did not answer its locator; read: $compose logs rooms"
+	exit 1
+}
+
+ui_version=$(bounded_exec "$compose" exec -T rooms /runtime/bin/rooms-web --ui-version) || {
+	echo "rooms: the healthy server did not answer its UI version; read: $compose logs rooms"
 	exit 1
 }
 
@@ -92,12 +117,14 @@ directory_capabilities=$(bounded_exec "$compose" exec -T rooms $printer) || {
 # not let the capability printer stream its lines among Compose progress or
 # readiness messages: an operator should be able to copy or save this block
 # as one value.
-printf '\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n%s\n' \
+printf '\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n%s\n' \
 	"rooms: deployment handoff" \
 	"Directory operator capabilities:" \
 	"$directory_capabilities" \
 	"Room locator (what a terminal peer dials):" \
 	"$locator" \
+	"Browser interface build (shown at the bottom of Help):" \
+	"$ui_version" \
 	"Shared-session administrator capability:" \
 	"Paste this into Choose a session -> Shared session; it grants full control of that workspace." \
 	"$session_capability"

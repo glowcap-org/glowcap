@@ -4,8 +4,9 @@ import type { RoomMemberState } from "../../lib/room/presence.ts";
 import type { RoomFacts } from "../../lib/room/message.ts";
 import type { WorkspaceRoomBridgeIntent } from "../../lib/rooms_state.ts";
 import type { RoomMembershipKind } from "../../lib/room/membership.ts";
-import type { RoomPolicy } from "../../lib/room/policy.ts";
+import type { RoomPolicy } from "./room_policy.ts";
 import type { DirId } from "./types.ts";
+import type { ArchiveCoordinates } from "../../lib/archive/protocol.ts";
 
 export type SendState = "sending" | "failed" | "refused";
 
@@ -28,17 +29,15 @@ export interface AttachmentView {
 	got?: number;
 	error?: string;
 	lost?: boolean;
+	/** Content identity for archive reconciliation, independent of file metadata. */
+	archiveDigest?: string;
 }
 
 export type ViewerDirection = "previous" | "next";
 
 export type SysAudience = "here" | "shared";
 
-export interface HistoryCoordinate {
-	readonly source: string;
-	readonly generation: string;
-	readonly id: string;
-}
+export type HistoryCoordinate = ArchiveCoordinates;
 
 export type Item =
 	| {
@@ -53,12 +52,25 @@ export type Item =
 		 * membership ends; retained text is not authority for a later generation. */
 		lineId?: number;
 		history?: HistoryCoordinate;
+		/** Source conversation order for history reconciliation. Unlike archive
+		 * coordinates, this field is ordering authority rather than identity. */
+		order?: number;
 		edited?: boolean;
 		withdrawn?: boolean;
 		held?: boolean;
 		attachments?: readonly AttachmentView[];
 	}
-	| { kind: "sys"; id: number; text: string; at: number; audience: SysAudience }
+	| {
+		kind: "sys";
+		id: number;
+		text: string;
+		at: number;
+		audience: SysAudience;
+		/** The session's own history boundary has stable semantic identity while
+		 * its keeper attribution changes after each authoritative archive read. */
+		historyBoundary?: "session";
+		archiveSection?: Pick<ArchiveCoordinates, "source" | "generation">;
+	}
 	| { kind: "action"; id: number; from: string; text: string; at: number };
 
 export type ChatItem = Extract<Item, { kind: "chat" }>;

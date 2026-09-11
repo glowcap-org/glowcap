@@ -5,6 +5,12 @@ const net = @import("net");
 const webrtc = @import("webrtc");
 const webrtc_archive = @import("c_abi_net_transport_webrtc");
 
+/// One open DataChannel's adapter row: the 48-byte sidecar peer beside the
+/// hinted try-I/O seats, hints, and terminal cause every multiplexed sidecar
+/// backend shares. No embedded list header, so the number holds in every
+/// build mode.
+const webrtc_connection_state_bytes: usize = 104;
+
 test "supported WebRTC type surfaces and footprints stay exact" {
     const root_names = .{ "transport_name", "max_packet_bytes", "max_signal_bytes", "max_ice_candidate_bytes", "max_ice_servers", "max_ice_urls_per_server", "max_ice_url_bytes", "max_ice_credential_bytes", "max_pending_ice_candidates", "pending_ice_candidate_queue_bytes", "data_channel_queue_bytes", "sctp_receive_buffer_bytes", "designator_scheme", "designator_len", "locator", "ev_open", "ev_candidate", "ev_readable", "ev_writable", "ev_closed", "ReadyEvent", "PeerId", "StringView", "IceServerConfig", "SignalError", "Peer", "Resident", "DialResolver", "SignalingAuthority", "Backend" };
     try std.testing.expectEqual(root_names.len, @typeInfo(webrtc).@"struct".decl_names.len);
@@ -12,6 +18,7 @@ test "supported WebRTC type surfaces and footprints stay exact" {
 
     try std.testing.expectEqual(@as(usize, 48), @sizeOf(webrtc.Peer));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Peer));
+    try std.testing.expectEqual(webrtc_connection_state_bytes, webrtc.Backend.connection_state_bytes);
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(webrtc.Resident));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Resident));
     try std.testing.expectEqual(@as(usize, 16 * 1024), webrtc.max_signal_bytes);
@@ -33,7 +40,7 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     try std.testing.expectEqual(resident_names.len, @typeInfo(webrtc.Resident).@"struct".decl_names.len);
     inline for (resident_names) |name| try std.testing.expect(@hasDecl(webrtc.Resident, name));
 
-    const backend_names = .{ "Fd", "ConnectTarget", "ListenerAddress", "listen_fd", "initBound", "deinit", "openListener", "listenerAddress", "listenerPort", "startDial", "adoptAnswerer", "provideAnswer", "provideRemoteCandidate", "wake", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll" };
+    const backend_names = .{ "Fd", "ConnectTarget", "ListenerAddress", "listen_fd", "connection_state_bytes", "initBound", "deinit", "openListener", "listenerAddress", "listenerPort", "startDial", "adoptAnswerer", "provideAnswer", "provideRemoteCandidate", "wake", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll" };
     try std.testing.expectEqual(backend_names.len, @typeInfo(webrtc.Backend).@"struct".decl_names.len);
     inline for (backend_names) |name| try std.testing.expect(@hasDecl(webrtc.Backend, name));
 

@@ -106,9 +106,7 @@
   (unless (ref? ref)
     (raise-glowcap 'ref->c ERR-UNSUPPORTED-VALUE
                     "unsupported reference type: ~a" ref))
-  (when (ref-released? ref)
-    (error 'glowcap "this capability was released"))
-  (make-GlowcapReference (ref-id ref)))
+  (make-GlowcapReference (ref-live-id ref)))
 
 ;; Returns (values cpointer count), keeping backing buffers alive via `keep`.
 (define (args->c args keep)

@@ -7,7 +7,7 @@
 import type { Argument } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import { MAX_DIRECTORY_DISCOVERY_ROWS, MAX_NICK, MAX_ROOM } from "./limits.ts";
-import { boundedText, nonemptyText, nonnegativeSafeInteger } from "./schema.ts";
+import { boundedText, naturalWireNumber, nonemptyText, nonnegativeSafeInteger } from "./schema.ts";
 import { isRoomMembershipKind } from "./room/membership.ts";
 
 /** One exact room publication in the directory. */
@@ -62,15 +62,10 @@ const DirectoryMemberRowsSchema = z.array(DirectoryMemberRowSchema).check(
 	z.refine((rows) => new Set(rows.map(([name]) => name.toLowerCase())).size === rows.length),
 	z.refine((rows) => new Set(rows.map(([, registrationId]) => registrationId)).size === rows.length),
 );
-const naturalWireInteger = z.custom<number | bigint>((value) => {
-	if (typeof value !== "number" && typeof value !== "bigint") return false;
-	const number = Number(value);
-	return Number.isSafeInteger(number) && number >= 0;
-});
 const DirectoryWatchSnapshotWireSchema = z.tuple([
 	z.array(z.custom<Argument>(() => true)).check(z.maxLength(MAX_DIRECTORY_DISCOVERY_ROWS)),
 	DirectoryMemberRowsSchema,
-	naturalWireInteger,
+	naturalWireNumber,
 ]).check(
 	z.refine(([rooms, peers]) => rooms.length + peers.length <= MAX_DIRECTORY_DISCOVERY_ROWS),
 );
@@ -104,7 +99,16 @@ export type RoomEvent =
 		entry: null;
 	};
 
-const ROOM_EVENT_KINDS: readonly string[] = ["opened", "closed", "count", "registered", "unregistered", "truncated"];
+/** Every tag a watch observer may be notified with, in the order the generated
+ * client tables declare them; `test/protocol_gen_test.ts` holds the two equal. */
+export const ROOM_EVENT_KINDS: readonly string[] = [
+	"opened",
+	"closed",
+	"count",
+	"registered",
+	"unregistered",
+	"truncated",
+];
 
 /** Parse one directory observer notification, or null when its wire shape is
  * not a supported publication. */
@@ -202,6 +206,6 @@ export function parseDirectoryWatchSnapshot(raw: Argument): {
 	return {
 		rooms: parseRooms(roomRows),
 		peers: memberRows.map(([name, registrationId]) => ({ name, registrationId })),
-		omitted: Number(omitted),
+		omitted,
 	};
 }

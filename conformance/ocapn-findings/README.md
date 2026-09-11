@@ -109,7 +109,7 @@ correct to upstream.
 Width is not what makes the id safe in either direction. The signed envelope is
 the authority a redeem checks. glowcap also keys handoff coordination by a
 fixed-size tag derived from the id rather than by the id itself, so an
-attacker-chosen length reaches no coordination state, and a collision costs one
+partner-chosen length reaches no coordination state, and a collision costs one
 bounded retry.
 
 ## Receiver tests double their failures in teardown

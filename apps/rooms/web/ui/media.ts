@@ -9,7 +9,7 @@
 // lets the hermetic suite hold them. Saving a file is a document effect and
 // lives next door in `download.ts`.
 
-import { AUTO_IMAGE_BYTES } from "../../lib/limits.ts";
+import { AUTO_IMAGE_BYTES } from "./limits.ts";
 
 /** The four ways this interface can present a posted file. A viewer opens the
  * first two full-screen, plays the third in place, and offers the fourth as a

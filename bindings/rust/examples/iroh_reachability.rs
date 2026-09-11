@@ -50,7 +50,7 @@ async fn run() -> Result<(), Fail> {
 	);
 	server.host().publish_giftable("greeter", || Box::new(greeter))?;
 	let server_id = server.node_id().to_string();
-	accept_loop(Rc::clone(&server));
+	let accepting = accept_loop(Rc::clone(&server));
 	println!(
 		"rust-iroh-reachability: server published greeter on {server_id} \
 		 (pkarr-published; no direct addrs shared)"
@@ -85,19 +85,39 @@ async fn run() -> Result<(), Fail> {
 	// `accept().await` and is cancelled when this function returns and the
 	// enclosing `LocalSet` is dropped.
 	client.close(PendingWork::Cancel).await?;
+	// The served side's outcome is the proof's too: close the server, then
+	// let any served session that ended in failure fail the run.
+	server.close().await?;
+	for task in accepting
+		.await
+		.map_err(|error| format!("accept loop task failed: {error}"))?
+	{
+		task.await.map_err(|error| format!("serve task failed: {error}"))??;
+	}
 	Ok(())
 }
 
 // Serve every connection the server accepts for the life of the run: the loop
 // holds its own `Rc` to the server and parks on `accept().await`, so it is
 // cancelled with the enclosing `LocalSet` rather than awaited.
-fn accept_loop(server: Rc<glowcap_rust_dogfood::iroh::Server>) {
+/// Accept until the server closes, serving every session, and hand back the
+/// serve tasks so the proof can fail on a served session's outcome instead of
+/// reading a refused admission as a stall.
+fn accept_loop(
+	server: Rc<glowcap_rust_dogfood::iroh::Server>,
+) -> tokio::task::JoinHandle<Vec<tokio::task::JoinHandle<glowcap_rust_dogfood::Result<()>>>> {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
+		let mut serving = Vec::new();
 		while let Ok(session) = server.accept().await {
+			// A loop-tier session delivers inbound only once its embedder serves
+			// it, so an accepted session held unserved would park the client's
+			// fetch forever.
+			serving.push(tokio::task::spawn_local(session.serve()));
 			held.push(session);
 		}
-	});
+		serving
+	})
 }
 
 // The published actor: answer `greet` by echoing the caller's name.

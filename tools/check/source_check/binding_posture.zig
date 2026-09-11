@@ -71,7 +71,7 @@ pub fn check(
             },
             .{
                 .path = "bindings/rust/src/promise.rs",
-                .required = &.{ "enum PromiseState", "Far(", "Local {" },
+                .required = &.{ "enum PromiseState", "Call(", "Observer(", "Failed(" },
                 .banned = &.{},
             },
         };
@@ -216,7 +216,7 @@ pub fn check(
         }{
             .{
                 .path = "apps/rooms/lib/locator.ts",
-                .required = "runtime.connect(loc)",
+                .required = "runtime.connect(loc",
                 .banned = &.{ "connectIroh(", "import { connectIroh" },
             },
             .{

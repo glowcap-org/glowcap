@@ -7,7 +7,7 @@ const std = @import("std");
 
 const transport = @import("transport.zig");
 
-/// Bounds attacker-controlled dictionary validation on every locator-bearing
+/// Bounds peer-supplied dictionary validation on every locator-bearing
 /// message. Current transport and session profiles use fewer than ten entries.
 pub const max_count: usize = 32;
 

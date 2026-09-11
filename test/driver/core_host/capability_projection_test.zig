@@ -17,6 +17,33 @@ const LocalActor = struct {
     }
 };
 
+test "remote capability cleanup survives session cancellation and termination" {
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x65)), .{});
+    defer host.deinit();
+    var partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x75)), .{});
+    defer partner.deinit();
+    const session = (try host_pair.openPair(&host, &partner, "127.0.0.1:9765")).a;
+    try session.served.port.peer.importObject(7);
+    const first = try host.liftCapability(session, .{ .far = model.FarRef.object(7) });
+    try session.served.port.peer.importObject(7);
+    const second = try host.liftCapability(session, .{ .far = model.FarRef.object(7) });
+    try std.testing.expectEqual(first.raw(), second.raw());
+
+    try host.beginSessionClose(session, .cancel, 0);
+    try std.testing.expectEqual(core.HostSession.LifecyclePhase.cancel_pending, session.lifecyclePhase());
+    try host.releaseCapability(first, 1);
+    try std.testing.expectEqual(@as(u64, 1), host.capabilities.retainCount(second).?);
+    // Cancellation owns wire retirement; application cleanup must not enqueue
+    // new GC traffic on the condemned session.
+    try std.testing.expect((try session.takeOutbound()) == null);
+
+    try host.progressSessionCloses(1);
+    try std.testing.expectEqual(core.HostSession.LifecyclePhase.terminating, session.lifecyclePhase());
+    try host.releaseCapability(second, 1);
+    try std.testing.expect(host.capabilities.retainCount(second) == null);
+    try std.testing.expectError(error.UnknownCapability, host.releaseCapability(second, 1));
+}
+
 fn nestedValue(backing: [][1]core.Value, containers: usize) core.Value {
     backing[containers][0] = .{ .void = {} };
     var depth = containers;

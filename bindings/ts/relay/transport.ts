@@ -26,10 +26,6 @@ import {
 	RELAY_CONFIG_TRUST_PEM_LEN_OFF,
 	RELAY_CONFIG_TRUST_PEM_OFF,
 	RELAY_TRUST_COPIED_PEM,
-	RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF,
-	RELAY_TRUST_SUMMARY_LOADED_OFF,
-	RELAY_TRUST_SUMMARY_SIZE,
-	RELAY_TRUST_SUMMARY_SKIPPED_BY_ENGINE_OFF,
 	RELAY_TRUST_SYSTEM,
 	requireOffThreadFfi,
 	retainCleanupFailures,
@@ -56,13 +52,6 @@ export interface RelayOptions {
 export type NativeTrust =
 	| { readonly kind: "system" }
 	| { readonly kind: "copied-pem"; readonly pem: Uint8Array };
-
-/** Immutable result of loading the native relay's trust snapshot. */
-export interface NativeTrustSummary {
-	readonly loaded: number;
-	readonly skippedByEngine: number;
-	readonly firstSkippedEngineCode: number | null;
-}
 
 function relayLastError(): string | null {
 	return readErrorSlot(relayS.glowcap_relay_last_error);
@@ -110,27 +99,13 @@ function openRuntime(options: RelayOptions): Ptr {
 	return outPointer(out);
 }
 
-function trustSummary(raw: Ptr): NativeTrustSummary {
-	const out = new Uint8Array(RELAY_TRUST_SUMMARY_SIZE);
-	checkRelay(relayS.glowcap_relay_runtime_trust_summary(raw, out));
-	const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
-	const firstSkippedEngineCode = view.getInt32(RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF, true);
-	return {
-		loaded: Number(abiLayout.getUsize(view, RELAY_TRUST_SUMMARY_LOADED_OFF)),
-		skippedByEngine: Number(abiLayout.getUsize(view, RELAY_TRUST_SUMMARY_SKIPPED_BY_ENGINE_OFF)),
-		firstSkippedEngineCode: firstSkippedEngineCode === 0 ? null : firstSkippedEngineCode,
-	};
-}
-
 /** Install one shared keyed-relay/noise-relay package into a native loop. */
 export async function installProvider(
 	loop: ProviderTarget,
 	options: RelayOptions,
-): Promise<NativeTrustSummary> {
+): Promise<void> {
 	const raw = openRuntime(options);
-	let summary: NativeTrustSummary;
 	try {
-		summary = trustSummary(raw);
 		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
 		checkRelay(relayS.glowcap_relay_transport_provider(raw, packageBytes));
 		loop.installProvider((register) => register(packageBytes));
@@ -148,7 +123,6 @@ export async function installProvider(
 		"runtime release",
 		(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
 	);
-	return summary;
 }
 
 /** Configure this archive's keyed-relay/noise-relay package for `connect`. */

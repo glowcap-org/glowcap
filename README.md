@@ -1,6 +1,6 @@
 # glowcap
 
-<img src="site/assets/glowcap-icon-256.png" alt="" align="left" width="140" />
+<img src="site/assets/glowcap-lit-256.png" alt="" align="left" width="140" />
 
 [![Zig](https://img.shields.io/badge/language-Zig-f7a41d.svg)](https://ziglang.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
@@ -17,8 +17,7 @@ it was given and cannot forge others, so there is no ambient authority.
 
 The session protocol is [CapTP](http://erights.org/elib/distrib/captp/). The
 core is codec-neutral, and on the wire it speaks
-[Syrup](https://github.com/ocapn/syrup), OCapN's canonical encoding, which is
-where the mascot comes from: you can't have pancakes without syrup.
+[Syrup](https://github.com/ocapn/syrup), OCapN's canonical encoding.
 
 It is a library, not a framework. You link it and manage its memory. The
 protocol core is synchronous and does no I/O of its own; sockets, scheduling,
@@ -62,8 +61,6 @@ Then dial a peer over `noise-tcp`, fetch a capability by name, and call it.
 This is the body of a function whose caller supplies `io`, `allocator`, the
 peer's durable key, and the `host:port` hint; the compilable whole is
 [`examples/zig/readme_quick_start.zig`](examples/zig/readme_quick_start.zig).
-[Start building](https://jimisaacs.github.io/glowcap/start/) leads with iroh,
-for discovery and NAT traversal.
 
 ```zig
 const std = @import("std");
@@ -110,10 +107,8 @@ and the other languages. `zig build` puts the `glowcap` CLI in `zig-out/bin`;
 [`docs/cli.md`](docs/cli.md) covers the REPL, `--json` scripting, MCP, and the
 cleartext lab round-trip.
 
-The numbered API walk starts at
-[`examples/zig/01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig)
-over a local TCP socket and says so. [`examples/README.md`](examples/README.md)
-lists the rest of the chapters and the rooms app. C consumers start at
+[`examples/README.md`](examples/README.md) starts at the rooms app.
+Chapter 01 is the loopback TCP walk of the same fetch-and-call. C consumers start at
 [`docs/consuming-from-c.md`](docs/consuming-from-c.md), and the Rust,
 TypeScript, Python, and Racket bindings live in
 [`bindings/`](bindings/README.md).
@@ -127,14 +122,25 @@ Syrup:
 
 ```sh
 zig build ocapn-conformance  # the upstream OCapN test suite, against a glowcap peer
-zig build goblins-interop    # live Goblins over cleartext TCP (repo testing adapter)
 ```
 
-On demand, not in that recurring set:
+The standardized Goblins meeting is Tor. That step needs a daemon and is not
+in the recurring set:
 
 ```sh
-zig build goblins-onion      # live Goblins over Tor (upstream onion netlayer; needs tor)
-zig build goblins-iroh       # live Goblins over iroh (repo adapter; needs cargo)
+zig build goblins-onion      # live Goblins over the upstream onion netlayer
+```
+
+The recurring Goblins check uses this repository's cleartext TCP adapter:
+
+```sh
+zig build goblins-interop    # live Goblins over cleartext TCP
+```
+
+On demand, a repository iroh adapter:
+
+```sh
+zig build goblins-iroh       # live Goblins over iroh (needs cargo)
 ```
 
 Set up the submodules once with `bash conformance/bootstrap-submodules.sh`.
@@ -144,7 +150,7 @@ collection; the devcontainer has both.
 Goblins evidence and says what each listed check does and does not prove.
 
 <p align="center">
-  <img src="site/assets/glowcap-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
+  <img src="site/assets/glowcap-goblin-512.png" alt="a purple goblin studying the glowcap mark" width="320" />
 </p>
 
 ## Build

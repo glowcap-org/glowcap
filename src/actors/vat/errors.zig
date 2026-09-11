@@ -27,6 +27,10 @@ pub const Error = error{
     NotSnapshottable,
     /// A local vow has already reached its one terminal outcome.
     AlreadySettled,
+    /// A local vow id was never minted by this Vat.
+    NoSuchVow,
+    /// A resolver id was never minted by this Vat.
+    NoSuchResolver,
     /// A local value tree exceeded the model depth/shape contract.
     MalformedView,
     /// Ingress admission exceeded its turn, byte, or chunk limit.

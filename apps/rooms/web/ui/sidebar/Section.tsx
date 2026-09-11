@@ -5,7 +5,7 @@
 // that is `NamePanel`, so the panel a section holds and the panel's own rules
 // about being open stay two subjects rather than one file.
 
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 import { AddButton, type AddField, NamePanel } from "./NamePanel.tsx";
 
 /** One section of the rail.
@@ -19,9 +19,11 @@ export function RailSection(
 		title: string;
 		listId: string;
 		/** A control standing in for the plain label, given this section's title
-		 * to draw. A section says what it is called. Whether those words are also
-		 * something to press belongs to whoever hands one in. */
-		heading?: (title: string) => ReactNode;
+		 * to draw and the head it stands in. A section says what it is called.
+		 * Whether those words are also something to press belongs to whoever
+		 * hands one in; the head is for a control whose panel spans the section
+		 * rather than the words, so it can measure against the line it labels. */
+		heading?: (title: string, head: { current: HTMLDivElement | null }) => ReactNode;
 		/** This section's own "+" and the field under it, when it has one. Where
 		 * what is named there lands is stated on the field, so one field answers
 		 * for the list however many directories this tab holds. */
@@ -29,10 +31,11 @@ export function RailSection(
 		children: ReactNode;
 	},
 ) {
+	const head = useRef<HTMLDivElement>(null);
 	return (
 		<div className={className ? "section " + className : "section"}>
-			<div className="section-head overline">
-				{heading === undefined ? <span>{title}</span> : heading(title)}
+			<div className="section-head overline" ref={head}>
+				{heading === undefined ? <span>{title}</span> : heading(title, head)}
 				{field !== undefined && (
 					<AddButton
 						id={field.id}

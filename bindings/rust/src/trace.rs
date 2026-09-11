@@ -14,11 +14,11 @@
 //! One thread drives one Host in this binding, and the sink registry follows:
 //! everything here is thread-local, like the Hosts themselves.
 
+use crate::execution::Instant;
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
-use std::time::Instant;
 
 use crate::abi_constants_gen::{
 	BINDING_TRACE_PAYLOAD_CAP_BYTES, TRACE_MESSAGE, TRACE_SESSION_CLOSE, TRACE_SESSION_OPEN,
@@ -134,10 +134,11 @@ pub enum TraceKind {
 	SessionMeta,
 }
 
-/// An application's claim about a session — see `annotate_session`.
+/// An application's claim about a session — see `annotate_session`. A
+/// `None` label withdraws the claim a viewer was showing.
 #[derive(Debug, Clone)]
 pub struct SessionMeta {
-	pub label: String,
+	pub label: Option<String>,
 }
 
 pub type TraceSink = Box<dyn Fn(&TraceEvent)>;
@@ -164,9 +165,11 @@ fn emit_record(context: &crate::ContextInner, diagnostic_id: u64, sink: Rc<dyn F
 /// (a chat server that knows which member it carries) states it here, and
 /// the record rides the same stream as the protocol facts, named for the
 /// same session row the tap names. An annotation is a claim, never
-/// identity. No sink installed, or a host the trace never attached:
-/// silently nothing, like every other trace emit.
-pub fn annotate_session(session: &crate::Session, label: &str) {
+/// identity, and `None` withdraws it: a member leaving the room the label
+/// named them in is one visible change in the picture rather than a name
+/// frozen at whatever was said first. No sink installed, or a host the
+/// trace never attached: silently nothing, like every other trace emit.
+pub fn annotate_session(session: &crate::Session, label: Option<&str>) {
 	let (host_raw, session_raw) = session.trace_handles();
 	if session_raw.is_null() {
 		return;
@@ -214,7 +217,7 @@ pub fn annotate_session(session: &crate::Session, label: &str) {
 			summary: None,
 			digest: None,
 			meta: Some(SessionMeta {
-				label: label.to_string(),
+				label: label.map(str::to_owned),
 			}),
 		},
 	);

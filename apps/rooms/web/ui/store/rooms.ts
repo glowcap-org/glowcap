@@ -10,9 +10,10 @@
 import type { RoomConv } from "../types.ts";
 import type { PageProjection } from "./core.ts";
 import { getConv, put } from "./convs.ts";
-import { type RoomAuthorityChange, roomAuthorityToken } from "../../../lib/room/authority.ts";
+import type { RoomAuthorityChange } from "../../../lib/room/authority.ts";
+import { roomAuthorityToken } from "../application.ts";
 import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
-import type { RoomPolicy } from "../../../lib/room/policy.ts";
+import type { RoomPolicy } from "../room_policy.ts";
 import type { WorkspaceRoomBridgeIntent } from "../../../lib/rooms_state.ts";
 
 /** Remember what this reader told a bridge, here and everywhere it reaches.

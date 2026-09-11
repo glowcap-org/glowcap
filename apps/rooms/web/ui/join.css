@@ -206,6 +206,13 @@
 .join-field input:focus {
 	outline: none;
 }
+/* A locator is pasted, so it is set in the mono the page uses for anything
+   typed or pasted. No size of its own: forms.css holds every field a finger
+   can reach at sixteen so iOS does not zoom into it, and an id here outranks
+   that rule, which is how the card came to zoom on focus. */
+.join-field #locator {
+	font-family: var(--font-mono);
+}
 .join-prefix {
 	color: var(--ink-soft);
 }

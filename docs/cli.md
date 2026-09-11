@@ -230,11 +230,12 @@ lives at [`docs/glowcap-mcp.json`](glowcap-mcp.json).
 
 Room presence is `glowcap app rooms-peer` (install alias `rooms-peer`). The peer
 registers a giftable `dm` inbox so `reply --dm PEER` delivers via directory
-introduction (same path as `demo-rooms-dm-iroh`). Native rooms-peer speaks iroh
-and keyed-relay, not WebRTC: a first DM to a default browser tab cannot redeem
-that locator, and the peer answers on the reply capability after the tab
-messages first. Tabs that want to be introduced from native pick Via this server
-(relay) in Settings, or open with `?dm=relay`. Deploy and locator details are in
+introduction (same path as `demo-rooms-dm-iroh`). Native rooms-peer composes
+iroh and Noise-sealed relay (`noise-relay`), not WebRTC. A first DM to a
+default browser tab cannot redeem that locator. The peer answers on the reply
+capability after the tab messages first. Tabs that want to be introduced from
+native pick **Through the room relay** in Settings, or open with `?dm=relay`.
+Deploy and locator details are in
 [`apps/rooms/README.md`](../apps/rooms/README.md).
 
 ## Shell completion and scripting

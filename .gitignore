@@ -9,14 +9,19 @@ zig-pkg/
 # prefix (zig-out/site), but a direct `zine`/`docs-serve` run writes the same
 # generated HTML to site/public/. Generated, never committed.
 site/public/
+# The site's brand mark, bundled from the rooms shader mark by `zig build
+# site` (site/brand_mark.ts is the source). Generated, never committed.
+site/assets/mark.js
 bindings/rust/Cargo.lock
 bindings/rust/target/
 bindings/rust/relay/Cargo.lock
 bindings/rust/relay/target/
 apps/*/rust/Cargo.lock
+!apps/rooms/rust/Cargo.lock
 apps/rooms/clients/rust/Cargo.lock
 apps/*/rust/target/
 apps/rooms/clients/rust/target/
+apps/rooms/rust/proofs/browser/node_modules/
 bench/langs/clients/rust_bench/Cargo.lock
 bench/langs/clients/rust_bench/target/
 # transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
@@ -25,6 +30,9 @@ transports/iroh/target/
 # transports/webrtc/Cargo.lock is likewise committed (ADR-0089): the webrtc
 # crate's large tree (DTLS, SCTP, ICE, STUN, SDP) must resolve identically.
 transports/webrtc/target/
+# transports/sidecar-common/Cargo.lock is committed too: the shared runtime
+# crate's own tests run with --locked, like the sidecars that depend on it.
+transports/sidecar-common/target/
 
 # binding consumer caches
 **/__pycache__/

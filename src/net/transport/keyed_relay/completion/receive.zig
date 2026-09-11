@@ -98,7 +98,7 @@ pub fn Machine(
             // internal fault with no user_data to retire.
             const ud = c.external_recv_ud orelse return .recycle;
             if (c.close.wire.hasReceived()) {
-                if (!c.pending.send and c.ws_out.items.len == 0) {
+                if (!c.pending.get(.send) and c.ws_out.items.len == 0) {
                     try backend.ready.ensureUnusedCapacity(backend.allocator, 1);
                     c.external_recv_ud = null;
                     backend.ready.appendAssumeCapacity(.{ .user_data = ud, .result = 0 });
@@ -173,7 +173,7 @@ pub fn Machine(
                     .ping, .close => {
                         // A send borrows ws_out. Preserve this frame until that
                         // borrow retires; its completion resumes this seat.
-                        if (c.pending.send) {
+                        if (c.pending.get(.send)) {
                             try input.retainRemainder(backend, c);
                             return .recycle;
                         }
@@ -194,7 +194,7 @@ pub fn Machine(
         /// seats. Application headers and payload remain untouched until a
         /// caller owns their projection.
         fn drainRetainedControls(backend: *Backend, c: *RelayConn) !void {
-            if (c.state != .open or c.pending.send or c.data_remaining != 0) return;
+            if (c.state != .open or c.pending.get(.send) or c.data_remaining != 0) return;
             while (Access.rawBytes(c).len != 0) {
                 var fragmented = c.fragmented;
                 const frame = (protocol.parseFrameBytes(&fragmented, Access.rawBytes(c)) catch {

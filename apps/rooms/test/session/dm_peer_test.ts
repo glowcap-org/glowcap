@@ -3,42 +3,21 @@ import { RoomsSessionClient } from "../../lib/session/client.ts";
 import { loopbackTcpDesignator, roomsAddress, roomsHost, roomsLocator } from "../../lib/locator.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
 import { roomsPeerAuthority } from "../../lib/routes.ts";
-import { spawnOwned, stopOwned } from "../support/children.ts";
+import { stopOwned } from "../support/children.ts";
 import {
 	assert,
 	dial,
 	freePort,
 	readPort,
 	roomsTest,
-	ROOT,
 	startStatefulServer,
 	stopServer,
 	within,
 } from "../support/rooms_server.ts";
-import { announcedSturdyref } from "../support/standalone_peer.ts";
-
-const PEER = new URL("../../session/main.ts", import.meta.url).pathname;
+import { announcedSturdyref, startRoomsSessionPeer } from "../support/standalone_peer.ts";
 
 function startPeer(directory: string, port: number): Deno.ChildProcess {
-	return spawnOwned("deno", {
-		args: [
-			"run",
-			"--allow-ffi",
-			"--unstable-ffi",
-			`--allow-read=${ROOT},${directory}`,
-			`--allow-write=${directory}`,
-			"--allow-net=127.0.0.1",
-			"--allow-env=GLOWCAP_LIB_DIR",
-			PEER,
-			`--state=${directory}`,
-			`--checkpoint=${directory}/checkpoint.json`,
-			"--transport=tcp",
-			`--port=${port}`,
-		],
-		cwd: ROOT,
-		stdout: "piped",
-		stderr: "piped",
-	});
+	return startRoomsSessionPeer(directory, port, `${directory}/checkpoint.json`);
 }
 
 roomsTest("two durable Rooms sessions restore and exchange one direct conversation", async () => {
@@ -196,9 +175,10 @@ roomsTest("two durable Rooms sessions restore and exchange one direct conversati
 			}
 			const handed = bobSnapshot.handedRooms.find((room) => room.from === "alice");
 			assert(handed?.label === "durable-handoff", "the receiving durable session saw no live room handoff");
-			await bob.client.acceptInvitation(
+			const acceptanceBase = bobSnapshot.revision;
+			const acceptanceRevision = await bob.client.acceptInvitation(
 				"accept-durable-room-handoff",
-				bobSnapshot.revision,
+				acceptanceBase,
 				handed.id,
 				"bob-handed-room",
 			);
@@ -207,6 +187,33 @@ roomsTest("two durable Rooms sessions restore and exchange one direct conversati
 			assert(
 				acceptedRoom?.kind === "room" && acceptedRoom.link != null,
 				"accepting a live handoff did not retain its source-owned durable entry",
+			);
+			assert(
+				await bob.client.acceptInvitation(
+					"accept-durable-room-handoff",
+					acceptanceBase,
+					handed.id,
+					"bob-handed-room",
+				) === acceptanceRevision,
+				"an exact acceptance retry did not return the committed revision",
+			);
+			await alice.client.offerRoom("durable-room-to-dismiss", joinedRevision, "alice-room", "alice-bob");
+			for (let attempt = 0; attempt < 40; attempt += 1) {
+				bobSnapshot = await bob.client.snapshot();
+				if (bobSnapshot.handedRooms.length !== 0) break;
+				await new Promise((resolve) => setTimeout(resolve, 50));
+			}
+			const declined = bobSnapshot.handedRooms.find((room) => room.from === "alice");
+			assert(declined != null, "the second room offer never arrived");
+			await bob.client.command("dismiss-live-offer", bobSnapshot.revision, "dismissInvitation", [declined.id]);
+			const dismissed = await bob.client.snapshot();
+			assert(
+				!dismissed.handedRooms.some((room) => room.id === declined.id),
+				"a dismissed live offer remained visible",
+			);
+			assert(
+				dismissed.revision === bobSnapshot.revision,
+				"dismissing transient authority changed the checkpoint",
 			);
 		} finally {
 			await alice.session.close();

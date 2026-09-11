@@ -37,64 +37,67 @@ export interface HeldDirectory {
  *
  * A tab act that needs a handle this window may not hold returns `null` when
  * it used it, or the sentence naming what was missing. The catalog is the
- * only result the composer reads; these powers do not explain a missing
+ * only result the composer reads. Asynchronous powers resolve after the effect
+ * completes and reject on failure; these powers do not explain a missing
  * handle into the log. Granted acts that share one missing-handle meaning
  * across adapters return a boolean, and the catalog names it. */
+export type CommandResult<T> = T | Promise<T>;
+
 export interface CommandPowers {
 	/** Say something back where the command was typed. Not sent to anyone. */
-	say(text: string): void;
+	say(text: string, conversationKey?: string): void;
 	/** Enter a room on the directory this conversation is on. `null` when the
 	 * room was asked for. A sentence when this tab holds no directory to enter
 	 * on. */
-	joinRoom(name: string): string | null;
+	joinRoom(name: string): CommandResult<string | null>;
 	/** Take up a room link: redeem it and enter what it opens. The link is the
 	 * whole of the authority. `label` is what to call it here when the reader
 	 * said one; empty means ask the room what it is called. `null` when the
 	 * link was taken up. A sentence when the link is not a room entry, or this
 	 * tab does not hold what it needs. */
-	joinLink(link: string, label: string): string | null;
+	joinLink(link: string, label: string): CommandResult<string | null>;
 	/** Leave the conversation the command was typed in. */
-	leaveHere(): void;
+	leaveHere(): CommandResult<void>;
 	/** Open a direct line to a member. `null` when the line was opened. A
 	 * sentence when this tab does not hold an introduction to them. */
-	directMessage(who: string): string | null;
+	directMessage(who: string): CommandResult<string | null>;
 	setTheme(theme: "light" | "dark"): void;
 	/** Empty this conversation's history in this window only. */
 	clearHere(): void;
 	/** Stop showing lines from somebody, in this window only. */
-	ignore(name: string): void;
+	ignore(name: string): CommandResult<void>;
 	/** Show them again. False when they were not being ignored. */
-	unignore(name: string): boolean;
+	unignore(name: string): CommandResult<boolean>;
 	/** Everybody this window is currently ignoring. */
 	ignored(): readonly string[];
 	/** Change the most recent line of ours here. False when there is none this
 	 * window still holds the authority for. */
-	editLast(text: string): boolean;
+	editLast(text: string): CommandResult<boolean>;
 	/** Take the most recent line of ours here back. */
-	withdrawLast(): boolean;
+	withdrawLast(): CommandResult<boolean>;
 	/** Say what this room is about. False when this membership holds no topic
 	 * capability, which is what an older room leaves it with. */
-	setTopic(text: string): boolean;
+	setTopic(text: string): CommandResult<boolean>;
 	/** Say you have stepped away, or `""` that you are back. Written at whichever
 	 * of the three levels this reader's standing already comes from — the room,
 	 * the directory, or them — so a command never quietly overrules a room they
 	 * set apart. False when there is no room membership to say it about. */
-	setAway(reason: string): boolean;
+	setAway(reason: string): CommandResult<boolean>;
 	/** Hand the room this was typed in to a member: the live reference crosses
 	 * the direct line to them as a handoff, and they may take it up or not.
 	 * Nothing durable is minted anywhere, which is what tells it apart from
 	 * `roomLink`. False when there is no room membership to hand over, or when
 	 * `nick` is this reader — they already hold the room. */
-	invite(nick: string): boolean;
+	invite(nick: string): CommandResult<boolean>;
 	/** Ask a member to leave the room this was typed in, through the room's
 	 * steward capability. The room answers that capability only to the
 	 * connection that opened it, so for everyone else the room's own refusal
 	 * comes back in the conversation. False when this is not a room. */
-	kick(nick: string): boolean;
+	kick(nick: string): CommandResult<boolean>;
 	/** Claim, show, or take this room's durable steward capability. With no
 	 * sturdyref, claim it if unissued or show the one this tab holds; with one,
 	 * validate and take that exact room's handed-over authority. */
-	steward(link?: string): boolean;
+	steward(link?: string): CommandResult<boolean>;
 	/** The name this conversation's directory granted this reader, or empty
 	 * until it has. Direct lines and invitations are toward somebody else, so a
 	 * command that names this string is refused rather than opening a line to
@@ -105,7 +108,7 @@ export interface CommandPowers {
 	 * for good. No name is this conversation's room. A name is a listed room
 	 * on this directory. False when there is no room, or no directory, to
 	 * link to. */
-	roomLink(name?: string): boolean;
+	roomLink(name?: string): CommandResult<boolean>;
 	/** Where this reader stands in the room the command was typed in, whichever
 	 * level is answering for it. Empty while they are here. */
 	standingHere(): string;
@@ -122,7 +125,7 @@ export interface CommandPowers {
 	roster(): readonly { name: string; online: boolean; away: string; reachable: boolean }[];
 	/** Give this directory back: the name it granted, and everything open on it.
 	 * `null` when it was given back. A sentence when this tab holds none. */
-	quitDirectory(): string | null;
+	quitDirectory(): CommandResult<string | null>;
 	/** Open the card about the conversation this was typed in. */
 	aboutConversation(): void;
 }
@@ -134,7 +137,7 @@ export interface CommandPowers {
  * post something the ordinary path would have refused. */
 export type CommandOutcome =
 	/** Handled here. Nothing goes to the room. */
-	| { kind: "done"; retires?: "conversation" | "directory" }
+	| { kind: "done"; retires?: "conversation" | "directory"; completion?: Promise<void> }
 	/** Send this instead of what was typed. */
 	| { kind: "say"; text: string }
 	/** Send this as an action, the `/me` shape. */

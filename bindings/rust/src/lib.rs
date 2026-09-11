@@ -2,7 +2,7 @@
 //! you hold as a [`Session`].
 //!
 //! The shared raw C ABI lives in the private `sys` module. The one deliberate
-//! exception is [`webrtc`], whose public contract is the native companion
+//! exception is `webrtc`, whose public contract is the native companion
 //! archive's multiplexed readiness and try-I/O boundary.
 //! What you use is the application surface every glowcap binding speaks —
 //! [`Runtime::connect`] plus transport-module `listen`, a [`Session`] with `fetch`/`send`/`tell`/
@@ -11,7 +11,7 @@
 //! `libglowcap_host` and `libglowcap_driver` archives (ADR-0112). The Host
 //! archive owns `glowcap_host_*`; the driver exports only `glowcap_driver_*`
 //! and adopts a quiescent Host. Bounded `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, and routed relay dials and
-//! listeners ride the loop ([`driver_loop`]); a quiescent caller-supplied Host
+//! listeners ride the loop (`driver_loop`); a quiescent caller-supplied Host
 //! transfers to that same runtime before its first network operation. The
 //! byte-fed pump serves explicit externally supplied channels such as a bare
 //! relay locator's configured WebSocket fallback. The [`Host`] owns
@@ -35,33 +35,45 @@
 //! | --- | --- | --- | --- |
 //! | (always) | crate root + [`Locator`] | `libglowcap_ocapn` + `libglowcap_host` + `libglowcap_driver` | yes |
 //! | `tcp` | [`tcp`] | `libglowcap_net_transport_tcp` | yes |
-//! | `inproc` | [`inproc`] | `libglowcap_net_transport_inproc` | yes |
-//! | `onion` | [`onion`] | `libglowcap_net_transport_onion` | no |
-//! | `iroh` | [`iroh`] | `libglowcap_net_transport_iroh` (dynamic) | no |
-//! | `relay` | [`relay`] | `libglowcap_net_transport_relay` | no |
-//! | `webrtc` | [`webrtc`] | `libglowcap_net_transport_webrtc` (dynamic) | no |
-//! | `async` | [`Session`], [`Host`], [`Runtime`] | (none — native tokio) | no |
+//! | `inproc` | `inproc` | `libglowcap_net_transport_inproc` | yes |
+//! | `onion` | `onion` | `libglowcap_net_transport_onion` | no |
+//! | `iroh` | `iroh` | `libglowcap_net_transport_iroh` (dynamic) | no |
+//! | `relay` | `relay` | `libglowcap_net_transport_relay` | no |
+//! | `webrtc` | `webrtc` | `libglowcap_net_transport_webrtc` (dynamic) | no |
+//! | `async` | [`Session`], [`Host`], [`Runtime`] | (none — shared byte-fed execution) | no |
+//! | `browser` | `browser` (Wasm only) | (none — browser platform I/O) | no |
 //!
 //! `tcp` and `inproc` are on by default. `onion` is opt-in because it needs a Tor
 //! daemon the deployment runs; glowcap starts none. `iroh` is opt-in and implies `async`
 //! (the tokio driver it rides); it needs the companion library built by
 //! `zig build iroh-abi`. The `async` feature adds the tokio-driven
-//! [`Session`] over native sockets and links no transport archive of its
-//! own, so it composes freely with whichever transport archives are enabled.
+//! [`Session`] over byte streams and links no transport archive of its own.
+//! Native targets add the socket reactor; Wasm targets use browser entropy and
+//! timers while the embedder polls a Tokio LocalSet and supplies byte channels.
 
 mod abi_constants;
 // Reflected ABI constants (`zig build gen-binding-constants`); re-exported
 // through `abi_constants`.
 mod abi_constants_gen;
 
+#[cfg(all(target_arch = "wasm32", feature = "browser"))]
+pub mod browser;
+
+#[cfg(feature = "async")]
+mod execution;
 #[cfg(feature = "async")]
 mod session;
 #[cfg(feature = "async")]
 mod session_shared;
 #[cfg(feature = "async")]
-pub use session::{DurableProvenance, PartnerIdentity, SendRedeemingResult, Session, HANDSHAKE_TIMEOUT};
+pub use session::{
+	AcceptedTransport, ChannelDesignator, DurableProvenance, PartnerIdentity, SendRedeemingResult, Session,
+	HANDSHAKE_TIMEOUT,
+};
 #[cfg(feature = "async")]
 pub use session_shared::Caretaker;
+#[cfg(feature = "async")]
+pub use trampoline::current_session;
 #[cfg(feature = "async")]
 mod finalizer;
 #[cfg(feature = "async")]
@@ -94,13 +106,21 @@ pub use promise::{AsSendTarget, RemotePromise};
 mod gc;
 // Transport-neutral dial composition over explicit providers/connectors.
 #[cfg(feature = "async")]
+mod channel;
+#[cfg(feature = "async")]
 mod connector;
+#[cfg(feature = "async")]
+pub use channel::{Channel, ChannelClose, PacketRead, PacketWrite};
 #[cfg(feature = "async")]
 mod dial;
 #[cfg(feature = "async")]
 mod runtime;
-// TCP-provider listener implementation, re-exported only by `tcp`.
-#[cfg(all(feature = "async", any(feature = "tcp", feature = "iroh", feature = "onion")))]
+// The one binding owner of a generic driver listener, shared by every
+// transport that hosts through the driver archive.
+#[cfg(all(
+	feature = "async",
+	any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay")
+))]
 mod server;
 #[cfg(feature = "async")]
 mod tcp_listen;
@@ -131,20 +151,19 @@ pub mod inproc;
 pub mod onion;
 #[cfg(feature = "relay")]
 pub mod relay;
-#[cfg(feature = "tcp")]
 pub mod tcp;
 
 // The iroh transport (its own optional companion library, ADR-0055): the
 // encrypted-QUIC byte-stream bridge the `Session` pump carries a session over.
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 mod driver_event;
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 mod driver_failure;
 /// Native `DriverLoop` tier and the route used by `Runtime` transports.
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 pub mod driver_loop;
 #[cfg(feature = "async")]
-pub use connector::{Connector, TransportOperationOptions};
+pub use connector::{Connector, DialOrigin, TransportOperationOptions};
 #[cfg(feature = "iroh")]
 pub mod iroh;
 #[cfg(feature = "webrtc")]
@@ -163,9 +182,17 @@ pub use uri::{
 /// OCapN transport / hint vocabulary; mirrors `model.transport.*`.
 pub use abi_constants::{
 	HINT_ALT_LOCATORS, HINT_DIRECT_ADDRESSES, HINT_VIA, TRANSPORT_ID, TRANSPORT_INPROC, TRANSPORT_IROH,
-	TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_TCP,
-	TRANSPORT_WEBRTC,
+	TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_ONION,
+	TRANSPORT_TCP, TRANSPORT_WEBRTC,
 };
+
+/// Browser ICE configuration envelopes, generated from the transport ABI.
+pub use abi_constants::{
+	WEBRTC_MAX_ICE_CREDENTIAL_BYTES, WEBRTC_MAX_ICE_SERVERS, WEBRTC_MAX_ICE_URLS_PER_SERVER, WEBRTC_MAX_ICE_URL_BYTES,
+};
+
+/// Shared admission budgets for hosts forwarding opaque relay traffic.
+pub use abi_constants::{BINDING_RELAY_MAX_BYTES_PER_SESSION, BINDING_RELAY_TCP_DIAL_TIMEOUT_MS};
 
 mod carrier_failure;
 mod sys;

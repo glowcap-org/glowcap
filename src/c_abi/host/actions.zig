@@ -26,6 +26,18 @@ pub fn resolverFulfill(
     return shared.GLOWCAP_OK;
 }
 
+pub fn resolverFulfillValue(host: ?*c.GlowcapHost, resolver_id: u64, value: ?*const shared.GlowcapArgument) i32 {
+    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const c_value = value orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const converted = common.valueMessageFromC(inst, null, 0, @ptrCast(c_value), 1) catch |err| return common.errToCode(err);
+    // Lowering rollback receipts must survive listener reentry, independently
+    // of the C argument scratch a nested top-level call may reuse.
+    var arena = @import("std").heap.ArenaAllocator.init(inst.allocator);
+    defer arena.deinit();
+    inst.core.resolverFulfillValue(resolver_id, converted.args[0], arena.allocator()) catch |err| return common.errToCode(err);
+    return shared.GLOWCAP_OK;
+}
+
 pub fn resolverBreak(
     host: ?*c.GlowcapHost,
     resolver_id: u64,
@@ -36,6 +48,19 @@ pub fn resolverBreak(
     const reason = shared.sliceFromC(message, message_len) catch |err|
         return shared.marshalErrorToCode(err);
     inst.core.resolverBreak(resolver_id, reason) catch |err| return common.errToCode(err);
+    return shared.GLOWCAP_OK;
+}
+
+pub fn resolverAbandon(
+    host: ?*c.GlowcapHost,
+    resolver_id: u64,
+    message: ?[*]const u8,
+    message_len: usize,
+) i32 {
+    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const reason = shared.sliceFromC(message, message_len) catch |err|
+        return shared.marshalErrorToCode(err);
+    inst.core.resolverAbandon(resolver_id, reason) catch |err| return common.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 

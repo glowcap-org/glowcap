@@ -15,6 +15,17 @@
 //! core symbol; they share the *layout* of these types, exactly as a C consumer
 //! including both headers does.
 
+/// Process signal handlers and alternate signal stacks belong to the embedder.
+/// Each separately compiled archive otherwise contributes Zig's 256 KiB TLS
+/// signal stack to every native thread, even threads created by another runtime.
+/// On pthread hosts that storage consumes the thread's stack allocation; linking
+/// several archives can exhaust a Rust worker's stack before ordinary work runs.
+/// Every public C-ABI archive root selects these standard-library options.
+pub const library_options: @import("std").Options = .{
+    .enable_segfault_handler = false,
+    .signal_stack_size = null,
+};
+
 /// The one cross-archive schema and bounded mechanics for failures with no
 /// remaining return recipient (ADR-0115). This leaf owns no mutable global;
 /// storage belongs to an explicit Context, Host, or driver owner.
@@ -183,6 +194,7 @@ pub const GLOWCAP_ERR_NOT_FOUND = result.GLOWCAP_ERR_NOT_FOUND;
 pub const GLOWCAP_ERR_BUFFER_TOO_SMALL = result.GLOWCAP_ERR_BUFFER_TOO_SMALL;
 pub const GLOWCAP_ERR_TIMEOUT = result.GLOWCAP_ERR_TIMEOUT;
 pub const locatorAdapterErrorCode = result.locatorAdapterErrorCode;
+pub const dialFailureCode = result.dialFailureCode;
 pub const isStableFailureResult = result.isStableFailureResult;
 pub const hasValidFailureCauses = result.hasValidFailureCauses;
 

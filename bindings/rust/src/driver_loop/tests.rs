@@ -8,7 +8,7 @@ use crate::driver_event::decode as decode_event;
 use crate::sys::driver::GlowcapDriverEvent;
 #[cfg(feature = "tcp")]
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(feature = "tcp")]
+#[cfg(any(feature = "tcp", feature = "iroh"))]
 use std::sync::{mpsc, Arc};
 
 #[test]
@@ -33,7 +33,7 @@ fn unknown_native_event_and_completion_kinds_are_returned_failures() {
 	assert_eq!(error.code(), sys::ERR_INTERNAL);
 }
 
-#[cfg(feature = "tcp")]
+#[cfg(any(feature = "tcp", feature = "iroh"))]
 fn seed(byte: u8) -> [u8; 64] {
 	let mut material = [byte; 64];
 	for half in material[32..].iter_mut() {
@@ -325,10 +325,15 @@ fn iroh_provider_dials_live() {
 		let accept_server = Rc::clone(&server);
 		let accept_task = tokio::task::spawn_local(async move {
 			let mut served: Vec<Session> = Vec::new();
+			let mut serving: Vec<tokio::task::JoinHandle<Result<()>>> = Vec::new();
 			while let Ok(session) = accept_server.accept().await {
+				// A loop-tier session delivers inbound only once its embedder
+				// serves it (the byte-fed serve-resume contract), so an accepted
+				// session held without serving parks its partner's hello forever.
+				serving.push(tokio::task::spawn_local(session.serve()));
 				served.push(session);
 			}
-			served
+			(served, serving)
 		});
 
 		// The client half lives wholly on its own OS thread: its own
@@ -386,6 +391,10 @@ fn iroh_provider_dials_live() {
 				if session.is_null() {
 					return Err("the dial never completed".into());
 				}
+				// The loop delivers a session's inbound only once the embedder
+				// announces it is serving it (the byte-fed serve-resume contract);
+				// without this the fetch reply below is parked and never settles.
+				lp.session_serve(session).map_err(|e| e.to_string())?;
 				let mut vow = 0u64;
 				let name = b"greeter";
 				let rc = unsafe { ffi_host::glowcap_host_session_fetch(session, name.as_ptr(), name.len(), &mut vow) };
@@ -425,6 +434,11 @@ fn iroh_provider_dials_live() {
 			.unwrap();
 		outcome.unwrap();
 		server.close().await.unwrap();
-		let _ = accept_task.await;
+		// A served session's outcome is the proof's too: a refused admission or
+		// a failed serve task must fail here rather than read as a stall.
+		let (_served, serving) = accept_task.await.unwrap();
+		for task in serving {
+			task.await.unwrap().unwrap();
+		}
 	}));
 }

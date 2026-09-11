@@ -16,129 +16,7 @@
 	display: flex;
 	flex-direction: column;
 }
-/* The topbar pins to the top as the page scrolls under it (the mobile page-scroll
-   is what makes this visible; on desktop nothing scrolls past it). It stays above
-   the message stream but below the page's notices and the mobile roster sheet. A
-   backdrop blur makes the translucent background read as frosted glass rather than
-   letting messages bleed through. */
-.topbar {
-	/* Pin to the shared header height so the bottom border matches the sidebar
-	   workspace header. min-height (not height) so the mobile query can still grow it
-	   past this for the safe-area inset. */
-	min-height: var(--header-total);
-	position: sticky;
-	top: 0;
-	z-index: 5;
-	display: flex;
-	align-items: center;
-	gap: var(--gap-group);
-	padding: calc(12px + var(--accent-line)) 20px 12px;
-	border-bottom: 1px solid var(--rule);
-	background: color-mix(in srgb, var(--paper-raised) 70%, transparent);
-	backdrop-filter: blur(var(--frost));
-	-webkit-backdrop-filter: blur(var(--frost));
-}
-/* The accent hairline lives on the topbar, so it rides along with the sticky header
-   instead of scrolling away at the top of the page.
-
-   It runs from the reader to where they are. The near stop is the accent, which
-   is the reader and the room throughout this interface, and the far stop is the
-   directory the room is on, which is the same sentence the join card's own
-   stripe speaks about the directory it is about to reach. A room on this page's
-   own directory, and every room at all while the rail is not showing colours,
-   leaves the far stop teal, so the bar reads exactly as it did before and never
-   draws a distinction a reader cannot see anywhere else. A direct line is
-   included, because the rail marks one exactly as it marks a room. */
-.topbar::before {
-	content: "";
-	position: absolute;
-	inset: 0 0 auto 0;
-	height: var(--accent-line);
-	/* Paint, not a surface. It lies across the top edge of a bar that holds
-	   controls, and a press landing in its three pixels belongs to whatever is
-	   under them. */
-	pointer-events: none;
-	background: linear-gradient(90deg in oklch, var(--accent) 0%, var(--dir-mark, var(--teal)) 100%);
-}
-.topbar h1 {
-	margin: 0;
-	display: flex;
-	align-items: center;
-	min-width: 0;
-}
-/* The room's name is a title, and the way to ask about it. Pressing the name
-   opens what this tab knows about the conversation — how it is reached, where
-   the session stands. Leaving is still the mark beside it, and that mark keeps
-   its place whether or not it is showing, so the title never shifts under the
-   pointer. It stays quiet until a pointer is over the heading, so a header at
-   rest is a name rather than a name and a way to lose it. */
-.topbar .title-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--mark-gap);
-	min-width: 0;
-	height: var(--control-h);
-	font-size: var(--type-title);
-	font-weight: 800;
-	letter-spacing: -.01em;
-	/* The line box has to fit the glyphs, not the em: at `1` it is shorter than
-	   the text it holds, and the name truncates with `overflow: hidden` on the
-	   narrow layout, so the descender of a `g` was cut off. Nothing here needs a
-	   tight line box — the chip has a fixed height and centres its contents — so
-	   the font's own metrics decide it. */
-	line-height: normal;
-	color: var(--ink);
-	white-space: nowrap;
-}
-.topbar .title-chip:has(.avatar-chip) {
-	gap: var(--avatar-gap);
-}
-/* By class alone: a reset more specific than the focus ring in controls.css
-   takes the ring away, and this class is only ever in the topbar. */
-.title-about {
-	all: unset;
-	display: inline-flex;
-	align-items: center;
-	gap: inherit;
-	min-width: 0;
-	max-width: 100%;
-	height: 100%;
-	padding: 0 8px;
-	cursor: pointer;
-	border-radius: var(--radius-chip);
-	color: inherit;
-	font: inherit;
-	letter-spacing: inherit;
-}
-.topbar .title-about:hover {
-	background: var(--hover);
-}
-.topbar .leave-x {
-	flex: none;
-	margin-left: 2px;
-	opacity: 0;
-	transition: opacity .12s ease;
-}
-#roomTitle:hover .leave-x,
-#roomTitle:focus-within .leave-x {
-	opacity: 1;
-}
-.topbar h1 .hash {
-	color: var(--accent);
-	font-weight: 700;
-}
-/* Before the first join there is no room, and the header used to name one
-   anyway: a `#` and the word "rooms", which reads as a room called rooms. The
-   sigil is what claims a room, so it stays off until there is one, and the line
-   holds the state instead — in the muted register the roster and the rails use
-   for the same moment. */
-.topbar .title-chip:has(#roomSigil[hidden]) {
-	color: var(--ink-soft);
-	font-weight: 600;
-}
-.topbar .spacer {
-	flex: 1;
-}
+/* The topbar that heads this column lives in topbar.css. */
 /* A toggle has to look toggled. The Members button has always carried
    aria-pressed, so assistive software knew whether the roster was up; everyone
    else was told only by the roster itself, which is the one thing the button
@@ -257,9 +135,14 @@
 	   quietly swap the home card's heading for the lighter of them. */
 	--intro-tone: var(--teal);
 	--intro-ink: var(--teal-ink);
-	align-self: center;
+	/* On the column's own left edge, with the avatars and the rows under it,
+	   rather than centred: it is prose that opens the conversation, and the
+	   conversation is read down one edge. Centred, it was the one thing in the
+	   column standing on a margin of its own. It still stops at the shared cap,
+	   so a wide window does not stretch a paragraph across it. */
+	align-self: flex-start;
 	box-sizing: border-box;
-	width: var(--card-max);
+	max-width: var(--card-max);
 	margin: 8px 20px 14px;
 	padding: 16px 18px;
 	border: 1px solid var(--rule);
@@ -308,7 +191,7 @@
    then jump when it does. The shared shimmer owns motion and its reduced-motion
    answer; these lines own only the log-native shape. */
 .history-loading {
-	align-self: center;
+	align-self: flex-start;
 	box-sizing: border-box;
 	width: var(--card-max);
 	margin: 0 20px 14px;
@@ -419,7 +302,6 @@
 	height: 32px;
 	border-radius: 10px;
 	font-size: var(--type-ui);
-	box-shadow: var(--shadow-sm);
 }
 .stack {
 	display: flex;
@@ -435,37 +317,52 @@
    enough that somewhere else in this page will want it, and the next element to
    carry the class inherits a message author's indent for no reason it can see —
    which is exactly what happened to the member list. */
+/* The name over a stack is what a reader scans the log by, so it takes the
+   page's ink at a firm weight rather than the soft ink a caption takes: it is
+   the anchor of the group, not a note about it. Size is what keeps it under
+   the words. */
 .stack .who {
 	font-size: var(--type-caption);
-	font-weight: 700;
-	color: var(--ink-soft);
+	font-weight: 600;
+	color: var(--ink);
 	margin: 0 0 4px 12px;
 	max-width: 100%;
 	overflow-wrap: anywhere;
 }
+/* A line somebody said. The corners are the well's rather than a messenger's:
+   at sixteen pixels a bubble reads as a speech balloon, and this is a tool for
+   people who read logs. The tail corner is the one that stays tight, so a
+   stack of lines from one person still points at the name above it. */
 .bubble {
 	box-sizing: border-box;
 	max-width: 100%;
 	background: var(--paper-raised);
 	border: 1px solid var(--rule);
 	color: var(--ink);
-	padding: 8px 13px;
-	border-radius: 16px;
-	border-top-left-radius: 6px;
+	padding: 7px 12px;
+	border-radius: var(--radius-well);
+	border-top-left-radius: 4px;
 	overflow-wrap: anywhere;
 	white-space: pre-wrap;
-	box-shadow: var(--shadow-sm);
+	/* No shadow. A line is a surface in the log, not a card floating over it,
+	   and the hairline plus the raised tone already say where it ends. */
 }
 .bubble + .bubble {
 	margin-top: 3px;
 }
+/* Your own lines: the warmed paper from page.css in the page's own ink, so
+   they sit a shade apart from everybody else's and never louder. In syrup the
+   bloom sits around them, and in light it is transparent. The gradient stays
+   a gradient because the browser proof reads your lines' ink against its two
+   stops; it is a gentle one. */
 .row.mine .bubble {
-	background: linear-gradient(135deg, var(--mine-from) 0%, var(--mine-to) 100%);
-	color: var(--on-accent);
-	border-color: transparent;
-	border-radius: 16px;
-	border-top-right-radius: 6px;
-	border-top-left-radius: 16px;
+	background: linear-gradient(135deg, var(--said-from) 0%, var(--said-to) 100%);
+	color: var(--said-ink);
+	border-color: var(--said-edge);
+	border-radius: var(--radius-well);
+	border-top-right-radius: 4px;
+	border-top-left-radius: var(--radius-well);
+	box-shadow: var(--glow-soft);
 }
 /* Our own optimistic sends. A line dims while "sending", waiting on the wire to
    confirm it, and both ways of not sending tint the bubble.
@@ -486,6 +383,11 @@
 .row.mine .bubble.refused {
 	background: linear-gradient(135deg, var(--danger) 0%,
 		color-mix(in srgb, var(--danger) 78%, #000) 100%);
+	/* Filled, unlike an ordinary line of yours: a line that reached nobody is
+	   a state to act on, and it wears the refusal colour whole with the ink
+	   filled controls carry. */
+	color: var(--on-accent);
+	border-color: transparent;
 }
 .delivery-failure {
 	display: flex;
@@ -496,8 +398,11 @@
 	font-size: var(--type-caption);
 	font-weight: 700;
 }
+/* When a line landed, with tabular figures so a column of stamps lines up
+   down the log. */
 .time {
 	font-size: var(--type-fine);
+	font-variant-numeric: tabular-nums;
 	color: var(--ink-soft);
 	margin: 4px 0 2px 12px;
 }
@@ -533,8 +438,8 @@
 	font-size: var(--type-caption);
 	color: var(--ink-soft);
 	background: color-mix(in srgb, var(--ink) 6%, transparent);
-	padding: 4px 13px;
-	border-radius: 12px;
+	padding: 4px 12px;
+	border-radius: var(--radius-control);
 }
 /* Consecutive system lines of one kind share one outer box. The gap is the
    same 3px a stacked pair of bubbles uses, so a run of joins or of local

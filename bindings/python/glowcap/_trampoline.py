@@ -104,7 +104,7 @@ def _chase_local_forwards(entry: _BehaviorEntry, result):
         hops += 1
         if hops > _abi.MAX_LOCAL_FORWARD_HOPS:
             raise RuntimeError(_abi.FORWARD_CYCLE_MESSAGE)
-        target = result.target
+        target = result.target._live()
         inner = None
         if entry.resolve_local is not None:
             inner = entry.resolve_local(target.id)
@@ -423,7 +423,7 @@ def _dispatch_send(session, target, verb: str, args) -> RemotePromise:
     # everything else mints through _send_far. Session keeps guard/drain + the
     # CapTP verb; this owns the routing if.
     if isinstance(target, Ref):
-        ctx = session.hosted.get(target.id)
+        ctx = session.hosted.get(target._live().id)
         if ctx is not None:
             return _send_local(session, ctx, verb, list(args))
     return _send_far(session, target, verb, args)
@@ -433,7 +433,7 @@ async def _dispatch_tell(session, target: Ref | RemotePromise, verb: str, args) 
     # Near-hosted vs far tell dispatch: a self-hosted near runs _tell_local,
     # everything else mints through _tell_far.
     if isinstance(target, Ref):
-        ctx = session.hosted.get(target.id)
+        ctx = session.hosted.get(target._live().id)
         if ctx is not None:
             await _tell_local(session, ctx, verb, list(args))
             return

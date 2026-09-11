@@ -8,7 +8,7 @@
 import { currentSession, Ref, retainSecondaryFailure } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "./argument_custody.ts";
-import { MAX_SIGNAL_CANDIDATE, MAX_SIGNAL_ID, MAX_SIGNAL_SDP, utf8Fits } from "./limits.ts";
+import { MAX_SIGNAL_CANDIDATE, MAX_SIGNAL_ID, MAX_SIGNAL_SDP, SIGNAL_EXCHANGE_TIMEOUT_MS, utf8Fits } from "./limits.ts";
 import {
 	OFFER_SIGNALING,
 	SIG_ACCEPTED,
@@ -21,8 +21,6 @@ import {
 	SIGNAL_OFFER,
 } from "./protocol.ts";
 import { ask } from "./ask.ts";
-
-const SIGNALING_ANSWER_TIMEOUT_MS = 30_000;
 
 interface SignalRow {
 	reply: Ref;
@@ -80,8 +78,14 @@ export class DirectorySignaling {
 		row.offerStarted = true;
 		const answer = new Promise<string>((resolve, reject) => {
 			const timer = setTimeout(
-				() => row.answer?.reject(new Error("rooms: signaling answer timed out")),
-				SIGNALING_ANSWER_TIMEOUT_MS,
+				() => {
+					const error = new Error("rooms: signaling exchange timed out");
+					// Acceptance and answer are two milestones of one exchange. Refusing
+					// both makes whichever one the caller currently awaits terminal.
+					row.rejectOfferReady(error);
+					row.answer?.reject(error);
+				},
+				SIGNAL_EXCHANGE_TIMEOUT_MS,
 			);
 			const settle = <T extends unknown[]>(finish: (...args: T) => void) => (...args: T): void => {
 				if (row.answer == null) return;

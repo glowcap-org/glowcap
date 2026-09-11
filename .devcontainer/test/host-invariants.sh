@@ -31,8 +31,8 @@ trap cleanup EXIT
 for playwright_layout in arm64 x86_64; do
     playwright_root="${scratch}/playwright-${playwright_layout}"
     if [[ "${playwright_layout}" == arm64 ]]; then
-        chromium_rel="chromium-1234/chrome-linux/chrome"
-        headless_rel="chromium_headless_shell-1234/chrome-linux/headless_shell"
+        chromium_rel="chromium-1234/chrome-linux-arm64/chrome"
+        headless_rel="chromium_headless_shell-1234/chrome-headless-shell-linux-arm64/chrome-headless-shell"
     else
         chromium_rel="chromium-1234/chrome-linux64/chrome"
         headless_rel="chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell"
@@ -55,10 +55,10 @@ done
 # A pin bump that leaves the previous build number behind is ambiguous, not
 # satisfied twice: the resolver refuses a store holding two full browsers.
 playwright_root="${scratch}/playwright-stale"
-mkdir -p "${playwright_root}/chromium-1111/chrome-linux" \
+mkdir -p "${playwright_root}/chromium-1111/chrome-linux64" \
     "${playwright_root}/chromium-2222/chrome-linux64" \
     "${playwright_root}/chromium_headless_shell-2222/chrome-headless-shell-linux64"
-touch "${playwright_root}/chromium-1111/chrome-linux/chrome" \
+touch "${playwright_root}/chromium-1111/chrome-linux64/chrome" \
     "${playwright_root}/chromium-2222/chrome-linux64/chrome" \
     "${playwright_root}/chromium_headless_shell-2222/chrome-headless-shell-linux64/chrome-headless-shell"
 if glowcap_playwright_binaries "${playwright_root}"; then
@@ -320,6 +320,46 @@ git -C "${primary}" commit -qm seed
 git -C "${primary}" worktree add -q -b test-tree1 "${linked}"
 mkdir -p "${primary}/.devcontainer" "${linked}/.devcontainer"
 
+# A linked worktree's submodule repository lives under the primary checkout's
+# common Git directory. Bootstrap must leave an absolute core.worktree rather
+# than Git's generated relative path, which points at /workspaces from only one
+# side of the devcontainer boundary.
+submodule_source="${scratch}/submodule-source"
+submodule_primary="${scratch}/submodule-primary"
+submodule_linked="${scratch}/submodule-linked"
+git init -q "${submodule_source}"
+git -C "${submodule_source}" config user.email test@glowcap.invalid
+git -C "${submodule_source}" config user.name "glowcap test"
+git -C "${submodule_source}" config commit.gpgsign false
+touch "${submodule_source}/seed"
+git -C "${submodule_source}" add seed
+git -C "${submodule_source}" commit -qm seed
+git init -q "${submodule_primary}"
+git -C "${submodule_primary}" config user.email test@glowcap.invalid
+git -C "${submodule_primary}" config user.name "glowcap test"
+git -C "${submodule_primary}" config commit.gpgsign false
+mkdir -p "${submodule_primary}/conformance"
+cp "${dir}/../conformance/bootstrap-submodules.sh" "${submodule_primary}/conformance/"
+for submodule_path in ocapn-conformance ocapn-spec syrup spritely-goblins; do
+    git -C "${submodule_primary}" -c protocol.file.allow=always submodule add -q \
+        "${submodule_source}" "conformance/${submodule_path}/upstream"
+done
+git -C "${submodule_primary}" add .
+git -C "${submodule_primary}" commit -qm submodules
+git -C "${submodule_primary}" worktree add -q -b submodule-linked "${submodule_linked}"
+GIT_ALLOW_PROTOCOL=file GLOWCAP_CHECKOUT_DIR="${submodule_linked}" \
+    bash "${submodule_linked}/conformance/bootstrap-submodules.sh" >/dev/null
+submodule_git_dir="$(git -C "${submodule_linked}" rev-parse --path-format=absolute --git-dir)"
+for submodule_path in ocapn-conformance ocapn-spec syrup spritely-goblins; do
+    submodule_store="${submodule_git_dir}/modules/conformance/${submodule_path}/upstream"
+    [[ "$(cat "${submodule_linked}/conformance/${submodule_path}/upstream/.git")" == \
+        "gitdir: ${submodule_store}" ]]
+    [[ "$(git config --file "${submodule_store}/config" core.worktree)" == \
+        "${submodule_linked}/conformance/${submodule_path}/upstream" ]]
+done
+git -C "${submodule_linked}" status --short >/dev/null
+unset submodule_source submodule_primary submodule_linked submodule_path submodule_git_dir submodule_store
+
 printf 'GLOWCAP_WORKTREE=main\n' > "${primary}/.devcontainer/.env"
 if glowcap_devcontainer_configure_env "${primary}/.devcontainer" >/dev/null 2>&1; then
     echo "test/host-invariants: configure accepted an incomplete existing environment" >&2
@@ -329,6 +369,7 @@ rm "${primary}/.devcontainer/.env"
 glowcap_devcontainer_configure_env "${primary}/.devcontainer" >/dev/null 2>&1
 expected_common="$(git -C "${primary}" rev-parse --path-format=absolute --git-common-dir)"
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_WORKTREE)" == main ]]
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_CHECKOUT_DIR)" == "${primary}" ]]
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" EGRESS_NET)" == glowcap-main-egress ]]
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_GIT_COMMON_DIR)" == "${expected_common}" ]]
 glowcap_devcontainer_configure_env "${primary}/.devcontainer" 10000 other-network >/dev/null 2>&1
@@ -341,10 +382,12 @@ glowcap_devcontainer_configure_env "${primary}/.devcontainer" 10000 other-networ
 outgrown_env="${primary}/.devcontainer/.env"
 docs_port_line="$(grep '^GLOWCAP_DOCS_HOST_PORT=' "${outgrown_env}")"
 [[ "${docs_port_line}" == GLOWCAP_DOCS_HOST_PORT=1990 ]]
-grep -v '^GLOWCAP_DOCS_HOST_PORT=' "${outgrown_env}" > "${outgrown_env}.trimmed"
+grep -v -e '^GLOWCAP_DOCS_HOST_PORT=' -e '^GLOWCAP_CHECKOUT_DIR=' \
+    "${outgrown_env}" > "${outgrown_env}.trimmed"
 mv "${outgrown_env}.trimmed" "${outgrown_env}"
 printf 'OPERATOR_ADDED=kept\n' >> "${outgrown_env}"
 glowcap_devcontainer_complete_env "${primary}/.devcontainer" 2>/dev/null
+[[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_CHECKOUT_DIR)" == "${primary}" ]]
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" GLOWCAP_DOCS_HOST_PORT)" == 1990 ]]
 [[ "$(glowcap_devcontainer_env_value "${primary}/.devcontainer" OPERATOR_ADDED)" == kept ]]
 
@@ -366,13 +409,14 @@ if glowcap_devcontainer_complete_env "${offset_env}" 2>/dev/null; then
     exit 1
 fi
 
-# A file carrying no ports at all is not an outgrown one, so completion adds
-# nothing and ordinary validation keeps the refusal.
+# A file carrying no ports still gains the Git-owned checkout path, but it is
+# not an outgrown port table, so ordinary validation keeps the refusal.
 bare_env="${scratch}/bare/.devcontainer"
 mkdir -p "${bare_env}"
 printf 'GLOWCAP_WORKTREE=main\n' > "${bare_env}/.env"
 glowcap_devcontainer_complete_env "${bare_env}" 2>/dev/null
-[[ "$(wc -l < "${bare_env}/.env" | tr -d ' ')" -eq 1 ]]
+[[ "$(glowcap_devcontainer_env_value "${bare_env}" GLOWCAP_CHECKOUT_DIR)" == "${scratch}/bare" ]]
+[[ "$(wc -l < "${bare_env}/.env" | tr -d ' ')" -eq 2 ]]
 [[ "$(glowcap_devcontainer_worktree_name "${primary}/.devcontainer")" == main ]]
 glowcap_devcontainer_validate_worktree "${primary}/.devcontainer" main
 
@@ -387,6 +431,7 @@ if glowcap_devcontainer_configure_env "${linked}/.devcontainer" >/dev/null 2>&1;
 fi
 glowcap_devcontainer_configure_env "${linked}/.devcontainer" 10000 >/dev/null 2>&1
 [[ "$(glowcap_devcontainer_worktree_name "${linked}/.devcontainer")" == tree1 ]]
+[[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_CHECKOUT_DIR)" == "${linked}" ]]
 [[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_ROOMS_WEB_HOST_PORT)" == 18000 ]]
 [[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" GLOWCAP_DOCS_HOST_PORT)" == 11990 ]]
 [[ "$(glowcap_devcontainer_env_value "${linked}/.devcontainer" EGRESS_NET)" == glowcap-tree1-egress ]]

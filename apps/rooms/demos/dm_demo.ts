@@ -1,3 +1,4 @@
+import { startServer } from "../test/support/native_server.ts";
 // Rooms direct-message-by-introduction demo (three-party handoff, gifter side),
 // over loopback TCP. The handoff choreography and its three proofs live in
 // `runDmHandoff`; this file supplies only the TCP flavour of standing Bob and
@@ -32,13 +33,5 @@ runDmHandoff({
 			},
 		};
 	},
-	async startRoom() {
-		const room = await roomsListen("127.0.0.1", 0);
-		return {
-			host: room.host,
-			listener: room,
-			locator: loopbackTcpDesignator(room.port),
-			close: () => room.close(),
-		};
-	},
+	startRoom: () => startServer(),
 });

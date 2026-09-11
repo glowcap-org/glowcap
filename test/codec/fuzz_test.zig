@@ -1,4 +1,4 @@
-//! Hostile-bytes fuzz entrypoints for both codecs.
+//! Untrusted-bytes fuzz entrypoints for both codecs.
 //!
 //! Three `std.testing.fuzz` blocks, one per untrusted-input decode surface:
 //! the Syrup streaming framer (`decodePrefix`, cap-on-parse per ADR-0029), the
@@ -40,7 +40,7 @@ const capnp = glowcap.ocapn.codec.capnp;
 const regression_seeds = [_][]const u8{};
 
 /// Upper bound on one fuzz input. Large enough to cover every corpus frame and
-/// deeply nested hostile constructions; small enough that the fuzzer spends
+/// deeply nested malformed constructions; small enough that the fuzzer spends
 /// its budget on structure, not bulk.
 const max_input = 4096;
 
@@ -54,7 +54,7 @@ const runtimeSeed = corpus.runtimeSeed;
 
 /// Re-encoding a decoded message may refuse through the codec's typed refusals
 /// (e.g. a decoded `near` deliver target never re-enters the wire — the
-/// ADR-0010 perspective flip makes that pairing reachable from hostile bytes,
+/// ADR-0010 perspective flip makes that pairing reachable from untrusted bytes,
 /// and `Unsupported*` names it). A refusal ends the property for this input;
 /// only allocation failure is a real error.
 fn swallowRefusal(err: anyerror) anyerror!void {

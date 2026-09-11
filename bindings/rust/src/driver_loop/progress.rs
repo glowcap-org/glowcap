@@ -10,6 +10,12 @@ impl LoopShared {
 		if self.released.get() || self.stepping.get() || crate::trampoline::inside_turn() {
 			return Ok(());
 		}
+		// Host-level enliven/fetch can initiate the first dial without passing
+		// through the explicit dial or listener APIs. Every progress entry
+		// must arm readiness before its initial nonblocking step.
+		if !self.parked.get() && !self.close_task_started.get() {
+			self.ensure_started()?;
+		}
 		let mut stepped = false;
 		loop {
 			let outcome = {
@@ -148,16 +154,17 @@ impl LoopShared {
 						shell.closing.set(true);
 						shell.record_close_result(close_result);
 						shell.close_transport();
-					} else if let Some(state) = self.unclaimed_sessions.borrow_mut().get_mut(&(session as usize)) {
-						*state =
-							UnclaimedSession::Closed(failure.map(|failure| driver_event_failure(failure, "session")));
 					} else {
-						// A loop-internal session that no application outcome can
-						// still claim is dead; retire its native handle now.
-						self.unclaimed_sessions
-							.borrow_mut()
-							.insert(session as usize, UnclaimedSession::Closed(None));
-						self.release_unclaimed_session(session);
+						let mut sessions = self.unclaimed_sessions.borrow_mut();
+						if let Some(state) = sessions.get_mut(&(session as usize)) {
+							*state = UnclaimedSession::Closed(
+								failure.map(|failure| driver_event_failure(failure, "session")),
+							);
+						} else {
+							sessions.insert(session as usize, UnclaimedSession::Closed(None));
+							drop(sessions);
+							self.release_unclaimed_session(session);
+						}
 					}
 				}
 				LoopEvent::Completion(action) => {
@@ -215,7 +222,7 @@ impl LoopShared {
 	/// Await the next accepted session handle (bind a listener first). Fails
 	/// with the typed `ERR_CLOSED` once the loop closes, so a server
 	/// iteration ends rather than parking forever.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
+	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 	pub(crate) async fn accept(self: &Rc<Self>, listener: u64) -> Result<*mut ffi_host::GlowcapHostSession> {
 		loop {
 			let notified = self.accept_wake.notified();
@@ -241,7 +248,7 @@ impl LoopShared {
 
 	/// Bind one listener on an added transport; accepted sessions arrive
 	/// through [`LoopShared::accept`].
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
+	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 	pub(crate) async fn listen(self: &Rc<Self>, transport: &str, designator: &str) -> Result<u64> {
 		self.guard_handle()?;
 		self.ensure_started()?;

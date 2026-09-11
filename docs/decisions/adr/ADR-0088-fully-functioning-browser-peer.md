@@ -315,8 +315,8 @@ it is what `currentSession()` enables.
   the host's configured mapping (`Host.setRendezvousUrl`,
   `bindings/ts/runtime/host.ts`); the resident-less `keyed-relay` transport
   symbol (`src/ocapn/model/transport.zig`, `src/driver/core/vocab.zig`); the
-  rooms relay endpoints and rooms UI wiring (`apps/rooms/web/relay.ts`,
-  `apps/rooms/web/serve.ts`, `apps/rooms/web/ui/net.ts`); proofs
+  rooms relay endpoints and browser transport wiring (`apps/rooms/rust/native/src/web/relay.rs`,
+  `apps/rooms/rust/native/src/web/http.rs`, `apps/rooms/rust/browser/src/transport.rs`); proofs
   `apps/rooms/test/web/dm_tabs_test.ts` (`zig build rooms-web-dm-tabs`) and
   `apps/rooms/test/web/dm_native_dial_test.ts`
   (`zig build rooms-web-dm-native`).

@@ -35,11 +35,21 @@
 
 const std = @import("std");
 
-/// Where the fuzzer leaves the input that crashed a test.
-const crash_artifact = ".zig-cache/f/crash";
-/// Where the fuzzer keeps its coverage counters, one file per distinct binary.
-/// The run counts in them are how we know a run really searched.
-const coverage_dir = ".zig-cache/v";
+/// Where the fuzzer leaves the input that crashed a test, relative to the
+/// effective local cache (see `localCacheDir`).
+const crash_artifact = "f/crash";
+/// Where the fuzzer keeps its coverage counters, one file per distinct binary,
+/// relative to the effective local cache. The run counts in them are how we
+/// know a run really searched.
+const coverage_dir = "v";
+/// The local cache the fuzz-run child writes its `v`/`f` directories into:
+/// ZIG_LOCAL_CACHE_DIR when the environment names one (the devcontainer's
+/// named volume does), else the repo's `.zig-cache`. The child inherits this
+/// process's environment, so reading the same variable keeps the driver's
+/// counters under the directory the fuzzer actually used.
+fn localCacheDir(init: std.process.Init) []const u8 {
+    return init.environ_map.get("ZIG_LOCAL_CACHE_DIR") orelse ".zig-cache";
+}
 /// Every fuzz target lives in a file with this name, one directory under
 /// `test/`. `zig build source-check` holds that, so scanning those files finds
 /// every target there is.
@@ -60,6 +70,9 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const io = init.io;
     const cwd = std.Io.Dir.cwd();
+    // Create-if-missing, as the fuzzer itself does for `v`/`f`: a fresh
+    // checkout's cache need not exist when this step starts.
+    const cache_dir = try std.Io.Dir.cwd().createDirPathOpen(io, localCacheDir(init), .{});
 
     var it = try std.process.Args.Iterator.initAllocator(init.minimal.args, arena);
     defer it.deinit();
@@ -99,8 +112,8 @@ pub fn main(init: std.process.Init) !void {
         // tolerant: a crash file left behind by an earlier target would be
         // read as this one's finding, so clear it before every run; usually
         // there is nothing to delete.
-        cwd.deleteFile(io, crash_artifact) catch {};
-        const runs_before = totalRuns(io, cwd);
+        cache_dir.deleteFile(io, crash_artifact) catch {};
+        const runs_before = totalRuns(io, cache_dir);
 
         const filter = try std.fmt.allocPrint(arena, "-Dtest-filter={s}", .{target.name});
         var child = try std.process.spawn(io, .{
@@ -123,12 +136,12 @@ pub fn main(init: std.process.Init) !void {
             },
         }
 
-        if (fileExists(io, cwd, crash_artifact)) {
+        if (fileExists(io, cache_dir, crash_artifact)) {
             reportFinding(target);
             std.process.exit(1);
         }
 
-        const runs_after = totalRuns(io, cwd);
+        const runs_after = totalRuns(io, cache_dir);
         // A coverage file this program cannot read as a header is not a zero to
         // be summed past: the number it was asked for would be meaningless, and
         // a meaningless number that happens to have grown would report a search
@@ -273,7 +286,10 @@ fn totalRuns(io: std.Io, cwd: std.Io.Dir) Runs {
 /// The run count out of one coverage file, or null if the file is not one.
 fn readRunCount(io: std.Io, dir: std.Io.Dir, name: []const u8) ?u64 {
     const Header = std.Build.abi.fuzz.SeenPcsHeader;
-    var buf: [@sizeOf(Header)]u8 = undefined;
+    // The read buffer must carry the header's alignment in its type: a plain
+    // byte array aligns to 1, and the cast below panics on an unaligned stack
+    // slot instead of reading a wrong counter.
+    var buf: [@sizeOf(Header)]u8 align(@alignOf(Header)) = undefined;
 
     var file = dir.openFile(io, name, .{}) catch return null;
     defer file.close(io);

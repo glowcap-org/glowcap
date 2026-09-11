@@ -235,7 +235,7 @@ pub const CompareError = model.view.Error || error{CompareBudgetExhausted};
 ///
 /// Set equality is multiset equality, so comparing two sets of width N costs
 /// on the order of N² visits, and struct equality resolves each key by scan.
-/// Both are quadratic in an attacker's chosen width. The elements compared are
+/// Both are quadratic in a partner-chosen width. The elements compared are
 /// only ever those a hash grouping already found equal-hashed, and the set
 /// hash combines children commutatively, so a partner can build two distinct
 /// wide sets that hash alike and buy that quadratic with one frame. The budget

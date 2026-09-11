@@ -135,7 +135,8 @@
         (native-session-release! m ptr)
         (set-box! (async-connection-released? ac) #t)
         (set-box! (session-release-pending? c) #f)
-        (host-unregister-session! m ptr)))
+        (host-unregister-session! m ptr)
+        (host-bump-progress! m)))
     (set-box! (session-release-pending? c) #t)
     (cond
       [(inside-turn?)
@@ -286,9 +287,12 @@
 ;; object; in glowcap-next, the target must be a promise. A re-gifted promise
 ;; routes to its exporter session transparently.
 (define (session-listen c target)
-  (guard-open 'session-listen c)
-  (drain-gc! c)
-  (listen-far c target))
+  (issue-through-handle
+   c
+   (lambda ()
+     (guard-open 'session-listen c)
+     (drain-gc! c)
+     (listen-far c target))))
 
 (define (session-send c target verb . args)
   (guard-open 'session-send c)
@@ -332,16 +336,25 @@
 ;; for promise pipelining (ADR-0007). The returned vow is itself a valid
 ;; `target` for a later `session-send`/`session-send-promise`/`session-tell`, so a
 ;; dependent call rides a `desc:answer` deliver the partner queues until the
-;; answer settles; a `create -> use` chain then costs one round trip. The
+;; answer settles; a `create -> use` chain then costs one round trip.
 ;; Each send schedules progress before returning; settling the tail observes the
 ;; result rather than making an otherwise-idle chain move. Use `session-tell`
 ;; for a dependent delivery whose answer is not needed.
 ;; A target belongs to the Host that minted it; another Host refuses it before
 ;; interpreting the Host-local vow number.
 ;; A reference this session spawned resolves in process.
+;; A send this session could never issue — the session is closed, the target is
+;; a spent capability, an argument will not marshal — comes back as a handle
+;; that reports the failure, not as a raise. `session-send-promise` returns
+;; before the answer settles so a caller can pipeline at it, so its failure has
+;; to travel the same way its answer does: a caller who wraps the settle in a
+;; handler and gets the failure at the call site instead never sees it.
 (define (session-send-promise c target verb . args)
-  (guard-open 'session-send-promise c)
-  (dispatch-send-promise c target verb args))
+  (issue-through-handle
+   c
+   (lambda ()
+     (guard-open 'session-send-promise c)
+     (dispatch-send-promise c target verb args))))
 
 ;; Drive the connection until `a-vow` settles, returning its fulfilled value,
 ;; the awaiting half of `session-send-promise` / `session-index` / `session-untag`. A
@@ -393,7 +406,8 @@
   (blocking-fetch c 'session-enliven "enliven" sturdyref
                   (lambda ()
                     (glowcap_host_session_enliven (session-ptr c) (pin-immobile sturdyref-bytes)
-                                               (bytes-length sturdyref-bytes)))))
+                                               (bytes-length sturdyref-bytes)))
+                  #:track-gc? #t))
 
 ;; Fire-and-forget eventual-send (Goblins `<-np`): no answer is allocated and no
 ;; reply comes back, so a notification or broadcast costs one deliver. A
@@ -423,14 +437,19 @@
 ;; A mid-serve failure (a feed refusal, a partner protocol violation) must close
 ;; the transport before the error escapes: otherwise the partner's blocking
 ;; `session-send` parks forever on a half-open TCP socket — the Python serve
-;; loop's `finally` closes for the same reason.
+;; loop's `finally` closes for the same reason. A break is not a failure: the
+;; blocking read consumed nothing, so the interrupted serve escapes as the
+;; break, the session stays live, and a later `session-serve` resumes it.
 (define (session-serve c)
   ;; A loop-backed session's inbound is held until its embedder serves; the
   ;; hook announces readiness (a no-op for byte-fed connections).
   ((unbox (async-connection-serve-hook (session-async c))))
   (set-box! (async-connection-serve-hook (session-async c)) void)
   (drain-gc! c)
-  (with-handlers ([(lambda (_) #t)
+  ;; A break is the operator interrupting this serving thread, not the wire
+  ;; failing: it escapes as itself and the session stays live for a later
+  ;; serve, as the vat's convert-to-broken handlers already promise.
+  (with-handlers ([(lambda (raised) (not (exn:break? raised)))
                    (lambda (e)
                      (record-session-wire-failure! c e)
                      (retire-session-wire-failure! c)
@@ -565,5 +584,16 @@
     (lambda ()
       (define rb (string->bytes/utf-8 reason))
       (check/host (glowcap_host_resolver_break (host-ptr m) (resolver-id r)
+                                               (pin-immobile rb) (bytes-length rb)))
+      (drain-host-actions! m))))
+
+;; Relinquish deferred work; prior settlement or session retirement is complete
+;; cleanup. Strict manual settlement remains resolver-fulfill! / resolver-break!.
+(define (resolver-abandon! r reason)
+  (define m (resolver-host r))
+  (with-host-drain m
+    (lambda ()
+      (define rb (string->bytes/utf-8 reason))
+      (check/host (glowcap_host_resolver_abandon (host-ptr m) (resolver-id r)
                                                (pin-immobile rb) (bytes-length rb)))
       (drain-host-actions! m))))

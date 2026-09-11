@@ -151,8 +151,8 @@ fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
 ///
 /// `decoded_body` may borrow `frame_in`'s own bytes (frame boundary) or a
 /// separate stream buffer that outlives this call (`recvStreamPrefix`). It
-/// must stay valid until apply completes; afterwards the retained event owns
-/// only `frame_in` and the borrow is dropped.
+/// must stay valid until apply completes; afterwards the queued row owns only
+/// `frame_in`, and `Peer.pollEvent` decodes it once more when it surfaces.
 fn applyDecodedOwnedFrame(
     self: *Peer,
     frame_in: foundation.Frame,
@@ -386,7 +386,7 @@ fn applyDecodedOwnedFrame(
 
     if (shortening_callback) |callback| {
         try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
-        self.session_state.completeShortening(callback.resolver, callback.shortened_to);
+        self.session_state.completeShortening(callback.resolver, callback.shortened_to, shortening_source_is_held);
         if (shortening_source_is_held or shortening_source_has_settling_consumer) {
             commitPreparedShortening(self, &prepared_shortening.?);
             prepared_shortening = null;
@@ -462,7 +462,13 @@ fn applyDecodedOwnedFrame(
             prepared.commit(&self.session_state);
         if (node_resolver_callback) |resolver|
             self.session_state.completeNodeSettlingResolverCallback(resolver);
-        self.events.backPtr().?.deliver_answer_target = if (try self.events.backPtr().?.deliverAnswerName()) |answer|
+        // The answer this deliver settles, read from the body already decoded
+        // above rather than by decoding the queued frame again.
+        const answer_name: ?model.AnswerName = switch (answer_override) {
+            .virtual_deliver => |answer| .fromVirtual(answer),
+            else => if (decoded_body.deliver.answer) |answer| .fromWire(answer) else null,
+        };
+        self.events.backPtr().?.deliver_answer_target = if (answer_name) |answer|
             self.session_state.answerTargetNamed(answer)
         else
             null;

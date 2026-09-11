@@ -223,6 +223,9 @@ root to reach test support.
   - `c_abi/ocapn` (`c_abi`): `libglowcap_ocapn`, C-shaped only. Every handle
     frees through exactly one `glowcap_*_release`; a `*_close` is a shutdown
     lever and never frees, which `source-check` holds in the generated headers.
+    A C-convention function returns a code, not an error union, so an
+    `errdefer` in its body never runs: a refusal releases what it owns by
+    hand before returning, and `source-check` refuses the dead form.
   - `c_abi/host` (`c_abi_host`): `libglowcap_host`, the byte-fed host tier
     (ADR-0072). An embedder owning its own loop, sockets, and entropy drives a
     full multi-session CapTP Host with bytes, and the host's own effects surface

@@ -66,9 +66,7 @@ export class DriverServer {
 			// Yielded sessions may still be live after iterator close. Request
 			// retirement now; the last session completes it without making iterator
 			// completion wait on its own consumer.
-			if (this.#ownedLoop != null) {
-				void this.#ownedLoop.requestClose();
-			}
+			this.#retireOwnedLoop();
 		}
 	}
 
@@ -85,11 +83,21 @@ export class DriverServer {
 		if (this.#closePromise != null) return this.#closePromise;
 		this.#closePromise = (async () => {
 			await this.stopAdmission();
-			if (this.#ownedLoop != null) {
-				void this.#ownedLoop.requestClose();
-			}
+			this.#retireOwnedLoop();
 		})();
 		return this.#closePromise;
+	}
+
+	/** Request the owned loop's retirement without waiting for it. That
+	 * choice leaves the loop's refusal, or a later close failure, with no
+	 * caller, so this server retains it in the Host's callerless journal
+	 * instead of leaving an unowned rejection. */
+	#retireOwnedLoop(): void {
+		const loop = this.#ownedLoop;
+		if (loop == null) return;
+		loop.requestClose().catch((error) => {
+			this.host.recordCallerlessBindingFailure("driver-server.loop.retire", error);
+		});
 	}
 
 	async [Symbol.asyncDispose](): Promise<void> {

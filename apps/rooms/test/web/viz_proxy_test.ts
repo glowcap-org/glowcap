@@ -9,7 +9,7 @@ import { publishViz, VIZ_REFUSED_CLOSE_CODE, vizCapUrl } from "../../lib/viz_pub
 import { assert, freePort, roomsTest, ROOT, waitForHttp, within } from "../support/rooms_server.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 
 async function readSwiss(stateDir: string): Promise<string> {
 	for (let i = 0; i < 200; i++) {
@@ -45,19 +45,8 @@ roomsTest("the page origin carries viz sockets, admission and refusal alike", as
 	const httpPort = freePort();
 	const roomPort = freePort();
 	const vizPort = freePort();
-	const web = spawnOwned("deno", {
-		args: [
-			"run",
-			"--allow-ffi",
-			"--allow-read",
-			"--allow-write",
-			"--allow-net",
-			"--allow-env",
-			"--allow-run",
-			WEB,
-			String(httpPort),
-			String(roomPort),
-		],
+	const web = spawnOwned(WEB, {
+		args: ["--transport=tcp", String(httpPort), String(roomPort)],
 		cwd: ROOT,
 		env: {
 			...Deno.env.toObject(),

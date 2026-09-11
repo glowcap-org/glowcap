@@ -1,7 +1,7 @@
 //! Public Host construction, publication, identity, and resolver surface.
 
 use super::*;
-use crate::CaptpVersion;
+use crate::{CaptpVersion, Session};
 /// The CapTP Host: one identity, one actor graph, one routing and redeem
 /// authority, shared by every session minted against it. Owns `engine.Node`
 /// (router half of Goblins mycapn; Host carries the product role — ADR-0079).
@@ -29,7 +29,7 @@ pub enum ListenerIdentity {
 	Host(Host),
 }
 
-#[cfg(any(feature = "tcp", feature = "onion", feature = "relay"))]
+#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 impl ListenerIdentity {
 	pub(crate) fn into_host(self) -> Result<Host> {
 		match self {
@@ -129,8 +129,7 @@ impl Host {
 	/// Host property, so every session minted against a shared Host speaks
 	/// the same grammar. Pass the Host to
 	/// [`RuntimeConfig::adopt_host`](crate::RuntimeConfig::adopt_host),
-	/// or to [`tcp::listen`](crate::tcp::listen) through
-	/// [`tcp::ListenOptions`](crate::tcp::ListenOptions).
+	/// or, with native TCP enabled, to `tcp::listen` through `tcp::ListenOptions`.
 	pub fn with_codec(codec: Codec) -> Result<Host> {
 		Host::with_options(HostOptions::with_codec(codec))
 	}
@@ -152,7 +151,7 @@ impl Host {
 		Host::from_seed_with_options(seed, HostOptions::default())
 	}
 
-	/// [`from_seed`] with full [`HostOptions`] (codec + local-turn budget).
+	/// [`Self::from_seed`] with full [`HostOptions`] (codec + local-turn budget).
 	pub fn from_seed_with_options(seed: [u8; 32], options: HostOptions) -> Result<Host> {
 		Ok(Host {
 			shared: HostShared::new(
@@ -212,19 +211,27 @@ impl Host {
 		Ok(String::from_utf8_lossy(&out).into_owned())
 	}
 
-	// A Host in a caller-supplied allocation scope; the Host must be dropped
-	// before the context. Test-only: the allocator dogfood drives it.
-	#[cfg(all(test, feature = "tcp"))]
-	pub(crate) fn new_in(context: &Context, codec: Codec) -> Result<Host> {
+	/// A Host with a fresh durable identity inside a caller-supplied
+	/// allocation scope: every native allocation the Host makes routes through
+	/// the context's allocator, and the Host must be dropped before the
+	/// context. This is the same attachment the Python and TypeScript bindings
+	/// offer at Host construction.
+	pub fn new_in(context: &Context, options: HostOptions) -> Result<Host> {
 		let mut seed = [0u8; 32];
 		getrandom::fill(&mut seed).map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "no OS entropy".to_string()))?;
+		Host::from_seed_with_options_in(seed, options, context)
+	}
+
+	/// [`Self::from_seed_with_options`] inside a caller-supplied allocation scope;
+	/// see [`Self::new_in`] for the ownership order.
+	pub fn from_seed_with_options_in(seed: [u8; 32], options: HostOptions, context: &Context) -> Result<Host> {
 		Ok(Host {
 			shared: HostShared::new(
 				seed,
-				codec,
-				crate::CaptpVersion::V1_0,
-				crate::FeatureSet::FULL,
-				0,
+				options.codec,
+				options.captp_version,
+				options.features,
+				options.local_turn_budget,
 				Some(context),
 			)?,
 		})
@@ -249,7 +256,8 @@ impl Host {
 	/// host enlivens it over a live session it already dialed to that peer, or
 	/// dials one itself through this host's own DIAL action and finishes when
 	/// the dial reports. [`Session::enliven`] is the narrower verb — it never
-	/// dials, and refuses a sturdyref for another peer.
+	/// dials, and refuses a sturdyref for another peer. Each returned occurrence
+	/// releases its application retain on final drop.
 	pub async fn enliven(&self, sturdyref: &str) -> Result<Ref> {
 		self.enliven_inner(sturdyref, None).await
 	}
@@ -260,8 +268,17 @@ impl Host {
 		self.enliven_inner(sturdyref, Some(captp_version)).await
 	}
 
+	/// Retain the live exporter session of a capability in this Host. Local,
+	/// stale and foreign-Host capabilities have no exporter. The returned owned
+	/// handle shares the existing session; it does not dial or add authority.
+	/// Use [`Session::relinquish`] to relinquish it without closing other owners.
+	pub fn reference_session(&self, reference: &Ref) -> Result<Option<Session>> {
+		Ok(self.shared.exporter_for(reference)?.map(Session::owning))
+	}
+
 	/// Fetch a named publication at a typed locator. This Host's configured
 	/// profile owns version, codec, route admission, and physical dial selection.
+	/// Each returned occurrence releases its application retain on final drop.
 	pub async fn fetch_at(&self, locator: &Locator, name: &str) -> Result<Ref> {
 		self.shared.guard_handle()?;
 		let owned = OwnedLocator::new(locator)?;
@@ -276,7 +293,7 @@ impl Host {
 			)
 		})?;
 		drop(owned);
-		self.shared.vow_minted(vow, None);
+		self.shared.owned_vow_minted(vow);
 		let _release = crate::gc::VowGuard::new(&self.shared, vow);
 		let settled = self.shared.await_vow(vow);
 		self.shared.kick_actions().await?;
@@ -305,9 +322,10 @@ impl Host {
 		})?;
 		// The vow may be parked on a dial with no session of its own, which is
 		// exactly the `None` session row the vow table already admits.
-		// Host-level enliven is owned by the durable dedup cache, not a
-		// GC-enabled arrival session (ADR-0063).
-		self.shared.vow_minted(vow, None);
+		// Host-level results own one application occurrence even without an
+		// arrival Session. Track it before progress, including cache hits and
+		// completed replies whose observer is subsequently cancelled.
+		self.shared.owned_vow_minted(vow);
 		let _release = crate::gc::VowGuard::new(&self.shared, vow);
 		let settled = self.shared.await_vow(vow);
 		self.shared.kick_actions().await?;
@@ -340,7 +358,7 @@ impl Host {
 	/// exact actor when a recipient withdraws over its own exporter session
 	/// (ADR-0009). `make` preserves the factory-shaped API for a `!Clone` `FnMut`;
 	/// the Host invokes it once.
-	pub fn publish_giftable(&self, name: &str, make: impl Fn() -> Behavior + 'static) -> Result<()> {
+	pub fn publish_giftable(&self, name: &str, make: impl FnOnce() -> Behavior) -> Result<()> {
 		self.shared.guard_handle()?;
 		// A giftable is bound to no single session: its forwards always go
 		// through the host, and a turn it runs belongs to whichever session
@@ -349,22 +367,22 @@ impl Host {
 		let cell = self
 			.shared
 			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
-		let rc = unsafe {
-			ffi::glowcap_host_publish(
-				self.shared.raw.get(),
-				name.as_ptr(),
-				name.len(),
-				trampoline,
-				cell as *mut core::ffi::c_void,
-				ctx_free,
-			)
-		};
-		if rc != sys::OK {
-			let primary = host_refusal(rc, "host publication");
-			let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
-			return Err(crate::retain_cleanup_failure(primary, cleanup));
+		unsafe {
+			register_actor_cell(
+				cell,
+				|| {
+					ffi::glowcap_host_publish(
+						self.shared.raw.get(),
+						name.as_ptr(),
+						name.len(),
+						trampoline,
+						cell as *mut core::ffi::c_void,
+						ctx_free,
+					)
+				},
+				|code| code == sys::OK,
+			)?;
 		}
-		self.shared.giftables.borrow_mut().insert(name.to_string(), cell);
 		Ok(())
 	}
 
@@ -372,37 +390,56 @@ impl Host {
 	/// return that name — the swiss to place in a sturdyref beside this host's
 	/// own locator (ADR-0098). Unpredictable, never reassigned, structurally
 	/// disjoint from every mutable alias, and removable only through
-	/// [`Host::remove_durable`]. Entropy is drawn here, from the OS RNG.
-	pub fn publish_durable(&self, make: impl Fn() -> Behavior + 'static) -> Result<String> {
+	/// [`Host::remove_durable`]. Entropy is drawn here, from the platform RNG.
+	pub fn publish_durable(&self, make: impl FnOnce() -> Behavior) -> Result<String> {
 		self.shared.guard_handle()?;
-		let mut entropy = [0u8; 16];
+		let mut entropy = [0u8; Self::DURABLE_ENTROPY_BYTES];
 		getrandom::fill(&mut entropy).map_err(|error| {
 			Error::with_detail(sys::ERR_IO, format!("drawing durable swiss entropy failed: {error}"))
 		})?;
+		self.publish_durable_with_entropy(entropy, make)
+	}
+
+	/// Required entropy width, reflected from the Host C ABI.
+	pub const DURABLE_ENTROPY_BYTES: usize = crate::abi_constants_gen::HOST_DURABLE_ENTROPY_LEN;
+
+	/// Publish with retained or cryptographically derived entropy so a durable
+	/// name can be restored after reconstructing the Host. The caller supplies
+	/// unpredictable entropy; the Zig Host owns name derivation and refuses a
+	/// collision with a live publication. Removing a publication releases its
+	/// name: the application must retain revocation records and never reuse that
+	/// entropy for different authority. Restore both identity and publication
+	/// state before serving callers.
+	pub fn publish_durable_with_entropy(
+		&self,
+		entropy: [u8; Self::DURABLE_ENTROPY_BYTES],
+		make: impl FnOnce() -> Behavior,
+	) -> Result<String> {
+		self.shared.guard_handle()?;
 		let mut behavior = make();
 		let cell = self
 			.shared
 			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
-		let mut swiss = [0u8; 64];
+		let mut swiss = [0u8; crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN];
 		let rc = unsafe {
-			ffi::glowcap_host_publish_durable(
-				self.shared.raw.get(),
-				entropy.as_ptr(),
-				entropy.len(),
-				trampoline,
-				cell as *mut core::ffi::c_void,
-				ctx_free,
-				swiss.as_mut_ptr(),
-				swiss.len(),
-			)
+			register_actor_cell(
+				cell,
+				|| {
+					ffi::glowcap_host_publish_durable(
+						self.shared.raw.get(),
+						entropy.as_ptr(),
+						entropy.len(),
+						trampoline,
+						cell as *mut core::ffi::c_void,
+						ctx_free,
+						swiss.as_mut_ptr(),
+						swiss.len(),
+					)
+				},
+				|code| code == crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN as i32,
+			)?
 		};
-		if rc <= 0 {
-			let primary = host_refusal(rc, "durable host publication");
-			let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
-			return Err(crate::retain_cleanup_failure(primary, cleanup));
-		}
 		let name = String::from_utf8_lossy(&swiss[..rc as usize]).into_owned();
-		self.shared.giftables.borrow_mut().insert(name.clone(), cell);
 		Ok(name)
 	}
 
@@ -417,7 +454,6 @@ impl Host {
 			return Ok(false);
 		}
 		check_host(rc)?;
-		self.shared.giftables.borrow_mut().remove(swiss);
 		Ok(true)
 	}
 
@@ -435,7 +471,6 @@ impl Host {
 		check_host(rc)?;
 		// The alias is gone but the actor is not: the C row still owns the
 		// behavior cell (freed at release), so only the name bookkeeping drops.
-		self.shared.giftables.borrow_mut().remove(name);
 		Ok(true)
 	}
 }
@@ -444,9 +479,10 @@ impl Host {
 /// The behavior hands the resolver to whatever completes the work, and the
 /// completion settles it from the host's thread.
 /// A successful settle consumes its native authority; a refused conversion or
-/// native call leaves the resolver retryable. A deferred settle carries plain
-/// data only — a value that names a capability is refused, and an answer that
-/// carries authority forwards to a send instead.
+/// native call leaves the resolver retryable. `fulfill` carries plain data;
+/// `fulfill_value` projects owning-thread capabilities in the original caller
+/// session. Cross-session handoffs use ordinary send/forward machinery. Dropping an unsettled resolver
+/// schedules a broken answer through the Host, including drops inside callbacks.
 pub struct Resolver {
 	shared: Rc<HostShared>,
 	id: Option<u64>,
@@ -475,6 +511,20 @@ impl Resolver {
 		Ok(())
 	}
 
+	/// Fulfill on the Host owner thread with data and capabilities reachable in
+	/// the original caller session. Cross-session handoffs are refused; failed
+	/// preparation leaves this resolver available for retry or explicit break.
+	pub fn fulfill_value(&mut self, value: &Argument) -> Result<()> {
+		let id = self.live_id()?;
+		let mut arena = crate::SendArena::default();
+		let c_value = arena.one(value)?;
+		check_host(unsafe { ffi::glowcap_host_resolver_fulfill_value(self.shared.raw.get(), id, &c_value) })?;
+		self.id = None;
+		self.shared.note_close_activity();
+		self.shared.schedule_kick()?;
+		Ok(())
+	}
+
 	/// Settle the deferred answer broken with the worker's own words. The
 	/// same top-level, one-shot contract as [`Resolver::fulfill`].
 	pub fn break_with(&mut self, reason: &str) -> Result<()> {
@@ -487,5 +537,18 @@ impl Resolver {
 		self.shared.note_close_activity();
 		self.shared.schedule_kick()?;
 		Ok(())
+	}
+}
+
+// A resolver may be dropped from a behavior callback. Like capability/vow
+// finalizers, park its native operation for the Host's safe progress boundary.
+impl Drop for Resolver {
+	fn drop(&mut self) {
+		if let Some(id) = self.id.take() {
+			if !self.shared.raw().is_null() {
+				self.shared.resolver_abandon_pending.borrow_mut().push_back(id);
+				self.shared.schedule_kick_or_record();
+			}
+		}
 	}
 }

@@ -1,10 +1,10 @@
 // Who a command is talking to, and the sentences for a missing handle.
 
-import { ROOM_MENTIONS } from "../../../lib/limits.ts";
+import { applicationModule } from "../application.ts";
 
 /** Whether `who` is a room-wide word rather than a person. */
 export function addressesEveryone(who: string): boolean {
-	return ROOM_MENTIONS.includes(who.toLowerCase());
+	return applicationModule().addressesEveryone(who);
 }
 
 /** Why a command could not enter a room on this tab, when the missing handle
@@ -32,13 +32,5 @@ export function notRegisteredForDirect(who: string): string {
 
 /** Why this nick cannot be offered the room, or null when they can. */
 export function inviteWhy(who: string, you: string): string | null {
-	const nick = who.trim().replace(/^@/, "").split(/\s+/)[0] ?? "";
-	if (nick === "") return "Name who to offer this room to.";
-	if (addressesEveryone(nick)) {
-		return `@${nick} is everyone in the room. Hand it to one person.`;
-	}
-	if (you !== "" && nick.toLowerCase() === you.toLowerCase()) {
-		return "You already hold this room.";
-	}
-	return null;
+	return applicationModule().roomInviteRefusal(who, you) ?? null;
 }

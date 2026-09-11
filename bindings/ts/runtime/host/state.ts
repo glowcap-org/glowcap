@@ -480,7 +480,8 @@ export abstract class HostState {
 		if (this._raw === NULL) return;
 		const msg = new TextEncoder().encode(message);
 		try {
-			checkHost(hostS.glowcap_host_resolver_break(this._raw, resolver, ab(msg), BigInt(msg.length)));
+			// The awaitable can finish after its calling session retired the answer.
+			checkHost(hostS.glowcap_host_resolver_abandon(this._raw, resolver, ab(msg), BigInt(msg.length)));
 		} catch (error) {
 			this.recordBackgroundFailure(error);
 		}

@@ -22,6 +22,7 @@ const docs_adr = @import("source_check/docs/adr.zig");
 const docs_links = @import("source_check/docs/links.zig");
 const docs_site = @import("source_check/docs/site.zig");
 const docs_inventories = @import("source_check/docs/inventories.zig");
+const docs_claim_parity = @import("source_check/docs/claim_parity.zig");
 const docs_snippets = @import("source_check/docs/snippets.zig");
 const docs_registry = @import("source_check/docs/registry.zig");
 const docs_voice = @import("source_check/docs/voice.zig");
@@ -46,8 +47,11 @@ const css_wellformed = @import("source_check/css_wellformed.zig");
 const css_lightdark = @import("source_check/css_lightdark.zig");
 const rooms_ui = @import("source_check/rooms_ui.zig");
 const rooms_avatar = @import("source_check/rooms_avatar.zig");
+const mark_assets = @import("source_check/mark_assets.zig");
 const prose_file_claims = @import("source_check/prose_file_claims.zig");
 const rooms_session_access = @import("source_check/rooms_session_access.zig");
+const rooms_rust_tasks = @import("source_check/rooms_rust_tasks.zig");
+const rooms_rust_ownership = @import("source_check/rooms_rust_ownership.zig");
 const rooms_proofs = @import("source_check/rooms_proofs.zig");
 const scaffolding = @import("source_check/scaffolding.zig");
 const agents_catalog = @import("source_check/agents_catalog.zig");
@@ -58,6 +62,7 @@ const c_abi_resolve = @import("source_check/c_abi/resolve.zig");
 const c_abi_resolve_ports = @import("source_check/c_abi/resolve_ports.zig");
 const c_abi_resolve_cases = @import("source_check/c_abi/resolve_cases.zig");
 const c_abi_cites = @import("source_check/c_abi/cites.zig");
+const c_abi_errdefer = @import("source_check/c_abi/errdefer.zig");
 const c_abi_wiring = @import("source_check/c_abi/wiring.zig");
 const c_abi_mirrors = @import("source_check/c_abi/mirrors.zig");
 const captp_io_spine = @import("source_check/captp_io_spine.zig");
@@ -140,6 +145,13 @@ pub fn check(
     try docs_snippets.checkQuickStartSnippet(io, gpa, root, &violations);
     try docs_snippets.checkRelaySnippetsUseWss(io, gpa, root, &violations);
     try docs_inventories.checkStabilityEvidenceParity(io, gpa, root, &violations);
+    try docs_claim_parity.checkStabilityAreaTableRecurringClaims(io, gpa, root, &violations);
+    try docs_claim_parity.checkSiteStabilitySummary(io, gpa, root, &violations);
+    try docs_claim_parity.checkPerformanceLiveSocket(io, gpa, root, &violations);
+    try docs_claim_parity.checkStartCompleteProgram(io, gpa, root, &violations);
+    try docs_claim_parity.checkExamplesLeadWithRooms(io, gpa, root, &violations);
+    try docs_claim_parity.checkDeliverOneWay(io, gpa, root, &violations);
+    try docs_claim_parity.checkSessionIsAView(io, gpa, root, &violations);
     try docs_links.checkDanglingReferenceLinks(io, gpa, root, &violations);
     try docs_snippets.checkMermaidBlocks(io, gpa, root, &violations);
     try ui.checkUiCore(io, gpa, root, &violations);
@@ -151,6 +163,8 @@ pub fn check(
     try rooms_ui.checkRoomsSelectors(io, gpa, root, &violations);
     try prose_file_claims.checkProseFileClaims(io, gpa, root, &violations);
     try rooms_session_access.checkRoomsSessionAccess(io, gpa, root, &violations);
+    try rooms_rust_tasks.checkRoomsRustTasks(io, gpa, root, &violations);
+    try rooms_rust_ownership.check(io, gpa, root, &violations);
     try rooms_ui.checkRoomsLayerBans(io, gpa, root, &violations);
     try rooms_ui.checkRoomsControlSurfaces(io, gpa, root, &violations);
     try rooms_ui.checkRoomsBootStates(io, gpa, root, &violations);
@@ -163,6 +177,7 @@ pub fn check(
     try rooms_ui.checkRoomsRailRow(io, gpa, root, &violations);
     try rooms_ui.checkRoomsConfig(io, gpa, root, &violations);
     try rooms_avatar.checkAvatarRamp(io, gpa, root, &violations);
+    try mark_assets.checkMarkAssets(io, gpa, root, &violations);
     try rooms_proofs.checkRoomsProofChildren(io, gpa, root, &violations);
     try ps_steps.checkDocumentedBuildSteps(io, gpa, root, &violations);
     try ps_execution_deadlines.check(io, gpa, root, &violations);
@@ -174,6 +189,7 @@ pub fn check(
     try c_abi_surface.checkCAbiSurfaceShape(io, gpa, root, &violations);
     try c_abi_surface.checkCAbiHeaderCommentSeparation(io, gpa, root, &violations);
     try c_abi_surface.checkLocatorAuthoritySplit(io, gpa, root, &violations);
+    try c_abi_errdefer.checkCConventionErrdefer(io, gpa, root, &violations);
     try c_abi_surface.checkAbiExportsConsumed(io, gpa, root, &violations);
     try c_abi_mirrors.checkBindingStructPins(io, gpa, root, &violations);
     try c_abi_mirrors.checkTraceVocabulary(io, gpa, root, &violations);
@@ -205,7 +221,7 @@ pub fn check(
     try binding_runtime_proof.check(io, gpa, root, &violations);
     try bs_ffi_surface.checkIrohSidecarAbi(io, gpa, root, &violations);
     try bs_ffi_surface.checkWebrtcSidecarAbi(io, gpa, root, &violations);
-    try bs_ffi_surface.checkIrohSidecarPins(io, gpa, root, &violations);
+    try bs_ffi_surface.checkSidecarPins(io, gpa, root, &violations);
     try bs_ffi_surface.checkSidecarSteadyBytes(io, gpa, root, &violations);
     try bs_ffi_surface.checkIrohAcceptQueueBound(io, gpa, root, &violations);
     try bs_webrtc.checkSignalAndIceCaps(io, gpa, root, &violations);
@@ -306,6 +322,7 @@ fn zigLibPath(b: *Build) []const u8 {
 }
 
 test {
+    _ = @import("toolchain_check.zig");
     // Pull the check modules' unit tests into the source-check test artifact.
     _ = bans;
     _ = binding_runtime_proof;
@@ -317,6 +334,7 @@ test {
     _ = cp_node_actions;
     _ = docs_links;
     _ = docs_site;
+    _ = docs_claim_parity;
     _ = docs_registry;
     _ = docs_snippets;
     _ = file_length;
@@ -333,6 +351,7 @@ test {
     _ = cp_racket;
     _ = cp_rooms_profile;
     _ = cp_rooms_signaling;
+    _ = rooms_rust_ownership;
     _ = cp_pins;
     _ = zig_docs;
     _ = signing_domain;

@@ -1,15 +1,17 @@
+import type { AttachedFile as Attachment } from "./remote.ts";
+import type { AttachedLineEvent as RoomsSessionLineEvent } from "./remote.ts";
 // Revisioned browser controller for an attached durable Rooms session.
 
+import type { HistoryChange } from "../../../lib/session/history.ts";
 import type {
 	RoomsOperationsSnapshot,
 	RoomsSessionFacet,
 	RoomsSessionGrantView,
-	RoomsSessionLineEvent,
 	RoomsSessionSnapshot,
 } from "../../../lib/session/client.ts";
 import type { RoomsRoomJoinIntent, RoomsSessionState } from "../../../lib/rooms_state.ts";
-import type { RoomPolicy } from "../../../lib/room/policy.ts";
-import type { Attachment, AttachmentSource } from "../../../lib/attachment.ts";
+import type { RoomPolicy } from "../room_policy.ts";
+import type { AttachmentSource } from "../../../lib/attachment.ts";
 import type { ArchiveRecord } from "../../../lib/archive/protocol.ts";
 import type { BridgeForm } from "../../../lib/bridge/form.ts";
 import type {
@@ -19,34 +21,53 @@ import type {
 	OperatorRetireBatch,
 	OperatorSnapshot,
 } from "../../../lib/operator.ts";
-import type { AttachedRoomsRemote, RoomsSessionGrantPatch } from "./remote.ts";
+import type { AttachedFileData, AttachedHistoryRead, AttachedRoomsRemote, RoomsSessionGrantPatch } from "./remote.ts";
+import { sessionPreferences } from "./preferences.ts";
 import { AttachedSessionFeed } from "./attached_feed.ts";
-import { type OperationSeat, runEffectCommand, runResultCommand } from "./attached_effects.ts";
+
+type ApplicationRemote =
+	& AttachedRoomsRemote
+	& Required<Pick<AttachedRoomsRemote, "runCommand" | "drafts" | "writes" | "encodeWorkspace" | "selectWorkspace">>;
 
 export class AttachedRoomsController {
-	readonly #remote: AttachedRoomsRemote;
+	readonly #remote: ApplicationRemote;
 	readonly #closeRemote: () => Promise<void>;
 	readonly #feed: AttachedSessionFeed;
-	#tail: Promise<void> = Promise.resolve();
-	readonly #resultOperationIds = new Map<string, { args: string; id: string }>();
-	/** The durable operations this tab is driving right now.
-	 *
-	 * An operation sitting in the session's pending ledger is not by itself
-	 * something a reader has to decide about. While this tab is awaiting one it
-	 * will settle, or it will fail at the control that started it, and either
-	 * way somebody is already looking after it. What is left when those are
-	 * taken out is the ledger's leftovers: an operation from a session that went
-	 * away mid-flight, which nothing is driving and which will sit there until a
-	 * person says what becomes of it. That is what the page calls a session
-	 * effect, and what it asks about. */
-	readonly #driving = new Set<string>();
-	readonly #pendingDrafts = new Map<string, { token: symbol; text: string }>();
 	#closed = false;
 
 	constructor(remote: AttachedRoomsRemote, closeRemote: () => Promise<void> = () => Promise.resolve()) {
-		this.#remote = remote;
+		if (
+			remote.runCommand == null || remote.drafts == null || remote.writes == null ||
+			remote.encodeWorkspace == null || remote.selectWorkspace == null
+		) {
+			throw new Error("The Rooms controller requires the Rust application owner");
+		}
+		this.#remote = remote as ApplicationRemote;
 		this.#closeRemote = closeRemote;
 		this.#feed = new AttachedSessionFeed(remote);
+	}
+
+	encodeWorkspace(choices: string): string | null {
+		if (this.#closed) throw new Error("This Rooms controller is closed");
+		return this.#remote.encodeWorkspace?.(choices) ?? null;
+	}
+
+	eraseBrowserArchive(): Promise<void> {
+		if (this.#closed || this.#remote.eraseBrowserArchive == null) {
+			return Promise.reject(new Error("This Rooms controller cannot erase browser data"));
+		}
+		return this.#remote.eraseBrowserArchive();
+	}
+
+	selectWorkspace(
+		persistence: import("../../../../../zig-out/wasm/rooms/rooms_browser.js").RoomsWorkspacePersistence,
+		link: string,
+		home: string,
+	): Promise<string> {
+		if (this.#closed || this.#remote.selectWorkspace == null) {
+			return Promise.reject(new Error("This Rooms controller cannot change the workspace"));
+		}
+		return this.#remote.selectWorkspace(persistence, link, home);
 	}
 
 	get current(): RoomsSessionSnapshot | null {
@@ -65,12 +86,50 @@ export class AttachedRoomsController {
 		return this.#remote.verifySibling(sturdyref);
 	}
 
+	get observesHistory(): boolean {
+		return this.#remote.listenHistory != null;
+	}
+	onHistoryRead(listener: (result: AttachedHistoryRead) => void): () => void {
+		if (this.#closed) throw new Error("this attached Rooms controller is closed");
+		this.#remote.listenHistory?.(listener);
+		return () => {
+			if (!this.#closed) this.#remote.listenHistory?.(undefined);
+		};
+	}
+
 	onSnapshot(listener: (snapshot: RoomsSessionSnapshot) => void): () => void {
 		return this.#feed.onSnapshot(listener);
 	}
 
 	onLine(listener: (event: RoomsSessionLineEvent) => void): () => void {
 		return this.#feed.onLine(listener);
+	}
+
+	onHistoryInvalidated(listener: (change: HistoryChange) => void): () => void {
+		return this.#feed.onHistoryInvalidated(listener);
+	}
+
+	onOperationsRead(listener: (result: import("./remote.ts").AttachedOperationsRead) => void): () => void {
+		if (this.#closed) throw new Error("this attached Rooms controller is closed");
+		if (this.#remote.operationsView == null) throw new Error("this session has no operations view owner");
+		this.#remote.operationsView.listen(listener);
+		return () => {
+			if (!this.#closed) this.#remote.operationsView?.listen(undefined);
+		};
+	}
+	loadOperatorPage(category: OperatorCategory): Promise<void> {
+		if (this.#closed) return Promise.reject(new Error("this attached Rooms controller is closed"));
+		return this.#remote.operationsView?.loadPage(category) ??
+			Promise.reject(new Error("this session has no operations view owner"));
+	}
+	refreshOperations(
+		capability: import("./remote.ts").AttachedOperationsRead["capability"],
+		search?: string,
+		kind?: OperatorReferenceKind | null,
+	): Promise<void> {
+		if (this.#closed) return Promise.reject(new Error("this attached Rooms controller is closed"));
+		return this.#remote.operationsView?.refresh(capability, search, kind) ??
+			Promise.reject(new Error("this session has no operations view owner"));
 	}
 
 	onOperationsInvalidated(listener: (scope: string) => void): () => void {
@@ -85,62 +144,46 @@ export class AttachedRoomsController {
 	}
 
 	#command(name: string, args: string[]): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(() => this.#pureCommand(operationId, name, args));
+		if (this.#closed) return Promise.reject(new Error("this attached Rooms controller is closed"));
+		return this.#remote.runCommand(name, args);
 	}
 
 	say(conversationId: string, text: string): Promise<RoomsSessionSnapshot> {
-		return this.#effectCommand("say", [conversationId, text]);
+		return this.#command("say", [conversationId, text]);
 	}
 
 	editLine(conversationId: string, lineId: number, text: string): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const base = this.#feed.requireSnapshot().revision;
-			const revision = await this.#remote.editLine(operationId, base, conversationId, lineId, text);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#command("editLine", [conversationId, String(lineId), text]);
+	}
+	lastEditableLine(conversationId: string): number | undefined {
+		if (this.#closed) return undefined;
+		return this.#remote.lastEditableLine(conversationId);
+	}
+	ignoredNickname(conversationId: string): string | undefined {
+		if (this.#closed) return undefined;
+		return this.#remote.ignoredNickname(conversationId);
+	}
+	inviteToRoom(conversationId: string, who: string): Promise<void> {
+		return this.#serialize(() => this.#remote.inviteToRoom(conversationId, who));
+	}
+	roomLinkFor(conversationId: string, name?: string): Promise<{ name: string; held: boolean; link: string }> {
+		return this.#serialize(() => this.#remote.roomLinkFor(conversationId, name));
 	}
 
 	withdrawLine(conversationId: string, lineId: number): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const base = this.#feed.requireSnapshot().revision;
-			const revision = await this.#remote.withdrawLine(operationId, base, conversationId, lineId);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#command("withdrawLine", [conversationId, String(lineId)]);
 	}
 
 	operator(scope: string, action: string, args: string[] = []): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const base = this.#feed.requireSnapshot().revision;
-			const revision = await this.#remote.command(operationId, base, "operator", [scope, action, ...args]);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#command("operator", [scope, action, ...args]);
 	}
 
 	operations(scope: string, capability: string, action: string, args: string[] = []): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const base = this.#feed.requireSnapshot().revision;
-			const revision = await this.#remote.command(operationId, base, "operations", [
-				scope,
-				capability,
-				action,
-				...args,
-			]);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#command("operations", [scope, capability, action, ...args]);
 	}
 
 	sendFiles(conversationId: string, caption: string, files: AttachmentSource[]): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const base = this.#feed.requireSnapshot().revision;
-			const revision = await this.#remote.sendFiles(operationId, base, conversationId, caption, files);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#serialize(() => this.#remote.writes.files(conversationId, caption, files));
 	}
 
 	refileLine(
@@ -150,69 +193,55 @@ export class AttachedRoomsController {
 		keep: readonly number[],
 		files: AttachmentSource[],
 	): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const base = this.#feed.requireSnapshot().revision;
-			const revision = await this.#remote.refileLine(
-				operationId,
-				base,
-				conversationId,
-				lineId,
-				caption,
-				keep,
-				files,
-			);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#serialize(() => this.#remote.writes.refile(conversationId, lineId, caption, keep, files));
 	}
 
 	setDraft(conversationId: string, text: string): Promise<RoomsSessionSnapshot> {
-		if (this.#pendingDrafts.get(conversationId)?.text !== text) this.stageDraft(conversationId, text);
-		const token = this.#pendingDrafts.get(conversationId)?.token;
-		if (token == null) throw new Error("the attached draft was not staged");
-		const operationId = crypto.randomUUID();
-		return this.#serialize(() => this.#pureCommand(operationId, "setDraft", [conversationId, text])).finally(() => {
-			if (this.#pendingDrafts.get(conversationId)?.token === token) this.#pendingDrafts.delete(conversationId);
-		});
+		if (this.#closed) return Promise.reject(new Error("this attached Rooms controller is closed"));
+		return this.#remote.drafts.save(conversationId, text, false);
+	}
+
+	get closed(): boolean {
+		return this.#closed;
 	}
 
 	/** Make a view-local draft authoritative during its debounce window. The
 	 * later `setDraft` command persists this exact staged value. */
 	stageDraft(conversationId: string, text: string): void {
-		this.#pendingDrafts.set(conversationId, { token: Symbol(conversationId), text });
+		if (this.#closed) throw new Error("this attached Rooms controller is closed");
+		this.#remote.drafts.stage(conversationId, text);
 	}
 
 	retireDraft(conversationId: string): void {
-		this.#pendingDrafts.delete(conversationId);
+		if (this.#closed) return;
+		this.#remote.drafts.retire(conversationId);
 	}
 
 	pendingDraft(conversationId: string): string | undefined {
-		return this.#pendingDrafts.get(conversationId)?.text;
+		if (this.#closed) return undefined;
+		return this.#remote.drafts.pending(conversationId);
+	}
+
+	clearSentDraft(conversationId: string): Promise<RoomsSessionSnapshot | void> {
+		if (this.#closed) return Promise.reject(new Error("this attached Rooms controller is closed"));
+		return this.#remote.drafts.clearSent(conversationId);
+	}
+
+	cancelDraftSave(conversationId: string): void {
+		if (!this.#closed) this.#remote.drafts.cancelSave(conversationId);
+	}
+	scheduleDraft(conversationId: string, text: string): Promise<RoomsSessionSnapshot> {
+		if (this.#closed) {
+			return Promise.reject(new Error("Rooms draft scheduler is unavailable"));
+		}
+		return this.#remote.drafts.save(conversationId, text, true);
 	}
 
 	select(conversationId: string | null): Promise<RoomsSessionSnapshot> {
 		return this.#command("select", conversationId == null ? [] : [conversationId]);
 	}
 
-	setStanding(standing: string): Promise<RoomsSessionSnapshot> {
-		return this.#command("setStanding", [standing]);
-	}
-
-	setDirectoryNick(directoryId: string, nick: string): Promise<RoomsSessionSnapshot> {
-		return this.#command("setDirectoryNick", [directoryId, nick]);
-	}
-
-	setDirectoryStanding(directoryId: string, standing: string | null): Promise<RoomsSessionSnapshot> {
-		return this.#command("setDirectoryStanding", standing == null ? [directoryId] : [directoryId, standing]);
-	}
-
-	setRoomStanding(conversationId: string, standing: string | null): Promise<RoomsSessionSnapshot> {
-		return this.#command("setRoomStanding", standing == null ? [conversationId] : [conversationId, standing]);
-	}
-
-	setIgnoredNames(names: readonly string[]): Promise<RoomsSessionSnapshot> {
-		return this.#command("setIgnoredNames", [JSON.stringify(names)]);
-	}
+	readonly preferences = sessionPreferences((name, args) => this.#command(name, args));
 
 	chooseHistoryRetention(keep: boolean): Promise<RoomsSessionSnapshot> {
 		return this.#command("chooseHistoryRetention", [String(keep)]);
@@ -238,15 +267,46 @@ export class AttachedRoomsController {
 		operation: "replace" | "adoptWorkspace",
 		checkpoint: RoomsSessionState,
 	): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const revision = await this.#remote[operation](
-				operationId,
-				this.#feed.requireSnapshot().revision,
-				checkpoint,
-			);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#serialize(() => this.#remote.writes.checkpoint(checkpoint, operation === "adoptWorkspace"));
+	}
+
+	chooseDirect(
+		directory: string,
+		who: string,
+		select: boolean,
+	): Promise<import("../../../lib/rooms_state.ts").WorkspaceDirectConversation> {
+		if (this.#closed) return Promise.reject(new Error("This session is closed"));
+		return this.#remote.chooseDirect?.(directory, who, select) ??
+			Promise.reject(new Error("This session has no direct-conversation owner"));
+	}
+
+	reachDirectory(locator: string, nick: string, defaultDirectory: string, signal?: AbortSignal): Promise<void> {
+		if (this.#closed) return Promise.reject(new Error("This session is closed"));
+		return this.#remote.reachDirectory?.(locator, nick, defaultDirectory, signal) ??
+			Promise.reject(new Error("This session has no directory connection owner"));
+	}
+
+	joinDestination(
+		destination: import("../types.ts").RoomDestination,
+		nick: string,
+		defaultDirectory: string,
+		signal?: AbortSignal,
+	): Promise<RoomsSessionSnapshot> {
+		if (this.#closed) return Promise.reject(new Error("This session is closed"));
+		return this.#remote.joinDestination?.(JSON.stringify(destination), nick, defaultDirectory, signal) ??
+			Promise.reject(new Error("This session has no room gesture owner"));
+	}
+
+	takeRoomLink(link: string, label: string): Promise<boolean> {
+		if (this.#closed) return Promise.reject(new Error("This session is closed"));
+		return this.#remote.takeRoomLink?.(link, label) ??
+			Promise.reject(new Error("This session has no room gesture owner"));
+	}
+
+	chooseRoom(directory: string, name: string, policy?: RoomPolicy): Promise<RoomsSessionSnapshot> {
+		if (this.#closed) return Promise.reject(new Error("This session is closed"));
+		return this.#remote.chooseRoom?.(directory, name, policy == null ? undefined : JSON.stringify(policy)) ??
+			Promise.reject(new Error("This session has no room gesture owner"));
 	}
 
 	joinDirectory(directory: RoomsSessionState["directories"][number]): Promise<RoomsSessionSnapshot> {
@@ -278,26 +338,19 @@ export class AttachedRoomsController {
 		recoveryKey: string,
 		policy: RoomPolicy,
 	): Promise<RoomsSessionSnapshot> {
-		const operationId = crypto.randomUUID();
-		return this.#serialize(async () => {
-			const revision = await this.#remote.command(
-				operationId,
-				this.#feed.requireSnapshot().revision,
-				"openManagedRoom",
-				[
-					JSON.stringify(room),
-					recoveryKey,
-					policy.visibility,
-					policy.entry,
-					policy.speaking,
-				],
-			);
-			return await this.#feed.settleRevision(revision);
-		});
+		return this.#command("openManagedRoom", [
+			JSON.stringify(room),
+			recoveryKey,
+			policy.visibility,
+			policy.entry,
+			policy.speaking,
+		]);
 	}
 
-	acceptInvitation(invitationId: string, conversationId = crypto.randomUUID()): Promise<RoomsSessionSnapshot> {
-		return this.#command("acceptInvitation", [invitationId, conversationId]);
+	acceptInvitation(invitationId: string): Promise<RoomsSessionSnapshot> {
+		if (this.#closed) return Promise.reject(new Error("This session is closed"));
+		return this.#remote.acceptInvitation?.(invitationId) ??
+			Promise.reject(new Error("This session has no invitation gesture owner"));
 	}
 
 	dismissInvitation(invitationId: string): Promise<RoomsSessionSnapshot> {
@@ -305,11 +358,11 @@ export class AttachedRoomsController {
 	}
 
 	setRoomTopic(conversationId: string, text: string): Promise<RoomsSessionSnapshot> {
-		return this.#effectCommand("setRoomTopic", [conversationId, text]);
+		return this.#command("setRoomTopic", [conversationId, text]);
 	}
 
 	kickRoomMember(conversationId: string, nick: string): Promise<RoomsSessionSnapshot> {
-		return this.#effectCommand("kickRoomMember", [conversationId, nick]);
+		return this.#command("kickRoomMember", [conversationId, nick]);
 	}
 
 	/** Submit one bridge form act for the durable session to replay to its
@@ -332,22 +385,22 @@ export class AttachedRoomsController {
 	}
 
 	ensureRoomLink(conversationId: string): Promise<RoomsSessionSnapshot> {
-		return this.#resultCommand("ensureRoomLink", [conversationId]);
+		return this.#command("ensureRoomLink", [conversationId]);
 	}
 
 	takeRoomModerator(conversationId: string, sturdyref?: string): Promise<RoomsSessionSnapshot> {
-		return this.#resultCommand(
+		return this.#command(
 			"takeRoomModerator",
 			sturdyref == null ? [conversationId] : [conversationId, sturdyref],
 		);
 	}
 
 	takeRoomManager(conversationId: string, sturdyref: string): Promise<RoomsSessionSnapshot> {
-		return this.#resultCommand("takeRoomManager", [conversationId, sturdyref]);
+		return this.#command("takeRoomManager", [conversationId, sturdyref]);
 	}
 
 	recoverRoomManager(conversationId: string): Promise<RoomsSessionSnapshot> {
-		return this.#resultCommand("recoverRoomManager", [conversationId]);
+		return this.#command("recoverRoomManager", [conversationId]);
 	}
 
 	dropRoomManager(conversationId: string, token: string): Promise<RoomsSessionSnapshot> {
@@ -359,15 +412,15 @@ export class AttachedRoomsController {
 		kind: "room" | "steward",
 		token: string,
 	): Promise<RoomsSessionSnapshot> {
-		return this.#effectCommand("revokeManagedRoomAuthority", [conversationId, kind, token]);
+		return this.#command("revokeManagedRoomAuthority", [conversationId, kind, token]);
 	}
 
 	unregisterManagedRoom(conversationId: string): Promise<RoomsSessionSnapshot> {
-		return this.#effectCommand("unregisterManagedRoom", [conversationId]);
+		return this.#command("unregisterManagedRoom", [conversationId]);
 	}
 
 	setManagedRoomPolicy(conversationId: string, policy: RoomPolicy): Promise<RoomsSessionSnapshot> {
-		return this.#effectCommand("setManagedRoomPolicy", [
+		return this.#command("setManagedRoomPolicy", [
 			conversationId,
 			policy.visibility,
 			policy.entry,
@@ -380,7 +433,7 @@ export class AttachedRoomsController {
 	}
 
 	offerRoom(roomConversationId: string, directConversationId: string): Promise<RoomsSessionSnapshot> {
-		return this.#effectCommand("offerRoom", [roomConversationId, directConversationId]);
+		return this.#command("offerRoom", [roomConversationId, directConversationId]);
 	}
 
 	setTyping(conversationId: string, on: boolean): Promise<void> {
@@ -410,6 +463,10 @@ export class AttachedRoomsController {
 		return this.#command("replaceOperationsCapabilities", [JSON.stringify(credentials)]);
 	}
 
+	replaceOperationsBundle(raw: string, advertisedViz: string, context: string): Promise<RoomsSessionSnapshot> {
+		return this.#command("replaceOperationsBundle", [raw, advertisedViz, context]);
+	}
+
 	roomBridgeForm(conversationId: string): Promise<BridgeForm | null> {
 		return this.#remote.roomBridgeForm(conversationId);
 	}
@@ -434,6 +491,23 @@ export class AttachedRoomsController {
 		referenceKind: OperatorReferenceKind | null = null,
 	): Promise<OperatorPage> {
 		return this.#remote.operatorPage(scope, category, cursor, query, referenceKind);
+	}
+
+	runOperation(capability: string, action: string, args: string[] = []): Promise<RoomsSessionSnapshot> {
+		if (this.#closed) return Promise.reject(new Error("This session is closed"));
+		return this.#remote.operationsView?.run(capability, action, args) ??
+			Promise.reject(new Error("This session has no operations command owner"));
+	}
+
+	retireOperatorMatches(
+		category: OperatorCategory,
+		query: string,
+		limit: number,
+		referenceKind: OperatorReferenceKind | null = null,
+	): Promise<OperatorRetireBatch> {
+		if (this.#closed) return Promise.reject(new Error("This session is closed"));
+		return this.#remote.operationsView?.retire(category, query, limit, referenceKind) ??
+			Promise.reject(new Error("This session has no operations command owner"));
 	}
 
 	operatorRetireMatching(
@@ -491,16 +565,21 @@ export class AttachedRoomsController {
 		return this.#command("revokePeeredRoom", [id]);
 	}
 
-	fetchAttachment(attachment: Attachment, onProgress?: (got: number) => void): Promise<Uint8Array> {
-		return this.#remote.fetchAttachment(attachment, onProgress);
+	fetchAttachment(
+		attachment: Attachment,
+		onProgress?: (got: number) => void,
+		signal?: AbortSignal,
+	): Promise<AttachedFileData> {
+		return this.#remote.fetchAttachment(attachment, onProgress, signal);
 	}
 
 	fetchArchivedAttachment(
 		record: Extract<ArchiveRecord, { kind: "line" }>,
 		index: number,
 		onProgress?: (got: number) => void,
-	): Promise<Uint8Array> {
-		return this.#remote.fetchArchivedAttachment(record, index, onProgress);
+		signal?: AbortSignal,
+	): Promise<AttachedFileData> {
+		return this.#remote.fetchArchivedAttachment(record, index, onProgress, signal);
 	}
 
 	releaseAttachment(attachment: Attachment): void {
@@ -510,14 +589,14 @@ export class AttachedRoomsController {
 	resolveEffect(operationId: string, outcome: "committed" | "abandoned"): Promise<RoomsSessionSnapshot> {
 		return this.#serialize(async () => {
 			await this.#remote.resolveEffect(operationId, outcome);
-			return await this.#feed.refresh();
+			return this.#feed.requireSnapshot();
 		});
 	}
 
 	resumeEffect(operationId: string): Promise<RoomsSessionSnapshot> {
 		return this.#serialize(async () => {
-			const revision = await this.#remote.resumeEffect(operationId);
-			return await this.#feed.settleRevision(revision);
+			await this.#remote.resumeEffect(operationId);
+			return this.#feed.requireSnapshot();
 		});
 	}
 
@@ -529,7 +608,6 @@ export class AttachedRoomsController {
 	): Promise<RoomsSessionGrantView> {
 		return this.#serialize(async () => {
 			const grant = await this.#remote.issueGrant(id, rights, label, history);
-			await this.#feed.refresh();
 			return grant;
 		});
 	}
@@ -537,7 +615,6 @@ export class AttachedRoomsController {
 	revokeGrant(id: string): Promise<void> {
 		return this.#serialize(async () => {
 			await this.#remote.revokeGrant(id);
-			await this.#feed.refresh();
 		});
 	}
 
@@ -546,7 +623,6 @@ export class AttachedRoomsController {
 	changeGrant(id: string, patch: RoomsSessionGrantPatch): Promise<RoomsSessionGrantView> {
 		return this.#serialize(async () => {
 			const grant = await this.#remote.changeGrant(id, patch);
-			await this.#feed.refresh();
 			return grant;
 		});
 	}
@@ -554,53 +630,17 @@ export class AttachedRoomsController {
 	async close(): Promise<void> {
 		if (this.#closed) return;
 		this.#closed = true;
-		await this.#tail;
 		this.#feed.close();
-		this.#pendingDrafts.clear();
-		this.#resultOperationIds.clear();
 		await this.#closeRemote();
 	}
 
 	#serialize<T>(work: () => Promise<T>): Promise<T> {
-		const run = this.#tail.then(() => {
-			if (this.#closed) throw new Error("this attached Rooms controller is closed");
-			return work();
-		});
-		this.#tail = run.then(() => {}, () => {});
-		return run;
-	}
-
-	async #pureCommand(operationId: string, name: string, args: string[]): Promise<RoomsSessionSnapshot> {
-		for (let attempt = 0; attempt < 2; attempt += 1) {
-			const base = this.#feed.requireSnapshot().revision;
-			try {
-				const revision = await this.#remote.command(operationId, base, name, args);
-				return await this.#feed.settleRevision(revision);
-			} catch (error) {
-				if (attempt !== 0 || !(error instanceof Error) || !error.message.includes("session revision changed")) {
-					throw error;
-				}
-				await this.#feed.refresh();
-			}
-		}
-		throw new Error("the Rooms session command did not settle");
+		if (this.#closed) return Promise.reject(new Error("this attached Rooms controller is closed"));
+		return work();
 	}
 
 	/** Which operations this tab is currently answering for. */
 	driving(): ReadonlySet<string> {
-		return this.#driving;
-	}
-
-	/** What issuing an operation needs from this session. */
-	get #seat(): OperationSeat {
-		return { remote: this.#remote, feed: this.#feed, driving: this.#driving };
-	}
-
-	#effectCommand(name: string, args: string[]): Promise<RoomsSessionSnapshot> {
-		return this.#serialize(() => runEffectCommand(this.#seat, name, args));
-	}
-
-	#resultCommand(name: string, args: string[]): Promise<RoomsSessionSnapshot> {
-		return this.#serialize(() => runResultCommand(this.#seat, this.#resultOperationIds, name, args));
+		return new Set(this.#closed ? [] : this.#remote.driving?.() ?? []);
 	}
 }

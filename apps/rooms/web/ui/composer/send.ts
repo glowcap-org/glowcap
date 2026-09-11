@@ -1,13 +1,10 @@
 // One interpretation of a new composer submission for every Rooms controller.
-// Controllers commit the result through `commit.ts`: one refusal, one empty
-// composer, then they diverge on the wire.
+// The result retains asynchronous command completion; admission is not success.
 
-import { validateAttachmentSource } from "../../../lib/attachment.ts";
-import { lineCost, MAX_DIRECT_ATTACHMENT_BYTES, MAX_LINE, MAX_MESSAGE_FILES } from "../../../lib/limits.ts";
-import { commandIn, type CommandPowers } from "../commands.ts";
-import { pickedSource } from "../file_source.ts";
-import { lineRoom, tooLong } from "../text.ts";
-import { type Conv, isSessionConv } from "../types.ts";
+import { applicationModule } from "../application.ts";
+import type { CommandPowers } from "../commands.ts";
+import { applyCommandPlan, type Effect } from "../commands/execute.ts";
+import type { Conv } from "../types.ts";
 
 export interface ComposerDraft {
 	readonly text: string;
@@ -17,18 +14,19 @@ export interface ComposerDraft {
 
 export type PreparedComposerSend =
 	| { kind: "nothing" }
-	| { kind: "handled"; original: string; retires?: "conversation" | "directory" }
+	| { kind: "handled"; original: string; retires?: "conversation" | "directory"; completion?: Promise<void> }
 	| { kind: "refused"; why: string }
 	| { kind: "send"; original: string; text: string; files: readonly File[] };
 
-/** A directory is a command line, not a chat. Plain text and line commands
- * that would become a message have nowhere to go. */
-export const DIRECTORY_NO_CHAT = "This view does not carry messages. Use a command.";
-
 export function composerLineRefusal(conv: Conv, text: string): string | null {
-	const cap = lineRoom(conv, MAX_LINE);
-	return lineCost(text) > cap ? tooLong("Message", cap, "bytes") : null;
+	return applicationModule().composerLineRefusal(text, conv.type === "room" ? conv.lineBytes : undefined) ?? null;
 }
+
+type Prepared =
+	| { kind: "nothing" }
+	| { kind: "refused"; why: string }
+	| { kind: "send"; text: string }
+	| { kind: "command"; plan: Effect };
 
 export function prepareComposerSend(
 	conv: Conv | null,
@@ -37,44 +35,27 @@ export function prepareComposerSend(
 ): PreparedComposerSend {
 	const original = draft.text;
 	const files = [...draft.files];
-	if ((original.trim() === "" && files.length === 0 && draft.keeping == null) || conv == null) {
-		return { kind: "nothing" };
+	const prepared = JSON.parse(
+		applicationModule().prepareComposer(JSON.stringify({
+			text: original,
+			place: conv?.type === "dm" ? "direct" : conv?.type ?? "none",
+			you: powers.you(),
+			away: powers.standingHere() !== "",
+			lineLimit: conv?.type === "room" ? conv.lineBytes ?? null : null,
+			files: files.map((file) => ({
+				name: file.name,
+				mime: file.type || "application/octet-stream",
+				size: file.size,
+			})),
+			keeping: draft.keeping != null,
+		})),
+	) as Prepared;
+	if (prepared.kind === "nothing" || prepared.kind === "refused") return prepared;
+	if (prepared.kind === "command") {
+		const outcome = applyCommandPlan(prepared.plan, powers, conv);
+		if (outcome.kind === "refused") return outcome;
+		if (outcome.kind !== "done") throw new Error("A Rust command gesture unexpectedly produced a message");
+		return { kind: "handled", original, retires: outcome.retires, completion: outcome.completion };
 	}
-	if (conv.type === "directory" && files.length > 0) {
-		return { kind: "refused", why: "This view does not carry files." };
-	}
-	if (isSessionConv(conv)) {
-		const lineRefusal = composerLineRefusal(conv, original);
-		if (lineRefusal != null) return { kind: "refused", why: lineRefusal };
-	}
-
-	let text = original;
-	const named = commandIn(original);
-	if (named != null) {
-		const outcome = named.command.run(named.rest, powers, conv);
-		if (outcome.kind === "done") return { kind: "handled", original, retires: outcome.retires };
-		if (outcome.kind === "refused") return { kind: "refused", why: outcome.why };
-		if (conv.type === "directory") return { kind: "refused", why: DIRECTORY_NO_CHAT };
-		if (outcome.kind === "action" && files.length > 0) {
-			return { kind: "refused", why: "An /me action cannot carry files. Send them as a separate message." };
-		}
-		text = outcome.kind === "action" ? `/me ${outcome.text}` : outcome.text;
-	} else if (conv.type === "directory") {
-		return { kind: "refused", why: DIRECTORY_NO_CHAT };
-	}
-	if (files.length > MAX_MESSAGE_FILES) {
-		return { kind: "refused", why: `A message may carry at most ${MAX_MESSAGE_FILES} files.` };
-	}
-	if (conv.type === "dm" && files.reduce((sum, file) => sum + file.size, 0) > MAX_DIRECT_ATTACHMENT_BYTES) {
-		return {
-			kind: "refused",
-			why: `A direct message may carry at most ${MAX_DIRECT_ATTACHMENT_BYTES / (1024 * 1024)} MB.`,
-		};
-	}
-	try {
-		for (const file of files) validateAttachmentSource(pickedSource(file));
-	} catch (error) {
-		return { kind: "refused", why: error instanceof Error ? error.message : String(error) };
-	}
-	return { kind: "send", original, text, files };
+	return { kind: "send", original, text: prepared.text, files };
 }

@@ -40,19 +40,8 @@ import { fail, freePort, ROOT, waitForHttp, WEB } from "../page/harness.ts";
 const httpPort = freePort();
 const roomPort = freePort();
 
-spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-	],
+spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",

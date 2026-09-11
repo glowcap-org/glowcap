@@ -198,13 +198,13 @@ test "inbound gc-exports can never release an export's local baseline" {
         } });
     }
 
-    // A hostile release of one more than the wire ever granted is refused
+    // An untrusted release of one more than the wire ever granted is refused
     // loudly. Validated against the raw refcount instead of the wire-held
     // share, it would have driven the row to zero and deleted it — a partner
     // killing our own live capability.
-    const hostile = [_]u64{s.exportRefcount(.from(7))};
+    const over_release = [_]u64{s.exportRefcount(.from(7))};
     try std.testing.expectError(session.Error.GcUnderflow, s.recordRecv(.{
-        .gc_export = .{ .positions = &.{7}, .deltas = &hostile },
+        .gc_export = .{ .positions = &.{7}, .deltas = &over_release },
     }));
     try std.testing.expectEqual(baseline + 2, s.exportRefcount(.from(7)));
 

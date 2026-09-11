@@ -15,33 +15,71 @@ const Wire = HostRuntime.Wire;
 const transport_close_ms: i32 = 5_000;
 
 pub fn progressCarrierCloseDeadlines(self: *HostRuntime) void {
+    const nearest = self.nearest_carrier_close_ms orelse return;
     const now_ms = net.clock.nowMs(self.io);
+    if (now_ms < nearest) return;
+    var next_nearest: ?i64 = null;
     var wires = self.wires.valueIterator();
     while (wires.next()) |wire| {
         const deadline = wire.*.carrier_close_deadline_ms orelse continue;
         if (deadline <= now_ms) progressWireCarrierClose(self, wire.*);
+        if (wire.*.carrier_close_deadline_ms) |left| next_nearest = @min(next_nearest orelse left, left);
     }
     var retiring = self.retiring_wires;
     while (retiring) |wire| {
         const next = wire.retiring_next;
         if (wire.carrier_close_deadline_ms) |deadline|
             if (deadline <= now_ms) progressWireCarrierClose(self, wire);
+        if (wire.carrier_close_deadline_ms) |left| next_nearest = @min(next_nearest orelse left, left);
         retiring = next;
+    }
+    // Exact again after the walk: every deadline still held was just seen.
+    self.nearest_carrier_close_ms = if (self.carrier_close_waiters == 0) null else next_nearest;
+}
+
+/// Arm one wire's carrier-close deadline and fold it into the cached nearest.
+fn armCarrierCloseDeadline(self: *HostRuntime, wire: *Wire, deadline_ms: i64) void {
+    std.debug.assert(wire.carrier_close_deadline_ms == null);
+    wire.carrier_close_deadline_ms = deadline_ms;
+    self.carrier_close_waiters += 1;
+    self.nearest_carrier_close_ms = @min(self.nearest_carrier_close_ms orelse deadline_ms, deadline_ms);
+}
+
+/// Clear one wire's carrier-close deadline. The cached nearest may now be
+/// early; it is re-derived by the walk it wakes, and cleared outright once no
+/// wire holds a deadline.
+fn clearCarrierCloseDeadline(self: *HostRuntime, wire: *Wire) void {
+    if (wire.carrier_close_deadline_ms == null) return;
+    wire.carrier_close_deadline_ms = null;
+    self.carrier_close_waiters -= 1;
+    if (self.carrier_close_waiters == 0) self.nearest_carrier_close_ms = null;
+}
+
+/// Hold one close publication for a wire the stepped face is adopting. The
+/// blocking face publishes no closes and holds nothing. A wire holds its
+/// seat from adoption until its carrier completes or it detaches, so the
+/// wire keeps no flag of its own: `suppressWireCloseEvent` and
+/// `finishWireCarrierClose` are the only two consumers, and each is reached
+/// exactly once per wire.
+pub fn reserveCloseEvent(self: *HostRuntime) !void {
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| try stepped.close_observer.reserve(stepped.close_observer.ctx),
+    }
+}
+
+pub fn releaseCloseEvent(self: *HostRuntime) void {
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| stepped.close_observer.release(stepped.close_observer.ctx),
     }
 }
 
 /// Free one wire's transport and buffers. The caller owns the `wires` row;
-/// the resident routing row leaves here with the link it routes.
+/// the resident routing row leaves here with the link it routes. A freed
+/// wire's carrier has completed, so its close seat is already consumed.
 pub fn freeWire(self: *HostRuntime, wire: *Wire) void {
     std.debug.assert(wire.carrierClosed());
-    if (wire.close_event_reserved) {
-        if (self.close_observer) |observer| {
-            observer.release(observer.ctx);
-        } else {
-            Internal.retainAndReportUnhandledFailure(self, .fromError(error.ProviderContract));
-        }
-        wire.close_event_reserved = false;
-    }
     switch (wire.link) {
         .stream => |*stream| {
             if (stream.conn.socketHandle()) |fd| Internal.removeReadyFd(self, fd);
@@ -65,13 +103,14 @@ pub fn dropWire(self: *HostRuntime, peer_handle: engine.PeerHandle) void {
     if (self.wires.fetchRemove(peer_handle)) |kv| retireConsumedWire(self, kv.value);
 }
 
+/// A session released before its carrier completed reports no close: give the
+/// seat back now, before the wire detaches into runtime-owned retirement. A
+/// wire whose carrier already completed consumed its seat in
+/// `finishWireCarrierClose`.
 fn suppressWireCloseEvent(self: *HostRuntime, wire: *Wire) void {
-    if (!wire.close_event_reserved) return;
-    if (self.close_observer) |observer|
-        observer.release(observer.ctx)
-    else
-        Internal.retainAndReportUnhandledFailure(self, .fromError(error.ProviderContract));
-    wire.close_event_reserved = false;
+    if (wire.carrierClosed()) return;
+    std.debug.assert(!wire.detached);
+    releaseCloseEvent(self);
 }
 
 fn retireConsumedWire(self: *HostRuntime, wire: *Wire) void {
@@ -80,7 +119,6 @@ fn retireConsumedWire(self: *HostRuntime, wire: *Wire) void {
         freeWire(self, wire);
         return;
     }
-    std.debug.assert(!wire.detached);
     wire.detached = true;
     wire.retiring_prev = null;
     wire.retiring_next = self.retiring_wires;
@@ -136,7 +174,7 @@ fn closeWireFailure(self: *HostRuntime, wire: *Wire, failure: ?OperationFailure)
     if (failure) |reported| noteWireCloseFailure(wire, reported);
     if (!wire.closed) {
         wire.closed = true;
-        wire.carrier_close_deadline_ms = net.clock.nowMs(self.io) +| transport_close_ms;
+        armCarrierCloseDeadline(self, wire, net.clock.nowMs(self.io) +| transport_close_ms);
         const reason = if (wire.close_failure) |value| value.primaryName() else "connection closed";
         wire.session.host.transportClosed(wire.session, reason) catch |err|
             Internal.noteTerminalFailure(self, err);
@@ -168,12 +206,15 @@ fn setStreamCloseInterest(self: *HostRuntime, wire: *Wire, progress: net.Connect
         .wait_write => .wait_write,
         else => unreachable,
     };
-    if (self.ready_set) |*ready_set| if (stream.conn.socketHandle()) |fd| {
-        ready_set.setInterest(fd, if (progress == .wait_read) .read else .write) catch |err| {
-            noteWireCloseFailure(wire, .fromError(err));
-            finishWireCarrierClose(self, wire);
-        };
-    };
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| if (stream.conn.socketHandle()) |fd| {
+            stepped.ready_set.setInterest(fd, if (progress == .wait_read) .read else .write) catch |err| {
+                noteWireCloseFailure(wire, .fromError(err));
+                finishWireCarrierClose(self, wire);
+            };
+        },
+    }
 }
 
 pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
@@ -184,7 +225,7 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
         false;
     if (expired) {
         noteWireCloseFailure(wire, .fromError(error.CloseTimedOut));
-        wire.carrier_close_deadline_ms = null;
+        clearCarrierCloseDeadline(self, wire);
         switch (wire.link) {
             .stream => |*stream| {
                 stream.conn.deinit();
@@ -223,7 +264,7 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
 fn finishWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     if (wire.carrierClosed()) return;
     wire.carrier_close = .complete;
-    wire.carrier_close_deadline_ms = null;
+    clearCarrierCloseDeadline(self, wire);
     if (self.open_wire_count == 0)
         Internal.retainAndReportUnhandledFailure(self, .fromError(error.ProviderContract))
     else
@@ -239,18 +280,21 @@ fn finishWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
         return;
     }
     // A staged dial reports through its dial path; it was never visible to the
-    // close observer.
+    // close observer, so its seat goes back unused.
     if (Internal.pendingOpenFor(self, wire.session)) |row| {
         row.close_cause = wire.close_failure;
+        releaseCloseEvent(self);
         Internal.nudgeIfWorkRemains(self);
         return;
     }
-    if (self.close_observer) |obs| {
-        std.debug.assert(wire.close_event_reserved);
-        wire.close_event_reserved = false;
-        self.observer_callback_depth += 1;
-        defer self.observer_callback_depth -= 1;
-        obs.closed(obs.ctx, wire.session, wire.close_failure);
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| {
+            const observer = stepped.close_observer;
+            self.observer_callback_depth += 1;
+            defer self.observer_callback_depth -= 1;
+            observer.closed(observer.ctx, wire.session, wire.close_failure);
+        },
     }
     Internal.nudgeIfWorkRemains(self);
 }

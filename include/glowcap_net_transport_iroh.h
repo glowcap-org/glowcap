@@ -244,9 +244,10 @@ int32_t glowcap_iroh_netlayer_try_accept(GlowcapIrohNetlayer *netlayer, GlowcapI
    bytes are parsed before return. */
 int32_t glowcap_iroh_netlayer_start_connect(GlowcapIrohNetlayer *netlayer, size_t request_id, const uint8_t *node_id, size_t node_id_len, const uint8_t *addr_hints, size_t addr_hints_len);
 /* Consume one terminal dial after EV_CONNECT. GLOWCAP_OK transfers the owned
-   connection to out_conn; a failure returns its GLOWCAP_ERR_* classification. The
-   result can be consumed only once. Release a successful connection with
-   glowcap_iroh_conn_release. */
+   connection to out_conn; a failure returns its GLOWCAP_ERR_* classification and
+   records iroh's own text for the fault (the refusing relay, the silent address,
+   the QUIC close reason) in glowcap_iroh_last_error. The result can be consumed
+   only once. Release a successful connection with glowcap_iroh_conn_release. */
 int32_t glowcap_iroh_netlayer_finish_connect(GlowcapIrohNetlayer *netlayer, size_t request_id, GlowcapIrohConn **out_conn);
 /* Cancel one admitted dial. Its sole EV_CONNECT still arrives and must be finished,
    which consumes the endpoint-owned terminal result. */

@@ -10,7 +10,7 @@ import threading
 import glowcap._host as _host_module
 import glowcap._host.finalizer as _host_finalizer
 from glowcap import Host, Locator, GlowcapError
-from glowcap._constants import ERR_INVALID_ARGUMENT, ERR_IO
+from glowcap._constants import ERR_INVALID_ARGUMENT, ERR_IO, HOST_DURABLE_ENTROPY_LEN
 from glowcap._trampoline import _entry_for
 
 
@@ -206,3 +206,68 @@ def run() -> None:
         assert reports[0]["operation"] == "host.finalizer.release", reports
     finally:
         _host_module._host.glowcap_host_release = original_host_release
+
+    seed = bytes([7] * 32)
+    entropy = bytes([3] * HOST_DURABLE_ENTROPY_LEN)
+    host = Host(seed=seed)
+    original_dropped: list[bool] = []
+
+    class Original:
+        def __del__(self) -> None:
+            original_dropped.append(True)
+
+    original = Original()
+
+    def live(_verb, _args, _keep=original):
+        return None
+
+    name = host.publish_durable(live, entropy)
+    refused_dropped: list[bool] = []
+
+    class Refused:
+        def __del__(self) -> None:
+            refused_dropped.append(True)
+
+    refused_keep = Refused()
+
+    def refused(_verb, _args, _keep=refused_keep):
+        return None
+
+    try:
+        host.publish_durable(refused, entropy)
+    except GlowcapError:
+        pass
+    else:
+        raise AssertionError("live durable entropy collision must be refused")
+    del refused
+    del refused_keep
+    gc.collect()
+    gc.collect()
+    assert refused_dropped, "refused publication returns its behavior custody"
+    assert not original_dropped, "collision does not retire the original actor"
+    try:
+        host.publish_durable(lambda _verb, _args: None, b"\0")
+    except GlowcapError as exc:
+        assert exc.code == ERR_INVALID_ARGUMENT, exc.code
+    else:
+        raise AssertionError("durable entropy of the wrong length must be refused")
+    try:
+        host.publish_durable(
+            lambda _verb, _args: None, bytes(HOST_DURABLE_ENTROPY_LEN + 1)
+        )
+    except GlowcapError as exc:
+        assert exc.code == ERR_INVALID_ARGUMENT, exc.code
+    else:
+        raise AssertionError("overlong durable entropy must be refused")
+    assert host.remove_durable(name)
+    assert host.publish_durable(lambda _verb, _args: None, entropy) == name
+    asyncio.run(host.close())
+    restored = Host(seed=seed)
+    try:
+        assert restored.publish_durable(lambda _verb, _args: None, entropy) == name
+        other = restored.publish_durable(
+            lambda _verb, _args: None, bytes([4] * HOST_DURABLE_ENTROPY_LEN)
+        )
+        assert other != name
+    finally:
+        asyncio.run(restored.close())

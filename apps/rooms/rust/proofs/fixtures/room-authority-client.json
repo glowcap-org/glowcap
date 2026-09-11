@@ -1,0 +1,273 @@
+{
+  "identities": [
+    {
+      "token": "",
+      "identity": null
+    },
+    {
+      "token": "room-link",
+      "identity": "c57975e65f92872f338cc6107723a4feee825e57f80bda3f612cd7d01f06b93c"
+    },
+    {
+      "token": "å水😀",
+      "identity": "7befad87ab52876ec313d070fb9efdfbbe6637da6ff0b2317bf01739984d24df"
+    },
+    {
+      "token": "﻿token",
+      "identity": "0a130a9674ceda4b49f5921cab8dfe44810b457031626a35ae6cbdd3870aa9f6"
+    },
+    {
+      "token": "\u0000",
+      "identity": "a774459041fcb74af50f0baa5fe2b273aed4e6a70c0798289d5fc361c27e442f"
+    }
+  ],
+  "policies": [
+    {
+      "answer": null,
+      "result": null
+    },
+    {
+      "answer": "bad",
+      "result": null
+    },
+    {
+      "answer": [],
+      "result": null
+    },
+    {
+      "answer": [
+        "room"
+      ],
+      "result": null
+    },
+    {
+      "answer": [
+        "room",
+        "listed",
+        "open",
+        "open"
+      ],
+      "result": {
+        "name": "room",
+        "policy": {
+          "visibility": "listed",
+          "entry": "open",
+          "speaking": "open"
+        }
+      }
+    },
+    {
+      "answer": [
+        "room",
+        "listed",
+        "open",
+        "moderated"
+      ],
+      "result": {
+        "name": "room",
+        "policy": {
+          "visibility": "listed",
+          "entry": "open",
+          "speaking": "moderated"
+        }
+      }
+    },
+    {
+      "answer": [
+        "room",
+        "secret",
+        "invite-only",
+        "moderated"
+      ],
+      "result": {
+        "name": "room",
+        "policy": {
+          "visibility": "secret",
+          "entry": "invite-only",
+          "speaking": "moderated"
+        }
+      }
+    },
+    {
+      "answer": [
+        "room",
+        "secret",
+        "open",
+        "open"
+      ],
+      "result": null
+    },
+    {
+      "answer": [
+        "",
+        "listed",
+        "open",
+        "open"
+      ],
+      "result": null
+    },
+    {
+      "answer": [
+        "room",
+        "listed",
+        "open",
+        "open",
+        "extra"
+      ],
+      "result": null
+    },
+    {
+      "answer": [
+        1,
+        "listed",
+        "open",
+        "open"
+      ],
+      "result": null
+    },
+    {
+      "answer": [
+        "room",
+        "LISTED",
+        "open",
+        "open"
+      ],
+      "result": null
+    }
+  ],
+  "managers": [
+    {
+      "governed": "identity",
+      "identity": "identity",
+      "accepted": true
+    },
+    {
+      "governed": "other",
+      "identity": "identity",
+      "accepted": false
+    },
+    {
+      "governed": "",
+      "identity": "identity",
+      "accepted": false
+    },
+    {
+      "governed": "",
+      "identity": "",
+      "accepted": false
+    },
+    {
+      "governed": null,
+      "identity": "identity",
+      "accepted": false
+    },
+    {
+      "governed": "identity",
+      "identity": null,
+      "accepted": false
+    },
+    {
+      "governed": 1,
+      "identity": "identity",
+      "accepted": false
+    },
+    {
+      "governed": "identity",
+      "identity": "",
+      "accepted": false
+    }
+  ],
+  "grants": [
+    {
+      "answer": null,
+      "token": null,
+      "accepted": false
+    },
+    {
+      "answer": [],
+      "token": null,
+      "accepted": false
+    },
+    {
+      "answer": [
+        "ocapn://directory.id/s/cm9vbS1saW5r",
+        "c57975e65f92872f338cc6107723a4feee825e57f80bda3f612cd7d01f06b93c",
+        "ocapn://directory.id/s/c3Rld2FyZA"
+      ],
+      "token": "room-link",
+      "accepted": true
+    },
+    {
+      "answer": [
+        "ocapn://directory.id/s/cm9vbS1saW5r",
+        "c57975e65f92872f338cc6107723a4feee825e57f80bda3f612cd7d01f06b93c",
+        "ocapn://directory.id/s/c3Rld2FyZA",
+        "ignored"
+      ],
+      "token": "room-link",
+      "accepted": true
+    },
+    {
+      "answer": [
+        "ocapn://directory.id/s/cm9vbS1saW5r",
+        "different",
+        "ocapn://directory.id/s/c3Rld2FyZA"
+      ],
+      "token": "room-link",
+      "accepted": false
+    },
+    {
+      "answer": [
+        "ocapn://directory.id/s/cm9vbS1saW5r",
+        "",
+        "ocapn://directory.id/s/c3Rld2FyZA"
+      ],
+      "token": "room-link",
+      "accepted": false
+    },
+    {
+      "answer": [
+        "",
+        "c57975e65f92872f338cc6107723a4feee825e57f80bda3f612cd7d01f06b93c",
+        "ocapn://directory.id/s/c3Rld2FyZA"
+      ],
+      "token": null,
+      "accepted": false
+    },
+    {
+      "answer": [
+        "ocapn://directory.id/s/cm9vbS1saW5r",
+        "c57975e65f92872f338cc6107723a4feee825e57f80bda3f612cd7d01f06b93c",
+        ""
+      ],
+      "token": "room-link",
+      "accepted": false
+    },
+    {
+      "answer": [
+        "ocapn://directory.id/s/cm9vbS1saW5r",
+        "c57975e65f92872f338cc6107723a4feee825e57f80bda3f612cd7d01f06b93c"
+      ],
+      "token": "room-link",
+      "accepted": false
+    },
+    {
+      "answer": [
+        "broken",
+        "c57975e65f92872f338cc6107723a4feee825e57f80bda3f612cd7d01f06b93c",
+        "ocapn://directory.id/s/c3Rld2FyZA"
+      ],
+      "token": null,
+      "accepted": false
+    },
+    {
+      "answer": [
+        "ocapn://directory.id/s/cm9vbS1saW5r",
+        1,
+        "ocapn://directory.id/s/c3Rld2FyZA"
+      ],
+      "token": "room-link",
+      "accepted": false
+    }
+  ]
+}

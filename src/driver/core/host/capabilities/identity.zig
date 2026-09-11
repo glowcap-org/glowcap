@@ -78,7 +78,7 @@ pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: mode
                 // re-observation (notably a sturdyref cache hit) contributes
                 // only an application retain. It must reuse the identity
                 // without inventing wire authority the exporter never sent.
-                if (identity.lifted_retains < home.served.port.peer.session_state.importRefcount(far.import_position)) {
+                if (identity.lifted_retains < home.served.port.peer.session_state.importReleasable(far.import_position)) {
                     home.served.port.peer.session_state.claimHostCapabilityRetain(far.import_position, identity.ref) catch |err| {
                         _ = self.capabilities.release(retained, 1) catch unreachable;
                         return err;
@@ -302,7 +302,9 @@ pub fn capabilitySession(self: *Host, ref: capability.Ref) ?*HostSession {
 /// sturdyref cache reissues the same identity). Keep enough wire retains to
 /// back the surviving application retains and return only the surplus; the
 /// final application release returns every remaining wire retain. Local
-/// releases affect only the Host identity row. If the remote home already
+/// releases affect only the Host identity row. Once cancellation is committed,
+/// session teardown owns wire retirement; application cleanup still consumes
+/// its retains without sending new GC traffic. If the remote home already
 /// closed, its release-only row consumes the outstanding unit as a no-op:
 /// session teardown already reclaimed the wire authority, while the
 /// application handle still deserves a deterministic terminal recipient.
@@ -321,9 +323,13 @@ pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
     var flush_peer: ?engine.PeerHandle = null;
     switch (target) {
         .local => {},
-        .remote => |remote| {
+        .remote => |remote| remote_release: {
             const session = self.sessions.get(remote.peer_handle) orelse return error.UnknownCapability;
-            try self.checkSession(session);
+            try self.checkOwnedSession(session);
+            switch (session.lifecyclePhase()) {
+                .active, .finishing => {},
+                .cancel_pending, .terminating => break :remote_release,
+            }
             const position = remote.far.import_position;
             // A partner may already have reused the numeric position after
             // another retain released the old import row. The stale Host row

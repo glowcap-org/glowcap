@@ -7,7 +7,7 @@ decision: "A Rooms session is a capability-owned application runtime that serial
 supersedes: []
 superseded_by: []
 amends: [ADR-0133]
-amended_by: [ADR-0135, ADR-0137, ADR-0138, ADR-0139]
+amended_by: [ADR-0135, ADR-0137, ADR-0138, ADR-0139, ADR-0141]
 ---
 
 # ADR-0134 Shared Rooms session capability
@@ -135,6 +135,14 @@ The shared session owns facts that must agree everywhere:
 - room links, room moderator authority, remembered operations capabilities, and archive selection;
 - the ordered command revision and checkpoint revision.
 
+Relative preference commands resolve against the checkpoint being committed.
+`setIgnoredName(name, "true" | "false")` changes one case-insensitive entry without
+replacing concurrent changes to other entries. `setEffectiveStanding(room, value)`
+updates the closest explicit room or directory standing, otherwise the global
+standing. Clearing a scoped override preserves the existing inheritance rule.
+The explicit scope setters and whole-list replacement remain available for
+settings and document replacement.
+
 Each attached view owns facts that describe only that screen or device:
 
 - focus, modal state, responsive sheets, scroll position, and file-picker handles;
@@ -203,7 +211,8 @@ refused rather than migrated.
 
 The session actor binds onto a running CapTP Host through a document store and an advertised locator. The shipped
 durable host is a standalone Deno peer that reuses the current Rooms client and runtime and writes `session.json`,
-`effects.json`, and `grants.json`. A browser tab can bind the same actor onto its wasm Host for the life of the tab:
+`effects.json`, `grants.json`, and `bridge-secrets.json` (ADR-0141). A browser tab can bind the same actor onto its
+wasm Host for the life of the tab:
 the session sturdyref names the same locator this tab already advertises for direct messages (WebRTC by default,
 `noise-relay` when Settings or `?dm=relay` chooses the sealed relay). A WebRTC session door also names the directory
 that served this page, as a `signaling-directory` hint, so Attach can `signalOffer` there even when the attaching
@@ -211,7 +220,15 @@ browser was served by a different directory. A leftover membership on the attach
 home are not that inbox. The browser WebRTC connector binds that designator as the
 verified channel key before CapTP bytes move, the same signaling-scoped claim
 native `authorizeRemote` records (ADR-0105), so Attach can enliven the session
-sturdyref. After Share, the hosted runtime keeps this tab's live directory sessions — the same Host
+sturdyref. Cross-directory attachment composes several independently bounded
+stages: signaling-directory dial and bootstrap fetch, registration, WebRTC
+signaling, the CapTP handshake, capability enlivening, and the first watch.
+Each stage has its own bound and refusal. Transport stages receive the deadline
+as cancellation; CapTP asks cannot be cancelled, so a capability arriving
+after its caller's deadline is returned to the session that transferred it.
+The aggregate cleanup deadline is larger than those sequential bounds, so it
+cannot erase the owning stage's refusal merely because attachment used more
+than one network path. After Share, the hosted runtime keeps this tab's live directory sessions — the same Host
 sessions DMs already signal through. It re-registers each stolen session under the name the
 directory already granted this tab, so hosted DM callbacks replace the UI ones, then files the
 WebRTC answering inbox Attach looks up. Re-register withdraws the previous intro; the UI presence

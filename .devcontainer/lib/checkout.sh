@@ -101,6 +101,25 @@ glowcap_devcontainer_validate_worktree() {
     fi
 }
 
+# Submodule repositories need one absolute worktree path that resolves from
+# both sides of the container boundary. Compose mounts the checkout at its host
+# path as a second alias for that purpose; the ordinary workspace remains
+# /workspaces/glowcap.
+glowcap_devcontainer_validate_checkout_dir() {
+    local root="$1" configured expected
+    configured="$(glowcap_devcontainer_env_value "${root}" GLOWCAP_CHECKOUT_DIR)"
+    if [[ -z "${configured}" ]]; then
+        echo "devcontainer: GLOWCAP_CHECKOUT_DIR is missing from ${root}/.env" >&2
+        return 1
+    fi
+    expected="$(cd "${root}/.." && pwd -P)" || return
+    if [[ "${configured}" != "${expected}" ]]; then
+        echo "devcontainer: GLOWCAP_CHECKOUT_DIR=${configured}" >&2
+        echo "devcontainer: expected ${expected}" >&2
+        return 1
+    fi
+}
+
 # Linked worktrees store their administrative state in the primary checkout's
 # common Git directory. Their .git file may contain an absolute host path, so
 # Compose must mount that directory at the same path inside the container.

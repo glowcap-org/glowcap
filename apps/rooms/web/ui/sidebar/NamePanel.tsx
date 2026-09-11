@@ -15,7 +15,7 @@ import { Icon } from "../icons.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
-import { nextRoomPreset, type RoomPreset } from "../../../lib/room/policy.ts";
+import { nextRoomPreset, type RoomPreset } from "../room_policy.ts";
 
 /** One "+" and the field under it, wherever it is being held.
  *
@@ -401,6 +401,9 @@ export function NamePanel(
 							setPicking((was) => !was);
 							return;
 						}
+						// This press hands off to the join card rather than opening the
+						// menu. Clear any menu intent retained across the panel's linked
+						// and unlinked forms before the card makes picks eligible again.
 						// The panel stays: the press is about to put a form on
 						// screen that this field becomes a second view of, and
 						// taking the field away at the moment it gains its

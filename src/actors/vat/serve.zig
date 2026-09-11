@@ -28,134 +28,6 @@ const Vat = vat_mod.Vat;
 const Port = vat_mod.Port;
 const releaseBox = boxed.releaseBox;
 
-/// Heap context a forwarded turn's vow listener carries: the vat to resolve
-/// against and the deferred inbound answer. Freed by the listener once it fires
-/// (on settle, or on a disconnect break via `breakFarVows`).
-pub const ForwardContext = struct { vat: *Vat, port: *Port, answer: engine.AnswerTarget };
-
-/// Every fallible resource needed to hand a served turn's answer to a vow.
-/// A no-answer deliver needs no listener; an answered deliver reserves both
-/// the listener-table slot and its heap context before the send or resolver
-/// pair becomes visible.
-pub const ForwardReservation = union(enum) {
-    no_answer,
-    answer: struct {
-        context: *ForwardContext,
-        listener: vat_mod.ListenerReservation,
-    },
-};
-
-pub fn forwardListener(ctx: ?*anyopaque, resolution: Resolution) void {
-    const fc: *ForwardContext = @ptrCast(@alignCast(ctx.?));
-    defer fc.vat.allocator.destroy(fc);
-    // A listener has no return channel. Project a forwarding refusal through
-    // the destination Peer instead: its typed failure remains readable and its
-    // terminal abort/close follows the same path as an inbound dispatch fault.
-    switch (resolution) {
-        .fulfilled => |value| resolveFulfill(fc.port, fc.answer, value) catch |err| fc.port.peer.emitFailure(err),
-        .broken => |message| resolveBreak(fc.port, fc.answer, message) catch |err| fc.port.peer.emitFailure(err),
-        // A give is addressed to THIS vat's session key; a forwarded copy
-        // could never be redeemed by the partner, so the honest relay is a
-        // break naming why.
-        .give => resolveBreak(fc.port, fc.answer, "introduction not forwardable") catch |err| fc.port.peer.emitFailure(err),
-    }
-}
-
-/// Drive `Turn.forward`: forward this turn's call to `target` and dispatch
-/// on the turn's `origin` — the one place the provenance matters.
-///
-/// A `.local` frame's return value is consumed directly (the near-caller's
-/// reply, or the queued vow's resolution), so it forwards by near-call and
-/// returns the target's value, legal only for a local target, since `near`
-/// refuses a far ref. A `.served` turn defers: with a wire answer it sends
-/// and settles that answer on the forwarded promise; with none (a wire
-/// `tell`) it forwards fire-and-forget. The placeholder return is ignored
-/// by `serve` once `forwarded` is set.
-pub fn forwardTurn(self: *Vat, turn: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
-    if (turn.forwarded) return Error.AlreadyForwarded;
-    const maybe_answer = switch (turn.origin) {
-        .local => return self.nearFromPort(turn.port, turn.ingress, target, msg),
-        .served => |maybe_answer| maybe_answer,
-    };
-    if (maybe_answer == null) {
-        try turn.port.?.tellFromIngress(self, turn.ingress, target, msg);
-        turn.forwarded = true;
-        return .{ .void = {} };
-    }
-    const location: vat_mod.VowLocation = switch (target) {
-        .local => .local,
-        .far => .far,
-    };
-    const reservation = try reserveForward(self, turn, location);
-    errdefer cancelForward(self, reservation);
-    const vow = try turn.port.?.sendFromIngress(self, turn.ingress, target, msg);
-    commitForward(self, turn, reservation, vow);
-    return .{ .void = {} };
-}
-
-pub fn reserveForward(self: *Vat, turn: *Turn, location: vat_mod.VowLocation) anyerror!ForwardReservation {
-    if (turn.forwarded) return Error.AlreadyForwarded;
-    const maybe_answer = switch (turn.origin) {
-        .local => return Error.NotLocal,
-        .served => |answer| answer,
-    };
-    const answer = maybe_answer orelse return .no_answer;
-    const port = turn.port.?;
-    const context = try self.allocator.create(ForwardContext);
-    errdefer self.allocator.destroy(context);
-    const listener = try port.reserveListener(self, location);
-    context.* = .{ .vat = self, .port = port, .answer = answer };
-    return .{ .answer = .{ .context = context, .listener = listener } };
-}
-
-pub fn cancelForward(self: *Vat, reservation: ForwardReservation) void {
-    switch (reservation) {
-        .no_answer => {},
-        .answer => |answer| self.allocator.destroy(answer.context),
-    }
-}
-
-pub fn commitForward(self: *Vat, turn: *Turn, reservation: ForwardReservation, vow: vat_mod.Vow) void {
-    switch (reservation) {
-        .no_answer => {},
-        .answer => |answer| answer.context.port.onReserved(
-            self,
-            answer.listener,
-            vow,
-            .{ .ctx = answer.context, .func = forwardListener },
-        ),
-    }
-    turn.forwarded = true;
-}
-
-/// `Turn.forwardVow`'s spine (ADR-0102): defer the turn's answer onto a vow
-/// the behavior already holds instead of one minted by a send. Legal only on
-/// a served turn — a `.local` frame's caller consumes the return value
-/// directly, so a deferred answer has nowhere to land (`NotLocal`). A
-/// no-answer wire `tell` has nothing to defer: the turn is marked forwarded
-/// and the vow's eventual settlement fires no answer.
-pub fn forwardTurnVow(self: *Vat, turn: *Turn, vow: vat_mod.Vow) anyerror!void {
-    if (turn.forwarded) return Error.AlreadyForwarded;
-    const maybe_answer = switch (turn.origin) {
-        .local => return Error.NotLocal,
-        .served => |answer| answer,
-    };
-    const answer = maybe_answer orelse {
-        turn.forwarded = true;
-        return;
-    };
-    const port = turn.port.?;
-    const context = try self.allocator.create(ForwardContext);
-    errdefer self.allocator.destroy(context);
-    context.* = .{ .vat = self, .port = port, .answer = answer };
-    // Unlike the reserved Host transaction below, this public actor API may
-    // receive any vow the behavior holds. Checked installation preserves the
-    // ordinary AlreadySettled/AlreadyListening contract instead of asserting
-    // the vow was freshly minted.
-    try port.on(self, vow, .{ .ctx = context, .func = forwardListener });
-    turn.forwarded = true;
-}
-
 /// Dispatch one inbound peer event: a deliver to a published actor runs its
 /// turn and resolves the answer (`serveDeliver`); a resolve for a far vow
 /// fires its listener (`serveResolve`). Returns whether the event belonged
@@ -300,8 +172,11 @@ fn noteServedDrop(port: *Port, answer: model.AnswerPosition) Error!void {
 /// the settle arena; queue chunks own queued messages and are not listener
 /// scratch. The depth guard keeps a re-entrant settle (a listener pumping
 /// `serve` again) from resetting the arena under the outer value. Materialized
-/// before the remove so an OOM leaves the
-/// listener parked, not stranded. `value` is either a borrowed
+/// before the remove so a refused clone leaves the listener parked. That is
+/// open to the far arms only because their producer survives the refusal: a
+/// Host action stays parked for a retry, and a refused frame retires the
+/// session, whose release runs `breakFarVows`. A local turn has no such
+/// producer, so `settleLocal` breaks its waiter instead. `value` is either a borrowed
 /// `model.view.Argument` (the wire path) or an owned `model.Argument`
 /// (the byte-fed host path); the clone verb is the only difference.
 fn fireFulfilledFar(self: *Vat, port: *Port, answer: model.AnswerPosition, listener: Listener, value: anytype) !void {
@@ -408,9 +283,9 @@ pub fn settleFar(self: *Vat, port: *Port, answer: model.AnswerPosition, outcome:
 /// arrives over the wire, so once the connection is gone those resolutions can
 /// never come. A driver calls this on disconnect, so an awaiting `on`
 /// listener settles broken instead of waiting forever. `message` is borrowed
-/// for the duration of the calls, so a static string is the norm. Local
-/// vows are untouched: they settle synchronously in `drive` and never
-/// wait on the wire.
+/// for the duration of the calls, so a static string is the norm. Ordinary
+/// local turns remain live; local answers forwarded onto these far vows
+/// receive the same break through their continuations.
 pub fn breakFarVows(port: *Port, message: []const u8) void {
     // Swap the whole map out before any fire: a listener may react by
     // registering another far vow, which lands in the fresh (live)

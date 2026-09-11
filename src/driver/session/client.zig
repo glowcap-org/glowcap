@@ -84,6 +84,16 @@ pub const Session = struct {
     deferred_release: host_runtime.HostRuntime.DeferredSessionRelease,
     active_calls: usize = 0,
     native_release_complete: bool = false,
+    /// Turn scratch for lowering one verb's argument spine into the core, which
+    /// dupes anything session-lived onto its own allocator before the verb
+    /// returns. Reset at each verb's entry rather than freed at its exit, so a
+    /// steady stream of calls pays no allocation after the first. A Session is
+    /// a per-partner application handle, not the 500k-tier `Peer`, so the
+    /// arena header here is not a footprint-budget withdrawal.
+    verb_scratch: std.heap.ArenaAllocator,
+
+    /// Backing the verb scratch keeps across resets.
+    const steady_verb_scratch_bytes = 4096;
 
     const RuntimeLease = union(enum) {
         /// `Session.adopt`: the Session owns its wire, while its caller keeps
@@ -107,6 +117,7 @@ pub const Session = struct {
             .hs = hs,
             .runtime_lease = .borrowed,
             .allocator = runtime.allocator,
+            .verb_scratch = std.heap.ArenaAllocator.init(runtime.allocator),
             .deferred_release = .{
                 .session = hs,
                 .ctx = session,
@@ -134,6 +145,7 @@ pub const Session = struct {
             .hs = hs,
             .runtime_lease = .{ .retained = shared },
             .allocator = allocator,
+            .verb_scratch = std.heap.ArenaAllocator.init(allocator),
             .deferred_release = .{
                 .session = hs,
                 .ctx = session,
@@ -203,11 +215,21 @@ pub const Session = struct {
     fn completeRelease(self: *Session) bool {
         const allocator = self.allocator;
         const lease = self.runtime_lease;
+        self.verb_scratch.deinit();
         allocator.destroy(self);
         return switch (lease) {
             .borrowed => false,
             .retained => |shared| shared.releaseDeferred(),
         };
+    }
+
+    /// The verb scratch, reset for a fresh verb. Inside a Host callback the
+    /// reset is skipped: an outer verb's spine may still be live in it, and
+    /// the next verb entered outside any callback resets for both.
+    fn scratch(self: *Session) std.mem.Allocator {
+        if (!self.runtime.withinCallback())
+            _ = self.verb_scratch.reset(.{ .retain_with_limit = steady_verb_scratch_bytes });
+        return self.verb_scratch.allocator();
     }
 
     /// Close this session under one monotonic pending-work policy. Repeated
@@ -241,18 +263,14 @@ pub const Session = struct {
     pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
         self.enterCall();
         defer self.leaveCall();
-        var scratch = std.heap.ArenaAllocator.init(self.allocator);
-        defer scratch.deinit();
-        try self.runtime.core.beginSendNamedValues(self.hs, pending, name, verb, args, scratch.allocator(), terminal);
+        try self.runtime.core.beginSendNamedValues(self.hs, pending, name, verb, args, self.scratch(), terminal);
     }
 
     /// Chain fetch-then-tell without blocking (see `Served.beginTellNamed`).
     pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
         self.enterCall();
         defer self.leaveCall();
-        var scratch = std.heap.ArenaAllocator.init(self.allocator);
-        defer scratch.deinit();
-        try self.runtime.core.beginTellNamedValues(self.hs, pending, name, verb, args, scratch.allocator(), terminal);
+        try self.runtime.core.beginTellNamedValues(self.hs, pending, name, verb, args, self.scratch(), terminal);
     }
 
     /// Break every far vow still awaiting a partner answer (cancel / timeout /
@@ -340,9 +358,7 @@ pub const Session = struct {
     /// Lower one owning-tier delivery and commit it through the Host's routing,
     /// vow, and pending-work authority without driving local settlement.
     fn queueSend(self: *Session, target: Capability, verb: []const u8, args: []const Value) !Promise {
-        var scratch = std.heap.ArenaAllocator.init(self.allocator);
-        defer scratch.deinit();
-        const id = try self.runtime.core.queueSendValues(self.hs, target, verb, args, scratch.allocator());
+        const id = try self.runtime.core.queueSendValues(self.hs, target, verb, args, self.scratch());
         return .{ .owner = self, .home = try self.runtime.core.vowSession(id), .id = id };
     }
 
@@ -378,18 +394,14 @@ pub const Session = struct {
     fn sendToPromise(self: *Session, promise: Promise, verb: []const u8, args: []const Value) !Promise {
         self.enterCall();
         defer self.leaveCall();
-        var scratch = std.heap.ArenaAllocator.init(self.allocator);
-        defer scratch.deinit();
-        const id = try self.runtime.core.queueVowSendValues(promise.id, verb, args, scratch.allocator());
+        const id = try self.runtime.core.queueVowSendValues(promise.id, verb, args, self.scratch());
         return .{ .owner = self, .home = promise.home, .id = id };
     }
 
     fn tellToPromise(self: *Session, promise: Promise, verb: []const u8, args: []const Value) !void {
         self.enterCall();
         defer self.leaveCall();
-        var scratch = std.heap.ArenaAllocator.init(self.allocator);
-        defer scratch.deinit();
-        try self.runtime.core.vowTellValues(promise.id, verb, args, scratch.allocator());
+        try self.runtime.core.vowTellValues(promise.id, verb, args, self.scratch());
     }
 
     fn releasePromise(self: *Session, promise: Promise) !void {
@@ -462,9 +474,7 @@ pub const Session = struct {
     pub fn tell(self: *Session, target: Capability, verb: []const u8, args: []const Value) !void {
         self.enterCall();
         defer self.leaveCall();
-        var scratch = std.heap.ArenaAllocator.init(self.allocator);
-        defer scratch.deinit();
-        try self.runtime.core.tellValues(self.hs, target, verb, args, scratch.allocator());
+        try self.runtime.core.tellValues(self.hs, target, verb, args, self.scratch());
     }
 
     fn observePromise(self: *Session, promise: Promise, listener: actors.Listener) !void {

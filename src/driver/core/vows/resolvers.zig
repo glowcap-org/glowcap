@@ -31,6 +31,7 @@ pub fn deferTurn(self: *Host, session: *HostSession, turn: *actors.Turn) !u64 {
     if (turn.vat != &self.vat) return HostError.ForeignTurn;
     switch (turn.origin) {
         .local => return actors.Error.NotLocal,
+        .eventual => |eventual| if (eventual.answer == null) return HostError.NoAnswer,
         .served => |answer| if (answer == null) return HostError.NoAnswer,
     }
     if (turn.port != &session.served.port or
@@ -72,6 +73,25 @@ pub fn fulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
     try settle(self, resolver_id, .{ .fulfilled = value });
 }
 
+/// Settle an owning-thread application value in the deferred caller's session.
+/// Capability projections remain rollback-owned until settlement commits. This
+/// path borrows leaf data and allocates only lowering containers in `arena`;
+/// the existing Vat settlement scope owns the listener lifetime. Cross-session
+/// authority still requires ordinary send/handoff machinery and is refused here.
+pub fn fulfillValue(self: *Host, resolver_id: u64, value: @import("../value.zig").Value, arena: std.mem.Allocator) !void {
+    try self.refuseReentry();
+    if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
+    const entry = self.resolver_index.get(resolver_id) orelse return actors.Error.AlreadySettled;
+    const row = self.vows.get(entry.vow_id) orelse unreachable;
+    const peer = row.forwarded_peer orelse return HostError.ForeignArgument;
+    const session = self.sessions.get(peer) orelse return HostError.ForeignArgument;
+    var prepared = try self.prepareValues(session, arena, &.{value});
+    defer prepared.deinit();
+    try @import("../host/capabilities/routing.zig").validateRoutedArguments(self, session, prepared.values);
+    try settle(self, resolver_id, .{ .fulfilled = prepared.values[0] });
+    _ = prepared.commit();
+}
+
 /// Break a resolver vow. `reason` is borrowed for this call; ownership and
 /// retry behavior match `fulfill`.
 pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
@@ -79,7 +99,20 @@ pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
     try settle(self, resolver_id, .{ .broken = reason });
 }
 
+/// Relinquish a resolver's answer. Session teardown may have consumed the
+/// resolver already; that is complete cleanup, while an unminted id still
+/// identifies a caller defect. Top-level ownership and retry rules match break.
+pub fn abandon(self: *Host, resolver_id: u64, reason: []const u8) !void {
+    self.resolverBreak(resolver_id, reason) catch |err| switch (err) {
+        error.AlreadySettled => {},
+        else => return err,
+    };
+}
+
 fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution) !void {
+    // An id this Host never minted is a caller defect, distinct from a
+    // consumed settle authority.
+    if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
     const entry = self.resolver_index.get(resolver_id) orelse
         return actors.Error.AlreadySettled;
     const row = self.vows.get(entry.vow_id) orelse unreachable;

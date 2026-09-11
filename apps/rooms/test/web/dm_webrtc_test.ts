@@ -28,7 +28,7 @@ import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "../viz/view
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { awaitBubble, fail, openDmTo } from "../support/page.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, over a DataChannel the room only signaled";
@@ -85,19 +85,8 @@ const vizPort = freePort();
 
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`); the DM channel itself is WebRTC, so no cargo either.
-const web = spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-	],
+const web = spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	env: { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "piped",

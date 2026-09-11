@@ -1,8 +1,6 @@
-// Both Rooms controllers finish a composer submission through one commit:
-// a refusal is delivered there, and a finished line empties the conversation
-// that was composed. Tab commands run even with no live session; chat does not.
-
 /// <reference lib="dom" />
+import "./support/browser_application.ts";
+// The Rust-owned attached controller finishes composer submissions through the shared commit path.
 
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
@@ -16,99 +14,11 @@ Object.defineProperty(globalThis, "matchMedia", {
 const store = await import("../web/ui/store.ts");
 const { dirId } = await import("../web/ui/types.ts");
 const { RoomsPage } = await import("../web/ui/page.ts");
-const { send } = await import("../web/ui/net.ts");
 const { attachedCommandPowers } = await import("../web/ui/session/attached_command_powers.ts");
 const { attachedComposerActions } = await import("../web/ui/session/attached_composer.ts");
-const { COMPOSER_NOT_CONNECTED } = await import("../web/ui/composer/commit.ts");
-const { DIRECTORY_NO_CHAT } = await import("../web/ui/composer/send.ts");
-const { notRegisteredForDirect } = await import("../web/ui/commands/targets.ts");
-const { PageProjection } = store;
-
 function assert(ok: boolean, what: string): asserts ok {
 	if (!ok) throw new Error(what);
 }
-
-function saidHere(projection: InstanceType<typeof PageProjection>, key: string): string {
-	return store.historyOf(projection, key)
-		.flatMap((item) => item.kind === "sys" ? [item.text] : [])
-		.join("\n");
-}
-
-Deno.test("a tab command in a room runs without a live session", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const room = store.ensureRoom(page.projection, directory, "lobby");
-	store.switchTo(page.projection, room.key);
-	store.setDraft(page.projection, "/help");
-	send(page);
-	const said = saidHere(page.projection, room.key);
-	assert(said.includes("You can use:"), "a room /help did not run while disconnected");
-	assert(!said.includes(COMPOSER_NOT_CONNECTED), "a tab command was refused as unsent chat");
-	assert(store.activeDraft(page.projection).text === "", "running /help left the field filled");
-});
-
-Deno.test("chat in a room still needs a live session", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const room = store.ensureRoom(page.projection, directory, "lobby");
-	store.switchTo(page.projection, room.key);
-	store.setDraft(page.projection, "hello");
-	send(page);
-	const said = saidHere(page.projection, room.key);
-	assert(said.includes(COMPOSER_NOT_CONNECTED), "chat while disconnected did not say so");
-	assert(store.activeDraft(page.projection).text === "hello", "unsent chat was cleared as if it had gone");
-});
-
-Deno.test("a refused line is delivered without emptying the composer", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const conv = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, conv.key);
-	store.setDraft(page.projection, "hello");
-	send(page);
-	assert(
-		saidHere(page.projection, conv.key).includes(DIRECTORY_NO_CHAT),
-		"a directory chat line was not refused",
-	);
-	assert(store.activeDraft(page.projection).text === "hello", "a refused line emptied the composer");
-});
-
-Deno.test("a command that cannot act keeps the draft", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const conv = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, conv.key);
-	store.setDraft(page.projection, "/msg alice");
-	send(page);
-	assert(
-		saidHere(page.projection, conv.key).includes(notRegisteredForDirect("alice")),
-		"a /msg with no introduction did not refuse",
-	);
-	assert(store.activeDraft(page.projection).text === "/msg alice", "a refused /msg emptied the composer");
-});
-
-Deno.test("local send empties the conversation that was composed", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const keep = store.ensureRoom(page.projection, directory, "keep");
-	store.switchTo(page.projection, keep.key);
-	store.setDraft(page.projection, "keep me");
-	const leave = store.ensureRoom(page.projection, directory, "leave");
-	store.switchTo(page.projection, leave.key);
-	store.setDraft(page.projection, "/leave");
-	send(page);
-	assert(store.getConv(page.projection, leave.key) === null, "sending /leave left the room");
-	assert(page.projection.get().activeKey === keep.key, "sending /leave did not return to the other room");
-	assert(
-		store.draftFor(page.projection, keep.key).text === "keep me",
-		"local /leave emptied the next conversation's draft",
-	);
-});
 
 Deno.test("attached send empties the conversation that was composed", () => {
 	const page = new RoomsPage();
@@ -122,6 +32,8 @@ Deno.test("attached send empties the conversation that was composed", () => {
 	const controller = {
 		stageDraft: () => {},
 		setDraft: () => Promise.resolve(),
+		scheduleDraft: () => Promise.resolve(),
+		cancelDraftSave: () => {},
 		retireDraft: () => {},
 		leaveConversation: () => {
 			store.forgetConv(page.projection, leave.key);
@@ -129,7 +41,7 @@ Deno.test("attached send empties the conversation that was composed", () => {
 			return Promise.resolve();
 		},
 	};
-	const powers = attachedCommandPowers(page.projection, controller as never, {} as never, () => {});
+	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
 	const actions = attachedComposerActions(page.projection, controller as never, powers, () => {});
 	actions.setDraft("/leave");
 	actions.send();
@@ -139,24 +51,212 @@ Deno.test("attached send empties the conversation that was composed", () => {
 	);
 });
 
-Deno.test("attached send of a command that cannot act keeps the draft", () => {
+for (const newerEdit of [false, true]) {
+	Deno.test(`edit acknowledgement preserves ${newerEdit ? "a newer edit" : "another room's draft"}`, async () => {
+		const page = new RoomsPage();
+		const directory = dirId("edit-dir");
+		store.openDir(page.projection, directory, "edit-dir");
+		const room = store.ensureRoom(page.projection, directory, "first", { persistId: "first" });
+		const other = store.ensureRoom(page.projection, directory, "second", { persistId: "second" });
+		store.switchTo(page.projection, room.key);
+		const item = { ...store.chatItem(page.projection, "me", "original", true), lineId: 1 };
+		store.deliver(page.projection, room.key, item);
+		store.startChange(page.projection, item.id, "submitted edit");
+		const completion = Promise.withResolvers<void>();
+		const saved: string[] = [];
+		const controller = {
+			cancelDraftSave: () => {},
+			editLine: () => completion.promise,
+			setDraft: (_id: string, text: string) => {
+				saved.push(text);
+				return Promise.resolve();
+			},
+		};
+		const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
+		const actions = attachedComposerActions(page.projection, controller as never, powers, (error) => {
+			throw error;
+		});
+		actions.send();
+		if (!newerEdit) store.switchTo(page.projection, other.key);
+		store.setDraft(page.projection, "keep this");
+		completion.resolve();
+		await completion.promise;
+		await Promise.resolve();
+		assert(store.activeDraft(page.projection).text === "keep this", "late edit erased current intent");
+		assert(newerEdit ? saved.length === 0 : saved.length === 1, "late edit cleared a newer durable draft");
+		if (!newerEdit) {
+			assert(store.draftFor(page.projection, room.key).changing == null, "completed edit stayed open");
+		}
+	});
+}
+
+Deno.test("a refused file send restores its complete draft after switching rooms", async () => {
 	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const conv = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, conv.key);
+	const directory = dirId("file-dir");
+	store.openDir(page.projection, directory, "file-dir");
+	const room = store.ensureRoom(page.projection, directory, "first", { persistId: "first" });
+	const other = store.ensureRoom(page.projection, directory, "second", { persistId: "second" });
+	store.switchTo(page.projection, room.key);
+	store.setDraft(page.projection, "caption");
+	const file = new File(["payload"], "example.txt", { type: "text/plain" });
+	store.addDraftFiles(page.projection, [file]);
+	const started = Promise.withResolvers<void>();
+	const completion = Promise.withResolvers<void>();
+	const failed = Promise.withResolvers<void>();
 	const controller = {
+		cancelDraftSave: () => {},
 		stageDraft: () => {},
-		setDraft: () => Promise.resolve(),
-		retireDraft: () => {},
+		scheduleDraft: () => Promise.resolve(),
+		sendFiles: () => {
+			started.resolve();
+			return completion.promise;
+		},
 	};
-	const powers = attachedCommandPowers(page.projection, controller as never, {} as never, () => {});
-	const actions = attachedComposerActions(page.projection, controller as never, powers, () => {});
-	actions.setDraft("/msg alice");
+	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
+	const actions = attachedComposerActions(page.projection, controller as never, powers, () => failed.resolve());
+	actions.send();
+	await started.promise;
+	store.switchTo(page.projection, other.key);
+	store.setDraft(page.projection, "sibling");
+	completion.reject(new Error("refused"));
+	await failed.promise;
+	const restored = store.draftFor(page.projection, room.key);
+	assert(restored.text === "caption" && restored.files[0] === file, "refused submission lost text or file custody");
+	assert(store.activeDraft(page.projection).text === "sibling", "refusal changed sibling intent");
+});
+
+for (const succeeds of [false, true]) {
+	Deno.test(`an asynchronous command ${succeeds ? "commits" : "refuses"} before clearing its draft`, async () => {
+		const page = new RoomsPage();
+		const directory = dirId("command-dir");
+		store.openDir(page.projection, directory, "command-dir");
+		const room = store.ensureRoom(page.projection, directory, "first", { persistId: "first" });
+		store.switchTo(page.projection, room.key);
+		store.setDraft(page.projection, "/msg alice");
+		const completion = Promise.withResolvers<never>();
+		const failed: unknown[] = [];
+		const saved: string[] = [];
+		const controller = {
+			chooseDirect: () => completion.promise,
+			cancelDraftSave: () => {},
+			stageDraft: () => {},
+			setDraft: (_id: string, text: string) => {
+				saved.push(text);
+				return Promise.resolve();
+			},
+		};
+		const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
+		const actions = attachedComposerActions(
+			page.projection,
+			controller as never,
+			powers,
+			(error) => failed.push(error),
+		);
+		actions.send();
+		assert(
+			store.activeDraft(page.projection).text === "/msg alice",
+			"command admission was mistaken for completion",
+		);
+		if (succeeds) completion.resolve(undefined as never);
+		else completion.reject(new Error("registration refused"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert(
+			store.activeDraft(page.projection).text === (succeeds ? "" : "/msg alice"),
+			"command outcome did not preserve draft ownership",
+		);
+		assert(failed.length === 0, "command refusal was duplicated as a toast");
+		assert(
+			store.historyOf(page.projection, room.key).some((item) =>
+				item.kind === "sys" && item.text.includes("registration refused")
+			) === !succeeds,
+			"command refusal did not reach its conversation",
+		);
+		assert(saved.length === (succeeds ? 1 : 0), "refusal cleared durable intent");
+	});
+}
+
+Deno.test("a synchronous command adapter failure stays in the generic failure path and preserves intent", () => {
+	const page = new RoomsPage();
+	const directory = dirId("sync-failure-dir");
+	store.openDir(page.projection, directory, "sync-failure-dir");
+	const room = store.ensureRoom(page.projection, directory, "first", { persistId: "first" });
+	store.switchTo(page.projection, room.key);
+	store.setDraft(page.projection, "/msg alice");
+	const failures: unknown[] = [];
+	const controller = {
+		chooseDirect: () => {
+			throw new Error("adapter failed before returning completion");
+		},
+	};
+	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
+	const actions = attachedComposerActions(page.projection, controller as never, powers, (error) => {
+		failures.push(error);
+	});
 	actions.send();
 	assert(
-		saidHere(page.projection, conv.key).includes(notRegisteredForDirect("alice")),
-		"attached /msg with no introduction did not refuse",
+		failures.length === 1 && failures[0] instanceof Error &&
+			failures[0].message === "adapter failed before returning completion",
+		"generic failure did not retain the adapter cause",
 	);
-	assert(store.activeDraft(page.projection).text === "/msg alice", "a refused attached /msg emptied the composer");
+	assert(store.activeDraft(page.projection).text === "/msg alice", "generic failure consumed the command intent");
 });
+
+Deno.test("failed draft persistence does not offer an acknowledged message for resend", async () => {
+	const page = new RoomsPage();
+	const directory = dirId("sent-dir");
+	store.openDir(page.projection, directory, "sent-dir");
+	const room = store.ensureRoom(page.projection, directory, "first", { persistId: "first" });
+	store.switchTo(page.projection, room.key);
+	store.setDraft(page.projection, "already delivered");
+	const failed = Promise.withResolvers<void>();
+	let writes = 0;
+	const controller = {
+		cancelDraftSave: () => {},
+		stageDraft: () => {},
+		say: () => {
+			writes++;
+			return Promise.resolve();
+		},
+		clearSentDraft: () => Promise.reject(new Error("storage unavailable")),
+	};
+	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
+	attachedComposerActions(page.projection, controller as never, powers, () => failed.resolve()).send();
+	await failed.promise;
+	assert(
+		writes === 1 && store.activeDraft(page.projection).text === "",
+		"a post-send storage error restored an already delivered message",
+	);
+});
+
+for (const retired of [false, true]) {
+	Deno.test(`draft storage refusal ${retired ? "cannot revive a retired controller" : "preserves unsaved text"}`, async () => {
+		const page = new RoomsPage();
+		const directory = dirId("draft-dir");
+		store.openDir(page.projection, directory, "draft-dir");
+		const room = store.ensureRoom(page.projection, directory, "first", { persistId: "first" });
+		store.switchTo(page.projection, room.key);
+		const completion = Promise.withResolvers<void>();
+		const staged: string[] = [];
+		const failures: unknown[] = [];
+		const controller = {
+			closed: false,
+			stageDraft: (_id: string, text: string) => {
+				staged.push(text);
+			},
+			scheduleDraft: () => completion.promise,
+		};
+		const actions = attachedComposerActions(
+			page.projection,
+			controller as never,
+			{} as never,
+			(error) => failures.push(error),
+		);
+		actions.setDraft("unsaved text");
+		controller.closed = retired;
+		completion.reject(new Error("storage unavailable"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert(store.activeDraft(page.projection).text === "unsaved text", "storage refusal erased intent");
+		assert(staged.length === (retired ? 1 : 2), "draft staging crossed controller lifetime");
+		assert(failures.length === (retired ? 0 : 1), "failure reporting crossed controller lifetime");
+	});
+}

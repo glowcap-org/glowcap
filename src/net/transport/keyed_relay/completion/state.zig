@@ -9,6 +9,7 @@ const std = @import("std");
 
 const address_race = @import("../address_race.zig");
 const carrier_failure = @import("../../../carrier_failure.zig");
+const adapter = @import("../../../completion/adapter.zig");
 const intrusive_queue = @import("../../../completion/intrusive_queue.zig");
 const tls_engine = @import("../../../tls/engine.zig");
 const tls_runtime_owner = @import("../../../tls/runtime_owner.zig");
@@ -18,47 +19,13 @@ const resolver = @import("resolver.zig");
 
 pub fn Types(comptime Platform: type, comptime Namespace: type) type {
     return struct {
+        /// The wrapped platform backend, named so the shared leg lifecycle
+        /// can borrow it per verb.
+        pub const Inner = Platform;
         pub const ConnId = u32;
         pub const InternalOp = enum(u3) { connect, recv, send, close };
-
-        pub const InternalPending = struct {
-            connect: bool = false,
-            recv: bool = false,
-            send: bool = false,
-
-            pub fn get(p: InternalPending, op: InternalOp) bool {
-                return switch (op) {
-                    .connect => p.connect,
-                    .recv => p.recv,
-                    .send => p.send,
-                    .close => unreachable,
-                };
-            }
-
-            pub fn arm(p: *InternalPending, op: InternalOp) void {
-                std.debug.assert(!p.get(op));
-                switch (op) {
-                    .connect => p.connect = true,
-                    .recv => p.recv = true,
-                    .send => p.send = true,
-                    .close => unreachable,
-                }
-            }
-
-            pub fn retire(p: *InternalPending, op: InternalOp) void {
-                std.debug.assert(p.get(op));
-                switch (op) {
-                    .connect => p.connect = false,
-                    .recv => p.recv = false,
-                    .send => p.send = false,
-                    .close => unreachable,
-                }
-            }
-
-            pub fn count(p: InternalPending) usize {
-                return @intFromBool(p.connect) + @intFromBool(p.recv) + @intFromBool(p.send);
-            }
-        };
+        pub const PendingOps = adapter.PendingOps(InternalOp, &.{ .connect, .recv, .send });
+        pub const Identity = Namespace.RowIdentity(InternalOp);
 
         pub const State = enum {
             connecting,
@@ -87,13 +54,6 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             lent_to_caller,
         };
 
-        pub const PlatformCloseState = enum {
-            open,
-            in_flight,
-            failed,
-            closed,
-        };
-
         pub const CloseHandshake = enum {
             open,
             received,
@@ -119,11 +79,12 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
 
         pub const RetryLinks = intrusive_queue.Links(ConnId);
 
-        /// Orthogonal progress toward retiring one relay leg. `wire` tracks
-        /// RFC 6455 while `platform` tracks descriptor ownership.
+        /// Progress of the WebSocket half of retiring one relay leg: `wire`
+        /// tracks RFC 6455, `retry` links an owed platform close, and the
+        /// rest records how the close was asked for. Descriptor ownership is
+        /// `RelayConn.inner_close`, the shared leg vocabulary.
         pub const CloseProgress = struct {
             wire: CloseHandshake = .open,
-            platform: PlatformCloseState = .open,
             retry: RetryLinks = .{},
             failure: ?anyerror = null,
             graceful: bool = false,
@@ -132,7 +93,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
 
         pub const RelayConn = struct {
             id: ConnId,
-            os_fd: Platform.Fd,
+            inner_fd: Platform.Fd,
             state: State = .connecting,
             ws_send_kind: WsSendKind = .none,
             external_connect_ud: ?u64,
@@ -142,7 +103,8 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             /// Caller-owned tail not yet copied and masked into `ws_out`.
             external_send_remainder: []const u8 = &.{},
             external_close_ud: ?u64 = null,
-            pending: InternalPending = .{},
+            pending: PendingOps = .{},
+            inner_close: adapter.InnerClose = .open,
             recv_retry: RetryLinks = .{},
             close: CloseProgress = .{},
             expected_accept: [28]u8,
@@ -160,6 +122,9 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
                 c.ws_out.deinit(allocator);
             }
         };
+
+        /// The row the shared leg lifecycle drives.
+        pub const Conn = RelayConn;
 
         /// At most one normal DNS answer set races at a time per logical dial.
         /// More answers remain ordered behind these seats rather than growing
@@ -324,30 +289,5 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
                 allocator.free(config.bytes);
             }
         };
-
-        pub fn fdFromId(id: ConnId) error{AdapterHandleExhausted}!Platform.Fd {
-            return Namespace.fdFromId(id);
-        }
-
-        pub fn idFromFd(fd: Platform.Fd) ?ConnId {
-            if (!Namespace.ownsFd(fd)) return null;
-            return @intCast(Namespace.fdId(fd));
-        }
-
-        pub fn internalUd(op: InternalOp, id: ConnId) u64 {
-            return Namespace.userData((@as(u64, id) << 3) | @backingInt(op));
-        }
-
-        pub fn isInternal(ud: u64) bool {
-            return Namespace.ownsUserData(ud);
-        }
-
-        pub fn internalId(ud: u64) ConnId {
-            return @intCast(Namespace.userDataPayload(ud) >> 3);
-        }
-
-        pub fn internalOp(ud: u64) InternalOp {
-            return @fromBackingInt(@intCast(@as(u3, @truncate(ud))));
-        }
     };
 }

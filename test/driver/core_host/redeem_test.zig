@@ -70,7 +70,7 @@ test "core host: parked direct key sturdyref requires authenticated channel iden
     var refused = false;
     while (try client.nextAction()) |result| switch (result) {
         .failed => |failure| if (failure.vow_id == vow_id) {
-            try std.testing.expectEqualStrings("PeerIdentityUnverified", failure.message);
+            try std.testing.expectEqualStrings("PeerIdentityUnverified", failure.message.bytes());
             refused = true;
         },
         else => {},

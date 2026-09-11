@@ -30,7 +30,8 @@ import {
 } from "./protocol.ts";
 import { ask } from "./ask.ts";
 import { DirectorySignaling } from "./directory_signal.ts";
-import { DirectoryRegistration } from "./directory_registration.ts";
+import { type DirectoryRegisterOptions, DirectoryRegistration } from "./directory_registration.ts";
+export type { DirectoryRegisterOptions } from "./directory_registration.ts";
 import {
 	parseDirectoryWatchSnapshot,
 	parseRegistrationId,
@@ -43,6 +44,7 @@ import { parseRoomsSturdyref } from "./locator.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 import { openManagedRoom } from "./managed_room.ts";
 import { claimRedeemWithin, RedeemRouteCoordinator } from "./redeem_routes.ts";
+import { claimCapabilityWithin } from "./capability_cleanup.ts";
 
 // How long `introduceVia` waits for the peer to offer an inbox for us after the
 // directory has asked them for one. Bounded, because the peer may never answer.
@@ -133,7 +135,12 @@ export class Directory {
 		// now so a transport fault before then is not an unhandled rejection.
 		void serving.catch(() => {});
 		try {
-			const directory = routedDirectory ?? await session.fetch(DIRECTORY);
+			const directory = routedDirectory ?? await claimCapabilityWithin(
+				session,
+				session.fetch(DIRECTORY),
+				"the Rooms peer did not answer fetching its directory",
+				REQUEST_TIMEOUT_MS,
+			);
 			return new Directory(session, directory, serving);
 		} catch (error) {
 			throw await retainCleanupFailures(error, [
@@ -335,10 +342,9 @@ export class Directory {
 	register(
 		nick: string,
 		locator: string,
-		onMintInboxFor?: (peer: string, registrationId: string) => void,
-		onDirectRequested?: (peer: string, registrationId: string) => void,
+		options: DirectoryRegisterOptions = {},
 	): Promise<string> {
-		return this.#registration.register(nick, locator, onMintInboxFor, onDirectRequested);
+		return this.#registration.register(nick, locator, options);
 	}
 
 	/** Ask a registered peer to establish the reciprocal direct carrier after

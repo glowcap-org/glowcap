@@ -78,6 +78,27 @@
 ;; every loop-aware seam reads.
 (define (host-loop-of m) (unbox (host-driver-loop m)))
 
+;; A Host remembers the profile it was minted with, so a surface that reuses
+;; one (`open-runtime`, every listener) refuses an explicit codec, CapTP
+;; version, or feature offer that differs from it instead of silently keeping
+;; the Host's. `#f` for any knob means "the Host's own" and passes. With no
+;; Host there is nothing to conflict with.
+(define (check-host-profile-conflicts who m codec captp-version features)
+  (when m
+    (when (and codec (not (eq? codec (host-codec m))))
+      (raise-glowcap who ERR-INVALID-ARGUMENT
+                     "#:codec ~a conflicts with the Host's ~a"
+                     codec (host-codec m)))
+    (when (and captp-version (not (eq? captp-version (host-captp-version m))))
+      (raise-glowcap who ERR-INVALID-ARGUMENT
+                     "#:captp-version ~a conflicts with the Host's ~a"
+                     captp-version (host-captp-version m)))
+    (when (and features
+               (not (= (feature-mask features) (feature-mask (host-features m)))))
+      (raise-glowcap who ERR-INVALID-ARGUMENT
+                     "#:features ~a conflicts with the Host's ~a"
+                     features (host-features m)))))
+
 ;; A byte-fed Host is the owner of the explicit connector registry used by
 ;; handoff redemption. Registration is keyed by the locator's transport symbol
 ;; so a connector cannot accidentally answer for a different transport.

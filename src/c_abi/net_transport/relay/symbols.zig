@@ -11,7 +11,6 @@ pub const symbols = [_]Symbol{
     .{ .name = "glowcap_relay_last_error", .out_params = &.{0} },
     .{ .name = "glowcap_relay_clear_last_error" },
     .{ .name = "glowcap_relay_runtime_new", .out_params = &.{1} },
-    .{ .name = "glowcap_relay_runtime_trust_summary", .out_params = &.{1} },
     .{ .name = "glowcap_relay_transport_provider", .out_params = &.{1} },
     .{
         .name = "glowcap_relay_runtime_release",

@@ -96,7 +96,7 @@ engine/model layer owns only the typed abort projection.
 - **A generic comptime `Endpoint` abstraction.** Rejected for slice 1: every
   byte-stream transport already funnels through `std.Io.Reader`/`Writer`; a
   concrete `Connection` over those is simpler and proven without a socket.
-- **Unbounded read buffer / grow-to-fit.** Rejected: lets a hostile partner
+- **Unbounded read buffer / grow-to-fit.** Rejected: lets an untrusted peer
   force unbounded per-connection memory; the bound is the whole point.
 - **Expose `std.Io` across the C ABI.** Rejected: the C host cannot name a Zig
   `Io`; an explicit `GlowcapTcpNetlayer` handle that _owns_ the backend keeps

@@ -83,16 +83,30 @@ gate zig build native-tls-build
 # local or nightly run with a larger -Dfuzz-runs is for, and the escapes each
 # target was validated against are recorded in its own header either way.
 gate zig build fuzz -Dfuzz-runs=25K
-# The two sidecars' own Rust unit tests. Both cover something no Zig test can
+# The Rust sidecars' own unit tests. The shared crate proves a private-runtime
+# call survives an ambient Tokio runtime and that the release barrier keeps a
+# dropped task's failure; the two sidecars each cover something no Zig test can
 # reach: iroh's connect timeout actually firing, and the WebRTC inbound buffer
 # making a fast sender wait rather than growing without limit. cargo is already
-# on the path for the iroh steps below, so this adds a crate build and not a
+# on the path for the iroh steps below, so this adds crate builds and not a
 # dependency.
+gate zig build sidecar-common-test
 gate zig build iroh-sidecar-test
 gate zig build webrtc-sidecar-test
 gate zig build bindings-fmt-check
 gate zig build bindings
 gate zig build bindings-noise-relay-listen
+# The verb spine and every other hermetic proof family. A proof no gate runs
+# rots: before these lines existed, the keyed-tcp restart family had a broken
+# Racket dial, an unserved Rust session, and five unawaited Python closes, and
+# the two iroh handoff families each had an unserved Rust session; redeem
+# exposed an unread-farewell barrier fault, and handoff closed accepted
+# sessions after their runtime had already released ownership.
+gate zig build bindings-verb-spine
+gate zig build bindings-keyed-tcp-restart
+gate zig build bindings-keyed-relay-rendezvous
+gate zig build bindings-iroh-handoff
+gate zig build bindings-iroh-redeem-posture
 gate zig build racket-test
 # The browser binding's behavioral proof: two wasm32 Hosts complete a keyed
 # handshake driven from JavaScript. The wasm *build* is in `check` (via
@@ -115,6 +129,12 @@ gate zig build goblins-interop
 # browser or iroh build, so it belongs in the recurring sequence rather than
 # being hidden behind the heavyweight Rooms matrix.
 gate zig build goblins-rooms
+# Every one-shot client in one room: Deno, Python, Racket, Rust, and Zig each
+# enter, wait for the whole roster, post, and hear every other member. The
+# room contract has one TypeScript reader and four hand-written ones; this is
+# where a client still holding an old contract fails (needs deno + python3 +
+# racket + cargo, all on PATH above).
+gate zig build demo-rooms
 # Both shipped IRC edges with a real outside implementation: fixture IRC ↔
 # bridge ↔ Goblins, then ordinary IRC client ↔ front ↔ native room ↔ Goblins,
 # including a reply over the direct session the IRC side initiated.
@@ -164,6 +184,15 @@ gate zig build fixture-gen-check
 gate zig build ocapn-findings-check
 gate zig build ocapn-conformance
 gate zig build iroh-interop
+# The provider seam (ADR-0112) in every native runtime: the C driver, the
+# Python binding, and the Rust binding each install an iroh provider package
+# and dial a real endpoint through it. A binding that closes its endpoint
+# under the driver's lease, or holds an accepted session without serving it,
+# fails here and nowhere in `check`; iroh-interop above already pays the
+# cargo-iroh build (needs cargo + python3).
+gate zig build iroh-driver-provider
+gate zig build python-iroh-driver-provider
+gate zig build rust-iroh-driver-provider
 # The cross-runtime relay matrix (ADR-0086): one shared harness proves TCP
 # forwarding and the non-optional backpressure clause against every runtime's
 # relay — the Deno reference relay, and the Python, Rust, and Racket relays. A

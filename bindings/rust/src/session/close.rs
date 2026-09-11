@@ -1,3 +1,4 @@
+use crate::execution::monotonic_ms;
 use std::rc::Rc;
 
 use super::Session;
@@ -9,6 +10,53 @@ use crate::sys::host as ffi;
 use crate::{Error, Result};
 
 impl Session {
+	/// Sample native connection liveness without starting work or waiting for
+	/// terminal cleanup. A closing Host or retired session returns false.
+	pub fn is_open(&self) -> bool {
+		self.shared.session_open()
+	}
+
+	/// Observe this session becoming unavailable for new work, without waiting
+	/// for physical transport cleanup or native handle release. This is the
+	/// asynchronous counterpart to [`Session::is_open`]: independent and late
+	/// observers share the same transition, and cancelling one observer changes
+	/// no session state.
+	///
+	/// Use [`Session::closed`] when ownership retirement itself is the outcome
+	/// being reconciled. A connection can have ended while its close owner is
+	/// still finishing a protocol shutdown or releasing platform resources.
+	pub async fn ended(&self) -> Result<()> {
+		wait_session_end(&self.shared).await;
+		self.shared.terminal_result()
+	}
+
+	/// Observe terminal session retirement without requesting close or taking
+	/// the serve task. Independent and late observers share the terminal result;
+	/// cancelling an observer leaves the connection and its other observers live.
+	pub async fn closed(&self) -> Result<()> {
+		wait_session_close(&self.shared).await;
+		self.shared.terminal_result()
+	}
+
+	/// A session view whose lifetime does not keep the connection open. The
+	/// owning handles or Host control retirement; calls through this view then
+	/// refuse normally. Explicit `close` still closes the named connection.
+	pub fn borrowed(&self) -> Session {
+		Session::view(Rc::clone(&self.shared))
+	}
+
+	/// Relinquish this handle, observing transport close only when it is the
+	/// final owner of a connection the application owns. Host-retained dials and
+	/// other application owners remain usable. A borrowed callback/redeem view
+	/// relinquishes no close authority.
+	pub async fn relinquish(self, pending: PendingWork) -> Result<()> {
+		if self.owns_session && self.shared.owner_handles.get() == 1 && !self.shared.host_retained.get() {
+			self.close(pending).await
+		} else {
+			Ok(())
+		}
+	}
+
 	/// Close the session. A running [`serve`](Session::serve) completes; pending
 	/// vows settle closed.
 	///
@@ -44,6 +92,7 @@ fn ensure_session_close_driver(shared: &Rc<SessionShared>) -> Result<()> {
 
 async fn drive_session_close(shared: Rc<SessionShared>) {
 	while !shared.released.get() {
+		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(loop_) = shared.loop_wire.as_ref() {
 			// The loop tier's discipline: progress happens only inside
 			// `glowcap_driver_step`, so this driver is the deadline-stepper.
@@ -69,7 +118,7 @@ async fn drive_session_close(shared: Rc<SessionShared>) {
 				Ok(Some(wait)) => {
 					tokio::select! {
 						() = notified.as_mut() => {}
-						() = tokio::time::sleep(wait) => {}
+						() = crate::execution::sleep(wait) => {}
 					}
 				}
 				Ok(None) => notified.await,
@@ -111,7 +160,7 @@ async fn drive_session_close(shared: Rc<SessionShared>) {
 			Ok(Some(wait)) => {
 				tokio::select! {
 					() = notified.as_mut() => {}
-					() = tokio::time::sleep(wait) => {}
+					() = crate::execution::sleep(wait) => {}
 				}
 			}
 			Ok(None) => notified.await,
@@ -136,13 +185,16 @@ async fn wait_session_close(shared: &SessionShared) {
 	}
 }
 
-fn monotonic_ms() -> i64 {
-	use std::sync::OnceLock;
-	use std::time::Instant;
-
-	static EPOCH: OnceLock<Instant> = OnceLock::new();
-	let elapsed = EPOCH.get_or_init(Instant::now).elapsed().as_millis();
-	i64::try_from(elapsed).unwrap_or(i64::MAX)
+async fn wait_session_end(shared: &SessionShared) {
+	while shared.session_open() {
+		let notified = shared.closed.notified();
+		tokio::pin!(notified);
+		notified.as_mut().enable();
+		if !shared.session_open() {
+			break;
+		}
+		notified.await;
+	}
 }
 
 pub(crate) fn session_close_result(code: i32) -> Result<()> {
@@ -168,9 +220,21 @@ impl Drop for Session {
 		let owners = self.shared.owner_handles.get();
 		debug_assert!(owners != 0);
 		self.shared.owner_handles.set(owners - 1);
-		if owners != 1 || self.shared.released.get() {
+		if owners != 1 || self.shared.released.get() || self.shared.host_retained.get() {
 			return;
 		}
+		// A drop has no result channel. Inside a behavior callback the native
+		// close is refused by design, and `close_transport` parks the release
+		// for the next drain, as the Host's own drop does.
+		if crate::trampoline::inside_turn() {
+			self.shared.close_transport();
+			return;
+		}
+		// Anywhere else, an owned session's close request is refused only by
+		// the loop's own terminal failure or by a missing LocalSet, and the
+		// fallback records exactly those: the loop retains the first, and
+		// `close_transport` records the second through its kick. Retaining the
+		// refusal here too would be the same cause twice, so it is not.
 		if request_session_close(&self.shared, PendingWork::Cancel)
 			.and_then(|()| ensure_session_close_driver(&self.shared))
 			.is_err()
@@ -184,16 +248,21 @@ fn request_session_close(shared: &Rc<SessionShared>, pending: PendingWork) -> Re
 	if shared.released.get() {
 		return Ok(());
 	}
-	if let Some(loop_) = shared.loop_wire.as_ref() {
-		loop_.request_session_close(shared.ptr.get(), pending)?;
-	} else {
-		let options = pending.to_ffi()?;
-		check_host(unsafe { ffi::glowcap_host_session_close(shared.ptr.get(), &options, monotonic_ms()) })?;
-		// A close request or escalation is close-relevant activity: a driver
-		// parked on a now-superseded wait must re-check progress.
-		shared.host.note_close_activity();
-		shared.host.schedule_kick()?;
-	}
+	request_close_on_owner(shared, pending)?;
 	shared.closing.set(true);
+	Ok(())
+}
+
+fn request_close_on_owner(shared: &Rc<SessionShared>, pending: PendingWork) -> Result<()> {
+	#[cfg(not(target_arch = "wasm32"))]
+	if let Some(loop_) = shared.loop_wire.as_ref() {
+		return loop_.request_session_close(shared.ptr.get(), pending);
+	}
+	let options = pending.to_ffi()?;
+	check_host(unsafe { ffi::glowcap_host_session_close(shared.ptr.get(), &options, monotonic_ms()) })?;
+	// A close request or escalation is close-relevant activity: a driver
+	// parked on a now-superseded wait must re-check progress.
+	shared.host.note_close_activity();
+	shared.host.schedule_kick()?;
 	Ok(())
 }

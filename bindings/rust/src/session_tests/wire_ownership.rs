@@ -351,6 +351,7 @@ async fn a_refused_feed_surfaces_the_typed_abort_locally() {
 // when the Host family ends.
 #[tokio::test]
 async fn drives_a_host_in_a_context_with_a_custom_allocator() {
+	use crate::HostOptions;
 	use std::sync::Arc;
 
 	struct Counting {
@@ -377,7 +378,14 @@ async fn drives_a_host_in_a_context_with_a_custom_allocator() {
 		frees: frees.clone(),
 	}))
 	.unwrap();
-	let captp = Host::new_in(&ctx, Codec::Syrup).unwrap();
+	let captp = Host::new_in(
+		&ctx,
+		HostOptions {
+			codec: Codec::Syrup,
+			..HostOptions::default()
+		},
+	)
+	.unwrap();
 	drop(ctx);
 	let local = LocalSet::new();
 	local

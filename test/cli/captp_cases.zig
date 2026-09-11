@@ -245,8 +245,7 @@ test "argv locator call does not retain a session" {
 }
 
 test "listen publish greeter once then glowcapsay round-trips through cli.ocapn" {
-    // Face cake in formatGlowcapsay: `(_|^_^|__)`.
-    try expectPublishedCallRoundTrip(14, 24, "glowcapsay", "flapjacks", &.{ "< flapjacks >", "|^_^|", "~~syrup~~" });
+    try expectPublishedCallRoundTrip(14, 24, "glowcapsay", "hello", &.{ "< hello >", "/ ^_^ \\", "|||" });
 }
 
 test "listen publish greeter once then goblinsay round-trips through cli.ocapn" {

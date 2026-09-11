@@ -92,6 +92,9 @@ pub const Action = union(enum) {
 pub const State = struct {
     queue: ActionFifo(Action) = .{},
     proxy_reservations: usize = 0,
+    /// Queue seats promised to actions the Host has parked off the queue
+    /// (`parkPeekedAction`), one each, so their return never allocates.
+    parked_reservations: usize = 0,
     last: ?Action = null,
     next_ticket: redeem_dials.PendingId = 0,
 };
@@ -127,9 +130,41 @@ pub fn reserve(self: *Node, immediate: usize) !void {
         handoff_promised,
         self.inline_passable_batches.action_reservations,
     ) catch return error.OutOfMemory;
-    const total = std.math.add(usize, with_inline, immediate) catch
+    const with_parked = std.math.add(
+        usize,
+        with_inline,
+        self.actions.parked_reservations,
+    ) catch return error.OutOfMemory;
+    const total = std.math.add(usize, with_parked, immediate) catch
         return error.OutOfMemory;
     try self.actions.queue.reserve(self.allocator, total);
+}
+
+/// Take the action returned by `peekAction` off the queue, payload intact, on
+/// a seat promised for its return. The Host parks an action whose recipient
+/// cannot take another frame yet (ADR-0145). The seat is reserved before the
+/// pop, so a refusal leaves the action on the queue, and `pushParked` can
+/// never allocate.
+pub fn parkPeekedAction(self: *Node) !Action {
+    try reserve(self, 1);
+    const action = self.actions.queue.pop(self.allocator) orelse return error.NoPendingAction;
+    self.actions.parked_reservations += 1;
+    return action;
+}
+
+/// Return a parked action to the queue on the seat its parking held.
+pub fn pushParked(self: *Node, action: Action) void {
+    std.debug.assert(self.actions.parked_reservations > 0);
+    self.actions.parked_reservations -= 1;
+    self.actions.queue.pushReserved(action);
+}
+
+/// Free a parked action that will never return (Host teardown), giving its
+/// seat back with it.
+pub fn freeParked(self: *Node, action: Action) void {
+    std.debug.assert(self.actions.parked_reservations > 0);
+    self.actions.parked_reservations -= 1;
+    free(self, action);
 }
 
 /// Publish into capacity already held by `reserve` or a committed future seat.

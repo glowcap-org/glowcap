@@ -18,7 +18,7 @@ pub const register_query = "id";
 /// rendezvous query remains keyed by the locator designator.
 pub const rendezvous_relay_hint = "rendezvous-relay";
 
-/// A peer-supplied relay URL is attacker-controlled routing input. Bound its
+/// A peer-supplied relay URL is untrusted routing input. Bound its
 /// retained and parsed request-target cost independently of deployment config.
 pub const max_rendezvous_relay_hint_bytes: usize = 4 * 1024;
 

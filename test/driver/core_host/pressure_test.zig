@@ -1,7 +1,8 @@
 //! Feed and serve under pressure: inbound OOM leaves a borrowed hello
 //! retryable, finite quanta resume round-robin fairness, staged outbound
-//! refuses before the shared high-water, and feedBytes retains only the
-//! unapplied suffix.
+//! refuses before the shared high-water, feedBytes retains only the
+//! unapplied suffix, and a Node action one recipient's pressure parks holds
+//! back nothing bound for its siblings.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -183,7 +184,7 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     const relayed = model.ImportPosition.from(41);
     try peer.session_state.installThirdPartyImport(relayed, "home");
     const row_id = peer.session_state.importedPromiseRowId(relayed).?;
-    try peer.session_state.registerImport(.from(42));
+    try peer.session_state.retainImportForSession(.from(42));
     try peer.session_state.installImportedPromiseListener(relayed, .{
         .listener = .{ .import_position = .from(42) },
         .mode = .settling_only,
@@ -412,3 +413,206 @@ const FeedPressure = struct {
         return .{ .boolean = true };
     }
 };
+
+/// Defer the answer and hand the test the wire answer this turn must settle,
+/// so a Node action can address that pending answer directly.
+const DeferringCapture = struct {
+    host: *Host,
+    session: *HostSession,
+    out_resolver: *u64,
+    out_answer: *?engine.AnswerTarget,
+
+    pub fn handle(self: *DeferringCapture, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        if (!std.mem.eql(u8, msg.verb, "work")) return error.NoSuchMethod;
+        self.out_answer.* = turn.origin.served;
+        self.out_resolver.* = try self.host.deferTurn(self.session, turn);
+        return .{ .void = {} };
+    }
+};
+
+/// One deferred call left pending on the server: the wire answer a Node
+/// action can address, and the flag its break sets on the client side.
+const PendingDeferral = struct {
+    resolver: u64 = 0,
+    answer: ?engine.AnswerTarget = null,
+    broken: bool = false,
+
+    /// Publish a deferring worker on the server side of `pair`, fetch and
+    /// call it from the client, and pump until the call is parked on its
+    /// resolver. `self` must outlive the call: its `broken` flag is the
+    /// listener's context.
+    fn open(
+        self: *PendingDeferral,
+        allocator: std.mem.Allocator,
+        client: *Host,
+        server: *Host,
+        pair: Pair,
+        dials: *std.ArrayList(ParkedDial),
+    ) !engine.AnswerTarget {
+        _ = try pair.b.served.publish(&server.vat, "worker", DeferringCapture, .{
+            .host = server,
+            .session = pair.b,
+            .out_resolver = &self.resolver,
+            .out_answer = &self.answer,
+        });
+        var worker = CapturedRef{};
+        try client.vowOn(try client.fetch(pair.a, "worker"), .{ .ctx = &worker, .func = CapturedRef.record });
+        try pumpToQuiescence(allocator, &.{ client, server }, &.{pair}, dials);
+        try client.vowOn(
+            try client.send(pair.a, try worker.require(), .{ .verb = "work", .args = &.{} }),
+            .{ .ctx = &self.broken, .func = promise_capture.captureBroken },
+        );
+        try pumpToQuiescence(allocator, &.{ client, server }, &.{pair}, dials);
+        if (self.resolver == 0) return error.MissingResolver;
+        return self.answer orelse error.MissingAnswer;
+    }
+};
+
+test "core host: a node action parked on one recipient's pressure leaves sibling actions live" {
+    const allocator = std.testing.allocator;
+    var first = test_host.init(allocator, @as([32]u8, @splat(0x3c)), Host.Options.withFrameCap(frame_cap));
+    defer first.deinit();
+    var second = test_host.init(allocator, @as([32]u8, @splat(0x3d)), Host.Options.withFrameCap(frame_cap));
+    defer second.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x3e)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pressured = try openPair(allocator, &first, &server, "127.0.0.1:7097", &dials);
+    const sibling = try openPair(allocator, &second, &server, "127.0.0.1:7098", &dials);
+    const hosts = [_]*Host{ &first, &second, &server };
+    const pairs = [_]Pair{ pressured, sibling };
+
+    var pressured_call = PendingDeferral{};
+    const pressured_target = try pressured_call.open(allocator, &first, &server, pressured, &dials);
+    var sibling_call = PendingDeferral{};
+    const sibling_target = try sibling_call.open(allocator, &second, &server, sibling, &dials);
+
+    // The first recipient can take no more outbound frames. A Node break for
+    // its pending answer waits on that pressure; the sibling's break, queued
+    // behind it, belongs to another session and must not wait with it.
+    pressured.b.served.port.peer.outbound_budget = 0;
+    try server.node.actions.queue.reserve(allocator, 2);
+    server.node.actions.queue.pushReserved(.{ .fail = .{
+        .dest = .{ .served_answer = .{ .recipient_peer = pressured.b.peer_handle, .answer = pressured_target } },
+        .reason = .{ .static = "exporter gone" },
+    } });
+    server.node.actions.queue.pushReserved(.{ .fail = .{
+        .dest = .{ .served_answer = .{ .recipient_peer = sibling.b.peer_handle, .answer = sibling_target } },
+        .reason = .{ .static = "exporter gone" },
+    } });
+    var rounds: usize = 0;
+    while (rounds < 16 and !sibling_call.broken) : (rounds += 1) {
+        _ = drainActions(allocator, &.{&server}, &dials) catch |err| switch (err) {
+            error.OutboundBackpressure => {},
+            else => return err,
+        };
+        _ = try shuttleAll(&pairs);
+        _ = try drainActions(allocator, &.{ &first, &second }, &dials);
+    }
+    try std.testing.expect(sibling_call.broken);
+    try std.testing.expect(!pressured_call.broken);
+
+    // The parked break is owed, not dropped: once the partner reads and the
+    // embedder takes the recipient's bytes, it re-enters the queue and lands.
+    pressured.b.served.port.peer.outbound_budget = std.math.maxInt(usize);
+    try std.testing.expect((try pressured.b.takeOutbound()) == null);
+    try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+    try std.testing.expect(pressured_call.broken);
+    try std.testing.expectEqual(@as(usize, 0), server.parked_node_actions.count());
+}
+
+test "core host: releasing a pressured recipient returns its parked actions to the queue" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x3f)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x40)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7099", &dials);
+
+    var call = PendingDeferral{};
+    const target = try call.open(allocator, &client, &server, pair, &dials);
+
+    // Park a break on the pressured recipient, with an owned reason so the
+    // leak check sees the payload's whole life.
+    pair.b.served.port.peer.outbound_budget = 0;
+    try server.node.actions.queue.reserve(allocator, 1);
+    server.node.actions.queue.pushReserved(.{ .fail = .{
+        .dest = .{ .served_answer = .{ .recipient_peer = pair.b.peer_handle, .answer = target } },
+        .reason = .{ .owned = try allocator.dupe(u8, "exporter gone") },
+    } });
+    _ = drainActions(allocator, &.{&server}, &dials) catch |err| switch (err) {
+        error.OutboundBackpressure => {},
+        else => return err,
+    };
+    try std.testing.expectEqual(@as(usize, 1), server.parked_node_actions.count());
+
+    // Release returns the row to the queue; the action finds no recipient
+    // and is consumed, so nothing stays parked and nothing leaks.
+    try server.releaseSession(pair.b);
+    try std.testing.expectEqual(@as(usize, 0), server.parked_node_actions.count());
+    _ = try drainActions(allocator, &.{&server}, &dials);
+    try std.testing.expect(!server.node.hasAction());
+    try client.releaseSession(pair.a);
+}
+
+test "core host: refused node action parking retains its payload and frees provisional storage" {
+    var refusals: usize = 0;
+    var completed = false;
+    for (0..16) |fail_offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        const allocator = failing.allocator();
+        var client = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x41)), Host.Options.withFrameCap(frame_cap));
+        defer client.deinit();
+        var server = test_host.init(allocator, @as([32]u8, @splat(0x42)), Host.Options.withFrameCap(frame_cap));
+        defer server.deinit();
+        var dials: std.ArrayList(ParkedDial) = .empty;
+        defer dials.deinit(allocator);
+        const pair = try openPair(allocator, &client, &server, "127.0.0.1:7100", &dials);
+        var call = PendingDeferral{};
+        const target = try call.open(allocator, &client, &server, pair, &dials);
+
+        pair.b.served.port.peer.outbound_budget = 0;
+        try server.reserveActions(1);
+        try server.node.actions.queue.reserve(allocator, 1);
+        const reason = try allocator.dupe(u8, "parking must retain this failure");
+        server.node.actions.queue.pushReserved(.{ .fail = .{
+            .dest = .{ .served_answer = .{ .recipient_peer = pair.b.peer_handle, .answer = target } },
+            .reason = .{ .owned = reason },
+        } });
+        // Exhaust the physical queue seats so parking must reserve its return
+        // seat after allocating the recipient row and its first list backing.
+        const queue = &server.node.actions.queue;
+        while (queue.list.items.len < queue.list.capacity)
+            queue.pushReserved(.{ .flush = pair.b.peer_handle });
+        const queued = queue.liveLen();
+        failing.fail_index = failing.alloc_index + fail_offset;
+        failing.resize_fail_index = failing.resize_index;
+        const result = server.nextAction();
+        failing.fail_index = std.math.maxInt(usize);
+        failing.resize_fail_index = std.math.maxInt(usize);
+        if (result) |_| {
+            completed = true;
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            refusals += 1;
+            try std.testing.expectEqual(@as(usize, 0), server.parked_node_actions.count());
+            try std.testing.expectEqual(@as(usize, 0), server.node.actions.parked_reservations);
+            try std.testing.expectEqual(queued, queue.liveLen());
+            try std.testing.expectEqual(reason.ptr, server.node.peekAction().?.fail.reason.owned.ptr);
+            _ = try server.nextAction();
+        }
+        try std.testing.expectEqual(@as(usize, 1), server.parked_node_actions.count());
+        pair.b.served.port.peer.outbound_budget = std.math.maxInt(usize);
+        try std.testing.expect((try pair.b.takeOutbound()) == null);
+        try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+        try std.testing.expect(call.broken);
+        try std.testing.expectEqual(@as(usize, 0), server.parked_node_actions.count());
+        if (completed) break;
+    }
+    // Map, recipient list, and queue return seat each have a refusal path.
+    try std.testing.expect(refusals >= 3);
+    try std.testing.expect(completed);
+}

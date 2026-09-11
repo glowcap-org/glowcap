@@ -1,5 +1,6 @@
 // Transport-independent contract consumed by an attached Rooms controller.
 
+import type { HistoryChange } from "../../../lib/session/history.ts";
 import type {
 	RoomsOperationsSnapshot,
 	RoomsSessionClient,
@@ -29,7 +30,88 @@ export interface RoomsSessionGrantPatch {
 	readonly note?: string;
 }
 
+export type AttachedFile = Attachment | import("../../../../../zig-out/wasm/rooms/rooms_browser.js").RoomsBrowserFile;
+export type AttachedFileData =
+	| Uint8Array
+	| import("../../../../../zig-out/wasm/rooms/rooms_browser.js").RoomsBrowserFileView;
+export type AttachedLineEvent = Omit<RoomsSessionLineEvent, "attachments"> & { attachments: AttachedFile[] };
+
+export type AttachedHistoryRead =
+	| { conversationId: string; phase: "loading" }
+	| { conversationId: string; phase: "ready"; records: ArchiveRecord[]; local: boolean; peer: boolean }
+	| { conversationId: string; phase: "failed"; error: string };
+
+export interface AttachedOperationsRead {
+	capability: "listeners" | "diagnostics" | "irc" | "operator" | "peering" | "viz";
+	snapshot: OperatorSnapshot | RoomsOperationsSnapshot | null;
+	search: string;
+	referenceKind: OperatorReferenceKind | null;
+	error: string | null;
+}
+
 export interface AttachedRoomsRemote {
+	eraseBrowserArchive?(): Promise<void>;
+	acceptInvitation?(invitation: string): Promise<RoomsSessionSnapshot>;
+	takeRoomLink?(link: string, label: string): Promise<boolean>;
+	chooseDirect?(
+		directory: string,
+		who: string,
+		select: boolean,
+	): Promise<import("../../../lib/rooms_state.ts").WorkspaceDirectConversation>;
+	reachDirectory?(locator: string, nick: string, defaultDirectory: string, signal?: AbortSignal): Promise<void>;
+	joinDestination?(
+		destination: string,
+		nick: string,
+		defaultDirectory: string,
+		signal?: AbortSignal,
+	): Promise<RoomsSessionSnapshot>;
+	chooseRoom?(directory: string, name: string, policy?: string): Promise<RoomsSessionSnapshot>;
+	readonly operationsView?: {
+		retire(
+			category: OperatorCategory,
+			query: string,
+			limit: number,
+			referenceKind: OperatorReferenceKind | null,
+		): Promise<OperatorRetireBatch>;
+		run(capability: string, action: string, args: string[]): Promise<RoomsSessionSnapshot>;
+		loadPage(category: OperatorCategory): Promise<void>;
+		listen(listener: ((result: AttachedOperationsRead) => void) | undefined): void;
+		refresh(
+			capability: AttachedOperationsRead["capability"],
+			search?: string,
+			referenceKind?: OperatorReferenceKind | null,
+		): Promise<void>;
+	};
+	encodeWorkspace?(choices: string): string;
+	selectWorkspace?(
+		persistence: import("../../../../../zig-out/wasm/rooms/rooms_browser.js").RoomsWorkspacePersistence,
+		link: string,
+		home: string,
+	): Promise<string>;
+	readonly drafts?: {
+		stage(conversation: string, text: string): void;
+		pending(conversation: string): string | undefined;
+		retire(conversation: string): void;
+		clearSent(conversation: string): Promise<RoomsSessionSnapshot>;
+		cancelSave(conversation: string): void;
+		save(conversation: string, text: string, delayed: boolean): Promise<RoomsSessionSnapshot>;
+	};
+	runCommand?(name: string, args: string[]): Promise<RoomsSessionSnapshot>;
+	readonly writes?: {
+		files(conversation: string, caption: string, files: AttachmentSource[]): Promise<RoomsSessionSnapshot>;
+		refile(
+			conversation: string,
+			line: number,
+			caption: string,
+			keep: readonly number[],
+			files: AttachmentSource[],
+		): Promise<RoomsSessionSnapshot>;
+		checkpoint(value: RoomsSessionState, adopt: boolean): Promise<RoomsSessionSnapshot>;
+	};
+	listenHistory?(listener: ((result: AttachedHistoryRead) => void) | undefined): void;
+	listenLines?(listener: ((event: AttachedLineEvent) => void) | undefined): void;
+	settleRevision?(revision: number): Promise<RoomsSessionSnapshot>;
+	driving?(): readonly string[];
 	snapshot(): Promise<RoomsSessionSnapshot>;
 	/** Ask this session whether a second capability for the same peer answers,
 	 * over the connection already open to it. A Host keeps one session per
@@ -39,11 +121,16 @@ export interface AttachedRoomsRemote {
 	verifySibling(sturdyref: string): Promise<void>;
 	watch(
 		changed: (snapshot: RoomsSessionSnapshot) => void,
-		event: (event: RoomsSessionLineEvent) => void,
+		event: (event: AttachedLineEvent) => void,
 		operationsChanged: (scope: string) => void,
+		historyChanged: (change: HistoryChange) => void,
 	): Promise<RoomsSessionSnapshot>;
 	command(operationId: string, baseRevision: number, name: string, args: string[]): Promise<number>;
 	setTyping(conversationId: string, on: boolean): Promise<void>;
+	lastEditableLine(conversationId: string): number | undefined;
+	ignoredNickname(conversationId: string): string | undefined;
+	inviteToRoom(conversationId: string, who: string): Promise<void>;
+	roomLinkFor(conversationId: string, name?: string): Promise<{ name: string; held: boolean; link: string }>;
 	editLine(
 		operationId: string,
 		baseRevision: number,
@@ -103,13 +190,18 @@ export interface AttachedRoomsRemote {
 	revokeIssuedArchiveShare(id: string): Promise<boolean>;
 	publishPeeredRoom(operationId: string, baseRevision: number, intent: unknown): Promise<number>;
 	revokePeeredRoom(operationId: string, baseRevision: number, id: string): Promise<number>;
-	fetchAttachment(attachment: Attachment, onProgress?: (got: number) => void): Promise<Uint8Array>;
+	fetchAttachment(
+		attachment: AttachedFile,
+		onProgress?: (got: number) => void,
+		signal?: AbortSignal,
+	): Promise<AttachedFileData>;
 	fetchArchivedAttachment(
 		record: Extract<ArchiveRecord, { kind: "line" }>,
 		index: number,
 		onProgress?: (got: number) => void,
-	): Promise<Uint8Array>;
-	releaseAttachment(attachment: Attachment): void;
+		signal?: AbortSignal,
+	): Promise<AttachedFileData>;
+	releaseAttachment(attachment: AttachedFile): void;
 	resolveEffect(operationId: string, outcome: "committed" | "abandoned"): Promise<void>;
 	resumeEffect(operationId: string): Promise<number>;
 	issueGrant(

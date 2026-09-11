@@ -16,13 +16,19 @@ reads like an app.
 :meth:`Directory.open` and :meth:`Directory.enter` mirror the wire one-to-one and
 stay strict. The friendly "enter, opening it if new" behavior is a CLI
 convenience and lives in ``client.py``, not here.
+
+The wire grammar this reads, the verbs, the publication record, the watch and
+room notification shapes, and the subscribe answer, comes from
+``_protocol_gen.py`` beside this file, generated from
+``tools/gen/rooms_protocol.zig`` and shared with every sibling client. The
+checks below are this language's own; what they check against is the table.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import pathlib
-import re
 import sys
 from dataclasses import dataclass
 
@@ -34,6 +40,7 @@ add_bindings_path()
 from glowcap import (  # noqa: E402
     tcp,
     Host,
+    Ref,
     Session,
     Runtime,
     designator_host_port,
@@ -42,12 +49,30 @@ from glowcap import (  # noqa: E402
 from glowcap._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
 from glowcap.iroh import IrohConfig, Reachability, provider as iroh_provider  # noqa: E402
 
-DIRECTORY = "directory"
-OPEN, ENTER = "open", "enter"
-LIST_PUBLICATIONS, WATCH_PUBLICATIONS = "listPublications", "watchPublications"
-REGISTER, INTRODUCE, MEMBER_REGISTRATION = "register", "introduce", "memberRegistration"
-SUBSCRIBE, POST, LEAVE, NOTIFY = "subscribe", "post", "leave", "notify"
-DM = "dm"
+from _protocol_gen import (  # noqa: E402
+    DIRECTORY,
+    DM,
+    ENTER,
+    INTRODUCE,
+    LIST_PUBLICATIONS,
+    MEMBER_REGISTRATION,
+    MEMBERSHIP_ENDED,
+    NOTIFY,
+    OPEN,
+    POST,
+    PUBLICATION_FIELDS,
+    REGISTER,
+    REGISTRATION_EVENT_FIELDS,
+    REGISTRATION_ID_PATTERN,
+    REGISTRATION_ROW_FIELDS,
+    ROOM_SENDER,
+    ROOM_TAILS,
+    SUBSCRIBE,
+    SUBSCRIBE_ANSWER_FIELDS,
+    WATCH_KINDS,
+    WATCH_PUBLICATIONS,
+    WATCH_SNAPSHOT_FIELDS,
+)
 
 # How long `register` waits for the directory's `notify("registered")` before it
 # gives up. Matches the TypeScript client's `REGISTER_ACK_TIMEOUT_MS`: a
@@ -56,21 +81,59 @@ DM = "dm"
 # healthy directory answers within.
 REGISTER_ACK_TIMEOUT_S = 10.0
 MAX_UNREAD_LINES = 256
-REGISTRATION_ID = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
+
+
+def _admits_type(kind: str, value) -> bool:
+    """Whether one wire value is of the declared type, checked natively."""
+    if kind == "string":
+        return isinstance(value, str)
+    if kind == "text":
+        return isinstance(value, str) and len(value) > 0
+    if kind == "natural":
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    if kind == "boolean":
+        return isinstance(value, bool)
+    if kind == "reference":
+        return isinstance(value, Ref)
+    if kind == "registration-id":
+        return isinstance(value, str) and REGISTRATION_ID_PATTERN.fullmatch(value) is not None
+    if kind == "list":
+        return isinstance(value, list)
+    return kind == "any"
+
+
+def _admits(field, value) -> bool:
+    """Whether one wire value fits its declared field: a null where the field
+    allows one, a member of the enumeration where it has one, and the type."""
+    _name, kind, nullable, values = field
+    if value is None:
+        return nullable
+    if values and value not in values:
+        return False
+    return _admits_type(kind, value)
+
+
+def _fits(fields, values) -> bool:
+    """Whether a wire list is exactly the declared fields, one value each."""
+    return (
+        isinstance(values, list)
+        and len(values) == len(fields)
+        and all(_admits(field, value) for field, value in zip(fields, values))
+    )
 
 
 def _registration_id(raw, context: str) -> str:
-    if not isinstance(raw, str) or REGISTRATION_ID.fullmatch(raw) is None:
+    if not _admits_type("registration-id", raw):
         raise ValueError(f"{context} did not name a valid registration ID")
     return raw
 
 
 @dataclass(frozen=True)
 class RoomInfo:
-    """One exact directory publication. Foreign occupancy is unknown, not zero."""
+    """One exact directory publication. Foreign occupancy is unknown, not zero.
+
+    The fields are the generated ``PUBLICATION_FIELDS`` in wire order, so a
+    validated row constructs one positionally."""
 
     name: str
     count: int | None
@@ -81,19 +144,12 @@ class RoomInfo:
     offers: str | None
 
 
+if tuple(field.name for field in dataclasses.fields(RoomInfo)) != tuple(name for name, *_ in PUBLICATION_FIELDS):
+    raise RuntimeError("RoomInfo does not follow the generated publication record")
+
+
 def _room(raw) -> RoomInfo | None:
-    if not isinstance(raw, list) or len(raw) != 7:
-        return None
-    name, count_raw, entry_id, kind, origin, proof, offers = raw
-    if not all(isinstance(value, str) for value in (name, entry_id, kind, origin, proof)):
-        return None
-    if count_raw is not None and (
-        isinstance(count_raw, bool) or not isinstance(count_raw, int) or count_raw < 0
-    ):
-        return None
-    if offers is not None and offers not in ("observer", "participant"):
-        return None
-    return RoomInfo(name, count_raw, entry_id, kind, origin, proof, offers)
+    return RoomInfo(*raw) if _fits(PUBLICATION_FIELDS, raw) else None
 
 
 def _rooms(raw) -> "list[RoomInfo]":
@@ -111,21 +167,11 @@ def _rooms(raw) -> "list[RoomInfo]":
 
 def _watch_rooms(raw) -> "list[RoomInfo]":
     """Decode the atomic rooms, registrations, and omission-count baseline."""
-    if not isinstance(raw, list) or len(raw) != 3:
+    if not _fits(WATCH_SNAPSHOT_FIELDS, raw):
         raise ValueError("the directory answered a malformed watch snapshot")
-    rooms, registrations, omitted = raw
-    if not isinstance(registrations, list) or not all(
-        isinstance(row, list)
-        and len(row) == 2
-        and isinstance(row[0], str)
-        and len(row[0]) > 0
-        and isinstance(row[1], str)
-        and len(row[1]) > 0
-        for row in registrations
-    ):
+    rooms, registrations, _omitted = raw
+    if not all(_fits(REGISTRATION_ROW_FIELDS, row) for row in registrations):
         raise ValueError("the directory answered malformed registration rows")
-    if isinstance(omitted, bool) or not isinstance(omitted, int) or omitted < 0:
-        raise ValueError("the directory answered an invalid watch omission count")
     return _rooms(rooms)
 
 
@@ -135,33 +181,13 @@ def _watch_room_event(args) -> "tuple[str, RoomInfo | None]":
     if not isinstance(args, list) or not args or not isinstance(args[0], str):
         raise ValueError("the directory sent a malformed watch notification")
     kind = args[0]
-    if kind in ("opened", "closed", "count"):
-        room = _room(args[1:])
-        if room is None:
-            raise ValueError("the directory sent a malformed room watch notification")
-        return kind, room
-    if kind in ("registered", "unregistered"):
-        if (
-            len(args) != 4
-            or not isinstance(args[1], str)
-            or not args[1]
-            or isinstance(args[2], bool)
-            or not isinstance(args[2], int)
-            or args[2] < 0
-        ):
-            raise ValueError("the directory sent a malformed member watch notification")
-        _registration_id(args[3], f'watch {kind} for "{args[1]}"')
-        return kind, None
-    if kind == "truncated":
-        if (
-            len(args) != 2
-            or isinstance(args[1], bool)
-            or not isinstance(args[1], int)
-            or args[1] < 0
-        ):
-            raise ValueError("the directory sent a malformed watch truncation")
-        return kind, None
-    raise ValueError(f"the directory sent an unknown watch event {kind!r}")
+    shape = WATCH_KINDS.get(kind)
+    if shape is None:
+        raise ValueError(f"the directory sent an unknown watch event {kind!r}")
+    fields, room = shape
+    if not _fits(fields, args[1:]):
+        raise ValueError(f"the directory sent a malformed {'room' if room else kind} watch notification")
+    return kind, _room(args[1:]) if room else None
 
 
 def rooms_host() -> Host:
@@ -250,12 +276,15 @@ class Directory:
         instead of waiting forever on a directory that failed the registration
         after accepting the message."""
         done = asyncio.get_running_loop().create_future()
+        fields, _room = WATCH_KINDS["registered"]
 
         def inbox(verb: str, args: list):
             if verb == NOTIFY and args and args[0] == "registered" and not done.done():
-                if len(args) != 3 or args[1] != nick:
+                # The member's own register inbox hears the name and the id, the
+                # watcher shape without its count.
+                if not _fits([field for field in fields if field[0] != "count"], args[1:]) or args[1] != nick:
                     raise ValueError(f'register("{nick}") received a malformed acknowledgement')
-                done.set_result(_registration_id(args[2], f'register("{nick}")'))
+                done.set_result(args[2])
             return None
 
         observer = self.session.spawn(inbox)
@@ -288,24 +317,50 @@ class Directory:
 
 @dataclass
 class Presence:
-    """A membership change a system line carries as structured wire args, not prose:
-    the roster on arrival, or a join/leave. ``names`` is the roster, or ``[nick]`` for
-    a join/leave."""
+    """A membership change a system line carries as structured wire args, not prose.
+    ``kind`` is the generated tail's tag, ``names`` the members it is about (the
+    whole roster, or the one member), and ``effect`` what it does to them:
+    ``ARRIVE``, ``DEPART``, or ``STAY`` from ``_protocol_gen``."""
 
-    kind: str  # "roster" | "join" | "leave"
+    kind: str
     names: "list[str]"
+    effect: str
 
 
-def _read_presence(args: list) -> "Presence | None":
-    """The structured presence after a room line's display text —
-    ``notify("room", text, "roster", *names)`` or ``notify("room", text, kind, nick)``.
-    Ordinary chat lines carry none."""
-    kind = args[2] if len(args) > 2 else None
-    if kind == "roster":
-        return Presence("roster", [n for n in args[3:] if isinstance(n, str)])
-    if kind in ("join", "leave") and len(args) > 3 and isinstance(args[3], str):
-        return Presence(kind, [args[3]])
-    return None
+def _tail_fits(tail, sender: str, text: str, extra: list) -> bool:
+    """Whether a room line's sender, text, and arguments after the tag are what
+    the generated tail declares."""
+    trailing, rest, who, rule, _effect = tail
+    if who == "room" and sender != ROOM_SENDER:
+        return False
+    if who == "member" and sender == ROOM_SENDER:
+        return False
+    if rule == "empty" and text != "":
+        return False
+    if rule == "nonempty" and text == "":
+        return False
+    fixed, more = extra[: len(trailing)], extra[len(trailing):]
+    if not _fits(trailing, fixed):
+        return False
+    if rest is None:
+        return not more
+    return all(_admits_type(rest, value) for value in more)
+
+
+def _read_presence(sender: str, text: str, args: list) -> "Presence | None":
+    """The structured presence after a room line's display text, when the tag
+    names a presence tail and the arguments are its shape. Ordinary chat lines
+    carry none, and a malformed tail reads as none, so the line still draws."""
+    tag = args[2] if len(args) > 2 else None
+    tail = ROOM_TAILS.get(tag)
+    if tail is None or tail[4] is None or not _tail_fits(tail, sender, text, args[3:]):
+        return None
+    trailing, rest, _who, _rule, effect = tail
+    fixed, more = args[3:3 + len(trailing)], args[3 + len(trailing):]
+    names = [value for field, value in zip(trailing, fixed) if field[0] == "name"]
+    if rest is not None:
+        names.extend(more)
+    return Presence(tag, names, effect)
 
 
 @dataclass
@@ -341,13 +396,23 @@ class DirectMessage:
         await self._session.send(self._dm, DM, [text])
 
 
+def _membership_seat(answer) -> Ref:
+    """The membership seat ``subscribe`` answers with, the first of the generated
+    ``SUBSCRIBE_ANSWER_FIELDS``. Every later membership verb goes to the seat,
+    never to the room it was answered for."""
+    if not _fits(SUBSCRIBE_ANSWER_FIELDS, answer):
+        raise ValueError("the room answered subscribe without one membership capability")
+    return answer[[name for name, *_ in SUBSCRIBE_ANSWER_FIELDS].index("seat")]
+
+
 class Room:
     """A membership in a chat room. Get one with :meth:`join`, iterate it for the
     lines the room sends, :meth:`say` to talk, and :meth:`leave` when done."""
 
-    def __init__(self, session: Session, room) -> None:
+    def __init__(self, session: Session) -> None:
         self._session = session
-        self._room = room
+        # The seat the room answers subscribe with; posts go there.
+        self._membership: Ref | None = None
         self._lines: asyncio.Queue = asyncio.Queue(maxsize=MAX_UNREAD_LINES)
         self._leaving = False
         self._ended = False
@@ -355,7 +420,7 @@ class Room:
 
     @classmethod
     async def subscribe(cls, session: Session, room_ref, nick: str) -> "Room":
-        self = cls(session, room_ref)
+        self = cls(session)
 
         # The room calls this back with every line; surface it on the stream.
         inbox = session.spawn(self._inbox)
@@ -363,14 +428,18 @@ class Room:
         # End the stream when the connection closes.
         asyncio.ensure_future(self._until_closed())
 
-        # Subscribe, handing the room a capability to our inbox. Success is the
-        # resolution; the room delivers the welcome and the roster as our first notify.
-        await session.send(room_ref, SUBSCRIBE, [nick, inbox])
+        # Subscribe, handing the room a capability to our inbox. The room answers
+        # with the membership seat; the welcome and the roster arrive as our
+        # first notify, not as part of that answer.
+        self._membership = _membership_seat(await session.send(room_ref, SUBSCRIBE, [nick, inbox]))
         return self
 
     async def say(self, text: str) -> None:
-        """Say a line to everyone in the room."""
-        await self._session.send(self._room, POST, [text])
+        """Say a line to everyone in the room, on the membership seat."""
+        membership = self._membership
+        if membership is None:
+            raise RuntimeError("the room has no membership seat")
+        await self._session.send(membership, POST, [text])
 
     async def leave(self) -> None:
         """Leave the room and release the connection."""
@@ -398,14 +467,27 @@ class Room:
             raise ValueError(f"inbox has no method {verb!r}")
         sender = args[0] if args and isinstance(args[0], str) else "?"
         text = args[1] if len(args) > 1 and isinstance(args[1], str) else ""
-        self._emit(sender, text, _read_presence(args))
+        if len(args) > 2 and args[2] == MEMBERSHIP_ENDED:
+            if not _tail_fits(ROOM_TAILS[MEMBERSHIP_ENDED], sender, text, args[3:]):
+                raise ValueError("membership-ended notify takes one reason")
+            self._end_membership(text)
+            return None
+        self._emit(sender, text, _read_presence(sender, text, args))
         return None
+
+    def _end_membership(self, reason: str) -> None:
+        """The room's last word to this inbox (a steward's kick, say): the reason
+        is the last line, and once the retained lines are read the stream raises
+        it, the way an overrun does, because no more lines will ever arrive."""
+        self._emit(ROOM_SENDER, reason)
+        self._failure = RuntimeError(f"the room ended this membership: {reason}")
+        self._ended = True
 
     def _emit(self, sender: str, text: str, presence: "Presence | None" = None) -> None:
         if self._ended:
             raise RuntimeError("the room inbox is closed")
         try:
-            self._lines.put_nowait(Message(sender, text, sender == "room", presence))
+            self._lines.put_nowait(Message(sender, text, sender == ROOM_SENDER, presence))
         except asyncio.QueueFull:
             self._failure = RuntimeError(
                 f"the room retained its maximum {MAX_UNREAD_LINES} unread lines"

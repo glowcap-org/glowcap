@@ -154,7 +154,23 @@
    changes homes, so its size is settled here for both and neither home restates
    it. Each home separately naming a size is how the two came to differ by a
    pixel, which is small enough to read as a redraw rather than as travel. The
-   mark itself is the shared IconButton using the project-wide mask token. */
+   mark itself is the shared IconButton's shader mark, standing unlit. */
+.mark-btn .mark-glyph {
+	/* Well over the glyph step, because this glyph is a drawing that
+	   letterboxes into its square box where a stroked icon fills it, so at the
+	   step it read as the one small mark in the chrome.
+
+	   Then centred by eye rather than by box. The mushroom is top-heavy, a wide
+	   cap over a short stalk, so a box centred on its geometry hangs high and
+	   wants a little of its height back. Carrying it sideways is the move to
+	   distrust: the mass reads as sitting left of the box, it measures as
+	   sitting on centre, and a translation written from the first reading left
+	   the button's ink half again as far from one edge as the other.
+
+	   A transform rather than a size, so the box the two homes agree on stays
+	   the glyph step and the control's own geometry is untouched. */
+	transform: translate(-2%, 4%) scale(1.3);
+}
 /* The rail only places the lockup; what the lockup is — every metric of it —
    lives with the mark in mark.css, because a logotype's parts may never move
    relative to each other when the type ramp changes. */

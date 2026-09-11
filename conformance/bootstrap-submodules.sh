@@ -38,4 +38,20 @@ for path in "${paths[@]}"; do
 done
 
 git submodule update --init --recursive "${paths[@]}"
+
+# Git writes core.worktree relative to the submodule repository. A linked
+# worktree's repository lives under the primary checkout's common Git directory,
+# while the checkout itself is mounted at /workspaces/glowcap in the
+# devcontainer. The generated relative path consequently resolves on only one
+# side of that boundary. The devcontainer mounts the checkout at its host path
+# as a second alias; record that stable absolute path so Git status works from
+# both the host and the container.
+checkout="${GLOWCAP_CHECKOUT_DIR:-$(pwd -P)}"
+for path in "${paths[@]}"; do
+    store="${git_dir}/modules/${path}"
+    [[ -d ${store} ]] || continue
+    git config --file "${store}/config" core.worktree "${checkout}/${path}"
+    printf 'gitdir: %s\n' "${store}" > "${path}/.git"
+done
+
 echo "conformance submodules initialized."

@@ -1,4 +1,4 @@
-//! The seed corpus every hostile-bytes fuzz target starts from.
+//! The seed corpus every untrusted-bytes fuzz target starts from.
 //!
 //! One list, in one place. A target seeded from a couple of shapes spends its
 //! budget rediscovering what a frame looks like instead of exploring what

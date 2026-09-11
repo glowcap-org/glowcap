@@ -277,7 +277,11 @@ pub const rows: []const Ban = &.{
             "bindings/racket/private/host.rkt",
             "bindings/racket/private/loop.rkt",
             "bindings/racket/private/dial.rkt",
+            "bindings/racket/private/listen-loop.rkt",
             "bindings/racket/private/tcp-listen.rkt",
+            "bindings/racket/private/relay-listen.rkt",
+            "bindings/racket/private/iroh/surface.rkt",
+            "bindings/racket/glowcap-onion.rkt",
         } },
         .kind = .forbid,
         .needles = &.{

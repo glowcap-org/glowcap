@@ -51,9 +51,12 @@ pub fn maybeInstallInboundListener(peer: *Peer, listen: model.view.Listen) !void
     }
 }
 
+/// The listener's mention is the session's to release, beside the fire that
+/// spends it or when the listener is discarded; it is never an application
+/// reference, so no caller's `op:gc-exports` may address it.
 fn listenerEntryFromListen(peer: *Peer, listen: model.view.Listen) !session.ListenerEntry {
     const position = listen.listener.position() orelse return session.Error.InvalidReference;
-    try peer.session_state.registerImport(model.ImportPosition.from(position));
+    try peer.session_state.retainImportForSession(model.ImportPosition.from(position));
     return .{ .listener = model.FarRef.object(position), .mode = listen.mode };
 }
 
@@ -61,7 +64,7 @@ fn installThirdPartyImportListener(peer: *Peer, import_position: model.ImportPos
     const listener_entry = try listenerEntryFromListen(peer, listen);
     var retain_live = true;
     errdefer if (retain_live)
-        peer.session_state.releaseImportRetain(listener_entry.listener.import_position);
+        peer.session_state.releaseSessionImportRetain(listener_entry.listener.import_position);
     if (peer.session_state.importedPromiseStoredResolution(import_position)) |resolution| {
         const row = peer.session_state.findImportedPromise(import_position).?;
         try applyStoredListener(
@@ -82,7 +85,7 @@ fn installAnswerListener(peer: *Peer, answer: model.AnswerName, listen: model.vi
     const listener_entry = try listenerEntryFromListen(peer, listen);
     var retain_live = true;
     errdefer if (retain_live)
-        peer.session_state.releaseImportRetain(listener_entry.listener.import_position);
+        peer.session_state.releaseSessionImportRetain(listener_entry.listener.import_position);
     if (peer.session_state.peekStoredResolutionNamed(answer)) |resolution| {
         const target = peer.session_state.answerTargetNamed(answer) orelse return session.Error.InvalidReference;
         const payload = peer.session_state.answerPayloadForTarget(target) orelse return session.Error.InvalidReference;
@@ -114,13 +117,13 @@ fn fireLiveObjectExportListener(peer: *Peer, export_position: model.ExportPositi
     const listener_entry = try listenerEntryFromListen(peer, listen);
     var retain_live = true;
     errdefer if (retain_live)
-        peer.session_state.releaseImportRetain(listener_entry.listener.import_position);
+        peer.session_state.releaseSessionImportRetain(listener_entry.listener.import_position);
     const resolution: model.Resolution = .{ .fulfill = .{
         .reference = .{ .near = model.NearRef.object(export_position.int()) },
     } };
     switch (classifyTerminalListenerDrain(listener_entry, resolution)) {
         .fire => |position| try enqueueFire(peer, position, .{ .near_object = export_position }, resolution),
-        .discard => peer.session_state.releaseImportRetain(listener_entry.listener.import_position),
+        .discard => peer.session_state.releaseSessionImportRetain(listener_entry.listener.import_position),
     }
     retain_live = false;
 }
@@ -184,7 +187,7 @@ fn applyStoredListener(
                 .{ .static_break = message },
                 terminalBreak(message),
             ),
-            .discard => peer.session_state.releaseImportRetain(entry.listener.import_position),
+            .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
         },
         .reinstall => |target| {
             var prepared = try peer.session_state.prepareListenerBatchTarget(target, 1);
@@ -198,7 +201,7 @@ fn applyStoredListener(
                 .{ .store = stored.target },
                 stored.resolution,
             ),
-            .discard => peer.session_state.releaseImportRetain(entry.listener.import_position),
+            .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
         },
     }
 }
@@ -243,7 +246,7 @@ pub const PreparedListenerDrain = struct {
                         .target = .{ .static_break = reason },
                     } });
                 },
-                .discard => peer.session_state.releaseImportRetain(entry.listener.import_position),
+                .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
             },
             .reinstall => self.reinstall_prepared.?.commit(self.listeners),
             .drain => |stored| for (self.listeners) |entry| {
@@ -257,7 +260,7 @@ pub const PreparedListenerDrain = struct {
                             .target = .{ .store = stored.target },
                         } });
                     },
-                    .discard => peer.session_state.releaseImportRetain(entry.listener.import_position),
+                    .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
                 }
             },
         }

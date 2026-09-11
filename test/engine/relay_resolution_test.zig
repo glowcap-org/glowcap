@@ -38,7 +38,7 @@ test "relayed settlement backpressure restores the store and every listener" {
     defer peer.deinit();
 
     try peer.session_state.installThirdPartyImport(.from(5), "exporter");
-    try peer.session_state.registerImport(.from(9));
+    try peer.session_state.retainImportForSession(.from(9));
     try peer.session_state.installImportedPromiseListener(.from(5), .{
         .listener = model.FarRef.object(9),
         .mode = .settling_only,
@@ -79,8 +79,8 @@ test "relayed promise listener modes fire only their requested transition" {
     defer peer.deinit();
 
     try peer.session_state.installThirdPartyImport(.from(5), "exporter");
-    try peer.session_state.registerImport(.from(9));
-    try peer.session_state.registerImport(.from(10));
+    try peer.session_state.retainImportForSession(.from(9));
+    try peer.session_state.retainImportForSession(.from(10));
     try peer.session_state.registerImport(.from(12));
     try peer.session_state.installImportedPromiseListener(.from(5), .{
         .listener = model.FarRef.object(9),
@@ -342,7 +342,7 @@ test "a second relayed resolution is refused — a handoff-imported promise reso
     defer peer.deinit();
 
     try peer.session_state.installThirdPartyImport(.from(5), "exporter");
-    try peer.session_state.registerImport(.from(9));
+    try peer.session_state.retainImportForSession(.from(9));
     try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
 
     // First relay fires the listener (far 9) and stores the resolution.
@@ -365,7 +365,7 @@ test "a second relayed resolution is refused — a handoff-imported promise reso
     // is freed (the testing allocator holds the no-leak contract), and the
     // stored value is untouched. A listener installed after the settlement
     // never fires from the refused relay.
-    try peer.session_state.registerImport(.from(10));
+    try peer.session_state.retainImportForSession(.from(10));
     try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(10) }, .mode = .settling_only });
     try std.testing.expectError(
         error.UnexpectedMessage,
@@ -386,7 +386,7 @@ test "a second relay before the first fire encodes is refused and every listener
     const export_pos = try p2.session_state.allocatePromiseExport();
     try p2.session_state.exports.retain(allocator, export_pos);
     try p2.session_state.installThirdPartyImport(.from(export_pos.int()), "exporter");
-    try p2.session_state.registerImport(.from(9));
+    try p2.session_state.retainImportForSession(.from(9));
     try p2.session_state.installImportedPromiseListener(.from(export_pos.int()), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
     try p1.session_state.registerImport(.from(export_pos.int()));
     try p1.session_state.registerExport(.from(9));
@@ -446,7 +446,7 @@ test "a fire staled by row teardown and re-registration at the same import posit
     defer peer.deinit();
 
     try peer.session_state.installThirdPartyImport(.from(5), "exporter");
-    try peer.session_state.registerImport(.from(9));
+    try peer.session_state.retainImportForSession(.from(9));
     try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
 
     // Apply stamps this row instance; the fire carrier sits until step.
@@ -498,7 +498,7 @@ test "a relayed resolution staled by row teardown and re-registration at the sam
 
     // Import 5 is a third-party promise (row R1) with a listener.
     try peer.session_state.installThirdPartyImport(.from(5), "exporter");
-    try peer.session_state.registerImport(.from(9));
+    try peer.session_state.retainImportForSession(.from(9));
     try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
 
     // Capture R1's stamp, then hold the resolution without applying — the
@@ -512,7 +512,7 @@ test "a relayed resolution staled by row teardown and re-registration at the sam
     // listener.
     try peer.sendCopying(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
     try peer.session_state.installThirdPartyImport(.from(5), "other-exporter");
-    try peer.session_state.registerImport(.from(11));
+    try peer.session_state.retainImportForSession(.from(11));
     try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(11) }, .mode = .settling_only });
 
     // Applying the stale stamp against R2: moot — neither stored on R2 nor

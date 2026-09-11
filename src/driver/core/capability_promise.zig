@@ -70,9 +70,11 @@ pub fn liftInlineGive(
 
 /// Resolve the Node's routed capability into the ordinary Host capability the
 /// promise row owns. The Node action is only consumed after this succeeds, so
-/// allocation failure leaves the exact settlement retryable.
-pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.CapabilityRouteId) !void {
-    const row = self.capability_promises.getPtr(id) orelse return;
+/// allocation failure leaves the exact settlement retryable. A projection
+/// recipient whose outbound pressure stops the settle is reported with its
+/// projection still owed, so the drain parks the action on that recipient.
+pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.CapabilityRouteId) !host_pump.ActionOutcome {
+    const row = self.capability_promises.getPtr(id) orelse return .done;
     const lifted = switch (row.state) {
         .pending => blk: {
             const route = self.node.routeCapability(route_id) orelse return error.UnknownCapability;
@@ -86,7 +88,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
             break :blk lifted;
         },
         .settling => |prepared| prepared,
-        .fulfilled, .broken => return,
+        .fulfilled, .broken => return .done,
     };
     const resolved = lifted.ref;
     while (row.projections.items.len != 0) {
@@ -105,10 +107,16 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
         switch (outcome) {
             .claimed => {},
             .resolve => |projected| {
-                try recipient.served.port.peer.sendAnswerTargetResolutionCopying(
+                recipient.served.port.peer.sendAnswerTargetResolutionCopying(
                     projection.answer_target,
                     .{ .fulfill = projected },
-                );
+                ) catch |err| switch (err) {
+                    // The prepared lift rolls back with `prepared`; the
+                    // projection stays owed and the drain parks on this
+                    // recipient (ADR-0145).
+                    error.OutboundBackpressure => return .{ .parked_on = projection.peer_handle },
+                    else => return err,
+                };
                 host_pump.markDirty(self, projection.peer_handle);
             },
         }
@@ -119,7 +127,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
         // A directly settled listen may run an in-process vow listener. Refetch
         // after every such callback instead of retaining a pointer across code
         // that may release this promise or rehash the Host tables.
-        const current = self.capability_promises.getPtr(id) orelse return;
+        const current = self.capability_promises.getPtr(id) orelse return .done;
         if (current.operation_head >= current.operations.items.len) break;
         const pending = &current.operations.items[current.operation_head];
         if (pending.stage == .queued) {
@@ -215,7 +223,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
         pending.deinit();
         current.operation_head += 1;
     }
-    const completed = self.capability_promises.getPtr(id) orelse return;
+    const completed = self.capability_promises.getPtr(id) orelse return .done;
     completed.operations.clearRetainingCapacity();
     completed.operation_head = 0;
     if (completed.abandoned) {
@@ -223,16 +231,19 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
         completed.projections.deinit(self.allocator);
         completed.operations.deinit(self.allocator);
         std.debug.assert(self.capability_promises.remove(id));
-        return;
+        return .done;
     }
     completed.projections.deinit(self.allocator);
     completed.projections = .empty;
     completed.operations.deinit(self.allocator);
     completed.operations = .empty;
     completed.state = .{ .fulfilled = resolved };
+    return .done;
 }
 
-pub fn breakPromise(self: *Host, id: capability.PromiseId, reason: []const u8) !void {
+/// Break the promise toward every projection, parking on a recipient whose
+/// outbound pressure stops it, as `fulfill` does.
+pub fn breakPromise(self: *Host, id: capability.PromiseId, reason: []const u8) !host_pump.ActionOutcome {
     return breakPromiseImpl(self, id, reason, false);
 }
 
@@ -241,12 +252,12 @@ fn breakPromiseImpl(
     id: capability.PromiseId,
     reason: []const u8,
     terminal: bool,
-) !void {
-    const row = self.capability_promises.getPtr(id) orelse return;
+) !host_pump.ActionOutcome {
+    const row = self.capability_promises.getPtr(id) orelse return .done;
     const settling_ref: ?capability.Ref = switch (row.state) {
         .pending => null,
-        .settling => |lifted| if (terminal) lifted.ref else return,
-        .fulfilled, .broken => return,
+        .settling => |lifted| if (terminal) lifted.ref else return .done,
+        .fulfilled, .broken => return .done,
     };
     while (row.projections.items.len != 0) {
         const projection = row.projections.items[row.projections.items.len - 1];
@@ -258,7 +269,10 @@ fn breakPromiseImpl(
             projection.answer_target,
             .{ .@"break" = .{ .message = reason } },
         ) catch |err| {
-            if (!terminal) return err;
+            if (!terminal) {
+                if (err == error.OutboundBackpressure) return .{ .parked_on = projection.peer_handle };
+                return err;
+            }
             host_pump.condemnAndClose(
                 self,
                 recipient,
@@ -291,6 +305,7 @@ fn breakPromiseImpl(
         owned.deinit();
     }
     operations.deinit(self.allocator);
+    return .done;
 }
 
 /// Mark a promise whose application identity was rolled back or finally
@@ -475,7 +490,9 @@ pub fn sessionReleased(self: *Host, peer_handle: engine.PeerHandle, reason: []co
         }
         const id = introduced orelse break;
         self.node.cancelInlineGive(peer_handle, @backingInt(id));
-        breakPromiseImpl(self, id, reason, true) catch unreachable;
+        // Terminal: every projection is broken or its recipient condemned, so
+        // no recipient is ever returned to park on.
+        std.debug.assert((breakPromiseImpl(self, id, reason, true) catch unreachable) == .done);
     }
 
     promise_projection.forgetSession(self, peer_handle);

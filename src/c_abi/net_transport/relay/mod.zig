@@ -5,6 +5,8 @@
 //! and connection/listener lifecycle belong to `runtime/`; relay carrier,
 //! WebSocket, routing, and TLS policy belong to `net.relay`.
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const std = @import("std");
 
 const c = @import("c_abi_shared");
@@ -20,10 +22,8 @@ const Payload = runtime.Payload;
 pub const symbols = @import("symbols.zig");
 
 pub const GlowcapRelayConfig = contract.GlowcapRelayConfig;
-pub const GlowcapRelayTrustSummary = contract.GlowcapRelayTrustSummary;
 pub const contract_layouts = [_]c.archive_contract.Layout{
     c.archive_contract.layout("GLOWCAP_RELAY_CONFIG", GlowcapRelayConfig),
-    c.archive_contract.layout("GLOWCAP_RELAY_TRUST_SUMMARY", GlowcapRelayTrustSummary),
 };
 pub const GLOWCAP_RELAY_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
     "relay",
@@ -90,17 +90,6 @@ pub export fn glowcap_relay_transport_provider(
     const payload = payloadFromOpaque(relay_runtime) orelse return c.GLOWCAP_ERR_NULL_POINTER;
     const slot = out_provider orelse return c.GLOWCAP_ERR_NULL_POINTER;
     slot.* = payload.transportProvider();
-    return c.GLOWCAP_OK;
-}
-
-pub export fn glowcap_relay_runtime_trust_summary(
-    relay_runtime: ?*GlowcapRelayRuntime,
-    out_summary: ?*GlowcapRelayTrustSummary,
-) i32 {
-    c.lastErrorClear();
-    const payload = payloadFromOpaque(relay_runtime) orelse return c.GLOWCAP_ERR_NULL_POINTER;
-    const slot = out_summary orelse return c.GLOWCAP_ERR_NULL_POINTER;
-    slot.* = payload.trustSummary();
     return c.GLOWCAP_OK;
 }
 

@@ -8,7 +8,7 @@ const std = @import("std");
 
 // --- The WebSocket frame codec (client side) -------------------------------
 //
-// Pure over byte buffers so hostile-input tests drive it without a socket.
+// Pure over byte buffers so untrusted-input tests drive it without a socket.
 
 /// RFC 6455 opcodes this client speaks. Text frames are refused outright:
 /// glowcap bytes are binary, and a text frame from a relay is a fault.
@@ -23,7 +23,7 @@ pub const Opcode = enum(u4) {
 };
 
 /// Opcodes this client may place on the wire. Kept separate from `Opcode`,
-/// whose non-exhaustive shape exists to classify hostile inbound values.
+/// whose non-exhaustive shape exists to classify untrusted inbound values.
 pub const OutgoingOpcode = enum(u4) {
     continuation = 0x0,
     binary = 0x2,

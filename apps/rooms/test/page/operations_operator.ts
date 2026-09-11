@@ -164,6 +164,19 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 				const rect = button.getBoundingClientRect();
 				return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1;
 			}),
+			wide: [...document.querySelectorAll<HTMLElement>("body *")].flatMap((element) => {
+				const rect = element.getBoundingClientRect();
+				return rect.right > innerWidth + 1 || rect.left < -1
+					? [{
+						tag: element.tagName.toLowerCase(),
+						id: element.id,
+						className: element.className,
+						left: Math.round(rect.left),
+						right: Math.round(rect.right),
+						scrollWidth: element.scrollWidth,
+					}]
+					: [];
+			}).slice(0, 12),
 		};
 	});
 	if (mobileLayout === null || mobileLayout.overflows || !mobileLayout.inside) {

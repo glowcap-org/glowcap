@@ -92,13 +92,7 @@ export interface ArchiveCoordinates {
 	readonly id: string;
 }
 
-export function sameArchiveCoordinates(
-	left: ArchiveCoordinates | null | undefined,
-	right: ArchiveCoordinates | null | undefined,
-): boolean {
-	return left != null && right != null && left.source === right.source && left.generation === right.generation &&
-		left.id === right.id;
-}
+export { sameArchiveCoordinates } from "./coordinates.ts";
 
 /** Where the recorder stood: enough to offer a returning reader the same
  * place again, without claiming that its names still have the same holders. */
@@ -120,7 +114,11 @@ export interface ArchiveLine extends ArchiveCoordinates {
 	readonly from: string;
 	readonly text: string;
 	readonly mine: boolean;
+	/** Time this line first entered the recorder. Later mutations keep it. */
 	readonly at: number;
+	/** Positive monotone position assigned by the live conversation generation.
+	 * Coordinates remain identity-only. */
+	readonly order: number;
 	readonly state: ArchiveLineState;
 	readonly attachments: readonly ArchivedAttachment[];
 }
@@ -189,6 +187,13 @@ function timestamp(raw: unknown): number {
 	return Number(raw);
 }
 
+function conversationOrder(raw: unknown): number {
+	if (typeof raw !== "bigint" || raw < 1n || raw > BigInt(Number.MAX_SAFE_INTEGER)) {
+		throw new Error("archive line order must be a positive safe integer");
+	}
+	return Number(raw);
+}
+
 function readCommon(raw: Argument[]): ArchiveCoordinates {
 	return parseArchiveCoordinates(raw[1], raw[2], raw[3]);
 }
@@ -246,19 +251,19 @@ export function parseArchiveRecord(raw: unknown): ArchiveRecord {
 		};
 	}
 	if (raw[0] === "line") {
-		if (raw.length !== 13) throw new Error("an archive line row has the wrong shape");
+		if (raw.length !== 14) throw new Error("an archive line row has the wrong shape");
 		const conversationKind = raw[4];
 		if (conversationKind !== "room" && conversationKind !== "direct") {
 			throw new Error("an archive line needs a conversation kind");
 		}
-		const state = raw[11];
+		const state = raw[12];
 		if (state !== "present" && state !== "edited" && state !== "withdrawn") {
 			throw new Error("an archive line needs a state");
 		}
 		const text = boundedString(raw[8], "archive line", MAX_LINE, true);
 		if (state === "withdrawn" && text !== "") throw new Error("a withdrawn archive line must erase its text");
 		if (typeof raw[9] !== "boolean") throw new Error("an archive line needs its local direction");
-		const attachments = parseArchivedAttachments(raw[12]);
+		const attachments = parseArchivedAttachments(raw[13]);
 		if (state === "withdrawn" && attachments.length > 0) {
 			throw new Error("a withdrawn archive line must erase its attachment metadata");
 		}
@@ -272,6 +277,7 @@ export function parseArchiveRecord(raw: unknown): ArchiveRecord {
 			text,
 			mine: raw[9],
 			at: timestamp(raw[10]),
+			order: conversationOrder(raw[11]),
 			state,
 			attachments,
 		};
@@ -305,6 +311,7 @@ export function archiveRecordRow(record: ArchiveRecord): Argument[] {
 		record.text,
 		record.mine,
 		BigInt(record.at),
+		BigInt(record.order),
 		record.state,
 		record.attachments.map((attachment) => [
 			attachment.name,

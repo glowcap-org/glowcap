@@ -14,6 +14,7 @@ import { LoadingSurface } from "./Loading.tsx";
 import { SettingsHead } from "./SettingsHead.tsx";
 import { Button } from "./Button.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
+import { CopyField } from "./Copy.tsx";
 
 const KitchenSink = lazy(() => loadKitchen().then((m) => ({ default: m.default })));
 
@@ -81,28 +82,26 @@ export const Help = memo(function Help(
 						)
 						: (
 							<>
-								<p className="lead">
-									What these words mean here.
-								</p>
 								<dl className="glossary">
 									<div>
 										<dt>Directory</dt>
 										<dd>
-											The starting object this page talks to. Rooms live on it. Fetching a
-											directory is how a peer arrives.
+											The object this page starts from. Rooms live on it, and fetching it is how a
+											peer arrives.
 										</dd>
 									</div>
 									<div>
 										<dt>Locator</dt>
 										<dd>
-											An ocapn:// address of a peer, and sometimes of one object on it.
+											A peer address: hostname:port for plain TCP, or an ocapn:// URI for other
+											transports. A sturdyref adds an object's unguessable name.
 										</dd>
 									</div>
 									<div>
 										<dt>Capability</dt>
 										<dd>
-											A reference you hold. Holding it is the permission. There is no separate
-											account check.
+											A reference whose possession is permission, without a separate account
+											check.
 										</dd>
 									</div>
 									<div>
@@ -127,13 +126,17 @@ export const Help = memo(function Help(
 									<div>
 										<dt>Sturdyref</dt>
 										<dd>
-											Durable data: a locator plus a swiss number. Redeeming it asks that peer to
-											honor the name. A room entry link is a sturdyref.
+											A locator and swiss number kept for later. Redeeming it asks that peer to
+											honor the name. A room entry link is one.
 										</dd>
 									</div>
 								</dl>
 							</>
 						)}
+					<CopyField
+						text={document.documentElement.dataset.uiBuild ?? null}
+						label="Copy build"
+					/>
 				</div>
 			</form>
 		</dialog>

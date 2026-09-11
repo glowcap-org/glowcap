@@ -10,7 +10,7 @@
 //! at the handshake. A keyed listener signs the designator its own key
 //! spells, so a squatter advertises its own identity rather than the dialed
 //! one and the target check refuses it before the session opens
-//! (`PartnerDesignatorMismatch`). This is not authentication: a malicious
+//! (`PartnerDesignatorMismatch`). This is not authentication: an untrusted
 //! cleartext peer can repeat the dialed designator. Third, the restart: the
 //! same seed rebound on a fresh port is
 //! reached through the recorded designator with only the hint updated, and the

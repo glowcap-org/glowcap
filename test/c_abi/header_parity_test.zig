@@ -80,7 +80,6 @@ test "C header struct layouts match the Zig c_abi source" {
     try expectLayoutParity(c.GlowcapTransportProviderEntry, cabi_loop.GlowcapTransportProviderEntry);
     try expectLayoutParity(c.GlowcapTransportProvider, cabi_loop.GlowcapTransportProvider);
     try expectLayoutParity(c.GlowcapRelayConfig, cabi_relay.GlowcapRelayConfig);
-    try expectLayoutParity(c.GlowcapRelayTrustSummary, cabi_relay.GlowcapRelayTrustSummary);
 }
 
 test "the generated WebRTC header exposes its control and provider surface" {

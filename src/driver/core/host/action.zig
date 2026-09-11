@@ -23,23 +23,33 @@ pub const VowFailure = enum {
     closed,
 };
 
-/// Host-owned failure detail, with an allocation-free diagnostic when copying
-/// the original reason itself fails. The ownership bit belongs to the action
-/// payload layer: consumers always see useful text, while teardown frees only
-/// storage the Host allocator actually produced.
-pub const RetainedFailureMessage = struct {
-    bytes: []const u8,
-    owned: bool,
-};
-
 pub const failure_detail_allocation_message = "failure detail unavailable: allocation failed";
 
+/// Host-owned failure detail, with an allocation-free diagnostic when copying
+/// the original reason itself fails. Ownership is the union tag, so a static
+/// fallback can never be mistaken for storage the Host allocator produced.
+pub const RetainedFailureMessage = union(enum) {
+    owned: []u8,
+    fallback,
+
+    pub fn bytes(self: RetainedFailureMessage) []const u8 {
+        return switch (self) {
+            .owned => |owned| owned,
+            .fallback => failure_detail_allocation_message,
+        };
+    }
+
+    pub fn deinit(self: RetainedFailureMessage, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .owned => |owned| allocator.free(owned),
+            .fallback => {},
+        }
+    }
+};
+
 pub fn retainFailureMessage(allocator: std.mem.Allocator, message: []const u8) RetainedFailureMessage {
-    const owned = allocator.dupe(u8, message) catch return .{
-        .bytes = failure_detail_allocation_message,
-        .owned = false,
-    };
-    return .{ .bytes = owned, .owned = true };
+    const owned = allocator.dupe(u8, message) catch return .fallback;
+    return .{ .owned = owned };
 }
 
 /// What the embedder must do next. `Host.nextAction` pops borrowed: a
@@ -94,8 +104,7 @@ pub const HostAction = union(enum) {
         peer_handle: ?engine.PeerHandle,
         vow_id: u64,
         failure: VowFailure,
-        message: []const u8,
-        message_owned: bool,
+        message: RetainedFailureMessage,
     },
     /// The finite Host scheduler yielded with internal work remaining and no
     /// ordinary action available to wake the next drain. A reactor-backed
@@ -108,7 +117,7 @@ pub const HostAction = union(enum) {
 pub fn freePayload(allocator: std.mem.Allocator, action: HostAction) void {
     switch (action) {
         .settled => |s| model.freeArgument(allocator, s.value),
-        .failed => |f| if (f.message_owned) allocator.free(f.message),
+        .failed => |f| f.message.deinit(allocator),
         .dial, .cancel_dial, .flush, .close, .need_gift_id, .resume_work => {},
     }
 }

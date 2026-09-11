@@ -46,6 +46,11 @@ pub const Backend = struct {
     /// Sentinel listen handle: reachability is a signaling inbox, not a socket.
     pub const listen_fd: Fd = 0;
 
+    /// One open DataChannel's adapter row: the sidecar peer beside the seats,
+    /// hints, and terminal cause every multiplexed sidecar backend shares.
+    /// Tests pin this exact cost so the scale path cannot grow unnoticed.
+    pub const connection_state_bytes = @sizeOf(connections.Entry);
+
     const ConnectionOps = connections.Machine(Self, Fd);
     const SignalingOps = signaling.Machine(Self, Fd, ConnectionOps);
     const LifecycleOps = lifecycle.Machine(Self, Fd);

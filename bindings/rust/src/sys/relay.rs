@@ -30,14 +30,6 @@ pub struct GlowcapRelayConfig {
 	pub trust_pem_len: usize,
 }
 
-#[repr(C)]
-#[derive(Default)]
-pub struct GlowcapRelayTrustSummary {
-	pub loaded: usize,
-	pub skipped_by_engine: usize,
-	pub first_skipped_engine_code: i32,
-}
-
 const _: () = {
 	use core::mem::{offset_of, size_of};
 	assert!(size_of::<GlowcapRelayConfig>() == GLOWCAP_RELAY_CONFIG_SIZE);
@@ -50,15 +42,6 @@ const _: () = {
 	assert!(offset_of!(GlowcapRelayConfig, trust) == GLOWCAP_RELAY_CONFIG_TRUST_OFF);
 	assert!(offset_of!(GlowcapRelayConfig, trust_pem) == GLOWCAP_RELAY_CONFIG_TRUST_PEM_OFF);
 	assert!(offset_of!(GlowcapRelayConfig, trust_pem_len) == GLOWCAP_RELAY_CONFIG_TRUST_PEM_LEN_OFF);
-	assert!(size_of::<GlowcapRelayTrustSummary>() == GLOWCAP_RELAY_TRUST_SUMMARY_SIZE);
-	assert!(offset_of!(GlowcapRelayTrustSummary, loaded) == GLOWCAP_RELAY_TRUST_SUMMARY_LOADED_OFF);
-	assert!(
-		offset_of!(GlowcapRelayTrustSummary, skipped_by_engine) == GLOWCAP_RELAY_TRUST_SUMMARY_SKIPPED_BY_ENGINE_OFF
-	);
-	assert!(
-		offset_of!(GlowcapRelayTrustSummary, first_skipped_engine_code)
-			== GLOWCAP_RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF
-	);
 };
 
 // The raw extern block is generated (`relay_fns_gen.rs`, `zig build

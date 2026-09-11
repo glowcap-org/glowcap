@@ -83,7 +83,7 @@ export async function readAnnouncedLocator(
 
 export interface RoomsRuntime {
 	readonly host: Host;
-	connect(partner: Locator): Promise<Session>;
+	connect(partner: Locator, options?: { readonly signal?: AbortSignal }): Promise<Session>;
 }
 
 export type RoomsDial = (locator: string) => Promise<Session>;
@@ -203,7 +203,7 @@ export function roomsListen(
  * Either way the session speaks the rooms profile: a dial with no host of its
  * own mints one through `roomsHost`, so the codec and the CapTP version travel
  * together rather than one of them being passed loose. */
-export function dial(locator: string, runtime: RoomsRuntime): Promise<Session> {
+export function dial(locator: string, runtime: RoomsRuntime, signal?: AbortSignal): Promise<Session> {
 	if (isUriLocator(locator)) {
 		const loc = roomsLocator(locator);
 		if (loc.transport === TRANSPORT_ID) {
@@ -211,15 +211,16 @@ export function dial(locator: string, runtime: RoomsRuntime): Promise<Session> {
 		}
 		if (
 			loc.transport !== TRANSPORT_IROH && loc.transport !== TRANSPORT_ONION &&
-			loc.transport !== TRANSPORT_WEBRTC && loc.transport !== TRANSPORT_NOISE_RELAY
+			loc.transport !== TRANSPORT_WEBRTC && loc.transport !== TRANSPORT_NOISE_RELAY &&
+			loc.transport !== TRANSPORT_TCP
 		) {
 			throw new Error(
-				`rooms expected an iroh, onion, webrtc, or noise-relay ocapn:// URI, got "${loc.transport}": ${locator}`,
+				`rooms expected an iroh, onion, webrtc, noise-relay, or tcp ocapn:// URI, got "${loc.transport}": ${locator}`,
 			);
 		}
-		return runtime.connect(loc);
+		return runtime.connect(loc, { signal });
 	}
-	return runtime.connect(roomsLocator(locator));
+	return runtime.connect(roomsLocator(locator), { signal });
 }
 
 /** Reach the public Rooms directory through the owner appropriate to its
@@ -227,9 +228,13 @@ export function dial(locator: string, runtime: RoomsRuntime): Promise<Session> {
  * is authority plus routing advice, not a physical transport, so let the
  * Host's Node expand, validate, race, cancel, and fall back through the bundle
  * while Rooms supplies only the publication name it wants. */
-export async function dialDirectory(locator: string, runtime: RoomsRuntime): Promise<ReachedRoomsDirectory> {
+export async function dialDirectory(
+	locator: string,
+	runtime: RoomsRuntime,
+	signal?: AbortSignal,
+): Promise<ReachedRoomsDirectory> {
 	const parsed = roomsLocator(locator);
-	if (parsed.transport !== TRANSPORT_ID) return await dial(locator, runtime);
+	if (parsed.transport !== TRANSPORT_ID) return await dial(locator, runtime, signal);
 	const directory = await runtime.host.fetchAt(parsed, DIRECTORY);
 	const session = runtime.host.exporterFor(directory);
 	if (session === null) {

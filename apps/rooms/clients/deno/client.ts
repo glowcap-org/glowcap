@@ -2,10 +2,10 @@
 //
 // It connects to the directory, enters the named room (opening it if it does not
 // exist yet), publishes a local `inbox` actor, and hands the room a capability to
-// that inbox when it subscribes. From then on the room calls the client back —
-// the client never polls. It waits until everyone it expects is in the room,
-// posts one line, and collects each expected member's line as the room pushes it
-// back.
+// that inbox when it subscribes. The room answers with a membership seat, and
+// from then on the room calls the client back — the client never polls. It waits
+// until everyone it expects is in the room, posts one line on its seat, and
+// collects each expected member's line as the room pushes it back.
 //
 //   deno run --allow-ffi --allow-net client.ts 127.0.0.1:9099 general alice "hi" alice,bob,carol
 //
@@ -24,10 +24,15 @@
 // This is the same application as the Python, Racket, Rust, and Zig clients, on
 // one OCapN wire; the room cannot tell which language a member is written in.
 
+import type { Ref } from "@glowcap/runtime";
 import { Directory, readPresence } from "../../lib/room/client.ts";
+import { readMembershipAnswer } from "../../lib/room/membership.ts";
 import { releaseUnclaimedCapabilityArguments } from "../../lib/argument_custody.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
-import { NOTIFY, POST, SUBSCRIBE } from "../../lib/protocol.ts";
+// The wire grammar this client switches on, generated from
+// `tools/gen/rooms_protocol.zig` beside the same table every sibling client
+// reads; `test/protocol_gen_test.ts` holds it to the server's own readers.
+import { MEMBERSHIP_ENDED, NOTIFY, POST, ROOM_SENDER, SESSION_DEADLINE_MS, SUBSCRIBE } from "./protocol_gen.ts";
 import { dialDirectory, isUriLocator, type RoomsDirectoryDial } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { Reachability } from "@glowcap/iroh";
@@ -50,7 +55,8 @@ export async function runClient(
 	options: RunClientOptions,
 ): Promise<string[]> {
 	const roster = options.roster ?? [nick];
-	const timeoutMs = options.timeoutMs ?? 10_000;
+	// The same whole-roster deadline the Python, Racket, Rust, and Zig clients hold.
+	const timeoutMs = options.timeoutMs ?? SESSION_DEADLINE_MS;
 	const dir = await Directory.connect(locator, options.dial);
 	const session = dir.session;
 	// Discovery: show the rooms that already have people in them, then follow the
@@ -66,12 +72,15 @@ export async function runClient(
 	const present = new Set<string>();
 	const seen = new Set<string>();
 	let posted = false;
+	// The membership seat the room answers subscribe with; a line is posted on
+	// it, never on the room. Null until the room has answered.
+	let seat: Ref | null = null;
 	const { promise: done, resolve: finish, reject: fail } = Promise.withResolvers<void>();
 
 	function maybePost(): void {
-		if (!posted && roster.every((n) => present.has(n))) {
+		if (seat !== null && !posted && roster.every((n) => present.has(n))) {
 			posted = true;
-			void session.send(room, POST, [line]).catch(fail);
+			void session.send(seat, POST, [line]).catch(fail);
 		}
 	}
 
@@ -87,13 +96,42 @@ export async function runClient(
 		const from = typeof args[0] === "string" ? args[0] : "?";
 		const text = typeof args[1] === "string" ? args[1] : "";
 		console.log(`[${nick}] ${from}: ${text}`);
+		if (args[2] === MEMBERSHIP_ENDED) {
+			// The room's last word to this inbox (a steward's kick, say): no more
+			// lines will reach it, so the roster wait cannot complete.
+			if (args.length !== 3 || from !== ROOM_SENDER || text === "") {
+				throw new Error("membership-ended notify takes one reason");
+			}
+			fail(new Error(`the room ended ${nick}'s membership: ${text}`));
+			return null;
+		}
 		const presence = readPresence(args);
 		if (presence) {
-			// Membership arrives as structure: the roster on entry, or a join/leave.
-			if (presence.kind === "roster") { for (const n of presence.names) present.add(n); }
-			else if (presence.kind === "join") present.add(presence.name);
-			else present.delete(presence.name); // leave
-		} else if (from !== "room") {
+			// Membership arrives as structure. Only arrival and departure move a
+			// member in or out of `present`; the other kinds are facts about a
+			// member who is still here. The switch is over the library's typed
+			// union, and the generated `ROOM_TAILS` is held to that union by
+			// `test/protocol_gen_test.ts`, so a new kind fails to compile here.
+			switch (presence.kind) {
+				case "roster":
+					for (const n of presence.names) present.add(n);
+					break;
+				case "join":
+					present.add(presence.name);
+					break;
+				case "leave":
+					present.delete(presence.name);
+					break;
+				case "away": // stepped away, or back: still a member
+				case "typing": // ephemeral, never a membership change
+				case "seat": // a bridge's seat for a member already counted
+					break;
+				default: {
+					const unhandled: never = presence;
+					throw new Error(`unhandled presence kind ${JSON.stringify(unhandled)}`);
+				}
+			}
+		} else if (from !== ROOM_SENDER) {
 			present.add(from); // a line is presence too
 			chatLines.push(`${from}: ${text}`);
 			if (roster.includes(from)) {
@@ -105,10 +143,10 @@ export async function runClient(
 		return null;
 	});
 
-	// Subscribe, handing the room a capability to our inbox. Success is the
-	// resolution; the room delivers the welcome and roster as our first `notify`
-	// (the roster line), not as a return value.
-	await session.send(room, SUBSCRIBE, [nick, inbox]);
+	// Subscribe, handing the room a capability to our inbox. The room answers
+	// with the membership seat; the welcome and roster arrive as our first
+	// `notify` (the roster line), not as part of that answer.
+	seat = readMembershipAnswer(session, await session.send(room, SUBSCRIBE, [nick, inbox])).seat;
 	maybePost();
 
 	let timer: ReturnType<typeof setTimeout> | null = null;

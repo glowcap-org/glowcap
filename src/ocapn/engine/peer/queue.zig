@@ -26,13 +26,13 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         const Self = @This();
 
         pub fn push(self: *Self, allocator: std.mem.Allocator, value: T) !void {
-            if (self.items.items.len == self.items.capacity) self.compactForAppend();
+            if (self.items.items.len == self.items.capacity) fifo.compactHead(T, &self.items, &self.head);
             try self.items.append(allocator, value);
             self.addWeight(&value);
         }
 
         pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, count: usize) !void {
-            if (count > self.items.capacity - self.items.items.len) self.compactForAppend();
+            if (count > self.items.capacity - self.items.items.len) fifo.compactHead(T, &self.items, &self.head);
             try self.items.ensureUnusedCapacity(allocator, count);
         }
 
@@ -139,14 +139,6 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.items.deinit(allocator);
-        }
-
-        fn compactForAppend(self: *Self) void {
-            if (self.head == 0) return;
-            const live = self.items.items.len - self.head;
-            std.mem.copyForwards(T, self.items.items[0..live], self.items.items[self.head..]);
-            self.items.shrinkRetainingCapacity(live);
-            self.head = 0;
         }
     };
 }

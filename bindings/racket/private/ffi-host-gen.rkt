@@ -170,6 +170,7 @@
 (define-host glowcap_host_set_trace (_fun _pointer _fpointer _pointer -> _int32))
 (define-host glowcap_host_resolver_fulfill (_fun _pointer _uint64 (_or-null _GlowcapArgument-pointer) -> _int32))
 (define-host glowcap_host_resolver_break (_fun _pointer _uint64 _pointer _size -> _int32))
+(define-host glowcap_host_resolver_abandon (_fun _pointer _uint64 _pointer _size -> _int32))
 (define-host glowcap_host_session_listen*
   (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer -> _int32)
   #:c-id glowcap_host_session_listen)

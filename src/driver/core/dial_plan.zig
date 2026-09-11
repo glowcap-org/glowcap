@@ -100,6 +100,40 @@ pub const Posture = union(enum) {
     explicit_none,
 };
 
+/// What every dialing tier settles before it opens a byte channel, decided
+/// from the provider's profile alone so the blocking tier and the Host tiers
+/// cannot drift: whether the channel must be sealed, and which durable key the
+/// partner has to prove because the designator names it.
+pub const DialAdmission = struct {
+    /// The transport seals its channel end to end (ADR-0107); a tier that
+    /// cannot run the sealed channel refuses rather than speaking cleartext
+    /// under the sealed name.
+    sealed_channel: bool,
+    /// The partner's durable key on a key-designator transport, demanded of
+    /// the hello before any bytes move; null when the designator is an address.
+    demanded_key: ?crypto.PeerKey,
+};
+
+pub const AdmitError = error{
+    /// A route-bundle profile is expanded before any single-path dial; a tier
+    /// handed one unexpanded has no single channel to open.
+    UnknownTransport,
+    /// A key-designator transport whose designator is not a canonical key.
+    InvalidAddress,
+};
+
+/// Admit one single-path dial against the profile that will realize it. Pure:
+/// the caller opens the channel, seals it if `sealed_channel` says so, and
+/// demands `demanded_key` of the partner's hello.
+pub fn admitDial(metadata: model.transport.Metadata, designator: []const u8) AdmitError!DialAdmission {
+    if (metadata.dial_shape == .route_bundle) return AdmitError.UnknownTransport;
+    const demanded_key: ?crypto.PeerKey = if (metadata.designator_scheme == .key)
+        crypto.PeerKey.fromDesignator(designator) orelse return AdmitError.InvalidAddress
+    else
+        null;
+    return .{ .sealed_channel = metadata.sealed_channel, .demanded_key = demanded_key };
+}
+
 /// Resolve a dial. `transport` and `designator` are the locator's pieces (a
 /// DIAL action's binding half borrows the pending URI and parses first);
 /// `direct_addresses_hint` is the locator's `direct-addresses` hint, empty when

@@ -15,17 +15,19 @@
 ;; second argument is the room name (entering one that does not exist opens it).
 ;; The fifth argument is the roster: a comma-separated list of the member nicks
 ;; to expect (default: just you). An optional timeout in milliseconds defaults to
-;; 15000. The client posts only once every roster member is present — it learns
-;; who is present from the structured presence the room attaches to each
-;; membership line (the roster on arrival and each join) — and exits 0 once it has
-;; seen a line from every roster member. Members outside the roster (people already chatting in an
-;; attached room, say) are printed but never counted, so a busy room cannot fake
-;; or break the assertion.
+;; the whole-roster deadline every sibling client holds. The client posts only
+;; once every roster member is present, learning who is present from the
+;; structured presence the room attaches to each membership line (the roster on
+;; arrival and each join), and exits 0 once it has seen a line from every roster
+;; member. Members outside the roster (people already chatting in an attached
+;; room, say) are printed but never counted, so a busy room cannot fake or break
+;; the assertion.
 ;;
 ;; This is the same application as the Deno, Python, Rust, and Zig clients, on one
 ;; OCapN wire — the room cannot tell which language a member is written in.
 
 (require "room-client.rkt"
+         "protocol-gen.rkt" ; the generated wire grammar, beside this file
          "../../../_demo/rooms_cli.rkt"
          racket/string)
 
@@ -55,7 +57,8 @@
                                  room-name)
                   nick))
 
-(define (run-client locator room-name nick line roster [timeout-seconds 15])
+(define (run-client locator room-name nick line roster
+                    [timeout-seconds (/ SESSION-DEADLINE-MS 1000.0)])
   (define room (join-room locator room-name nick))
   (define deadline-ms (+ (current-inexact-milliseconds) (* timeout-seconds 1000.0)))
   (define (remaining-seconds)
@@ -83,10 +86,13 @@
           (cond
             [(message-presence msg)
              => (lambda (p)
-                  ;; Membership arrives as structure: the roster on entry, or a join/leave.
-                  (if (string=? (presence-kind p) "leave")
-                      (for ([n (in-list (presence-names p))]) (hash-remove! present n))
-                      (for ([n (in-list (presence-names p))]) (hash-set! present n #t))))]
+                  ;; Membership arrives as structure. Only an arrival or a
+                  ;; departure moves a member in or out of `present`; the other
+                  ;; tails are facts about a member who is still here.
+                  (case (presence-effect p)
+                    [(arrive) (for ([n (in-list (presence-names p))]) (hash-set! present n #t))]
+                    [(depart) (for ([n (in-list (presence-names p))]) (hash-remove! present n))]
+                    [else (void)]))]
             [(not (message-system? msg))
              (hash-set! present (message-sender msg) #t) ; a line is presence too
              (when (member (message-sender msg) roster)
@@ -97,6 +103,8 @@
             (set! posted #t))
           (loop))))
     (leave!)
+    (when (room-ended room)
+      (error 'rooms-client "the room ended ~a's membership: ~a" nick (room-ended room)))
     (unless (all-in? present)
       (define missing (for/list ([m (in-list roster)] #:unless (hash-ref present m #f)) m))
       (error 'rooms-client "~a roster did not complete (missing: ~a)"
@@ -120,7 +128,7 @@
                      (list nick)))
   (define timeout-ms (if (> (vector-length args) 5)
                          (string->number (vector-ref args 5))
-                         15000))
+                         SESSION-DEADLINE-MS))
   (unless (and timeout-ms (real? timeout-ms) (positive? timeout-ms))
     (eprintf "client ~a failed: timeout-ms must be a positive number\n" nick)
     (exit 2))

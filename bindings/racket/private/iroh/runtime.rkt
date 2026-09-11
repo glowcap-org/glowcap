@@ -476,9 +476,12 @@
 
 ;; Open the byte-fed Host's iroh transport. The transport owns the endpoint and
 ;; readiness loop; the second value is the remote endpoint key QUIC proved.
-(define (dial-byte-transport node-id direct-addresses reachability)
+(define (dial-byte-transport node-id direct-addresses reachability
+                             [retry-discovery? #t]
+                             [worker-threads #f])
   (define-values (netlayer _seed)
-    (iroh-netlayer-new (make-iroh-config reachability)))
+    (iroh-netlayer-new
+     (make-iroh-config reachability #:worker-threads worker-threads)))
   (define lp (make-iroh-loop netlayer))
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
@@ -487,7 +490,8 @@
                      (raise e))])
     (define conn
       (dial-resolving lp node-id direct-addresses
-                      (propagating-discovery? reachability)))
+                      (and retry-discovery?
+                           (propagating-discovery? reachability))))
     (loop-register! lp conn)
     (values (iroh-loop-transport lp conn netlayer #t)
             (conn-verified-remote conn))))
@@ -498,7 +502,9 @@
 ;; Python `dial_locator_for_relay`; the iroh readiness compose lives in each
 ;; binding over the same C-ABI conn and readiness primitives the serve loop
 ;; drives. The direct-address hint reaches the conformance host over loopback
-;; (Direct); a deployment relay resolves node ids by discovery.
+;; (Direct); a deployment relay resolves node ids by discovery. One call makes
+;; one transport attempt; the embedding application owns any reconnect policy
+;; around that relay request.
 ;;
 ;; The local endpoint is ephemeral and released with the channel, which suits a
 ;; caller that only ever dials, holds no name of its own, and wants one
@@ -514,7 +520,9 @@
     (dial-byte-transport
      (locator-designator loc)
      (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES "")
-     reachability))
+     reachability
+     #f
+     1))
   (channel-over-transport transport verified-remote))
 ;; ── the raw byte-channel endpoint ────────────────────────────────────────────
 ;; One bound iroh endpoint whose partners are raw byte channels, in both

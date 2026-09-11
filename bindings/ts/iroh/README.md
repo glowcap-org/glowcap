@@ -43,7 +43,8 @@ there is no default. See [`mod.ts`](mod.ts) for `provider`, `connector`, `listen
 implementations that forward bytes from another transport (a WebSocket, an HTTP stream) to an iroh
 locator without parsing CapTP frames. It returns a byte `Channel`: an object with `read()`,
 `write()`, and `close()` methods, where `close()` also releases the loop and netlayer the dial
-opened. A byte-transparent relay leaves the keyed handshake and session authority to the two ends.
+opened. Each call makes one transport attempt; the embedding application owns any retry around that
+relay request. A byte-transparent relay leaves the keyed handshake and session authority to the two ends.
 `zig build bindings-relay-iroh` proves a wasm browser peer holds a live OCapN session with a real
 iroh endpoint through each runtime's relay (fetch and call round-trip). The relay pump and WebSocket
 adapter live in [`@glowcap/relay`](../relay/); the rooms endpoint that adds policy is

@@ -128,16 +128,23 @@ async def run() -> None:
         "the recipient's configured LocalDiscovery posture (default Discovery would need the network)"
     )
 
-    # Teardown: dialing connections, accepted connections, listeners, then runtimes.
+    # Teardown. The Deno and Racket siblings close their dialing connections,
+    # then their runtimes, then their servers, and let each accepted session end
+    # on the resulting EOF. This leg deliberately closes those accepted sessions
+    # by hand as well, the way an application that owns them may. Their
+    # peers are already gone by then, so each close writes a farewell nobody can
+    # read: that is the one thing this leg proves beyond the redeem itself, that
+    # an unread farewell does not fail the endpoint's teardown when the runtime
+    # closes.
     await recipient.close()
     await to_exporter.close()
     for session in (*exporter_served, *gifter_served):
         await session.close()
-    await exporter.close()
-    await gifter.close()
     await recipient_runtime.close()
     await gifter_runtime.close()
     await exporter_runtime.close()
+    await exporter.close()
+    await gifter.close()
     await exporter_task
     await gifter_task
 

@@ -15,6 +15,7 @@ import {
 	type BlobArchiveBackend,
 	isBlobArchiveBackend,
 	lineAttachmentAddress,
+	sameArchivedBytes,
 } from "./blobs.ts";
 import type { ArchiveBackend, ArchiveLine, ArchiveRecord } from "./protocol.ts";
 import { BLOB_CHUNK } from "../limits.ts";
@@ -142,6 +143,7 @@ function mintArchiveBlob(
 	index: number,
 ): Ref {
 	const address = lineAttachmentAddress(record, index);
+	const expected = record.attachments[index];
 	const minted = blobReadsMinted.get(session) ?? 0;
 	if (minted >= MAX_ARCHIVE_BLOB_READS_PER_SESSION) {
 		throw new Error("archive blob read mint ceiling reached for this session");
@@ -162,7 +164,10 @@ function mintArchiveBlob(
 			typeof readArgs[1] !== "bigint" || readArgs[1] <= 0n || readArgs[1] > BigInt(BLOB_CHUNK)
 		) throw new Error("archive blob read takes a bounded offset and length");
 		const found = await backend.readAttachment(address);
-		if (found == null || !archiveMatches(found.record, facet.scope)) {
+		if (
+			found == null || !archiveMatches(found.record, facet.scope) ||
+			!sameArchivedBytes(found.record.attachments[index], expected)
+		) {
 			throw new Error("that archived attachment is unavailable through this facet");
 		}
 		return await found.attachment.read(Number(readArgs[0]), Number(readArgs[1]));

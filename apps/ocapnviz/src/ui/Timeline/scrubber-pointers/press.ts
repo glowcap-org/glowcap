@@ -164,7 +164,7 @@ export function onScrubberPointerDown(
 	// rubber-band all only fire if the pointer didn't land on a pill.
 	// Routing this first means shift/alt/cmd-click on a pill always
 	// reach the selection-mode resolution below; they no longer get
-	// hijacked into pan (which broke shift-to-add) or scrub.
+	// routed into pan (which broke shift-to-add) or scrub.
 	const hit = pointed.eventHit;
 	if (hit && (onSelectEvent || onMoveEvent)) {
 		// Gate drag-to-move on prior selection for body translates.

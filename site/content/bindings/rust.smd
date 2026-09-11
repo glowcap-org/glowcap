@@ -10,8 +10,7 @@ The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and `Argumen
 glowcap archives
 ([`lib.rs`](https://github.com/jimisaacs/glowcap/blob/main/bindings/rust/src/lib.rs)).
 The round-trip below leads with iroh. Enable the `iroh` Cargo feature for that
-tab; the crate's default features are the testing pair (`tcp`, `inproc`). Start
-from the
+tab. Start from the
 [checkout instructions]($link.page('bindings')).
 
 # The same round-trip
@@ -161,9 +160,9 @@ restart; iroh binds a node id instead of a socket address.
 > let server = tcp::noise::listen(
 >     "127.0.0.1",
 >     9099,
->     tcp::KeyedListenOptions {
+>     tcp::ListenOptions {
 >         identity: tcp::ListenerIdentity::Seed(seed),
->         ..tcp::KeyedListenOptions::default()
+>         ..tcp::ListenOptions::default()
 >     },
 > )
 > .await?;
@@ -204,9 +203,9 @@ restart; iroh binds a node id instead of a socket address.
 > let server = tcp::keyed::listen(
 >     "127.0.0.1",
 >     9099,
->     tcp::KeyedListenOptions {
+>     tcp::ListenOptions {
 >         identity: tcp::ListenerIdentity::Seed(seed),
->         ..tcp::KeyedListenOptions::default()
+>         ..tcp::ListenOptions::default()
 >     },
 > )
 > .await?;

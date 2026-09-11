@@ -122,6 +122,33 @@ Deno.test("a draft changing a line keeps hold of which line while it is emptied"
 	assert(store.activeDraft(projection).text === "", "cancelling left words in the composer");
 });
 
+Deno.test("an authoritative withdrawal settles only the matching edit intent", () => {
+	const room = store.ensureRoom(projection, dirId("test-dir"), "withdrawal-reconciliation");
+	store.switchTo(projection, room.key);
+	const mine = store.chatItem(projection, "me", "file caption", true);
+	store.deliver(projection, room.key, mine);
+	store.nameLine(projection, room.key, mine.id, 91);
+
+	store.startRefile(projection, mine.id, "file caption", []);
+	store.setDraft(projection, "");
+	store.applyLineChange(projection, room.key, 91, { withdrawn: true });
+	assert(
+		store.activeDraft(projection).changing === undefined,
+		"the completed withdrawal left its edit intent active",
+	);
+
+	const another = store.chatItem(projection, "me", "older line", true);
+	store.deliver(projection, room.key, another);
+	store.nameLine(projection, room.key, another.id, 92);
+	store.startChange(projection, another.id, "new message after the race");
+	store.applyLineChange(projection, room.key, 92, { withdrawn: true });
+	assert(store.activeDraft(projection).changing === undefined, "a withdrawn target stayed attached to newer input");
+	assert(
+		store.activeDraft(projection).text === "new message after the race",
+		"retiring the withdrawn target erased the reader's newer words",
+	);
+});
+
 Deno.test("an unsent message offers a retry only where one could work", () => {
 	// The interface must never offer an action that cannot succeed. A line lost
 	// with a session may go the moment one comes back; a line typed into a
@@ -152,6 +179,7 @@ Deno.test("a connection ending takes what its lines could be told, not what they
 	store.switchTo(projection, room.key);
 	const mine = store.chatItem(projection, "alice", "said on a connection", true, undefined);
 	store.deliver(projection, room.key, mine);
+	store.nameLine(projection, room.key, mine.id, 7);
 	store.holdLine(projection, room.key, mine.id);
 	const held = () => {
 		const line = store.historyOf(projection, room.key).find((item) => item.id === mine.id);
@@ -178,6 +206,7 @@ Deno.test("a connection ending takes what its lines could be told, not what they
 	// What was said is untouched: only what can still be done to it changed.
 	const line = store.historyOf(projection, room.key).find((item) => item.id === mine.id);
 	assert(line?.kind === "chat" && line.text === "said on a connection", "the line's own words were rewritten");
+	assert(line?.kind === "chat" && line.lineId === undefined, "a dead connection left its room-local line name live");
 });
 
 Deno.test("room management is retained authority, never creator-connection state", () => {

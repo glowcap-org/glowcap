@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const model = @import("model");
-const serve_mod = @import("serve.zig");
+const forwarding = @import("forwarding.zig");
 const vat_mod = @import("mod.zig");
 
 const Vat = vat_mod.Vat;
@@ -21,8 +21,8 @@ pub const PendingLocalVowKey = struct { id: u64 };
 pub fn freeOwnedForwardContexts(allocator: std.mem.Allocator, map: anytype) void {
     var it = map.valueIterator();
     while (it.next()) |listener| {
-        if (listener.func == serve_mod.forwardListener) {
-            const fc: *serve_mod.ForwardContext = @ptrCast(@alignCast(listener.ctx.?));
+        if (listener.func == forwarding.forwardListener) {
+            const fc: *forwarding.ForwardContext = @ptrCast(@alignCast(listener.ctx.?));
             allocator.destroy(fc);
         }
     }
@@ -73,6 +73,7 @@ pub fn breakVow(self: *Vat, resolver: u64, reason: []const u8) Error!void {
 
 fn settleResolver(self: *Vat, resolver: u64, resolution: Resolution) Error!void {
     if (self.turn_depth != 0) return Error.SettleInTurn;
+    if (resolver == 0 or resolver >= self.next_resolver) return Error.NoSuchResolver;
     const vow = self.resolver_vows.get(resolver) orelse return Error.AlreadySettled;
     // The settle runs listeners under the drive discipline `settleLocal`
     // requires: a listener may open a nested drive or far settle, and the
@@ -97,12 +98,37 @@ fn settleResolver(self: *Vat, resolver: u64, resolution: Resolution) Error!void 
     try settleLocal(self, vow, resolution);
 }
 
-/// Settle with a resolution whose lifetime is already safe for the
-/// listener call. No allocation remains after the resolver is consumed.
-fn settleLocalPrepared(self: *Vat, vow_id: u64, resolution: Resolution) void {
+/// Settle with a resolution already protected across listener reentry by the
+/// producer's settlement scope. No allocation or additional clone remains.
+pub fn settleLocalPrepared(self: *Vat, vow_id: u64, resolution: Resolution) void {
     std.debug.assert(self.pending_local_vows.remove(.{ .id = vow_id }));
     const listener = self.listeners.fetchRemove(vow_id) orelse return;
-    listener.value.func(listener.value.ctx, resolution);
+    fireLocalListener(self, listener.value, resolution);
+}
+
+// Local forwarding chains settle iteratively. A queued chain may be much
+// longer than the bounded synchronous near-call stack.
+fn fireLocalListener(self: *Vat, first: Listener, resolution: Resolution) void {
+    var listener = first;
+    while (listener.func == forwarding.forwardListener) {
+        const context: *forwarding.ForwardContext = @ptrCast(@alignCast(listener.ctx.?));
+        if (context.answer != .local) break;
+        const id = context.answer.local;
+        self.allocator.destroy(context);
+        std.debug.assert(self.pending_local_vows.remove(.{ .id = id }));
+        listener = (self.listeners.fetchRemove(id) orelse return).value;
+    }
+    listener.func(listener.ctx, resolution);
+}
+
+pub fn reserveLocalListener(self: *Vat) Error!void {
+    try self.listeners.ensureUnusedCapacity(self.allocator, 1);
+}
+
+pub fn onReservedLocal(self: *Vat, id: u64, listener: Listener) void {
+    std.debug.assert(self.pending_local_vows.contains(.{ .id = id }));
+    std.debug.assert(!self.listeners.contains(id));
+    self.listeners.putAssumeCapacity(id, listener);
 }
 
 /// Register a one-shot listener for a local `vow`. Far vows are observed
@@ -116,7 +142,8 @@ pub fn on(self: *Vat, vow: Vow, listener: Listener) Error!void {
             // A local vow settles exactly once, during `drive`; a
             // listener registered after that settlement would never fire,
             // so refuse it loud.
-            if (id < self.next_vow and !self.pending_local_vows.contains(.{ .id = id })) return Error.AlreadySettled;
+            if (id == 0 or id >= self.next_vow) return Error.NoSuchVow;
+            if (!self.pending_local_vows.contains(.{ .id = id })) return Error.AlreadySettled;
             const gop = try self.listeners.getOrPut(self.allocator, id);
             if (gop.found_existing) return Error.AlreadyListening;
             gop.value_ptr.* = listener;
@@ -160,34 +187,43 @@ fn endSettle(self: *Vat) void {
 /// cloned into the settle arena shared with far settlement. Its depth guard
 /// lets a listener open a nested drive or far settle without freeing the
 /// outer listener's value.
-/// A broken resolution carries `@errorName`'s static string, which no
-/// reset can free.
+/// A broken resolution may carry a callback's dynamic diagnostic; that
+/// message receives the same settlement-lifetime protection.
+///
+/// The turn has already run by the time this is called, so its waiter has
+/// no other producer. A refused clone therefore fires the listener broken
+/// with the exact failure name and then returns that failure to the driver,
+/// leaving the rest of the queue live. The far arms in `serve` keep their
+/// listener parked on a refusal instead; that is open to them only because
+/// their producer survives it: a Host action stays parked for a retry, and a
+/// refused frame retires the session, whose release runs `breakFarVows`.
 pub fn settleLocal(self: *Vat, vow_id: u64, resolution: Resolution) Error!void {
     // Local settlement only occurs inside a drive; hold that invariant
     // mechanically even though its clone now lives in the settle arena.
     std.debug.assert(self.drive_depth >= 1);
-    // Remove before anything fallible: the turn ran, so a later `on` must
-    // refuse even if cloning its result for an already-parked listener OOMs.
+    // The turn ran, so a later `on` must refuse, and the waiter takes
+    // exactly one outcome below. Remove before firing, so a listener that
+    // registers a new vow never finds its own entry still in the map.
     std.debug.assert(self.pending_local_vows.remove(.{ .id = vow_id }));
-    // Peek the listener rather than remove it, mirroring the far-resolve
-    // arm in `serve`: the fulfilled arm clones fallibly before firing, and
-    // an OOM return must leave the entry in the map so teardown
-    // (`freeOwnedForwardContexts`) still reclaims a forward's heap
-    // context. Each arm removes the entry immediately before it fires,
-    // preserving the remove-before-fire order a listener that re-registers
-    // the vow relies on.
-    const listener = self.listeners.get(vow_id) orelse return;
+    const listener = (self.listeners.fetchRemove(vow_id) orelse return).value;
     switch (resolution) {
         .fulfilled => |value| {
             const arena = beginSettle(self);
             defer endSettle(self);
-            const owned = try model.cloneArgument(arena, value);
-            std.debug.assert(self.listeners.fetchRemove(vow_id) != null);
-            listener.func(listener.ctx, .{ .fulfilled = owned });
+            const owned = model.cloneArgument(arena, value) catch |err| {
+                fireLocalListener(self, listener, .{ .broken = @errorName(err) });
+                return err;
+            };
+            fireLocalListener(self, listener, .{ .fulfilled = owned });
         },
-        .broken => {
-            std.debug.assert(self.listeners.fetchRemove(vow_id) != null);
-            listener.func(listener.ctx, resolution);
+        .broken => |reason| {
+            const arena = beginSettle(self);
+            defer endSettle(self);
+            const owned = arena.dupe(u8, reason) catch |err| {
+                fireLocalListener(self, listener, .{ .broken = @errorName(err) });
+                return err;
+            };
+            fireLocalListener(self, listener, .{ .broken = owned });
         },
         // Local settlement never carries a wire introduction; only the
         // far-resolve path in `serve` constructs `.give`.

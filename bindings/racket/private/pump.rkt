@@ -107,7 +107,18 @@
 ;; reader that set the parameter runs them after releasing the gate. Lives
 ;; here (not session) so `parameterize` sees a real parameter; lazy-require
 ;; would wrap it as a procedure.
-(define current-defer-drain-effects (make-parameter #f))
+(define current-defer-drain-effects
+  (make-parameter
+   #f
+   (lambda (sink)
+     ;; The post-commit handoff must be a plain storage write, never an
+     ;; impersonator callback or an immutable-box refusal.
+     (unless (or (not sink)
+                 (and (box? sink) (not (immutable? sink))
+                      (not (impersonator? sink)) (drain-effects? (unbox sink))))
+       (raise-argument-error 'current-defer-drain-effects
+                             "#f or a plain mutable box containing drain-effects" sink))
+     sink)))
 
 ;; Racket threads inherit parameter values. Workers whose lifetime escapes the
 ;; reader transaction must start with no inherited effects sink, or a later
@@ -287,33 +298,38 @@
   ;; A loop-owned host's wire belongs to the loop (ADR-0112): its steps
   ;; flush queued outbound themselves, and `take_outbound` must not compete
   ;; with them, so a loop-hosted session drains nothing here.
+  ;; Breaks stay off across the whole drain: a frame `take_outbound` handed
+  ;; over is on the wire only once its bytes reach the pending writes, and a
+  ;; break between the two would release it unsent and corrupt the stream.
+  ;; Nothing here blocks, and the pending-writes room bounds the loop.
   (if (or (session-released? c) (host-loop-of (session-host c)))
       'empty
-      (let loop ([queued? #f])
-        (if (pending-writes-has-room? (session-pending-writes c))
-            (let ([mf (session-outbound-frame c)]
-                  [prefix (session-outbound-prefix c)])
-              (define-values (rc prefix-len)
-                (glowcap_host_session_take_outbound
-                 (session-ptr c) mf prefix (bytes-length prefix)))
-              (cond
-                [(= rc WOULD-BLOCK) (if queued? 'queued-drained 'empty)]
-                [else
-                 (check/host rc)
-                 (define out
-                   (dynamic-wind
-                    void
-                    (lambda ()
-                      (bytes<-c (GlowcapManagedFrame-bytes mf)
-                                (GlowcapManagedFrame-len mf)))
-                    (lambda () (glowcap_managed_frame_release mf))))
-                 (if (pending-writes-put-pair!
-                      (session-pending-writes c)
-                      (subbytes prefix 0 prefix-len)
-                      out)
-                     (loop #t)
-                     'queued-bounded)]))
-            (if queued? 'queued-bounded 'bounded)))))
+      (parameterize-break #f
+        (let loop ([queued? #f])
+          (if (pending-writes-has-room? (session-pending-writes c))
+              (let ([mf (session-outbound-frame c)]
+                    [prefix (session-outbound-prefix c)])
+                (define-values (rc prefix-len)
+                  (glowcap_host_session_take_outbound
+                   (session-ptr c) mf prefix (bytes-length prefix)))
+                (cond
+                  [(= rc WOULD-BLOCK) (if queued? 'queued-drained 'empty)]
+                  [else
+                   (check/host rc)
+                   (define out
+                     (dynamic-wind
+                      void
+                      (lambda ()
+                        (bytes<-c (GlowcapManagedFrame-bytes mf)
+                                  (GlowcapManagedFrame-len mf)))
+                      (lambda () (glowcap_managed_frame_release mf))))
+                   (if (pending-writes-put-pair!
+                        (session-pending-writes c)
+                        (subbytes prefix 0 prefix-len)
+                        out)
+                       (loop #t)
+                       'queued-bounded)]))
+              (if queued? 'queued-bounded 'bounded))))))
 
 ;; Write everything parked on `c`'s pending-writes FIFO to the transport,
 ;; flushing once, serialized by the connection's write gate. Runs outside the
@@ -519,11 +535,13 @@
     [else
      (define gen (pump-wake-evt m))
      (define got
-       (with-handlers ([(lambda (_) #t)
+       (with-handlers ([(lambda (raised) (not (exn:break? raised)))
                         (lambda (error)
                           ;; A read interrupted by this Session's own close is
                           ;; merely its wakeup. Every other transport exception
-                          ;; is the exact terminal cause.
+                          ;; is the exact terminal cause. A break is neither:
+                          ;; the operator is interrupting this thread, the read
+                          ;; consumed nothing, and the session stays live.
                           (if (session-closing? c)
                               'woke
                               (begin

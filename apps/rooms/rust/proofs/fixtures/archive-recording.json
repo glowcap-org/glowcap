@@ -1,0 +1,846 @@
+{
+  "authority": "apps/rooms/session/archive.ts:DurableRoomsArchive.recordMessage",
+  "cases": [
+    {
+      "name": "said",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 123,
+          "order": 1,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "1"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 123
+        }
+      ]
+    },
+    {
+      "name": "edited",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "edited",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 123,
+          "order": 1,
+          "state": "edited",
+          "attachments": [],
+          "source": "source",
+          "id": "1"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 123
+        }
+      ]
+    },
+    {
+      "name": "refiled",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "refiled",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 123,
+          "order": 1,
+          "state": "edited",
+          "attachments": [],
+          "source": "source",
+          "id": "1"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 123
+        }
+      ]
+    },
+    {
+      "name": "withdrawn",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "",
+          "system": false,
+          "line": 1,
+          "change": "withdrawn",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "",
+          "mine": true,
+          "at": 123,
+          "order": 1,
+          "state": "withdrawn",
+          "attachments": [],
+          "source": "source",
+          "id": "1"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 123
+        }
+      ]
+    },
+    {
+      "name": "disabled",
+      "inputs": [
+        {
+          "keep": false,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        null
+      ],
+      "records": []
+    },
+    {
+      "name": "system",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": true,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        null
+      ],
+      "records": []
+    },
+    {
+      "name": "unidentified",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": null,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        null
+      ],
+      "records": []
+    },
+    {
+      "name": "ungenerated",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": null,
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        null
+      ],
+      "records": []
+    },
+    {
+      "name": "empty",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        null
+      ],
+      "records": []
+    },
+    {
+      "name": "direct",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "direct",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "direct",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 123,
+          "order": 1,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "1"
+        }
+      ]
+    },
+    {
+      "name": "other",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "bob",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "bob",
+          "text": "hello",
+          "mine": false,
+          "at": 123,
+          "order": 1,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "1"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 123
+        }
+      ]
+    },
+    {
+      "name": "noNick",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": false,
+          "at": 123,
+          "order": 1,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "1"
+        }
+      ]
+    },
+    {
+      "name": "filesOnly",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [
+            {
+              "name": "image",
+              "mime": "image/png",
+              "size": 0,
+              "width": 2,
+              "height": 3
+            }
+          ],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "",
+          "mine": true,
+          "at": 123,
+          "order": 1,
+          "state": "present",
+          "attachments": [
+            {
+              "name": "image",
+              "mime": "image/png",
+              "size": 0,
+              "width": 2,
+              "height": 3,
+              "blob": null
+            }
+          ],
+          "source": "source",
+          "id": "1"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 123
+        }
+      ]
+    },
+    {
+      "name": "safeId",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 9007199254740991,
+          "change": "said",
+          "files": [],
+          "at": 123
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "9007199254740991"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 123,
+          "order": 9007199254740991,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "9007199254740991"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 123
+        }
+      ]
+    },
+    {
+      "name": "standing-once",
+      "inputs": [
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 1,
+          "change": "said",
+          "files": [],
+          "at": 123
+        },
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 2,
+          "change": "said",
+          "files": [],
+          "at": 124
+        },
+        {
+          "keep": true,
+          "generation": "next",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 3,
+          "change": "said",
+          "files": [],
+          "at": 125
+        },
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "directory",
+          "conversation": "second",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 4,
+          "change": "said",
+          "files": [],
+          "at": 126
+        },
+        {
+          "keep": true,
+          "generation": "generation",
+          "kind": "room",
+          "directory": "other",
+          "conversation": "garden",
+          "nick": "alice",
+          "from": "alice",
+          "text": "hello",
+          "system": false,
+          "line": 5,
+          "change": "said",
+          "files": [],
+          "at": 127
+        }
+      ],
+      "coordinates": [
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "1"
+        },
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "2"
+        },
+        {
+          "source": "source",
+          "generation": "next",
+          "id": "3"
+        },
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "4"
+        },
+        {
+          "source": "source",
+          "generation": "generation",
+          "id": "5"
+        }
+      ],
+      "records": [
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 123,
+          "order": 1,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "1"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 123
+        },
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 124,
+          "order": 2,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "2"
+        },
+        {
+          "kind": "line",
+          "generation": "next",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 125,
+          "order": 3,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "3"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "next",
+          "id": "standing",
+          "directory": "directory",
+          "room": "garden",
+          "nick": "alice",
+          "at": 125
+        },
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "directory",
+          "conversation": "second",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 126,
+          "order": 4,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "4"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "directory",
+          "room": "second",
+          "nick": "alice",
+          "at": 126
+        },
+        {
+          "kind": "line",
+          "generation": "generation",
+          "conversationKind": "room",
+          "directory": "other",
+          "conversation": "garden",
+          "from": "alice",
+          "text": "hello",
+          "mine": true,
+          "at": 127,
+          "order": 5,
+          "state": "present",
+          "attachments": [],
+          "source": "source",
+          "id": "5"
+        },
+        {
+          "kind": "standing",
+          "source": "source",
+          "generation": "generation",
+          "id": "standing",
+          "directory": "other",
+          "room": "garden",
+          "nick": "alice",
+          "at": 127
+        }
+      ]
+    }
+  ]
+}

@@ -77,6 +77,38 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     try std.testing.expect(node.nextAction() == null);
 }
 
+test "pending dial introducers remain local to each ticket and follow waiter retirement" {
+    var node = Node.init(std.testing.allocator, @as([crypto.SEED_BYTES]u8, @splat(5)));
+    defer node.deinit();
+    const first = try node.registerPeer(.{});
+    const second = try node.registerPeer(.{});
+    const first_locator = "ocapn://127.0.0.1%3A9050.tcp";
+    const second_locator = "ocapn://127.0.0.1%3A9051.tcp";
+    try node.acceptInlineGive(first, 1, "first", first_locator);
+    try node.acceptInlineGive(second, 2, "second", second_locator);
+    const a = node.nextAction().?.dial;
+    const b = node.nextAction().?.dial;
+    try std.testing.expect(a.pending != b.pending);
+    try std.testing.expectEqual(first, node.pendingDial(a.pending, 0).?.introducer.?);
+    try std.testing.expectEqual(second, node.pendingDial(b.pending, 0).?.introducer.?);
+
+    // Joining another source does not replace the first live source. Removing
+    // that waiter exposes the surviving one without changing another ticket.
+    try node.acceptInlineGive(second, 3, "joined", first_locator);
+    try std.testing.expect(node.nextAction() == null);
+    try std.testing.expectEqual(first, node.pendingDial(a.pending, 0).?.introducer.?);
+    node.cancelInlineGive(first, 1);
+    try std.testing.expectEqual(second, node.pendingDial(a.pending, 0).?.introducer.?);
+    try std.testing.expectEqual(second, node.pendingDial(b.pending, 0).?.introducer.?);
+    node.cancelInlineGive(second, 3);
+    try std.testing.expect(node.pendingDial(a.pending, 0).?.introducer == null);
+    _ = try node.dialFailed(a.pending, 0, "no signaling source remains");
+    try std.testing.expect(node.pendingDial(a.pending, 0) == null);
+
+    const application = try node.stageDial(first_locator);
+    try std.testing.expect(node.pendingDial(application.pending, 0).?.introducer == null);
+}
+
 test "fresh dial ticket exhaustion refuses atomically and remains retryable" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x40)));

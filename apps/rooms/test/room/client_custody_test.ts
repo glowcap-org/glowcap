@@ -101,3 +101,23 @@ Deno.test("a room session ending before arrival refuses and releases its inbox",
 	assertEquals(failure, "the room session ended before the membership arrived");
 	assertEquals(released, [inboxRef, membershipRef]);
 });
+
+Deno.test("a malformed membership answer releases every unclaimed capability", async () => {
+	const roomRef = ref();
+	const inboxRef = ref();
+	const seat = ref();
+	const unexpected = ref();
+	const released: Ref[] = [];
+	const session = {
+		spawn: () => inboxRef,
+		send: () => Promise.resolve([seat, "speaker", unexpected]),
+		serve: () => new Promise<void>(() => {}),
+		release: (capability: Ref) => released.push(capability),
+	} as unknown as Session;
+	const failure = await Room.subscribe(session, roomRef, "ada").then(
+		() => "",
+		(error) => error instanceof Error ? error.message : String(error),
+	);
+	assertEquals(failure, "the room answered subscribe without one membership capability");
+	assertEquals(released, [seat, unexpected, inboxRef]);
+});

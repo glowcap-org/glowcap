@@ -6,7 +6,7 @@ import { NO_TYPERS } from "../store/core.ts";
 import { fileSize } from "../media.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";
-import { TYPING_IDLE_MS } from "../../../lib/limits.ts";
+import { TYPING_IDLE_MS } from "../limits.ts";
 
 /** Tell the room we are typing while the draft holds text, and stop when we
  * send, go idle, blur, or leave.

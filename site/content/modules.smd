@@ -17,7 +17,7 @@ is the full account.
 | Name | Job |
 | --- | --- |
 | **Peer** | The caller-owned engine handle. You feed inbound frames, call `step`, drain outbound frames, and read events. It opens no sockets. |
-| **Session** | The one-partner application object: `connect` / `listen`, `fetch`, blocking `call`. It owns one live conversation. |
+| **Session** | The one-partner application object: `connect` / `listen`, `fetch`, blocking `call`. It is a view onto a conversation its Host owns. |
 | **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
 | **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Native bindings use the driver archive for that loop; the browser package drives the Host itself. |
 

@@ -57,6 +57,8 @@
 //! and `common.zig` holds the internal glue those leaves share (the `Instance`
 //! state, the behavior bridge, marshalling, and the error projection).
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -469,6 +471,7 @@ pub const glowcap_host_remove_advertised_locator = locators.glowcap_host_remove_
 pub const glowcap_host_set_session_limits = session_limits.glowcap_host_set_session_limits;
 pub const glowcap_host_plan_dial = host.glowcap_host_plan_dial;
 pub const glowcap_host_pending_dial = host.glowcap_host_pending_dial;
+pub const glowcap_host_pending_dial_introducer = host.glowcap_host_pending_dial_introducer;
 pub const glowcap_host_reference_exporter = host.glowcap_host_reference_exporter;
 pub const glowcap_host_next_action = host.glowcap_host_next_action;
 pub const retryBorrowedAction = host.retryBorrowedAction;
@@ -512,8 +515,11 @@ pub const glowcap_host_set_trace = host.glowcap_host_set_trace;
 pub const glowcap_host_set_trace_queue = host.glowcap_host_set_trace_queue;
 pub const glowcap_host_next_trace = host.glowcap_host_next_trace;
 pub const glowcap_host_resolver_fulfill = host.glowcap_host_resolver_fulfill;
+pub const glowcap_host_resolver_fulfill_value = host.glowcap_host_resolver_fulfill_value;
 pub const glowcap_host_resolver_break = host.glowcap_host_resolver_break;
+pub const glowcap_host_resolver_abandon = host.glowcap_host_resolver_abandon;
 pub const glowcap_host_session_listen = session.glowcap_host_session_listen;
+pub const glowcap_host_session_resolve = session.glowcap_host_session_resolve;
 pub const glowcap_host_session_send = session.glowcap_host_session_send;
 pub const glowcap_host_session_tell = session.glowcap_host_session_tell;
 pub const glowcap_host_vow_send = session.glowcap_host_vow_send;

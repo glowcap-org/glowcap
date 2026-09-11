@@ -3,7 +3,7 @@
 import { Button } from "./Button.tsx";
 import { Icon, type IconName } from "./icons.tsx";
 import { Said } from "./Said.tsx";
-import { nextRoomPreset, type RoomPolicy, type RoomPreset, roomPreset } from "../../lib/room/policy.ts";
+import { nextRoomPreset, type RoomPolicy, type RoomPreset, roomPreset } from "./room_policy.ts";
 
 export function roomPresetFace(preset: RoomPreset): { label: string; icon: IconName; description: string } {
 	if (preset === "moderated") {

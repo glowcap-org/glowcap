@@ -67,8 +67,8 @@ The DM card still shares that DM.
 
 ## Scope (what this does not decide)
 
-Combining several archive accounts into one evidence-backed view remains a
-presentation decision. This does not add a global content-addressed blob
+ADR-0144 settles the combination of several archive accounts into one
+evidence-backed view. This does not add a global content-addressed blob
 index, a room-broadcast archive, or durable minting in the tab recorder.
 
 ## Alternatives considered
@@ -93,19 +93,18 @@ facets, handed live or published as durable shares.
 
 `apps/rooms/test/archive/protocol_test.ts` holds digest intersection and the tab's
 durable-mint refusal. `apps/rooms/test/archive/wire_test.ts` holds scoped
-`blob(digest)`. `apps/rooms/test/local_archive_shares_test.ts` and
-`apps/rooms/test/session/archive_shares_test.ts` hold live room and standing
-admission on both local and session halves. A failed durable offer revokes
-the share it just minted. A session room share realizes the carrying DM the
-same way a session `say` does, without dialing intended directs on restore. An
-attached room-card share starts that DM without stealing selection.
-`apps/rooms/test/archive/shares_ledger_test.ts` holds persist-then-publish,
-serialized listing across that publication, and tombstone-then-unpublish.
+`blob(digest)`. Native session-service scenarios hold live admission and drive
+the four-argument live and durable verbs through the actual peer. A failed
+durable offer revokes the share it just minted. A session room share realizes
+the carrying DM the same way a session `say` does, without dialing intended
+directs on restore. An attached room-card share starts that DM without stealing
+selection. Rust runtime tests hold persist-then-publish, serialized listing
+across that publication, and tombstone-then-unpublish.
 `apps/rooms/test/archive/peer_test.ts` redeems and revokes a durable share
 across process restart.
-`apps/rooms/test/direct_message_test.ts` holds the four-argument live verb and
-data-only `offerArchive`. `zig build rooms-web-archive` still drives the
-direct-line one-shot path.
+The native session-service live-operation scenario holds the four-argument live
+verb and data-only `offerArchive`. `zig build rooms-web-archive` still drives
+the direct-line one-shot path.
 
 ## Notes
 

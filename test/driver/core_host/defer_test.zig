@@ -279,6 +279,11 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
 
     // One attempt: the resolver and its hidden vow row are consumed.
     try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(minted_resolver, "late"));
+    // An id never minted is a different refusal from a consumed authority.
+    for ([_]u64{ 0, server.next_resolver, std.math.maxInt(u64) }) |id| {
+        try std.testing.expectError(error.NoSuchResolver, server.resolverBreak(id, "unminted"));
+        try std.testing.expectError(error.NoSuchResolver, server.resolverFulfill(id, .{ .void = {} }));
+    }
 }
 
 test "core host: next Syrup traces an unresolved projected tell before settlement" {
@@ -539,3 +544,72 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
 // name), the message verbs both directions, and the close, with no sink
 // installed costing every emit site one null check. The bindings' enable_trace
 // veneers stand on this seam, so this scenario is the family's root proof.
+
+test "owning-thread resolver values project capabilities for wire and local callers" {
+    for ([_]bool{ false, true }) |local| try resolverCapability(local);
+}
+
+fn resolverCapability(local: bool) !void {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x91)), Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x92)), Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x93)), Host.Options.withFrameCap(frame_cap));
+    defer exporter.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |dial| allocator.free(dial.designator);
+        dials.deinit(allocator);
+    }
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7861", &dials);
+    const other = try openPair(allocator, &server, &exporter, "127.0.0.1:7862", &dials);
+    const hosts = [_]*Host{ &client, &server, &exporter };
+    const pairs = [_]Pair{ pair, other };
+    _ = try other.b.served.publish(&exporter.vat, "widget", Widget, .{});
+    var imported = CapturedRef{};
+    try server.vowOn(try server.fetch(other.a, "widget"), .{ .ctx = &imported, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+    const foreign = try server.liftCapability(other.a, try imported.require());
+    var resolver: u64 = 0;
+    const hosted = try pair.b.served.publish(&server.vat, "worker", Deferring, .{ .host = &server, .session = pair.b, .out_resolver = &resolver });
+    var fetched = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "worker"), .{ .ctx = &fetched, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+    const caller = if (local) &server else &client;
+    const session = if (local) pair.b else pair.a;
+    const target = if (local) hosted.nearRef() else try fetched.require();
+    var answer = CapturedRef{};
+    try caller.vowOn(try caller.send(session, target, .{ .verb = "work", .args = &.{} }), .{ .ctx = &answer, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+    try std.testing.expect(resolver != 0);
+    const actor = try server.vat.spawn(Widget, .{});
+    const capability = try server.liftLocalActor(actor);
+    const exports = pair.b.served.port.exports.count();
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const nested = driver.core.Value{ .list = &.{ .{ .capability = capability }, .{ .capability = foreign } } };
+    try std.testing.expectError(error.ForeignArgument, server.resolverFulfillValue(resolver, nested, arena.allocator()));
+    try std.testing.expectEqual(exports, pair.b.served.port.exports.count());
+    try std.testing.expectEqual(@as(usize, 1), server.resolver_index.count());
+    try server.resolverFulfillValue(resolver, .{ .capability = capability }, arena.allocator());
+    try std.testing.expectError(actors.Error.AlreadySettled, server.resolverFulfillValue(resolver, .void, arena.allocator()));
+    try server.releaseCapability(capability, 1);
+    try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+    var poked = CapturedString{};
+    const poke = try caller.send(session, try answer.require(), .{ .verb = "poke", .args = &.{} });
+    if (local) {
+        // A local synchronous answer is already on the action queue before
+        // send returns, so it cannot acquire an observer afterwards.
+        while (try caller.nextAction()) |action| switch (action) {
+            .settled => |result| if (result.vow_id == poke) {
+                CapturedString.record(&poked, .{ .fulfilled = result.value });
+            },
+            else => {},
+        };
+    } else {
+        try caller.vowOn(poke, .{ .ctx = &poked, .func = CapturedString.record });
+        try pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+    }
+    try std.testing.expectEqualStrings("poked over fed bytes", poked.buf[0..poked.len]);
+}

@@ -96,6 +96,24 @@ const budget_facts = [_]BudgetFact{
             .{ .path = "docs/ladder.md", .anchor = "| Sealing completion-adapter state (`noise-relay`) | exactly ", .suffix = " bytes per sealed leg, on top of the leg it wraps |" },
         },
     },
+    .{
+        .label = "iroh completion-adapter row",
+        .source_path = "test/net/iroh_resident_internal_test.zig",
+        .decl = "const iroh_connection_state_bytes: usize = ",
+        .quotes = &.{
+            .{ .path = "docs/ladder.md", .anchor = "| iroh completion-adapter row | exactly ", .suffix = " bytes per loop connection |" },
+            .{ .path = ".agents/rules/memory.md", .anchor = "one iroh loop connection's adapter row at exactly " },
+        },
+    },
+    .{
+        .label = "WebRTC completion-adapter row",
+        .source_path = "test/net/webrtc_internal_test.zig",
+        .decl = "const webrtc_connection_state_bytes: usize = ",
+        .quotes = &.{
+            .{ .path = "docs/ladder.md", .anchor = "| WebRTC completion-adapter row | exactly ", .suffix = " bytes per open DataChannel |" },
+            .{ .path = ".agents/rules/memory.md", .anchor = "one open WebRTC DataChannel's adapter row at exactly " },
+        },
+    },
 };
 
 /// Each footprint budget is one number with one authoritative declaration,

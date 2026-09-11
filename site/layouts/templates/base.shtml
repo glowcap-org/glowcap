@@ -20,8 +20,9 @@
 		<link rel="apple-touch-icon" href="$site.asset('glowcap-icon-256.png').link()">
 		<!-- The browser chrome takes the page's own ground (tokens.css --paper),
 		     so the frame around the page stops being a stranger's white or black. -->
-		<meta name="theme-color" content="#f8e7c9" media="(prefers-color-scheme: light)">
-		<meta name="theme-color" content="#211911" media="(prefers-color-scheme: dark)">
+		<!-- Syrup is the default face, so this is the ground a page opens on.
+		     The switch rewrites it from the palette when a reader picks light. -->
+		<meta name="theme-color" content="#211911">
 		<!-- Every face is named here, and that is load-bearing rather than tidy:
 		     the generator installs an asset only when a template asks for its
 		     link, and it cannot see the `url()` inside tokens.css. A face left
@@ -43,16 +44,16 @@
 		<link type="text/css" rel="stylesheet" href="$site.asset('narrow.css').link()">
 		<script>
 			// Stamp a remembered theme choice before the first paint, so a reader
-			// who picked light on a dark desktop never sees a flash of the other
-			// one. Everyone who has not chosen is left alone for the stylesheet's
-			// media query to answer.
+			// who picked the light page never sees a flash of syrup. Everyone
+			// who has not chosen is left unstamped, and the stylesheet answers
+			// for them with syrup, which is the default face.
 			document.documentElement.classList.add("js");
 			try {
 				var saved = localStorage.getItem("glowcap-theme");
 				if (saved === "light" || saved === "dark") {
 					document.documentElement.dataset.theme = saved;
 				}
-			} catch (_) { /* private mode: fall back to the system preference */ }
+			} catch (_) { /* private mode: the default face for this visit */ }
 		</script>
 		<super>
 	</head>
@@ -60,7 +61,11 @@
 		<a class="skip-link" href="#content">Skip to content</a>
 		<header class="site-header">
 			<a class="brand" href="$site.page('').link()">
-				<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i class="mark-piece mark-cake-2"></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></span>
+				<!-- The mark as an object rather than a performance: the still
+				     artwork, the same drawing the tab icon shows. The shader
+				     runs on the home page's hero, where it is large enough to
+				     be worth a device. -->
+				<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-rim"></i><i class="mark-piece mark-flesh"></i><i class="mark-piece mark-shade"></i><i class="mark-piece mark-windows"></i></span>
 				<span class="wordmark"><span>glowcap</span></span>
 			</a>
 			<nav class="top-nav" aria-label="Site">
@@ -72,6 +77,10 @@
 				</button>
 			</nav>
 		</header>
+		<!-- The brand marks' shader, bundled from site/brand_mark.ts by the site
+		     build. A module, so it runs after the marks it fills are parsed and
+		     never holds the page. -->
+		<script type="module" src="$site.asset('mark.js').link()"></script>
 		<div class="shell">
 			<aside class="sidebar" aria-label="Site documentation">
 				<button type="button" id="docsNavToggle" class="docs-nav-toggle" aria-expanded="false" aria-controls="docsNav">Browse documentation</button>
@@ -134,7 +143,7 @@
 			<div class="footer-cols">
 				<div class="footer-brand">
 					<a class="brand" href="$site.page('').link()">
-						<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i class="mark-piece mark-cake-2"></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></span>
+						<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-rim"></i><i class="mark-piece mark-flesh"></i><i class="mark-piece mark-shade"></i><i class="mark-piece mark-windows"></i></span>
 						<span class="wordmark"><span>glowcap</span></span>
 					</a>
 					<p>An object-capability RPC library for OCapN, written in Zig. Two programs hand each other references to live objects, and holding one is the whole permission to call it.</p>
@@ -183,14 +192,26 @@
 		<script>
 			// The theme switch. The stylesheet answers for anyone who never
 			// presses it; this records a deliberate choice and applies it now.
+			// An unstamped page is syrup, so an unstamped page's first press
+			// goes to light. The browser's own chrome colour follows, read back
+			// off the token the page paints with rather than named a second
+			// time, so a palette that moves takes the address bar with it.
+			const paintChrome = () => {
+				const tint = document.querySelector('meta[name="theme-color"]');
+				if (tint === null) return;
+				const paper = getComputedStyle(document.documentElement)
+					.getPropertyValue("--paper").trim();
+				if (paper !== "") tint.setAttribute("content", paper);
+			};
+			// Once on arrival, because a reader who chose light last time was
+			// stamped in the head and the meta still names the default ground.
+			paintChrome();
 			const themeBtn = document.getElementById("themeToggle");
 			if (themeBtn) {
 				themeBtn.addEventListener("click", () => {
 					const root = document.documentElement;
-					const dark = root.dataset.theme
-						? root.dataset.theme === "dark"
-						: matchMedia("(prefers-color-scheme: dark)").matches;
-					root.dataset.theme = dark ? "light" : "dark";
+					root.dataset.theme = root.dataset.theme !== "light" ? "light" : "dark";
+					paintChrome();
 					try {
 						localStorage.setItem("glowcap-theme", root.dataset.theme);
 					} catch (_) { /* private mode: the choice lasts this page only */ }

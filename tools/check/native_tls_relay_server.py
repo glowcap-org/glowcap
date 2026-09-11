@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One bounded WSS or hostile TCP fixture for the native relay carrier."""
+"""One bounded WSS or refusal TCP fixture for the native relay carrier."""
 
 from __future__ import annotations
 

@@ -189,8 +189,8 @@ pub fn check(
             const rel = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
             defer gpa.free(rel);
             if (std.mem.eql(u8, rel, "src/net/transport/tcp.zig")) continue;
-            if (std.mem.eql(u8, rel, "src/net/transport/tcp/plain.zig")) continue;
-            if (std.mem.eql(u8, rel, "src/net/transport/tcp/key_addressed.zig")) continue;
+            if (std.mem.eql(u8, rel, "src/net/transport/tcp/stream.zig")) continue;
+            if (std.mem.eql(u8, rel, "src/net/transport/tcp/profile.zig")) continue;
             const contents = root.readFileAlloc(io, rel, gpa, .limited(2 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: failed to read for connectAddress ban with {s}", .{ rel, @errorName(err) });
                 continue;
@@ -210,6 +210,7 @@ pub fn check(
         "docs/roadmap.md",
         ".agents/rules/architecture.md",
         ".agents/rules/memory.md",
+        ".agents/rules/memory-ledger.md",
         ".agents/rules/cli.md",
     };
     const ghosts = [_]struct { needle: []const u8, reason: []const u8 }{
@@ -352,19 +353,14 @@ pub fn check(
             .banned = &.{"`127.0.0.1:${"},
         },
         .{
-            .path = "apps/rooms/web/serve.ts",
-            .required = "loopbackTcpDesignator",
-            .banned = &.{"`127.0.0.1:${"},
+            .path = "apps/rooms/rust/native/src/web/relay.rs",
+            .required = "glowcap::designator_host_port",
+            .banned = &.{"rsplit_once(':')"},
         },
         .{
             .path = "apps/rooms/demos/demo.ts",
             .required = "loopbackTcpDesignator",
             .banned = &.{"`127.0.0.1:${"},
-        },
-        .{
-            .path = "apps/rooms/server/directory_behavior.ts",
-            .required = "designatorHostPort",
-            .banned = &.{"lastIndexOf(\":\")"},
         },
         .{
             .path = "apps/rooms/clients/python/room_client.py",
@@ -540,6 +536,17 @@ pub fn check(
         },
         .{
             .path = "bindings/rust/src/session.rs",
+            .banned = &.{
+                "establish_dialed(node.shared(), &tcp_locator",
+                "establish_dialed(node.shared(), &locator",
+                "let locator = tcp_locator(",
+                "designator_host_port(&loc.designator)",
+                "pub async fn connect_with_node<",
+                "Connection::connect(addr)",
+            },
+        },
+        .{
+            .path = "bindings/rust/src/session/establish.rs",
             .banned = &.{
                 "establish_dialed(node.shared(), &tcp_locator",
                 "establish_dialed(node.shared(), &locator",

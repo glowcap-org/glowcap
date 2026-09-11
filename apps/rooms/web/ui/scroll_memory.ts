@@ -1,6 +1,6 @@
 // Last scroll offsets for conversations this tab still holds.
 
-import { MAX_WORKSPACE_CONVERSATIONS } from "../../lib/rooms_state.ts";
+import { applicationModule } from "./application.ts";
 
 /** The last scroll offset for recently visited conversations. Closed
  * conversations leave this browser's store, so this recency bound prevents a
@@ -17,7 +17,7 @@ export class ScrollMemory {
 		// insertion position and would evict an actively read conversation.
 		this.#positions.delete(key);
 		this.#positions.set(key, position);
-		if (this.#positions.size <= MAX_WORKSPACE_CONVERSATIONS) return;
+		if (this.#positions.size <= applicationModule().workspaceConversationLimit()) return;
 		const oldest = this.#positions.keys().next().value;
 		if (oldest !== undefined) this.#positions.delete(oldest);
 	}

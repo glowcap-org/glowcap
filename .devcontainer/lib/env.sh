@@ -56,7 +56,20 @@ glowcap_devcontainer_env_value() {
 # no ports at all is not an outgrown .env, and ordinary validation owns it.
 glowcap_devcontainer_complete_env() {
     local root="$1" variable base value offset seen_offset="" missing="" missing_count=0
+    local checkout
     [[ -e "${root}/.env" ]] || return 0
+
+    # Older files predate the checkout's same-path bind. That bind gives
+    # submodule repositories one absolute worktree path that exists on both
+    # the host and in the container, so this Git-owned fact is safe to add
+    # without disturbing the operator-owned ports or egress network.
+    if [[ -z "$(glowcap_devcontainer_env_value "${root}" GLOWCAP_CHECKOUT_DIR)" ]]; then
+        checkout="$(cd "${root}/.." && pwd -P)" || return
+        printf 'GLOWCAP_CHECKOUT_DIR=%s\n' \
+            "$(glowcap_devcontainer_env_quote_value "${checkout}")" >> "${root}/.env"
+        echo "devcontainer: added GLOWCAP_CHECKOUT_DIR=${checkout} to ${root}/.env" >&2
+    fi
+
     while IFS=: read -r variable base; do
         value="$(glowcap_devcontainer_env_value "${root}" "${variable}")"
         if [[ -z "${value}" ]]; then
@@ -180,6 +193,7 @@ glowcap_devcontainer_configure_env() {
     chmod 600 "${temp_file}"
     {
         printf 'GLOWCAP_WORKTREE=%s\n' "${name}"
+        printf 'GLOWCAP_CHECKOUT_DIR=%s\n' "$(glowcap_devcontainer_env_quote_value "${checkout}")"
         printf 'GLOWCAP_GIT_COMMON_DIR=%s\n' "$(glowcap_devcontainer_env_quote_value "${common_dir}")"
         while IFS=: read -r variable base; do
             printf '%s=%s\n' "${variable}" "$((base + decimal_offset))"
@@ -243,6 +257,7 @@ glowcap_devcontainer_validate_checkout_env() {
     glowcap_devcontainer_validate_effective_env "${root}" || return
     worktree_name="$(glowcap_devcontainer_worktree_name "${root}")" || return
     glowcap_devcontainer_validate_worktree "${root}" "${worktree_name}" || return
+    glowcap_devcontainer_validate_checkout_dir "${root}" || return
     glowcap_devcontainer_validate_git_common_dir "${root}" || return
     glowcap_devcontainer_validate_host_ports "${root}" || return
     egress="$(glowcap_devcontainer_env_value "${root}" EGRESS_NET)"

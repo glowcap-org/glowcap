@@ -21,11 +21,14 @@
   width: 1.35rem;
   height: 1.35rem;
   margin: 3.5rem auto 0.5rem;
-  color: var(--ink-soft);
-  opacity: 0.45;
+  /* The rim's own amber, so the drawn mark matches the outline the shader
+     draws. Linework encloses far less ink than a filled shape, so it keeps
+     more of that color and still sits back from the text. */
+  color: var(--mark-rim);
+  opacity: 0.7;
   background: currentColor;
-  -webkit-mask: var(--mark-stack) center / contain no-repeat;
-  mask: var(--mark-stack) center / contain no-repeat;
+  -webkit-mask: var(--mark-line) center / contain no-repeat;
+  mask: var(--mark-line) center / contain no-repeat;
 }
 
 .prose > :first-child {
@@ -202,7 +205,8 @@ pre {
   border-radius: var(--radius-control);
   overflow-x: auto;
   border: 1px solid var(--rule);
-  box-shadow: var(--shadow-well);
+  /* A listing is a well cut into the page: the darker ground and the hairline
+     say so, and a shadow on top of them said it a third time. */
   /* The TypeScript examples are tab-indented, matching deno fmt; render the
      tab four columns wide like every editor here, not the browser's eight. */
   tab-size: 4;

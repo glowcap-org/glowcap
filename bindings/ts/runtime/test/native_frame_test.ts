@@ -3,7 +3,12 @@ import { ffi, NULL } from "../internal/ffi/runtime.ts";
 import { HostGc } from "../gc.ts";
 import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
-import { AsyncFfiFrame, AsyncFfiWriteQueue, checkedMaxFrameBytes } from "../transport/native_frame.ts";
+import {
+	AsyncFfiFrame,
+	AsyncFfiWriteQueue,
+	checkedMaxFrameBytes,
+	FrameDescriptorScratch,
+} from "../transport/native_frame.ts";
 import { deferred } from "../../dogfood/assert.ts";
 
 async function assertRejectsWith(promise: Promise<unknown>, text: string): Promise<void> {
@@ -20,7 +25,7 @@ async function assertRejectsWith(promise: Promise<unknown>, text: string): Promi
 
 Deno.test("AsyncFfiFrame snapshots caller bytes before a queued native write", () => {
 	const caller = new Uint8Array([1, 2, 3, 4]);
-	const owned = new AsyncFfiFrame(caller);
+	const owned = new AsyncFfiFrame(caller, new FrameDescriptorScratch());
 	caller.fill(9);
 
 	const argument = owned.argument();

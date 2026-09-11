@@ -28,6 +28,8 @@
 //! candidates, byte I/O, and closure are readiness-driven and never park the
 //! reactor. Release every peer before releasing its netlayer.
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const std = @import("std");
 
 const webrtc = @import("webrtc");
@@ -338,9 +340,16 @@ pub export fn glowcap_webrtc_peer_new_in(context: ?*GlowcapContext, netlayer: ?*
 fn peerNewIn(alloc: std.mem.Allocator, nl: *NetlayerPayload, is_offerer: i32, out_peer: ?*?*GlowcapWebrtcPeer) i32 {
     const slot = out_peer orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = null;
-    const payload = alloc.create(PeerPayload) catch |err|
+    // The retain comes first so a refusal has nothing to unwind: a netlayer
+    // whose last reference is already gone admits no new peer.
+    if (!retainNetlayer(nl)) {
+        c.setLastError("webrtc peer_new: netlayer already released", .{});
+        return c.GLOWCAP_ERR_CLOSED;
+    }
+    const payload = alloc.create(PeerPayload) catch |err| {
+        undoNetlayerRetain(nl);
         return c.failInternal("webrtc peer_new", err);
-    retainNetlayer(nl);
+    };
     payload.* = .{
         .peer = nl.resident.newPeer(is_offerer != 0) catch |err| {
             undoNetlayerRetain(nl);

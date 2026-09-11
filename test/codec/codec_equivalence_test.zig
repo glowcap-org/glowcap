@@ -226,7 +226,7 @@ test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
 }
 
 /// Encode a well-formed two-key struct through `codec_id`, patch the second
-/// key's bytes to repeat the first — the duplicate-key frame a hostile peer
+/// key's bytes to repeat the first — the duplicate-key frame an untrusted peer
 /// would send — and assert the codec refuses it on the live decode path
 /// (`decodeBody` + `toOwned`), per ADR-0046's key rule. Syrup refuses while
 /// slicing the dict during body projection; Cap'n Proto refuses when the lazy

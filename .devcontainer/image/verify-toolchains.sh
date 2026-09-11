@@ -167,6 +167,12 @@ expect_pin_contains "rustc" RUST_VERSION rustc --version
 expect_pin_contains "cargo" RUST_VERSION cargo --version
 expect_ok "rustfmt" rustfmt --version
 expect_ok "clippy" cargo clippy --version
+if rooms_wasm_version="$(python3 "${dir}/image/rooms-toolchain-version.py")"; then
+    expect_contains "wasm-bindgen" "wasm-bindgen ${rooms_wasm_version}" wasm-bindgen --version
+else
+    fail "wasm-bindgen: cannot read the Rooms lockfile's compiler version"
+fi
+expect_contains "Rust browser target" "wasm32-unknown-unknown" rustup target list --installed
 expect_pin_contains "uv" UV_VERSION uv --version
 if require_pin "ocapn-conformance-python" OCAPN_CONFORMANCE_PYTHON; then
     expect_contains "ocapn-conformance-python" "${OCAPN_CONFORMANCE_PYTHON}" \
@@ -186,7 +192,11 @@ expect_ok "zsh" /bin/zsh --version
 expect_on_path tor
 expect_ok "tor" tor --version
 
-expect_on_path gdb lldb strace valgrind perf hyperfine jq nc shellcheck
+# `rg` is checked as a real program rather than a name: Claude Code defines an
+# `rg` shell function in the interactive rc, so a name-only test would pass in a
+# shell where every other agent CLI still finds nothing.
+expect_on_path gdb lldb strace valgrind perf hyperfine jq nc shellcheck rg
+expect_ok "rg" command rg --version
 expect_ok "shellcheck" shellcheck --version
 expect_ok "gdb" gdb --version
 expect_ok "lldb" lldb --version

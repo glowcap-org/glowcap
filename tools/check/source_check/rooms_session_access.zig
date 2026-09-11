@@ -32,7 +32,6 @@ const appendViolation = util.appendViolation;
 /// under `apps/rooms/test`, and are not held to this.
 const decided_in = [_][]const u8{
     "apps/rooms/web/ui",
-    "apps/rooms/session",
     "apps/rooms/lib",
 };
 

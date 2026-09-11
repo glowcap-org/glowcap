@@ -13,7 +13,7 @@
 use core::ffi::{c_int, c_uchar};
 
 use super::ocapn::GlowcapContext;
-use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime, GlowcapRelayTrustSummary};
+use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime};
 use super::GlowcapTransportProvider;
 
 extern "C" {
@@ -23,10 +23,6 @@ extern "C" {
 	pub fn glowcap_relay_runtime_new(
 		config: *const GlowcapRelayConfig,
 		out_runtime: *mut *mut GlowcapRelayRuntime,
-	) -> c_int;
-	pub fn glowcap_relay_runtime_trust_summary(
-		runtime: *mut GlowcapRelayRuntime,
-		out_summary: *mut GlowcapRelayTrustSummary,
 	) -> c_int;
 	pub fn glowcap_relay_transport_provider(
 		runtime: *mut GlowcapRelayRuntime,

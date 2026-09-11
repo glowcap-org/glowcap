@@ -120,7 +120,7 @@ fn driveOneTurn(peer: *engine.Peer, frame_bytes: []const u8) !void {
 
 /// Populate the export table with `count` *sparse* positions (stride well above
 /// 1 so a flat backing store would balloon) and time the inserts. The tables are
-/// integer-keyed hashes precisely so a hostile partner naming sparse positions
+/// integer-keyed hashes precisely so an untrusted peer naming sparse positions
 /// cannot force O(position) memory or scan cost (see docs/architecture.md);
 /// this keeps that cost a measured constant, not a claim.
 fn benchSparseExportTable(io: std.Io, allocator: std.mem.Allocator, count: usize) !void {

@@ -36,6 +36,7 @@ function line(fields: Partial<ArchiveLine> = {}): ArchiveLine {
 		text: "hello",
 		mine: false,
 		at: 100,
+		order: 1,
 		state: "present",
 		attachments: [],
 		...fields,
@@ -81,7 +82,11 @@ Deno.test("archive put replaces one key and a resumed read sees the greater revi
 	assertEquals(first.records.map((record) => record.text), ["hello"]);
 
 	assertEquals(
-		String(await call(behavior, ARCHIVE_PUT, [archiveRecordRow(line({ text: "corrected", state: "edited" }))])),
+		String(
+			await call(behavior, ARCHIVE_PUT, [
+				archiveRecordRow(line({ text: "corrected", state: "edited", at: 200, order: 200 })),
+			]),
+		),
 		"2",
 	);
 	const resumed = pageOf(
@@ -94,6 +99,8 @@ Deno.test("archive put replaces one key and a resumed read sees the greater revi
 		await call(behavior, ARCHIVE_READ, [archiveFilterRow(ALL_ARCHIVE_RECORDS), 0n, 10n]),
 	);
 	assertEquals(whole.records.length, 1, "replacement retained one current record");
+	assertEquals(whole.records[0]?.at, 100, "editing moved the line through archive history");
+	assertEquals(whole.records[0]?.order, 1, "editing changed the line's conversation order");
 });
 
 Deno.test("withdrawal erases archived plaintext rather than appending a tombstone beside it", async () => {
@@ -135,12 +142,12 @@ Deno.test("archive lines retain bounded file metadata without claiming blob cust
 	);
 	assertEquals(page.records[0]?.attachments, attachments);
 	const malformed = archiveRecordRow(line());
-	malformed[12] = Array.from({ length: 9 }, () => ["x", "text/plain", 1n, 0n, 0n, null]);
+	malformed[13] = Array.from({ length: 9 }, () => ["x", "text/plain", 1n, 0n, 0n, null]);
 	assertEquals(
 		await refused(() => call(behavior, ARCHIVE_PUT, [malformed])),
 		"an archive line may carry at most 8 attachment records",
 	);
-	malformed[12] = Array.from({ length: 5 }, (_, at) => [
+	malformed[13] = Array.from({ length: 5 }, (_, at) => [
 		`file-${at}`,
 		"application/octet-stream",
 		16n * 1024n * 1024n,

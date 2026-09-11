@@ -5,9 +5,9 @@
 // to the relay `init({ relayUrl })` named and drives the ordinary handshake
 // over it. The relay only moves bytes; session authority stays end to end.
 
-import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@glowcap/abi";
 import { webSocketChannel } from "../runtime/websocket.ts";
 import { _relayUrl } from "./mod.ts";
+import { IROH_RELAY_DIAL_ALLOWANCE_MS } from "./relay_budget.ts";
 
 // The relay accepts this socket first and dials the far endpoint only after, so
 // from the browser's side that dial and the handshake are one serial wait on
@@ -15,8 +15,6 @@ import { _relayUrl } from "./mod.ts";
 // retry budget before a single byte moves, so the caller's handshake bound is
 // widened by that budget here — otherwise a dial that is still working reads as
 // a silent partner.
-const RELAY_FAR_DIAL_ALLOWANCE_MS = DISCOVERY_DIAL_MAX_ATTEMPTS * DISCOVERY_DIAL_RETRY_MS;
-
 const NATIVE_ONLY =
 	"glowcap web: iroh is a native-only transport; a browser needs init({ relayUrl }) naming a byte relay to dial it";
 
@@ -95,7 +93,7 @@ export async function _connectIroh(
 			(host as InstanceType<typeof runtimeApi.Host> | undefined) ?? new runtimeApi.Host(),
 			runtimeApi.bareLocator(runtimeApi.TRANSPORT_IROH, nodeId),
 			channel,
-			asked ? asked + RELAY_FAR_DIAL_ALLOWANCE_MS : asked,
+			asked ? asked + IROH_RELAY_DIAL_ALLOWANCE_MS : asked,
 			nodeId,
 		);
 	} catch (err) {

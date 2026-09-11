@@ -88,9 +88,12 @@ test "Host owner extraction preserves the aggregate footprint and supported verb
     // 500k-session withdrawal. Stated under runtime safety, where each
     // embedded `std.ArrayList` header carries std's one-word
     // `pointer_stability` lock: 72 of these bytes, and each hash map carries
-    // one more.
+    // one more. ADR-0145's parked Node actions add 32: a map header that
+    // costs a session under no pressure nothing, and the Node's one-word
+    // count of the queue seats those actions return to. The work quantum is
+    // a plain count, so it carries no optional tag word.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 2304), @sizeOf(Host));
+    try std.testing.expectEqual(@as(usize, 2336), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
 }
 

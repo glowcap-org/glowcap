@@ -1,19 +1,37 @@
-//! Position-keyed export/import rows: CapTP `Slot` cell + wire-delta count.
+//! Position-keyed export/import rows with their ADR-0008 wire-delta counts.
 //!
-//! Name plate: `ExportTable` / `ImportTable` (and their shared `SlotTable`
+//! Name plate: `ExportTable` / `ImportTable` (over the shared `WireDeltaTable`
 //! core). Not `slot.zig` (the CapTP `Slot` sum alone). CapTP keeps export,
 //! import, and answer as separate position namespaces — answer rows live in
 //! `answers/store.zig`; these tables own the export and import namespaces.
 //!
-//! Each live row holds the authoritative `slot.Slot` for that position plus the
-//! ADR-0008 wire-delta refcount. `Session.exportSlot` / `importSlot` read the
-//! cell; they do not synthesize a kind from "row exists."
+//! An export row holds the authoritative `slot.Slot` for its position;
+//! `Session.exportSlot` reads the cell rather than synthesizing a kind from
+//! "row exists." An import row holds no cell: a far import is always
+//! `remote_value` of its own position (`desc:export` names it regardless of
+//! kind, ADR-0010, and remote mint is object-only, ADR-0080), so the row
+//! records only who holds its retains.
+//!
+//! ## Two holders of one import row
+//!
+//! Every retain on an import is one the partner's wire mention granted, and
+//! every one is released by exactly one outbound `op:gc-exports`. Which side
+//! sends that release is the fact `ImportRow.session_held` keeps. A mention
+//! the application received is the caller's to release, through
+//! `Session.recordSend`. A mention the session itself consumed — the resolver a
+//! V1.0 deliver advertised, the listener an `op:listen` nominated, the promise
+//! a shortening callback advanced to — is released by the session's own
+//! prepared message beside the callback, fire, or closure that spends it, and
+//! `adoptForSession` marks it so at the moment the session takes it. A caller's
+//! release is validated against `releasable`, the remainder, so it can never
+//! address a row the session still has to settle through; the row's presence
+//! at that later release is then an invariant, not a runtime question.
 //!
 //! ## Why a hash, not a raw `position -> row` vector
 //!
 //! Export positions are locally allocated and monotonic, so a flat index vector
 //! would be safe and ideal for them. But import positions are *partner-
-//! allocated*: a hostile peer can name `import_position = 1 << 63`, and a raw
+//! allocated*: an untrusted peer can name `import_position = 1 << 63`, and a raw
 //! index vector would try to grow to that length — a memory DoS. An integer-
 //! keyed hash keeps the O(1) win without letting a partner's sparse position
 //! explode the backing store.
@@ -48,93 +66,93 @@ const slot = @import("slot.zig");
 
 pub const Slot = slot.Slot;
 
-/// One live position: CapTP cell + wire-delta count.
-pub const Entry = struct {
+/// One live export position: CapTP cell + wire-delta count.
+pub const ExportRow = struct {
     cell: Slot,
     count: u64,
 };
 
-/// Wire-delta table (ADR-0008) keyed by CapTP position. Each position is
-/// installed live at count 1 with its `Slot` cell; `op:gc-*` decrements by the
-/// wire delta and the row is removed at zero. Underflow or an unknown position
-/// is a loud error, never a silent clamp.
-const SlotTable = struct {
-    rows: std.AutoHashMapUnmanaged(u64, Entry) = .empty,
-
-    pub const Error = error{
-        /// A decrement drove a count below zero, or named a position the table
-        /// never held, surfaced loudly per ADR-0008 wire-delta accounting.
-        GcUnderflow,
-    };
-
-    pub const empty: SlotTable = .{};
-
-    pub fn deinit(self: *SlotTable, allocator: std.mem.Allocator) void {
-        self.rows.deinit(allocator);
-    }
-
-    /// Number of live positions, the row count the resilience caps bound.
-    pub fn len(self: *const SlotTable) usize {
-        return self.rows.count();
-    }
-
-    pub fn contains(self: *const SlotTable, position: u64) bool {
-        return self.rows.contains(position);
-    }
-
-    /// Current refcount for `position`, or 0 if the position is not live.
-    pub fn count(self: *const SlotTable, position: u64) u64 {
-        const entry = self.rows.get(position) orelse return 0;
-        return entry.count;
-    }
-
-    /// CapTP cell for `position`, or null if not live.
-    pub fn cell(self: *const SlotTable, position: u64) ?Slot {
-        const entry = self.rows.get(position) orelse return null;
-        return entry.cell;
-    }
-
-    /// Register `position` live at count 1 with `new_cell` if absent;
-    /// idempotent no-op otherwise (existing cell and count kept).
-    pub fn register(self: *SlotTable, allocator: std.mem.Allocator, position: u64, new_cell: Slot) !void {
-        const gop = try self.rows.getOrPut(allocator, position);
-        if (!gop.found_existing) gop.value_ptr.* = .{ .cell = new_cell, .count = 1 };
-    }
-
-    /// Retain one wire reference to `position`: insert at count 1 with
-    /// `cell_if_new`, or increment an already-live row (cell unchanged).
-    pub fn retain(self: *SlotTable, allocator: std.mem.Allocator, position: u64, cell_if_new: Slot) !void {
-        const gop = try self.rows.getOrPut(allocator, position);
-        if (gop.found_existing) {
-            gop.value_ptr.count = std.math.add(u64, gop.value_ptr.count, 1) catch
-                return Error.GcUnderflow;
-        } else {
-            gop.value_ptr.* = .{ .cell = cell_if_new, .count = 1 };
-        }
-    }
-
-    /// Retain after capacity and refcount overflow were checked separately.
-    pub fn retainAssumeCapacity(self: *SlotTable, position: u64, cell_if_new: Slot) void {
-        if (self.rows.getPtr(position)) |entry| {
-            std.debug.assert(entry.count != std.math.maxInt(u64));
-            entry.count += 1;
-            return;
-        }
-        self.rows.putAssumeCapacity(position, .{ .cell = cell_if_new, .count = 1 });
-    }
-
-    /// Decrement `position` by `delta`, removing the row at zero. Underflow, or
-    /// an unknown position with `delta > 0`, returns `Error.GcUnderflow`.
-    pub fn decrement(self: *SlotTable, position: u64, delta: u64) Error!void {
-        const entry = self.rows.getPtr(position) orelse {
-            if (delta == 0) return;
-            return Error.GcUnderflow;
-        };
-        if (delta > entry.count) return Error.GcUnderflow;
-        entry.count -= delta;
-        if (entry.count == 0) std.debug.assert(self.rows.remove(position));
-    }
+/// One live import position. `count` is every wire retain the partner's
+/// mentions granted; `session_held` is how many of those the session keeps
+/// for a release it will put on the wire itself, never more than `count`.
+pub const ImportRow = struct {
+    count: u64,
+    session_held: u64 = 0,
 };
+
+/// Wire-delta table (ADR-0008) keyed by CapTP position. Each position is
+/// installed live at count 1 with its `Row`; the owning table's release verb
+/// decrements by the wire delta and retires the row at zero. Underflow or an
+/// unknown position is a loud error, never a silent clamp.
+fn WireDeltaTable(comptime Row: type) type {
+    return struct {
+        rows: std.AutoHashMapUnmanaged(u64, Row) = .empty,
+
+        const Self = @This();
+
+        pub const Error = error{
+            /// A decrement drove a count below zero, or named a position the table
+            /// never held, surfaced loudly per ADR-0008 wire-delta accounting.
+            GcUnderflow,
+        };
+
+        pub const empty: Self = .{};
+
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.rows.deinit(allocator);
+        }
+
+        /// Number of live positions, the row count the resilience caps bound.
+        pub fn len(self: *const Self) usize {
+            return self.rows.count();
+        }
+
+        pub fn contains(self: *const Self, position: u64) bool {
+            return self.rows.contains(position);
+        }
+
+        /// Current refcount for `position`, or 0 if the position is not live.
+        pub fn count(self: *const Self, position: u64) u64 {
+            const row = self.rows.get(position) orelse return 0;
+            return row.count;
+        }
+
+        /// Register `position` live with `fresh` if absent; idempotent no-op
+        /// otherwise (existing row kept).
+        pub fn register(self: *Self, allocator: std.mem.Allocator, position: u64, fresh: Row) !void {
+            const gop = try self.rows.getOrPut(allocator, position);
+            if (!gop.found_existing) gop.value_ptr.* = fresh;
+        }
+
+        /// Retain one wire reference to `position`: insert `fresh`, or increment
+        /// an already-live row (everything but its count unchanged).
+        pub fn retain(self: *Self, allocator: std.mem.Allocator, position: u64, fresh: Row) !void {
+            const gop = try self.rows.getOrPut(allocator, position);
+            if (gop.found_existing) {
+                gop.value_ptr.count = std.math.add(u64, gop.value_ptr.count, 1) catch
+                    return Error.GcUnderflow;
+            } else {
+                gop.value_ptr.* = fresh;
+            }
+        }
+
+        /// Retain after capacity and refcount overflow were checked separately.
+        pub fn retainAssumeCapacity(self: *Self, position: u64, fresh: Row) void {
+            if (self.rows.getPtr(position)) |row| {
+                std.debug.assert(row.count != std.math.maxInt(u64));
+                row.count += 1;
+                return;
+            }
+            self.rows.putAssumeCapacity(position, fresh);
+        }
+
+        /// Remove a row whose count reached zero.
+        fn retire(self: *Self, position: u64) void {
+            std.debug.assert(self.rows.get(position).?.count == 0);
+            std.debug.assert(self.rows.remove(position));
+        }
+    };
+}
 
 /// Export rows: local-mint CapTP slots + wire-delta counts.
 ///
@@ -143,10 +161,10 @@ const SlotTable = struct {
 /// partner can do to grow it without bound, and `register`/`retain` therefore
 /// take no cap.
 pub const ExportTable = struct {
-    slots: SlotTable = .empty,
+    slots: WireDeltaTable(ExportRow) = .empty,
 
     pub const Id = model.ExportPosition;
-    pub const Error = SlotTable.Error;
+    pub const Error = WireDeltaTable(ExportRow).Error;
     pub const empty: ExportTable = .{};
 
     pub fn deinit(self: *ExportTable, allocator: std.mem.Allocator) void {
@@ -166,7 +184,8 @@ pub const ExportTable = struct {
     }
 
     pub fn slotOf(self: *const ExportTable, position: Id) ?Slot {
-        return self.slots.cell(position.int());
+        const row = self.slots.rows.get(position.int()) orelse return null;
+        return row.cell;
     }
 
     /// Reserve backing capacity for exports a prepared send may establish.
@@ -180,24 +199,28 @@ pub const ExportTable = struct {
     /// Wire-held references to `position`: the refcount minus the local
     /// baseline every live export row carries. This is the most a partner's
     /// `op:gc-exports` may release — validating inbound GC against `count`
-    /// instead would let a hostile over-release delete the row and with it
+    /// instead would let a partner over-release delete the row and with it
     /// our own live capability.
     pub fn wireHeld(self: *const ExportTable, position: Id) u64 {
         const total = self.slots.count(position.int());
         return if (total == 0) 0 else total - 1;
     }
 
+    /// What one inbound `op:gc-exports` may release, under the name the shared
+    /// GC validator reads across both tables: every wire-held reference.
+    pub const releasable = wireHeld;
+
     /// Install `position` as a near object (`local_value`) at count 1 if
     /// absent; idempotent otherwise.
     pub fn register(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
-        return self.slots.register(allocator, position.int(), .{ .local_value = position.int() });
+        return self.slots.register(allocator, position.int(), .{ .cell = .{ .local_value = position.int() }, .count = 1 });
     }
 
     /// Install `position` with an explicit local-mint cell (object or promise).
     pub fn registerCell(self: *ExportTable, allocator: std.mem.Allocator, position: Id, cell: Slot) !void {
         std.debug.assert(slot.mintOf(cell) == .local);
         std.debug.assert(slot.position(cell) == position.int());
-        return self.slots.register(allocator, position.int(), cell);
+        return self.slots.register(allocator, position.int(), .{ .cell = cell, .count = 1 });
     }
 
     /// Install `position` as a local *promise* (`local_unresolved`) at count 1
@@ -205,7 +228,7 @@ pub const ExportTable = struct {
     /// resolver export is minted unresolved at allocation, so its slot is
     /// authoritative before any wire mention projects it (ADR-0080).
     pub fn registerPromise(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
-        return self.slots.register(allocator, position.int(), .{ .local_unresolved = position.int() });
+        return self.slots.register(allocator, position.int(), .{ .cell = .{ .local_unresolved = position.int() }, .count = 1 });
     }
 
     /// Take one wire reference — or one explicit addressability grant — on a
@@ -215,24 +238,32 @@ pub const ExportTable = struct {
     /// hence the assert.
     pub fn retain(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
         std.debug.assert(self.slots.contains(position.int()));
-        return self.slots.retain(allocator, position.int(), .{ .local_value = position.int() });
+        return self.slots.retain(allocator, position.int(), .{ .cell = .{ .local_value = position.int() }, .count = 1 });
     }
 
+    /// Decrement `position` by `delta`, retiring the row at zero. Underflow, or
+    /// an unknown position with `delta > 0`, is `Error.GcUnderflow`.
     pub fn decrement(self: *ExportTable, position: Id, delta: u64) Error!void {
-        return self.slots.decrement(position.int(), delta);
+        const row = self.slots.rows.getPtr(position.int()) orelse {
+            if (delta == 0) return;
+            return Error.GcUnderflow;
+        };
+        if (delta > row.count) return Error.GcUnderflow;
+        row.count -= delta;
+        if (row.count == 0) self.slots.retire(position.int());
     }
 };
 
-/// Import rows: remote-mint CapTP slots + wire-delta counts.
+/// Import rows: wire-delta counts split by holder, plus optional identities.
 ///
-/// Unlike an export, an import position is partner-allocated, so a hostile peer
+/// Unlike an export, an import position is partner-allocated, so an untrusted peer
 /// could introduce unboundedly many distinct imports. `retain` therefore takes a
 /// `max` and refuses a *new* id past it (ADR-0025), so the cap is enforced at the
 /// one place a row is added rather than at each call site. An already-held id is
 /// a refcount bump and never trips the cap, because it adds no row. There is no
 /// `register`: imports are only ever retained.
 pub const ImportTable = struct {
-    slots: SlotTable = .empty,
+    slots: WireDeltaTable(ImportRow) = .empty,
     /// Optional identities attached to live import rows: the Node routing
     /// route id (ADR-0069) and the opaque Host capability id (ADR-0096). Both die
     /// with the import row, so partner reuse of one numeric position cannot
@@ -257,9 +288,10 @@ pub const ImportTable = struct {
     }
     pub const IdentityMap = std.AutoHashMapUnmanaged(u64, Identity);
     pub const Id = model.ImportPosition;
+    pub const Error = WireDeltaTable(ImportRow).Error;
     /// Adding a new import row can hit the partner-import cap; everything else
-    /// an import table does (decrement, lookup) shares `SlotTable`'s errors.
-    pub const RetainError = std.mem.Allocator.Error || SlotTable.Error || error{ImportCapExceeded};
+    /// an import table does (decrement, lookup) shares the wire-delta errors.
+    pub const RetainError = std.mem.Allocator.Error || Error || error{ImportCapExceeded};
     pub const empty: ImportTable = .{};
 
     pub fn deinit(self: *ImportTable, allocator: std.mem.Allocator) void {
@@ -334,12 +366,15 @@ pub const ImportTable = struct {
         gop.value_ptr.lifted_retains = wire_retains;
     }
 
-    /// Claim one more wire retain for an already-canonical Host identity.
+    /// Claim one more wire retain for an already-canonical Host identity. Only
+    /// a caller-releasable retain can be lifted: the Host's release of the
+    /// handle is a caller's `op:gc-exports`, which never spends a session-held
+    /// one.
     pub fn claimHostRetain(self: *ImportTable, position: Id, host_ref: u64) !void {
         const map = self.identities orelse return error.UnknownImport;
         const identity = map.getPtr(position.int()) orelse return error.UnknownImport;
         if (identity.host_ref != host_ref) return error.UnknownImport;
-        if (identity.lifted_retains >= self.slots.count(position.int())) return error.NoUnliftedImportRetain;
+        if (identity.lifted_retains >= self.releasable(position)) return error.NoUnliftedImportRetain;
         identity.lifted_retains += 1;
     }
 
@@ -372,20 +407,23 @@ pub const ImportTable = struct {
         return self.slots.contains(position.int());
     }
 
+    /// Every wire retain on `position`, whoever holds it, or 0 if not live.
     pub fn count(self: *const ImportTable, position: Id) u64 {
         return self.slots.count(position.int());
     }
 
-    pub fn slotOf(self: *const ImportTable, position: Id) ?Slot {
-        return self.slots.cell(position.int());
+    /// How many of `position`'s retains the session keeps for its own release.
+    pub fn sessionHeld(self: *const ImportTable, position: Id) u64 {
+        const row = self.slots.rows.get(position.int()) orelse return 0;
+        return row.session_held;
     }
 
-    /// Wire-held references to `position`. An import carries no local
-    /// baseline — every reference is one the wire introduced — so this is
-    /// exactly `count`; it exists so GC validation reads one name across
-    /// both tables.
-    pub fn wireHeld(self: *const ImportTable, position: Id) u64 {
-        return self.slots.count(position.int());
+    /// What one caller's outbound `op:gc-exports` may release, under the name
+    /// the shared GC validator reads across both tables: the retains the
+    /// session is not keeping for a release of its own.
+    pub fn releasable(self: *const ImportTable, position: Id) u64 {
+        const row = self.slots.rows.get(position.int()) orelse return 0;
+        return row.count - row.session_held;
     }
 
     /// Retain one wire reference to a partner-introduced import. A *new* id is
@@ -397,7 +435,7 @@ pub const ImportTable = struct {
         if (!self.slots.contains(position.int()) and self.slots.len() >= max) {
             return error.ImportCapExceeded;
         }
-        return self.slots.retain(allocator, position.int(), .{ .remote_value = position.int() });
+        return self.slots.retain(allocator, position.int(), .{ .count = 1 });
     }
 
     /// Reserve one retain without changing authority. A fresh partner-chosen
@@ -434,18 +472,47 @@ pub const ImportTable = struct {
     /// Commit one retain after `prepareRetain` and before any intervening
     /// insertion into this table.
     pub fn retainAssumeCapacity(self: *ImportTable, position: Id) void {
-        self.slots.retainAssumeCapacity(
-            position.int(),
-            .{ .remote_value = position.int() },
-        );
+        self.slots.retainAssumeCapacity(position.int(), .{ .count = 1 });
     }
 
-    pub fn decrement(self: *ImportTable, position: Id, delta: u64) SlotTable.Error!void {
-        try self.slots.decrement(position.int(), delta);
+    /// Take one of `position`'s counted retains as the session's own: it will
+    /// leave through the session's prepared release and no caller may spend
+    /// it. The row must be live with a retain left to adopt; both are
+    /// invariants of the seams that adopt, which retained in the same turn.
+    pub fn adoptForSession(self: *ImportTable, position: Id) void {
+        const row = self.slots.rows.getPtr(position.int()) orelse unreachable;
+        std.debug.assert(row.session_held < row.count);
+        row.session_held += 1;
+    }
+
+    /// A caller's release of `delta` retains, retiring the row at zero. Past
+    /// `releasable`, or an unknown position with `delta > 0`, is
+    /// `Error.GcUnderflow`.
+    pub fn decrement(self: *ImportTable, position: Id, delta: u64) Error!void {
+        const row = self.slots.rows.getPtr(position.int()) orelse {
+            if (delta == 0) return;
+            return Error.GcUnderflow;
+        };
+        if (delta > row.count - row.session_held) return Error.GcUnderflow;
+        row.count -= delta;
+        if (row.count == 0) self.retire(position);
+    }
+
+    /// The session's release of `delta` of its own retains, retiring the row
+    /// at zero. Infallible: the session adopted what it releases.
+    pub fn releaseSessionHeld(self: *ImportTable, position: Id, delta: u64) void {
+        const row = self.slots.rows.getPtr(position.int()) orelse unreachable;
+        std.debug.assert(delta <= row.session_held);
+        row.session_held -= delta;
+        row.count -= delta;
+        if (row.count == 0) self.retire(position);
+    }
+
+    fn retire(self: *ImportTable, position: Id) void {
+        self.slots.retire(position.int());
         if (self.identities) |map| {
             // Tolerant: only an identity-bearing import has a memo to drop.
-            if (!self.slots.contains(position.int()) and map.contains(position.int()))
-                std.debug.assert(map.remove(position.int()));
+            if (map.contains(position.int())) std.debug.assert(map.remove(position.int()));
         }
     }
 

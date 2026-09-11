@@ -14,16 +14,15 @@ import { Field } from "./Field.tsx";
 import { identifierField } from "./field.ts";
 import { Said } from "./Said.tsx";
 import { Switch } from "./Switch.tsx";
-import {
-	type BridgeAction,
-	type BridgeField,
-	type BridgeForm,
-	bridgeFormFields,
-	bridgeFormSubmission,
-	type BridgeSecretField,
-	type BridgeTextField,
-	type BridgeToggleField,
+import type {
+	BridgeAction,
+	BridgeField,
+	BridgeForm,
+	BridgeSecretField,
+	BridgeTextField,
+	BridgeToggleField,
 } from "../../lib/bridge/form.ts";
+import { bridgeFormFields, bridgeFormSubmission, refreshBridgeAnswers, refreshBridgeToggles } from "./bridge_form.ts";
 
 const SECRET_PROMISE = "Sent once, cleared here immediately, and never remembered.";
 
@@ -117,6 +116,9 @@ export function BridgeFormView(
 	const [confirming, setConfirming] = useState<string | null>(null);
 	const [why, setWhy] = useState("");
 	const request = useRef(0);
+	useEffect(() => () => {
+		request.current += 1;
+	}, []);
 
 	// A newly declared form re-seeds what the bridge already knows and drops a
 	// half-finished confirmation from the last state, while what the reader is
@@ -124,29 +126,17 @@ export function BridgeFormView(
 	// seat change, a snapshot refresh), so sameness is judged by content: a
 	// fresh object carrying the same declaration is the same form, and the
 	// comparison runs only when the object changes, never per keystroke.
-	const seeded = useRef<string | null>(null);
+	const seeded = useRef(form);
 	useEffect(() => {
-		const declared = JSON.stringify(form);
-		if (seeded.current === declared) return;
-		const first = seeded.current === null;
-		seeded.current = declared;
-		// The state initializers already seeded the mount's own form.
-		if (first) return;
+		const previous = seeded.current;
+		if (previous === form || JSON.stringify(previous) === JSON.stringify(form)) return;
+		seeded.current = form;
+		request.current += 1;
+		setWorking(null);
 		setConfirming(null);
-		setValues((current) => {
-			const next = { ...current };
-			for (const field of bridgeFormFields(form)) {
-				if (field.kind === "text" && field.value != null && (next[field.id] ?? "") === "") {
-					next[field.id] = field.value;
-				}
-			}
-			return next;
-		});
-		setToggles((current) => {
-			const next = new Set(current);
-			for (const field of form.fields) if (field.kind === "toggle" && field.on) next.add(field.id);
-			return next;
-		});
+		setWhy("");
+		setValues((current) => refreshBridgeAnswers(previous, form, current));
+		setToggles((current) => refreshBridgeToggles(previous, form, current));
 	}, [form]);
 
 	const off = !connected || working !== null;
@@ -177,7 +167,7 @@ export function BridgeFormView(
 		}
 		setWorking(action.id);
 		setWhy("");
-		void onAct(action.id, submission.answers, submission.secrets)
+		void Promise.resolve().then(() => onAct(action.id, submission.answers, submission.secrets))
 			.then((refused) => {
 				if (request.current !== own) return;
 				setWhy(refused);
@@ -189,6 +179,9 @@ export function BridgeFormView(
 						return on;
 					});
 				}
+			})
+			.catch((error) => {
+				if (request.current === own) setWhy(error instanceof Error ? error.message : String(error));
 			})
 			.finally(() => {
 				if (request.current === own) setWorking(null);

@@ -388,7 +388,6 @@ const native_only_layouts = [_][]const u8{
     "TCP_STREAM_OPTIONS",
     "TCP_CONFIG",
     "RELAY_CONFIG",
-    "RELAY_TRUST_SUMMARY",
     "IROH_READY_EVENT",
     "WEBRTC_READY_EVENT",
     "IROH_CONFIG",
@@ -503,7 +502,6 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "TCP_STREAM_OPTIONS", ct.GlowcapTcpStreamOptions, "GlowcapTcpStreamOptions (libglowcap_net_transport_tcp)");
     try emitLayout(&out, gpa, "TCP_CONFIG", ct.GlowcapTcpConfig, "GlowcapTcpConfig (libglowcap_net_transport_tcp, glowcap_tcp_netlayer_new)");
     try emitLayout(&out, gpa, "RELAY_CONFIG", cr.GlowcapRelayConfig, "GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new)");
-    try emitLayout(&out, gpa, "RELAY_TRUST_SUMMARY", cr.GlowcapRelayTrustSummary, "GlowcapRelayTrustSummary (libglowcap_net_transport_relay, glowcap_relay_runtime_trust_summary)");
     try emitLayout(&out, gpa, "IROH_READY_EVENT", ci.GlowcapIrohReadyEvent, "GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready)");
     try emitLayout(&out, gpa, "WEBRTC_READY_EVENT", cw.GlowcapWebrtcReadyEvent, "GlowcapWebrtcReadyEvent (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_drain_ready)");
     try emitLayout(&out, gpa, "IROH_CONFIG", ci.GlowcapIrohConfig, "GlowcapIrohConfig (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_new)");

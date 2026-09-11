@@ -263,6 +263,14 @@ pub const Host = struct {
     /// deadline storage. Unbounded finish and cancel need no row; the session
     /// lifecycle carries those states directly.
     session_close_timing: std.AutoHashMapUnmanaged(engine.PeerHandle, SessionCloseTiming) = .{},
+    /// Node actions whose recipient could not take another outbound frame,
+    /// parked per recipient so one partner's flow control holds back only what
+    /// is bound for it (ADR-0145). A row enters when that recipient refuses
+    /// with outbound pressure, on a queue seat reserved before the action
+    /// leaves the queue, and re-enters in its original order when the embedder
+    /// next takes that recipient's outbound bytes or releases its session.
+    /// Out of line, so a session under no pressure pays nothing.
+    parked_node_actions: std.AutoHashMapUnmanaged(engine.PeerHandle, std.ArrayListUnmanaged(engine.Node.Action)) = .{},
     /// Cached nearest finite session deadline. The timing map remains the
     /// authority; this avoids an O(n) sweep on every adapter turn.
     next_session_close_deadline_ms: ?i64 = null,
@@ -379,6 +387,8 @@ pub const Host = struct {
     pub const queueFetch = host_observation.queueFetch;
     pub const listenTo = host_observation.listenTo;
     pub const queueListenTo = host_observation.queueListenTo;
+    pub const CapabilityResolution = host_observation.CapabilityResolution;
+    pub const resolveCapability = host_observation.resolveCapability;
     pub const listenToCapability = host_observation.listenToCapability;
     pub const queueListenToCapability = host_observation.queueListenToCapability;
 
@@ -452,7 +462,9 @@ pub const Host = struct {
     pub const vowRelease = vow_release.release;
     pub const deferTurn = vow_resolvers.deferTurn;
     pub const resolverFulfill = vow_resolvers.fulfill;
+    pub const resolverFulfillValue = vow_resolvers.fulfillValue;
     pub const resolverBreak = vow_resolvers.breakVow;
+    pub const resolverAbandon = vow_resolvers.abandon;
     pub const vowSend = vows_mod.vowSend;
     pub const queueVowSend = vows_mod.queueVowSend;
     pub const vowSendValues = vows_mod.vowSendValues;

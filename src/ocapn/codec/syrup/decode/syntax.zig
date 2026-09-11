@@ -1,4 +1,4 @@
-//! Checked Syrup leaf readers for hostile byte slices.
+//! Checked Syrup leaf readers for untrusted byte slices.
 //!
 //! These routines mutate only a caller-owned cursor and borrow their results
 //! from the supplied bytes. Length and collection caps are owned here so every
@@ -17,7 +17,7 @@ pub const max_decode_nesting: usize = limits.max_decode_nesting;
 
 /// Decode-time width bound for a single `list` / `set` / `struct` collection —
 /// the width sibling of `max_decode_nesting`. Collection width is
-/// attacker-controlled, and every later walk over a collection — the lazy
+/// untrusted, and every later walk over a collection — the lazy
 /// view's `len`/`at`, session validation, owned materialization — is linear in
 /// the element count, so width needs an explicit bound rather than being an
 /// emergent property of whatever byte cap a deployment configures. An
@@ -51,7 +51,7 @@ pub const SignatureView = struct {
 /// leaf kinds share this one reader and differ only in their `marker` byte:
 /// `:` for byte-strings, `"` for strings, `'` for symbols. The length digits
 /// are canonical-checked and parsed with overflow rejection, and the body is
-/// bound-checked without wrappable arithmetic, so a hostile length fails
+/// bound-checked without wrappable arithmetic, so an untrusted length fails
 /// closed (`Incomplete` / `MalformedFrame` / `FrameTooLarge`) rather than
 /// reading out of bounds.
 fn readLengthPrefixed(bytes: []const u8, cursor: *usize, comptime marker: u8, limit: usize) Error![]const u8 {
@@ -104,7 +104,16 @@ pub fn readSymbolLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!
 /// between the brackets and advancing `cursor` past the closing `]`. Width is
 /// bounded by `max_collection_elements` and the walk refuses to cross `limit`,
 /// like its sibling collection readers.
-pub fn readPositionList(bytes: []const u8, cursor: *usize, limit: usize) Error![]const u8 {
+/// One delimited sequence body and how many elements the slicing walk
+/// counted. The count rides into the lazy view's context word so `len()` is a
+/// read, not a second walk of the subtree; the walk has to count anyway to
+/// hold `max_collection_elements`.
+pub const Sliced = struct {
+    body: []const u8,
+    elements: u64,
+};
+
+pub fn readPositionList(bytes: []const u8, cursor: *usize, limit: usize) Error!Sliced {
     try readByte(bytes, cursor, '[');
     const body_start = cursor.*;
     var elements: usize = 0;
@@ -120,7 +129,7 @@ pub fn readPositionList(bytes: []const u8, cursor: *usize, limit: usize) Error![
 
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
-    return body;
+    return .{ .body = body, .elements = elements };
 }
 
 pub fn readPeerKeyQ(bytes: []const u8, cursor: *usize, limit: usize) Error![]const u8 {
@@ -364,7 +373,7 @@ pub fn readFloat64(bytes: []const u8, cursor: *usize) Error!f64 {
 /// Read a Syrup byte-string (`<len>:<bytes>`) at `cursor` and advance past it,
 /// returning the borrowed payload. The length prefix is parsed with overflow
 /// rejection and the body is bound-checked without wrappable arithmetic, so a
-/// hostile length fails closed (`Incomplete` / `MalformedFrame`) rather than
+/// untrusted length fails closed (`Incomplete` / `MalformedFrame`) rather than
 /// reading out of bounds. Exposed so callers that need a raw byte-string at a
 /// known offset reuse this reader instead of re-deriving the wire grammar.
 fn readBytes(bytes: []const u8, cursor: *usize) Error![]const u8 {

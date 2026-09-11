@@ -238,7 +238,7 @@ test "Syrup decode refuses a Set carrying a duplicate element" {
 }
 
 test "a single collection wider than the decode element cap is refused" {
-    // Collection width is attacker-controlled, and every later walk over a
+    // Collection width is untrusted, and every later walk over a
     // collection — the lazy view's len/at, session validation, owned
     // materialization — is linear in the element count. The codec caps a
     // single list / set / struct at 1 << 20 elements
@@ -477,7 +477,7 @@ test "Syrup decode rejects malformed parser boundary cases" {
     }
 }
 
-// The Syrup owned decoder is the second attacker-facing surface. Like the
+// The Syrup owned decoder is the second inbound surface. Like the
 // Cap'n Proto fuzz, this corrupts every byte of representative frames and
 // asserts `decodeOwned` stays total, a typed error or a well-formed message,
 // never a panic, a leak, or a double-free. It exercises the multi-allocation

@@ -7,13 +7,11 @@
 // transport, the Visualizer pane the viz endpoint — because both are decided
 // when the peer opens, not mid-session.
 
-import { TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@glowcap/runtime";
-import { originVizUrl, vizOverrideRefusal } from "../../lib/viz_publish.ts";
-import { setWorkspaceConnectionSettings, workspaceConnectionSettings } from "./workspace_state.ts";
-import type { RoomsPageContext } from "./page.ts";
-import { coverForReload, finishCoveredReload, uncoverReload } from "./boot.ts";
+import { TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@glowcap/abi";
+import { originVizUrl } from "./viz_endpoint.ts";
+import { workspaceConnectionSettings } from "./workspace_state.ts";
 
-export { originVizUrl } from "../../lib/viz_publish.ts";
+export { originVizUrl } from "./viz_endpoint.ts";
 
 export type DmMode = "webrtc" | "relay";
 export type DmTransport = typeof TRANSPORT_WEBRTC | typeof TRANSPORT_NOISE_RELAY;
@@ -89,23 +87,4 @@ export function writeSearch(url: URL, next: { dm: DmMode; viz: string }): void {
 	else url.searchParams.delete("dm");
 	if (next.viz !== "") url.searchParams.set("viz", next.viz);
 	else url.searchParams.delete("viz");
-}
-
-/** Remember the choice, put it on the URL so a reload and a bookmark agree, and
- * reload so the peer opens with the new locator and viz tap. A caller names
- * only what it owns — Settings the DM transport, the visualizer pane its
- * endpoint — and what it leaves out keeps its current value. */
-export function apply(page: RoomsPageContext, next: { dm?: DmMode; viz?: string }): boolean {
-	const whole = { ...current(), ...next };
-	if (vizOverrideRefusal(whole.viz) != null) return false;
-	coverForReload();
-	if (!setWorkspaceConnectionSettings(page, { dmMode: whole.dm, vizOverride: whole.viz })) {
-		uncoverReload();
-		return false;
-	}
-	const url = new URL(location.href);
-	writeSearch(url, whole);
-	history.replaceState(null, "", url);
-	finishCoveredReload();
-	return true;
 }

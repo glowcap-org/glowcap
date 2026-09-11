@@ -91,18 +91,16 @@ pub(crate) struct ContextInner {
 	allocator: *mut Box<dyn ContextAllocator>,
 }
 
-/// An allocation scope. Hosts and netlayers created in a context route every
-/// allocation through it. Borrowing netlayers carry the Context lifetime in
-/// their type; shared Host state retains the native policy directly.
+/// An allocation scope. A Host created in it with [`crate::Host::new_in`]
+/// routes every native allocation through it, and shared Host state retains
+/// the native policy directly.
 pub struct Context {
-	// The no-feature build still exposes Context construction as a standalone
-	// RAII policy proof, even though no optional handle family can borrow it.
-	#[allow(dead_code)]
 	pub(crate) inner: std::rc::Rc<ContextInner>,
 }
 
 impl Context {
-	/// A context backed by the library-owned allocator.
+	/// A context backed by the native library allocator, or by Rust
+	/// allocation when linked into the same Wasm memory as the application.
 	pub fn new() -> Result<Context> {
 		Ok(Context {
 			inner: std::rc::Rc::new(ContextInner::new()?),
@@ -111,24 +109,8 @@ impl Context {
 
 	/// A context that routes every allocation through `allocator`.
 	pub fn with_allocator(allocator: Box<dyn ContextAllocator>) -> Result<Context> {
-		require_ocapn_archive()?;
-		let user_data = Box::into_raw(Box::new(allocator));
-		let c_allocator = sys::GlowcapAllocator {
-			alloc: alloc_trampoline,
-			free: free_trampoline,
-			user_data: user_data as *mut core::ffi::c_void,
-		};
-		let mut raw: *mut sys::GlowcapContext = core::ptr::null_mut();
-		let rc = unsafe { sys::glowcap_context_new_with_allocator(&c_allocator, &mut raw) };
-		if rc != sys::OK {
-			unsafe { drop(Box::from_raw(user_data)) };
-			return Err(Error::from_code(rc));
-		}
 		Ok(Context {
-			inner: std::rc::Rc::new(ContextInner {
-				raw,
-				allocator: user_data,
-			}),
+			inner: std::rc::Rc::new(ContextInner::with_allocator(allocator)?),
 		})
 	}
 
@@ -149,11 +131,6 @@ impl Context {
 		Ok(failures)
 	}
 
-	#[cfg(any(feature = "tcp", feature = "inproc", feature = "onion", feature = "relay"))]
-	pub(crate) fn raw(&self) -> *mut sys::GlowcapContext {
-		self.inner.raw
-	}
-
 	#[cfg(feature = "async")]
 	pub(crate) fn retain_inner(&self) -> std::rc::Rc<ContextInner> {
 		std::rc::Rc::clone(&self.inner)
@@ -161,6 +138,32 @@ impl Context {
 }
 
 impl ContextInner {
+	#[cfg(target_arch = "wasm32")]
+	pub(crate) fn new() -> Result<Self> {
+		Self::with_allocator(Box::new(RustAllocator))
+	}
+
+	fn with_allocator(allocator: Box<dyn ContextAllocator>) -> Result<Self> {
+		require_ocapn_archive()?;
+		let user_data = Box::into_raw(Box::new(allocator));
+		let c_allocator = sys::GlowcapAllocator {
+			alloc: alloc_trampoline,
+			free: free_trampoline,
+			user_data: user_data as *mut core::ffi::c_void,
+		};
+		let mut raw: *mut sys::GlowcapContext = core::ptr::null_mut();
+		let rc = unsafe { sys::glowcap_context_new_with_allocator(&c_allocator, &mut raw) };
+		if rc != sys::OK {
+			unsafe { drop(Box::from_raw(user_data)) };
+			return Err(Error::from_code(rc));
+		}
+		Ok(Self {
+			raw,
+			allocator: user_data,
+		})
+	}
+
+	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) fn new() -> Result<Self> {
 		require_ocapn_archive()?;
 		let mut raw: *mut sys::GlowcapContext = core::ptr::null_mut();
@@ -327,5 +330,26 @@ impl Drop for ContextInner {
 		if !self.allocator.is_null() {
 			unsafe { drop(Box::from_raw(self.allocator)) };
 		}
+	}
+}
+
+// One allocator owns the linked module's application and Host heap. Native
+// contexts keep the library allocator; Wasm contexts route through Rust so a
+// consumer's global allocator governs both sides of the direct C calls.
+#[cfg(target_arch = "wasm32")]
+struct RustAllocator;
+#[cfg(target_arch = "wasm32")]
+impl ContextAllocator for RustAllocator {
+	fn alloc(&self, size: usize, alignment: usize) -> *mut u8 {
+		match std::alloc::Layout::from_size_align(size.max(1), alignment) {
+			Ok(layout) => unsafe { std::alloc::alloc(layout) },
+			Err(_) => core::ptr::null_mut(),
+		}
+	}
+	unsafe fn free(&self, ptr: *mut u8, size: usize, alignment: usize) {
+		std::alloc::dealloc(
+			ptr,
+			std::alloc::Layout::from_size_align(size.max(1), alignment).unwrap(),
+		);
 	}
 }

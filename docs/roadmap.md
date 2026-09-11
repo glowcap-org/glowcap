@@ -31,16 +31,6 @@ questions are [watched separately](upstream-watch.md).
   cold-cache smoke against the real release URL. The order is fixed by the
   [packaging guide](../bindings/PACKAGING.md#publishing-c-archives-publication-and-enablement-checklist).
 
-## Rooms capability completion
-
-- **Combined archive views.** The member-owned archive capability, the
-  standalone archive peer, facets, and handover ship
-  ([the plan](planning/rooms-persistence.md) tracks each step). What remains is
-  the read side of holding several archives at once: an evidence-backed view
-  that lets a reader coalesce records from more than one source without
-  mistaking any source for live traffic or rewriting its source and
-  generation keys.
-
 ## Beyond the library
 
 - **A2A facade.** Design sketch in [`docs/planning/`](planning/); deferred by

@@ -96,14 +96,32 @@ fn outbound_reuses_one_steady_spare_without_double_spending_the_bound() {
 	let batch = outbound.take_batch();
 	assert_eq!(outbound.pending(), NB_STEADY_BYTES);
 	assert_eq!(enqueue_outbound(&mut outbound, &bytes), NB_STEADY_BYTES as isize);
-	outbound.finish_batch(batch, true);
+	assert!(!outbound.finish_batch(batch, true));
 
 	let spare_ptr = outbound.spare.as_ptr();
 	let second = outbound.take_batch();
 	assert_eq!(outbound.buf.as_ptr(), spare_ptr);
 	assert_eq!(outbound.pending(), NB_STEADY_BYTES);
-	outbound.finish_batch(second, true);
+	assert!(!outbound.finish_batch(second, true));
 	assert!(outbound.spare.capacity() <= NB_STEADY_BYTES);
+}
+
+#[test]
+fn batch_failure_observes_an_application_close_while_the_write_was_in_flight() {
+	let mut outbound = Outbound::default();
+	assert_eq!(enqueue_outbound(&mut outbound, b"farewell"), 8);
+	let batch = outbound.take_batch();
+
+	// The writer released this lock before awaiting QUIC. Model conn_close
+	// acquiring it during that await, then the write completing unsuccessfully.
+	outbound.closed = true;
+	assert!(outbound.finish_batch(batch, false));
+
+	let mut open = Outbound::default();
+	assert_eq!(enqueue_outbound(&mut open, b"live write"), 10);
+	let batch = open.take_batch();
+	assert!(!open.finish_batch(batch, false));
+	assert!(open.closed, "a transport failure still closes further admission");
 }
 
 #[test]
@@ -193,6 +211,27 @@ fn inner_connect_timeout_keeps_its_timeout_classification() {
 	assert_eq!(connection_failure_code(&ConnectionError::Reset), DIAL_UNREACHABLE);
 }
 
+/// The retained text is bounded at `DIAL_TEXT_BYTES` and never splits a UTF-8
+/// sequence, on the way in and on the way out to a shorter caller buffer.
+#[test]
+fn dial_text_truncates_at_a_char_boundary() {
+	// A three-byte character never divides the bound evenly, so the cut lands
+	// inside one and the whole character has to go.
+	let long: String = std::iter::repeat('€').take(DIAL_TEXT_BYTES).collect();
+	let text = DialText::describe(format_args!("{long}"));
+	assert_eq!(text.as_str().len(), DIAL_TEXT_BYTES - DIAL_TEXT_BYTES % 3);
+	assert!(text.as_str().chars().all(|c| c == '€'));
+
+	let mut out = [0u8; 4];
+	let mut len = usize::MAX;
+	text.copy_to(out.as_mut_ptr(), out.len(), &mut len);
+	assert_eq!(len, 3, "a copy stops at the last whole character that fits");
+	assert_eq!(&out[..3], "€".as_bytes());
+
+	text.copy_to(std::ptr::null_mut(), 0, &mut len);
+	assert_eq!(len, 0, "a null buffer declines the text");
+}
+
 #[test]
 fn evented_connect_returns_promptly_and_times_out_once() {
 	let (_black_hole, unreachable_id, hint) = black_hole_target();
@@ -221,16 +260,24 @@ fn evented_connect_returns_promptly_and_times_out_once() {
 	assert_eq!(event.events, EV_CONNECT);
 
 	let mut conn = std::ptr::null_mut();
+	let mut text = [0u8; DIAL_TEXT_BYTES];
+	let mut text_len = usize::MAX;
 	assert_eq!(
-		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn, text.as_mut_ptr(), text.len(), &mut text_len),
 		DIAL_TIMEOUT
 	);
 	assert!(conn.is_null());
+	let message = std::str::from_utf8(&text[..text_len]).expect("dial text is whole UTF-8");
+	assert!(
+		message.contains("200 ms"),
+		"a timed-out dial names the deadline it missed: {message:?}"
+	);
 	assert_eq!(
-		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn, text.as_mut_ptr(), text.len(), &mut text_len),
 		DIAL_INVALID,
 		"terminal result is one-shot"
 	);
+	assert_eq!(text_len, 0, "a consumed row leaves no text behind");
 	let mut events = [GlowcapIrohReadyEvent { subject: 0, events: 0 }; 1];
 	assert_eq!(
 		glowcap_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len()),
@@ -290,7 +337,14 @@ fn evented_connect_admission_is_bounded_and_reclaimed() {
 		assert_eq!(glowcap_iroh_sidecar_endpoint_cancel_connect(ep, request_id), DIAL_OK);
 		let mut conn = std::ptr::null_mut();
 		assert_eq!(
-			glowcap_iroh_sidecar_endpoint_finish_connect(ep, request_id, &mut conn),
+			glowcap_iroh_sidecar_endpoint_finish_connect(
+				ep,
+				request_id,
+				&mut conn,
+				std::ptr::null_mut(),
+				0,
+				std::ptr::null_mut()
+			),
 			DIAL_CANCELED
 		);
 	}
@@ -313,7 +367,14 @@ fn evented_connect_admission_is_bounded_and_reclaimed() {
 	);
 	let mut conn = std::ptr::null_mut();
 	assert_eq!(
-		glowcap_iroh_sidecar_endpoint_finish_connect(ep, replacement_id, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(
+			ep,
+			replacement_id,
+			&mut conn,
+			std::ptr::null_mut(),
+			0,
+			std::ptr::null_mut()
+		),
 		DIAL_CANCELED
 	);
 	glowcap_iroh_sidecar_endpoint_free(ep);
@@ -346,13 +407,16 @@ fn canceled_connect_finishes_once() {
 	assert_eq!(event.subject, 23);
 	assert_eq!(event.events, EV_CONNECT);
 	let mut conn = std::ptr::null_mut();
+	let mut text = [0u8; DIAL_TEXT_BYTES];
+	let mut text_len = usize::MAX;
 	assert_eq!(
-		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn, text.as_mut_ptr(), text.len(), &mut text_len),
 		DIAL_CANCELED
 	);
 	assert!(conn.is_null());
+	assert_eq!(text_len, 0, "a canceled dial's code is the whole fact");
 	assert_eq!(
-		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn),
+		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn, std::ptr::null_mut(), 0, std::ptr::null_mut()),
 		DIAL_INVALID
 	);
 	glowcap_iroh_sidecar_endpoint_free(ep);

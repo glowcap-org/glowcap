@@ -138,22 +138,16 @@ test "storeResolution pending → broken matches slot.breakSlot" {
     try std.testing.expect(slot.toReference(s.inboundAnswerSlot(.from(13)).?) == null);
 }
 
-test "Session exportSlot and importSlot read live table cells" {
+test "Session exportSlot reads the live export cell" {
     const allocator = std.testing.allocator;
     var s = answers.Session.init(allocator);
     defer s.deinit();
 
     try std.testing.expect(s.exportSlot(.from(9)) == null);
-    try std.testing.expect(s.importSlot(.from(5)) == null);
 
     const export_pos = try s.allocateExport();
     try std.testing.expectEqual(slot.Slot{ .local_value = export_pos.int() }, s.exportSlot(export_pos).?);
     try std.testing.expect(slot.toReference(s.exportSlot(export_pos).?).?.near.kind == .object);
-
-    // Imports are partner-retained via registerImport.
-    try s.registerImport(.from(5));
-    try std.testing.expectEqual(slot.Slot{ .remote_value = 5 }, s.importSlot(.from(5)).?);
-    try std.testing.expect(slot.toReference(s.importSlot(.from(5)).?).?.far.kind == .object);
 }
 
 test "Session retainSentExportRef leaves a live export cell authoritative — a re-mention never rebinds it" {

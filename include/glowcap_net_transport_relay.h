@@ -45,15 +45,6 @@ typedef struct GlowcapRelayConfig {
     size_t trust_pem_len;
 } GlowcapRelayConfig;
 
-typedef struct GlowcapRelayTrustSummary {
-    /* Roots loaded into the native TLS engine. */
-    size_t loaded;
-    /* Platform roots the native TLS engine could not consume. */
-    size_t skipped_by_engine;
-    /* Exact first engine code for a skipped root; zero when none were skipped. */
-    int32_t first_skipped_engine_code;
-} GlowcapRelayTrustSummary;
-
 /* Return the exact callable-surface fingerprint. Compare it with the binding-generated GLOWCAP_RELAY_ARCHIVE_FINGERPRINT before any other call. */
 uint64_t glowcap_relay_archive_fingerprint(void);
 /* Create a relay runtime with the library allocator. Configuration bytes are
@@ -61,8 +52,6 @@ uint64_t glowcap_relay_archive_fingerprint(void);
 int32_t glowcap_relay_runtime_new(const GlowcapRelayConfig *config, GlowcapRelayRuntime **out_runtime);
 /* Create a relay runtime whose owned state uses `context`. */
 int32_t glowcap_relay_runtime_new_in(GlowcapContext *context, const GlowcapRelayConfig *config, GlowcapRelayRuntime **out_runtime);
-/* Copy the immutable trust-load result retained by this runtime. */
-int32_t glowcap_relay_runtime_trust_summary(GlowcapRelayRuntime *runtime, GlowcapRelayTrustSummary *out_summary);
 /* Fill `out_provider` with the shared keyed-relay/noise-relay multiplexed package.
    Install it once with glowcap_driver_add_provider; the driver retains its lease. */
 int32_t glowcap_relay_transport_provider(GlowcapRelayRuntime *runtime, GlowcapTransportProvider *out_provider);

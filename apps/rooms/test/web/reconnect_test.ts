@@ -1,7 +1,7 @@
 // The rooms page surviving the loss of its room server, in a real browser.
 //
-// A page holds two things with two lifetimes, and the whole of `web/ui/net.ts`'s
-// shape is that distinction. A directory session dies whenever the room server
+// The Rust application keeps directory connections separate from page intent.
+// A directory session dies whenever the room server
 // restarts, and everything it held dies with it: the room it had us in, the
 // lines redeemed over it, the name it advertised. What the *page* knows does
 // not — the conversation you were reading is still yours — and neither does what
@@ -53,13 +53,14 @@
 
 /// <reference lib="dom" />
 
+import { SERVER } from "../support/server_binary.ts";
 import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
 import { makeRoom, openRailRoom, roomLink } from "../support/private_room_page.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 function fail(message: string): never {
@@ -70,20 +71,8 @@ function fail(message: string): never {
 const httpPort = freePort();
 const roomPort = freePort();
 
-const web = spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-		"--transport=iroh",
-	],
+const web = spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort), "--transport=iroh"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
@@ -92,11 +81,12 @@ const web = spawnOwned("deno", {
 /** Kill the room server, and only it.
  *
  * It is a child of `serve.ts`, not of this test, so it is selected beneath that
- * exact parent and by its server entrypoint. The page's own server is left
- * alone: the point is a lost room, not a lost page. */
+ * exact parent and by its server entrypoint: the installed native executable. The page's own
+ * server is left alone: the point is a lost room, not a lost page. */
 async function killRoomServer(): Promise<void> {
+	const entrypoint = SERVER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const killed = await new Deno.Command("pkill", {
-		args: ["-P", String(web.pid), "-f", "server/main.ts"],
+		args: ["-P", String(web.pid), "-f", entrypoint],
 	}).output();
 	if (!killed.success) fail("could not find the room server to kill");
 }

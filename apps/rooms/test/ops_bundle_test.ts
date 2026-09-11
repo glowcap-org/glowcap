@@ -1,3 +1,4 @@
+import "./support/browser_application.ts";
 import { formatOpsBundle, opsBundleReady, parseOpsBundle, parseOpsBundleDraft } from "../web/ui/ops/bundle.ts";
 import { assertEquals } from "./assert.ts";
 
@@ -25,6 +26,9 @@ Deno.test("the capability bundle controls and text edit one canonical draft", ()
 	assertEquals(incomplete.has("operator"), true);
 	assertEquals(incomplete.get("operator"), "");
 	assertEquals(opsBundleReady(incomplete), false);
+	const unfinished = new Map([["operator" as const, "value with spaces"]]);
+	assertEquals(formatOpsBundle(unfinished), "ROOMS-OPERATOR value with spaces");
+	assertEquals(opsBundleReady(unfinished), false);
 });
 
 Deno.test("the editable capability bundle canonicalizes grammar whitespace without changing values", () => {

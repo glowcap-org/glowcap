@@ -183,15 +183,19 @@ fn multiplexedDrainReady(
     return GLOWCAP_OK;
 }
 
-fn dialErrToCode(err: anyerror) i32 {
-    setLastError("multiplexed_transport dial: {s}", .{@errorName(err)});
-    return switch (err) {
-        error.InvalidAddress => GLOWCAP_ERR_INVALID_ARGUMENT,
-        error.TimedOut => c.GLOWCAP_ERR_TIMEOUT,
-        error.WouldBlock => GLOWCAP_ERR_WOULD_BLOCK,
-        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
-        else => c.GLOWCAP_ERR_IO,
-    };
+/// Project a dial's classification onto the shared C result and name the
+/// concrete cause in this archive's last-error slot: the classification, then
+/// the sidecar's own text for the fault when it supplied one (which relay
+/// refused, which address stayed silent, the QUIC close reason). The
+/// structured `GlowcapProviderFailure` keeps the static error name, because
+/// the driver retains those bytes without copying; the slot copies, so the
+/// text may live on the caller's stack.
+fn dialErrToCode(err: anyerror, detail: []const u8) i32 {
+    if (detail.len != 0)
+        setLastError("multiplexed_transport dial: {s}: {s}", .{ @errorName(err), detail })
+    else
+        setLastError("multiplexed_transport dial: {s}", .{@errorName(err)});
+    return c.dialFailureCode(err);
 }
 
 fn multiplexedStartConnect(
@@ -223,7 +227,7 @@ fn multiplexedStartConnect(
         locator.designator,
         net.netlayer.directAddrHint(locator.hints) orelse "",
     ) catch |err| {
-        const code = dialErrToCode(err);
+        const code = dialErrToCode(err, "");
         return c.transport_provider.failProvider(out_failure, code, err);
     };
     return GLOWCAP_OK;
@@ -240,12 +244,13 @@ fn multiplexedFinishConnect(
         _ = multiplexedCancelConnect(ctx, request_id, null);
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     };
-    const handle = adapter.payload.resident.loopFinishConnect(@intCast(request_id)) catch |err| {
-        const code = dialErrToCode(err);
+    var text: iroh.DialText = .{};
+    const handle = adapter.payload.resident.loopFinishConnect(@intCast(request_id), &text) catch |err| {
+        const code = dialErrToCode(err, text.slice());
         return c.transport_provider.failProvider(out_failure, code, err);
     };
     const conn_id: u64 = @intCast(adapter.payload.resident.loopConnId(handle));
-    adapter.conns.put(adapter.payload.allocator, conn_id, handle) catch |err| {
+    adapter.conns.put(adapter.payload.allocator, conn_id, .{ .handle = handle }) catch |err| {
         adapter.payload.resident.loopConnClose(handle);
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
     };
@@ -365,7 +370,7 @@ fn multiplexedFinishAccept(ctx: ?*anyopaque, out_conn: ?*u64, out_failure: ?*c.G
     const slot = out_conn orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     const handle = adapter.payload.resident.loopTryAccept() orelse return GLOWCAP_ERR_WOULD_BLOCK;
     const conn_id: u64 = @intCast(adapter.payload.resident.loopConnId(handle));
-    adapter.conns.put(adapter.payload.allocator, conn_id, handle) catch |err| {
+    adapter.conns.put(adapter.payload.allocator, conn_id, .{ .handle = handle }) catch |err| {
         adapter.payload.resident.loopConnClose(handle);
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
     };
@@ -385,38 +390,52 @@ fn multiplexedStopListen(ctx: ?*anyopaque, _: ?*c.GlowcapProviderFailure) callco
     return GLOWCAP_OK;
 }
 
+/// Latch the first fault a try-I/O verb saw on `row`, so `conn_take_failure`
+/// can name it. Would-block is progress deferred, not a fault, and a fault
+/// already latched keeps its first cause.
+fn latchConnFailure(row: *ownership.ConnRow, n: isize) isize {
+    if (n < 0 and n != iroh.loop_would_block and c.transport_provider.providerFailureEmpty(row.failure))
+        c.transport_provider.setProviderFailure(&row.failure, GLOWCAP_ERR_IO, error.ConnectionLost);
+    return n;
+}
+
 fn multiplexedTryRead(ctx: ?*anyopaque, conn: u64, buf: ?[*]u8, cap: usize) callconv(.c) isize {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    const handle = adapter.conns.get(conn) orelse return -1;
+    const row = adapter.conns.getPtr(conn) orelse return -1;
     const dst = buf orelse return -1;
-    return adapter.payload.resident.loopTryRead(handle, dst[0..cap]);
+    return latchConnFailure(row, adapter.payload.resident.loopTryRead(row.handle, dst[0..cap]));
 }
 
 fn multiplexedTryWrite(ctx: ?*anyopaque, conn: u64, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    const handle = adapter.conns.get(conn) orelse return -1;
+    const row = adapter.conns.getPtr(conn) orelse return -1;
     const src = bytes orelse return -1;
-    return adapter.payload.resident.loopTryWrite(handle, src[0..len]);
+    return latchConnFailure(row, adapter.payload.resident.loopTryWrite(row.handle, src[0..len]));
 }
 
 fn multiplexedConnClose(ctx: ?*anyopaque, conn: u64, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
     // Tolerant: a stale id drains to nothing, per the resident namespace rule.
     if (adapter.conns.fetchRemove(conn)) |row| {
-        adapter.payload.resident.loopConnClose(row.value);
+        adapter.payload.resident.loopConnClose(row.value.handle);
     }
     return GLOWCAP_OK;
 }
 
-fn multiplexedConnTakeFailure(_: ?*anyopaque, _: u64, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {
-    if (out_failure) |slot| slot.* = std.mem.zeroes(c.GlowcapProviderFailure);
+fn multiplexedConnTakeFailure(ctx: ?*anyopaque, conn: u64, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {
+    const slot = out_failure orelse return;
+    slot.* = std.mem.zeroes(c.GlowcapProviderFailure);
+    const adapter = MultiplexedAdapter.fromOpaque(ctx);
+    const row = adapter.conns.getPtr(conn) orelse return;
+    slot.* = row.failure;
+    row.failure = std.mem.zeroes(c.GlowcapProviderFailure);
 }
 
 fn multiplexedConnRemoteKey(ctx: ?*anyopaque, conn: u64, out_key: ?[*]u8) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
-    const handle = adapter.conns.get(conn) orelse return 0;
+    const row = adapter.conns.get(conn) orelse return 0;
     const dst = out_key orelse return 0;
-    const key = adapter.payload.resident.loopConnRemoteKey(handle) orelse return 0;
+    const key = adapter.payload.resident.loopConnRemoteKey(row.handle) orelse return 0;
     @memcpy(dst[0..key.bytes.len], &key.bytes);
     return 1;
 }

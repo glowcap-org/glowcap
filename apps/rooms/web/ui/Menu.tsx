@@ -94,8 +94,18 @@ export function useMenu(): {
  * entrance animation is a transform, and a menu opened while one runs would be
  * the case nobody could reproduce afterwards. */
 export function MenuLayer(
-	{ holder, layer: box, owner, className, children }: {
+	{ holder, anchor, layer: box, owner, className, children }: {
 		holder: { current: HTMLElement | null };
+		/** The box the layer stands over, when that is not the holder. A menu
+		 * usually hangs off the control that opened it, so the holder is both
+		 * the "inside" for a press and the rectangle to measure from. The rail's
+		 * filter is the exception: its control is a heading a few words wide,
+		 * and its panel spans the section that heading labels, so the section's
+		 * head is what the panel is measured against while the heading stays
+		 * what a press has to land inside. Without this the panel's own
+		 * `left: 0; right: 0` resolved against the words, and every question
+		 * in it was cut to the width of "Your rooms". */
+		anchor?: { current: HTMLElement | null };
 		layer: { current: HTMLDivElement | null };
 		/** What this menu is, for the rules that place it. A menu used to be
 		 * reached through whatever it sat inside — a message from somebody else,
@@ -118,7 +128,7 @@ export function MenuLayer(
 	const host = useTopModalLayer();
 	useLayoutEffect(() => {
 		const layer = box.current;
-		const host = holder.current;
+		const host = anchor?.current ?? holder.current;
 		if (layer === null || host === null) return;
 		const place = () => {
 			const at = host.getBoundingClientRect();
@@ -140,7 +150,7 @@ export function MenuLayer(
 			globalThis.removeEventListener("resize", place);
 			watching.disconnect();
 		};
-	}, [holder, box, host]);
+	}, [holder, anchor, box, host]);
 	// Rendered outside where it was written. The top layer settles what is drawn
 	// over what, but not what a scroll reaches: a menu left inside the log is
 	// still a row of that log to anything asking the page to bring it into view,

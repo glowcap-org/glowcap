@@ -1,7 +1,7 @@
 // Internal application-verb and capability-projection owner for Session.
 
-import { INVALID_ARGUMENT, NOT_FOUND } from "@glowcap/abi";
-import { checkHost, GlowcapError } from "../errors.ts";
+import { NOT_FOUND } from "@glowcap/abi";
+import { checkHost } from "../errors.ts";
 import { releaseRef } from "../gc.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL } from "../internal/ffi/runtime.ts";
@@ -164,14 +164,14 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * `VowBroken` when the partner breaks the enliven, and with `FetchFailed`
 	 * when it fulfills with something that is not a capability. */
 	async enliven(sturdyref: string): Promise<Ref> {
-		// Unlike `fetch`, the result is not GC-tracked: the host's dedup cache
-		// owns an enlivened capability, outside the finalizer seam (ADR-0063).
+		// Fresh and cached results each project an application retain. The
+		// session's GC opt-in applies independently to every occurrence.
 		return await fetchLike(
 			this.makeMintAwait(),
 			utf8Encoder.encode(sturdyref),
 			sturdyref,
 			hostS.glowcap_host_session_enliven,
-			false,
+			true,
 		);
 	}
 
@@ -222,9 +222,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 			// Everything, not only typed refusals: the contract is that `send`
 			// reports through the handle, and a channel that is mixed depending
 			// on the error is the trap again in a narrower form.
-			return RemotePromise.failed(
-				err instanceof GlowcapError ? err : new GlowcapError(INVALID_ARGUMENT, String(err)),
-			);
+			return RemotePromise.failed(err);
 		}
 	}
 
@@ -387,7 +385,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * retain when the runtime reclaims its `Ref`. The Host routes any required
 	 * `op:gc-exports` to the import's actual home. Collection is scheduled by
 	 * `FinalizationRegistry`; once parked, a release remains Host-owned until
-	 * native commit. An `enliven` result stays owned by its dedup cache. Returns
+	 * native commit. Fresh and cached `enliven` results each own a retain. Returns
 	 * `this` for chaining. */
 	withGc(): this {
 		this.distributedGcEnabled = true;

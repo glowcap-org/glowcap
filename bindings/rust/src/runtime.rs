@@ -6,15 +6,18 @@
 //! selects only the already-installed transport, so provider construction and
 //! connector retention never sit on the wire path.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::rc::Rc;
 
 use crate::dial::{dial_with_connector, ConnectOptions};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::driver_loop::{LoopShared, Provider};
 use crate::host::Host;
 use crate::session::Session;
 use crate::{sys, Connector, Error, Locator, PendingWork, Result};
 
 enum Mode {
+	#[cfg(not(target_arch = "wasm32"))]
 	Driver(Rc<LoopShared>),
 	ByteFed {
 		handshake_timeout: Option<std::time::Duration>,
@@ -22,6 +25,7 @@ enum Mode {
 }
 
 enum Composition {
+	#[cfg(not(target_arch = "wasm32"))]
 	Providers(Vec<Provider>),
 	Connectors(Vec<Connector>),
 }
@@ -40,6 +44,7 @@ pub struct RuntimeConfig {
 
 impl RuntimeConfig {
 	/// Configure a Runtime from transport providers.
+	#[cfg(not(target_arch = "wasm32"))]
 	pub fn providers<I>(providers: I) -> Self
 	where
 		I: IntoIterator<Item = Provider>,
@@ -101,12 +106,21 @@ impl Runtime {
 			composition,
 			handshake_timeout,
 		} = config;
-		let providers = match composition {
-			Composition::Providers(providers) => providers,
+		match composition {
 			Composition::Connectors(connectors) => {
-				return Self::open_connectors(adopt_host, handshake_timeout, connectors).await;
+				Self::open_connectors(adopt_host, handshake_timeout, connectors).await
 			}
-		};
+			#[cfg(not(target_arch = "wasm32"))]
+			Composition::Providers(providers) => Self::open_providers(adopt_host, handshake_timeout, providers).await,
+		}
+	}
+
+	#[cfg(not(target_arch = "wasm32"))]
+	async fn open_providers(
+		adopt_host: Option<Host>,
+		handshake_timeout: Option<std::time::Duration>,
+		providers: Vec<Provider>,
+	) -> Result<Self> {
 		let created_host = adopt_host.is_none();
 		let handshake_ms = Self::timeout_millis(handshake_timeout)?;
 		let settle_ms = crate::abi_constants::DRIVER_DEFAULT_SETTLE_MS;
@@ -152,6 +166,7 @@ impl Runtime {
 			Some(host) => host,
 			None => Host::with_options(Default::default())?,
 		};
+		#[cfg(not(target_arch = "wasm32"))]
 		if host.shared().driver_loop().is_some() {
 			let mut error = composition_error("a driver-loop Host cannot be transferred to a byte-fed Runtime");
 			if created_host {
@@ -173,6 +188,7 @@ impl Runtime {
 
 	/// Convert the public duration to the driver's bounded millisecond
 	/// representation. A zero duration is the explicit unbounded form.
+	#[cfg(not(target_arch = "wasm32"))]
 	fn timeout_millis(timeout: Option<std::time::Duration>) -> Result<u32> {
 		match timeout {
 			None => Ok(0),
@@ -192,6 +208,7 @@ impl Runtime {
 	pub async fn connect(&self, locator: &Locator, options: ConnectOptions<'_>) -> Result<Session> {
 		self.host.shared().guard_handle()?;
 		match &self.mode {
+			#[cfg(not(target_arch = "wasm32"))]
 			Mode::Driver(loop_) => {
 				let transport_options = options.transport_options(locator)?;
 				let session = loop_.dial_locator(locator, transport_options).await?;
@@ -209,7 +226,7 @@ impl Runtime {
 					connector,
 					locator,
 					self.host.clone(),
-					false,
+					crate::DialOrigin::Explicit,
 					transport_options,
 					*handshake_timeout,
 				)
@@ -228,6 +245,7 @@ impl Runtime {
 mod tests {
 	use super::*;
 	use std::cell::RefCell;
+	#[cfg(not(target_arch = "wasm32"))]
 	use std::rc::Rc;
 
 	#[test]

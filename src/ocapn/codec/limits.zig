@@ -1,6 +1,6 @@
 //! Shared codec refusal limits.
 //!
-//! These bounds protect native decode walks over attacker-controlled frames.
+//! These bounds protect native decode walks over untrusted frames.
 //! They live above the sibling codecs so Syrup and Cap'n Proto ask one owner
 //! instead of restating matching recursion ceilings.
 

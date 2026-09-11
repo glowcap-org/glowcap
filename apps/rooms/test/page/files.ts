@@ -61,7 +61,14 @@ export async function run(
 		},
 		undefined,
 		{ timeout: 30_000 },
-	).catch(() => fail("the second peer never drew the posted image from the room's blob"));
+	).catch(async () => {
+		const describe = (page: Page) => page.locator("#log").innerText().catch(() => "log unavailable");
+		fail(
+			`the second peer never drew the posted image from the room's blob; sender=${
+				JSON.stringify(await describe(tab))
+			}; receiver=${JSON.stringify(await describe(second))}`,
+		);
+	});
 
 	// The box was drawn at the picture's own shape, from dimensions the sender
 	// measured and the room relayed. That is what stops a log of images from

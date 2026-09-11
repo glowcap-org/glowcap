@@ -1,0 +1,101 @@
+{
+  "authority": "apps/rooms/archive/shares.ts",
+  "root": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "vectors": [
+    {
+      "input": "{\"version\":1,\"shares\":[{\"id\":\"12345678-1234-4234-8234-123456789abc\",\"label\":\"label\\ud800\",\"filter\":{\"source\":null,\"generation\":null,\"kind\":null,\"conversationKind\":null,\"directory\":null,\"conversation\":null,\"digest\":null},\"revoked\":false}]}\n",
+      "entropy": [
+        154,
+        176,
+        31,
+        96,
+        16,
+        250,
+        123,
+        96,
+        203,
+        82,
+        37,
+        67,
+        135,
+        58,
+        178,
+        100
+      ],
+      "link": "ocapn://test/s/swiss",
+      "retry": "ocapn://test/s/swiss",
+      "revoked": true,
+      "refused": true,
+      "retired": "{\"version\":1,\"shares\":[{\"id\":\"12345678-1234-4234-8234-123456789abc\",\"label\":\"label\\ud800\",\"filter\":{\"source\":null,\"generation\":null,\"kind\":null,\"conversationKind\":null,\"directory\":null,\"conversation\":null,\"digest\":null},\"revoked\":true}]}\n"
+    },
+    {
+      "input": "{\"version\":1,\"shares\":[{\"id\":\"12345678-1234-4234-8234-123456789abc\",\"label\":\"label\\ud800\",\"filter\":{\"source\":null,\"generation\":null,\"kind\":null,\"conversationKind\":null,\"directory\":\"one\",\"conversation\":\"garden\",\"digest\":null},\"revoked\":false}]}\n",
+      "entropy": [
+        53,
+        3,
+        40,
+        81,
+        123,
+        80,
+        226,
+        114,
+        112,
+        165,
+        136,
+        206,
+        217,
+        67,
+        133,
+        233
+      ],
+      "link": "ocapn://test/s/swiss",
+      "retry": "ocapn://test/s/swiss",
+      "revoked": true,
+      "refused": true,
+      "retired": "{\"version\":1,\"shares\":[{\"id\":\"12345678-1234-4234-8234-123456789abc\",\"label\":\"label\\ud800\",\"filter\":{\"source\":null,\"generation\":null,\"kind\":null,\"conversationKind\":null,\"directory\":\"one\",\"conversation\":\"garden\",\"digest\":null},\"revoked\":true}]}\n"
+    },
+    {
+      "input": "{\"version\":1,\"shares\":[{\"id\":\"12345678-1234-4234-8234-123456789abc\",\"label\":\"label\\ud800\",\"filter\":{\"source\":\"s\\ud800\",\"generation\":null,\"kind\":null,\"conversationKind\":null,\"directory\":\"\\u0001\\n\\t\\\"\\\\\\ud801\",\"conversation\":\"🌿\",\"digest\":null},\"revoked\":false}]}\n",
+      "entropy": [
+        18,
+        37,
+        129,
+        101,
+        52,
+        141,
+        14,
+        35,
+        16,
+        212,
+        244,
+        205,
+        36,
+        66,
+        12,
+        73
+      ],
+      "link": "ocapn://test/s/swiss",
+      "retry": "ocapn://test/s/swiss",
+      "revoked": true,
+      "refused": true,
+      "retired": "{\"version\":1,\"shares\":[{\"id\":\"12345678-1234-4234-8234-123456789abc\",\"label\":\"label\\ud800\",\"filter\":{\"source\":\"s\\ud800\",\"generation\":null,\"kind\":null,\"conversationKind\":null,\"directory\":\"\\u0001\\n\\t\\\"\\\\\\ud801\",\"conversation\":\"🌿\",\"digest\":null},\"revoked\":true}]}\n"
+    }
+  ]
+}

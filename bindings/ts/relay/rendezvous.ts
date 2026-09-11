@@ -19,7 +19,7 @@ import { recordProcessBindingFailure, retainSecondaryFailure } from "@glowcap/ru
 const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 
 /** Whether `value` is the canonical Ed25519 key designator keyed-relay names.
- * Validate before an HTTP upgrade so attacker-controlled map keys stay both
+ * Validate before an HTTP upgrade so untrusted map keys stay both
  * semantically meaningful and fixed-size. */
 export function isRendezvousDesignator(value: string): boolean {
 	return KEY_DESIGNATOR.test(value);

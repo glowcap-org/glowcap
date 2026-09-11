@@ -518,7 +518,7 @@ test "keyed-relay header-only platform read waits for payload instead of reporti
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(?u64, 30), conn.external_recv_ud);
     try std.testing.expectEqual(@as(u64, 1), conn.data_remaining);
-    try std.testing.expect(conn.pending.recv);
+    try std.testing.expect(conn.pending.get(.recv));
 
     backend.platform.pending_recv = .{
         .user_data = backend.platform.armed_recv_ud.?,

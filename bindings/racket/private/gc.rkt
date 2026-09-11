@@ -21,6 +21,7 @@
 (provide session-with-gc!
          session-gc-enabled?
          session-release!
+         release-host-unit!
          track-ref!
          track-vow!
          park-vow-release!
@@ -88,8 +89,8 @@
 ;; operation, or a delivered argument releases its Host retain when Racket's
 ;; collector reclaims it, so the partner can release the matching export.
 ;; Collection follows the collector's schedule; once parked, every release
-;; remains owned until native commit. Locally minted capabilities and
-;; `session-enliven` results owned by its dedup cache remain outside this seam.
+;; remains owned until native commit. Fresh and cached session-enliven results
+;; each own an application retain. Locally minted capabilities stay outside this seam.
 ;; Returns the session for chaining.
 (define (session-with-gc! c)
   (hash-set! gc-enabled-connections c #t)
@@ -98,8 +99,8 @@
 
 ;; Snapshot this session's opt-in when an application-facing vow is minted.
 ;; The vow row carries the decision through settlement; it must not infer GC
-;; merely from having a home session, because enliven's dedup cache owns its
-;; returned capability instead.
+;; merely from having a home session: host-level operations and internal vows
+;; do not inherit a session's application projection policy.
 (define (session-gc-enabled? c)
   (and c (hash-ref gc-enabled-connections c #f) #t))
 
@@ -160,23 +161,45 @@
   (for-each (lambda (value) (track-argument! c value)) values)
   values)
 
+;; One explicit release transaction. The internal commit thunk performs native
+;; release and spends its binding token under the Host lock, with interruption
+;; disabled across that indivisible transition. After success, the Host owns
+;; any drain failure: the caller must never retry an already-spent native unit.
+;; A break is the operator interrupting the program, not the Host failing, so
+;; it escapes like everywhere else in this binding: the commit is already
+;; spent, and the drained work stays in the native queue for the next pass.
+(define (release-host-unit! m commit)
+  (define committed? #f)
+  (with-handlers ([(lambda (raised) (not (exn:break? raised)))
+                   (lambda (failure)
+                     (if committed?
+                         (begin (record-host-runtime-failure! m failure) (void))
+                         (raise failure)))])
+    (with-host-drain m
+      (lambda ()
+        (parameterize-break #f
+          (commit)
+          (set! committed? #t))
+        (drain-host-actions! m)))))
+
 ;; Give a capability back to the partner, now, because this application is
 ;; done holding it. The Host owns whether that retain corresponds to a local
 ;; object, a remote import, or a routed handoff. `capability` is spent afterwards.
 (define (session-release! c capability)
   (unless (ref? capability)
     (error 'session-release! "takes a capability reference"))
-  (when (ref-released? capability)
-    (error 'session-release! "capability already released"))
   (define m (session-host c))
-  (with-host-drain m
+  (release-host-unit! m
     (lambda ()
+      (when (ref-released? capability)
+        (error 'session-release! "capability already released"))
       (check/host (glowcap_host_ref_release
                    (host-ptr m) (make-GlowcapReference (ref-id capability)) 1))
-      (drain-host-actions! m)))
-  (define token (hash-ref ref-gc-tokens capability #f))
-  (when token (set-box! token #f))
-  (set-ref-released?! capability #t)
+      ;; Native success spends this occurrence even if draining its effects
+      ;; fails. Publish that fact under the same lock as the native release.
+      (define token (hash-ref ref-gc-tokens capability #f))
+      (when token (set-box! token #f))
+      (set-ref-released?! capability #t)))
   (void))
 
 ;; Release the Host-owned FIFO prefix. The pending box advances only after one
@@ -186,8 +209,9 @@
   (let loop ()
     (define remaining (unbox pending))
     (unless (null? remaining)
-      (release-one (car remaining))
-      (set-box! pending (cdr remaining))
+      (parameterize-break #f
+        (release-one (car remaining))
+        (set-box! pending (cdr remaining)))
       (loop))))
 
 ;; Whether a Host owner must make another GC drain pass. The driver loop checks
@@ -249,8 +273,8 @@
                   (glowcap_host_ref_release
                    (host-ptr m) (make-GlowcapReference (cdr release)) 1))]
                 [(vow)
-                 (hash-remove! (host-vows m) (cdr release))
-                 (check/host (glowcap_host_vow_release (host-ptr m) (cdr release)))]
+                 (check/host (glowcap_host_vow_release (host-ptr m) (cdr release)))
+                 (hash-remove! (host-vows m) (cdr release))]
                 [else (error 'drain-host-gc! "unknown release kind: ~a" (car release))])))
            (drain-host-actions! m)]))
       #:allow-released? #t)))
@@ -275,6 +299,25 @@
         (when (= (cdr release) 12) (raise refusal))))))
   (check-equal? (reverse attempted) '((ref . 11) (ref . 12)))
   (check-equal? (unbox pending) '((ref . 12) (ref . 13)))
+
+  ;; An interrupt requested during native release may escape only after its
+  ;; queue token is consumed. Otherwise the next drain repeats that release.
+  (define interrupted (box '((ref . 21) (ref . 22))))
+  (define committed '())
+  (check-exn
+   exn:break?
+   (lambda ()
+     (release-pending! interrupted
+                       (lambda (unit)
+                         (set! committed (cons unit committed))
+                         (when (= (cdr unit) 21) (break-thread (current-thread)))))
+     ;; Delivery may be delayed until the next break-enabled wait. Which
+     ;; prefix completed does not matter; no committed unit may remain queued.
+     (sync/enable-break never-evt)))
+  (check-equal? (append (reverse committed) (unbox interrupted)) '((ref . 21) (ref . 22)))
+  (release-pending! interrupted (lambda (unit) (set! committed (cons unit committed))))
+  (check-equal? (reverse committed) '((ref . 21) (ref . 22)))
+  (check-equal? (unbox interrupted) '())
 
   (define retired (make-gc-state))
   (set-box! (gc-state-retired? retired) #t)

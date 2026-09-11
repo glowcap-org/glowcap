@@ -50,7 +50,7 @@ if ! archive_hygiene_check "$archive_dir/$archive_name" ""; then
 	exit 1
 fi
 # Extract under the same locale and option set the listing validator saw.
-# A hostile inherited TAR_OPTIONS must not hide a member from one operation or
+# An untrusted inherited TAR_OPTIONS must not hide a member from one operation or
 # redirect the other, and archive ownership never crosses this boundary.
 LC_ALL=C TAR_OPTIONS= tar -xzf "$archive_dir/$archive_name" -C "$workdir" --no-same-owner
 

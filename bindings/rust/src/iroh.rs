@@ -109,14 +109,25 @@ pub struct Config {
 	pub worker_threads: Option<u32>,
 }
 
+impl Config {
+	/// A configuration with only the mandatory posture set, every timeout left
+	/// to the transport. Set the public fields for anything else.
+	pub fn new(reachability: Reachability) -> Config {
+		Config {
+			reachability,
+			connect_timeout_ms: None,
+			idle_timeout_ms: None,
+			worker_threads: None,
+		}
+	}
+}
+
 /// Listener construction options. See [`ListenerIdentity`] for the difference
 /// between restoring an identity and sharing an existing Host.
 #[derive(Clone, Default)]
 pub struct ListenOptions {
 	pub identity: ListenerIdentity,
 }
-
-mod config;
 
 /// A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
 /// sibling of the TCP `Netlayer`.
@@ -244,16 +255,11 @@ impl Netlayer {
 	}
 
 	/// This endpoint's comma-separated direct socket addresses, the hint string a
-	/// partner passes to dial it relay-less.
-	pub fn direct_addresses(&self) -> Result<String> {
+	/// partner passes to dial it relay-less, or `None` while the endpoint has
+	/// gathered none: a relay-only endpoint may never carry any, the same shape
+	/// [`Server::direct_addresses`] reads off the canonical locator.
+	pub fn direct_addresses(&self) -> Result<Option<String>> {
 		direct_addresses(self.raw.raw)
-	}
-
-	/// Close the endpoint without releasing the handle: later dials fail and the
-	/// readiness loop winds down. Idempotent, the shutdown lever a dropped dialer
-	/// or server pulls.
-	pub fn close(&self) {
-		self.raw.close();
 	}
 
 	/// Close and release this endpoint, joining the one native release task.
@@ -268,6 +274,24 @@ impl Netlayer {
 
 	async fn release_shared(&self) -> Result<()> {
 		self.raw.release().await
+	}
+
+	/// Hand this endpoint's lifetime to a driver that has already retained its
+	/// provider package, the way the Python and TypeScript bindings transfer a
+	/// netlayer after `installProvider`. The driver's provider lease is the
+	/// endpoint's lifetime authority from here on: the endpoint keeps running
+	/// under that lease and is torn down at loop teardown, while this
+	/// construction reference is released without a close. Refused once any
+	/// connection or readiness loop has borrowed the endpoint, because those
+	/// would outlive the reference they came from.
+	pub async fn relinquish_to_provider(self) -> Result<()> {
+		if Arc::strong_count(&self.raw) != 1 {
+			return Err(Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"iroh netlayer is not transferable while a connection or loop borrows it".to_string(),
+			));
+		}
+		self.raw.relinquish().await
 	}
 
 	/// Dial a partner by endpoint id and direct-address hints over the
@@ -310,13 +334,16 @@ impl Netlayer {
 	}
 }
 
-fn direct_addresses(raw: *mut GlowcapIrohNetlayer) -> Result<String> {
+// The native endpoint reports no addresses as a zero-length answer; that is
+// `None` here rather than an empty string, so no caller acts on an empty
+// stand-in.
+fn direct_addresses(raw: *mut GlowcapIrohNetlayer) -> Result<Option<String>> {
 	let mut cap: usize = 0;
 	let code = unsafe { ffi::glowcap_iroh_netlayer_direct_addrs(raw, std::ptr::null_mut(), 0, &mut cap) };
 	if code != sys::ERR_BUFFER_TOO_SMALL {
 		check_iroh(code)?;
 		if cap == 0 {
-			return Ok(String::new());
+			return Ok(None);
 		}
 	}
 	loop {
@@ -328,7 +355,10 @@ fn direct_addresses(raw: *mut GlowcapIrohNetlayer) -> Result<String> {
 			continue;
 		}
 		check_iroh(code)?;
-		return Ok(String::from_utf8_lossy(&buf[..len]).into_owned());
+		if len == 0 {
+			return Ok(None);
+		}
+		return Ok(Some(String::from_utf8_lossy(&buf[..len]).into_owned()));
 	}
 }
 
@@ -344,6 +374,11 @@ pub(crate) async fn ensure_loop_provider(
 	let netlayer = Netlayer::from_seed(config, host.durable_seed()).await?;
 	let node_id = netlayer.node_id()?;
 	lp.add_provider(netlayer.transport_provider()?)?;
+	// The driver now holds the provider lease, the endpoint's lifetime
+	// authority. Dropping the construction reference instead would close the
+	// endpoint under that lease and refuse every later dial as a closed
+	// endpoint.
+	netlayer.relinquish_to_provider().await?;
 	Ok(node_id)
 }
 
@@ -365,12 +400,12 @@ pub fn provider(config: Config) -> crate::driver_loop::Provider {
 pub fn connector(config: Config) -> crate::Result<crate::Connector> {
 	crate::Connector::new(
 		&[crate::abi_constants::TRANSPORT_IROH],
-		move |host, locator, redeem, _transport_options, timeout| {
+		move |host, locator, origin, _transport_options, timeout| {
 			Box::pin(async move {
 				let addresses = locator
 					.string_hint(crate::abi_constants::HINT_DIRECT_ADDRESSES)?
 					.unwrap_or("");
-				let reachability = if redeem && !addresses.is_empty() {
+				let reachability = if matches!(origin, crate::DialOrigin::Pending { .. }) && !addresses.is_empty() {
 					Reachability::Direct
 				} else {
 					config.reachability

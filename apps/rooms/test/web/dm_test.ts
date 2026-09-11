@@ -28,7 +28,7 @@ import { reapOwned, spawnOwned } from "../support/children.ts";
 import { freePort } from "../support/rooms_server.ts";
 import { fail, until } from "../support/page.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, from a browser";
@@ -53,19 +53,8 @@ const httpPort = freePort();
 
 // serve.ts hosts the page and an iroh room + relay; its room server picks its own
 // iroh endpoint (no port to pin).
-spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		"--transport=iroh",
-		String(httpPort),
-	],
+spawnOwned(WEB, {
+	args: ["--transport=tcp", "--transport=iroh", "--reachability=direct", String(httpPort)],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
@@ -114,12 +103,19 @@ try {
 	// Bob joins the room and registers for direct messages, over iroh, keyed to
 	// his own Host so the inbox he publishes giftably is the one a redeem
 	// withdraws.
-	const bobDir = await Directory.connect(roomUri, (locator) => dial(locator, bobRuntime));
+	const bobDir = await Directory.connect(roomUri, (locator) => dial(locator, bobRuntime)).catch((error) =>
+		fail(
+			`Bob could not dial the room at ${JSON.stringify(roomUri)} with direct addresses ` +
+				`${JSON.stringify(bobEndpoint.directAddresses)}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+		)
+	);
 	bobDirectory = bobDir;
 	const bobRoomRef = await enterOrOpen(bobDir, ROOM);
 	await Room.subscribe(bobDir.session, bobRoomRef, "bob");
 	const bobOfferer = inboxPublisher(bobHost).offerer({ dir: () => bobDir, behaviorFor: dmFor });
-	await bobDir.register("bob", bobLocator, bobOfferer.offer);
+	await bobDir.register("bob", bobLocator, { onMintInboxFor: bobOfferer.offer });
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const tab = await browser.newPage();

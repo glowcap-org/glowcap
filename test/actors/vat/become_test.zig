@@ -89,17 +89,13 @@ fn markFiredAny(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     flag.* = true;
 }
 
-test "an OOM at the settle clone leaves the listener parked, never orphaned" {
+test "an OOM at the settle clone completes the committed turn's listener" {
     // Sweep a failing allocator across every allocation index of one listened
     // local send episode (Greeter's reply is arena bytes, so the settle clone
     // in `settleLocal` must allocate). For each index exactly one outcome is
-    // legal: the episode completed and the listener fired, or it failed with
-    // OutOfMemory and the listener is either unfired-but-still-parked in the
-    // map (the peek-then-remove contract: teardown can still reach its
-    // context) or was never registered. A removed-but-unfired listener —
-    // the orphan the old remove-then-clone order produced — fails the sweep.
-    // The listener context is heap so the leak-checking allocator would also
-    // report a context stranded off the map.
+    // legal: the listener receives the result or its exact failure, or setup
+    // refused before registration. A committed turn may never leave a waiter
+    // parked with no producer, even if teardown could still free its context.
     var fail_index: usize = 0;
     while (true) : (fail_index += 1) {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
@@ -133,10 +129,9 @@ test "an OOM at the settle clone leaves the listener parked, never orphaned" {
                 saw_oom = true;
             }
         }
-        if (listened and !fired.*) {
-            // The settle failed mid-clone: the listener must still be parked,
-            // not removed-and-unfired.
-            try std.testing.expectEqual(@as(usize, 1), vat.listeners.count());
+        if (listened) {
+            try std.testing.expect(fired.*);
+            try std.testing.expectEqual(@as(usize, 0), vat.listeners.count());
         }
         // Disarm so vat teardown allocates freely.
         failing.fail_index = std.math.maxInt(usize);
@@ -169,6 +164,56 @@ test "a listener registered after the promise settled is refused" {
     try vat.on(next, .{ .ctx = &fired, .func = markFiredAny });
     try vat.drive();
     try std.testing.expect(fired);
+}
+
+test "a refused settlement copy breaks its waiter and leaves the next turn live" {
+    const Reply = struct {
+        calls: *usize,
+        pub fn handle(self: *@This(), _: *Turn, _: Message) !model.Argument {
+            self.calls.* += 1;
+            return .{ .bytes = "owned reply" };
+        }
+    };
+    const Outcome = struct {
+        calls: usize = 0,
+        value: ?actors.Resolution = null,
+        fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.calls += 1;
+            // The assertion reads only the broken arm's static error name;
+            // fulfilled payloads are borrowed only for this callback.
+            self.value = if (resolution == .broken) resolution else .{ .fulfilled = .{ .void = {} } };
+        }
+    };
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer vat.deinit();
+    var calls: usize = 0;
+    const actor = try vat.spawn(Reply, .{ .calls = &calls });
+    const first = try vat.send(actor, .{ .verb = "get" });
+    const second = try vat.send(actor, .{ .verb = "get" });
+    var first_outcome = Outcome{};
+    var second_outcome = Outcome{};
+    try vat.on(first, .{ .ctx = &first_outcome, .func = Outcome.record });
+    try vat.on(second, .{ .ctx = &second_outcome, .func = Outcome.record });
+    failing.fail_index = failing.alloc_index;
+    failing.resize_fail_index = failing.resize_index;
+
+    try std.testing.expectError(error.OutOfMemory, vat.drive());
+    try std.testing.expectEqual(@as(usize, 1), calls);
+    try std.testing.expectEqual(@as(usize, 1), first_outcome.calls);
+    try std.testing.expectEqualStrings("OutOfMemory", first_outcome.value.?.broken);
+    try std.testing.expectEqual(@as(usize, 0), second_outcome.calls);
+
+    failing.fail_index = std.math.maxInt(usize);
+    failing.resize_fail_index = std.math.maxInt(usize);
+    try vat.drive();
+    try std.testing.expectEqual(@as(usize, 2), calls);
+    try std.testing.expectEqual(@as(usize, 1), first_outcome.calls);
+    try std.testing.expectEqual(@as(usize, 1), second_outcome.calls);
+    try std.testing.expect(second_outcome.value.? == .fulfilled);
+    try std.testing.expectEqual(@as(usize, 0), vat.listeners.count());
+    try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
 }
 
 /// A mutable actor whose failing verb mutates `self` *before* erroring: the

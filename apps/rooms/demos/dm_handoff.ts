@@ -35,7 +35,7 @@
 import process from "node:process";
 import { Ref } from "@glowcap/runtime";
 import type { Behavior, Host, Session } from "@glowcap/runtime";
-import { RoomServer } from "../server/room_server.ts";
+import type { ServerEndpoint } from "../test/support/native_server.ts";
 import { dial } from "../lib/locator.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "../lib/protocol.ts";
 import { INTRODUCTION_PENDING, roomErrorOf } from "../lib/errors.ts";
@@ -43,8 +43,7 @@ import { inboxPublisher } from "../lib/dm_inbox.ts";
 import { Directory } from "../lib/room/client.ts";
 import type { RoomsRuntime } from "../lib/locator.ts";
 
-/** A stream of inbound sessions: each value yielded is one accepted connection. Both
- * Bob's direct-dial accepts and the room's listener are this same shape. */
+/** A member's accepted direct connections. */
 type SessionStream = AsyncIterable<Session>;
 
 /** One member's endpoint: the Host its inboxes are published on (reused to dial
@@ -54,18 +53,6 @@ interface MemberEndpoint {
 	host: Host;
 	runtime: RoomsRuntime;
 	sessions: SessionStream;
-	locator: string;
-	close(): void | Promise<void>;
-}
-
-/** The rendezvous room's listener (served as the directory) and its dialable
- * locator. */
-interface RoomEndpoint {
-	/** The Host the room's directory is published on. The directory belongs to
-	 * the Host rather than to any one accepted session, so it has to be reachable
-	 * before the first dial rather than published as each arrives. */
-	host: Host;
-	listener: SessionStream;
 	locator: string;
 	close(): void | Promise<void>;
 }
@@ -89,9 +76,8 @@ export interface DmTransport {
 	 * setup is synchronous returns the endpoint directly rather than wrapping it
 	 * in an idle promise. */
 	startMember(who: string): MemberEndpoint | Promise<MemberEndpoint>;
-	/** Stand up the rendezvous room's listener and its dialable locator. Awaited
-	 * like `startBob`, and synchronous for the same reason. */
-	startRoom(): RoomEndpoint | Promise<RoomEndpoint>;
+	/** Start the native rendezvous server and wait for its dialable locator. */
+	startRoom(): ServerEndpoint | Promise<ServerEndpoint>;
 }
 
 /** Poll `ready` until true, throwing `what` past `timeoutMs` so a stuck endpoint
@@ -156,8 +142,6 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		})();
 
 		const room = await t.startRoom();
-		const server = new RoomServer();
-		const roomServe = server.serve(room.host, room.listener);
 
 		// Bob dials the room on his own Host and registers his dialable locator, so
 		// `introduce` can hand an inbox of his on as a gift. The shared inbox publisher
@@ -173,9 +157,11 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 			behaviorFor: dmFor,
 			onError: (peer, err) => fail(`Bob could not offer an inbox for ${peer}: ${err}`),
 		});
-		const bobRegistrationId = await bobDirectory.register("bob", bob.locator, (peer, registrationId) => {
-			asked = peer;
-			bobOfferer.offer(peer, registrationId);
+		const bobRegistrationId = await bobDirectory.register("bob", bob.locator, {
+			onMintInboxFor: (peer, registrationId) => {
+				asked = peer;
+				bobOfferer.offer(peer, registrationId);
+			},
 		});
 
 		if (bobInboundCount() !== 0) {
@@ -242,8 +228,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		await room.close();
 		await bob.close();
 		await carol.close();
-		await Promise.allSettled([bobAccept, carolAccept, roomServe]);
-		await server.close();
+		await Promise.allSettled([bobAccept, carolAccept]);
 		process.exit(0);
 	} catch (err) {
 		fail(err instanceof Error ? (err.stack ?? err.message) : String(err));

@@ -134,7 +134,7 @@ export function nickRefusal(nick: string): string | null {
 	if (ROOM_MENTIONS.includes(folded)) return `the name "${nick}" addresses everyone in a room`;
 	// A granted name flows unescaped into every client's display and, in the
 	// terminal clients, straight to stdout — so a control character in a name is
-	// an ANSI escape injected into every reader's terminal (`clients/deno/chat`
+	// an ANSI escape injected into every reader's terminal (`rooms-chat`
 	// prints `${from}: ${text}`), and a text-direction override is one name
 	// worn to look like another. Refuse exactly the categories that do that;
 	// letters of every script, combining marks, and the emoji joiners stay, so
@@ -227,7 +227,7 @@ export const MAX_FORM_JSON = 16 * 1024;
  * A gateway carries its two forms plus every connection with its leases, so
  * `MAX_FORM_JSON` is far too small for a loaded one, and the schema's
  * theoretical product (a thousand connections of a thousand leases) is not a
- * deployment, it is an attack. A quarter mebibyte holds hundreds of fully
+ * deployment size. A quarter mebibyte holds hundreds of fully
  * loaded connections and is checked before the description is parsed. */
 export const MAX_GATEWAY_JSON = 256 * 1024;
 
@@ -237,8 +237,7 @@ export const MAX_FORM_SCOPE = 64;
 /** The longest badge a bridge may put on one of its members, and the longest
  * sentence it may say under their name.
  *
- * A bridge writes its own words now, so these are attacker-controlled the way
- * every other inbound string is: bounded here, rendered as text, never markup.
+ * A bridge writes its own words now, so they are untrusted inbound: bounded here, rendered as text, never markup.
  * The badge is short because it sits in a chip beside a name that must not be
  * pushed out of a rail; the sentence has the second roster line to itself and
  * is capped near an away reason, which is the neighbouring line it must not
@@ -301,7 +300,7 @@ export const MAX_TROUBLE_SOURCE_BYTES = 128;
 export const MAX_TROUBLE_REASON_BYTES = 1024;
 export const MAX_OPERATOR_PAGE = 32;
 /** How long a search over an operator inventory may be. A search is scanned
- * against every row, so its length is attacker-influenced work per row. */
+ * against every row, so its length is peer-influenced work per row. */
 export const MAX_OPERATOR_QUERY = 128;
 /** How many rows one bulk retire may take in a single call. The operator's
  * client runs again for what remains, so this bounds the turn rather than the
@@ -479,6 +478,11 @@ export const MAX_SIGNAL_EXCHANGES = 64;
  * sturdyref can return through identifier reuse. */
 export const MAX_ACTIVE_SESSION_GRANTS = 32;
 export const MAX_LIFETIME_SESSION_GRANTS = 256;
+/** Bridge credential rows one durable Rooms session keeps, one per directory
+ * and bridge scope a reader answered a secret field for. A directory rarely
+ * bridges more than a couple of networks, so this is two per directory the
+ * workspace may hold. */
+export const MAX_BRIDGE_SECRET_SCOPES = 64;
 export const MAX_SESSION_GRANT_LABEL = 80;
 /** Room for a sentence saying why a link has gone quiet, and no more: it is
  * read by whoever is holding that link, in place of the session. */

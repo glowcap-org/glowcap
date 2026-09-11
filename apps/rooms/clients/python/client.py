@@ -29,9 +29,13 @@ import pathlib
 import sys
 
 from room_client import Directory, Room, RoomInfo  # the glowcap-backed clients, next to this file
+from _protocol_gen import ARRIVE, DEPART, SESSION_DEADLINE_MS  # the generated wire grammar, next to this file
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_demo"))
 from rooms_cli import enter_or_open  # noqa: E402
+
+# The whole-roster deadline every sibling client holds, in seconds.
+SESSION_DEADLINE_S = SESSION_DEADLINE_MS / 1000
 
 
 def _fmt_rooms(rooms: "list[RoomInfo]") -> str:
@@ -61,10 +65,12 @@ async def run_client(locator: str, room_name: str, nick: str, line: str, roster:
         async for message in room:
             print(f"[{nick}] {message.sender}: {message.text}", flush=True)
             if message.presence is not None:
-                # Membership arrives as structure: the roster on entry, or a join/leave.
-                if message.presence.kind == "leave":
+                # Membership arrives as structure. Only an arrival or a departure
+                # moves a member in or out; the other tails are facts about a
+                # member who is still here.
+                if message.presence.effect == DEPART:
                     present.difference_update(message.presence.names)
-                else:  # roster or join
+                elif message.presence.effect == ARRIVE:
                     present.update(message.presence.names)
             elif not message.system:
                 present.add(message.sender)  # a line is presence too
@@ -91,11 +97,11 @@ def main() -> int:
     locator, room_name, nick, line = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
     roster = sys.argv[5].split(",") if len(sys.argv) > 5 else [nick]
     try:
-        asyncio.run(asyncio.wait_for(run_client(locator, room_name, nick, line, roster), timeout=15))
+        asyncio.run(asyncio.wait_for(run_client(locator, room_name, nick, line, roster), timeout=SESSION_DEADLINE_S))
         return 0
     except asyncio.TimeoutError:
         # str(TimeoutError()) is empty; name the failure so it is never blank.
-        print(f"client {nick} failed: timed out after 15s", file=sys.stderr)
+        print(f"client {nick} failed: timed out after {SESSION_DEADLINE_S:g}s", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001
         print(f"client {nick} failed: {exc}", file=sys.stderr)

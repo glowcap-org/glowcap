@@ -141,7 +141,7 @@ class _VerbsMixin:
             sturdyref.encode(),
             sturdyref,
             _host.glowcap_host_session_enliven,
-            track=False,
+            track=True,
         )
 
     def send(

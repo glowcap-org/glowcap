@@ -159,10 +159,29 @@ export function useModalDialog(
 				event.preventDefault();
 				dismissRef.current();
 			};
+			// Pressing the dim around a card closes it. A click's target is the
+			// nearest ancestor its press and its release have in common, and
+			// for a drag out of the card that is the dialog itself, which is
+			// the same target the dim reports. So selecting a line in a modal
+			// and letting go past its edge read as a press on the dim and shut
+			// the card, taking the reader's place with it. That gesture means
+			// nothing by leaving the card, so both ends of it have to land on
+			// the dim before the click between them counts as one.
+			let pressedDim = false;
+			const press = (event: PointerEvent) => {
+				pressedDim = event.target === layer;
+			};
+			const release = (event: PointerEvent) => {
+				pressedDim = pressedDim && event.target === layer;
+			};
 			const backdrop = (event: MouseEvent) => {
-				if (event.target === layer) dismissRef.current();
+				const onDim = pressedDim && event.target === layer;
+				pressedDim = false;
+				if (onDim) dismissRef.current();
 			};
 			layer.addEventListener("cancel", cancel);
+			layer.addEventListener("pointerdown", press);
+			layer.addEventListener("pointerup", release);
 			layer.addEventListener("click", backdrop);
 			layer.inert = false;
 			if (!layer.open) layer.showModal();
@@ -177,6 +196,8 @@ export function useModalDialog(
 			}
 			return () => {
 				layer.removeEventListener("cancel", cancel);
+				layer.removeEventListener("pointerdown", press);
+				layer.removeEventListener("pointerup", release);
 				layer.removeEventListener("click", backdrop);
 			};
 		}

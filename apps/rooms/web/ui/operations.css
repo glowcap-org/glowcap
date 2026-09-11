@@ -83,7 +83,8 @@
 	gap: var(--gap-row);
 }
 .ops-trouble li {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 12rem) minmax(0, 1fr) auto;
 	align-items: baseline;
 	gap: var(--gap-row);
 }
@@ -92,7 +93,12 @@
 	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
 }
 .ops-trouble .ops-note {
-	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.ops-trouble .ops-kind {
+	min-width: 0;
+	white-space: normal;
 	overflow-wrap: anywhere;
 }
 .ops-trouble-count {

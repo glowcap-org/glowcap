@@ -368,3 +368,94 @@ async def _host_close_shuts_a_still_open_listener() -> None:
         await server.close()
         if not supplied.released:
             await supplied.close()
+
+
+async def _observe_session_retirement_without_serve_or_close() -> None:
+    """``Session.closed()`` waits for retirement without requesting close or
+    starting inbound delivery. Independent and late observers share the
+    terminal result; cancelling one waiter leaves the session live."""
+    from glowcap._session import Session
+
+    class MemoryChannel:
+        designator_scheme = DESIGNATOR_SCHEME_ADDRESS
+
+        def __init__(self) -> None:
+            self.inbound: asyncio.Queue[bytes | None] = asyncio.Queue()
+            self.peer: MemoryChannel | None = None
+            self.closed = False
+            self.close_done = asyncio.Event()
+
+        async def read(self) -> bytes | None:
+            return await self.inbound.get()
+
+        async def write(self, data: bytes) -> None:
+            assert self.peer is not None
+            await self.peer.inbound.put(bytes(data))
+
+        def close(self) -> None:
+            if self.closed:
+                return
+            self.closed = True
+            self.inbound.put_nowait(None)
+            if self.peer is not None:
+                self.peer.inbound.put_nowait(None)
+            self.close_done.set()
+
+        async def wait_closed(self) -> None:
+            await self.close_done.wait()
+
+    client_channel = MemoryChannel()
+    server_channel = MemoryChannel()
+    client_channel.peer = server_channel
+    server_channel.peer = client_channel
+    client_host = Host()
+    server_host = Host()
+    designator = tcp.address_designator("127.0.0.1", 1)
+    accepted = Session.establish_accepted(
+        server_host,
+        TRANSPORT_TCP,
+        designator,
+        server_channel,
+    )
+    dialed = Session.establish_dialed_locator(
+        client_host,
+        Locator(TRANSPORT_TCP, designator, {}, "boolean-false"),
+        client_channel,
+    )
+    server_session, session = await asyncio.gather(accepted, dialed)
+    first = asyncio.create_task(session.closed())
+    second = asyncio.create_task(session.closed())
+    await asyncio.sleep(0)
+    assert session._serve_task is None, "watching retirement started inbound delivery"
+    assert session.session_open, "watching retirement closed the session"
+    first.cancel()
+    try:
+        await first
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("cancelled closed() waiter must surface cancellation")
+    assert session.session_open, "cancelling a closed() waiter closed the session"
+    assert not second.done(), "one observer's cancellation settled another"
+    closer = asyncio.create_task(session.close())
+    second_error: BaseException | None = None
+    try:
+        await second
+    except BaseException as error:
+        second_error = error
+    close_error: BaseException | None = None
+    try:
+        await closer
+    except BaseException as error:
+        close_error = error
+    assert second_error is close_error, (
+        "independent observers must share the terminal result"
+    )
+    late_error: BaseException | None = None
+    try:
+        await session.closed()
+    except BaseException as error:
+        late_error = error
+    assert late_error is close_error, "a late observer must share the terminal result"
+    await server_session.close()
+    await asyncio.gather(client_host.close(), server_host.close())

@@ -49,7 +49,7 @@ fn test_shared(
 	Arc::new(PeerShared {
 		endpoint: Arc::new(EndpointInner {
 			rt: RuntimeOwner::new(rt),
-			close_tasks: Arc::new(CloseTasks::new()),
+			close_tasks: Arc::new(TaskBarrier::new()),
 			readiness,
 			driver_readiness: Mutex::new(None),
 			next_peer_id: AtomicUsize::new(id + 1),
@@ -543,18 +543,4 @@ fn teardown_panics_become_failures() {
 		teardown_status(|| -> Result<(), ()> { panic!("forced teardown panic") }),
 		ERR
 	);
-}
-
-#[test]
-fn close_task_failure_survives_until_the_endpoint_barrier() {
-	let tasks = Arc::new(CloseTasks::new());
-	drop(tasks.acquire());
-	assert_eq!(tasks.wait(), Err(()));
-}
-
-#[test]
-fn completed_close_task_leaves_the_endpoint_barrier_green() {
-	let tasks = Arc::new(CloseTasks::new());
-	tasks.acquire().succeed();
-	assert_eq!(tasks.wait(), Ok(()));
 }

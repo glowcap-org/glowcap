@@ -207,7 +207,7 @@ fn runMixedSettlingConvergence(
     var event = home_peer.pollEvent().?;
     defer event.deinit();
 
-    const wire = try event.wireView();
+    const wire = event.wireView();
     const resolution = try engine.events.resolutionFromResolverCallback(wire.deliver.args);
     try std.testing.expect(try node.claimProjectedProxyListenerFire(allocator, home, target_listener, resolution));
     const semantic = try event.view();

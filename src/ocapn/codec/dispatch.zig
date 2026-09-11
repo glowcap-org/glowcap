@@ -117,18 +117,36 @@ pub fn framePrefix(
     scan: *framing.StreamScan,
     max_frame_bytes: usize,
 ) Boundary {
+    return withScan(Boundary, .complete, framePrefixWith, .{ registry.active, codec, bytes, max_frame_bytes }, codec, bytes, scan, max_frame_bytes);
+}
+
+/// The one scan-gated wrapper both prefix entry points are instances of: the
+/// cheap scan first, the codec only once the scan says a frame may be whole,
+/// the scan reset once a frame completes, and the cap restated on an open
+/// prefix that has reached it. `done` names the tag `decode` answers with when
+/// a frame is complete. Keep this the only place that asks the scan, because
+/// a second copy is how the two engine entry points once came to differ by a
+/// single byte on the cap check; `zig build source-check` holds that.
+fn withScan(
+    comptime T: type,
+    comptime done: @TypeOf(.enum_literal),
+    comptime decode: anytype,
+    args: anytype,
+    codec: model.CodecId,
+    bytes: []const u8,
+    scan: *framing.StreamScan,
+    max_frame_bytes: usize,
+) T {
     if (bytes.len > framing.scan_threshold_bytes and
         scanStream(codec, bytes, scan, max_frame_bytes) == .need_more)
     {
         return if (bytes.len >= max_frame_bytes) .too_large else .incomplete;
     }
-    const prefix = framePrefixWith(registry.active, codec, bytes, max_frame_bytes);
-    if (prefix == .complete) scan.reset();
+    const prefix: T = @call(.auto, decode, args);
+    if (prefix == done) scan.reset();
     // A codec refuses a prefix *longer* than the cap, which leaves the prefix
     // that is exactly the cap and still open. It cannot complete within the cap
-    // either, so it is refused here rather than read past. Consumers used to
-    // carry this as a second, wider mirror of their own, which is how the two
-    // engine entry points came to differ by a single byte.
+    // either, so it is refused here rather than read past.
     if (prefix == .incomplete and bytes.len >= max_frame_bytes) return .too_large;
     return prefix;
 }
@@ -152,15 +170,7 @@ pub fn framePrefixForProfile(
     scan: *framing.StreamScan,
     max_frame_bytes: usize,
 ) Prefix {
-    if (bytes.len > framing.scan_threshold_bytes and
-        scanStream(codec, bytes, scan, max_frame_bytes) == .need_more)
-    {
-        return if (bytes.len >= max_frame_bytes) .too_large else .incomplete;
-    }
-    const prefix = decodePrefixForProfile(codec, profile, bytes, max_frame_bytes);
-    if (prefix == .decoded) scan.reset();
-    if (prefix == .incomplete and bytes.len >= max_frame_bytes) return .too_large;
-    return prefix;
+    return withScan(Prefix, .decoded, decodePrefixForProfile, .{ codec, profile, bytes, max_frame_bytes }, codec, bytes, scan, max_frame_bytes);
 }
 
 /// Whether it is worth asking `decodePrefix` yet, for a codec that can answer

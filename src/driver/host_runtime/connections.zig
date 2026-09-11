@@ -172,17 +172,19 @@ pub fn adoptConn(self: *HostRuntime, session: *driver_core.HostSession, prepared
     const handle = prepared.connection().socketHandle() orelse return Error.TransportNotPollable;
     if (handle < 0) return Error.TransportNotPollable;
     if (Internal.descriptorInUse(self, handle)) return error.ReadinessDescriptorConflict;
-    if (self.ready_set) |*rs| try rs.add(handle);
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| try stepped.ready_set.add(handle),
+    }
     errdefer Internal.removeReadyFd(self, handle);
-    if (self.close_observer) |observer| try observer.reserve(observer.ctx);
-    errdefer if (self.close_observer) |observer| observer.release(observer.ctx);
+    try Internal.reserveCloseEvent(self);
+    errdefer Internal.releaseCloseEvent(self);
     try self.wires.ensureUnusedCapacity(self.allocator, 1);
     const wire = try self.allocator.create(Wire);
     const parts = prepared.take();
     wire.* = .{
         .link = .{ .stream = .{ .conn = parts.conn, .read_buf = parts.read, .write_buf = parts.write } },
         .session = session,
-        .close_event_reserved = self.close_observer != null,
     };
     self.wires.putAssumeCapacity(session.peer_handle, wire);
     self.open_wire_count += 1;
@@ -205,15 +207,14 @@ pub fn adoptResidentConn(
     };
     const read_buf = try self.allocator.alloc(u8, read_buf_len);
     errdefer self.allocator.free(read_buf);
-    if (self.close_observer) |observer| try observer.reserve(observer.ctx);
-    errdefer if (self.close_observer) |observer| observer.release(observer.ctx);
+    try Internal.reserveCloseEvent(self);
+    errdefer Internal.releaseCloseEvent(self);
     try self.wires.ensureUnusedCapacity(self.allocator, 1);
     try self.resident_wires.ensureUnusedCapacity(self.allocator, 1);
     const wire = try self.allocator.create(Wire);
     wire.* = .{
         .link = .{ .resident = .{ .index = resident_index, .conn = conn, .read_buf = read_buf } },
         .session = session,
-        .close_event_reserved = self.close_observer != null,
     };
     self.wires.putAssumeCapacity(session.peer_handle, wire);
     self.resident_wires.putAssumeCapacity(.{ .resident = resident_index, .conn = conn }, wire);

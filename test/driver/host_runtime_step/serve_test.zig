@@ -151,22 +151,23 @@ test "a server pumped only by the readiness descriptor and stepAny serves a budg
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
+    var closed = std.atomic.Value(bool).init(false);
+    var close_flag = CloseFlag{ .flag = &closed };
     var server = try driver.listen(
         allocator,
         tcp_resident.netlayer(),
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
-        opts,
+        harness.stepped(harness.Quiet.sink(), .{ .ctx = &close_flag, .closed = CloseFlag.notify }),
     );
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     const ready_fd = try server.runtime.readinessDescriptor();
-    var closed = std.atomic.Value(bool).init(false);
     var stop = std.atomic.Value(bool).init(false);
 
-    var serve_future = try io.concurrent(stepServe, .{ server, ready_fd, &closed, &stop });
+    var serve_future = try io.concurrent(stepServe, .{ server, ready_fd, &stop });
     defer {
         stop.store(true, .release);
         serve_future.await(io) catch {};
@@ -207,14 +208,19 @@ test "a close observer may drop its owning Session without freeing the pump's bo
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
+    // The observer is installed at construction, so it learns the runtime
+    // it will re-enter only once the server exists.
+    var owned: ?*driver.Session = null;
+    var observer = DropSessionOnClose{ .owned = &owned, .runtime = undefined };
     var server = try driver.listen(
         allocator,
         tcp_resident.netlayer(),
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
-        opts,
+        harness.stepped(harness.Quiet.sink(), .{ .ctx = &observer, .closed = DropSessionOnClose.notify }),
     );
     defer server.deinit();
+    observer.runtime = server.runtime;
     var address_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
 
@@ -226,10 +232,8 @@ test "a close observer may drop its owning Session without freeing the pump's bo
         if (!client_done) client.await(io) catch {};
     }
 
-    var owned: ?*driver.Session = try server.accept();
+    owned = try server.accept();
     errdefer if (owned) |session| session.deinit();
-    var observer = DropSessionOnClose{ .owned = &owned, .runtime = server.runtime };
-    try server.runtime.setCloseObserver(.{ .ctx = &observer, .closed = DropSessionOnClose.notify });
 
     stop.store(true, .release);
     try client.await(io);
@@ -253,26 +257,30 @@ test "a vow nobody parked on reaches the completion sink instead of being freed 
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
+    var closed = std.atomic.Value(bool).init(false);
+    var close_flag = CloseFlag{ .flag = &closed };
     var server = try driver.listen(
         allocator,
         tcp_resident.netlayer(),
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
-        opts,
+        harness.stepped(harness.Quiet.sink(), .{ .ctx = &close_flag, .closed = CloseFlag.notify }),
     );
     defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     var stop = std.atomic.Value(bool).init(false);
-    var closed = std.atomic.Value(bool).init(false);
     const server_ready = try server.runtime.readinessDescriptor();
-    var serve_future = try io.concurrent(stepServe, .{ server, server_ready, &closed, &stop });
+    var serve_future = try io.concurrent(stepServe, .{ server, server_ready, &stop });
     defer {
         stop.store(true, .release);
         serve_future.await(io) catch {};
     }
 
+    // The client is built stepped with the recording sink; the sink learns
+    // the core it frees through once the runtime exists.
+    var sink = RecordingSink{};
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     var client = try driver.connect(
@@ -280,12 +288,10 @@ test "a vow nobody parked on reaches the completion sink instead of being freed 
         &netlayers,
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
-        opts,
+        harness.stepped(sink.sink(), harness.Quiet.observer()),
     );
     defer client.deinit();
-
-    var sink = RecordingSink{ .core = client.runtime.core };
-    client.runtime.setCompletionSink(.{ .ctx = &sink, .take = RecordingSink.take });
+    sink.core = client.runtime.core;
 
     // A host-tier vow with no listener — the loop tier's every vow — settles
     // as an action the drain would otherwise free.

@@ -25,7 +25,7 @@ archive_hygiene_check_compressed() {
 	# `TAR_OPTIONS` is cleared here and at the extract call site: validating
 	# under one set of tar flags and extracting under another checks nothing.
 	# `--numeric-owner` is half of the defence below. Without it the owner and
-	# group columns are attacker-chosen *text*, and text with spaces in it
+	# group columns are peer-chosen *text*, and text with spaces in it
 	# splits into extra fields — which moves where the member name begins.
 	listing=$(LC_ALL=C TAR_OPTIONS= tar --numeric-owner "-tv${compression}f" "$tarball") || return 2
 	# Parse the complete listing in one awk process. The old shell loop spawned

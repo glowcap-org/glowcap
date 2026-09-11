@@ -87,7 +87,7 @@ and a strictly increasing `handoff_count`. Settlement queues its owned answer
 before the infallible commit removes the gift. An early verified receive parks
 only the fixed certificate subset and exact gift id needed after deposit, not
 the signatures, locator, or raw signed envelope. Row and retained-byte limits
-bound hostile waiting. ADR-0100 owns the current authority and lifetime detail.
+bound unbounded waiting. ADR-0100 owns the current authority and lifetime detail.
 
 ### Cross-peer routing
 

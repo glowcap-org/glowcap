@@ -1,0 +1,21 @@
+[workspace]
+members = ["application", "glowcap", "runtime", "native", "browser", "proofs"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "=1.0.229", default-features = false, features = ["derive", "alloc", "rc"] }
+serde_json = { version = "=1.0.151", default-features = false, features = ["alloc", "raw_value"] }
+hmac = { version = "=0.12.1", default-features = false }
+sha2 = { version = "=0.10.9", default-features = false }
+glowcap = { package = "glowcap-rust-dogfood", path = "../../../bindings/rust", default-features = false, features = ["async"] }
+tokio = { version = "=1.53.1", default-features = false, features = ["rt", "macros", "sync", "time"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -45,14 +45,14 @@ resolves the turn's inbound answer when (and as) the forwarded send settles:
 fulfilled with the target's value, broken with the target's break. Three cases,
 one rule (the answer follows the forwarded send):
 
-- **Eventual deliver with an answer.** `forward` eventual-sends to the target,
+- **Eventual deliver with an answer, local or wire.** `forward` eventual-sends to the target,
   registers a listener on the resulting promise, and marks the turn *forwarded*
   so `serve` skips its usual return-value resolution. When the promise settles,
   the listener resolves the deferred inbound answer. The target may be far: the
   send rides the wire, and the partner's `op:resolve` settles the listener,
   which resolves the original caller's answer. A partner pipelining on the
   proxy's answer queues on this side until the forward settles.
-- **Inbound `tell` (no answer).** `forward` forwards fire-and-forget and marks
+- **Local or inbound `tell` (no answer).** `forward` forwards fire-and-forget and marks
   the turn forwarded; there is no answer to defer.
 - **Synchronous near-call (`$`).** A near-call wants a value *now*, so `forward`
   near-calls the target and returns its value directly. This is legal only for a
@@ -115,7 +115,7 @@ C ABI seam the forward primitive exposes.
   resolve interceptor that mints a give. Forwarding to an introduced exporter is
   therefore an ordinary send, not a `forward`. A give that arrives on the
   forwarded vow is broken with "introduction not forwardable", because a give is
-  signed for this vat's session key (`src/actors/vat/serve.zig`).
+  signed for this vat's session key (`src/actors/vat/forwarding.zig`).
 
 ## Alternatives Considered
 
@@ -155,3 +155,19 @@ Builds on the vat's send/resolve/listener machinery (ADR-0036's sync, no-I/O
 actor layer). The forward listener reuses the same `on(promise, …)` seam the
 finalizer-to-loop and far-promise paths use; a forwarded far send settles through
 the ordinary `op:resolve` inbound path.
+
+### Local eventual execution
+
+Queued local calls carry a local answer distinct from synchronous near calls.
+Their forwards reserve a continuation before sending; settlement follows the
+forwarded result, including a remote target or an off-turn resolver. Local
+continuation chains settle iteratively and reuse the producer's settlement
+borrow, so a long chain neither recurses through callbacks nor clones each
+result at every hop. Tells forward without minting a remote answer. Near calls
+retain their synchronous local-only contract.
+
+Rust now routes every local application call through the Host and has removed
+its callback index and separate local executor. The TS, Python and Racket
+bindings still have local execution shortcuts; their removal is a separate
+binding boundary task. The shared actor and C ABI tests, rather than those
+shortcuts, define the behavior.

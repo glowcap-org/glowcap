@@ -236,6 +236,23 @@
 (expect (eq? repeated-iroh-background-failure iroh-background-failure)
         "repeated iroh endpoint close retains its readiness-loop failure")
 
+;; A deferral sink is binding-owned storage, not an application callback.
+;; Refuse immutable or impersonated boxes before a native operation can commit
+;; work whose ownership must then transfer into that sink.
+(for ([sink (in-list
+             (list (box-immutable no-drain-effects)
+                   (box 'not-drain-effects)
+                   (impersonate-box (box no-drain-effects)
+                                    (lambda (_box value) value)
+                                    (lambda (_box _value) (error 'sink "refused")))))])
+  (define entered? #f)
+  (define refused?
+    (with-handlers ([exn:fail:contract? (lambda (_) #t)])
+      (parameterize ([current-defer-drain-effects sink]) (set! entered? #t))
+      #f))
+  (expect (and refused? (not entered?))
+          "drain deferral refuses invalid ownership storage before entry"))
+
 ;; Callerless drain fires belong to their Host. One failed fire cannot stop a
 ;; sibling, and explicit close returns the exact first scheduling failure.
 (define drain-fire-failure-host (make-fresh-host))

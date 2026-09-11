@@ -69,7 +69,8 @@ export type {
 export { held, hereOf, known } from "./commands/catalog.ts";
 export { inviteWhy } from "./commands/targets.ts";
 import type { Command, CommandPowers } from "./commands/types.ts";
-import { COMMANDS } from "./commands/catalog.ts";
+import { known } from "./commands/catalog.ts";
+import { applicationModule } from "./application.ts";
 
 /** The action a line carries, or null when it carries none.
  *
@@ -150,11 +151,9 @@ function reading(): never {
  * A line that opens with a slash and no command anybody knows is ordinary text:
  * a reader typing about `/etc/hosts` is not issuing an order. */
 export function commandIn(text: string): { command: Command; rest: string } | null {
-	const match = text.match(/^\/([\w?]+)(?:\s+([\s\S]*))?$/);
-	if (match === null) return null;
-	const name = match[1].toLowerCase();
-	const command = COMMANDS.find((candidate) =>
-		candidate.name === name || (candidate.aliases?.includes(name) ?? false)
-	);
-	return command === undefined ? null : { command, rest: match[2] ?? "" };
+	const encoded = applicationModule().readSlashCommand(text);
+	if (encoded == null) return null;
+	const parsed = JSON.parse(encoded) as { name: string; restStart: number };
+	const command = known().find((candidate) => candidate.name === parsed.name);
+	return command === undefined ? null : { command, rest: text.slice(parsed.restStart) };
 }

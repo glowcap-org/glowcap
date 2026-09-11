@@ -145,6 +145,9 @@ const TransportHandle = struct {
 /// peer's allocator and frees it through the handle.
 pub const Connection = struct {
     peer: *engine.Peer,
+    /// The spill's allocator outlives the borrowed peer: a Host may consume
+    /// protocol state before this connection's carrier finishes closing.
+    allocator: std.mem.Allocator,
     r: *std.Io.Reader,
     w: *std.Io.Writer,
     transport: TransportHandle,
@@ -173,13 +176,20 @@ pub const Connection = struct {
         w: *std.Io.Writer,
         transport: TransportHandle,
     ) Connection {
-        return .{ .peer = peer, .r = r, .w = w, .transport = transport, .io = io };
+        return .{
+            .peer = peer,
+            .allocator = peer.allocator,
+            .r = r,
+            .w = w,
+            .transport = transport,
+            .io = io,
+        };
     }
 
     /// Close the underlying stream (via the transport handle) and free the spill.
     /// Does not touch the borrowed peer.
     pub fn deinit(self: *Connection) void {
-        self.spill.deinit(self.peer.allocator);
+        self.spill.deinit(self.allocator);
         self.transport.close();
     }
 
@@ -351,12 +361,17 @@ pub fn waitAnyReadable(
     timeout_ms: i32,
     extra_fds: []const std.posix.fd_t,
 ) error{ConnectionLost}!?usize {
-    return waitAny(conns, &.{}, pollfds, timeout_ms, extra_fds, &.{});
+    return waitAny(conns, &.{}, pollfds, timeout_ms, extra_fds, &.{}, 0);
 }
 
 /// Wait for caller-selected read/write interest on each connection and extra
 /// descriptor. Empty interest slices mean readable for every corresponding
 /// row, preserving the ordinary pump contract without a second implementation.
+///
+/// `start` is where the scan for a ready connection begins, wrapping around,
+/// so a caller that reports the first ready row can rotate fairness by
+/// advancing one index per wait instead of rotating the rows themselves.
+/// Extra descriptors always scan after every connection.
 pub fn waitAny(
     conns: []const *Connection,
     conn_interests: []const WaitInterest,
@@ -364,12 +379,16 @@ pub fn waitAny(
     timeout_ms: i32,
     extra_fds: []const std.posix.fd_t,
     extra_interests: []const WaitInterest,
+    start: usize,
 ) error{ConnectionLost}!?usize {
     std.debug.assert(conn_interests.len == 0 or conn_interests.len == conns.len);
     std.debug.assert(extra_interests.len == 0 or extra_interests.len == extra_fds.len);
+    std.debug.assert(conns.len == 0 or start < conns.len);
     const rows = conns.len + extra_fds.len;
     std.debug.assert(pollfds.len >= rows);
-    for (conns, 0..) |conn, i| {
+    for (0..conns.len) |k| {
+        const i = (start + k) % conns.len;
+        const conn = conns[i];
         const interest = if (conn_interests.len == 0) WaitInterest.read else conn_interests[i];
         if (interest == .read and conn.hasBufferedRaw()) return i;
         const handle = conn.socketHandle() orelse unreachable;
@@ -393,7 +412,9 @@ pub fn waitAny(
     if (rows == 0) return null;
     const ready = poll.wait(pollfds[0..rows], timeout_ms) catch return error.ConnectionLost;
     if (ready == 0) return null;
-    for (pollfds[0..rows], 0..) |fd, i| {
+    for (0..rows) |k| {
+        const i = if (k < conns.len) (start + k) % conns.len else k;
+        const fd = pollfds[i];
         if (fd.revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
         if (fd.revents & (std.posix.POLL.IN | std.posix.POLL.OUT | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0) return i;
     }

@@ -161,6 +161,106 @@ test "fulfilled enliven settlement allocates nothing after registration" {
     try std.testing.expectEqual(@as(u64, 23), cached.far.import_position.int());
 }
 
+test "concurrent enlivenments reserve every eventual cache row before settlement" {
+    for ([_]usize{ 0, 3, 32, 256 }) |cap| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var s = session.Session.initWith(failing.allocator(), .{
+            .limits = .{ .max_sturdyref_cache_entries = cap },
+        });
+        defer s.deinit();
+
+        var names: [64][2]u8 = undefined;
+        for (&names, 0..) |*name, i| {
+            name.* = .{ @intCast(i), 0 };
+            try s.notePendingEnliven(name, .from(i));
+        }
+        // No allocation is possible once the peer's replies start arriving.
+        failing.fail_index = failing.alloc_index;
+        failing.resize_fail_index = failing.resize_index;
+        for (&names, 0..) |*name, i| {
+            s.settlePendingEnlivenIntoCache(name, .{
+                .import_position = .from(i + 1),
+                .kind = .object,
+            });
+        }
+
+        try std.testing.expect(!failing.has_induced_failure);
+        try std.testing.expectEqual(@min(cap, names.len), s.sturdyref_cache.items.len);
+        try std.testing.expectEqual(@as(usize, 0), s.pending_enlivens.count());
+        try std.testing.expectEqual(@as(usize, 0), s.pending_enliven_by_answer.count());
+        for (&names, 0..) |*name, i| {
+            const cached = s.sturdyrefCacheLookup(name);
+            if (i < names.len - @min(cap, names.len)) {
+                try std.testing.expect(cached == null);
+            } else {
+                try std.testing.expectEqual(@as(u64, i + 1), cached.?.far.import_position.int());
+            }
+        }
+    }
+}
+
+test "direct cache insertions preserve pending enliven reservations" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var s = session.Session.init(failing.allocator());
+    defer s.deinit();
+
+    var pending: [64][2]u8 = undefined;
+    for (&pending, 0..) |*name, i| {
+        name.* = .{ @intCast(i), 0 };
+        try s.notePendingEnliven(name, .from(i));
+    }
+    // Direct insertions must not spend the capacity promised to those replies.
+    for (0..128) |i| {
+        const name = [_]u8{ @intCast(i), 1 };
+        try s.cacheSturdyrefEnlivenment(&name, .{
+            .import_position = .from(i + 100),
+            .kind = .object,
+        });
+    }
+    failing.fail_index = failing.alloc_index;
+    failing.resize_fail_index = failing.resize_index;
+    for (&pending, 0..) |*name, i| {
+        s.settlePendingEnlivenIntoCache(name, .{
+            .import_position = .from(i + 1),
+            .kind = .promise,
+        });
+        try std.testing.expectEqual(model.RefKind.promise, s.sturdyrefCacheLookup(name).?.far.kind);
+    }
+    try std.testing.expect(!failing.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 192), s.sturdyref_cache.items.len);
+    try std.testing.expectEqual(@as(usize, 192), s.sturdyref_cache_index.count());
+}
+
+test "failed enliven reservations leave earlier replies settleable" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, reserveConcurrentEnlivenments, .{});
+}
+
+fn reserveConcurrentEnlivenments(allocator: std.mem.Allocator) !void {
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    var names: [32][1]u8 = undefined;
+    var registered: usize = 0;
+    // Even if either cache structure or pending index cannot grow, every
+    // previously admitted reply still owns its reservation and swissnum.
+    defer for (names[0..registered], 0..) |*name, i| {
+        s.settlePendingEnlivenIntoCache(name, .{
+            .import_position = .from(i + 1),
+            .kind = .object,
+        });
+    };
+    for (&names, 0..) |*name, i| {
+        name.* = .{@intCast(i)};
+        s.notePendingEnliven(name, .from(i)) catch |err| {
+            try std.testing.expect(s.pendingEnlivenAnswer(name) == null);
+            try std.testing.expect(s.pendingEnlivenSwissnum(.from(i)) == null);
+            try std.testing.expectEqual(registered, s.pending_enlivens.count());
+            try std.testing.expectEqual(registered, s.pending_enliven_by_answer.count());
+            return err;
+        };
+        registered += 1;
+    }
+}
+
 test "checkEnlivenPreconditions rejects non-negotiated and non-open sessions" {
     const allocator = std.testing.allocator;
 

@@ -287,6 +287,7 @@ const constants = [_]Const{
     con("BINDING_WEBSOCKET_SEND_HIGH_WATER_BYTES", binding_policy.websocket_send_high_water_bytes, .usize, null),
     con("BINDING_WEBSOCKET_DRAIN_POLL_MS", binding_policy.websocket_drain_poll_ms, .usize, null),
     con("BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS", binding_policy.websocket_close_timeout_ms, .usize, null),
+    con("BINDING_BROWSER_CHANNEL_CLOSE_TIMEOUT_MS", binding_policy.browser_channel_close_timeout_ms, .usize, null),
     con("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", binding_policy.websocket_inbound_high_water_bytes, .usize, null),
 };
 
@@ -336,6 +337,11 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
         try out.appendSlice(gpa, "pub const ");
         try writeTransportName(&out, gpa, known, '_');
         try out.print(gpa, ": &str = \"{s}\";\n", .{known.metadata().symbol});
+        if (known.metadata().max_packet_bytes != 0) {
+            try out.appendSlice(gpa, "pub const ");
+            try writeTransportName(&out, gpa, known, '_');
+            try out.print(gpa, "_MAX_PACKET_BYTES: usize = {d};\n", .{known.metadata().max_packet_bytes});
+        }
     }
     return out.toOwnedSlice(gpa);
 }

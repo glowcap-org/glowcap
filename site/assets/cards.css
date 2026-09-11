@@ -1,9 +1,9 @@
 /* The landing furniture a content page can build: route cards and the
    module stack. */
 
-/* The landing hero: the glowcap mascot beside the wordmark and a one-line
-   promise. The mark is the README icon, reused so the front door matches the
-   project's own face. */
+/* The landing hero: the glowcap mark beside the wordmark and a one-line
+   promise. It is the same drawing the header lockup carries, at hero size, so
+   the front door and the chrome show one mushroom. */
 .hero {
   display: flex;
   align-items: center;
@@ -13,11 +13,28 @@
   border-bottom: 1px solid var(--rule);
 }
 
+/* A square box for the mark to stand in, because the mark's pieces are placed
+   as percentages of it. The mark brings its own bloom from mark.css, so this
+   adds no shadow of its own. */
 .hero-mark {
   flex: none;
-  width: clamp(96px, 17vw, 150px);
-  height: auto;
-  filter: drop-shadow(0 6px 16px color-mix(in srgb, var(--ink) 16%, transparent));
+  /* The mark reaches past this box on every side, so the box is smaller than
+     the drawing looks. Sized against the wordmark beside it rather than to
+     fill the space it has. */
+  width: clamp(76px, 13vw, 118px);
+  height: clamp(76px, 13vw, 118px);
+}
+
+/* Both marks fill the box: the shader's canvas where a device drew one, the
+   still artwork where it could not. The still mark carries no bloom of its
+   own here. Its windows are dark, because the artwork is the unlit pose, and
+   a halo around dark windows reads as a mistake rather than as light. The
+   light belongs to the shader, which is what runs in this box wherever it
+   can. */
+.hero-mark .mark-live,
+.hero-mark .icon-mark {
+  width: 100%;
+  height: 100%;
 }
 
 .hero-copy {
@@ -89,11 +106,12 @@
   text-decoration: none;
 }
 
+/* The filled amber is the whole statement; a shadow under a commitment was a
+   second signal for one fact. */
 .btn-primary {
   font-weight: 800;
   color: var(--on-accent);
   background: linear-gradient(135deg, var(--accent-fill), var(--accent-fill-deep));
-  box-shadow: var(--shadow);
 }
 
 .btn-primary:hover {
@@ -185,6 +203,11 @@
   grid-column: 1 / -1;
 }
 
+/* A card is raised paper with a hairline; that is the whole of what says
+   "card". A shadow under every one of ten made a grid of floating tiles, and
+   the lift on hover moved the page under the pointer. The gradient wipe
+   below is the one moving part, and the border warming is the answer to a
+   pointer. */
 .card {
   display: block;
   position: relative;
@@ -193,9 +216,8 @@
   background: var(--paper-raised);
   border: 1px solid var(--rule);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow);
   color: var(--ink);
-  transition: transform 0.12s ease, border-color 0.12s ease;
+  transition: border-color 0.12s ease;
 }
 
 /* A hairline in the brand gradient sits along the bottom edge of every card and
@@ -216,7 +238,6 @@
 
 .card:hover {
   text-decoration: none;
-  transform: translateY(-2px);
   border-color: var(--accent);
 }
 
@@ -269,10 +290,12 @@
   flex: none;
   width: 2.1rem;
   height: 2.1rem;
-  color: var(--accent);
+  /* The rim's own amber, so the drawn mark matches the outline the shader
+     draws rather than sitting a step off it. */
+  color: var(--mark-rim);
   background: currentColor;
-  -webkit-mask: var(--mark-stack) center / contain no-repeat;
-  mask: var(--mark-stack) center / contain no-repeat;
+  -webkit-mask: var(--mark-line) center / contain no-repeat;
+  mask: var(--mark-line) center / contain no-repeat;
 }
 
 .card-lead h2 {

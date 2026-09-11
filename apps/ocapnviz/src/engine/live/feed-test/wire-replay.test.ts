@@ -202,7 +202,7 @@ Deno.test("a producer restarting discards the batch it never finished", () => {
 });
 
 Deno.test("a feed that never ends its batch cannot grow it without limit", () => {
-	// Everything on this feed is attacker-controlled until it is read: the
+	// Everything on this feed is untrusted until it is read: the
 	// viewer dials the endpoint. A feed that marked records `replay` forever
 	// would otherwise buffer for the connection's life. Past the bound the held
 	// records are DRAWN rather than dropped — losing topology silently would be

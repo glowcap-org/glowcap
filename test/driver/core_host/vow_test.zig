@@ -432,7 +432,7 @@ test "core host: an unlistened settle rides the action queue owned, valid until 
             .failed => |f| {
                 try std.testing.expectEqual(parked, f.vow_id);
                 try std.testing.expectEqual(driver.core.VowFailure.broken, f.failure);
-                try std.testing.expect(std.mem.indexOf(u8, f.message, "transport gone") != null);
+                try std.testing.expect(std.mem.indexOf(u8, f.message.bytes(), "transport gone") != null);
                 fail_count += 1;
             },
             else => return error.UnexpectedAction,
@@ -494,7 +494,7 @@ test "core host: transport loss retires session authority and refuses later work
         .failed => |failure| {
             try std.testing.expectEqual(parked, failure.vow_id);
             try std.testing.expectEqual(driver.core.VowFailure.closed, failure.failure);
-            try std.testing.expect(std.mem.indexOf(u8, failure.message, "transport gone") != null);
+            try std.testing.expect(std.mem.indexOf(u8, failure.message.bytes(), "transport gone") != null);
             failed = true;
         },
         else => return error.UnexpectedAction,

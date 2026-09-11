@@ -11,7 +11,7 @@
 // A `RoomsPage` owns one `PageProjection`. Two pages in one isolate do not share
 // drafts, conversations, rosters, histories, or unreads. The projection knows
 // nothing about React and nothing about the wire. `hooks.ts` subscribes the
-// components to the page's instance, and `net.ts` drives it from the CapTP side
+// components to the page's instance, and the session projection drives it from the CapTP side
 // without importing a single view.
 
 import type { Act, Edits, Remembered } from "../intent.ts";
@@ -22,26 +22,26 @@ import type {
 	RoomsSessionGrantView,
 	RoomsSessionPendingEffect,
 } from "../../../lib/session/client.ts";
-import {
-	type AttachmentView,
-	type Conv,
-	type DiagnosticRow,
-	type DirId,
-	type DirView,
-	type Invitation,
-	type IrcGatewayState,
-	type Item,
-	type ListenerRow,
-	type MemberRef,
-	type OpsCap,
-	type PeeringState,
-	type RoomsOperatorState,
-	type SettingsTab,
-	type Standing,
-	type ToastNotice,
-	type TroubleRow,
-	type Unread,
-	type VizPublishState,
+import type {
+	AttachmentView,
+	Conv,
+	DiagnosticRow,
+	DirId,
+	DirView,
+	Invitation,
+	IrcGatewayState,
+	Item,
+	ListenerRow,
+	MemberRef,
+	OpsCap,
+	PeeringState,
+	RoomsOperatorState,
+	SettingsTab,
+	Standing,
+	ToastNotice,
+	TroubleRow,
+	Unread,
+	VizPublishState,
 } from "../types.ts";
 
 // Must match the `@media (max-width: 820px)` block in the rooms stylesheets:
@@ -223,7 +223,7 @@ export interface State {
 	/** The glossary modal, which Settings closes beneath. */
 	helpOpen: boolean;
 	/** The bridged channels the IRC gateway last listed, or null while this
-	 * tab holds no gateway capability. Same split as its siblings: net.ts
+	 * tab holds no gateway capability. Same split as its siblings: Rust
 	 * holds the reference, this is only what to draw. */
 	irc: IrcGatewayState | null;
 	/** Room stewardships reported by the held Rooms operator capability. */
@@ -255,14 +255,14 @@ export interface State {
 	/** Which operations pane is selected while more than one is held. */
 	opsPane: OpsCap;
 	/** What the inspect capability last said, or null while this tab holds none.
-	 * Holding the live reference is net.ts's job; this is only what to draw. */
+	 * Holding the live reference is the Rust application's job; this is only what to draw. */
 	diagnostics: readonly DiagnosticRow[] | null;
 	/** The live listeners the admin capability last reported, or null while
-	 * this tab holds none. Same split as `diagnostics`: net.ts holds the
+	 * this tab holds none. Same split as `diagnostics`: Rust holds the
 	 * reference, this is only what to draw. */
 	listeners: readonly ListenerRow[] | null;
 	/** The durable rooms this tab has published here while it holds the peering
-	 * capability, or null while it holds none. Same split again: net.ts holds
+	 * capability, or null while it holds none. Same split again: Rust holds
 	 * the authority and each publication's lease, this is only what to draw. */
 	peering: PeeringState | null;
 	/** Where this session publishes its own trace while it holds the viz
@@ -323,7 +323,12 @@ export function initialState(): State {
 		reaching: { source: "restore", seq: 0 },
 		edits: { seq: 0 },
 		remembered: { room: "", locator: "", nick: "" },
-		theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+		// Syrup by default. The dark face is the product's own, not a
+		// concession to a desktop setting, so a reader who has never
+		// touched the switch gets it and the stylesheet agrees with this
+		// line before the bundle has run. Light is one press away and it
+		// is remembered.
+		theme: "dark",
 		notifyOn: false,
 		railOpen: true,
 		listScreen: false,

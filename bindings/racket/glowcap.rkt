@@ -75,7 +75,7 @@
          host-publish-durable
          host-remove-durable
          host-defer-turn resolver?
-         resolver-fulfill! resolver-break!
+         resolver-fulfill! resolver-break! resolver-abandon!
          host-enliven
          host-fetch-at
          (struct-out failure-event) host-take-failures! take-runtime-failures!
@@ -92,6 +92,7 @@
          session-fetch session-enliven session-send session-listen session-send-redeeming
          session-send-promise session-await
          session-index session-untag session-get session-serve session-tell session-close!
+         session-wait-closed
          session-annotate!
          session-with-gc! session-release! session-caretaker session-attenuate session-revoke!
          ;; Closing a session closes that connection; this is the Host-wide

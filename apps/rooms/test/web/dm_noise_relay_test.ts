@@ -11,7 +11,7 @@ import { reapOwned, spawnOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/page.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const FIRST = "hello through sealed relay rendezvous";
@@ -58,19 +58,8 @@ async function sees(tab: Page, text: string, who: string): Promise<void> {
 const deadline = setTimeout(() => fail("Rooms noise-relay DM scenario exceeded 120 seconds"), 120_000);
 const httpPort = freePort();
 const roomPort = freePort();
-spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-	],
+spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",

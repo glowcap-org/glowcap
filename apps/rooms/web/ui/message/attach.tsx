@@ -2,8 +2,8 @@
 // transfer. The bubble asks this how to draw them.
 
 import { useEffect, useState } from "react";
-import { type AttachmentView } from "../types.ts";
-import { AUTO_IMAGE_BYTES } from "../../../lib/limits.ts";
+import type { AttachmentView } from "../types.ts";
+import { AUTO_IMAGE_BYTES } from "../limits.ts";
 import { fileSize, kindOf } from "../media.ts";
 import { saveAs } from "../download.ts";
 import { useRoomsSession } from "../controller/session.ts";
@@ -288,7 +288,7 @@ function AttachedFile(
 					icon={file.error !== undefined ? "retry" : "download"}
 					label={file.error !== undefined ? `Retry ${file.name}` : `Download ${file.name}`}
 					variant="outline"
-					tone={mine ? "on-accent" : "neutral"}
+					tone="neutral"
 					disabled={loading}
 					onClick={() => {
 						// Already here: save it. Not here yet: ask for it, and let

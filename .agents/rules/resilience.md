@@ -1,11 +1,11 @@
 ---
-description: "Zig glowcap resilience posture for attacker-controlled bytes and layer ownership."
+description: "Zig glowcap resilience posture for untrusted inbound bytes and layer ownership."
 globs: src/ocapn/codec/**/*.zig, src/ocapn/engine/**/*.zig, src/ocapn/session/**/*.zig, src/net/**/*.zig, src/c_abi/**/*.zig, test/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
 ---
 
 # glowcap — Resilience
 
-Every inbound frame is attacker-controlled until codec and session validation
+Every inbound frame is untrusted until codec and session validation
 complete.
 
 ## Layer Ownership

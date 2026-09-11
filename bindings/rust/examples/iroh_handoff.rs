@@ -30,7 +30,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use glowcap_rust_dogfood::iroh::Reachability;
-use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -53,7 +53,7 @@ async fn run() -> Result<(), Fail> {
 		Rc::new(iroh::listen(iroh::Config::new(Reachability::Direct), iroh::ListenOptions::default()).await?);
 	exporter.host().publish_giftable("greeter", || Box::new(greeter()))?;
 	let (exporter_id, exporter_addrs) = dialable(&exporter).await?;
-	accept_loop(Rc::clone(&exporter));
+	helpers::serve_iroh_sessions(Rc::clone(&exporter));
 	println!("rust-iroh-handoff: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
@@ -97,7 +97,7 @@ async fn run() -> Result<(), Fail> {
 			}
 		})
 	})?;
-	accept_loop(Rc::clone(&gifter));
+	helpers::serve_iroh_sessions(Rc::clone(&gifter));
 	println!("rust-iroh-handoff: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: dials the gifter, redeems the give by dialing the exporter ─────
@@ -137,18 +137,6 @@ async fn run() -> Result<(), Fail> {
 	Ok(())
 }
 
-// Serve every connection a server accepts for the life of the run: the loop
-// holds its own `Rc` to the server and parks on `accept().await`, so it is
-// cancelled with the enclosing `LocalSet` rather than awaited.
-fn accept_loop(server: Rc<glowcap_rust_dogfood::iroh::Server>) {
-	tokio::task::spawn_local(async move {
-		let mut held: Vec<Session> = Vec::new();
-		while let Ok(session) = server.accept().await {
-			held.push(session);
-		}
-	});
-}
-
 // The published actor: `prime` stores a mark, `greet` echoes the caller's
 // name with it — so a redeemed call proves the exact mutated actor answered.
 fn greeter() -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
@@ -172,8 +160,7 @@ fn greeter() -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
 // direct-addresses hint is not dialable under the relay-less Direct posture.
 async fn dialable(server: &glowcap_rust_dogfood::iroh::Server) -> Result<(String, String), Fail> {
 	for _ in 0..1000 {
-		let addrs = server.direct_addresses()?;
-		if !addrs.is_empty() {
+		if let Some(addrs) = server.direct_addresses()? {
 			return Ok((server.node_id().to_string(), addrs));
 		}
 		tokio::time::sleep(Duration::from_millis(20)).await;

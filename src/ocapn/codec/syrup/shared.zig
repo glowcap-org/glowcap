@@ -12,8 +12,8 @@
 //! word-aligned counterpart with the same decode/encode/shared split.
 //!
 //! As everywhere in the codec layer, this only describes and routes bytes. It
-//! holds no session authority. Every frame the decoder reads is potentially
-//! hostile, so the length math on each prefix is checked and the recursive
+//! holds no session authority. Every frame the decoder reads is untrusted,
+//! so the length math on each prefix is checked and the recursive
 //! readers stop at a fixed nesting bound, which means a deeply nested frame fails
 //! loudly instead of running off the stack.
 

@@ -423,7 +423,7 @@
 ;; `resolve_local`). A reference this vat does not host comes back unchanged.
 (define (vat-resolve-target v target)
   (define actor-id
-    (and (ref? target) (hash-ref (vat-exports v) (ref-id target) #f)))
+    (and (ref? target) (hash-ref (vat-exports v) (ref-live-id target) #f)))
   (if actor-id (actor-ref v actor-id) target))
 
 ;; ── break-far-vows! : settle every outstanding far vow as broken ──────────────

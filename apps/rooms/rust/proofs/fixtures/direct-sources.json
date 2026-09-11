@@ -1,0 +1,170 @@
+{
+  "limits": {
+    "files": 128,
+    "bytes": 67108864,
+    "chunk": 65536
+  },
+  "traces": [
+    {
+      "name": "prefix",
+      "size": 5,
+      "fail": false,
+      "reads": [
+        {
+          "offset": 4,
+          "maximum": 1,
+          "length": 1
+        },
+        {
+          "offset": 0,
+          "maximum": 4,
+          "length": 4
+        },
+        {
+          "offset": 0,
+          "maximum": 1,
+          "length": 1
+        },
+        {
+          "offset": 4,
+          "maximum": 1,
+          "length": 1
+        },
+        {
+          "offset": 0,
+          "maximum": 1,
+          "length": null
+        },
+        {
+          "offset": 100,
+          "maximum": 1,
+          "length": 0
+        }
+      ],
+      "calls": [
+        [
+          4,
+          1
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "chunk",
+      "size": 65537,
+      "fail": false,
+      "reads": [
+        {
+          "offset": 0,
+          "maximum": 1000000,
+          "length": 65536
+        },
+        {
+          "offset": 65536,
+          "maximum": 1,
+          "length": 1
+        },
+        {
+          "offset": 0,
+          "maximum": 1,
+          "length": null
+        }
+      ],
+      "calls": [
+        [
+          0,
+          65536
+        ],
+        [
+          65536,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "failed delivery",
+      "size": 5,
+      "fail": true,
+      "reads": [
+        {
+          "offset": 0,
+          "maximum": 1,
+          "length": null
+        },
+        {
+          "offset": 5,
+          "maximum": 1,
+          "length": 0
+        }
+      ],
+      "calls": []
+    },
+    {
+      "name": "empty",
+      "size": 0,
+      "fail": false,
+      "reads": [
+        {
+          "offset": 0,
+          "maximum": 1,
+          "length": 0
+        },
+        {
+          "offset": 100,
+          "maximum": 1,
+          "length": 0
+        },
+        {
+          "offset": 0,
+          "maximum": 0,
+          "length": null
+        }
+      ],
+      "calls": []
+    },
+    {
+      "name": "arguments",
+      "size": 5,
+      "fail": false,
+      "reads": [
+        {
+          "offset": "float",
+          "maximum": 1,
+          "length": null
+        },
+        {
+          "offset": -1,
+          "maximum": 1,
+          "length": null
+        },
+        {
+          "offset": 0,
+          "maximum": 0,
+          "length": null
+        },
+        {
+          "offset": 0,
+          "maximum": 5,
+          "length": 5
+        }
+      ],
+      "calls": [
+        [
+          0,
+          5
+        ]
+      ]
+    }
+  ]
+}

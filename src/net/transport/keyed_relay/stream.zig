@@ -133,7 +133,9 @@ pub const RelayStream = struct {
         // frame in the inner reader, beyond the bytes readUpgradeResponse
         // consumed. Lend only those already-buffered payload bytes to the
         // Connection reader: HostRuntime can observe them before polling the
-        // socket, and accept never enters a source read that could park.
+        // socket, and accept never enters a source read that could park. A
+        // buffered ping is answered with one flushed pong, the one write this
+        // probe makes.
         const buffered = probeParked(rs) catch |err| {
             rs.noteFailure(err);
             return error.ConnectionLost;
@@ -260,7 +262,8 @@ pub const RelayStream = struct {
                 // A byte stream has no WebSocket message boundary. Consume any
                 // fully buffered control frames and continue through a buffered
                 // data frame. `probeParked` never reads the socket, so this
-                // remains non-blocking after making progress.
+                // cannot park on a read after making progress; a buffered ping
+                // still answers with one flushed pong on this blocking API.
                 switch (probeParked(rs) catch |err| return rs.readFailed(err)) {
                     .data_pending => continue,
                     .closed => return written,

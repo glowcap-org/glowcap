@@ -46,8 +46,9 @@ const HeaderGen = struct {
     write_step_name: []const u8,
     write_desc: []const u8,
     generator: []const u8,
-    import_name: []const u8,
-    import_module: *std.Build.Module,
+    /// The Zig module the generator reflects, when it reflects one; a
+    /// generator whose table is its own authority names none.
+    reflects: ?AbiImport = null,
     /// Extra reflected archives for multi-archive binding mirrors.
     extra_imports: []const AbiImport = &.{},
 };
@@ -134,7 +135,7 @@ fn addHeaderGen(
         .target = tgt,
         .optimize = opt,
     });
-    gen_mod.addImport(hg.import_name, hg.import_module);
+    if (hg.reflects) |imp| gen_mod.addImport(imp.name, imp.module);
     for (hg.extra_imports) |imp| gen_mod.addImport(imp.name, imp.module);
     gen_mod.addImport("iroh_sidecar_stub", support.iroh_sidecar_stub);
     gen_mod.addImport("webrtc_sidecar_stub", support.webrtc_sidecar_stub);
@@ -208,8 +209,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-locator",
             .write_desc = "Regenerate include/glowcap_locator.h from c_abi/shared/locator.zig",
             .generator = "tools/gen/header/locator.zig",
-            .import_name = "c_abi_shared",
-            .import_module = host_mods[layerIndex("c_abi_shared")],
+            .reflects = .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
         },
         .{
             .check_step_name = "gen-header-ocapn-check",
@@ -217,8 +217,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-ocapn",
             .write_desc = "Regenerate include/glowcap_ocapn.h from src/c_abi/ocapn",
             .generator = "tools/gen/header/ocapn.zig",
-            .import_name = "c_abi",
-            .import_module = host_mods[layerIndex("c_abi")],
+            .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
         },
         .{
             .check_step_name = "gen-header-host-check",
@@ -226,8 +225,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-host",
             .write_desc = "Regenerate include/glowcap_host.h from src/c_abi/host",
             .generator = "tools/gen/header/host.zig",
-            .import_name = "c_abi_host",
-            .import_module = host_abi_mod,
+            .reflects = .{ .name = "c_abi_host", .module = host_abi_mod },
         },
         .{
             .check_step_name = "gen-header-transport-provider-check",
@@ -235,8 +233,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-transport-provider",
             .write_desc = "Regenerate include/glowcap_transport_provider.h from c_abi/shared",
             .generator = "tools/gen/header/transport_provider.zig",
-            .import_name = "c_abi_shared",
-            .import_module = host_mods[layerIndex("c_abi_shared")],
+            .reflects = .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
         },
         .{
             .check_step_name = "gen-header-driver-check",
@@ -244,8 +241,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-driver",
             .write_desc = "Regenerate include/glowcap_driver.h from src/c_abi/driver",
             .generator = "tools/gen/header/driver.zig",
-            .import_name = "c_abi_driver",
-            .import_module = driver_abi_mod,
+            .reflects = .{ .name = "c_abi_driver", .module = driver_abi_mod },
         },
         .{
             .check_step_name = "gen-header-net-transport-tcp-check",
@@ -253,8 +249,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-net-transport-tcp",
             .write_desc = "Regenerate include/glowcap_net_transport_tcp.h from src/c_abi/net_transport/tcp",
             .generator = "tools/gen/header/net_tcp.zig",
-            .import_name = "c_abi_net_transport_tcp",
-            .import_module = reflected_archives.tcp,
+            .reflects = .{ .name = "c_abi_net_transport_tcp", .module = reflected_archives.tcp },
         },
         .{
             .check_step_name = "gen-header-net-transport-inproc-check",
@@ -262,8 +257,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-net-transport-inproc",
             .write_desc = "Regenerate include/glowcap_net_transport_inproc.h from src/c_abi/net_transport/inproc",
             .generator = "tools/gen/header/net_inproc.zig",
-            .import_name = "c_abi_net_transport_inproc",
-            .import_module = reflected_archives.inproc,
+            .reflects = .{ .name = "c_abi_net_transport_inproc", .module = reflected_archives.inproc },
         },
         .{
             .check_step_name = "gen-header-net-transport-relay-check",
@@ -271,8 +265,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-net-transport-relay",
             .write_desc = "Regenerate include/glowcap_net_transport_relay.h from src/c_abi/net_transport/relay",
             .generator = "tools/gen/header/net_relay.zig",
-            .import_name = "c_abi_net_transport_relay",
-            .import_module = reflected_archives.relay,
+            .reflects = .{ .name = "c_abi_net_transport_relay", .module = reflected_archives.relay },
         },
         .{
             .check_step_name = "gen-header-net-transport-onion-check",
@@ -280,8 +273,7 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-header-net-transport-onion",
             .write_desc = "Regenerate include/glowcap_net_transport_onion.h from src/c_abi/net_transport/onion",
             .generator = "tools/gen/header/net_onion.zig",
-            .import_name = "c_abi_net_transport_onion",
-            .import_module = reflected_archives.onion,
+            .reflects = .{ .name = "c_abi_net_transport_onion", .module = reflected_archives.onion },
         },
         .{
             .check_step_name = "gen-binding-host-action-check",
@@ -289,8 +281,17 @@ pub fn register(ctx: Context) void {
             .write_step_name = "gen-binding-host-action",
             .write_desc = "Regenerate binding HostAction decode/types from src/c_abi/host",
             .generator = "tools/gen/binding/host_action.zig",
-            .import_name = "c_abi_host",
-            .import_module = host_abi_mod,
+            .reflects = .{ .name = "c_abi_host", .module = host_abi_mod },
+        },
+        // The Rooms wire grammar reflects no archive: the declaration in the
+        // generator is the authority, and the Deno test holds it to the
+        // server's own readers.
+        .{
+            .check_step_name = "gen-rooms-protocol-check",
+            .check_desc = "Verify the Rooms protocol tables under apps/rooms/clients/*/ match tools/gen/rooms_protocol.zig (fails if stale)",
+            .write_step_name = "gen-rooms-protocol",
+            .write_desc = "Regenerate the Rooms protocol tables under apps/rooms/clients/*/ from tools/gen/rooms_protocol.zig",
+            .generator = "tools/gen/rooms_protocol.zig",
         },
     };
 
@@ -356,8 +357,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-header-net-transport-iroh",
         .write_desc = "Regenerate include/glowcap_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig",
         .generator = "tools/gen/header/iroh.zig",
-        .import_name = "c_abi_net_transport_iroh",
-        .import_module = iroh_abi_mod,
+        .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-iroh-sidecar-constants-check",
@@ -365,8 +365,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-iroh-sidecar-constants",
         .write_desc = "Regenerate the iroh sidecar's Rust constants from iroh transport policy and frame-stream policy",
         .generator = "tools/gen/iroh_sidecar_constants.zig",
-        .import_name = "iroh_policy",
-        .import_module = support.iroh_policy,
+        .reflects = .{ .name = "iroh_policy", .module = support.iroh_policy },
         .extra_imports = &.{
             .{ .name = "frame_stream", .module = support.frame_stream },
         },
@@ -377,8 +376,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-header-net-transport-webrtc",
         .write_desc = "Regenerate include/glowcap_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig",
         .generator = "tools/gen/header/webrtc.zig",
-        .import_name = "c_abi_net_transport_webrtc",
-        .import_module = webrtc_abi_mod,
+        .reflects = .{ .name = "c_abi_net_transport_webrtc", .module = webrtc_abi_mod },
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-webrtc-sidecar-constants-check",
@@ -386,8 +384,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-webrtc-sidecar-constants",
         .write_desc = "Regenerate the WebRTC sidecar's Rust constants from src/net/transport/webrtc.zig",
         .generator = "tools/gen/webrtc_sidecar_constants.zig",
-        .import_name = "webrtc",
-        .import_module = webrtc_resident_mod,
+        .reflects = .{ .name = "webrtc", .module = webrtc_resident_mod },
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-binding-rust-ffi-check",
@@ -395,8 +392,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-binding-rust-ffi",
         .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi (types reflected, names from the generated headers)",
         .generator = "tools/gen/binding/rust_ffi.zig",
-        .import_name = "c_abi_net_transport_iroh",
-        .import_module = iroh_abi_mod,
+        .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &ffi_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
@@ -405,8 +401,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-binding-racket-ffi",
         .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi (types reflected, wrapper argument names from the generated headers)",
         .generator = "tools/gen/binding/racket_ffi.zig",
-        .import_name = "c_abi_net_transport_iroh",
-        .import_module = iroh_abi_mod,
+        .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &ffi_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
@@ -415,8 +410,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-binding-python-ffi",
         .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi (types reflected; the sigs dicts are positional)",
         .generator = "tools/gen/binding/python_ffi.zig",
-        .import_name = "c_abi_net_transport_iroh",
-        .import_module = iroh_abi_mod,
+        .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &ffi_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
@@ -425,8 +419,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-binding-ffi-layouts",
         .write_desc = "Regenerate binding FFI layout facts from src/c_abi (every reflected archive)",
         .generator = "tools/gen/binding/ffi_layouts.zig",
-        .import_name = "c_abi",
-        .import_module = host_mods[layerIndex("c_abi")],
+        .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
         .extra_imports = &ffi_layout_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
@@ -435,8 +428,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-ts-abi",
         .write_desc = "Regenerate the TypeScript ABI mirror from src/c_abi (every reflected archive)",
         .generator = "tools/gen/binding/ts_abi.zig",
-        .import_name = "c_abi",
-        .import_module = host_mods[layerIndex("c_abi")],
+        .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
         .extra_imports = &ts_constants_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
@@ -445,8 +437,7 @@ pub fn registerMirrors(
         .write_step_name = "gen-binding-constants",
         .write_desc = "Regenerate binding ABI constants from src/c_abi (every reflected archive)",
         .generator = "tools/gen/binding/constants.zig",
-        .import_name = "c_abi",
-        .import_module = host_mods[layerIndex("c_abi")],
+        .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
         .extra_imports = &ts_constants_extra_imports,
     });
 }

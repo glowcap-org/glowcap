@@ -78,9 +78,13 @@ const ffi: RuntimeFfi = {
 
 	readMemory(ptr: Ptr, len: number): ArrayBuffer {
 		if (ptr === 0n || len === 0) return new ArrayBuffer(0);
-		const view = new D.UnsafePointerView(bridge.fromPtr(ptr));
-		// getArrayBuffer copies; slice keeps the result owned regardless.
-		return (view.getArrayBuffer(len) as ArrayBuffer).slice(0);
+		// One copy, straight from native memory into a buffer this side owns.
+		// `getArrayBuffer` would hand back a live view over the native bytes
+		// (as `writeMemory` below relies on), so a copy is what makes the
+		// result safe to keep past the call that lent the pointer.
+		const owned = new Uint8Array(len);
+		D.UnsafePointerView.copyInto(bridge.fromPtr(ptr), owned);
+		return owned.buffer;
 	},
 
 	writeMemory(ptr: Ptr, bytes: Uint8Array): void {

@@ -275,6 +275,17 @@ test "accept readiness uses the endpoint reservation before later settlement" {
     try std.testing.expect(completions[0].accepted_fd != null);
 }
 
+/// One iroh loop connection's adapter row: the sidecar handle beside the
+/// hinted try-I/O seats, hints, and terminal cause every multiplexed sidecar
+/// backend shares. No embedded list header, so the number holds in every
+/// build mode.
+const iroh_connection_state_bytes: usize = 64;
+
+test "iroh completion connection state has a measured footprint" {
+    const Backend = iroh.CompletionBackend(ScriptPlatform);
+    try std.testing.expectEqual(iroh_connection_state_bytes, Backend.connection_state_bytes);
+}
+
 export fn glowcap_iroh_sidecar_endpoint_new(_: ?*const [32]u8, _: *const anyopaque) callconv(.c) ?*anyopaque {
     return @ptrFromInt(1);
 }

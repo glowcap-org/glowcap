@@ -1,0 +1,235 @@
+{
+  "entropy": [
+    0,
+    17,
+    34,
+    51,
+    68,
+    85,
+    102,
+    119,
+    136,
+    153,
+    170,
+    187,
+    204,
+    221,
+    238,
+    255
+  ],
+  "called": [
+    {
+      "input": null,
+      "result": ""
+    },
+    {
+      "input": "",
+      "result": ""
+    },
+    {
+      "input": "garden",
+      "result": "garden"
+    },
+    {
+      "input": 42,
+      "result": ""
+    },
+    {
+      "input": true,
+      "result": ""
+    },
+    {
+      "input": {
+        "capability": true
+      },
+      "result": ""
+    },
+    {
+      "input": [
+        {
+          "capability": true
+        }
+      ],
+      "result": ""
+    }
+  ],
+  "privacy": [
+    {
+      "input": true,
+      "result": true
+    },
+    {
+      "input": false,
+      "result": false
+    },
+    {
+      "input": "private",
+      "result": true
+    },
+    {
+      "input": "listed",
+      "result": false
+    },
+    {
+      "input": "",
+      "result": false
+    },
+    {
+      "input": "secret",
+      "error": true
+    },
+    {
+      "input": 1,
+      "error": true
+    },
+    {
+      "input": 0,
+      "error": true
+    },
+    {
+      "input": null,
+      "error": true
+    },
+    {
+      "input": {
+        "capability": true
+      },
+      "error": true
+    },
+    {
+      "input": [
+        true
+      ],
+      "error": true
+    }
+  ],
+  "policies": [
+    {
+      "input": null,
+      "error": true
+    },
+    {
+      "input": [],
+      "error": true
+    },
+    {
+      "input": [
+        "listed",
+        "open",
+        "open"
+      ],
+      "result": {
+        "visibility": "listed",
+        "entry": "open",
+        "speaking": "open"
+      }
+    },
+    {
+      "input": [
+        "listed",
+        "open",
+        "moderated"
+      ],
+      "result": {
+        "visibility": "listed",
+        "entry": "open",
+        "speaking": "moderated"
+      }
+    },
+    {
+      "input": [
+        "secret",
+        "invite-only",
+        "moderated"
+      ],
+      "result": {
+        "visibility": "secret",
+        "entry": "invite-only",
+        "speaking": "moderated"
+      }
+    },
+    {
+      "input": [
+        "secret",
+        "open",
+        "open"
+      ],
+      "error": true
+    },
+    {
+      "input": [
+        "listed",
+        "open"
+      ],
+      "error": true
+    },
+    {
+      "input": [
+        "listed",
+        "open",
+        "open",
+        "extra"
+      ],
+      "error": true
+    },
+    {
+      "input": [
+        "listed",
+        "open",
+        {
+          "capability": true
+        }
+      ],
+      "error": true
+    }
+  ],
+  "calls": [
+    {
+      "target": "seat",
+      "verb": "mintInvitation",
+      "args": [
+        "observer"
+      ]
+    },
+    {
+      "target": "invitation",
+      "verb": "claimInvitation",
+      "args": [
+        "00112233445566778899aabbccddeeff"
+      ]
+    },
+    {
+      "target": "invitation",
+      "verb": "claimInvitation",
+      "args": [
+        "00112233445566778899aabbccddeeff"
+      ]
+    },
+    {
+      "target": "seat",
+      "verb": "mintInvitation",
+      "args": [
+        "participant"
+      ]
+    },
+    {
+      "target": "seat",
+      "verb": "leave",
+      "args": []
+    },
+    {
+      "target": "invitation",
+      "verb": "claimInvitation",
+      "args": [
+        "00112233445566778899aabbccddeeff"
+      ]
+    },
+    {
+      "target": "invitation",
+      "verb": "claimInvitation",
+      "args": [
+        "00112233445566778899aabbccddeeff"
+      ]
+    }
+  ]
+}

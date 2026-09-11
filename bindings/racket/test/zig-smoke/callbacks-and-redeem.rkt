@@ -178,6 +178,45 @@
 (kill-thread up-thread)
 (server-close! up-server)
 
+;; Retained durable entropy restores the same swiss name after reconstructing
+;; a Host from the same seed, refuses a live collision without retaining a
+;; second trampoline, and refuses the wrong width before minting anything.
+(define de-seed (make-bytes 32 7))
+(define de-entropy (make-bytes HOST-DURABLE-ENTROPY-LEN 3))
+(define de-host (make-host de-seed))
+(define de-name (host-publish-durable de-host (lambda _ (void)) de-entropy))
+(define de-keep (hash-count (host-keep de-host)))
+(define de-collision
+  (with-handlers ([exn:fail:glowcap? values])
+    (host-publish-durable de-host (lambda _ (void)) de-entropy)))
+(expect (exn:fail:glowcap? de-collision)
+        "durable-entropy: a live name with the same entropy is refused")
+(expect (= de-keep (hash-count (host-keep de-host)))
+        "durable-entropy: refused publish does not retain a second trampoline")
+(define de-short
+  (with-handlers ([exn:fail:glowcap? values])
+    (host-publish-durable de-host (lambda _ (void)) (make-bytes 1 0))))
+(expect (and (exn:fail:glowcap? de-short)
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code de-short))
+             (= de-keep (hash-count (host-keep de-host))))
+        "durable-entropy: the wrong width is refused before minting a trampoline")
+(expect (host-remove-durable de-host de-name)
+        "durable-entropy: remove the live name")
+(expect (equal? de-name (host-publish-durable de-host (lambda _ (void)) de-entropy))
+        "durable-entropy: the same entropy restores the same name after remove")
+(host-close! de-host)
+(define de-restored (make-host de-seed))
+(expect (equal? de-name (host-publish-durable de-restored (lambda _ (void)) de-entropy))
+        "durable-entropy: the same seed and entropy restore the name")
+(define de-other
+  (host-publish-durable de-restored (lambda _ (void))
+                        (make-bytes HOST-DURABLE-ENTROPY-LEN 4)))
+(expect (not (equal? de-other de-name))
+        "durable-entropy: different entropy mints a different name")
+(host-close! de-restored)
+
+(printf "racket zig-smoke OK: retained durable entropy restores names and refuses live collisions\n")
+
 ;; ── A redeem dial must not park the host ──────────────────────────────────────
 ;; The recipient half of a three-party handoff opens its own socket to the
 ;; exporter (a DIAL action). A dial is a connect syscall plus a whole keyed

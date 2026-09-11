@@ -9,7 +9,7 @@
 import { useMemo } from "react";
 import { useRoomsState, useSessionPaused } from "../hooks.ts";
 import { NO_MEMBERS } from "../store/core.ts";
-import { MAX_NICK } from "../../../lib/limits.ts";
+import { MAX_NICK } from "../limits.ts";
 import { Avatar, PresenceAvatar } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";

@@ -64,6 +64,14 @@ extern "C" {
 #define GLOWCAP_IROH_EV_ACCEPT 8u
 #define GLOWCAP_IROH_EV_CONNECT 16u
 
+/* Bound on the text either connect surface reports for one failed dial:
+ * iroh's own account of the fault beside the dial code, so an embedder learns
+ * which relay refused, which address stayed silent, or what the QUIC close
+ * reason was, not only "unreachable". The sidecar keeps at most this many
+ * bytes per failed dial, cut at the last whole UTF-8 sequence that fits; a
+ * caller buffer of this size never sees a truncated copy. */
+#define GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES 256u
+
 /* One drained readiness record. subject is 0 for EV_ACCEPT, the caller request
  * id for EV_CONNECT, and otherwise glowcap_iroh_sidecar_conn_id(conn). The Zig
  * resident reads the identical layout, so this struct is kept in lockstep with
@@ -153,13 +161,25 @@ intptr_t glowcap_iroh_sidecar_endpoint_direct_addrs(const glowcap_iroh_sidecar_e
  * `out_code` (when non-NULL) receives a dial classification: 0 on success,
  * then on failure 1 = invalid (malformed id/hint), 2 = timed out, 3 =
  * unreachable (the QUIC connection could not be established), 4 = lost (up,
- * then the stream failed). iroh has no connection-refused: a dead port never
- * answers, so it times out. */
+ * then the stream failed), 8 = endpoint closed, 9 = refused (the partner or
+ * this endpoint rejected the handshake). iroh has no connection-refused for
+ * a dead port: it never answers, so the dial times out.
+ *
+ * `out_text` / `out_text_cap` / `out_text_len` carry the failure's text, the
+ * same bytes the evented finish call reports: on failure the longest whole
+ * UTF-8 prefix that fits `out_text_cap` is copied into `out_text` and its
+ * byte count written to `out_text_len` (no terminator); on success the count
+ * is 0. A NULL `out_text` with a zero capacity declines the text, and a NULL
+ * `out_text_len` declines the count. Size the buffer by
+ * GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES to receive every retained byte. The
+ * text may be empty when the code is the whole fact. Nothing is retained
+ * after this call returns. */
 glowcap_iroh_sidecar_conn *glowcap_iroh_sidecar_connect_blocking(
     glowcap_iroh_sidecar_endpoint *ep,
     const uint8_t *node_id, size_t node_id_len,
     const uint8_t *addr_hints, size_t addr_hints_len,
-    int32_t *out_code);
+    int32_t *out_code,
+    uint8_t *out_text, size_t out_text_cap, size_t *out_text_len);
 
 /* Wait at most timeout_ms for a partner connection and first bidirectional
  * stream. Returns only after the dialer has written its first bytes (QUIC bi
@@ -240,10 +260,27 @@ int32_t glowcap_iroh_sidecar_endpoint_start_connect(
 
 /* Consume one terminal dial result after EV_CONNECT. On success, writes one
  * owned connection to out_conn. Returns 0 on success, 1 invalid, 2 timed out,
- * 3 unreachable, 4 lost, 5 canceled, or 6 if called before completion. */
+ * 3 unreachable, 4 lost, 5 canceled, 6 if called before completion, 8 if the
+ * endpoint is already closed, or 9 if the partner or this endpoint refused the
+ * handshake.
+ *
+ * `out_text` / `out_text_cap` / `out_text_len` receive the failure's text,
+ * which the endpoint retained beside the code from the moment the dial
+ * failed: iroh's own account of the fault (its error and source chain on one
+ * line), or for a local deadline the deadline it missed. On a failure the
+ * longest whole UTF-8 prefix that fits `out_text_cap` is copied into
+ * `out_text` and its byte count written to `out_text_len` (no terminator); on
+ * success, for a pending request, and for an unknown request the count is 0.
+ * A NULL `out_text` with a zero capacity declines the text, and a NULL
+ * `out_text_len` declines the count. Size the buffer by
+ * GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES to receive every retained byte. The
+ * text may be empty when the code is the whole fact (a canceled dial). The
+ * retained text dies with the request's row, on this call or on endpoint
+ * release, whether or not the caller took it. */
 int32_t glowcap_iroh_sidecar_endpoint_finish_connect(
     glowcap_iroh_sidecar_endpoint *ep, size_t request_id,
-    glowcap_iroh_sidecar_conn **out_conn);
+    glowcap_iroh_sidecar_conn **out_conn,
+    uint8_t *out_text, size_t out_text_cap, size_t *out_text_len);
 
 /* Cancel an admitted dial. The winning pending-to-canceled transition emits
  * the request's sole EV_CONNECT; canceling a terminal request is idempotent. */

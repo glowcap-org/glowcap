@@ -12,7 +12,7 @@
 // facts and only one of them survives you stepping out.
 
 import { type ReactNode, useState } from "react";
-import { MAX_AWAY, PLAIN_AWAY } from "../../lib/limits.ts";
+import { MAX_AWAY, PLAIN_AWAY } from "./limits.ts";
 import { MenuLayer, MenuList, MenuRow, useMenu } from "./Menu.tsx";
 
 /** What to call a standing on the control itself: the word somebody wrote, or a

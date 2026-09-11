@@ -280,8 +280,7 @@ pub const Adapter = struct {
     }
 
     fn cancelDial(owner: *anyopaque, attempt: *anyopaque) ?foundation.FailureChain {
-        const self = of(owner);
-        return self.callStreamCancel(self.table.cancel_connect.?, attempt, "stream cancel_connect");
+        return of(owner).cancelDialHandle(attempt);
     }
 
     fn cancelDialHandle(self: *Adapter, attempt: *anyopaque) ?foundation.FailureChain {

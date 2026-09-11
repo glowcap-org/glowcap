@@ -5,6 +5,7 @@ const std = @import("std");
 
 const model = @import("model");
 const driver_core = @import("driver_core");
+const lifecycle = @import("lifecycle.zig");
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
 const Budget = driver_core.Budget;
@@ -74,6 +75,10 @@ pub fn Vocabulary(
             /// Recipient only for failures produced after deterministic return
             /// ownership is gone. Explicit close barriers return their failure.
             unhandled_failure: ?FailureObserver = null,
+            /// Which face drives the runtime. The native blocking tier is the
+            /// default; a step-driven embedder chooses `.stepped` here, with
+            /// its recipients, and the readiness set exists from `init` on.
+            drive: lifecycle.DriveOptions = .blocking,
         };
 
         /// Runtime-only controls for adopting an existing byte-fed Host. Core
@@ -84,6 +89,8 @@ pub fn Vocabulary(
             handshake: Budget,
             listener_setup: Budget = .{ .ms = default_listener_setup_ms },
             settle: Budget,
+            /// As `Options.drive`; the loop archive adopts a Host stepped.
+            drive: lifecycle.DriveOptions = .blocking,
         };
 
         pub const ProviderRegistrationError = std.mem.Allocator.Error || Error || driver_core.HostError || error{

@@ -1,4 +1,4 @@
-//! Hostile-bytes fuzzing of identity-route admission.
+//! Untrusted-bytes fuzzing of identity-route admission.
 //!
 //! An `id` locator's `via` and `alt-locators` hints are route lists a partner
 //! wrote: they arrive in a peer's handshake and inside a handoff naming a

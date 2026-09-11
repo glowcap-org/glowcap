@@ -74,13 +74,8 @@ const DeclaredDeferredFfi = struct {
 const declared_deferred_ffi = [_]DeclaredDeferredFfi{
     .{
         .binding = "rust",
-        .symbol = "glowcap_host_session_feed_packet",
-        .reason = "Rust wires only byte-stream host sessions today; message-framed host packets are owned by shared C ABI and TS WebRTC until a Rust message-framed transport frontend ships.",
-    },
-    .{
-        .binding = "rust",
-        .symbol = "glowcap_host_session_take_packet",
-        .reason = "Rust wires only byte-stream host sessions today; message-framed host packets are owned by shared C ABI and TS WebRTC until a Rust message-framed transport frontend ships.",
+        .symbol = "glowcap_host_session_take_outbound",
+        .reason = "Rust uses take_packet for both stream and message transports. The reflected C ABI retains the narrower stream-only entry for its other consumers.",
     },
 };
 
@@ -543,23 +538,44 @@ pub fn checkIrohAcceptQueueBound(
     });
 }
 
+/// The sidecar crates held to exact pins and a committed lockfile. The iroh
+/// sidecar wraps an external network stack (ADR-0055); the shared runtime
+/// crate carries the tokio pin both sidecars build against and is tested on
+/// its own with `--locked`.
+const pinned_sidecar_crates = [_]struct { manifest: []const u8, lockfile: []const u8 }{
+    .{ .manifest = "transports/iroh/Cargo.toml", .lockfile = "transports/iroh/Cargo.lock" },
+    .{ .manifest = "transports/sidecar-common/Cargo.toml", .lockfile = "transports/sidecar-common/Cargo.lock" },
+};
+
 /// ADR-0055 commits the sidecar to reproducible dependency resolution: the
-/// crate wraps an external network stack, so `transports/iroh/Cargo.lock` is
-/// checked in and every direct dependency in its `Cargo.toml` is pinned to an
-/// exact `=x.y.z` version, making an intentional bump visible in the manifest
-/// rather than only in the lockfile. This check holds both halves so the
+/// crate's `Cargo.lock` is checked in and every direct dependency in its
+/// `Cargo.toml` is pinned to an exact `=x.y.z` version, making an intentional
+/// bump visible in the manifest rather than only in the lockfile. This check
+/// holds both halves for every crate in `pinned_sidecar_crates`, so the
 /// discipline cannot drift off silently when a dependency is added or edited.
-pub fn checkIrohSidecarPins(
+pub fn checkSidecarPins(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    root.access(io, "transports/iroh/Cargo.lock", .{}) catch {
-        try appendViolation(gpa, violations, "transports/iroh/Cargo.lock: missing, the sidecar lockfile is deliberately committed (ADR-0055) so iroh gates resolve the same dependency tree on every machine", .{});
+    for (pinned_sidecar_crates) |sidecar| {
+        try checkCratePins(io, gpa, root, violations, sidecar.manifest, sidecar.lockfile);
+    }
+}
+
+fn checkCratePins(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    manifest_path: []const u8,
+    lockfile_path: []const u8,
+) !void {
+    root.access(io, lockfile_path, .{}) catch {
+        try appendViolation(gpa, violations, "{s}: missing, the sidecar lockfile is deliberately committed (ADR-0055) so its gates resolve the same dependency tree on every machine", .{lockfile_path});
     };
 
-    const manifest_path = "transports/iroh/Cargo.toml";
     const contents = root.readFileAlloc(io, manifest_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for sidecar pin check with {s}", .{ manifest_path, @errorName(err) });
         return;

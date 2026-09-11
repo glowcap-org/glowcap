@@ -31,6 +31,7 @@ pub const HostFailure = struct {
 
             error.CapabilityRouteUnavailable,
             error.NoSuchVow,
+            error.NoSuchResolver,
             error.UnknownCapability,
             error.UnknownPublication,
             => .not_found,

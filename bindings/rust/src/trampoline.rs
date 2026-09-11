@@ -5,7 +5,7 @@
 //! proxy, a host-wide giftable — shares a single process-lifetime
 //! `GlowcapHostBehavior` whose ctx is a [`Box<ActorCell>`] raw pointer;
 //! `GlowcapHostCtxFree` re-boxes and drops it exactly once when the Host tears
-//! the object down at Host release, so there is no keep table and
+//! the retired object down, so there is no callback index and
 //! no leak. Settlements never cross the C boundary as callbacks; they ride the
 //! action queue (SETTLE/FAIL, `crate::host`).
 //!
@@ -30,11 +30,13 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::host::{check_host, host_last_error};
-use crate::promise::CmdTarget;
+use crate::host::host_last_error;
 use crate::session_shared::{Caretaker, SessionShared};
 use crate::sys::host as ffi;
 use crate::{args_from_sys, sys, Argument, Error, Ref, Result, SendArena};
+
+mod registration;
+pub(crate) use registration::register_actor_cell;
 
 /// What one turn of a hosted behavior produced: a plain reply value, a
 /// tail-forward of the answer to another reference (ADR-0064), or a broken
@@ -104,7 +106,7 @@ pub(crate) fn attenuate_proxy(shared: &Rc<SessionShared>, target: &Ref, verbs: &
 	shared.spawn_actor(behavior)
 }
 
-/// One hosted object's behavior. Its identity and local-composition index live
+/// One hosted object's behavior. Its identity and lifetime live
 /// on the Host; the Port delivering a wire turn is supplied by the feed bracket.
 /// Owned by the Host row: `ctx = Box::into_raw`, freed exactly once by
 /// [`ctx_free`] when the Host tears the object down.
@@ -112,6 +114,9 @@ pub(crate) struct ActorCell {
 	pub(crate) behavior: RefCell<InternalBehavior>,
 	pub(crate) context: Rc<crate::ContextInner>,
 	pub(crate) diagnostic_id: u64,
+	// One pointer, no additional allocation. Non-null only during the
+	// synchronous registration call; ctx_free acknowledges actual retirement.
+	pub(crate) registration: Cell<*const Cell<bool>>,
 }
 
 // What a hosted callback reads as the arriving deliver context. The byte-fed
@@ -210,44 +215,23 @@ pub(crate) fn current_turn_for(host_key: usize) -> Option<*mut ffi::GlowcapHostT
 	})
 }
 
-/// Whether ANY hosted turn is running — a wire-delivered turn under the host's
-/// callback latch, or a locally-run behavior under [`LocalRunGuard`]. The drain
-/// defers while one is (the host refuses the driving verbs inside a callback;
-/// everything enqueued pumps when the enclosing call unwinds), and a connection
-/// or host release parks instead of freeing the `ActorCell` whose behavior
-/// frame is still on the stack.
+/// The actual session delivering the current behavior, as a non-owning view.
+/// Read this during the synchronous callback and retain the returned view for
+/// later replies. Dropping it does not close the Host's shared connection.
+/// Outside a callback, or for an internal route without an application session
+/// wrapper, this returns None. Local turns can carry an explicit session too:
+/// this projects turn context, not proof that a message arrived over the wire.
+/// It never substitutes the session that originally published the actor.
+pub fn current_session() -> Result<Option<crate::Session>> {
+	let turn = CURRENT_TURN.with(|current| current.get().map(|(turn, _)| turn));
+	let Some(turn) = turn else { return Ok(None) };
+	Ok(turn_session(turn as *mut ffi::GlowcapHostTurn)?.map(crate::Session::view))
+}
+
+/// Whether a native Host callback is running. Local and remote calls share
+/// the same turn latch; teardown and action pumping wait for its unwind.
 pub(crate) fn inside_turn() -> bool {
-	CURRENT_TURN.with(|t| t.get().is_some()) || LOCAL_RUN_DEPTH.with(|d| d.get() > 0)
-}
-
-// How many locally-run behavior frames are on this thread's stack. A local
-// send/tell to a self-hosted object runs its behavior with no host turn, so the
-// wire path's `TurnGuard` latch never engages; this sibling marker makes
-// `inside_turn()` true for the run's duration without minting a fake turn
-// pointer (which `current_turn_for` could hand to a turn verb).
-thread_local! {
-	static LOCAL_RUN_DEPTH: Cell<usize> = const { Cell::new(0) };
-}
-
-/// Marks a locally-run behavior (`SessionShared::run_hosted`) for its synchronous
-/// duration, so a behavior that closes or drops its own captured `Session`
-/// parks the release — `close_transport`'s immediate arm would free the
-/// `Box<ActorCell>` whose `behavior.borrow_mut()` frame is still running. The
-/// caller drains the parked releases right after this drops, mirroring the
-/// feed path.
-pub(crate) struct LocalRunGuard;
-
-impl LocalRunGuard {
-	pub(crate) fn enter() -> LocalRunGuard {
-		LOCAL_RUN_DEPTH.with(|d| d.set(d.get() + 1));
-		LocalRunGuard
-	}
-}
-
-impl Drop for LocalRunGuard {
-	fn drop(&mut self) {
-		LOCAL_RUN_DEPTH.with(|d| d.set(d.get() - 1));
-	}
+	CURRENT_TURN.with(|t| t.get().is_some())
 }
 
 // Sets the turn context for one callback and restores the previous one on
@@ -279,92 +263,6 @@ thread_local! {
 	static LAST_REPLY_KEEP: RefCell<Option<(Argument, SendArena)>> = const { RefCell::new(None) };
 }
 
-/// Chase a behavior outcome through the locally hosted `Forward` prefix:
-/// while it forwards to a near target this session hosts, run that
-/// behavior in the same turn (a caretaker over an attenuator composes
-/// exactly as it does over the wire). Returns the terminal — a `Value`, a
-/// `Break`, or the first `Forward` whose target is not hosted here, which
-/// each caller defers its own way: the trampoline through the host's
-/// turn-forward, `send` onto the forwarded send's wire reply, `tell` as a
-/// far tell. Shared by the wire trampoline and `Session`'s local send arm.
-pub(crate) fn chase_local_forwards(session: &SessionShared, mut outcome: TurnOutcome) -> TurnOutcome {
-	// The wire path defers each hop onto a fresh turn, so a forward cycle
-	// there loops asynchronously; the local chase runs hops synchronously
-	// and must bound them, or a caretaker forwarding to itself spins this
-	// loop forever. Legitimate proxy chains are a handful deep.
-	const MAX_LOCAL_FORWARD_HOPS: usize = crate::abi_constants::MAX_LOCAL_FORWARD_HOPS;
-	let mut hops = 0usize;
-	loop {
-		let TurnOutcome::Forward { target, verb, args } = outcome else {
-			return outcome;
-		};
-		hops += 1;
-		if hops > MAX_LOCAL_FORWARD_HOPS {
-			return TurnOutcome::Break(crate::abi_constants::FORWARD_CYCLE_MESSAGE.to_string());
-		}
-		let hosted = session.hosted_cell(target.id());
-		let Some(cell) = hosted else {
-			return TurnOutcome::Forward { target, verb, args };
-		};
-		// The cell is host-owned and alive while its Host is
-		// unreleased; the hosted table is cleared before the release that
-		// frees it.
-		let cell = unsafe { &*cell };
-		outcome = (cell.behavior.borrow_mut())(&verb, &args);
-	}
-}
-
-/// Run the hosted behavior at `ref_id` and chase its Forward prefix, or
-/// `None` when this side does not host it — the one lookup/run/chase prefix
-/// under the local send and tell arms.
-pub(crate) fn run_hosted(shared: &SessionShared, ref_id: u64, verb: &str, args: &[Argument]) -> Option<TurnOutcome> {
-	let cell = shared.hosted_cell(ref_id)?;
-	let outcome = {
-		// The local-turn marker: a behavior that closes (or drops) its own
-		// captured `Session` mid-run would otherwise take
-		// `close_transport`'s immediate-release arm and free this very
-		// cell's `Box<ActorCell>` while its `behavior.borrow_mut()` frame
-		// is still on the stack. With the marker, `inside_turn()` is true
-		// and the release parks, exactly as on the wire path's `TurnGuard`.
-		let _guard = LocalRunGuard::enter();
-		let first = {
-			let cell = unsafe { &*cell };
-			(cell.behavior.borrow_mut())(verb, args)
-		};
-		chase_local_forwards(shared, first)
-	};
-	// The marker dropped before anything can await (the callers' own
-	// Forward-to-far send comes after this returns): run the parked
-	// releases and kick the drain, mirroring the feed path.
-	crate::finalizer::drain();
-	if let Err(error) = shared.host.schedule_kick() {
-		shared.host.fail_pending_vows(error.code(), &error.to_string());
-	}
-	Some(outcome)
-}
-
-/// The local arm of `send`, run on first observation: a `Forward` to another
-/// object this side hosts composes in process; a `Forward` to a far target
-/// defers the answer onto the forwarded send's reply (ADR-0064); a behavior
-/// error breaks with its own words, as over the wire.
-pub(crate) async fn run_local_send(
-	shared: Rc<SessionShared>,
-	ref_id: u64,
-	verb: String,
-	args: Vec<Argument>,
-) -> Result<Argument> {
-	let Some(outcome) = run_hosted(&shared, ref_id, &verb, &args) else {
-		return Err(Error::broken("no such hosted object".to_string()));
-	};
-	match outcome {
-		TurnOutcome::Value(value) => Ok(value),
-		TurnOutcome::Break(message) => Err(Error::broken(message)),
-		TurnOutcome::Forward { target, verb, args } => {
-			crate::promise::send_promise(&shared, CmdTarget::reference(target), &verb, &args).await
-		}
-	}
-}
-
 // Break this turn's answer with the actor's own diagnostic and return the code
 // the trampoline hands back (OK: the break already settled the answer).
 fn turn_break(turn: *mut ffi::GlowcapHostTurn, message: &str) -> i32 {
@@ -377,21 +275,9 @@ fn turn_break(turn: *mut ffi::GlowcapHostTurn, message: &str) -> i32 {
 }
 
 // Resolve a behavior's outcome into the turn's answer: a plain value marshals
-// into the reply slot; a `Forward` composes in process when this side hosts
-// the target, else defers through the host's turn-forward; a `Break` settles
+// into the reply slot; every `Forward` uses the Host's turn-forward; a `Break` settles
 // the answer broken with the behavior's own words.
-fn settle_reply(
-	session: Option<&SessionShared>,
-	turn: *mut ffi::GlowcapHostTurn,
-	outcome: TurnOutcome,
-	out_reply: *mut sys::GlowcapArgument,
-) -> i32 {
-	// The locally hosted Forward prefix runs in this same turn through the Host
-	// index reached by the arriving Session.
-	let outcome = match session {
-		Some(session) => chase_local_forwards(session, outcome),
-		None => outcome,
-	};
+fn settle_reply(turn: *mut ffi::GlowcapHostTurn, outcome: TurnOutcome, out_reply: *mut sys::GlowcapArgument) -> i32 {
 	match outcome {
 		TurnOutcome::Break(message) => turn_break(turn, &message),
 		TurnOutcome::Forward { target, verb, args } => {
@@ -400,7 +286,7 @@ fn settle_reply(
 			// pinned until the call returns.
 			let wire = match target.to_sys() {
 				Ok(wire) => wire,
-				Err(_) => return turn_break(turn, "forward target is not sendable"),
+				Err(error) => return turn_break(turn, &error.to_string()),
 			};
 			let mut arena = SendArena::default();
 			let (args_ptr, args_len) = match arena.build(&args) {
@@ -448,10 +334,12 @@ unsafe fn trampoline_body(
 	}
 	let cell = &*(ctx as *const ActorCell);
 	// A zero-length verb is the positional call (the Goblins methodless shape).
-	let verb = if verb_len == 0 || verb.is_null() {
-		String::new()
+	// The verb bytes outlive this callback, so valid UTF-8 is borrowed as is
+	// and only a malformed verb pays an owned repair.
+	let verb: std::borrow::Cow<'_, str> = if verb_len == 0 || verb.is_null() {
+		std::borrow::Cow::Borrowed("")
 	} else {
-		String::from_utf8_lossy(core::slice::from_raw_parts(verb, verb_len)).into_owned()
+		String::from_utf8_lossy(core::slice::from_raw_parts(verb, verb_len))
 	};
 	// The one owned lift per deliver: the borrowed C args become owned Rust
 	// values before any behavior code can run.
@@ -473,7 +361,7 @@ unsafe fn trampoline_body(
 	let host_key = active_deliver_host_key();
 	let _guard = TurnGuard::enter(turn, host_key);
 	let outcome = (cell.behavior.borrow_mut())(&verb, &args);
-	settle_reply(session.as_deref(), turn, outcome, out_reply)
+	settle_reply(turn, outcome, out_reply)
 }
 
 /// The one shared `GlowcapHostBehavior` in the process. A panic in the
@@ -503,14 +391,18 @@ pub(crate) unsafe extern "C" fn trampoline(
 }
 
 /// The ctx-free sibling: re-box and drop the [`ActorCell`] the registration
-/// handed the host. Runs exactly once per row that took ownership, at Host
-/// release; it calls no `glowcap_host_*` function, and a
+/// handed the host. Runs once when the native Vat reclaims the retired actor
+/// or the Host closes; it calls no `glowcap_host_*` function, and a
 /// panicking drop is swallowed rather than unwound across the C frame.
 pub(crate) unsafe extern "C" fn ctx_free(ctx: *mut core::ffi::c_void) {
 	if ctx.is_null() {
 		return;
 	}
 	let cell = Box::from_raw(ctx as *mut ActorCell);
+	let receipt = cell.registration.get();
+	if !receipt.is_null() {
+		(*receipt).set(true);
+	}
 	let context = Rc::clone(&cell.context);
 	let diagnostic_id = cell.diagnostic_id;
 	if let Err(error) = drop_actor_cell(cell) {
@@ -530,35 +422,26 @@ fn drop_actor_cell(cell: Box<ActorCell>) -> Result<()> {
 		.map_err(|payload| Error::with_detail(sys::ERR_INTERNAL, crate::panic_message(payload.as_ref())))
 }
 
-/// Reclaim a registration's cell when the minting call refused it without
-/// taking ownership (a null-pointer or reentry refusal, per the header's
-/// publish/spawn contract); any later failure already ran [`ctx_free`].
-pub(crate) unsafe fn reclaim_refused_cell(code: i32, cell: *mut ActorCell) -> Result<()> {
-	if code == sys::ERR_NULL_POINTER || code == sys::ERR_INVALID_ARGUMENT {
-		return drop_actor_cell(Box::from_raw(cell));
-	}
-	Ok(())
-}
-
 /// Spawn a hosted object from INSIDE a turn — the turn-time form the host
 /// allows where the top-level spawn is refused. Returns its opaque Host id; on
 /// a refusal that left ctx ours the cell is
 /// reclaimed.
 pub(crate) fn turn_spawn(turn: *mut ffi::GlowcapHostTurn, cell: *mut ActorCell) -> Result<u64> {
 	let mut reference = sys::GlowcapReference { id: 0 };
-	let rc = unsafe {
-		ffi::glowcap_host_turn_spawn(
-			turn,
-			trampoline,
-			cell as *mut core::ffi::c_void,
-			ctx_free,
-			&mut reference,
-		)
-	};
-	if rc != sys::OK {
-		let primary = check_host(rc).unwrap_err();
-		let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
-		return Err(crate::retain_cleanup_failure(primary, cleanup));
+	unsafe {
+		register_actor_cell(
+			cell,
+			|| {
+				ffi::glowcap_host_turn_spawn(
+					turn,
+					trampoline,
+					cell as *mut core::ffi::c_void,
+					ctx_free,
+					&mut reference,
+				)
+			},
+			|code| code == sys::OK,
+		)?;
 	}
 	Ok(reference.id)
 }

@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Button } from "../Button.tsx";
 import { CopyField } from "../Copy.tsx";
 import type { ArchiveTargetView } from "../archive_model.ts";
-import { useRoomsBrowser } from "../controller/browser.ts";
+import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsState } from "../hooks.ts";
 import { useOpenModal } from "../modal.ts";
@@ -16,7 +16,7 @@ import { CapabilitySetForm } from "./CapabilitySet.tsx";
 import { ArchiveHolding } from "./History.tsx";
 import { IssuedArchiveShares } from "./ArchiveShares.tsx";
 import { SessionAccessModal } from "./SessionAccess.tsx";
-import { sharedRoomsSession } from "../../../lib/rooms_state.ts";
+import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 
 export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }) {
 	const browser = useRoomsBrowser();
@@ -26,7 +26,7 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 	const [accessOpen, setAccessOpen] = useState(false);
 	const rooms = [...convs.values()].filter((conv): conv is RoomConv => conv.type === "room");
 	const savedRooms = rooms.filter((room) => room.link != null || room.manager != null || room.steward != null);
-	const controller = browser.roomsController();
+	const controller = useRoomsController();
 	const shared = sharedRoomsSession(controller);
 	// Opening a saved room may have to reach it first, and until it does this
 	// button was the one control here that said nothing at all: the press

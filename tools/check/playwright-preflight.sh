@@ -19,6 +19,8 @@ browsers="${PLAYWRIGHT_BROWSERS_PATH:-${HOME}/.cache/ms-playwright}"
 
 # shellcheck disable=SC1091
 source "${root}/.devcontainer/pins.sh"
+# shellcheck disable=SC1091
+source "${root}/.devcontainer/lib/playwright.sh"
 
 # Only Playwright can say which directory a given version looks in, so ask it
 # rather than restating the build-number mapping here. Resolution runs through
@@ -31,15 +33,15 @@ fi
 
 shopt -s nullglob
 present=("${browsers}"/chromium-*)
-any_chrome=("${browsers}"/chromium-*/chrome-linux/chrome)
 shopt -u nullglob
 
 if [[ -n "${expected}" ]]; then
     [[ -x "${expected}" ]] && exit 0
-elif [[ "${#any_chrome[@]}" -gt 0 ]]; then
-    # No deno, so the best this can ask is whether any Chromium is present. That
-    # cannot tell a stale image from a current one, and the caller finds out
-    # from Playwright instead.
+elif glowcap_playwright_binaries "${browsers}"; then
+    # No deno, so the best this can ask is whether one Chromium and one
+    # headless shell are present, through the same resolver the image verifier
+    # uses. That cannot tell a stale image from a current one, and the caller
+    # finds out from Playwright instead.
     exit 0
 fi
 

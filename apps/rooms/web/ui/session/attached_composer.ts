@@ -10,37 +10,32 @@ import { pickedSource } from "../file_source.ts";
 import { draftWithMention, recalledDraft } from "../composer/draft.ts";
 import type { PageProjection } from "../store/core.ts";
 import type { CommandPowers } from "../commands.ts";
-import { isSessionConv } from "../types.ts";
-
-const DRAFT_SAVE_DELAY_MS = 150;
+import { isSessionConv, type SessionConv } from "../types.ts";
 
 export function attachedComposerActions(
 	projection: PageProjection,
 	controller: AttachedRoomsController,
 	powers: CommandPowers,
-	onFailure: (error: unknown) => void,
+	reportFailure: (error: unknown) => void,
+	recoverSends = false,
 ): Pick<RoomsSessionController, "setDraft" | "send" | "mention" | "recallLastSent"> & {
 	retireConversation(conversationId: string): void;
 	retireDirectory(directoryId: string): void;
+	retry(key: string, id: number): void;
 } {
-	let draftRevision = 0;
-	const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	const onFailure = (error: unknown): void => {
+		if (!controller.closed) reportFailure(error);
+	};
 	const setLocalDraft = (
 		conversationId: string | null,
 		text: string,
 		persist: boolean,
 		key: string | null,
-	): number => {
-		draftRevision += 1;
+	): void => {
 		store.setDraft(projection, text, key);
 		if (persist && conversationId != null) controller.stageDraft(conversationId, text);
-		return draftRevision;
 	};
-	const cancelDraftSave = (conversationId: string): void => {
-		const timer = draftTimers.get(conversationId);
-		if (timer != null) clearTimeout(timer);
-		draftTimers.delete(conversationId);
-	};
+	const cancelDraftSave = (conversationId: string): void => controller.cancelDraftSave(conversationId);
 	const retireConversation = (conversationId: string): void => {
 		cancelDraftSave(conversationId);
 		controller.retireDraft(conversationId);
@@ -52,41 +47,72 @@ export function attachedComposerActions(
 			}
 		}
 	};
-	const saveDraft = (
-		conversationId: string,
-		conversationKey: string,
-		text: string,
-		previous: string,
-		revision: number,
-	): void => {
-		cancelDraftSave(conversationId);
-		const timer = setTimeout(() => {
-			draftTimers.delete(conversationId);
-			void controller.setDraft(conversationId, text).catch((error) => {
-				if (
-					draftRevision === revision && projection.get().activeKey === conversationKey &&
-					store.activeDraft(projection).text === text
-				) setLocalDraft(conversationId, previous, true, conversationKey);
-				onFailure(error);
-			});
-		}, DRAFT_SAVE_DELAY_MS);
-		draftTimers.set(conversationId, timer);
+	const saveDraft = (conversationId: string, conversationKey: string, text: string): void => {
+		const submitted = store.draftFor(projection, conversationKey);
+		void controller.scheduleDraft(conversationId, text).catch((error) => {
+			if (controller.closed) return;
+			// A storage refusal does not revoke the reader's unsaved text.
+			// Keep it staged for the next explicit edit or selection flush.
+			if (store.draftFor(projection, conversationKey) === submitted) controller.stageDraft(conversationId, text);
+			onFailure(error);
+		});
+	};
+	const markPending = (key: string, id: number, state: "sending" | "failed"): boolean => {
+		const item = store.historyOf(projection, key).find((candidate) => candidate.id === id);
+		if (item?.kind !== "chat") return false;
+		if (state === "failed" && item.state !== "sending") return false;
+		store.updateItem(projection, key, id, { state });
+		return true;
+	};
+	const notInRoom = (key: string, id: number): boolean => {
+		const conversation = store.getConv(projection, key);
+		if (conversation?.type !== "room" || conversation.membership === "joined") return false;
+		markPending(key, id, "failed");
+		store.deliver(
+			projection,
+			key,
+			store.sysItem(
+				projection,
+				"Not in this room at the moment. It is re-entered when the connection returns. Otherwise, open the room controls and restore access.",
+			),
+		);
+		return true;
+	};
+	const sendText = (conversation: SessionConv, id: number): void => {
+		if (notInRoom(conversation.key, id)) return;
+		const item = store.historyOf(projection, conversation.key).find((candidate) => candidate.id === id);
+		if (item?.kind !== "chat") return;
+		void controller.say(conversation.persistId, item.text).catch((error) => {
+			if (controller.closed || !markPending(conversation.key, id, "failed")) return;
+			reportFailure(error);
+		});
 	};
 	const setDraft = (text: string): void => {
 		const conversation = store.activeConv(projection);
 		if (conversation == null) return;
-		const previous = store.activeDraft(projection).text;
 		if (!isSessionConv(conversation)) {
 			setLocalDraft(null, text, false, conversation.key);
 			return;
 		}
-		const revision = setLocalDraft(conversation.persistId, text, true, conversation.key);
-		saveDraft(conversation.persistId, conversation.key, text, previous, revision);
+		setLocalDraft(conversation.persistId, text, true, conversation.key);
+		saveDraft(conversation.persistId, conversation.key, text);
 	};
 	return {
 		setDraft,
 		retireConversation,
 		retireDirectory,
+		retry: (key, id) => {
+			if (!recoverSends) return;
+			const conversation = store.getConv(projection, key);
+			const item = store.historyOf(projection, key).find((candidate) => candidate.id === id);
+			if (
+				conversation == null || !isSessionConv(conversation) || item?.kind !== "chat" || item.state !== "failed"
+			) {
+				return;
+			}
+			markPending(key, id, "sending");
+			sendText(conversation, id);
+		},
 		mention: (who) => setDraft(draftWithMention(store.activeDraft(projection).text, who)),
 		recallLastSent: () => {
 			const conversation = store.activeConv(projection);
@@ -96,83 +122,132 @@ export function attachedComposerActions(
 			return last;
 		},
 		send: () => {
-			const conversation = store.activeConv(projection);
-			if (conversation == null) return;
-			const draft = store.activeDraft(projection);
-			if (draft.changing != null) {
-				if (!isSessionConv(conversation)) return;
-				const text = draft.text;
-				const refusal = composerLineRefusal(conversation, text);
-				if (refusal != null) {
-					store.deliverActive(projection, store.sysItem(projection, refusal));
-					return;
-				}
-				const item = store.historyOf(projection, conversation.key).find((row) => row.id === draft.changing);
-				if (item?.kind !== "chat" || item.lineId == null) {
-					store.toast(projection, "failure", "This shared session no longer holds authority over that line.");
-					return;
-				}
-				cancelDraftSave(conversation.persistId);
-				const changed = draft.keeping == null
-					? controller.editLine(conversation.persistId, item.lineId, text)
-					: controller.refileLine(
-						conversation.persistId,
-						item.lineId,
-						text,
-						(item.attachments ?? []).flatMap((file, index) =>
-							draft.keeping?.some((kept) => kept.id === file.id) ? [index] : []
-						),
-						draft.files.map(pickedSource),
+			try {
+				const conversation = store.activeConv(projection);
+				if (conversation == null) return;
+				const draft = store.activeDraft(projection);
+				if (draft.changing != null) {
+					if (!isSessionConv(conversation)) return;
+					const text = draft.text;
+					const refusal = composerLineRefusal(conversation, text);
+					if (refusal != null) {
+						store.deliverActive(projection, store.sysItem(projection, refusal));
+						return;
+					}
+					const item = store.historyOf(projection, conversation.key).find((row) => row.id === draft.changing);
+					if (item?.kind !== "chat" || item.lineId == null) {
+						store.toast(
+							projection,
+							"failure",
+							"This shared session no longer holds authority over that line.",
+						);
+						return;
+					}
+					const lineId = item.lineId;
+					const keep = (item.attachments ?? []).flatMap((file, index) =>
+						draft.keeping?.some((kept) => kept.id === file.id) ? [index] : []
 					);
-				void changed.then(() => {
-					store.rememberLastSent(projection, conversation.key, text);
-					store.cancelChange(projection);
-					return controller.setDraft(conversation.persistId, "");
-				}).catch((error) => {
-					const revision = draftRevision;
-					saveDraft(conversation.persistId, conversation.key, text, text, revision);
-					onFailure(error);
-				});
-				return;
-			}
-			const prepared = interpretComposerSend(projection, conversation, draft, powers);
-			if (prepared == null) return;
-			if (prepared.kind === "handled") {
-				finishComposerSend(projection, conversation.key, prepared.original);
-				draftRevision += 1;
-				if (!isSessionConv(conversation)) {
-					if (prepared.retires === "directory") retireDirectory(conversation.dir);
+					cancelDraftSave(conversation.persistId);
+					const changed = draft.keeping == null
+						? controller.editLine(conversation.persistId, lineId, text)
+						: Promise.all(draft.files.map(pickedSource)).then((files) =>
+							controller.refileLine(
+								conversation.persistId,
+								lineId,
+								text,
+								keep,
+								files,
+							)
+						);
+					void changed.then(() => {
+						if (controller.closed) return;
+						store.rememberLastSent(projection, conversation.key, text);
+						// Only the submitted draft may be completed. Selection and later edits
+						// can change while the session is acknowledging this operation.
+						if (store.draftFor(projection, conversation.key) !== draft) return;
+						store.cancelChange(projection, conversation.key);
+						return controller.setDraft(conversation.persistId, "");
+					}, (error) => {
+						if (controller.closed) return;
+						if (store.draftFor(projection, conversation.key) === draft) {
+							saveDraft(conversation.persistId, conversation.key, text);
+						}
+						onFailure(error);
+					}).catch(onFailure);
 					return;
 				}
-				cancelDraftSave(conversation.persistId);
-				controller.stageDraft(conversation.persistId, "");
-				if (prepared.retires === "directory") retireDirectory(conversation.dir);
-				else if (prepared.retires === "conversation") retireConversation(conversation.persistId);
-				else void controller.setDraft(conversation.persistId, "").catch(onFailure);
-				return;
-			}
-			if (!isSessionConv(conversation)) return;
-			cancelDraftSave(conversation.persistId);
-			finishComposerSend(projection, conversation.key, prepared.original);
-			const clearedRevision = (draftRevision += 1);
-			controller.stageDraft(conversation.persistId, "");
-			const sent = prepared.files.length === 0
-				? controller.say(conversation.persistId, prepared.text)
-				: controller.sendFiles(
-					conversation.persistId,
-					prepared.text,
-					prepared.files.map(pickedSource),
-				);
-			void sent.then(() => controller.setDraft(conversation.persistId, "")).catch((error) => {
-				if (
-					draftRevision === clearedRevision && projection.get().activeKey === conversation.key &&
-					store.activeDraft(projection).text === ""
-				) {
-					const revision = setLocalDraft(conversation.persistId, prepared.original, true, conversation.key);
-					saveDraft(conversation.persistId, conversation.key, prepared.original, "", revision);
+				const prepared = interpretComposerSend(projection, conversation, draft, powers);
+				if (prepared == null) return;
+				if (prepared.kind === "handled") {
+					const complete = () => {
+						if (controller.closed) return;
+						if (prepared.retires === "directory") retireDirectory(conversation.dir);
+						else if (prepared.retires === "conversation" && isSessionConv(conversation)) {
+							retireConversation(conversation.persistId);
+						}
+						if (store.draftFor(projection, conversation.key) !== draft) return;
+						finishComposerSend(projection, conversation.key, prepared.original);
+						if (!isSessionConv(conversation) || prepared.retires != null) return;
+						cancelDraftSave(conversation.persistId);
+						controller.stageDraft(conversation.persistId, "");
+						return controller.setDraft(conversation.persistId, "");
+					};
+					if (prepared.completion != null) {
+						void prepared.completion.then(complete, (error) => {
+							if (controller.closed) return;
+							if (projection.get().convs.has(conversation.key)) {
+								store.deliver(
+									projection,
+									conversation.key,
+									store.sysItem(projection, error instanceof Error ? error.message : String(error)),
+								);
+							} else onFailure(error);
+						}).catch(onFailure);
+					} else void Promise.resolve(complete()).catch(onFailure);
+					return;
 				}
+				if (!isSessionConv(conversation)) return;
+				cancelDraftSave(conversation.persistId);
+				const optimistic = prepared.files.length === 0
+					? store.chatItem(
+						projection,
+						store.dirNick(projection, conversation.dir),
+						prepared.text,
+						true,
+						"sending",
+					)
+					: null;
+				if (optimistic != null) store.deliver(projection, conversation.key, optimistic);
+				finishComposerSend(projection, conversation.key, prepared.original);
+				const clearedDraft = store.draftFor(projection, conversation.key);
+				controller.stageDraft(conversation.persistId, "");
+				const sent = prepared.files.length === 0
+					? controller.say(conversation.persistId, prepared.text)
+					: Promise.all(prepared.files.map(pickedSource)).then((files) =>
+						controller.sendFiles(
+							conversation.persistId,
+							prepared.text,
+							files,
+						)
+					);
+				void sent.then(
+					() => controller.closed ? undefined : controller.clearSentDraft(conversation.persistId),
+					(error) => {
+						if (controller.closed) return;
+						if (optimistic != null) markPending(conversation.key, optimistic.id, "failed");
+						if (
+							!(optimistic != null && recoverSends) &&
+							store.replaceDraft(projection, conversation.key, clearedDraft, draft)
+						) {
+							controller.stageDraft(conversation.persistId, draft.text);
+							saveDraft(conversation.persistId, conversation.key, draft.text);
+						}
+						onFailure(error);
+					},
+				).catch(onFailure);
+			} catch (error) {
 				onFailure(error);
-			});
+			}
 		},
 	};
 }

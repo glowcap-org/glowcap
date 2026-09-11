@@ -59,18 +59,57 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         const Signal = enum(u1) { readiness, wake };
 
-        const Pending = struct {
-            read_ud: ?u64 = null,
-            write_ud: ?u64 = null,
-            write_bytes: ?[]const u8 = null,
-            readable_hint: bool = false,
-            writable_hint: bool = false,
-        };
-
         const ConnEntry = struct {
             cconn: *CConn,
-            pending: Pending = .{},
+            pending: completion.HintedPending = .{},
         };
+
+        /// One loop connection's adapter row: the sidecar handle beside the
+        /// seats, hints, and terminal cause every multiplexed sidecar backend
+        /// shares. Tests pin this exact cost so the scale path cannot grow
+        /// unnoticed.
+        pub const connection_state_bytes = @sizeOf(ConnEntry);
+
+        /// How the shared try-I/O machine reaches this sidecar. An admitted
+        /// read or write holds its ready-queue seat until it completes.
+        const TryIoOps = struct {
+            pub const Entry = ConnEntry;
+            pub const holds_admission_seat = true;
+
+            pub fn tryRead(entry: *ConnEntry, buf: []u8) completion.TryRead {
+                const n = sidecar.glowcap_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
+                if (n == would_block) return .would_block;
+                if (n > 0) return .{ .transferred = @intCast(n) };
+                // 0 = clean EOF, negative = fault.
+                if (n == 0) return .closed;
+                return .{ .failed = error.IrohReadFailed };
+            }
+
+            pub fn tryWrite(entry: *ConnEntry, bytes: []const u8) completion.TryWrite {
+                const n = sidecar.glowcap_iroh_sidecar_conn_try_write(entry.cconn, bytes.ptr, bytes.len);
+                if (n == would_block) return .would_block;
+                if (n > 0) return .{ .transferred = @intCast(n) };
+                return .{ .failed = error.IrohWriteFailed };
+            }
+
+            /// A faulted QUIC connection needs no separate close: the sidecar
+            /// answers every later try verb with the fault, and `closeFd`
+            /// frees the handle.
+            pub fn closeOnFailure(_: *ConnEntry) void {}
+
+            pub fn borrowToken(index: u32) u32 {
+                return Namespace.borrowToken(index);
+            }
+
+            pub fn reserveSeats(backend: *Self, count: usize) !void {
+                try backend.reserveReady(count);
+            }
+
+            pub fn publish(backend: *Self, item: completion.Completion) void {
+                backend.appendReserved(item);
+            }
+        };
+        const TryIo = completion.HintedTryIo(Self, TryIoOps);
 
         const max_accept_stash = policy.accept_queue_bound;
         /// One pointer per admitted accept seat, reserved once per endpoint so
@@ -244,17 +283,18 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return self.platform.wireFraming(fd);
         }
 
+        /// Release one owned descriptor. The loop calls this with nothing in
+        /// flight and `submitClose` settles every pending seat first, so like
+        /// its sibling adapters this asserts that rather than publishing.
         pub fn closeFd(self: *Self, fd: Fd) void {
             if (!Namespace.ownsFd(fd)) return self.platform.closeFd(fd);
             if (fd == listen_fd) return;
-            if (self.pending_dials.fetchRemove(fd) != null) {
-                self.cancelDial(Namespace.fdId(fd));
-                self.releaseReady(1);
-                return;
-            }
-            const entry = self.conns.fetchRemove(fd) orelse return;
-            std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.value.cconn)));
-            sidecar.glowcap_iroh_sidecar_conn_free(entry.value.cconn);
+            std.debug.assert(!self.pending_dials.contains(fd));
+            const entry = self.conns.getPtr(fd) orelse return;
+            std.debug.assert(entry.pending.read_ud == null and entry.pending.write_ud == null);
+            std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.cconn)));
+            sidecar.glowcap_iroh_sidecar_conn_free(entry.cconn);
+            std.debug.assert(self.conns.remove(fd));
         }
 
         pub fn shutdownFd(self: *Self, fd: Fd) void {
@@ -269,6 +309,10 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
         }
 
+        /// Synthetic ids here never wrap, unlike the wrapped relay, sealing,
+        /// and onion legs: an id doubles as the sidecar request id a dial is
+        /// canceled and finished under, so a reused id could let a stale
+        /// sidecar record name a fresh dial.
         fn reserveFd(self: *Self) !Fd {
             if (self.next_id == 0 or self.next_id > Namespace.max_fd_id) return error.OutOfFds;
             const id = self.next_id;
@@ -382,88 +426,14 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.takeAccept();
         }
 
-        fn entryPtr(self: *Self, fd: Fd) !*ConnEntry {
-            return self.conns.getPtr(fd) orelse error.InvalidFd;
-        }
-
-        fn completeRecv(self: *Self, fd: Fd, entry: *ConnEntry) void {
-            const ud = entry.pending.read_ud orelse return;
-            var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
-            if (self.buffer_pool.acquire()) |idx| {
-                const buf = self.buffer_pool.buffer(idx);
-                const n = sidecar.glowcap_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
-                if (n == would_block) {
-                    // Edge spent without bytes: keep the pending recv; a later
-                    // readable (or a left-over hint) will retry.
-                    self.buffer_pool.release(idx);
-                    entry.pending.readable_hint = false;
-                    return;
-                }
-                if (n > 0) {
-                    comp.result = @intCast(n);
-                    comp.borrowed = .recv(buf[0..@intCast(n)], Namespace.borrowToken(idx));
-                    // More may still be buffered: leave the hint so the next
-                    // submitRecv completes without waiting for another edge.
-                    entry.pending.readable_hint = true;
-                } else {
-                    // 0 = clean EOF, negative = fault.
-                    comp.result = if (n == 0) 0 else -1;
-                    if (n < 0) comp.failure = error.IrohReadFailed;
-                    self.buffer_pool.release(idx);
-                    entry.pending.readable_hint = false;
-                }
-            } else {
-                comp.recv_no_buffer = true;
-                // Keep the hint: the loop re-arms once a buffer recycles.
-            }
-            entry.pending.read_ud = null;
-            self.appendReserved(comp);
-            _ = fd;
-        }
-
-        fn completeSend(self: *Self, entry: *ConnEntry) void {
-            const ud = entry.pending.write_ud orelse return;
-            const bytes = entry.pending.write_bytes orelse return;
-            const n = sidecar.glowcap_iroh_sidecar_conn_try_write(entry.cconn, bytes.ptr, bytes.len);
-            var result: i32 = -1;
-            if (n == would_block) {
-                entry.pending.writable_hint = false;
-                return;
-            }
-            if (n > 0) {
-                result = @intCast(n);
-                entry.pending.writable_hint = true;
-            } else {
-                entry.pending.writable_hint = false;
-            }
-            entry.pending.write_ud = null;
-            entry.pending.write_bytes = null;
-            self.appendReserved(.{
-                .user_data = ud,
-                .result = result,
-                .failure = if (result < 0) error.IrohWriteFailed else null,
-            });
-        }
-
         pub fn submitRecv(self: *Self, user_data: u64, fd: Fd) !void {
             if (!Namespace.ownsFd(fd)) return self.platform.submitRecv(user_data, fd);
-            const entry = try self.entryPtr(fd);
-            if (entry.pending.read_ud != null) return error.AlreadyReading;
-            try self.reserveReady(1);
-            entry.pending.read_ud = user_data;
-            if (entry.pending.readable_hint) self.completeRecv(fd, entry);
+            return TryIo.submitRecv(self, user_data, fd);
         }
 
         pub fn submitSend(self: *Self, user_data: u64, fd: Fd, bytes: []const u8) !void {
             if (!Namespace.ownsFd(fd)) return self.platform.submitSend(user_data, fd, bytes);
-            const entry = try self.entryPtr(fd);
-            if (entry.pending.write_ud != null) return error.AlreadyWriting;
-            try self.reserveReady(1);
-            entry.pending.write_ud = user_data;
-            entry.pending.write_bytes = bytes;
-            // Always attempt once: a seeded writable_hint or a live edge may
-            // already allow the write; would_block parks until the next edge.
-            self.completeSend(entry);
+            return TryIo.submitSend(self, user_data, fd, bytes);
         }
 
         pub fn submitCancel(
@@ -474,19 +444,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         ) !void {
             if (!Namespace.ownsFd(fd))
                 return self.platform.submitCancel(cancel_user_data, target_user_data, fd);
-            const entry = try self.entryPtr(fd);
-            if (entry.pending.read_ud) |ud| {
-                if (ud != target_user_data) return error.InvalidCancelTarget;
-                // The recv already owns its reserved publication seat.
-                try self.reserveReady(1);
-                entry.pending.read_ud = null;
-                self.appendReserved(.{ .user_data = target_user_data, .result = -1 });
-            } else {
-                // A synchronous try-read may already have queued the target
-                // completion before the Loop can request cancellation.
-                try self.reserveReady(1);
-            }
-            self.appendReserved(.{ .user_data = cancel_user_data, .result = 0 });
+            return TryIo.submitCancel(self, cancel_user_data, target_user_data, fd);
         }
 
         pub fn submitClose(self: *Self, user_data: u64, fd: Fd) !void {
@@ -520,10 +478,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 if (entry.pending.read_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
                 if (entry.pending.write_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
                 entry.pending = .{};
-                std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.cconn)));
-                sidecar.glowcap_iroh_sidecar_conn_free(entry.cconn);
-                std.debug.assert(self.conns.remove(fd));
             }
+            self.closeFd(fd);
             self.appendReserved(.{ .user_data = user_data, .result = 0 });
         }
 
@@ -539,7 +495,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 // event; drop it.
                 const fd = Namespace.fdFromId(request_id) catch return;
                 const done = self.pending_dials.fetchRemove(fd) orelse return;
-                const opaque_conn = self.resident.loopFinishConnect(ev.subject) catch |err| {
+                // Text declined: a chain's name bytes must outlive the loop's copy.
+                const opaque_conn = self.resident.loopFinishConnect(ev.subject, null) catch |err| {
                     self.appendReserved(.{ .user_data = done.value, .result = -1, .failure = err });
                     return;
                 };
@@ -556,12 +513,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const entry = self.conns.getPtr(fd) orelse return;
             if (ev.events & (ev_readable | ev_closed) != 0) {
                 entry.pending.readable_hint = true;
-                if (entry.pending.read_ud != null)
-                    self.completeRecv(fd, entry);
+                if (entry.pending.read_ud != null) TryIo.completeRecv(self, entry);
             }
             if (ev.events & (ev_writable | ev_closed) != 0) {
                 entry.pending.writable_hint = true;
-                if (entry.pending.write_ud != null) self.completeSend(entry);
+                if (entry.pending.write_ud != null) TryIo.completeSend(self, entry);
             }
         }
 

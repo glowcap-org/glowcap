@@ -7,16 +7,19 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+#[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Notify;
 
-use crate::host::{check_host, try_spawn_local, HostShared};
+use crate::host::{check_host, HostShared};
 use crate::sys::host as ffi;
 use crate::trampoline::{
-	ctx_free, current_turn_for, inside_turn, reclaim_refused_cell, trampoline, turn_spawn, ActorCell, InternalBehavior,
-	TurnOutcome,
+	ctx_free, current_turn_for, inside_turn, register_actor_cell, trampoline, turn_spawn, DeliverGuard,
+	InternalBehavior,
 };
 use crate::{sys, Argument, Error, Ref, Result, SendArena};
+
+mod retirement;
 
 pub(crate) const READ_CHUNK: usize = sys::BINDING_STREAM_READ_CHUNK_BYTES;
 
@@ -48,7 +51,7 @@ impl TryFrom<&Argument> for Ref {
 }
 
 /// A revocable caretaker over a capability (ADR-0064), returned by
-/// [`Session::caretaker`]. Hand [`proxy`](Caretaker::proxy) to a partner; call
+/// [`crate::Session::caretaker`]. Hand [`proxy`](Caretaker::proxy) to a partner; call
 /// [`revoke`](Caretaker::revoke) to sever it, after which every call through the
 /// proxy breaks with `Revoked`.
 pub struct Caretaker {
@@ -84,18 +87,26 @@ pub(crate) struct SessionShared {
 	// mid-frame still leaves a partial one on the wire, which `torn` records.
 	// Both stay `None` on a loop-backed session, whose wire the native loop
 	// owns (`loop_wire`).
-	pub(crate) reader: RefCell<Option<Box<dyn AsyncRead + Unpin>>>,
-	pub(crate) writer: Rc<tokio::sync::Mutex<Option<Box<dyn AsyncWrite + Unpin>>>>,
+	pub(crate) reader: RefCell<Option<crate::channel::Reader>>,
+	pub(crate) writer: Rc<tokio::sync::Mutex<Option<crate::channel::Writer>>>,
+	pub(super) channel_close: RefCell<Option<Box<dyn crate::ChannelClose>>>,
+	pub(super) channel_close_started: Cell<bool>,
+	pub(super) channel_retiring: Cell<bool>,
 	// The native loop that owns this session's wire and its release (ADR-0112),
 	// or `None` for a byte-fed session this binding pumps itself. A loop-backed
 	// session has no byte pump: the loop reads, feeds, and flushes inside its
 	// steps, and `glowcap_driver_session_release` is its one release verb.
+	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) loop_wire: Option<Rc<crate::driver_loop::LoopShared>>,
 	// Set the moment teardown begins (an application close, or the transport
 	// reporting EOF), so the serve loop can tell a read cancelled by our own
 	// close from a real fault.
 	pub(crate) closing: Cell<bool>,
 	pub(crate) released: Cell<bool>,
+	// Whether the loop has been told to serve this session. Serving is
+	// idempotent natively, but every verb used to re-cross the FFI to say it
+	// again; the first success settles it here.
+	pub(crate) served: Cell<bool>,
 	pub(crate) release_pending: Cell<bool>,
 	// Terminal result projected by the core-issued CLOSE action or native
 	// SESSION_CLOSED event before the session handle is released.
@@ -109,6 +120,9 @@ pub(crate) struct SessionShared {
 	// the shared operation and its one-driver invariant explicit.
 	pub(crate) close_task: RefCell<Option<tokio::task::JoinHandle<()>>>,
 	pub(crate) owner_handles: Cell<usize>,
+	/// The Host adopted this dial independently of application handles. An
+	/// implicit final-handle drop must not condemn it; explicit close still can.
+	pub(crate) host_retained: Cell<bool>,
 	// Set when an outbound write was dropped part-way through a frame, which a
 	// caller does by cancelling: `tokio::time::timeout` around a send is
 	// enough. `write_all` is not cancellation-safe, so some prefix of the frame
@@ -126,26 +140,40 @@ pub(crate) struct SessionShared {
 }
 
 impl SessionShared {
-	#[cfg(any(test, feature = "iroh"))]
+	#[cfg(test)]
 	pub(crate) fn new<S>(ptr: *mut ffi::GlowcapHostSession, host: Rc<HostShared>, stream: S) -> Rc<SessionShared>
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
-		let (reader, writer) = tokio::io::split(stream);
+		Self::new_channel(ptr, host, crate::Channel::stream(stream))
+	}
+
+	pub(crate) fn new_channel(
+		ptr: *mut ffi::GlowcapHostSession,
+		host: Rc<HostShared>,
+		channel: crate::Channel,
+	) -> Rc<SessionShared> {
+		let crate::Channel { reader, writer, close } = channel;
 		let shared = Rc::new(SessionShared {
 			ptr: Cell::new(ptr),
 			key: ptr as usize,
 			host: Rc::clone(&host),
-			reader: RefCell::new(Some(Box::new(reader))),
-			writer: Rc::new(tokio::sync::Mutex::new(Some(Box::new(writer)))),
+			reader: RefCell::new(Some(reader)),
+			writer: Rc::new(tokio::sync::Mutex::new(Some(writer))),
+			#[cfg(not(target_arch = "wasm32"))]
 			loop_wire: None,
+			channel_close: RefCell::new(close),
+			channel_close_started: Cell::new(false),
+			channel_retiring: Cell::new(false),
 			closing: Cell::new(false),
 			released: Cell::new(false),
+			served: Cell::new(false),
 			release_pending: Cell::new(false),
 			close_result: Cell::new(None),
 			wire_failure: RefCell::new(None),
 			close_task: RefCell::new(None),
 			owner_handles: Cell::new(0),
+			host_retained: Cell::new(false),
 			torn: Cell::new(false),
 			closed: Notify::new(),
 			gc: Cell::new(false),
@@ -162,6 +190,7 @@ impl SessionShared {
 	/// the loop owns the wire, the pumping, and the release. Registered in the
 	/// host's session directory like any other shell, so the loop's
 	/// SESSION_CLOSED dispatch and `exporter_for` both find it.
+	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) fn new_loop(
 		ptr: *mut ffi::GlowcapHostSession,
 		host: Rc<HostShared>,
@@ -174,13 +203,18 @@ impl SessionShared {
 			reader: RefCell::new(None),
 			writer: Rc::new(tokio::sync::Mutex::new(None)),
 			loop_wire: Some(loop_wire),
+			channel_close: RefCell::new(None),
+			channel_close_started: Cell::new(false),
+			channel_retiring: Cell::new(false),
 			closing: Cell::new(false),
 			released: Cell::new(false),
+			served: Cell::new(false),
 			release_pending: Cell::new(false),
 			close_result: Cell::new(None),
 			wire_failure: RefCell::new(None),
 			close_task: RefCell::new(None),
 			owner_handles: Cell::new(0),
+			host_retained: Cell::new(false),
 			torn: Cell::new(false),
 			closed: Notify::new(),
 			gc: Cell::new(false),
@@ -194,14 +228,14 @@ impl SessionShared {
 		self.ptr.get()
 	}
 
-	pub(crate) fn host_key(&self) -> usize {
-		Rc::as_ptr(&self.host) as usize
+	/// Record custody held by the Host independently of application handles.
+	/// Both byte-fed DIAL actions and loop-internal redeems cross this boundary.
+	pub(crate) fn retain_by_host(&self) {
+		self.host_retained.set(true);
 	}
 
-	/// The hosted cell behind a Host-scoped local capability, for in-process
-	/// `Forward` composition and the local send arm.
-	pub(crate) fn hosted_cell(&self, ref_id: u64) -> Option<*const ActorCell> {
-		self.host.hosted_cell(ref_id)
+	pub(crate) fn host_key(&self) -> usize {
+		Rc::as_ptr(&self.host) as usize
 	}
 
 	pub(crate) fn closing(&self) -> bool {
@@ -222,13 +256,17 @@ impl SessionShared {
 	/// instead call `Session::serve` after publishing. Byte-fed sessions already
 	/// own their reader task, so this is a no-op for them.
 	pub(crate) fn attend_inbound(self: &Rc<Self>) -> Result<()> {
+		if self.served.get() {
+			return Ok(());
+		}
+		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(loop_) = self.loop_wire.as_ref() {
 			loop_.serve_session(self.raw_session())?;
 		}
+		self.served.set(true);
 		Ok(())
 	}
 
-	#[cfg(any(test, feature = "iroh"))]
 	pub(crate) fn session_open(&self) -> bool {
 		!self.host.closing()
 			&& !self.released.get()
@@ -245,22 +283,21 @@ impl SessionShared {
 	// closure, keeping the completes-on-close contract.
 	pub(crate) fn spawn_serve(self: &Rc<SessionShared>) {
 		let shared = Rc::clone(self);
-		let handle = if self.loop_wire.is_some() {
-			tokio::task::spawn_local(async move {
+		#[cfg(not(target_arch = "wasm32"))]
+		if self.loop_wire.is_some() {
+			let handle = tokio::task::spawn_local(async move {
 				let notified = shared.closed.notified();
 				tokio::pin!(notified);
-				// Register before checking, so a close between the check and
-				// the await cannot strand this task.
 				notified.as_mut().enable();
-				if shared.released.get() {
-					return shared.terminal_result();
+				if !shared.released.get() {
+					notified.await;
 				}
-				notified.await;
 				shared.terminal_result()
-			})
-		} else {
-			tokio::task::spawn_local(async move { crate::pump::serve_loop(shared).await })
-		};
+			});
+			self.serving.set(Some(handle));
+			return;
+		}
+		let handle = tokio::task::spawn_local(async move { crate::pump::serve_loop(shared).await });
 		self.serving.set(Some(handle));
 	}
 
@@ -273,6 +310,7 @@ impl SessionShared {
 	/// behavior callback is parked for the next drain, never dropped.
 	pub(crate) fn close_transport(self: &Rc<SessionShared>) {
 		self.closing.set(true);
+		self.channel_retiring.set(true);
 		self.closed.notify_waiters();
 		// Drop the halves this handle still holds so the fd closes promptly;
 		// the serve task's read half drops as its loop exits.
@@ -302,6 +340,9 @@ impl SessionShared {
 		if self.released.get() {
 			self.release_pending.set(false);
 			return Ok(());
+		}
+		if !self.retire_channel()? {
+			return Ok(()); // the owned retirement task resumes this release
 		}
 		let ptr = self.ptr.get();
 		if !ptr.is_null() {
@@ -363,38 +404,25 @@ impl SessionShared {
 			Some(turn) => turn_spawn(turn, cell)?,
 			None => {
 				let mut reference = sys::GlowcapReference { id: 0 };
-				let rc = unsafe {
-					ffi::glowcap_host_session_spawn(
-						self.ptr.get(),
-						trampoline,
-						cell as *mut core::ffi::c_void,
-						ctx_free,
-						&mut reference,
-					)
-				};
-				if rc != sys::OK {
-					let primary = check_host(rc).unwrap_err();
-					let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
-					return Err(crate::retain_cleanup_failure(primary, cleanup));
+				unsafe {
+					register_actor_cell(
+						cell,
+						|| {
+							ffi::glowcap_host_session_spawn(
+								self.ptr.get(),
+								trampoline,
+								cell as *mut core::ffi::c_void,
+								ctx_free,
+								&mut reference,
+							)
+						},
+						|code| code == sys::OK,
+					)?;
 				}
 				reference.id
 			}
 		};
-		self.host.hosted.borrow_mut().insert(id, cell as *const ActorCell);
 		Ok(Ref::bare_id(id))
-	}
-
-	/// Record the host giftable published under `name` against the opaque Host
-	/// identity this session surfaced, so local sends from any sibling Session
-	/// run in process. The C tier frees the cell with the Host.
-	pub(crate) fn bind_host_giftable(self: &Rc<SessionShared>, name: &str, ref_id: u64) {
-		if self.host.hosted.borrow().contains_key(&ref_id) {
-			return;
-		}
-		let cell = self.host.giftables.borrow().get(name).copied();
-		if let Some(cell) = cell {
-			self.host.hosted.borrow_mut().insert(ref_id, cell);
-		}
 	}
 
 	pub(crate) fn publish_actor(self: &Rc<SessionShared>, name: &str, behavior: InternalBehavior) -> Result<Ref> {
@@ -402,55 +430,33 @@ impl SessionShared {
 		self.drain_gc()?;
 		let cell = self.host.actor_cell(behavior)?;
 		let mut reference = sys::GlowcapReference { id: 0 };
-		let rc = unsafe {
-			ffi::glowcap_host_session_publish(
-				self.ptr.get(),
-				name.as_ptr(),
-				name.len(),
-				trampoline,
-				cell as *mut core::ffi::c_void,
-				ctx_free,
-				&mut reference,
-			)
-		};
-		if rc != sys::OK {
-			let primary = check_host(rc).unwrap_err();
-			let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
-			return Err(crate::retain_cleanup_failure(primary, cleanup));
+		unsafe {
+			register_actor_cell(
+				cell,
+				|| {
+					ffi::glowcap_host_session_publish(
+						self.ptr.get(),
+						name.as_ptr(),
+						name.len(),
+						trampoline,
+						cell as *mut core::ffi::c_void,
+						ctx_free,
+						&mut reference,
+					)
+				},
+				|code| code == sys::OK,
+			)?;
 		}
-		self.host
-			.hosted
-			.borrow_mut()
-			.insert(reference.id, cell as *const ActorCell);
 		Ok(Ref::bare_id(reference.id))
 	}
 
 	// ── The verbs' shared plumbing ─────────────────────────────────────────────
 
-	// The local arm of `tell`: deferred to its own task so a behavior telling a
-	// self-hosted object never re-enters the running cell's borrow. Admission is
-	// synchronous and fallible; after admission, behavior/forward failures have
-	// no answer channel by the definition of tell.
-	pub(crate) fn tell_local(self: &Rc<SessionShared>, ref_id: u64, verb: String, args: Vec<Argument>) -> Result<()> {
-		let shared = Rc::clone(self);
-		if !try_spawn_local(async move {
-			if let Some(TurnOutcome::Forward { target, verb, args }) =
-				crate::trampoline::run_hosted(&shared, ref_id, &verb, &args)
-			{
-				if let Err(error) = shared.tell_wire(&target, &verb, &args) {
-					shared.host.record_background_failure(error);
-				}
-			}
-		}) {
-			return Err(Error::with_detail(
-				sys::ERR_INTERNAL,
-				"local tell requires a running LocalSet".to_string(),
-			));
-		}
-		Ok(())
-	}
-
-	pub(crate) fn tell_wire(self: &Rc<SessionShared>, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
+	/// The Host routes every target, including locally hosted actors.
+	pub(crate) fn tell(self: &Rc<SessionShared>, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
+		self.guard_open()?;
+		self.drain_gc()?;
+		let _arrival = DeliverGuard::enter(self);
 		self.attend_inbound()?;
 		let wire = target.to_sys()?;
 		let mut arena = SendArena::default();
@@ -459,17 +465,6 @@ impl SessionShared {
 			ffi::glowcap_host_session_tell(self.ptr.get(), &wire, verb.as_ptr(), verb.len(), args_ptr, args_len)
 		})?;
 		self.host.schedule_kick()
-	}
-
-	/// A self-hosted capability runs `tell_local`; everything else lowers through
-	/// the Host. Session keeps the CapTP verb.
-	pub(crate) fn tell(self: &Rc<SessionShared>, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
-		self.guard_open()?;
-		self.drain_gc()?;
-		if self.hosted_cell(target.id()).is_some() {
-			return self.tell_local(target.id(), verb.to_string(), args.to_vec());
-		}
-		self.tell_wire(target, verb, args)
 	}
 
 	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────

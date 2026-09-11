@@ -1,11 +1,11 @@
 # Persistence as a capability
 
-Status: active plan. Browser reconstruction, room retention, the member
-archive, the archive peer, facets, handover, session sharing, and grants
-already exist. The operational description lives in
+Status: historical — the plan is complete. Browser reconstruction, room
+retention, the member archive, the archive peer, facets, handover, session
+sharing, grants, and the combined archive view all shipped;
+[ADR-0144](../decisions/adr/ADR-0144-combined-archive-views.md) owns the
+coalescing rule this plan left open. The operational description lives in
 [`apps/rooms/operating.md`](../../apps/rooms/operating.md#storage-and-room-history).
-What remains is the broader archive views, indefinite
-ordinary-effect deduplication, and local-tab merging.
 
 Rooms forgets by default, not unconditionally. An operator can retain the last
 lines of listed public rooms in memory, state-directory files, or PostgreSQL;
@@ -104,7 +104,7 @@ one that makes the reads above true for a single reader on a single device, and
 it needs no server anywhere.
 
 **A peer you run.** `zig build rooms-archive -- --state=<directory>` hosts the
-archive at a durable sturdyref. It uses discovery-backed authenticated iroh by
+native Rust archive at a durable sturdyref. It uses discovery-backed authenticated iroh by
 default and can use cleartext TCP for local inspection. Ordinary OCapN code can dial and hand
 on its reference. Settings selects this peer as the direct-message
 recorder, so a second device holding the same whole-archive sturdyref can read
@@ -200,18 +200,18 @@ everything that was said in front of the member who kept it.
 These are the parts that remain open after the bounded `put`/`read` contract in
 [ADR-0129](../decisions/adr/ADR-0129-member-owned-archive-capability.md).
 
-**Merging.** Two of my devices writing to one archive, or my archive plus one
-somebody gave me, produce records about the same room from more than one
-source. Room lines carry the room's own number, but that number is only unique
-inside one live room generation. Direct messages have no server to number them
-at all. The archive therefore keeps source and conversation generation in
-every key. Whether a later, evidence-backed view coalesces records from several
-sources is a presentation decision, never a destructive rewrite of those keys.
+**Merging — settled by [ADR-0144](../decisions/adr/ADR-0144-combined-archive-views.md).**
+Two of my devices writing to one archive, or my archive plus one somebody gave
+me, produce records about the same room from more than one source. The archive
+keeps source and conversation generation in every key, and the combined view
+coalesces by those keys without rewriting them: one coordinate shows one
+record, lifecycle state outranks, and the current write target breaks the
+remaining tie.
 
-**Trust.** A record somebody hands me is their account of a room, not the
-room's. The source and generation constraints above keep that distinction in
-the data. A future combined view must let a reader choose among several archive
-sources without mistaking any of them for live traffic.
+**Trust — settled by the same record.** A record somebody hands me is their
+account of a room, and it stands under a divider naming its source and
+keeper, never as live traffic. The reader chooses among accounts by reading
+or discarding each offered share.
 
 ## Where to start
 
@@ -248,5 +248,6 @@ rungs.
    held facet.
 
 The memory archive remains the focused contract implementation. The standalone
-peer proves the same behavior across the live wire and a process restart.
-Combining several archive accounts into one evidence-backed view remains open.
+peer proves the same behavior across the live wire and a process restart. The
+combined view of several archive accounts ships per
+[ADR-0144](../decisions/adr/ADR-0144-combined-archive-views.md).

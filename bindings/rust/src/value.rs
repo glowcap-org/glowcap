@@ -67,7 +67,17 @@ impl Ref {
 #[cfg(feature = "async")]
 impl Ref {
 	pub(crate) fn to_sys(&self) -> Result<sys::GlowcapReference> {
-		Ok(sys::GlowcapReference { id: self.id })
+		Ok(sys::GlowcapReference { id: self.live_id()? })
+	}
+
+	pub(crate) fn live_id(&self) -> Result<u64> {
+		if self.released() {
+			return Err(Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"this capability was released and is no longer usable".to_string(),
+			));
+		}
+		Ok(self.id)
 	}
 
 	pub(crate) fn from_sys(r: &sys::GlowcapReference) -> Ref {
@@ -348,21 +358,21 @@ pub(crate) unsafe fn arg_from_sys(c: &sys::GlowcapArgument) -> Result<Argument> 
 		sys::ARG_FLOAT64 => Argument::Float(c.float64),
 		sys::ARG_BOOLEAN => Argument::Boolean(c.boolean != 0),
 		sys::ARG_BYTES => Argument::Bytes(bytes_from_sys(c)),
-		sys::ARG_STRING => Argument::String(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
-		sys::ARG_SYMBOL => Argument::Symbol(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
-		sys::ARG_ERROR => Argument::Error(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
+		sys::ARG_STRING => Argument::String(text_from_sys(c)),
+		sys::ARG_SYMBOL => Argument::Symbol(text_from_sys(c)),
+		sys::ARG_ERROR => Argument::Error(text_from_sys(c)),
 		sys::ARG_REFERENCE => Argument::Reference(Ref::from_sys(&c.reference)),
 		sys::ARG_LIST => Argument::List(args_from_sys(c.items, c.items_len)?),
 		sys::ARG_SET => Argument::Set(args_from_sys(c.items, c.items_len)?),
 		sys::ARG_TAGGED => Argument::Tagged {
-			tag: String::from_utf8_lossy(&bytes_from_sys(c)).into_owned(),
+			tag: text_from_sys(c),
 			value: args_from_sys(c.items, c.items_len)?,
 		},
-		sys::ARG_KEYWORD => Argument::Keyword(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
+		sys::ARG_KEYWORD => Argument::Keyword(text_from_sys(c)),
 		sys::ARG_VOID => Argument::Void,
 		sys::ARG_BIG_INTEGER => Argument::BigInteger {
 			negative: c.boolean != 0,
-			digits: String::from_utf8_lossy(&bytes_from_sys(c)).into_owned(),
+			digits: text_from_sys(c),
 		},
 		sys::ARG_STRUCT => Argument::Struct(struct_from_sys(c.items, c.items_len)?),
 		other => {
@@ -394,10 +404,7 @@ unsafe fn struct_from_sys(ptr: *const sys::GlowcapArgument, len: usize) -> Resul
 				"glowcap ABI returned a non-String Struct key".into(),
 			));
 		}
-		entries.push((
-			String::from_utf8_lossy(&bytes_from_sys(key)).into_owned(),
-			arg_from_sys(&*ptr.add(i + 1))?,
-		));
+		entries.push((text_from_sys(key), arg_from_sys(&*ptr.add(i + 1))?));
 	}
 	Ok(entries)
 }
@@ -405,6 +412,23 @@ unsafe fn struct_from_sys(ptr: *const sys::GlowcapArgument, len: usize) -> Resul
 #[cfg(feature = "async")]
 unsafe fn bytes_from_sys(c: &sys::GlowcapArgument) -> Vec<u8> {
 	owned_from_view(c.bytes, c.bytes_len)
+}
+
+/// Lift a borrowed text view into one owned `String` with one copy. Going
+/// through `bytes_from_sys` first paid a second allocation and copy per text
+/// leaf, because `from_utf8_lossy` borrows valid UTF-8 and `into_owned` then
+/// clones it; the C ABI already validated the text, so the borrowed arm is
+/// the one that runs.
+///
+/// # Safety
+/// As `owned_from_view`: a non-null `bytes` must point to `bytes_len`
+/// readable bytes for the duration of the call.
+#[cfg(feature = "async")]
+unsafe fn text_from_sys(c: &sys::GlowcapArgument) -> String {
+	if c.bytes.is_null() || c.bytes_len == 0 {
+		return String::new();
+	}
+	String::from_utf8_lossy(core::slice::from_raw_parts(c.bytes, c.bytes_len)).into_owned()
 }
 
 /// Copy a borrowed C byte view (`ptr`, `len`) into an owned `Vec`, guarding the
@@ -435,4 +459,45 @@ pub(crate) unsafe fn args_from_sys(ptr: *const sys::GlowcapArgument, len: usize)
 		return Ok(Vec::new());
 	}
 	(0..len).map(|i| arg_from_sys(&*ptr.add(i))).collect()
+}
+
+#[cfg(all(test, feature = "async"))]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn released_occurrences_cannot_marshal_even_when_the_identity_has_another_retain() {
+		let released = Ref::bare_id(7);
+		let clone = released.clone();
+		let retained = Ref::bare_id(7);
+		released.mark_released();
+		assert!(clone.released());
+		assert_eq!(clone, retained);
+		assert_eq!(retained.to_sys().unwrap().id, 7);
+		assert_eq!(
+			clone.to_sys().err().expect("released clone refused").kind(),
+			crate::ErrorKind::InvalidArgument
+		);
+
+		let reference = Argument::Reference(clone);
+		for value in [
+			reference.clone(),
+			Argument::List(vec![reference.clone()]),
+			Argument::Set(vec![reference.clone()]),
+			Argument::Tagged {
+				tag: "held".into(),
+				value: vec![reference.clone()],
+			},
+			Argument::Struct(vec![("held".into(), reference)]),
+		] {
+			assert_eq!(
+				SendArena::default()
+					.one(&value)
+					.err()
+					.expect("nested released clone refused")
+					.kind(),
+				crate::ErrorKind::InvalidArgument
+			);
+		}
+	}
 }

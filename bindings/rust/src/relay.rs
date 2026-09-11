@@ -1,15 +1,16 @@
 //! Native relay provider composition for the async driver loop.
 //!
-//! One [`Runtime`] owns the archive runtime and installs one provider package
-//! that advertises both `keyed-relay` and `noise-relay`. The generic driver and
-//! Host select the profile; this module only owns configuration and the archive
-//! lifetime.
+//! One crate-private `Runtime` owns the archive runtime and installs one
+//! provider package that advertises both `keyed-relay` and `noise-relay`. The
+//! generic driver and Host select the profile; this module only owns
+//! configuration and the archive lifetime, and [`provider`] is the one public
+//! way to compose it.
 
 use core::marker::PhantomData;
 
 use crate::error_slot::error_slot;
 use crate::sys::relay as ffi;
-use crate::{Context, HintValue, HintWireForm, Locator, Result};
+use crate::{HintValue, HintWireForm, Locator, Result};
 
 pub use crate::ListenerIdentity;
 
@@ -45,15 +46,7 @@ fn route_from_locator(locator: &Locator) -> Result<&str> {
 			format!("relay provider cannot realize transport {:?}", locator.transport),
 		));
 	}
-	locator
-		.string_hint("rendezvous-relay")?
-		.filter(|route| !route.is_empty())
-		.ok_or_else(|| {
-			crate::Error::with_detail(
-				crate::sys::ERR_INVALID_ARGUMENT,
-				"relay locator requires a non-empty rendezvous-relay hint".to_string(),
-			)
-		})
+	locator.require_string_hint("rendezvous-relay")
 }
 
 /// Identity-addressed cleartext over the relay provider package.
@@ -119,6 +112,8 @@ impl Server {
 	/// Accept the next partner as a ready [`crate::Session`], sharing this
 	/// server's [`crate::Host`]. Must be called inside a `LocalSet` (the
 	/// handle graph is `!Send`).
+	/// Await the next accepted session. It delivers its partner's inbound only
+	/// once served: publish what it should answer, then `session.serve()`.
 	pub async fn accept(&self) -> crate::Result<crate::Session> {
 		self.listener.accept().await
 	}
@@ -139,6 +134,12 @@ impl Server {
 		self.listener.host()
 	}
 
+	/// Select this listener's locator as the shared Host's advertised
+	/// location; see [`crate::tcp::Server::select`].
+	pub fn select(&self) -> crate::Result<()> {
+		self.listener.select()
+	}
+
 	/// Stop admitting partners. Sessions already returned by
 	/// [`Server::accept`] remain live.
 	pub async fn close(&self) -> crate::Result<()> {
@@ -157,26 +158,18 @@ async fn listen_relay_profile(
 		register_url: Some(register_url),
 		trust: options.trust,
 	};
-	let host = options.identity.into_host()?;
-	let shared = host.shared();
-	let lp = shared.ensure_driver_loop(
-		crate::abi_constants::DRIVER_DEFAULT_HANDSHAKE_MS,
-		crate::abi_constants::DRIVER_DEFAULT_SETTLE_MS,
-	)?;
-	install_provider_shared(&lp, config)?;
 	// The provider registers as the listener opens, so a completed open is
-	// the commit point: the relay answered and holds this peer's sockets.
-	let listener = lp.listen(transport, "").await?;
-	let opened = (|| {
-		lp.select_listener(listener)?;
-		Ok(Server {
-			listener: crate::server::LoopListener::new(std::rc::Rc::clone(&lp), listener, host),
-		})
-	})();
-	match opened {
-		Ok(server) => Ok(server),
-		Err(error) => Err(crate::retain_cleanup_failure(error, lp.close_listener(listener).await)),
-	}
+	// the commit point: the relay answered and holds this peer's sockets. The
+	// relay routes by the Host's durable key, so the listener binds an empty
+	// designator and needs nothing from the open listener beyond its handle.
+	let (listener, ()) = crate::server::bind_loop_listener(
+		options.identity,
+		transport,
+		|_host, lp| std::future::ready(install_provider(&lp, config).map(|()| String::new())),
+		|_lp, _listener, _designator| Ok(()),
+	)
+	.await?;
+	Ok(Server { listener })
 }
 
 /// Immutable trust snapshot used by the native secure relay carrier.
@@ -210,11 +203,6 @@ impl<'a> Config<'a> {
 		}
 	}
 
-	pub const fn with_register_url(mut self, register_url: &'a str) -> Self {
-		self.register_url = Some(register_url);
-		self
-	}
-
 	pub const fn with_trust(mut self, trust: Trust<'a>) -> Self {
 		self.trust = trust;
 		self
@@ -240,36 +228,22 @@ impl<'a> Config<'a> {
 	}
 }
 
-/// Immutable result of loading the native relay's trust snapshot.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TrustSummary {
-	pub loaded: usize,
-	pub skipped_by_engine: usize,
-	pub first_skipped_engine_code: Option<i32>,
-}
-
-/// Owns one relay provider runtime. It has no connection children because the
-/// native driver owns all connection and listener handles after registration.
-pub struct Runtime<'ctx> {
+/// Owns one relay provider runtime for the window between construction and
+/// provider installation. It has no connection children because the native
+/// driver owns all connection and listener handles after registration, and it
+/// stays crate-private because [`provider`] and the listen spine are the only
+/// composers of that lease.
+pub(crate) struct Runtime {
 	raw: *mut ffi::GlowcapRelayRuntime,
-	_ctx: PhantomData<&'ctx Context>,
 }
 
-impl<'ctx> Runtime<'ctx> {
-	pub fn new(config: Config<'_>) -> Result<Self> {
+impl Runtime {
+	pub(crate) fn new(config: Config<'_>) -> Result<Self> {
 		require_archive()?;
 		let c = config.to_c();
 		let mut raw = core::ptr::null_mut();
 		check_relay(unsafe { ffi::glowcap_relay_runtime_new(&c, &mut raw) })?;
-		Ok(Self { raw, _ctx: PhantomData })
-	}
-
-	pub fn new_in(context: &'ctx Context, config: Config<'_>) -> Result<Self> {
-		require_archive()?;
-		let c = config.to_c();
-		let mut raw = core::ptr::null_mut();
-		check_relay(unsafe { ffi::glowcap_relay_runtime_new_in(context.raw(), &c, &mut raw) })?;
-		Ok(Self { raw, _ctx: PhantomData })
+		Ok(Self { raw })
 	}
 
 	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
@@ -281,26 +255,16 @@ impl<'ctx> Runtime<'ctx> {
 		})
 	}
 
-	pub fn trust_summary(&self) -> Result<TrustSummary> {
-		let mut raw = ffi::GlowcapRelayTrustSummary::default();
-		check_relay(unsafe { ffi::glowcap_relay_runtime_trust_summary(self.raw, &mut raw) })?;
-		Ok(TrustSummary {
-			loaded: raw.loaded,
-			skipped_by_engine: raw.skipped_by_engine,
-			first_skipped_engine_code: (raw.first_skipped_engine_code != 0).then_some(raw.first_skipped_engine_code),
-		})
-	}
-
 	/// Consume the constructor lease and report the native teardown barrier.
 	/// After provider installation this normally releases only that lease; the
 	/// driver reports final asynchronous teardown when it closes.
-	pub fn close(mut self) -> Result<()> {
+	pub(crate) fn close(mut self) -> Result<()> {
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
 		check_relay(unsafe { ffi::glowcap_relay_runtime_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut()) })
 	}
 }
 
-impl Drop for Runtime<'_> {
+impl Drop for Runtime {
 	fn drop(&mut self) {
 		if !self.raw.is_null() {
 			if let Err(error) = check_relay(unsafe {
@@ -312,21 +276,10 @@ impl Drop for Runtime<'_> {
 	}
 }
 
-/// Install the shared keyed-relay/noise-relay package into a native driver.
-pub fn install_provider(driver: &crate::driver_loop::DriverLoop, config: Config<'_>) -> Result<()> {
-	let runtime = Runtime::new(config)?;
-	let installed = (|| {
-		let package = runtime.transport_provider()?;
-		driver.add_provider(package)
-	})();
-	match installed {
-		Ok(()) => runtime.close(),
-		Err(primary) => Err(crate::retain_cleanup_failure(primary, runtime.close())),
-	}
-}
-
-/// The same install against the loop-shared handle the listener path holds.
-fn install_provider_shared(lp: &std::rc::Rc<crate::driver_loop::LoopShared>, config: Config<'_>) -> Result<()> {
+/// Install the shared keyed-relay/noise-relay package into the loop, then
+/// release the constructor lease: the driver's provider lease is the
+/// runtime's lifetime authority from here on.
+fn install_provider(lp: &crate::driver_loop::LoopShared, config: Config<'_>) -> Result<()> {
 	let runtime = Runtime::new(config)?;
 	let installed = (|| {
 		let package = runtime.transport_provider()?;
@@ -352,19 +305,14 @@ pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
 		let register_url = register_url.clone();
 		let trust_pem = trust_pem.clone();
 		async move {
-			let runtime = Runtime::new(Config {
-				relay_url: &relay_url,
-				register_url: register_url.as_deref(),
-				trust: trust_pem.as_deref().map_or(Trust::System, Trust::CopiedPem),
-			})?;
-			let installed = (|| {
-				let package = runtime.transport_provider()?;
-				lp.add_provider(package)
-			})();
-			match installed {
-				Ok(()) => runtime.close(),
-				Err(primary) => Err(crate::retain_cleanup_failure(primary, runtime.close())),
-			}
+			install_provider(
+				&lp,
+				Config {
+					relay_url: &relay_url,
+					register_url: register_url.as_deref(),
+					trust: trust_pem.as_deref().map_or(Trust::System, Trust::CopiedPem),
+				},
+			)
 		}
 	})
 }

@@ -196,7 +196,8 @@ class _LifecycleMixin(HostMixinBase):
             return
         data = message.encode()
         _buf, ptr = _byte_buf(data)
-        _check_host(_host.glowcap_host_resolver_break(raw, resolver, ptr, len(data)))
+        # The awaitable can finish after its calling session retired the answer.
+        _check_host(_host.glowcap_host_resolver_abandon(raw, resolver, ptr, len(data)))
         self.signal_close_activity()
         self.schedule_kick()
 

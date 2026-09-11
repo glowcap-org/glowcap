@@ -269,6 +269,8 @@ const captp_io = @import("bans/captp_io.zig");
 const transport = @import("bans/transport.zig");
 const prose = @import("bans/prose.zig");
 const layers = @import("bans/layers.zig");
+const core_fifo = @import("bans/core_fifo.zig");
+const framing = @import("bans/framing.zig");
 const engine_peer_handle = @import("bans/engine_peer_handle.zig");
 const binding_policy = @import("bans/binding_policy.zig");
 const binding_racket_policy = @import("bans/binding_racket_policy.zig");
@@ -281,20 +283,11 @@ const failure = @import("bans/failure.zig");
 const failure_retention = @import("bans/failure_retention.zig");
 const profiles = @import("bans/profiles.zig");
 const route_bundle = @import("bans/route_bundle.zig");
-const rooms_session_host = @import("bans/rooms_session_host.zig");
 
 const nullish_absence = [_]Ban{.{
     .where = .{ .files = &.{
-        "apps/rooms/server/operator/rooms.ts",
-        "apps/rooms/server/operator/revision.ts",
-        "apps/rooms/server/operator/behavior.ts",
-        "apps/rooms/server/operator/references.ts",
-        "apps/rooms/server/room_links.ts",
         "apps/rooms/lib/operator.ts",
-        "apps/rooms/server/peering.ts",
-        "apps/rooms/server/sessions.ts",
         "apps/rooms/web/ui/workspace_state.ts",
-        "apps/rooms/web/ui/net/operator.ts",
         "apps/rooms/web/ui/ops/Operator.tsx",
     } },
     .kind = .forbid,
@@ -386,10 +379,13 @@ pub const all: []const Ban =
     transport.transport_vocabulary ++
     prose.prerelease_prose ++
     prose.human_doc_voice ++
+    prose.inbound_vocabulary ++
     prose.diagram_wire_vocabulary ++
+    prose.rooms_settings_label ++
     layers.clock_seam ++
+    framing.frame_scan_gate ++
     layers.actors_layer_purity ++
-    layers.core_fifo_spine ++
+    core_fifo.rows ++
     engine_peer_handle.rows ++
     layers.outbound_answer_cursor_rows ++
     layers.codec_decode_nesting_rows ++
@@ -418,7 +414,6 @@ pub const all: []const Ban =
     layers.relay_route_hint_cap_rows ++
     layers.goblins_runtime_portability ++
     layers.rooms_lib_layer ++
-    rooms_session_host.rows ++
     layers.signature_arm_reads ++
     transport.transport_provider_architecture ++
     authority.sturdyref_authority ++

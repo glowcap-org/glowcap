@@ -116,22 +116,29 @@ export async function run(managed: Runtime): Promise<void> {
 			work: makeGate(),
 			fail: makeGate(),
 			unsupported: makeGate(),
+			lateWork: makeGate(),
+			lateFail: makeGate(),
 		};
-		workerHost.publishGiftable("worker", async (verb) => {
-			const gate = gates[verb as keyof typeof gates];
-			if (gate === undefined) throw new Error(`unexpected worker verb ${verb}`);
-			gate.markEntered();
-			await gate.blocked;
-			if (verb === "fail") throw new Error("worker gave up");
-			if (verb === "unsupported") return { unsupported: true } as unknown as Argument;
-			return "computed off-turn";
+		const completions: Promise<Argument>[] = [];
+		workerHost.publishGiftable("worker", (verb) => {
+			const completion = (async () => {
+				const gate = gates[verb as keyof typeof gates];
+				if (gate === undefined) throw new Error(`unexpected worker verb ${verb}`);
+				gate.markEntered();
+				await gate.blocked;
+				if (verb === "fail" || verb === "lateFail") throw new Error("worker gave up");
+				if (verb === "unsupported") return { unsupported: true } as unknown as Argument;
+				return "computed off-turn";
+			})();
+			completions.push(completion);
+			return completion;
 		});
 		const server = await tcp.listen("127.0.0.1", 0, { host: workerHost });
 		const port = server.port;
 
 		async function host(): Promise<void> {
 			for await (const session of server) {
-				session.serve().catch(() => {});
+				await session.serve().catch(() => {});
 				break;
 			}
 		}
@@ -169,7 +176,18 @@ export async function run(managed: Runtime): Promise<void> {
 				broke.toLowerCase().includes("unsupported"),
 				`async marshal failure carries the reason, got "${broke}"`,
 			);
+			const late = Promise.allSettled([
+				session.send(worker, "lateWork", []),
+				session.send(worker, "lateFail", []),
+			]);
+			await Promise.all([gates.lateWork.entered, gates.lateFail.entered]);
 			await session.close();
+			await hosted;
+			gates.lateWork.resume();
+			gates.lateFail.resume();
+			await Promise.allSettled(completions);
+			assert((await late).every((reply) => reply.status === "rejected"), "disconnected callers were broken");
+			assert(workerHost.takeFailures().length === 0, "late completions poisoned the Host");
 		}
 
 		await Promise.all([client(), hosted]);

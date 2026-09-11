@@ -30,19 +30,5 @@ pub fn Identity(comptime Namespace: type, comptime ConnId: type, comptime DialOp
             if (!Namespace.ownsUserData(user_data) or user_data == resolver_wake_ud) return false;
             return Namespace.userDataPayload(user_data) & marker != 0;
         }
-
-        /// Reserve one synthetic descriptor identity across both admitted and
-        /// still-opening relay rows. Keeping this beside the bit layout makes
-        /// collision freedom one authority rather than a parent-loop detail.
-        pub fn reserve(backend: anytype) error{TooManyConnections}!ConnId {
-            var remaining: u64 = Namespace.max_fd_id;
-            while (remaining != 0) : (remaining -= 1) {
-                const connection_id = backend.next_id;
-                backend.next_id = if (connection_id == Namespace.max_fd_id) 1 else connection_id + 1;
-                if (!backend.conns.contains(connection_id) and
-                    !backend.pending_dials.contains(connection_id)) return connection_id;
-            }
-            return error.TooManyConnections;
-        }
     };
 }

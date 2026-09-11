@@ -18,7 +18,11 @@ checkout, run `zig build`, and use the modules from the tree.
 
 `glowcap.rkt` provides sessions, hosts, native values, locators, and the actor
 API. Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
-`on`, `bcom`, and `methods`.
+`on`, `bcom`, and `methods`. `host-publish-durable` mints a durable swiss name;
+the optional second argument is retained entropy, and the same bytes restore
+the same name on a Host reconstructed from the same seed.
+`session-wait-closed` waits for retirement without requesting close or starting
+`session-serve`; breaking the waiting thread leaves the session running.
 
 ## Modules
 
@@ -31,7 +35,7 @@ API. Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
 | [`glowcap-tcp.rkt`](glowcap-tcp.rkt) | TCP locators, explicit provider/connector values, native listeners, and blocking netlayer handles. |
 | [`glowcap-inproc.rkt`](glowcap-inproc.rkt) | Explicit in-process byte connector and blocking connections. |
 
-The wire codec is chosen for a host. `open-runtime` and `listen` accept
+The wire codec is chosen for a host. `open-runtime` and every listener accept
 `#:codec`; the default is `'syrup`, and both peers must agree before using
 `'capnp`. Goblins interop uses CapTP 1.0 over Syrup.
 
@@ -44,7 +48,12 @@ missing provider to a WebSocket.
 
 `listen-keyed-relay` and `listen-noise-relay` register the Host's durable key
 and return the same server shape as the TCP listeners. `server-uri` renders the
-relay route partners use, and `accept` yields ordinary sessions.
+relay route partners use, and `accept` yields ordinary sessions. They take the
+TCP listeners' `#:seed`, `#:host`, `#:codec`, `#:captp-version`, and
+`#:features` with the same meaning, plus `#:trust-pem` for the relay's
+certificate. They also take `#:options`, but the relay package defines no
+per-listen options, so any value other than an empty one is refused when the
+listener opens rather than dropped.
 
 ## The native loop
 
@@ -71,7 +80,14 @@ barrier.
 surface. `server-locator` is its canonical metadata, `server-uri` renders that
 locator, and `server-port` extracts the provider's bound port. Pass `#:seed` to
 preserve keyed identity across restarts, or `#:host` to have a supplied Host
-own the same native loop.
+own the same native loop. `#:codec`, `#:captp-version`, and `#:features` name
+the profile a fresh Host is minted with; left out, a listener takes the supplied
+Host's profile, else the generated default. A value that differs from a
+supplied Host's profile is refused, never replaced by the Host's. `listen-iroh`
+and `listen-onion` take the same three keywords with the same rule, and every
+listener takes `#:options`; only the TCP package defines per-listen options, so
+the iroh, onion, and relay providers refuse any value other than an empty one
+when the listener opens.
 
 ## Hosted behavior rules
 
@@ -83,14 +99,21 @@ atomic.
 Return a value, `bcom`, or a forward. Hand longer work to another thread and
 settle it through an eventual send.
 
+For a deferred reply obtained with `host-defer-turn`, use `resolver-fulfill!`
+or `resolver-break!` once the worker completes. If the worker gives up, use
+`resolver-abandon!`: it breaks a live answer and also succeeds when its calling
+session has already retired the answer. Run these operations outside the
+hosted callback.
+
 ## Current semantic limits
 
 The actor API uses Goblins-shaped vocabulary (`spawn`, `$`, `<-`). An existing
 Goblins program still needs glowcap's module names and Host wiring.
 
 An inner actor state change is not rolled back when an outer actor later fails.
-Local time travel is available only on TCP listeners through the listener's
-`#:time-travel?` policy; dialing sessions and iroh do not expose it. `listen`
+Local time travel is available only on the TCP and onion listeners through the
+listener's `#:time-travel?` policy; dialing sessions, iroh, and the relay
+listeners do not expose it. `listen`
 and `listen-keyed-tcp` use the driver's admission policy. A wildcard bind requires
 `#:advertised-host`, the Host route partners dial.
 

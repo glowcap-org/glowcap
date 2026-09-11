@@ -1,10 +1,5 @@
-// What both Rooms controllers do with an interpreted composer submission
-// before they differ.
-//
-// `send.ts` is the one reading of a line. This file is the one store effect
-// that follows: a refusal is delivered here, and a finished submission empties
-// the conversation that was composed — not whoever is on screen after a
-// command that left. Local and attached send then diverge on the wire.
+// Commit a submission to its originating conversation. Rust interprets commands;
+// session effects return completion before the UI clears the submitted draft.
 
 import * as store from "../store.ts";
 import type { CommandPowers } from "../commands.ts";
@@ -15,9 +10,7 @@ import { PHASE_SAID } from "../text.ts";
 
 export type CommittedComposerSend = Extract<PreparedComposerSend, { kind: "handled" | "send" }>;
 
-/** Interpret a composer submission. Refusals are delivered here so both
- * controllers explain a rejected line the same way. `null` means stop:
- * nothing to do, or the refusal already spoke. */
+/** Interpret a submission and display immediate refusals. `null` means no effect. */
 export function interpretComposerSend(
 	projection: PageProjection,
 	conv: Conv | null,
@@ -33,7 +26,7 @@ export function interpretComposerSend(
 	return prepared;
 }
 
-/** Chat still needs the wire. A tab command does not: it already ran. */
+/** A disconnected session cannot send chat. */
 export const COMPOSER_NOT_CONNECTED = PHASE_SAID.disconnected + ". Your message was not sent.";
 
 /** Empty the conversation that was just composed. A command that has already

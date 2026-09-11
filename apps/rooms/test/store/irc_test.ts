@@ -1,6 +1,6 @@
-// IRC identity and presence projections in the Rooms UI store.
-
 /// <reference lib="dom" />
+import "../support/browser_application.ts";
+// IRC identity and presence projections in the Rooms UI store.
 
 import type { RoomConv } from "../../web/ui/types.ts";
 
@@ -21,52 +21,47 @@ function assert(ok: boolean, what: string): asserts ok {
 	if (!ok) throw new Error(what);
 }
 
-/** One seat fact, as a bridge would put it on the wire.
- *
- * The badge and sentence are a bridge's own words and this file is about what
- * the store does with a seat, not about what any bridge calls one, so they are
- * placeholders here. `member_identity_test.ts` proves they are carried through
- * and `test/irc/bridge_test.ts` pins what IRC actually writes. */
-function seat(
-	name: string,
-	state: "rooms" | "connecting" | "linked" | "failed",
-	nick: string,
-	network = "Libera",
-) {
-	return { kind: "seat", name, state, nick, network, badge: "SEAT", said: `seat ${state}` } as const;
+// Unknown-seat admission and roster reset are exercised by the native/Wasm
+// contract in rust/proofs/src/room_view.rs. This seam receives complete views.
+function view(state?: "rooms" | "connecting" | "linked" | "failed"): import("../../web/ui/store.ts").RoomViewUpdate {
+	return {
+		members: [
+			["alice", {
+				online: true,
+				away: "",
+				...(state == null ? {} : {
+					seat: {
+						state,
+						nick: "alice_irc",
+						network: "Libera",
+						badge: "SEAT",
+						said: `seat ${state}`,
+					},
+				}),
+			}],
+			["irc/bo", { online: true, away: "" }],
+		],
+		topic: null,
+		lineBytes: null,
+		canSetTopic: false,
+		canModerate: false,
+		bridge: { prefix: "irc/", badge: "IRC", said: "IRC only", scope: "Libera" },
+	};
 }
 
-Deno.test("an IRC seat annotates one Rooms member and never mints another", () => {
+Deno.test("IRC snapshots update seat progress and retire stale identity", () => {
 	const room = store.ensureRoom(projection, dirId("irc-seat-state"), "bridge");
-	store.applyPresence(projection, room.key, { kind: "roster", names: ["alice", "irc/bo"] });
-	store.applyPresence(projection, room.key, seat("alice", "connecting", "alice_irc"));
-	let conv = store.getConv(projection, room.key);
-	assert(conv?.type === "room", "the bridged room disappeared");
-	let roster = store.membersOf(projection, room.key);
-	assert(roster.size === 2, "a seat projection minted another roster member");
-	assert(roster.get("alice")?.seat?.state === "connecting", "the connecting seat was not shown");
-	store.applyPresence(projection, room.key, seat("alice", "linked", "alice_irc"));
-	conv = store.getConv(projection, room.key);
-	roster = store.membersOf(projection, room.key);
-	assert(conv?.type === "room" && roster.get("alice")?.seat?.state === "linked", "the seat never linked");
-	assert(roster.get("alice")?.seat?.nick === "alice_irc", "the linked IRC nick was lost");
-	store.applyPresence(projection, room.key, seat("nobody", "linked", "intruder"));
-	conv = store.getConv(projection, room.key);
-	roster = store.membersOf(projection, room.key);
-	assert(conv?.type === "room" && !roster.has("nobody"), "a seat fact invented a Rooms member");
-	store.applyPresence(projection, room.key, seat("alice", "rooms", "alice_irc"));
-	conv = store.getConv(projection, room.key);
-	roster = store.membersOf(projection, room.key);
+	for (const state of ["connecting", "linked", "failed", "rooms"] as const) {
+		store.setRoomView(projection, room.key, view(state));
+		const roster = store.membersOf(projection, room.key);
+		assert(roster.size === 2, "a seat projection minted another roster member");
+		assert(roster.get("alice")?.seat?.state === state, `the ${state} seat was not shown`);
+		assert(roster.get("alice")?.seat?.nick === "alice_irc", "the IRC nick was lost");
+	}
+	store.setRoomView(projection, room.key, view());
 	assert(
-		conv?.type === "room" && roster.get("alice")?.seat?.state === "rooms",
-		"a Rooms-only transition was lost",
-	);
-	store.applyPresence(projection, room.key, { kind: "roster", names: ["alice", "irc/bo"] });
-	conv = store.getConv(projection, room.key);
-	roster = store.membersOf(projection, room.key);
-	assert(
-		conv?.type === "room" && roster.get("alice")?.seat === undefined,
-		"a full roster kept a stale seat projection",
+		store.membersOf(projection, room.key).get("alice")?.seat === undefined,
+		"a complete view kept a stale seat projection",
 	);
 });
 
@@ -75,17 +70,7 @@ Deno.test("IRC identity intent follows its network across bridged rooms", () => 
 	const one = store.ensureRoom(projection, directory, "Libera/#one");
 	const two = store.ensureRoom(projection, directory, "Libera/#two");
 	for (const room of [one, two]) {
-		// Each channel states the bridge behind it, and the scope is the network.
-		// That is what makes a sibling reachable by an answer given elsewhere: it
-		// is on this network whether or not anybody has linked on it yet.
-		store.setBridgeFacts(projection, room.key, {
-			prefix: "irc/",
-			badge: "IRC",
-			said: "IRC only",
-			scope: "Libera",
-		});
-		store.applyPresence(projection, room.key, { kind: "roster", names: ["alice"] });
-		store.applyPresence(projection, room.key, seat("alice", "linked", "alice_irc"));
+		store.setRoomView(projection, room.key, view("linked"));
 	}
 	const identity = {
 		scope: "Libera",

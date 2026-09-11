@@ -172,8 +172,8 @@
 ;; The core's stream delimiter (`glowcap_host_session_feed_bytes`) buffers a
 ;; partial frame in the session only while the frame stays admissible; a frame
 ;; declaring more than the frame cap must surface as the typed FRAME_TOO_LARGE
-;; error, or a hostile partner could grow the session's tail without
-;; bound. This feeds the hostile prefix through the exact byte path the
+;; error, or an untrusted peer could grow the session's tail without
+;; bound. This feeds the untrusted prefix through the exact byte path the
 ;; connection pump uses, into a byte-fed connection whose transport discards
 ;; the projected outbound abort.
 (define oc-host (make-fresh-host))
@@ -201,7 +201,7 @@
 ;; ── last-abort: a refused frame carries its typed cause ───────────────────────
 ;; The flat return code names the failure family; the `abort` field on the exn
 ;; a feeding connection raises names the member: domain, projected op:abort
-;; kind, and the originating error. The hostile bytes are fed straight into a
+;; kind, and the originating error. The untrusted bytes are fed straight into a
 ;; byte-fed connection through the core's stream delimiter, whose transport
 ;; discards the projected outbound abort.
 (define la-host (make-fresh-host))

@@ -365,6 +365,6 @@ fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
         \\
     , "use core::ffi::{c_int, c_uchar};\n\n" ++
         "use super::ocapn::GlowcapContext;\n" ++
-        "use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime, GlowcapRelayTrustSummary};\n" ++
+        "use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime};\n" ++
         "use super::GlowcapTransportProvider;\n", &.{});
 }

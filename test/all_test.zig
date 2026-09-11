@@ -16,7 +16,7 @@ comptime {
     _ = @import("codec/syrup/oracle_test.zig");
     _ = @import("codec/syrup/view_test.zig");
     _ = @import("codec/capnp_test.zig");
-    _ = @import("codec/capnp_hostile_test.zig");
+    _ = @import("codec/capnp_malformed_test.zig");
     _ = @import("codec/capnp_golden_test.zig");
     _ = @import("codec/prefix_decode_test.zig");
     _ = @import("codec/registry_test.zig");
@@ -159,6 +159,7 @@ comptime {
     _ = @import("session/grant_test.zig");
     _ = @import("session/handoff_test.zig");
     _ = @import("session/resolver_test.zig");
+    _ = @import("session/imported_promise_test.zig");
     _ = @import("session/slot_test.zig");
     _ = @import("session/answers_slot_test.zig");
     _ = @import("session/bootstrap_test.zig");

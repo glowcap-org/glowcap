@@ -1,4 +1,4 @@
-//! Hostile-bytes fuzzing of blocking frame reads, spill and all.
+//! Untrusted-bytes fuzzing of blocking frame reads, spill and all.
 //!
 //! `readFrameFrom` is what the blocking session calls to get one frame off a
 //! stream. It has a job the frame parsers do not: a frame bigger than the read
@@ -196,7 +196,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 
 // ── A frame stream's bytes, across arbitrary chunk splits ────────────────────
 //
-// The first target in this file feeds hostile bytes and asks whether anything
+// The first target in this file feeds untrusted bytes and asks whether anything
 // crashes. This one feeds frames it already knows and asks whether they come
 // back: the same frames, whole, in order, once each. That question needs a
 // reference to check against, so the stream is built here rather than drawn,
@@ -228,7 +228,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 //     carried it there, and a spill that is not accumulating has freed its
 //     storage rather than merely emptied it (`net.spill_retain_bytes` is zero at
 //     this tier). The sibling target above states the same retention property
-//     over hostile bytes; this one reaches it on every frame of every stream,
+//     over untrusted bytes; this one reaches it on every frame of every stream,
 //     because a stream of known frames actually drains.
 //
 // The harness's own claims are checked before the search runs, in

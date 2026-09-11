@@ -1,0 +1,185 @@
+{
+  "history": [
+    {
+      "input": null,
+      "result": []
+    },
+    {
+      "input": [],
+      "result": []
+    },
+    {
+      "input": [
+        "bad",
+        null
+      ],
+      "result": []
+    },
+    {
+      "input": [
+        [
+          "alice",
+          "hi",
+          {
+            "integer": "123"
+          }
+        ]
+      ],
+      "result": [
+        {
+          "from": "alice",
+          "text": "hi",
+          "at": 123
+        }
+      ]
+    },
+    {
+      "input": [
+        [
+          "bob",
+          4,
+          "bad"
+        ],
+        [
+          "",
+          "ignored",
+          0
+        ],
+        [],
+        [
+          "alice",
+          "decimal",
+          1.5
+        ]
+      ],
+      "result": [
+        {
+          "from": "bob",
+          "text": "",
+          "at": 0
+        },
+        {
+          "from": "alice",
+          "text": "decimal",
+          "at": 1.5
+        }
+      ]
+    },
+    {
+      "input": [
+        [
+          "alice",
+          "large",
+          {
+            "integer": "9007199254740993"
+          }
+        ]
+      ],
+      "result": [
+        {
+          "from": "alice",
+          "text": "large",
+          "at": 9007199254740992
+        }
+      ]
+    },
+    {
+      "input": [
+        [
+          "alice",
+          "huge",
+          {
+            "integer": "100000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      ],
+      "result": [
+        {
+          "from": "alice",
+          "text": "huge",
+          "at": 1e+80
+        }
+      ]
+    },
+    {
+      "input": [
+        [
+          "alice",
+          "nested cap",
+          {
+            "capability": true
+          }
+        ],
+        {
+          "capability": true
+        },
+        [
+          {
+            "capability": true
+          },
+          "skip",
+          0
+        ]
+      ],
+      "result": [
+        {
+          "from": "alice",
+          "text": "nested cap",
+          "at": 0
+        }
+      ]
+    }
+  ],
+  "calls": [
+    {
+      "target": "seat",
+      "verb": "post",
+      "args": [
+        "hello"
+      ]
+    },
+    {
+      "target": "line",
+      "verb": "edit",
+      "args": [
+        "changed"
+      ]
+    },
+    {
+      "target": "line",
+      "verb": "refile",
+      "args": [
+        "caption",
+        {
+          "integer": "1"
+        },
+        {
+          "integer": "0"
+        }
+      ]
+    },
+    {
+      "target": "line",
+      "verb": "withdraw",
+      "args": []
+    },
+    {
+      "target": "line",
+      "verb": "withdraw",
+      "args": []
+    },
+    {
+      "target": "seat",
+      "verb": "postFiles",
+      "args": [
+        "files"
+      ]
+    },
+    {
+      "target": "seat",
+      "verb": "leave",
+      "args": []
+    }
+  ],
+  "postFilesAuthority": false
+}

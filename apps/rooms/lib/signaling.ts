@@ -2,7 +2,7 @@
 
 // The two browser halves of room-carried WebRTC signaling (ADR-0089). The
 // directory routes offers, answers, and candidates between members
-// (`server/main.ts`); `Directory` carries the verbs; this module is where an
+// (`rooms-server`); `Directory` carries the verbs; this module is where an
 // `RtcPeer` meets them, so it is the one rooms-lib file that touches WebRTC
 // and it loads only in a browser.
 //

@@ -45,7 +45,8 @@ import { coveringReload, handOffNow, reloadNow } from "./boot.ts";
 import { installRouting } from "./routing_api.ts";
 import { Button } from "./Button.tsx";
 import { Said } from "./Said.tsx";
-import * as net from "./net.ts";
+import * as net from "./page_navigation.ts";
+import { useRoomsSession } from "./controller/session.ts";
 import { implied, named } from "./intent.ts";
 import { useRoomsState } from "./hooks.ts";
 import type { DmConv } from "./types.ts";
@@ -131,6 +132,7 @@ function useArrival(location: { key: string }): { done: boolean; mark: () => voi
 }
 
 function RoomRoute() {
+	const session = useRoomsSession();
 	const { name = "" } = useParams();
 	const routed = useLocation();
 	const homeDir = useRoomsState((state) => state.homeDir);
@@ -175,20 +177,21 @@ function RoomRoute() {
 		if (dirParam !== "") {
 			const known = net.directoryId(dirParam);
 			if (known !== null && routing().projection.get().dirs.has(known)) {
-				net.showRoom(routing(), known, name, "link");
+				net.showRoom(routing(), session, known, name);
 			} else net.reachFor(routing(), { source: "link", room: named(name), locator: named(dirParam) });
 			arrival.mark();
 			return;
 		}
 		const home = routing().projection.get().homeDir;
 		if (home === null) return; // the effect refires when the directory lands
-		net.showRoom(routing(), home, name, "link");
+		net.showRoom(routing(), session, home, name);
 		arrival.mark();
 	}, [arrival, name, dirParam, isPrivate, homeDir, dirs]);
 	return null;
 }
 
 function DmRoute() {
+	const session = useRoomsSession();
 	const { nick = "" } = useParams();
 	const routed = useLocation();
 	const homeDir = useRoomsState((state) => state.homeDir);
@@ -223,7 +226,7 @@ function DmRoute() {
 			return;
 		}
 		if (store.actingDir(routing().projection, state) === null) return; // wait for a directory
-		net.startDm(routing(), nick);
+		session.startDm(nick);
 		arrival.mark();
 	}, [arrival, nick, homeDir, dirs, conversations]);
 	return null;

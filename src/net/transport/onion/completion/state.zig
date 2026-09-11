@@ -8,9 +8,27 @@
 const std = @import("std");
 
 const model = @import("model");
+const adapter = @import("../../../completion/adapter.zig");
 const completion = @import("../../../completion/loop.zig");
+const intrusive_queue = @import("../../../completion/intrusive_queue.zig");
 const onion_control = @import("../control.zig");
 const socks5 = @import("../socks5.zig");
+
+/// What one chunk of a SOCKS5 CONNECT reply told the leg.
+///
+/// The reply arrives across any number of inner receives, and its whole
+/// length is not known until its head names the bound address form, so the
+/// leg accumulates until it can answer. Keeping the accumulation pure here
+/// leaves the backend only the effects: recycle, refuse, read again, or open.
+pub const ReplyVerdict = union(enum) {
+    /// Not the whole reply yet; read more.
+    need_more,
+    /// A well-formed success, having taken `consumed` bytes of this chunk.
+    /// Anything past that is application data the leg retains.
+    complete: usize,
+    /// The reply cannot become a well-formed success.
+    refused,
+};
 
 pub fn Types(comptime Inner: type, comptime Namespace: type) type {
     return struct {
@@ -33,7 +51,10 @@ pub fn Types(comptime Inner: type, comptime Namespace: type) type {
         pub const ListenerAddress = [socks5.service_id_len]u8;
 
         pub const ConnId = u32;
-        pub const InternalOp = enum(u3) { connect, recv, send, close, cancel };
+        pub const InternalOp = enum(u3) { connect, recv, send, close };
+        pub const PendingOps = adapter.PendingOps(InternalOp, &.{ .connect, .recv, .send });
+        pub const Identity = Namespace.RowIdentity(InternalOp);
+        pub const RetryLinks = intrusive_queue.Links(ConnId);
         pub const State = enum {
             connecting,
             greeting_send,
@@ -44,50 +65,6 @@ pub fn Types(comptime Inner: type, comptime Namespace: type) type {
             closing,
         };
 
-        pub const Pending = struct {
-            connect: bool = false,
-            recv: bool = false,
-            send: bool = false,
-            cancel: bool = false,
-
-            pub fn get(self: *const Pending, op: InternalOp) bool {
-                return switch (op) {
-                    .connect => self.connect,
-                    .recv => self.recv,
-                    .send => self.send,
-                    .cancel => self.cancel,
-                    .close => false,
-                };
-            }
-
-            pub fn arm(self: *Pending, op: InternalOp) void {
-                std.debug.assert(!self.get(op));
-                switch (op) {
-                    .connect => self.connect = true,
-                    .recv => self.recv = true,
-                    .send => self.send = true,
-                    .cancel => self.cancel = true,
-                    .close => unreachable,
-                }
-            }
-
-            pub fn retire(self: *Pending, op: InternalOp) void {
-                std.debug.assert(self.get(op));
-                switch (op) {
-                    .connect => self.connect = false,
-                    .recv => self.recv = false,
-                    .send => self.send = false,
-                    .cancel => self.cancel = false,
-                    .close => unreachable,
-                }
-            }
-
-            pub fn count(self: *const Pending) usize {
-                return @intFromBool(self.connect) + @intFromBool(self.recv) +
-                    @intFromBool(self.send) + @intFromBool(self.cancel);
-            }
-        };
-
         pub const Conn = struct {
             id: ConnId,
             inner_fd: Inner.Fd,
@@ -96,67 +73,69 @@ pub fn Types(comptime Inner: type, comptime Namespace: type) type {
             greeting_reply: [socks5.greeting_reply_len]u8 = undefined,
             greeting_reply_len: u8 = 0,
             handshake_send_offset: u8 = 0,
-            external_connect: ?u64,
-            external_recv: ?u64 = null,
-            external_send: ?u64 = null,
-            external_cancel: ?u64 = null,
-            external_close: ?u64 = null,
-            pending: Pending = .{},
-            inner_close: enum { open, in_flight, failed, closed } = .open,
-            abandon: bool = false,
-            recv_retry: bool = false,
-            send_retry: bool = false,
-            close_retry: bool = false,
-            retry_queued: bool = false,
-            retry_next: ?ConnId = null,
+            external_connect_ud: ?u64,
+            external_recv_ud: ?u64 = null,
+            external_send_ud: ?u64 = null,
+            external_close_ud: ?u64 = null,
+            pending: PendingOps = .{},
+            inner_close: adapter.InnerClose = .open,
+            /// Intrusive memberships: recycle-gated starvation and owed
+            /// submissions. A row occupies each queue at most once.
+            recv_starvation: RetryLinks = .{},
+            submission_retry: RetryLinks = .{},
+            submission_retry_mask: u8 = 0,
             reply_prefix: [socks5.connect_reply_head_len + 1]u8 = undefined,
             reply_len: u16 = 0,
             reply_expected: u16 = socks5.connect_reply_head_len,
+            /// A retained inner receive: the SOCKS reply's coalesced tail, or
+            /// application bytes that arrived while no caller seat was open.
+            /// The next receive seat lends it before another inner read is
+            /// armed, so a canceled seat loses nothing.
             held_recv: ?completion.Completion = null,
             held_offset: u16 = 0,
             borrowed: bool = false,
 
-            pub fn deinit(self: *Conn, backend: anytype) void {
+            pub fn deinit(self: *Conn, inner: *Inner) void {
                 std.debug.assert(!self.borrowed);
-                if (self.held_recv) |held| backend.inner.recycleBorrowed(held);
+                if (self.held_recv) |held| inner.recycleBorrowed(held);
                 self.held_recv = null;
             }
-
-            pub fn externalSeats(self: *const Conn) usize {
-                return @intFromBool(self.external_connect != null) +
-                    @intFromBool(self.external_recv != null) +
-                    @intFromBool(self.external_send != null) +
-                    @intFromBool(self.external_cancel != null) +
-                    @intFromBool(self.external_close != null);
+            /// Fold one received chunk into this leg's SOCKS5 CONNECT reply.
+            /// The head names the bound address form, and that form gives the
+            /// whole reply's length. A domain form carries its length in the
+            /// byte after it, and a zero there can never complete.
+            pub fn accumulateReply(c: *Conn, bytes: []const u8) ReplyVerdict {
+                var offset: usize = 0;
+                while (offset < bytes.len and c.reply_len < c.reply_expected) {
+                    if (c.reply_len < c.reply_prefix.len)
+                        c.reply_prefix[c.reply_len] = bytes[offset];
+                    c.reply_len += 1;
+                    offset += 1;
+                    if (c.reply_len == socks5.connect_reply_head_len) {
+                        const head: *const [socks5.connect_reply_head_len]u8 = c.reply_prefix[0..4];
+                        const bound = socks5.boundAddress(head) catch return .refused;
+                        c.reply_expected = @intCast(switch (bound) {
+                            .fixed => |n| 4 + n,
+                            .domain => 5,
+                        });
+                    } else if (c.reply_len == 5 and c.reply_prefix[3] == 0x03) {
+                        if (c.reply_prefix[4] == 0) return .refused;
+                        c.reply_expected = 4 + 1 + @as(u16, c.reply_prefix[4]) + 2;
+                    }
+                }
+                if (c.reply_len < c.reply_expected) return .need_more;
+                var head: [socks5.connect_reply_head_len]u8 = undefined;
+                @memcpy(&head, c.reply_prefix[0..4]);
+                socks5.checkConnectReply(&head) catch return .refused;
+                return .{ .complete = offset };
             }
         };
 
         pub const ConnMap = std.AutoHashMapUnmanaged(ConnId, *Conn);
-        pub const setup_connect_ud: u64 = Namespace.userData(@backingInt(InternalOp.connect));
-        pub const setup_send_ud: u64 = Namespace.userData(@backingInt(InternalOp.send));
-        pub const setup_recv_ud: u64 = Namespace.userData(@backingInt(InternalOp.recv));
-        pub const setup_close_ud: u64 = Namespace.userData(@backingInt(InternalOp.close));
-
-        pub fn fdFromId(id: ConnId) error{AdapterHandleExhausted}!Inner.Fd {
-            return Namespace.fdFromId(id);
-        }
-
-        pub fn idFromFd(fd: Inner.Fd) ?ConnId {
-            if (!Namespace.ownsFd(fd)) return null;
-            return @intCast(Namespace.fdId(fd));
-        }
-
-        pub fn internalUd(op: InternalOp, id: ConnId) u64 {
-            return Namespace.userData((@as(u64, id) << 3) | @backingInt(op));
-        }
-
-        pub fn internalId(ud: u64) ConnId {
-            return @intCast(Namespace.userDataPayload(ud) >> 3);
-        }
-
-        pub fn internalOp(ud: u64) InternalOp {
-            return @fromBackingInt(@intCast(@as(u3, @truncate(Namespace.userDataPayload(ud)))));
-        }
+        pub const setup_connect_ud: u64 = Identity.userData(.connect, 0);
+        pub const setup_send_ud: u64 = Identity.userData(.send, 0);
+        pub const setup_recv_ud: u64 = Identity.userData(.recv, 0);
+        pub const setup_close_ud: u64 = Identity.userData(.close, 0);
     };
 }
 

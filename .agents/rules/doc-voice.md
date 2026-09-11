@@ -149,5 +149,9 @@ path names as identifiers and gloss them once.
 | living-state      | docs that must match today's code                                  |
 | rung              | step on the ladder (introduce the ladder metaphor first)           |
 
+Inbound frames are untrusted peer input until codec and session validation
+complete. Write that in protocol terms: untrusted, peer-supplied,
+partner-chosen, or malformed.
+
 Keep identifiers unchanged when they are real names: `zig build oracle-check`, `test/oracle/`, `*-dogfood`,
 `tools/check/`. Gloss them: “`zig build oracle-check` (protocol reference fixtures)” rather than “the oracle gate.”

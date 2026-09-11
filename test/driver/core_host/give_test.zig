@@ -66,17 +66,23 @@ test "core local capability verbs share admission and publication identity" {
 
     const spawned = try host.spawn(session, Widget, .{});
     const exports_before = session.served.port.exports.count();
+    const resolved = (try host.resolveCapability(session, spawned)).resolved;
+    try std.testing.expect(resolved.eql(spawned));
+    try std.testing.expectEqual(@as(u64, 2), host.capabilities.retainCount(spawned).?);
+    try std.testing.expectEqual(exports_before, session.served.port.exports.count());
+    try host.releaseCapability(spawned, 1);
     var local_reply = CapturedString{};
-    const local_vow = try host.queueSendCapability(session, spawned, .{ .verb = "poke", .args = &.{} });
+    const local_vow = try host.queueSendCapability(session, resolved, .{ .verb = "poke", .args = &.{} });
     try host.vowOn(local_vow, .{ .ctx = &local_reply, .func = CapturedString.record });
     try host.flushSession(session);
     try std.testing.expectEqualStrings("poked over fed bytes", local_reply.text());
     try std.testing.expectEqual(exports_before, session.served.port.exports.count());
-    try host.releaseCapability(spawned, 1);
+    try host.releaseCapability(resolved, 1);
 
     try host.beginSessionClose(session, .cancel, 0);
     try std.testing.expectError(error.SessionCondemned, host.publish(session, "late", Widget, .{}));
     try std.testing.expectError(error.SessionCondemned, host.spawn(session, Widget, .{}));
+    try std.testing.expectError(error.SessionCondemned, host.resolveCapability(session, published));
     try std.testing.expectError(error.SessionCondemned, host.publishedCapability(session, "widget"));
     try host.releaseCapability(published, 1);
 }
@@ -493,6 +499,9 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
     const readiness_vow = try recipient.queueListenToCapability(r_to_anchor.a, promise);
     var ready = CapturedRef{};
     try recipient.vowOn(readiness_vow, .{ .ctx = &ready, .func = CapturedRef.record });
+    const resolution = try recipient.resolveCapability(r_to_anchor.a, promise);
+    var resolved_ready = CapturedRef{};
+    try recipient.vowOn(resolution.pending, .{ .ctx = &resolved_ready, .func = CapturedRef.record });
 
     // The pending message owns this nested capability after the caller drops
     // its copy. Successful redemption must still lower the retained identity
@@ -549,6 +558,7 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
             recipient.routeCapability(r_to_anchor.a, promise, true),
         );
         try std.testing.expect(ready.broken);
+        try std.testing.expect(resolved_ready.broken);
     } else {
         try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g, r_to_anchor, r_to_e }, &dials);
         const routed = try recipient.routeCapability(dialed, promise, true);
@@ -557,6 +567,11 @@ fn runNestedGivePipelining(close_introducer: bool) !void {
         try std.testing.expect(observed.session == dialed);
         try std.testing.expect(observed.target == .far);
         try std.testing.expect(observed.target.far.kind == .object);
+        const generic = try recipient.routeSend(dialed, try resolved_ready.require(), &.{});
+        try std.testing.expectEqual(observed.target.far, generic.target.far);
+        const settled = (try recipient.resolveCapability(r_to_anchor.a, promise)).resolved;
+        try std.testing.expect((try recipient.routeCapability(dialed, settled, true)).session == dialed);
+        try recipient.releaseCapability(settled, 1);
         try std.testing.expectEqualStrings("poked over fed bytes", reply.text());
     }
     try std.testing.expect(recipient.localActorFor(argument_cap) == null);

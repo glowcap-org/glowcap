@@ -70,9 +70,10 @@ export async function runChange(
 			undefined,
 			{ timeout: 30_000 },
 		).catch(() => fail("the second peer did not redraw the refiled line with its new caption and file"));
-		// The composer let go of the change once it was on its way, so the next
-		// message starts from an empty field rather than inside a refile.
-		if (await tab.locator("#changing").count() !== 0) fail("sending the refile left the composer changing a line");
+		// The recipient may receive the edit before its acknowledgement returns.
+		// The composer releases the submitted edit only after that acknowledgement.
+		await tab.locator("#changing").waitFor({ state: "detached", timeout: 10_000 })
+			.catch(() => fail("acknowledging the refile left the composer changing a line"));
 		await tab.fill("#line", "");
 
 		// Editing the line down to nothing takes it back, because a message with no
@@ -103,6 +104,8 @@ export async function runChange(
 			undefined,
 			{ timeout: 30_000 },
 		).catch(() => fail("withdrawing a file line did not take its file away for the other peer"));
+		await tab.locator("#changing").waitFor({ state: "detached", timeout: 10_000 })
+			.catch(() => fail("the room withdrew the file line but its matching composer intent stayed active"));
 	}
 
 	// Pictures sent together stay one message, but become a compact, independently
@@ -122,15 +125,40 @@ export async function runChange(
 	await tab.click("#sendBtn");
 	await second.waitForFunction(
 		() => {
-			const grid = document.querySelector(".attachment-set.image-grid");
+			const grid = document.querySelector('.attachment-set.image-grid:has([aria-label*="five.png"])');
 			const images = [...(grid?.querySelectorAll(".attach-image img") ?? [])] as HTMLImageElement[];
 			return images.length === 5 && images.every((image) => image.naturalWidth > 0);
 		},
 		undefined,
 		{ timeout: 30_000 },
-	).catch(() => fail("the image set did not arrive as one thumbnail grid"));
+	).catch(async () => {
+		const describe = (page: Page) =>
+			page.evaluate(() => ({
+				grids: [...document.querySelectorAll(".attachment-set")].map((grid) => ({
+					classes: grid.className,
+					files: [...grid.querySelectorAll(".attach-image")].map((image) => ({
+						label: image.getAttribute("aria-label"),
+						error: image.querySelector(".failure")?.textContent ?? null,
+						naturalWidth: (image.querySelector("img") as HTMLImageElement | null)?.naturalWidth ?? null,
+					})),
+				})),
+				log: document.querySelector("#log")?.textContent ?? null,
+				composer: document.querySelector(".composer")?.textContent ?? null,
+				toasts: [...document.querySelectorAll("[role=status], [role=alert]")].map((notice) =>
+					notice.textContent
+				),
+			}));
+		fail(`the image set did not arrive as one thumbnail grid: ${
+			JSON.stringify({
+				sender: await describe(tab),
+				receiver: await describe(second),
+			})
+		}`);
+	});
 	const gallery = await second.evaluate(() => {
-		const grid = document.querySelector(".attachment-set.image-grid") as HTMLElement | null;
+		const grid = document.querySelector(
+			'.attachment-set.image-grid:has([aria-label*="five.png"])',
+		) as HTMLElement | null;
 		const tiles = [...(grid?.querySelectorAll(".attach-image") ?? [])] as HTMLElement[];
 		if (grid === null || tiles.length !== 5) return null;
 		const box = grid.getBoundingClientRect();
@@ -160,7 +188,14 @@ export async function runChange(
 		!gallery.completeFirstRow || !gallery.completeSecondRow || !gallery.compact || !gallery.thumbnailSized ||
 		!gallery.squareFirstRow || !gallery.cropped
 	) {
-		fail(`the multi-image message left an incomplete gallery row: ${JSON.stringify(gallery)}`);
+		const state = await second.evaluate(() => ({
+			attachments: [...document.querySelectorAll(".attachment-set")].map((set) => ({
+				classes: set.className,
+				names: [...set.querySelectorAll("[aria-label]")].map((item) => item.getAttribute("aria-label")),
+			})),
+			log: document.querySelector("#log")?.textContent ?? null,
+		}));
+		fail(`the multi-image message left an incomplete gallery row: ${JSON.stringify({ gallery, state })}`);
 	}
 
 	// The full-screen viewer follows conversation order rather than gallery DOM

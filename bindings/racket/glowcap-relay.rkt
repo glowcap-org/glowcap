@@ -3,6 +3,6 @@
 ;; the generic driver loop; the archive and driver own all transport behavior.
 (require "private/relay-provider.rkt"
          "private/relay-listen.rkt")
-(provide relay-provider relay-connector (struct-out relay-trust-summary)
+(provide relay-provider relay-connector
          keyed-relay-locator noise-relay-locator driver-loop-add-relay!
          (all-from-out "private/relay-listen.rkt"))

@@ -500,3 +500,107 @@
 
 (printf "racket zig-smoke OK: Session tell, serve, and close retain the exact first FLUSH failure\n")
 
+;; An interrupt aimed at a serving thread is the operator's, not the wire's:
+;; it ends that thread as a break, the session stays live, and a later serve
+;; picks the same connection back up.
+(define bk-server (listen "127.0.0.1" 0))
+(define bk-ready (make-semaphore 0))
+(define bk-host-session (box #f))
+(void
+ (thread
+  (lambda ()
+    (define hsession (accept bk-server))
+    (session-publish hsession "echo" (lambda (bcom) (methods [(ping) "pong"])))
+    (set-box! bk-host-session hsession)
+    (semaphore-post bk-ready))))
+(define bk-session (open-test-session (tcp-locator "127.0.0.1" (server-port bk-server))))
+(semaphore-wait bk-ready)
+(define (serve-until-done)
+  (define outcome (make-channel))
+  (values
+   (thread
+    (lambda ()
+      (channel-put outcome
+                   (with-handlers ([exn:break? (lambda (_) 'broken)]
+                                   [(lambda (_) #t) values])
+                     (session-serve (unbox bk-host-session))
+                     'served))))
+   outcome))
+(define-values (bk-first bk-first-outcome) (serve-until-done))
+;; Interrupt only once the serving thread holds the reader gate, so the break
+;; lands in the blocking read rather than before serving began.
+(let wait ([n 0])
+  (unless (or (unbox (async-connection-reader (session-async (unbox bk-host-session))))
+              (> n 500))
+    (sleep 0.01)
+    (wait (add1 n))))
+(break-thread bk-first)
+(expect (eq? 'broken (sync/timeout 5 bk-first-outcome))
+        "serve: an interrupt ends the serving thread as a break")
+(expect (not (session-closed? (unbox bk-host-session)))
+        "serve: the interrupted session stays live")
+(define-values (bk-second bk-second-outcome) (serve-until-done))
+(expect (equal? "pong" (session-send bk-session (session-fetch bk-session "echo") 'ping))
+        "serve: serving resumes on the same session after the interrupt")
+(session-close! bk-session)
+(expect (eq? 'served (sync/timeout 10 bk-second-outcome))
+        "serve: the resumed serve ends when the partner closes")
+(server-close! bk-server)
+
+(printf "racket zig-smoke OK: an interrupt ends a serving thread as a break and leaves the session live\n")
+
+;; Observe-only wait: two threads wait for retirement without serving or
+;; requesting close. Breaking one leaves the session live; the other and a
+;; late waiter share the terminal result of an explicit close.
+(define ow-server (listen "127.0.0.1" 0))
+(define ow-accepted (make-channel))
+(define ow-acceptor
+  (thread (lambda () (channel-put ow-accepted (accept ow-server)))))
+(define ow-client (open-test-session (tcp-locator "127.0.0.1" (server-port ow-server))))
+(define ow-host-session (channel-get ow-accepted))
+(define ow-first-ch (make-channel))
+(define ow-second-ch (make-channel))
+(define ow-first
+  (thread
+   (lambda ()
+     (with-handlers ([exn:break? (lambda (_) (channel-put ow-first-ch 'cancelled))]
+                     [exn? (lambda (e) (channel-put ow-first-ch e))])
+       (session-wait-closed ow-client)
+       (channel-put ow-first-ch 'closed)))))
+(define ow-second
+  (thread
+   (lambda ()
+     (with-handlers ([exn? (lambda (e) (channel-put ow-second-ch e))])
+       (session-wait-closed ow-client)
+       (channel-put ow-second-ch 'ok)))))
+(sleep 0.05)
+(expect (and (not (session-released? ow-client)) (session-open? ow-client))
+        "wait-closed: watching does not request close")
+(break-thread ow-first)
+(expect (eq? 'cancelled (sync/timeout 5 ow-first-ch))
+        "wait-closed: breaking one observer cancels only that waiter")
+(expect (and (not (session-released? ow-client)) (session-open? ow-client))
+        "wait-closed: a cancelled observer leaves the session live")
+(define ow-close-ch (make-channel))
+(define ow-closer
+  (thread
+   (lambda ()
+     (with-handlers ([exn? (lambda (e) (channel-put ow-close-ch e))])
+       (session-close! ow-client)
+       (channel-put ow-close-ch 'ok)))))
+(define ow-second-result (sync/timeout 10 ow-second-ch))
+(define ow-close-result (sync/timeout 10 ow-close-ch))
+(expect (eq? ow-second-result ow-close-result)
+        (format "wait-closed: independent observers share the terminal result (got ~s and ~s)"
+                ow-second-result ow-close-result))
+(define ow-late
+  (with-handlers ([exn? values])
+    (session-wait-closed ow-client)
+    'ok))
+(expect (eq? ow-late ow-close-result)
+        (format "wait-closed: a late observer shares the terminal result (got ~s)" ow-late))
+(with-handlers ([exn? void]) (session-close! ow-host-session))
+(server-close! ow-server)
+
+(printf "racket zig-smoke OK: session-wait-closed observes retirement without serve or close\n")
+

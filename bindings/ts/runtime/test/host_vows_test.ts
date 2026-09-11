@@ -2,6 +2,8 @@ import { CLOSED, INTERNAL } from "@glowcap/abi";
 import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { type PromiseFactoryHandle, promiseFor } from "../promise.ts";
+import { SessionApplication } from "../session/application.ts";
+import { refFromId } from "../value.ts";
 import { assert } from "../../dogfood/assert.ts";
 
 async function assertRejectsCode(promise: Promise<unknown>, code: number): Promise<void> {
@@ -91,5 +93,37 @@ Deno.test("promise adoption parks native release at every post-mint failure", ()
 		}
 		assert(observed === failure, `${failing}: adoption replaced its failure`);
 		assert(parked.length === 1 && parked[0] === 19n, `${failing}: native vow was not released`);
+	}
+});
+
+Deno.test("send admission preserves the exact failure through every dependent handle", async () => {
+	const cause = new Error("scheduler refused progress");
+	for (const failure of [new Error("admission failed", { cause }), { cause }, null, undefined]) {
+		const session = {
+			guardOpen() {
+				throw failure;
+			},
+		} as unknown as SessionApplication;
+		// Admission must return a handle even for a non-Error raised value. No
+		// argument projection or native effect can happen after this refusal.
+		const pending = SessionApplication.prototype.send.call(session, refFromId(1n), "get");
+		const dependent = pending.untag("row").index(0).get("value");
+		const pipelined = SessionApplication.prototype.send.call(
+			{
+				guardOpen() {},
+				hostOwner: { drainGc() {} },
+				hostedActors: new Map(),
+				makePromiseFactory: () => ({ hostOwner: {} }),
+			} as unknown as SessionApplication,
+			pending,
+			"get",
+		);
+		for (const handle of [pending, dependent, pipelined]) {
+			const observed = await handle.then(
+				() => ({ ok: true as const }),
+				(error: unknown) => ({ ok: false as const, error }),
+			);
+			assert(!observed.ok && observed.error === failure, "send replaced the originating failure");
+		}
 	}
 });

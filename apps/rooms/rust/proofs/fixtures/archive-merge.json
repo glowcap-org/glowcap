@@ -1,0 +1,932 @@
+{
+  "authority": "apps/rooms/lib/archive/merge.ts",
+  "cases": [
+    {
+      "name": "present-present",
+      "accounts": [
+        {
+          "keeper": "local",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "local",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "selected",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "peer",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "peer",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "edited-present",
+      "accounts": [
+        {
+          "keeper": "local",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "local",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "edited",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "selected",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "peer",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "local",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "local",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "edited",
+            "attachments": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "present-edited",
+      "accounts": [
+        {
+          "keeper": "local",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "local",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "selected",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "peer",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "edited",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "peer",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "edited",
+            "attachments": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "withdrawn-edited",
+      "accounts": [
+        {
+          "keeper": "local",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "withdrawn",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "selected",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "peer",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "edited",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "local",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "withdrawn",
+            "attachments": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "edited-withdrawn",
+      "accounts": [
+        {
+          "keeper": "local",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "local",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "edited",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "selected",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "withdrawn",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "withdrawn",
+            "attachments": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "edited-edited",
+      "accounts": [
+        {
+          "keeper": "local",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "local",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "edited",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "selected",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "peer",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "edited",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "peer",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "edited",
+            "attachments": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "listed-order-false",
+      "accounts": [
+        {
+          "keeper": "first",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "second",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "second",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "first",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "listed-order-true",
+      "accounts": [
+        {
+          "keeper": "first",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "second",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "second",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "first",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "standing",
+      "accounts": [
+        {
+          "keeper": "local",
+          "writes": false,
+          "records": [
+            {
+              "kind": "standing",
+              "source": "source",
+              "generation": "generation",
+              "id": "standing",
+              "directory": "directory",
+              "room": "garden",
+              "nick": "alice",
+              "at": 1
+            }
+          ]
+        },
+        {
+          "keeper": "selected",
+          "writes": true,
+          "records": [
+            {
+              "kind": "standing",
+              "source": "source",
+              "generation": "generation",
+              "id": "standing",
+              "directory": "directory",
+              "room": "garden",
+              "nick": "bob",
+              "at": 2
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "standing",
+            "source": "source",
+            "generation": "generation",
+            "id": "standing",
+            "directory": "directory",
+            "room": "garden",
+            "nick": "bob",
+            "at": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "full-identity-and-first-seen-order",
+      "accounts": [
+        {
+          "keeper": "local",
+          "writes": false,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            },
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "local-only",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        },
+        {
+          "keeper": "selected",
+          "writes": true,
+          "records": [
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "edited",
+              "attachments": []
+            },
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "remote-only",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            },
+            {
+              "kind": "line",
+              "source": "different",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            },
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "different",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            },
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "different",
+              "conversationKind": "direct",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            },
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "direct",
+              "conversation": "different",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            },
+            {
+              "kind": "line",
+              "source": "source",
+              "generation": "generation",
+              "id": "same",
+              "directory": "directory",
+              "conversationKind": "room",
+              "conversation": "peer",
+              "from": "alice",
+              "text": "text",
+              "mine": false,
+              "at": 1,
+              "order": 1,
+              "state": "present",
+              "attachments": []
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "edited",
+            "attachments": []
+          }
+        },
+        {
+          "keeper": "local",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "local-only",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        },
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "remote-only",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        },
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "different",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        },
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "different",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        },
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "different",
+            "conversationKind": "direct",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        },
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "direct",
+            "conversation": "different",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        },
+        {
+          "keeper": "selected",
+          "record": {
+            "kind": "line",
+            "source": "source",
+            "generation": "generation",
+            "id": "same",
+            "directory": "directory",
+            "conversationKind": "room",
+            "conversation": "peer",
+            "from": "alice",
+            "text": "text",
+            "mine": false,
+            "at": 1,
+            "order": 1,
+            "state": "present",
+            "attachments": []
+          }
+        }
+      ]
+    }
+  ]
+}

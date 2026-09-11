@@ -178,8 +178,11 @@ pub const HostSession = struct {
     pub fn takeOutbound(self: *HostSession) HostError!?foundation.Frame {
         try self.host.refuseReentry();
         // Taking bytes is what makes queued pressure actionable, so a refused
-        // resume pump gets its bounded retry (see `Host.resume_pump_refused`).
+        // resume pump gets its bounded retry (see `Host.resume_pump_refused`),
+        // and the Node actions this session's pressure parked come back to the
+        // queue on the seats their parking reserved (ADR-0145).
         self.host.resume_pump_refused = false;
+        host_pump.requeueParkedNodeActions(self.host, self.peer_handle);
         const channel = self.sealed orelse {
             const frame = self.served.takeOutbound() orelse return null;
             self.traceOutboundFrame(&frame);

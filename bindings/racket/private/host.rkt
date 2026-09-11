@@ -498,17 +498,28 @@
 ;; return that name — the swiss to place in a sturdyref beside this host's own
 ;; locator. The name is unpredictable, never reassigned, structurally disjoint
 ;; from every mutable alias, and removable only through `host-remove-durable`.
-;; Entropy is drawn here, from the OS RNG.
-(define (host-publish-durable m behavior)
+;; Optional `entropy` must be exactly HOST-DURABLE-ENTROPY-LEN bytes and
+;; restores the same name on a Host reconstructed from the same seed; omitted,
+;; this method draws it from the OS RNG.
+(define (host-publish-durable m behavior [entropy #f])
+  (define entropy-bytes
+    (cond
+      [(not entropy) (crypto-random-bytes HOST-DURABLE-ENTROPY-LEN)]
+      [(and (bytes? entropy)
+            (= (bytes-length entropy) HOST-DURABLE-ENTROPY-LEN))
+       entropy]
+      [else
+       (raise-glowcap 'host-publish-durable ERR-INVALID-ARGUMENT
+                      "durable entropy must be exactly ~a bytes"
+                      HOST-DURABLE-ENTROPY-LEN)]))
   (define tramp (make-giftable-trampoline behavior))
   (host-retain! m tramp)
-  (define entropy (crypto-random-bytes 16))
   ;; Output buffer is mutable Racket bytes the FFI writes into — do not
   ;; `pin-immobile` it (that copies, and the write would be discarded). Plain
   ;; bytes are safe here only because this call is not marked `#:blocking?`, so
   ;; the collector cannot run and move the block under it; a blocking call needs
   ;; `out-immobile` instead.
-  (define out (make-bytes 64))
+  (define out (make-bytes HOST-DURABLE-SWISS-LEN))
   ;; The host never owns the row (the free callback is #f), so a refused
   ;; publish must retire the retained closure or it leaks for the host's life.
   (with-handlers ([(lambda (_) #t)
@@ -517,7 +528,8 @@
       (lambda ()
         (define written
           (glowcap_host_publish_durable (host-ptr m)
-                                        (pin-immobile entropy) (bytes-length entropy)
+                                        (pin-immobile entropy-bytes)
+                                        (bytes-length entropy-bytes)
                                         tramp #f #f
                                         out (bytes-length out)))
         (when (<= written 0) (check/host written))

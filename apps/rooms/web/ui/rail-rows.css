@@ -290,6 +290,7 @@
    proof. */
 #roomList .rcount {
 	font-size: var(--type-tiny);
+	font-variant-numeric: tabular-nums;
 	background: color-mix(in srgb, var(--teal) 16%, transparent);
 	color: color-mix(in srgb, var(--teal-ink) 84%, var(--ink));
 	padding: 1px 6px;

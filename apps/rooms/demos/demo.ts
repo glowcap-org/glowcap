@@ -183,10 +183,11 @@ if (attach && transport === "iroh") {
 // chosen transport (TCP on the pinned/ephemeral port, or iroh on a fresh
 // endpoint that announces its ocapn:// URI).
 const serverArgs = transport === "iroh"
-	? [`${ROOT}/apps/rooms/server/main.ts`, "--transport=iroh"]
-	: [`${ROOT}/apps/rooms/server/main.ts`, String(pinPort)];
-const server = attach ? null : new Deno.Command("deno", {
-	args: [...DENO_FLAGS, ...serverArgs],
+	? ["--transport=iroh", "--reachability=direct"]
+	: ["--transport=tcp", `--port=${pinPort}`];
+const serverBin = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") || `${ROOT}/zig-out/bin/rooms-server`;
+const server = attach ? null : new Deno.Command(serverBin, {
+	args: serverArgs,
 	stdout: "piped",
 	stderr: "inherit",
 	cwd: ROOT,

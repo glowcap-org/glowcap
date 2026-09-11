@@ -21,7 +21,7 @@ The classic way to read them is two parsers: a framing scanner that finds the
 boundary (a length prefix, or a delimiter scan), then the codec decoder that
 parses the bounded slice. Two parsers means two notions of "where does this
 frame end," which must agree on every byte: a permanent divergence surface, and
-exactly the seam where a hostile partner finds a frame the scanner accepts but
+exactly the seam where an untrusted peer finds a frame the scanner accepts but
 the decoder rejects (or vice versa).
 
 glowcap's wire codecs are already self-delimiting: Syrup is length-prefixed and

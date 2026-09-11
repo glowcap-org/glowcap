@@ -92,12 +92,11 @@ reference actually held by the current membership.
 
 ## Evidence and gate
 
-`apps/rooms/test/server/steward_test.ts` covers single issuance, typed refusal,
-public identity without room-authority disclosure, cross-room rejection,
-transactional replacement, kicking, return after a kick, restart restoration,
-and refusal to grant the first member back. `zig build rooms-web-page` covers
+`apps/rooms/rust/native/src/room_server/tests/rooms.rs` covers issuance, typed
+refusal, cross-room authority, replacement, kicking, return after a kick, and
+restart restoration. `zig build rooms-web-page` covers
 the visible claim, possession status, bearer warning, copyable capability, and
 the resulting `/kick` grant. `zig build rooms-server-test` aggregates the Rooms
-server and UI contracts. `apps/rooms/test/server/links_test.ts` proves that
-prerelease state refuses old and unknown schemas. ADR-0127 names the
+server and UI contracts. Rust server-document tests prove that prerelease state
+refuses old and unknown schemas. ADR-0127 names the
 revocation evidence.

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::error_slot::error_slot;
 use crate::sys::inproc as ffi;
-use crate::{Codec, Context, Error, HintWireForm, Locator, Result};
+use crate::{Codec, Error, HintWireForm, Locator, Result};
 
 fn lock_failure(slot: &Mutex<Option<Error>>) -> std::sync::MutexGuard<'_, Option<Error>> {
 	slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -52,40 +52,23 @@ fn require_archive() -> Result<()> {
 	)
 }
 
-/// Owns the in-process switchboard and its one I/O backend. Connections and
-/// listeners borrow it (via `&self`), so the borrow checker rejects an
-/// [`Connection`] or [`Listener`] that outlives the netlayer that produced it. The
-/// `'ctx` lifetime additionally ties a context-backed netlayer to its
-/// [`Context`]; a netlayer on the library-owned allocator is `Netlayer<'static>`.
-pub struct Netlayer<'ctx> {
+/// Owns the in-process switchboard and its one I/O backend, on the
+/// library-owned allocator. Connections and listeners borrow it (via `&self`),
+/// so the borrow checker rejects a [`Connection`] or [`Listener`] that outlives
+/// the netlayer that produced it.
+pub struct Netlayer {
 	raw: *mut ffi::GlowcapInprocNetlayer,
 	listener_close_failure: Arc<Mutex<Option<Error>>>,
-	_ctx: PhantomData<&'ctx Context>,
 }
 
-impl<'ctx> Netlayer<'ctx> {
-	pub fn new() -> Result<Netlayer<'ctx>> {
+impl Netlayer {
+	pub fn new() -> Result<Netlayer> {
 		require_archive()?;
 		let mut raw: *mut ffi::GlowcapInprocNetlayer = core::ptr::null_mut();
 		check_inproc(unsafe { ffi::glowcap_inproc_netlayer_new(&mut raw) })?;
 		Ok(Netlayer {
 			raw,
 			listener_close_failure: Arc::new(Mutex::new(None)),
-			_ctx: PhantomData,
-		})
-	}
-
-	/// Create a netlayer whose switchboard, backend, and per-connection buffers
-	/// allocate through `context`. The context must outlive the netlayer, which
-	/// `'ctx` enforces.
-	pub fn new_in(context: &'ctx Context) -> Result<Netlayer<'ctx>> {
-		require_archive()?;
-		let mut raw: *mut ffi::GlowcapInprocNetlayer = core::ptr::null_mut();
-		check_inproc(unsafe { ffi::glowcap_inproc_netlayer_new_in(context.raw(), &mut raw) })?;
-		Ok(Netlayer {
-			raw,
-			listener_close_failure: Arc::new(Mutex::new(None)),
-			_ctx: PhantomData,
 		})
 	}
 
@@ -138,7 +121,7 @@ impl<'ctx> Netlayer<'ctx> {
 	}
 }
 
-impl Drop for Netlayer<'_> {
+impl Drop for Netlayer {
 	fn drop(&mut self) {
 		unsafe { ffi::glowcap_inproc_netlayer_release(self.raw) };
 	}
@@ -200,8 +183,7 @@ impl Listener<'_> {
 // per-handle mutable state with the netlayer or sibling handles, so moving it to
 // the accepting thread and calling `accept` there touches only its own state.
 // The state it shares with the netlayer is thread-safe: the allocator
-// (`std.heap.smp_allocator` for `Netlayer::new`, or a bounded `Send + Sync`
-// `ContextAllocator` for `new_in`) and the in-process switchboard/`std.Io.Threaded`
+// (`std.heap.smp_allocator`) and the in-process switchboard/`std.Io.Threaded`
 // backend, which tolerates the concurrent connect-on-origin / accept-off-thread
 // rendezvous the committed scoped-thread test exercises. Borrowing the netlayer
 // keeps it non-`'static`, so callers move it into a scoped thread.

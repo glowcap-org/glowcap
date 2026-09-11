@@ -189,6 +189,19 @@ not ship a native Zig QUIC or WebRTC stack.
 
 ## API gaps
 
+- **Rooms' Rust application migration is complete, not a portability claim.**
+  Rust owns every Rooms server and session-peer process plus the local, hosted,
+  and attached browser application. The production page uses Rust for Host and
+  transport execution, supervision and reconnect, workspace intent, bounded
+  command and outcome custody, drafts, files, persistence, and archives.
+  TypeScript remains the React presentation and browser-effect adapter, plus
+  protocol-consumer dogfoods and tests. `source-check` rejects resurrection of
+  the retired TypeScript server and IRC owner paths. The historical
+  [migration record](planning/rooms-rust.md) names the ownership and evidence.
+  This does not establish Windows support, non-Linux native file-lock behavior,
+  public Tor circuit reachability, or a performance improvement. Those remain
+  separate product and platform boundaries.
+
 - **A Rooms message consumer has a bounded unread queue.** `Room.messages`
   hands a line directly to a pending read and otherwise retains at most 256
   unread messages. A consumer that remains stalled past that bound receives a
@@ -210,6 +223,15 @@ not ship a native Zig QUIC or WebRTC stack.
   A browser tab can bind the same actor onto its wasm Host with in-memory session
   documents. That incarnation is the tab: reload mints a new Host, so a saved
   hosted selector becomes local reconstruction rather than dialing a dead peer.
+
+- **A durable session's bridge credentials are retained, not encrypted.** The
+  password a member answers a bridge form with lives in the session peer's own
+  `bridge-secrets.json`, under the state directory's permissions, beside the
+  identity seed that already grants the whole session. It never enters a
+  checkpoint, snapshot, or export, and it is dropped once no room still names
+  its scope. A browser's local workspace holds none across a reload, and a
+  workspace adopted into a peer carries the intent without the password; both
+  ask the member to answer the bridge once more (ADR-0141).
   A live transferred attachment remains available only while its room, direct
   line, and session custody remain valid. A selected member archive may retain
   the same message's bytes separately and serve them after restart through its
@@ -434,11 +456,12 @@ capability, or cold-dials a tab that selected `noise-relay`. A tab that wants
 native-initiated DMs picks **Through the room relay** in Settings or opens with
 `?dm=relay`.
 
-A room stores posted files under its room and server ceilings. A direct-message
-file has no server in its path, so its sender hosts the blob on the direct
-session until the recipient has pulled it. The TypeScript sender retains at
-most 128 unfetched sources and 64 MiB, then expires the oldest. If the session
-ends or the ceiling expires a file first, the recipient keeps the message
+A room stores posted files under its room and server ceilings. A direct-message sender has no server
+in its path, so it hosts each blob until the recipient pulls it. The Rust application's
+`files::sources` owner retains at most eight files per message, 128 live sources,
+and 64 MiB across direct conversations. It allows 32 simultaneous reads.
+Pressure expires the oldest source with no active read. If the session ends or
+the ceiling expires a file first, the recipient keeps the message
 metadata but cannot fetch bytes it never received.
 
 The [roadmap](roadmap.md) owns those tasks and the remaining product work,

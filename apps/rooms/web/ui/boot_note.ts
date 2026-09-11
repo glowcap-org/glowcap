@@ -31,13 +31,13 @@ const NOTES: Readonly<Record<BootPhase, string>> = {
 /** Dry, short, and true. A reader gets at most a few of these, so none of them
  * is load-bearing and none is a promise. */
 const ASIDES: readonly string[] = [
-	"Warming the griddle.",
+	"Lighting the lantern.",
 	"This page is the peer. Nothing is logging you in.",
 	"No account, no password. Just the link you kept.",
 	"Your rooms are capabilities you hold, not rows in a table.",
 	"A room you hold is a room you can hand to somebody.",
 	"Direct messages go direct. The room never sees them.",
-	"Stacking.",
+	"Fruiting.",
 ];
 
 /** Long enough that an ordinary load never shows one. */

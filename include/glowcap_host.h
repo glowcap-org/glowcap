@@ -487,6 +487,17 @@ typedef struct GlowcapDialPlan {
    retained once when the give was accepted; no URI is reparsed and no hint is
    discarded. Unknown or stale attempts return GLOWCAP_ERR_INVALID_ARGUMENT. */
 int32_t glowcap_host_pending_dial(GlowcapHost *host, uint64_t ticket, size_t route_index, GlowcapLocatorHintView *hint_storage, size_t hint_capacity, GlowcapLocatorView *out_locator, size_t *out_hint_count);
+/* Borrow the live session that supplied the oldest remaining give for this
+   pending dial, or write NULL when no live introducer remains (including a
+   purely application-owned dial). Unknown or stale attempts return
+   GLOWCAP_ERR_INVALID_ARGUMENT and leave the output untouched. A deduplicated
+   dial may have several introducing sessions; this projects one source, not
+   authority over the others. Bindings capture it before starting the route effect
+   to select application-owned signaling context without a global capture window.
+   The borrowed handle lives with that session; do not release it here. Waiter
+   retirement can change a later observation; this call retains no session and
+   mints no capability. */
+int32_t glowcap_host_pending_dial_introducer(GlowcapHost *host, uint64_t ticket, size_t route_index, GlowcapHostSession **out_session);
 /* Write the live session homing remote reference into *out_session, or NULL for
    a local, stale, foreign-Host, or closed-session capability. Bindings compare
    this result with the sending session after a call: the same session is an
@@ -724,6 +735,13 @@ int32_t glowcap_host_fetch_at(GlowcapHost *host, const GlowcapLocatorView *locat
    the settlement auto-redeems exactly as a fetch's would. The vow is plain: a
    listen makes no claim the result is a capability. Legal inside a callback. */
 int32_t glowcap_host_session_listen(GlowcapHostSession *session, const GlowcapReference *target, uint64_t *out_vow);
+/* Resolve an opaque capability. An object returns one owned application retain
+   in *out_reference and zero in *out_vow, without wire traffic. Release that
+   retain with glowcap_host_ref_release. A promise returns a zero reference and
+   a settlement vow in *out_vow; its SETTLE/FAIL may carry any value. Inline
+   handoffs redeem through the Host. All pointers are required; outputs change
+   only on success. Legal inside a callback. */
+int32_t glowcap_host_session_resolve(GlowcapHostSession *session, const GlowcapReference *target, GlowcapReference *out_reference, uint64_t *out_vow);
 /* Eventual-send to an opaque Host-scoped target and mint a host vow for the
    answer; the outcome arrives as that vow's SETTLE or FAIL action. The Host
    chooses local delivery or the owning exporter session. A target or nested
@@ -787,16 +805,28 @@ int32_t glowcap_host_set_trace_queue(GlowcapHost *host, size_t capacity, size_t 
    loop until it sees that code. */
 int32_t glowcap_host_next_trace(GlowcapHost *host, GlowcapTraceEvent *out_event);
 /* Settle a resolver vow fulfilled with one capability-free value (a value
-   naming a capability refuses whole; an answer that carries authority uses
-   the turn's forward instead). Top-level: refused inside a callback; the
+   naming a capability refuses whole; owning-thread capability values use
+   resolver_fulfill_value instead). Top-level: refused inside a callback; the
    settle runs the deferred answers and pumps the sessions they dirtied. A
-   successful settle consumes the resolver; preparation failure is retryable,
-   while a second successful settle or an unknown id refuses. */
+   successful settle consumes the resolver; preparation failure is retryable.
+   A consumed resolver refuses a second settle as INVALID_ARGUMENT, and an id
+   this host never minted refuses as NOT_FOUND. */
 int32_t glowcap_host_resolver_fulfill(GlowcapHost *host, uint64_t resolver_id, const GlowcapArgument *value);
+/* Fulfill a deferred answer with an owning-thread application value.
+   Capabilities are projected in the original caller session. A stale or
+   cross-session capability refuses the whole value and preserves the resolver
+   for retry; this seam does not perform a three-party handoff. Top-level and
+   consume-on-success, like resolver_fulfill. Plain worker/mailbox data continues
+   to use resolver_fulfill. */
+int32_t glowcap_host_resolver_fulfill_value(GlowcapHost *host, uint64_t resolver_id, const GlowcapArgument *value);
 /* Settle a resolver vow broken with a diagnostic borrowed for the call. The
    same top-level, consume-on-success contract as
    glowcap_host_resolver_fulfill. */
 int32_t glowcap_host_resolver_break(GlowcapHost *host, uint64_t resolver_id, const uint8_t *message, size_t message_len);
+/* Abandon a deferred answer, top-level. A resolver already consumed by
+   session teardown or settlement is complete cleanup. Unminted ids refuse
+   NOT_FOUND; other failures leave the operation retryable. */
+int32_t glowcap_host_resolver_abandon(GlowcapHost *host, uint64_t resolver_id, const uint8_t *message, size_t message_len);
 /* Borrow the session whose Port delivered this callback turn. The handle is
    Host-owned and lives with that session; do not release it. This is how an
    embedder whose driver serves several sessions identifies the arriving
@@ -806,7 +836,7 @@ int32_t glowcap_host_turn_session(GlowcapHostTurn *turn, GlowcapHostSession **ou
    Host-scoped target and let this object's own answer settle on the forwarded
    result — the caretaker/attenuator primitive. The Host resolves the target and
    every nested capability; a stale or foreign-Host identity is refused. In a
-   wire-served turn the real answer rides the forwarded vow and *out_reply gets a
+   local eventual or wire-served turn the real answer rides the forwarded vow and *out_reply gets a
    void placeholder; pass your behavior's own out_reply and return GLOWCAP_OK.
    The written reply is BORROWED — valid until the next turn verb or drive on
    this host. The empty-verb contract is glowcap_host_session_send's. */
@@ -835,8 +865,9 @@ int32_t glowcap_host_turn_tell(GlowcapHostTurn *turn, const GlowcapReference *ta
 int32_t glowcap_host_turn_spawn(GlowcapHostTurn *turn, GlowcapHostBehavior behavior, void *ctx, GlowcapHostCtxFree free, GlowcapReference *out_ref);
 /* From inside a behavior callback, break this turn's own answer with message —
    how a behavior refuses with a diagnostic, since a non-OK return settles the
-   answer broken with only a generic reason. The answer resolves broken inside
-   this call (a no-answer tell breaks nothing); leave out_reply untouched and
+   answer broken with only a generic reason. A wire answer breaks inside this
+   call; a local eventual answer breaks when its turn unwinds. A no-answer tell
+   breaks nothing. Leave out_reply untouched and
    return GLOWCAP_OK from the behavior, whose return value then resolves
    nothing. message is borrowed and copied. */
 int32_t glowcap_host_turn_break(GlowcapHostTurn *turn, const uint8_t *message, size_t message_len);

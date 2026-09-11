@@ -240,9 +240,14 @@
 (define pl2-task (session-send-promise pl2-session pl2-root 'create "second"))
 (expect (= (session-vow-id pl-task) (session-vow-id pl2-task))
         "host-scope: the scenario exercises colliding vow ids")
+;; The refusal happens before any FFI call, and it arrives on the handle the
+;; send returns. `session-send-promise` has to return before its answer settles
+;; so a caller can pipeline at it, so a refusal raised at the call would land on
+;; a channel the caller's settle-side handler never watches.
+(define foreign-vow-handle (session-send-promise pl2-session pl-task 'status))
 (define foreign-vow-error
   (with-handlers ([exn:fail:glowcap? values])
-    (session-send-promise pl2-session pl-task 'status)
+    (session-await pl2-session foreign-vow-handle)
     'no-error))
 (expect (and (exn:fail:glowcap? foreign-vow-error)
              (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code foreign-vow-error)))

@@ -1,4 +1,4 @@
-//! Hostile-bytes fuzzing of the byte-fed host, against a working application.
+//! Untrusted-bytes fuzzing of the byte-fed host, against a working application.
 //!
 //! A language binding and a browser peer do not hand glowcap frames. They hand
 //! it whatever came back from a socket read: part of a frame, several frames, or
@@ -15,7 +15,7 @@
 //! And the session is doing something. A published capability, a fetch that
 //! settled, and calls in flight mean the host has vows, an action queue, and
 //! actor state to corrupt. Those tables do not exist until an application has
-//! used the connection, which is exactly the state an attacker finds in
+//! used the connection, which is exactly the state a peer finds in
 //! practice and a cold-start fuzzer never reaches.
 //!
 //! Two properties are checked, and only the first is about crashing.
@@ -135,7 +135,7 @@ fn feedChunked(host: *Host, session: *HostSession, input: []const u8, chunk: usi
         drainHost(host, session);
         // After every read, not only at the end: a table that overflows and is
         // then trimmed back would slip past an end-of-program check, and the
-        // window where it was over the cap is the window an attacker holds the
+        // window where it was over the cap is the window a peer holds the
         // memory.
         try bounds.checkDeclared(&session.served.port.peer.session_state);
         at = end;
@@ -178,7 +178,7 @@ fn hostFeedOneWithAllocator(
     }
 
     // Open, with an application on it. This is the regime with vows, an action
-    // queue, and actor state that hostile bytes can find in an awkward moment.
+    // queue, and actor state that untrusted bytes can find in an awkward moment.
     {
         // Partner verification is off here and on in the block above. Up there
         // the session is still negotiating, so the fuzzed bytes can reach the
@@ -198,7 +198,7 @@ fn hostFeedOneWithAllocator(
         host_pair.pumpToQuiescence(&.{pair}) catch return;
 
         // Leave a call genuinely in flight: sent, not pumped. The vow is
-        // unsettled when the hostile bytes arrive, so the settle path and the
+        // unsettled when the untrusted bytes arrive, so the settle path and the
         // refusal path meet in whatever order the fuzzer picks rather than the
         // tidy one. Its frame is also what `feedDamaged` breaks, and that
         // frame carries a delivery as far as the published capability.

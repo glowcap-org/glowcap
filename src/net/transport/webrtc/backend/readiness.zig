@@ -39,7 +39,10 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
                 entry.pending.readable_hint = true;
                 if (entry.pending.read_ud != null) Connections.completeRecv(self, entry);
             }
-            if (ev.events & ev_writable != 0) {
+            // A closed channel settles a parked write as readily as a parked
+            // read: the try-write reports the close, and the shared machine
+            // latches it, exactly as the iroh backend handles its own edge.
+            if (ev.events & (ev_writable | ev_closed) != 0) {
                 entry.pending.writable_hint = true;
                 if (entry.pending.write_ud != null) Connections.completeSend(self, entry);
             }

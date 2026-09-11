@@ -61,6 +61,12 @@ pub const ImportedPromise = struct {
     cell: PromiseListenCell,
     /// A self-edge means shortening is pending; a completed edge is stable.
     shortening_target: model.ImportPosition,
+    /// Whether the stable edge owns the retain its callback introduced on
+    /// `shortening_target` (`shortening.complete` adopted it), which the
+    /// closure on this source's final release spends. An edge completed after
+    /// its source was already released owns none: the engine released that
+    /// retain in the callback's own transaction.
+    shortening_target_retained: bool = false,
     settling_listener_claimed: bool = false,
     settling_listener_export: model.ExportPosition = .from(0),
     settling_answer: ?model.AnswerPosition = null,

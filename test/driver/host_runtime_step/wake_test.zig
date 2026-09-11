@@ -52,11 +52,17 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     defer silent.close(io);
 
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var client_runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    var sink = RecordingSink{};
+    var client_runtime = try driver.HostRuntime.init(
+        allocator,
+        io,
+        &netlayers,
+        .ephemeral,
+        harness.stepped(sink.sink(), harness.Quiet.observer()),
+    );
     defer client_runtime.deinit();
+    sink.core = client_runtime.core;
     var dials = DialRecorder{};
-    var sink = RecordingSink{ .core = client_runtime.core };
-    client_runtime.setCompletionSink(.{ .ctx = &sink, .take = RecordingSink.take });
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     try client_runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 21, .{
@@ -122,6 +128,7 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
         }
     }.run, .{server});
 
+    // The client is built stepped: its descriptor is read below, never armed.
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     var client = try driver.connect(
@@ -129,7 +136,7 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
         &netlayers,
         tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
-        opts,
+        harness.steppedQuiet(),
     );
     defer {
         client.deinit();
@@ -171,7 +178,7 @@ test "wakeReadiness raises the descriptor from another thread, and a sessionless
         tcp_resident.netlayer(),
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
-        opts,
+        harness.steppedQuiet(),
     );
     defer server.deinit();
 

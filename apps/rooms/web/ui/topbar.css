@@ -1,0 +1,138 @@
+/* ── The topbar ────────────────────────────────────────────────────────
+   The conversation's header: the sticky bar, its ribbon, and the title chip
+   that names the room. Split from workarea.css by subject; page.css imports
+   this sheet immediately after it, so the cascade is unchanged. The column
+   and the stream it heads stay in workarea.css. */
+/* The topbar pins to the top as the page scrolls under it (the mobile page-scroll
+   is what makes this visible; on desktop nothing scrolls past it). It stays above
+   the message stream but below the page's notices and the mobile roster sheet. A
+   backdrop blur makes the translucent background read as frosted glass rather than
+   letting messages bleed through. */
+.topbar {
+	/* Pin to the shared header height so the bottom border matches the sidebar
+	   workspace header. min-height (not height) so the mobile query can still grow it
+	   past this for the safe-area inset. */
+	min-height: var(--header-total);
+	position: sticky;
+	top: 0;
+	z-index: 5;
+	display: flex;
+	align-items: center;
+	gap: var(--gap-group);
+	padding: calc(12px + var(--accent-line)) 20px 12px;
+	border-bottom: 1px solid var(--rule);
+	background: color-mix(in srgb, var(--paper-raised) 70%, transparent);
+	backdrop-filter: blur(var(--frost));
+	-webkit-backdrop-filter: blur(var(--frost));
+}
+/* The accent hairline lives on the topbar, so it rides along with the sticky header
+   instead of scrolling away at the top of the page.
+
+   It runs from the reader to where they are. The near stop is the accent, which
+   is the reader and the room throughout this interface, and the far stop is the
+   directory the room is on, which is the same sentence the join card's own
+   stripe speaks about the directory it is about to reach. A room on this page's
+   own directory, and every room at all while the rail is not showing colours,
+   leaves the far stop teal, so the bar reads exactly as it did before and never
+   draws a distinction a reader cannot see anywhere else. A direct line is
+   included, because the rail marks one exactly as it marks a room. */
+.topbar::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: var(--accent-line);
+	/* Paint, not a surface. It lies across the top edge of a bar that holds
+	   controls, and a press landing in its three pixels belongs to whatever is
+	   under them. */
+	pointer-events: none;
+	background: linear-gradient(90deg in oklch, var(--accent) 0%, var(--dir-mark, var(--teal)) 100%);
+}
+.topbar h1 {
+	margin: 0;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+/* The room's name is a title, and the way to ask about it. Pressing the name
+   opens what this tab knows about the conversation — how it is reached, where
+   the session stands. Leaving is still the mark beside it, and that mark keeps
+   its place whether or not it is showing, so the title never shifts under the
+   pointer. It stays quiet until a pointer is over the heading, so a header at
+   rest is a name rather than a name and a way to lose it. */
+.topbar .title-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--mark-gap);
+	min-width: 0;
+	height: var(--control-h);
+	font-size: var(--type-title);
+	font-weight: 800;
+	letter-spacing: -.01em;
+	/* The line box has to fit the glyphs, not the em: at `1` it is shorter than
+	   the text it holds, and the name truncates with `overflow: hidden` on the
+	   narrow layout, so the descender of a `g` was cut off. Nothing here needs a
+	   tight line box — the chip has a fixed height and centres its contents — so
+	   the font's own metrics decide it. */
+	line-height: normal;
+	color: var(--ink);
+	white-space: nowrap;
+}
+/* The name starts on the column's left edge, where the avatars and the rows
+   under it start. The chip's own eight pixels of press padding are clawed
+   back by margin on the wide layout, so the press target keeps its reach and
+   the words keep the column's one edge. On a phone the mark button stands
+   before the name and needs its gap, so the claw-back stays off there. */
+@media (min-width: 821px) {
+	.topbar .title-chip {
+		margin-inline-start: -8px;
+	}
+}
+.topbar .title-chip:has(.avatar-chip) {
+	gap: var(--avatar-gap);
+}
+/* By class alone: a reset more specific than the focus ring in controls.css
+   takes the ring away, and this class is only ever in the topbar. */
+.title-about {
+	all: unset;
+	display: inline-flex;
+	align-items: center;
+	gap: inherit;
+	min-width: 0;
+	max-width: 100%;
+	height: 100%;
+	padding: 0 8px;
+	cursor: pointer;
+	border-radius: var(--radius-chip);
+	color: inherit;
+	font: inherit;
+	letter-spacing: inherit;
+}
+.topbar .title-about:hover {
+	background: var(--hover);
+}
+.topbar .leave-x {
+	flex: none;
+	margin-left: 2px;
+	opacity: 0;
+	transition: opacity .12s ease;
+}
+#roomTitle:hover .leave-x,
+#roomTitle:focus-within .leave-x {
+	opacity: 1;
+}
+.topbar h1 .hash {
+	color: var(--accent);
+	font-weight: 700;
+}
+/* Before the first join there is no room, and the header used to name one
+   anyway: a `#` and the word "rooms", which reads as a room called rooms. The
+   sigil is what claims a room, so it stays off until there is one, and the line
+   holds the state instead — in the muted register the roster and the rails use
+   for the same moment. */
+.topbar .title-chip:has(#roomSigil[hidden]) {
+	color: var(--ink-soft);
+	font-weight: 600;
+}
+.topbar .spacer {
+	flex: 1;
+}

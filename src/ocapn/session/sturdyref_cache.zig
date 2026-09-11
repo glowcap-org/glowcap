@@ -3,7 +3,7 @@
 //! Both are non-load-bearing dedup: a cache miss costs one extra bootstrap-fetch
 //! round-trip, never correctness, so the cache evicts its oldest entry on
 //! overflow rather than erroring, and the in-flight set only collapses
-//! concurrent enlivens of the same swissnum onto one outstanding answer. The
+//! concurrent enlivens of the same swissnum onto one outstanding answer.
 //! The row type lives here with the cache transitions. Storage remains on
 //! `Session`; these helpers are aliased back into its method index.
 
@@ -47,12 +47,12 @@ pub fn cacheSturdyrefEnlivenment(
         entry.far = far;
         return;
     }
+    try reserveCacheRow(self);
+    const owned = try self.allocator.dupe(u8, swissnum);
     if (self.sturdyref_cache.items.len >= self.limits.max_sturdyref_cache_entries) {
         evictOldest(self);
     }
-    const owned = try self.allocator.dupe(u8, swissnum);
-    errdefer self.allocator.free(owned);
-    try appendSturdyrefCacheRow(self, owned, far);
+    appendReservedSturdyrefCacheRow(self, owned, far);
 }
 
 /// Settle a fulfilled enliven: move the pending row's owned swissnum into the
@@ -109,14 +109,8 @@ pub fn notePendingEnliven(
         return error.AnswerAlreadyPending;
     // Settlement moves this pending row into the cache after the fetch has
     // committed. Reserve both cache structures now, while allocation failure
-    // still leaves the caller's enliven operation untouched. A full cache
-    // needs no growth: settlement evicts one row before inserting its own.
-    if (self.limits.max_sturdyref_cache_entries > 0 and
-        self.sturdyref_cache.items.len < self.limits.max_sturdyref_cache_entries)
-    {
-        try self.sturdyref_cache.ensureUnusedCapacity(self.allocator, 1);
-        try self.sturdyref_cache_index.ensureUnusedCapacity(self.allocator, 1);
-    }
+    // still leaves the caller's enliven operation untouched.
+    try reserveCacheRow(self);
     // Own the key before either index can observe it. The errdefers are ordered
     // so a reverse-index failure removes the forward row before freeing the
     // slice both maps compare through.
@@ -157,19 +151,21 @@ pub fn forgetSturdyrefEnlivenmentsAt(self: *Session, position: model.ImportPosit
     }
 }
 
-fn appendSturdyrefCacheRow(self: *Session, owned: []u8, far: model.FarRef) !void {
-    const index = self.sturdyref_cache.items.len;
-    try self.sturdyref_cache.append(self.allocator, .{
-        .swissnum = owned,
-        .far = far,
-    });
-    errdefer _ = self.sturdyref_cache.pop();
-    // The map key is the same owned slice the ArrayList row holds — one owner.
-    try self.sturdyref_cache_index.put(self.allocator, owned, index);
+/// Reserve one new row without consuming capacity promised to pending replies.
+/// Every pending row may settle before another allocation is possible; reserve
+/// their combined demand, bounded by the cache cap. Once full, eviction makes
+/// room without growth. Direct cache insertions obey the same reservation.
+fn reserveCacheRow(self: *Session) !void {
+    const room = self.limits.max_sturdyref_cache_entries - self.sturdyref_cache.items.len;
+    const demand = @as(usize, self.pending_enlivens.count()) +| 1;
+    const additional = @min(room, demand);
+    const index_additional = std.math.cast(u32, additional) orelse return error.OutOfMemory;
+    try self.sturdyref_cache.ensureUnusedCapacity(self.allocator, additional);
+    try self.sturdyref_cache_index.ensureUnusedCapacity(self.allocator, index_additional);
 }
 
 /// Commit a cache row whose list and index capacity were reserved by
-/// `notePendingEnliven`, or made available by evicting a full cache.
+/// `reserveCacheRow`, or made available by evicting a full cache.
 fn appendReservedSturdyrefCacheRow(self: *Session, owned: []u8, far: model.FarRef) void {
     const index = self.sturdyref_cache.items.len;
     self.sturdyref_cache.appendAssumeCapacity(.{

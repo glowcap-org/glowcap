@@ -551,11 +551,11 @@ Each step is green on its own gate before the next begins.
   browser member's direct message reported. Deriving the one legal value costs
   the caller nothing to say and makes the wrong one unrepresentable.
 
-## Adversarial review
+## Review lenses
 
-Four lenses were run over the plan. Each attacked it, and each changed it.
+Four lenses were run over the plan. Each challenged it, and each changed it.
 
-**Wire clarity** attacked the claim that minting on `iroh` is harmless, and
+**Wire clarity** challenged the claim that minting on `iroh` is harmless, and
 demanded the interop consequence be named rather than assumed. It also refused
 the first draft's "verify if present, require if nothing proved" as two rules
 that could drift apart. Three changes followed. The rule became four numbered
@@ -565,7 +565,7 @@ exactly which hellos change bytes and which do not, and cites
 tolerance. The tightening on `tcp` key-shaped claims is stated as a deliberate
 universal rule instead of being left as an accident of deleting the table.
 
-**Stability steward** attacked the evidence list. Its objection was that a
+**Stability steward** challenged the evidence list. Its objection was that a
 design fixing an uncovered path must not ship with that path still uncovered,
 and that a per-binding proof family with one row missing its assertions is a
 tier claimed on partial evidence. Required evidence item 1 now names the
@@ -576,7 +576,7 @@ missing assertions. It also forced the security posture section: a
 relayed session's provenance means `keyed-tcp`'s guarantee, and saying so is
 cheaper than a consumer discovering it.
 
-**Fresh eyes** attacked the vocabulary. "Authentication mechanism", "durable
+**Fresh eyes** challenged the vocabulary. "Authentication mechanism", "durable
 key basis", and "provenance" were three names for overlapping things, and a
 reader could not tell which one an adapter was supposed to set. The decision is
 now organized as three numbered facts with an owner each. The enum with a
@@ -584,7 +584,7 @@ member any caller could pick is replaced by a verb only a realizer would reach
 for. The reason the transport name cannot be renamed moved into the Context,
 where a newcomer meets it, rather than staying buried in Alternatives.
 
-**Scaffolding rigor** attacked the plan for deleting a `source-check` member
+**Scaffolding rigor** challenged the plan for deleting a `source-check` member
 without replacing it, which would leave a real invariant with nothing holding
 it. Migration step 7 now replaces `checkAuthenticationMechanismSync` with a
 check that `bindVerifiedChannelKey` appears only in connection-realizing code,

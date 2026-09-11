@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Icon } from "./icons.tsx";
-import type { RoomPreset } from "../../lib/room/policy.ts";
+import type { RoomPreset } from "./room_policy.ts";
 
 /** The mark for a room in this standing: the hash for a public name, the eye
  * for a room that is listed but offers only watching, the lock for one the

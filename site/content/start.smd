@@ -231,9 +231,9 @@ timeout values keep network waits finite.
 `.ephemeral` is the session identity, a throwaway keypair minted for this
 connection. The arena owns reply allocations; dropping it frees them.
 
-See the complete client and server in
-[`01_connect_and_serve.zig`](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/01_connect_and_serve.zig),
-the numbered walk over a local TCP socket.
+The complete program on this iroh path is
+[rooms]($link.page('examples')).
+Chapter 01 is the loopback TCP walk of the same fetch-and-call, on that page.
 
 # Listen
 
@@ -464,9 +464,8 @@ fn serve(server: *glowcap.driver.Server) !void {
 <!-- /site-examples:listen:zig -->
 ```
 
-The matching Listen tab is the live partner for these snippets, and the
-[CapTP CLI]($link.page('cli')) offers a cleartext lab greeter:
-`glowcap ocapn listen` with `--publish greeter`.
+The matching Listen tab is the live partner for these snippets.
+The [CapTP CLI]($link.page('cli')) starts with `glowcap app rooms-peer`.
 
 # From C, or any FFI host
 

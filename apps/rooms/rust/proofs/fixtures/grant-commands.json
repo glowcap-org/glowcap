@@ -1,0 +1,1090 @@
+[
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "interact",
+      " Phone ",
+      false
+    ],
+    "handled": true,
+    "accepted": true,
+    "reply": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "label": " Phone ",
+      "rights": "interact",
+      "history": false,
+      "suspended": false,
+      "note": "",
+      "sturdyref": "ocapn://fixture.tcp/s/00000000-0000-4000-8000-000000000001"
+    }
+  },
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000002",
+      "admin",
+      "Laptop",
+      true
+    ],
+    "handled": true,
+    "accepted": true,
+    "reply": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "label": "Laptop",
+      "rights": "admin",
+      "history": true,
+      "suspended": false,
+      "note": "",
+      "sturdyref": "ocapn://fixture.tcp/s/00000000-0000-4000-8000-000000000002"
+    }
+  },
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "interact",
+      "different",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      " ",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "not-id",
+      "observe",
+      "a",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "none",
+      "a",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "a",
+      0
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": true,
+    "reply": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "label": " Phone ",
+      "rights": "interact",
+      "history": false,
+      "suspended": false,
+      "note": "",
+      "sturdyref": "ocapn://fixture.tcp/s/00000000-0000-4000-8000-000000000001"
+    }
+  },
+  {
+    "access": "admin",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      true,
+      true,
+      "Paused"
+    ],
+    "handled": true,
+    "accepted": true,
+    "reply": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "label": " Phone ",
+      "rights": "observe",
+      "history": true,
+      "suspended": true,
+      "note": "Paused",
+      "sturdyref": "ocapn://fixture.tcp/s/00000000-0000-4000-8000-000000000001"
+    }
+  },
+  {
+    "access": "admin",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      false,
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": true,
+    "reply": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "label": " Phone ",
+      "rights": "interact",
+      "history": false,
+      "suspended": false,
+      "note": "",
+      "sturdyref": "ocapn://fixture.tcp/s/00000000-0000-4000-8000-000000000001"
+    }
+  },
+  {
+    "access": "admin",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      true,
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      false,
+      4
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "none",
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "setGrantPolicy",
+    "args": [
+      "not-id",
+      null,
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "revokeGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "handled": true,
+    "accepted": true,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "revokeGrant",
+    "args": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": true,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "revokeGrant",
+    "args": [],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "revokeGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "extra"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "admin",
+    "verb": "unhandled",
+    "args": [],
+    "handled": false,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "interact",
+      " Phone ",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000002",
+      "admin",
+      "Laptop",
+      true
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "interact",
+      "different",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      " ",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "not-id",
+      "observe",
+      "a",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "none",
+      "a",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "a",
+      0
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      true,
+      true,
+      "Paused"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      false,
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      true,
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      false,
+      4
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "none",
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "setGrantPolicy",
+    "args": [
+      "not-id",
+      null,
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "revokeGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "revokeGrant",
+    "args": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "revokeGrant",
+    "args": [],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "revokeGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "extra"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "interact",
+    "verb": "unhandled",
+    "args": [],
+    "handled": false,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "interact",
+      " Phone ",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000002",
+      "admin",
+      "Laptop",
+      true
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "interact",
+      "different",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      " ",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "not-id",
+      "observe",
+      "a",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "none",
+      "a",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "a",
+      0
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      true,
+      true,
+      "Paused"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      false,
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      true,
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      false,
+      4
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "none",
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "setGrantPolicy",
+    "args": [
+      "not-id",
+      null,
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "revokeGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "revokeGrant",
+    "args": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "revokeGrant",
+    "args": [],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "revokeGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "extra"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "observe",
+    "verb": "unhandled",
+    "args": [],
+    "handled": false,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "interact",
+      " Phone ",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000002",
+      "admin",
+      "Laptop",
+      true
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "interact",
+      "different",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      " ",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "not-id",
+      "observe",
+      "a",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "none",
+      "a",
+      false
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "issueGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      "a",
+      0
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "observe",
+      true,
+      true,
+      "Paused"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      false,
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      true,
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      null,
+      null,
+      false,
+      4
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "setGrantPolicy",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "none",
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "setGrantPolicy",
+    "args": [
+      "not-id",
+      null,
+      null,
+      null,
+      null
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "revokeGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "revokeGrant",
+    "args": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "revokeGrant",
+    "args": [],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "revokeGrant",
+    "args": [
+      "00000000-0000-4000-8000-000000000001",
+      "extra"
+    ],
+    "handled": true,
+    "accepted": false,
+    "reply": null
+  },
+  {
+    "access": "none",
+    "verb": "unhandled",
+    "args": [],
+    "handled": false,
+    "accepted": false,
+    "reply": null
+  }
+]

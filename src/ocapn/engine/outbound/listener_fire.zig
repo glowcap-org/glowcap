@@ -34,7 +34,7 @@ pub const Carrier = struct {
 };
 
 pub fn deinit(carrier: Carrier, peer: *Peer) void {
-    peer.session_state.releaseImportRetain(.from(carrier.listener_position));
+    peer.session_state.releaseSessionImportRetain(.from(carrier.listener_position));
     deinitEmitted(carrier, peer);
 }
 

@@ -171,9 +171,9 @@ pub const HostRuntime = struct {
     /// The trailing poll rows: resident readiness descriptors, then the
     /// mailbox wake.
     extra_fd_scratch: std.ArrayListUnmanaged(std.posix.fd_t) = .empty,
-    /// Listener descriptors registered through `activateListener`. Kept even
-    /// before the aggregate ready set is armed so readiness construction and
-    /// later listener activation have one lifecycle path.
+    /// Descriptors watched through `watchFd`. Kept on both faces, so
+    /// descriptor-conflict detection and `unwatchFd` have one lifecycle path
+    /// whether or not a ready set mirrors them.
     listener_fds: std.ArrayListUnmanaged(i32) = .empty,
     /// The off-turn settle mailbox (ADR-0102 stage 4), minted on first
     /// request; its wake fd rides every readiness wait beside the wires.
@@ -183,9 +183,18 @@ pub const HostRuntime = struct {
     /// starve every sibling — unbounded on `serve`/`step`, which carry no
     /// budget at all, and a misattributed `WaitTimedOut` on the budgeted
     /// waits (the timeout would name the innocent caller, not the flooder).
-    /// Rotating one position per wait bounds a live wire's turn by the
-    /// live-wire count instead of by a partner's send rate.
+    /// Starting the ready scan one position later per wait bounds a live
+    /// wire's turn by the live-wire count instead of by a partner's send rate,
+    /// at the cost of one index rather than a rotation of the rows.
     wait_cursor: usize = 0,
+    /// The nearest carrier-close deadline any wire holds, and how many hold
+    /// one. Both sibling tiers cache this rather than walk every slot before
+    /// each wait (`completion/loop/connections/deadlines.zig`,
+    /// `driver/core/host/close.zig`); an open wire holds no deadline, so the
+    /// common wait pays one comparison. A cleared deadline may leave the
+    /// cache early, and the one walk that finds nothing due re-derives it.
+    nearest_carrier_close_ms: ?i64 = null,
+    carrier_close_waiters: usize = 0,
     /// One vow whose synchronously settled completion the next action drain
     /// hands back instead of dropping: the select-or-dial enliven's
     /// cache-hit arm settles inside the verb, before any listener can
@@ -193,24 +202,14 @@ pub const HostRuntime = struct {
     /// the only claimer.
     awaited_completion: ?u64 = null,
     claimed_completion: ?driver_core.HostAction = null,
-    /// The aggregate readiness set (ADR-0112), armed by
-    /// `readinessDescriptor`. While armed, every stream wire fd, resident
-    /// readiness fd, mailbox wake fd, and watched extra fd is mirrored into
-    /// it, so an embedder parks on one descriptor instead of re-tracking the
-    /// set per language.
-    ready_set: ?net.ReadySet = null,
-    /// Where an application-visible completion (`settled` / `failed`) with no
-    /// in-process claimer goes instead of being freed (ADR-0112): the loop
-    /// archive queues it for its C event queue. Null on the native face,
-    /// whose waits observe vows in-process through captures.
-    completion_sink: ?CompletionSink = null,
-    /// Told when a wire closes inside the pump (EOF, fault, or dispatch
-    /// refusal), so a step-driven embedder learns of the closure without
-    /// polling every session. The close-and-release split stands: the wire
-    /// stays owned until `releaseWire`. A session still staged in
-    /// `pending_opens` reports through the dial path instead — the
-    /// embedder has never seen it, so a close event would name a stranger.
-    close_observer: ?CloseObserver = null,
+    /// Which face drives this runtime, chosen once at construction through
+    /// `Options.drive` and never changed. The blocking native face waits
+    /// through `net.waitAnyReadable` and observes vows in-process through
+    /// captures. The stepped face (ADR-0112) carries the aggregate readiness
+    /// set an embedder parks on and the two recipients it publishes through;
+    /// every site that services one face names the other's arm as empty, so
+    /// the code says which half is unreachable natively.
+    drive: Drive,
     /// Session opens advancing across pump iterations instead of blocking one
     /// (ADR-0112): embedder dials, redeem dials, and accepts share the same
     /// handshake lifecycle. Heap rows stay stable when an outcome callback
@@ -247,6 +246,55 @@ pub const HostRuntime = struct {
     pub const DeferredSessionRelease = wire_state.DeferredSessionRelease;
     pub const Wire = wire_state.Wire;
     pub const unattended_parked_cap_bytes = wire_state.unattended_parked_cap_bytes;
+
+    /// The construction-time choice behind `drive`; see `Options.drive`.
+    pub const DriveOptions = lifecycle.DriveOptions;
+    pub const SteppedOptions = lifecycle.SteppedOptions;
+
+    /// The face a runtime is driven by. The tag is fixed at construction, so
+    /// there is no arming verb and no second arm to refuse: a stepped runtime
+    /// is stepped from its first wire, and a blocking one has no descriptor
+    /// to hand out.
+    pub const Drive = union(enum) {
+        blocking,
+        stepped: Stepped,
+
+        pub fn init(options: DriveOptions) error{ReadinessUnavailable}!Drive {
+            return switch (options) {
+                .blocking => .blocking,
+                .stepped => |stepped| .{ .stepped = .{
+                    .ready_set = try net.ReadySet.init(),
+                    .completion_sink = stepped.completion_sink,
+                    .close_observer = stepped.close_observer,
+                } },
+            };
+        }
+
+        pub fn deinit(self: *Drive) void {
+            switch (self.*) {
+                .blocking => {},
+                .stepped => |*stepped| stepped.ready_set.deinit(),
+            }
+        }
+    };
+
+    /// The stepped face's state (ADR-0112). All three are installed together,
+    /// before any wire exists, so none is optional here: every stream wire
+    /// fd, resident readiness fd, mailbox wake fd, and watched extra fd is
+    /// mirrored into `ready_set` from the moment it appears, every wire
+    /// reserves its close publication with `close_observer` at adoption, and
+    /// every application-visible completion with no in-process claimer has
+    /// `completion_sink` as its taker instead of being freed. A wire the
+    /// pump closes (EOF, fault, or dispatch refusal) reaches the observer
+    /// under the close-and-release split: it stays owned until `releaseWire`.
+    /// A session still staged in `pending_opens` reports through the dial
+    /// path instead, because the embedder has never seen it and a close
+    /// event would name a stranger.
+    pub const Stepped = struct {
+        ready_set: net.ReadySet,
+        completion_sink: CompletionSink,
+        close_observer: CloseObserver,
+    };
 
     const ResidentDialWait = resident_state.DialWait;
     const ResidentRequestKey = resident_state.RequestKey;
@@ -320,9 +368,6 @@ pub const HostRuntime = struct {
     const removeReadyFd = runtime_readiness.removeReadyFd;
     const descriptorInUse = runtime_readiness.descriptorInUse;
     pub const wakeReadiness = runtime_readiness.wakeReadiness;
-    pub const setCompletionSink = runtime_readiness.setCompletionSink;
-    pub const setCloseObserver = runtime_readiness.setCloseObserver;
-    pub const clearCloseObserver = runtime_readiness.clearCloseObserver;
 
     const providerFor = runtime_providers.providerFor;
     const mintRuntimeId = runtime_providers.mintRuntimeId;
@@ -408,6 +453,8 @@ pub const HostRuntime = struct {
 
     const freeWire = runtime_carrier.freeWire;
     const dropWire = runtime_carrier.dropWire;
+    const reserveCloseEvent = runtime_carrier.reserveCloseEvent;
+    const releaseCloseEvent = runtime_carrier.releaseCloseEvent;
     const forceWireCarrierClose = runtime_carrier.forceWireCarrierClose;
     const closeWire = runtime_carrier.closeWire;
     const progressWireCarrierClose = runtime_carrier.progressWireCarrierClose;
@@ -480,6 +527,8 @@ pub const Internal = struct {
     pub const feedReadable = HostRuntime.feedReadable;
     pub const closeWire = HostRuntime.closeWire;
     pub const dropWire = HostRuntime.dropWire;
+    pub const reserveCloseEvent = HostRuntime.reserveCloseEvent;
+    pub const releaseCloseEvent = HostRuntime.releaseCloseEvent;
     pub const noteTerminalFailure = HostRuntime.noteTerminalFailure;
     pub const progressRetirement = HostRuntime.progressRetirement;
     pub const admitApplicationOperation = HostRuntime.admitApplicationOperation;

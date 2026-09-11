@@ -18,6 +18,16 @@ import { assertEquals } from "./assert.ts";
 const DESIGNATOR = "aa".repeat(32);
 const RELAY = "wss://relay.example/relay";
 
+Deno.test("A directory's full TCP locator keeps its hints when dialed", async () => {
+	const expected = roomsLocator("127.0.0.1:9099");
+	expected.hints.set("glowcap/features", "pipelining,sturdyref");
+	const dialed: Locator[] = [];
+	await dial(formatLocatorUri(expected), runtime((locator) => dialed.push(locator)));
+	assertEquals(dialed[0]?.transport, expected.transport);
+	assertEquals(dialed[0]?.designator, expected.designator);
+	assertEquals(dialed[0]?.hints.get("glowcap/features"), "pipelining,sturdyref");
+});
+
 function runtime(onConnect: (locator: Locator) => void): RoomsRuntime {
 	return {
 		host: {} as RoomsRuntime["host"],

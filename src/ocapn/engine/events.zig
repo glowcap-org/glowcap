@@ -56,8 +56,60 @@ pub const AnswerOverride = union(enum) {
     virtual_deliver: model.VirtualAnswer,
 };
 
+/// The row the engine queues per admitted inbound message: the frame and the
+/// off-wire facts apply recorded, and nothing decoded. A queue retains a few
+/// rows at rest, so this row is charged to the warmed session's footprint and
+/// a decoded body (a 336-byte view) would be a withdrawal from it per row;
+/// the body is decoded once when the row is surfaced by `Peer.pollEvent`.
+pub const queued_event_struct_budget_bytes = 176;
+
+pub const Queued = struct {
+    frame: foundation.Frame,
+    tag: EventKind,
+    codec: model.CodecId,
+    captp_version: model.CaptpVersion,
+    answer_override: AnswerOverride = .none,
+    deliver_answer_target: ?session.AnswerTarget = null,
+    allocator: std.mem.Allocator,
+    introduced_far_imports: ?[]model.ImportPosition = null,
+    resolve_aliases: std.ArrayListUnmanaged(model.AnswerPosition) = .empty,
+
+    /// Surface the row: decode its frame once, for every reader that drains
+    /// it. The frame was decoded from these exact bytes at admission (or
+    /// encoded by this peer for a local delivery), so the decode cannot fail
+    /// here; a failure would be an engine invariant broken, not peer input.
+    pub fn surface(self: Queued) Event {
+        const body = codec.dispatch.decodeBodyForProfile(self.codec, self.captp_version, self.frame.view()) catch
+            unreachable;
+        return .{
+            .frame = self.frame,
+            .body = body,
+            .tag = self.tag,
+            .codec = self.codec,
+            .captp_version = self.captp_version,
+            .answer_override = self.answer_override,
+            .deliver_answer_target = self.deliver_answer_target,
+            .allocator = self.allocator,
+            .introduced_far_imports = self.introduced_far_imports,
+            .resolve_aliases = self.resolve_aliases,
+        };
+    }
+
+    pub fn deinit(self: *Queued) void {
+        self.frame.deinit();
+        if (self.introduced_far_imports) |positions| self.allocator.free(positions);
+        self.resolve_aliases.deinit(self.allocator);
+    }
+};
+
+/// A surfaced inbound event: the queued row plus its frame decoded once. Every
+/// reader that drains it (the driver, the vat, the GC walk) projects from
+/// `body`, so one message costs one parse after admission rather than one per
+/// reader. `frame` never moves its heap bytes, so the borrow stays valid for
+/// the event's life. Transient: it lives on the drain's stack, not in a queue.
 pub const Event = struct {
     frame: foundation.Frame,
+    body: model.view.Body,
     tag: EventKind,
     /// The codec that carried `frame` — the session's negotiated `model.CodecId`.
     codec: model.CodecId,
@@ -114,13 +166,13 @@ pub const Event = struct {
     /// translation. Composition hooks use this to recognize a Node-owned
     /// listener callback even when the semantic event also resolves local
     /// application answers.
-    pub fn wireView(self: *const Event) DecodeError!model.view.Body {
-        return codec.dispatch.decodeBodyForProfile(self.codec, self.captp_version, self.frame.view());
+    pub fn wireView(self: *const Event) model.view.Body {
+        return self.body;
     }
 
     /// Borrowed typed projection over the retained frame. No allocation, no copy.
     pub fn view(self: *const Event) DecodeError!model.view.Body {
-        const wire = try self.wireView();
+        const wire = self.wireView();
         return switch (self.answer_override) {
             .none => wire,
             .resolver_callback => |answer| .{ .resolve = .{
@@ -134,11 +186,11 @@ pub const Event = struct {
     /// The semantic answer an inbound deliver settles. A wire answer remains
     /// wire-shaped; a V1.0 resolver-only deliver carries its session-local
     /// virtual identity here without manufacturing a wire position in `view`.
-    pub fn deliverAnswerName(self: *const Event) DecodeError!?model.AnswerName {
+    pub fn deliverAnswerName(self: *const Event) ?model.AnswerName {
         if (self.tag != .deliver) return null;
         return switch (self.answer_override) {
             .virtual_deliver => |answer| .fromVirtual(answer),
-            else => if ((try self.wireView()).deliver.answer) |answer|
+            else => if (self.wireView().deliver.answer) |answer|
                 .fromWire(answer)
             else
                 null,
@@ -204,4 +256,8 @@ pub fn breakReasonFromPayload(payload: anytype) ?[]const u8 {
         .tagged => |tagged| tagged.tag,
         else => null,
     };
+}
+
+comptime {
+    std.debug.assert(@sizeOf(Queued) <= queued_event_struct_budget_bytes);
 }

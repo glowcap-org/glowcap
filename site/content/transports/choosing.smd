@@ -63,7 +63,7 @@ signaling and NAT work. Otherwise the relay is simpler to run.
   Goblins ships. `tcp` and `iroh` meet the vat through adapters this repository
   wrote: cleartext loopback, and encrypted QUIC.
 
-The prototype `id` symbol is not a row here because it is not a byte path: it
+The `id` symbol is not a row here because it is not a byte path: it
 bundles several of these routes under one durable key.
 [Multi-home peers]($link.page('multihome')) explains it.
 

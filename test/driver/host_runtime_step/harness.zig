@@ -20,6 +20,41 @@ pub const opts: driver.SessionOptions = .{
     .settle = .{ .ms = 10_000 },
 };
 
+/// `opts` on the stepped face: the runtime is built with its readiness set
+/// and these two recipients, the way the loop archive builds one.
+pub fn stepped(
+    sink: driver.HostRuntime.CompletionSink,
+    observer: driver.HostRuntime.CloseObserver,
+) driver.SessionOptions {
+    var options = opts;
+    options.drive = .{ .stepped = .{ .completion_sink = sink, .close_observer = observer } };
+    return options;
+}
+
+/// A stepped runtime that wants only the descriptor: completions fall back
+/// to the drain's own free, and closes go unobserved.
+pub fn steppedQuiet() driver.SessionOptions {
+    return stepped(Quiet.sink(), Quiet.observer());
+}
+
+pub const Quiet = struct {
+    var ctx: u8 = 0;
+
+    fn take(_: *anyopaque, _: driver_core.HostAction) bool {
+        return false;
+    }
+
+    fn closed(_: *anyopaque, _: *driver_core.HostSession, _: ?driver.OperationFailure) void {}
+
+    pub fn sink() driver.HostRuntime.CompletionSink {
+        return .{ .ctx = @ptrCast(&ctx), .take = take };
+    }
+
+    pub fn observer() driver.HostRuntime.CloseObserver {
+        return .{ .ctx = @ptrCast(&ctx), .closed = closed };
+    }
+};
+
 pub const FailureCapture = struct {
     failure: ?driver.OperationFailure = null,
 
@@ -35,15 +70,12 @@ pub const Treasure = support_actors.StaticReplyValueActor("greet", "hello from t
 /// Serve entirely step-shaped: accept one session, publish, then pump
 /// nothing but poll(readiness) + `stepAny(0)` until told to stop. The
 /// descriptor and the step are the whole loop, exactly the loop-archive
-/// contract.
+/// contract. The server was built stepped, with its close observer.
 pub fn stepServe(
     server: *driver.Server,
     ready_fd: i32,
-    closed_flag: *std.atomic.Value(bool),
     stop: *std.atomic.Value(bool),
 ) anyerror!void {
-    var observer_ctx = CloseFlag{ .flag = closed_flag };
-    try server.runtime.setCloseObserver(.{ .ctx = &observer_ctx, .closed = CloseFlag.notify });
     var session = try server.accept();
     defer session.deinit();
     _ = try session.publish("treasure", Treasure, .{});
@@ -117,8 +149,10 @@ pub fn connectAndHold(
 
 /// A sink that takes exactly the settled/failed completions and remembers
 /// what it saw; it owns each taken action and frees it through the core.
+/// The sink is installed at construction, before the core exists, so the
+/// test points it at the core once the runtime is built.
 pub const RecordingSink = struct {
-    core: *driver_core.Host,
+    core: ?*driver_core.Host = null,
     settled: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
 
     pub fn take(ctx: *anyopaque, action: driver_core.HostAction) bool {
@@ -128,8 +162,12 @@ pub const RecordingSink = struct {
             .failed => |f| self.settled.store(f.vow_id, .release),
             else => return false,
         }
-        self.core.freeAction(action);
+        self.core.?.freeAction(action);
         return true;
+    }
+
+    pub fn sink(self: *RecordingSink) driver.HostRuntime.CompletionSink {
+        return .{ .ctx = self, .take = take };
     }
 };
 

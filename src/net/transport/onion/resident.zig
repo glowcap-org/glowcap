@@ -21,11 +21,10 @@ const std = @import("std");
 const engine = @import("engine");
 const model = @import("model");
 
+const accept_gate = @import("../../accept_gate.zig");
 const connection = @import("../../connection.zig");
 const frame_stream = @import("../../frame_stream.zig");
 const netlayer = @import("../../netlayer.zig");
-const poll = @import("../../poll.zig");
-const wake_channel = @import("../../wake_channel.zig");
 
 const endpoint_mod = @import("endpoint.zig");
 const resident_config = @import("resident_config.zig");
@@ -128,26 +127,9 @@ const resident_vtable: Netlayer.VTable = .{
     .io = resident_ctx.io,
 };
 
-/// The pinned stream a dialed onion connection runs over.
-///
-/// It exists for the reason `tcp.TcpStream` does: `std.Io.Reader`'s vtable
-/// recovers its concrete reader from `&interface` by field offset, so the reader
-/// and writer need an address that outlives the call that made them.
-const OnionStream = struct {
-    raw: RawStream,
-    allocator: std.mem.Allocator,
-
-    fn close(ctx: *anyopaque) void {
-        const self: *OnionStream = @ptrCast(@alignCast(ctx));
-        self.raw.close();
-        self.allocator.destroy(self);
-    }
-
-    fn socketHandle(ctx: *anyopaque) ?std.Io.net.Socket.Handle {
-        const self: *OnionStream = @ptrCast(@alignCast(ctx));
-        return self.raw.readinessFd();
-    }
-};
+/// The pinned stream a dialed or accepted onion connection runs over: the
+/// shared raw-connection shell, argued at `netlayer_support.PinnedRawStream`.
+const OnionStream = netlayer.PinnedRawStream(RawStream);
 
 fn residentDial(
     ctx: *anyopaque,
@@ -178,21 +160,8 @@ pub fn dial(
     bufs: Buffers,
 ) netlayer.DialError!Connection {
     const stream = try dialRawStream(io, socks_text, service_id);
-    var owns_stream = true;
-    defer if (owns_stream) stream.close(io);
-
-    const os = try peer.allocator.create(OnionStream);
-    var owns_pin = true;
-    defer if (owns_pin) peer.allocator.destroy(os);
-    os.* = .{ .raw = RawStream.init(io, stream, bufs.read, bufs.write), .allocator = peer.allocator };
-
-    owns_stream = false;
-    owns_pin = false;
-    return Connection.init(io, peer, &os.raw.reader.interface, &os.raw.writer.interface, .{
-        .ctx = os,
-        .close_fn = OnionStream.close,
-        .socket_handle_fn = OnionStream.socketHandle,
-    });
+    errdefer stream.close(io);
+    return OnionStream.adopt(peer, RawStream.init(io, stream, bufs.read, bufs.write));
 }
 
 /// Dial an onion service and return the established, unframed byte stream.
@@ -298,14 +267,10 @@ pub const Listener = struct {
     /// to.
     unix_path: ?[]const u8,
     forward_text: [forward_text_max]u8,
-    /// Private cancellation edge for the blocking accept path. `shutdown(2)`
-    /// does not reliably cancel an accept on a listening socket, so shutdown
-    /// wakes this descriptor and deinit joins the serialized accept lease
-    /// before releasing either fd or listener storage.
-    wake: wake_channel.WakeChannel,
-    wake_failure: wake_channel.FailureLatch = .{},
-    operation_gate: std.Io.Mutex = .init,
-    stopping: std.atomic.Value(bool) = .init(false),
+    /// The cancellation edge for the blocking accept path: shutdown wakes a
+    /// parked accept and deinit joins the serialized accept lease before
+    /// releasing either fd or listener storage.
+    gate: accept_gate.Gate,
 
     pub const CreateOutcome = union(enum) {
         ready: *Listener,
@@ -332,10 +297,7 @@ pub const Listener = struct {
         self.io = io;
         self.service_key_len = 0;
         self.unix_path = null;
-        self.operation_gate = .init;
-        self.stopping = .init(false);
-        self.wake_failure = .{};
-        self.wake = wake_channel.WakeChannel.open() catch {
+        self.gate = accept_gate.Gate.open() catch {
             allocator.destroy(self);
             return .{ .failed = .init(error.BindFailed) };
         };
@@ -391,7 +353,7 @@ pub const Listener = struct {
                 else => failure.note(err),
             };
         }
-        self.wake.deinit();
+        self.gate.deinit();
         self.allocator.destroy(self);
         return .{ .failed = failure };
     }
@@ -438,7 +400,7 @@ pub const Listener = struct {
     }
 
     pub fn asNetlayer(self: *Listener) NetLayerListener {
-        return .{ .ctx = self, .vtable = &listener_vtable };
+        return ListenerShell.listener(self);
     }
 
     fn accept(self: *Listener, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
@@ -446,21 +408,11 @@ pub const Listener = struct {
         // identity: Tor tells a hidden service nothing about who dialed it. The
         // partner's claimed location is therefore unverified, which ADR-0108
         // records as a finding rather than a secret.
-        self.operation_gate.lockUncancelable(self.io);
-        defer self.operation_gate.unlock(self.io);
+        self.gate.lock(self.io);
+        defer self.gate.unlock(self.io);
         const stream = try self.acceptStreamLocked();
-        var owns_stream = true;
-        defer if (owns_stream) stream.close(self.io);
-
-        const os = try peer.allocator.create(OnionStream);
-        errdefer peer.allocator.destroy(os);
-        os.* = .{ .raw = RawStream.init(self.io, stream, bufs.read, bufs.write), .allocator = peer.allocator };
-        owns_stream = false;
-        return Connection.init(self.io, peer, &os.raw.reader.interface, &os.raw.writer.interface, .{
-            .ctx = os,
-            .close_fn = OnionStream.close,
-            .socket_handle_fn = OnionStream.socketHandle,
-        });
+        errdefer stream.close(self.io);
+        return OnionStream.adopt(peer, RawStream.init(self.io, stream, bufs.read, bufs.write));
     }
 
     /// As `accept`, but yielding a peer-less `FrameStream` for a host that owns
@@ -474,8 +426,8 @@ pub const Listener = struct {
         read_buf: []u8,
         write_buf: []u8,
     ) netlayer.AcceptError!frame_stream.FrameStream {
-        self.operation_gate.lockUncancelable(self.io);
-        defer self.operation_gate.unlock(self.io);
+        self.gate.lock(self.io);
+        defer self.gate.unlock(self.io);
         const stream = try self.acceptStreamLocked();
         return frame_stream.FrameStream.initStream(
             self.io,
@@ -488,35 +440,18 @@ pub const Listener = struct {
         );
     }
 
-    /// Accept under `operation_gate`. The caller retains the gate through
+    /// Accept under the gate's lease. The caller retains the lease through
     /// complete wrapper construction so concurrent deinit cannot free listener
     /// state between the kernel accept and the last read of `self.io`.
     fn acceptStreamLocked(self: *Listener) netlayer.AcceptError!Stream {
-        try self.wake_failure.check();
-        if (self.stopping.load(.acquire)) return error.ConnectionLost;
-
-        var fds = [_]std.posix.pollfd{
-            .{ .fd = self.server.socket.handle, .events = std.posix.POLL.IN, .revents = 0 },
-            .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
-        };
-        const ready = poll.wait(&fds, -1) catch return error.ConnectionLost;
-        try self.wake_failure.check();
-        if (ready == 0 or self.stopping.load(.acquire) or
-            fds[1].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0)
-        {
-            self.wake.drain() catch |err| {
-                self.wake_failure.record(err);
-                return err;
-            };
-            return error.ConnectionLost;
-        }
+        if (!try self.gate.waitReadable(self.server.socket.handle, -1)) return error.ConnectionLost;
         return self.server.accept(self.io) catch error.ConnectionLost;
     }
 
     /// Accept an unframed stream for host integrations that own CapTP framing.
     pub fn acceptRawStream(self: *Listener) netlayer.AcceptError!Stream {
-        self.operation_gate.lockUncancelable(self.io);
-        defer self.operation_gate.unlock(self.io);
+        self.gate.lock(self.io);
+        defer self.gate.unlock(self.io);
         return self.acceptStreamLocked();
     }
 
@@ -524,45 +459,31 @@ pub const Listener = struct {
     /// guard that lets a blocking host leave its accept loop without closing the
     /// listen descriptor from another thread.
     pub fn waitAcceptable(self: *Listener, timeout_ms: i32) netlayer.AcceptError!bool {
-        self.operation_gate.lockUncancelable(self.io);
-        defer self.operation_gate.unlock(self.io);
-        try self.wake_failure.check();
-        if (self.stopping.load(.acquire)) return error.ConnectionLost;
-        var fds = [_]std.posix.pollfd{
-            .{ .fd = self.server.socket.handle, .events = std.posix.POLL.IN, .revents = 0 },
-            .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
-        };
-        const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
-        try self.wake_failure.check();
-        if (self.stopping.load(.acquire) or
-            fds[1].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0)
-            return error.ConnectionLost;
-        return ready != 0 and
-            fds[0].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0;
+        self.gate.lock(self.io);
+        defer self.gate.unlock(self.io);
+        return self.gate.waitReadable(self.server.socket.handle, timeout_ms);
     }
 
     /// Wake a blocked accept without releasing listener storage. This is the
     /// cancellation half used by foreign runtimes whose blocking accept runs on
     /// another OS thread; `deinit` follows after that call returns.
     pub fn shutdown(self: *Listener) void {
-        self.stopping.store(true, .release);
-        _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
+        self.gate.shutdown();
     }
 
     /// Drop the undetached service's control session and release the local end.
     /// Tor withdraws an undetached onion service when that session closes, so
     /// release performs no control I/O and cannot park an embedder's reactor.
     pub fn deinit(self: *Listener) ?netlayer.ListenerCloseFailure {
-        self.shutdown();
-        self.operation_gate.lockUncancelable(self.io);
-        self.operation_gate.unlock(self.io);
-        var failure: ?netlayer.ListenerCloseFailure = if (self.wake_failure.failure()) |err|
+        self.gate.shutdown();
+        self.gate.join(self.io);
+        var failure: ?netlayer.ListenerCloseFailure = if (self.gate.failure()) |err|
             .init(err)
         else
             null;
         self.ctrl.close();
         self.server.deinit(self.io);
-        self.wake.deinit();
+        self.gate.deinit();
         // Tor only connected to this socket; the process that bound it owns the
         // inode, and leaving it behind makes the next bind fail with the path
         // already in use.
@@ -582,57 +503,48 @@ pub const Listener = struct {
     }
 };
 
-const listener_vtable: NetLayerListener.VTable = .{
-    .transport_name = transport_name,
-    .designator_scheme = known_transport.metadata().designator_scheme,
-    .sealed_channel = known_transport.metadata().sealed_channel,
-    .accept = netlayer.adaptAccept(listenerAccept),
-    .wait_acceptable = netlayer.adaptAcceptReadiness(listenerWaitAcceptable),
-    .local_locator = netlayer.adaptListenerLocator(listenerLocalLocator),
-    .canonicalize_locator = netlayer.adaptListenerCanonicalize(listenerCanonicalizeLocator),
-    .restoration_state = netlayer.adaptRestorationState(listenerRestorationState),
-    .close = listenerClose,
-};
+/// The contract listener over a `Listener`, which owns its own storage and
+/// frees it in `deinit`. Accept readiness is left to `waitAcceptable`: the
+/// forward socket is a real descriptor, but the contract's `readiness_fd` is
+/// not published for it.
+const ListenerShell = netlayer.ListenerShell(struct {
+    pub const State = Listener;
+    pub const metadata = known_transport.metadata();
 
-fn listenerRestorationState(ctx: *anyopaque, out: []u8) netlayer.RestorationStateError!usize {
-    return netlayer.writeListenerRestorationState(out, listenerOf(ctx).serviceKey());
-}
+    pub fn accept(self: *Listener, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
+        return self.accept(peer, bufs);
+    }
 
-fn listenerOf(ctx: *anyopaque) *Listener {
-    return @ptrCast(@alignCast(ctx));
-}
+    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) netlayer.AcceptError!bool {
+        return self.waitAcceptable(timeout_ms);
+    }
 
-fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
-    return listenerOf(ctx).accept(peer, bufs);
-}
+    pub fn localLocator(self: *Listener, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {
+        // Identity is immutable after construction. Keep locator lookup off the
+        // serialized accept lease: a parked accept must not make hello assembly or
+        // diagnostics wait for network I/O.
+        return model.clonePeerLocator(allocator, .{
+            .transport = transport_name,
+            .designator = &self.service_id,
+            .hints = .emptyFalse(),
+        });
+    }
 
-fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError!bool {
-    return listenerOf(ctx).waitAcceptable(timeout_ms);
-}
+    pub fn canonicalizeLocator(
+        self: *Listener,
+        allocator: std.mem.Allocator,
+        candidate: model.PeerLocator,
+    ) netlayer.ListenError!model.PeerLocator {
+        if (candidate.hints.entries.len != 0 or candidate.hints.wire_form != .boolean_false)
+            return error.InvalidAddress;
+        return netlayer.canonicalizeFixedLocator(allocator, candidate, transport_name, &self.service_id);
+    }
 
-fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {
-    const self = listenerOf(ctx);
-    // Identity is immutable after construction. Keep locator lookup off the
-    // serialized accept lease: a parked accept must not make hello assembly or
-    // diagnostics wait for network I/O.
-    return model.clonePeerLocator(allocator, .{
-        .transport = transport_name,
-        .designator = &self.service_id,
-        .hints = .emptyFalse(),
-    });
-}
+    pub fn restorationState(self: *Listener, out: []u8) netlayer.RestorationStateError!usize {
+        return netlayer.writeListenerRestorationState(out, self.serviceKey());
+    }
 
-fn listenerCanonicalizeLocator(
-    ctx: *anyopaque,
-    allocator: std.mem.Allocator,
-    candidate: model.PeerLocator,
-) netlayer.ListenError!model.PeerLocator {
-    const self = listenerOf(ctx);
-    if (candidate.hints.entries.len != 0 or candidate.hints.wire_form != .boolean_false)
-        return error.InvalidAddress;
-    return netlayer.canonicalizeFixedLocator(allocator, candidate, transport_name, &self.service_id);
-}
-
-fn listenerClose(ctx: *anyopaque) ?netlayer.ListenerCloseFailure {
-    return listenerOf(ctx).deinit();
-}
+    pub fn close(self: *Listener) ?netlayer.ListenerCloseFailure {
+        return self.deinit();
+    }
+});

@@ -1,20 +1,18 @@
 // The Rooms application over the standardized onion netlayer.
 //
-// One transport-empty native driver loop hosts the real Rooms directory while
+// The installed Rust server hosts the Rooms directory while
 // two independent dial-only loops join it and prove the existing all-to-all
 // broadcast. Product composition installs the onion provider explicitly; the
 // generic driver and binding remain unaware of concrete transports.
 
-import { formatPeerUri, parseLocator, Runtime } from "@glowcap/runtime";
+import { parseLocator, Runtime } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
-import { DriverListener, DriverLoop } from "@glowcap/runtime/transport";
-import { installProvider, provider } from "@glowcap/onion";
+import { provider } from "@glowcap/onion";
 import { runClient } from "../clients/deno/client.ts";
 import type { RoomsDial } from "../lib/locator.ts";
 import { roomsHost } from "../lib/locator.ts";
-import { RoomServer } from "../server/room_server.ts";
+import { startServer } from "../test/support/native_server.ts";
 
-const TRANSPORT_ONION = "onion";
 const DIRECTORY_PUBLISH_BUDGET_MS = 240_000;
 const HANDSHAKE_BUDGET_MS = 120_000;
 
@@ -26,20 +24,6 @@ function requiredEnv(name: string): string {
 
 const socks = requiredEnv("GLOWCAP_ONION_SOCKS");
 const control = requiredEnv("GLOWCAP_ONION_CONTROL");
-
-function openLoop(controlEndpoint?: string): DriverLoop {
-	const loop = DriverLoop.takeHost(roomsHost(), {
-		handshakeMs: HANDSHAKE_BUDGET_MS,
-		settleMs: HANDSHAKE_BUDGET_MS,
-	});
-	try {
-		installProvider(loop, { socks, control: controlEndpoint });
-		return loop;
-	} catch (error) {
-		void loop.close();
-		throw error;
-	}
-}
 
 function onionDial(runtime: Runtime): RoomsDial {
 	return async (locator: string): Promise<Session> => {
@@ -75,29 +59,16 @@ async function runOnionClient(locator: string, nick: string, roster: string[]) {
 	);
 }
 
-const serverLoop = openLoop(control);
-const listener = await DriverListener.open(serverLoop, TRANSPORT_ONION, "");
-const published = listener.locator();
-if (published.hints.size !== 0) {
-	listener.close();
-	await serverLoop.close();
+const server = await startServer([
+	"--transport=onion",
+	`--onion-socks=${socks}`,
+	`--onion-control=${control}`,
+], DIRECTORY_PUBLISH_BUDGET_MS);
+const locator = server.locator;
+if (parseLocator(locator).hints.size !== 0) {
+	await server.close();
 	throw new Error("onion listener published direct-address hints");
 }
-listener.select();
-serverLoop.start();
-const locator = formatPeerUri(TRANSPORT_ONION, published.designator);
-
-const accepted = {
-	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
-		while (true) {
-			const session = await listener.accept();
-			if (session == null) return;
-			yield session;
-		}
-	},
-};
-const server = new RoomServer();
-const serving = server.serve(listener.host, accepted);
 
 const roster = ["onion-ada", "onion-grace"];
 console.log(`rooms onion demo: server at ${locator}`);
@@ -114,11 +85,5 @@ try {
 	}
 	console.log("rooms onion demo OK: two independent peers exchanged every room message over Tor");
 } finally {
-	listener.close();
-	try {
-		await serving;
-	} finally {
-		await server.close();
-		await serverLoop.requestClose();
-	}
+	await server.close();
 }

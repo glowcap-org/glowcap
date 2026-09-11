@@ -17,13 +17,13 @@
 //                        reply lands on that inbox, over the same session.
 //
 // Run by `zig build demo-rooms-dm-back`.
-//   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/demos/dm_back_demo.ts
+//   deno run --allow-run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/demos/dm_back_demo.ts
 
 import process from "node:process";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@glowcap/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
-import { RoomServer } from "../server/room_server.ts";
+import { startServer } from "../test/support/native_server.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room/client.ts";
@@ -47,10 +47,8 @@ async function main(): Promise<void> {
 	const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got your DM: ${text}`);
 
 	// The room.
-	const room = await roomsListen("127.0.0.1", 0);
-	const roomLocator = loopbackTcpDesignator(room.port);
-	const server = new RoomServer();
-	const roomServe = server.serve(room.host, room);
+	const room = await startServer();
+	const roomLocator = room.locator;
 
 	// Bob: one Host that listens (the redeem target) and dials the room (so
 	// `register` can fetch his `dm` on the room session).
@@ -75,7 +73,7 @@ async function main(): Promise<void> {
 		dir: () => bobDir,
 		behaviorFor: dmFor,
 	});
-	await bobDir.register("bob", bobLocator, bobOfferer.offer);
+	await bobDir.register("bob", bobLocator, { onMintInboxFor: bobOfferer.offer });
 
 	// Carol never listens. She registers to claim the name Bob's inbox is minted
 	// for — her keyed identity, not a dial address — then opens a direct line,
@@ -119,8 +117,6 @@ async function main(): Promise<void> {
 	await carolRuntime.close();
 	await bobRuntime.close();
 	await room.close();
-	await roomServe.catch(() => {});
-	await server.close();
 	process.exit(0);
 }
 

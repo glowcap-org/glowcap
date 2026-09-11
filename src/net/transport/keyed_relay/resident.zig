@@ -25,7 +25,7 @@
 //! and inbound binary/continuation streaming with ping/pong and close
 //! handling. Text frames, extensions (non-zero RSV bits), masked server
 //! frames, and oversized control frames are refused — every inbound byte is
-//! attacker-influenced until the CapTP session validates it, so the codec
+//! peer-influenced until the CapTP session validates it, so the codec
 //! fails closed. Inbound payload lengths are streamed, never allocated from.
 //!
 //! Costs, named: masking is a per-byte transform RFC 6455 requires of clients,
@@ -371,7 +371,7 @@ fn residentVtable(comptime profile: ChannelProfile) Netlayer.VTable {
     return .{
         .profile = profile.known().metadata(),
         .dial = .{ .blocking = residentDial },
-        .listen = residentListen,
+        .listen = netlayer.adaptListen(residentListen),
         .io = residentIo,
     };
 }
@@ -411,15 +411,6 @@ fn residentDial(
 }
 
 fn residentListen(
-    ctx: *anyopaque,
-    allocator: std.mem.Allocator,
-    config: netlayer.ListenConfig,
-) netlayer.ListenStartOutcome {
-    return .{ .admitted = residentListenFallible(ctx, allocator, config) catch |err|
-        return .{ .failed = .init(err) } };
-}
-
-fn residentListenFallible(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     config: netlayer.ListenConfig,

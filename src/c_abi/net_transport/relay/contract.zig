@@ -22,12 +22,6 @@ pub const GlowcapRelayConfig = extern struct {
     trust_pem_len: usize = 0,
 };
 
-pub const GlowcapRelayTrustSummary = extern struct {
-    loaded: usize = 0,
-    skipped_by_engine: usize = 0,
-    first_skipped_engine_code: i32 = 0,
-};
-
 pub const Profile = net.relay.ChannelProfile;
 pub const profile_count = @typeInfo(Profile).@"enum".field_names.len;
 

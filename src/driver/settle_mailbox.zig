@@ -77,6 +77,11 @@ pub const SettleMailbox = struct {
     count: usize = 0,
     channel: net.wake_channel.WakeChannel,
     wake_failure: net.wake_channel.FailureLatch = .{},
+    /// Set by `post` once its wake byte is sent, cleared by `drainWake`
+    /// before it reads, so the owner's per-step drain is a load rather than
+    /// a `recv` syscall while no worker has posted. A post racing the clear
+    /// sets it again and its byte is read by the next drain.
+    posted: std.atomic.Value(bool) = .init(false),
 
     /// Allocate the mailbox on the heap — workers hold the pointer across
     /// threads, so it needs one stable address — with `slot_count` fixed
@@ -120,6 +125,7 @@ pub const SettleMailbox = struct {
             self.wake_failure.record(err);
             return err;
         };
+        self.posted.store(true, .release);
     }
 
     /// Record a settle from any thread and wake the owner. The resolution is
@@ -162,6 +168,7 @@ pub const SettleMailbox = struct {
     /// rather than losing the entry.
     pub fn drainWake(self: *SettleMailbox) net.wake_channel.Failure!void {
         try self.wake_failure.check();
+        if (!self.posted.swap(false, .acq_rel)) return;
         self.channel.drain() catch |err| {
             self.wake_failure.record(err);
             return err;

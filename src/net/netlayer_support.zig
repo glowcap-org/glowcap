@@ -1,8 +1,9 @@
-//! Reusable stream storage and locator helpers beneath the netlayer contract.
+//! Reusable stream storage, listener shells, and locator helpers beneath the
+//! netlayer contract.
 //!
 //! These mechanisms contain no transport policy: residents supply concrete
-//! byte sources and contexts, while `netlayer.zig` owns dial/listen outcomes and
-//! lifecycle vtables.
+//! byte sources, contexts, and listener verbs, while `netlayer.zig` owns
+//! dial/listen outcomes and the contract vtables these shells fill in.
 
 const std = @import("std");
 
@@ -10,6 +11,8 @@ const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const connection = @import("connection.zig");
+const failure_contract = @import("netlayer/failure.zig");
+const netlayer = @import("netlayer.zig");
 const stream_shim = @import("stream_shim.zig");
 
 /// Caller-owned read/write buffers handed to a dial/accept. `read` sizes the
@@ -27,10 +30,6 @@ pub const OperationOptions = struct {
     size: usize = 0,
 
     pub const inherit: OperationOptions = .{};
-
-    pub fn borrow(comptime T: type, value: *const T) OperationOptions {
-        return .{ .data = value, .size = @sizeOf(T) };
-    }
 
     pub fn decode(self: OperationOptions, comptime T: type) error{InvalidOptions}!?*const T {
         const data = self.data orelse {
@@ -110,6 +109,142 @@ pub fn PinnedStream(comptime Source: type, comptime Context: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (comptime @hasDecl(Context, "takeFailure")) return self.context.takeFailure();
             return null;
+        }
+    };
+}
+
+/// One pinned raw socket connection: a `Raw` that already carries
+/// `std.Io.net.Stream`'s own reader and writer, held at a stable address for
+/// the `Connection`'s life.
+///
+/// This is the second pinned shell beside `PinnedStream`, and the two exist
+/// because their sources differ in kind. `PinnedStream` builds a shim reader
+/// and writer over a byte `Source`, for transports that expose only read and
+/// write calls (an in-process pipe, the iroh sidecar). A raw socket connection
+/// already owns a `std.Io.Reader` and `std.Io.Writer` over its buffers, so
+/// wrapping it in a shim would put a second buffer and a copy between the
+/// socket and the frame parser (ADR-0043, ADR-0055). `Raw` supplies `reader`
+/// and `writer` fields with an `interface`, an `io` field, `close`, and
+/// `readinessFd`. Neither raw socket type carries a failure chain, so the
+/// handle publishes none.
+///
+/// `std.Io.Reader`'s vtable recovers its concrete reader from `&interface` by
+/// field offset, so the pair needs an address that outlives the call that made
+/// it. Allocated from the peer's allocator at connect or accept and freed by
+/// the connection's transport handle on `deinit`: one small per-connection
+/// allocation on the blocking path, the price of keeping `Connection`
+/// transport-neutral.
+pub fn PinnedRawStream(comptime Raw: type) type {
+    return struct {
+        const Self = @This();
+
+        raw: Raw,
+        allocator: std.mem.Allocator,
+
+        /// Pin `raw` on `peer.allocator` and weld it to `peer`. On allocation
+        /// failure `raw` is still the caller's to close.
+        pub fn adopt(peer: *engine.Peer, raw: Raw) std.mem.Allocator.Error!connection.Connection {
+            const self = try peer.allocator.create(Self);
+            self.* = .{ .raw = raw, .allocator = peer.allocator };
+            return connection.Connection.init(self.raw.io, peer, &self.raw.reader.interface, &self.raw.writer.interface, .{
+                .ctx = self,
+                .close_fn = close,
+                .socket_handle_fn = socketHandle,
+            });
+        }
+
+        fn close(ctx: *anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.raw.close();
+            self.allocator.destroy(self);
+        }
+
+        fn socketHandle(ctx: *anyopaque) ?std.Io.net.Socket.Handle {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.raw.readinessFd();
+        }
+    };
+}
+
+/// One listener behind the contract `netlayer.Listener` vtable, written once
+/// as typed verbs over `Impl.State`. The shell owns the `*anyopaque` recovery,
+/// the scalar-to-outcome adaptation, and the vtable itself, so a resident never
+/// writes a `@ptrCast` accessor stub. `Impl` declares:
+///
+/// - `State`: the type the vtable's `ctx` points at, usually heap-pinned.
+/// - `metadata`: the `model.transport.Metadata` this listener hosts; its symbol,
+///   designator scheme, and sealed-channel flag fill the vtable.
+/// - `accept(*State, *engine.Peer, Buffers) AcceptError!Connection`
+/// - `waitAcceptable(*State, i32) AcceptError!bool`
+/// - `localLocator(*State, std.mem.Allocator) ListenError!model.PeerLocator`
+/// - `canonicalizeLocator(*State, std.mem.Allocator, model.PeerLocator) ListenError!model.PeerLocator`
+/// - `close(*State) ?ListenerCloseFailure`, releasing whatever `State` owns,
+///   its own storage included when the listener is heap-pinned. A borrowed
+///   listener returns null and frees nothing.
+/// - optional `readinessFd(*State) i32`, when accept has one pollable
+///   descriptor.
+/// - optional `restorationState(*State, []u8) RestorationStateError!usize`.
+///
+/// Each verb keeps its own error projection; the shell adds none.
+pub fn ListenerShell(comptime Impl: type) type {
+    return struct {
+        pub const State = Impl.State;
+
+        pub const vtable: netlayer.Listener.VTable = .{
+            .transport_name = Impl.metadata.symbol,
+            .designator_scheme = Impl.metadata.designator_scheme,
+            .sealed_channel = Impl.metadata.sealed_channel,
+            .accept = failure_contract.adaptAccept(accept),
+            .wait_acceptable = failure_contract.adaptAcceptReadiness(waitAcceptable),
+            .local_locator = failure_contract.adaptListenerLocator(localLocator),
+            .canonicalize_locator = failure_contract.adaptListenerCanonicalize(canonicalizeLocator),
+            .restoration_state = if (@hasDecl(Impl, "restorationState"))
+                failure_contract.adaptRestorationState(restorationState)
+            else
+                null,
+            .readiness_fd = if (@hasDecl(Impl, "readinessFd")) &readinessFd else null,
+            .close = close,
+        };
+
+        pub fn of(ctx: *anyopaque) *State {
+            return @ptrCast(@alignCast(ctx));
+        }
+
+        /// `state` as the contract listener.
+        pub fn listener(state: *State) netlayer.Listener {
+            return .{ .ctx = state, .vtable = &vtable };
+        }
+
+        fn accept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) failure_contract.AcceptError!connection.Connection {
+            return Impl.accept(of(ctx), peer, bufs);
+        }
+
+        fn waitAcceptable(ctx: *anyopaque, timeout_ms: i32) failure_contract.AcceptError!bool {
+            return Impl.waitAcceptable(of(ctx), timeout_ms);
+        }
+
+        fn localLocator(ctx: *anyopaque, allocator: std.mem.Allocator) failure_contract.ListenError!model.PeerLocator {
+            return Impl.localLocator(of(ctx), allocator);
+        }
+
+        fn canonicalizeLocator(
+            ctx: *anyopaque,
+            allocator: std.mem.Allocator,
+            candidate: model.PeerLocator,
+        ) failure_contract.ListenError!model.PeerLocator {
+            return Impl.canonicalizeLocator(of(ctx), allocator, candidate);
+        }
+
+        fn restorationState(ctx: *anyopaque, out: []u8) failure_contract.RestorationStateError!usize {
+            return Impl.restorationState(of(ctx), out);
+        }
+
+        fn readinessFd(ctx: *anyopaque) i32 {
+            return Impl.readinessFd(of(ctx));
+        }
+
+        fn close(ctx: *anyopaque) ?failure_contract.ListenerCloseFailure {
+            return Impl.close(of(ctx));
         }
     };
 }

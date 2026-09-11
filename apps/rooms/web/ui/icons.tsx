@@ -9,6 +9,8 @@
 // Each path is drawn on a 24-unit grid and stroked, never filled, so one
 // definition serves both themes and any size.
 
+import { Mark } from "./Mark.tsx";
+
 const paths = {
 	moon: <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z" />,
 	sun: (
@@ -239,12 +241,17 @@ const paths = {
 	),
 } as const;
 
-export type IconName = keyof typeof paths | "mark";
+/** Every icon, plus the glowcap mark in its two readings here: `mark` is the
+ * shader mushroom, which grows once and then stands, for the lockup on a
+ * screen a person lands on; `mark-line` is the still line drawing, for a
+ * control, where the mark is one glyph among others and should read as one. */
+export type IconName = keyof typeof paths | "mark" | "mark-line";
 
-/** Every glyph, in definition order, including the glowcap mark. */
+/** Every glyph, in definition order, including both readings of the mark. */
 export const iconNames: readonly IconName[] = [
 	...(Object.keys(paths) as (keyof typeof paths)[]),
 	"mark",
+	"mark-line",
 ];
 
 /** The logotype lockup — "glowcap" beside its small-caps rooms — as one
@@ -265,23 +272,16 @@ export function Wordmark() {
 /** One icon. Decorative by default: the control around it carries the accessible
  * name, so the icon itself is hidden from assistive software. */
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
-	if (name === "mark") {
-		// Four layered pieces rather than one masked box, so the boot screen,
-		// the mark button, and the documentation site lockup can drop the stack
-		// into place piece by piece; at rest the union is exactly the
-		// --mark-stack silhouette. Geometry lives in ui/mark.css.
-		return (
-			<span
-				className="icon-svg icon-mark"
-				style={{ width: size, height: size }}
-				aria-hidden="true"
-			>
-				<i className="mark-piece mark-cake-3" />
-				<i className="mark-piece mark-cake-2" />
-				<i className="mark-piece mark-cake-1" />
-				<i className="mark-piece mark-butter" />
-			</span>
-		);
+	// A lockup's mark is not a glyph: it is the shader mushroom with its light
+	// around it, drawn in a box of this size. It arrives rather than standing,
+	// because the one screen that carries it is a screen a person lands on and
+	// then reads, and the opening splash it follows is usually gone before the
+	// mark there has drawn a frame. A control's mark is a glyph, and is drawn
+	// as one, because a lit object standing among flat line icons reads as a
+	// different kind of thing rather than as a richer one.
+	if (name === "mark") return <Mark size={size} play="arrive" />;
+	if (name === "mark-line") {
+		return <span className="icon-svg mark-glyph" style={{ width: size, height: size }} aria-hidden="true" />;
 	}
 	return (
 		<svg

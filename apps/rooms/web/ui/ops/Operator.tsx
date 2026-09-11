@@ -507,7 +507,7 @@ function OperatorPaneContent({ state }: { state: RoomsOperatorState | null }) {
 								{state.trouble.map((row, at) => (
 									<li key={`${row.source}:${row.reason}:${at}`}>
 										<span className="ops-kind">{row.source}</span>
-										<span className="entry-meta">{row.reason}</span>
+										<span className="entry-meta ops-note">{row.reason}</span>
 										{row.count > 1 && <span className="ops-trouble-count">×{row.count}</span>}
 									</li>
 								))}

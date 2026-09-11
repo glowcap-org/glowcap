@@ -6,9 +6,9 @@
 //! backing without bound, and capacity a burst grew above the caller's steady
 //! bound is returned at the drain rather than pinned for the owner's life.
 //!
-//! `popHead` is those three rules, once. Both queue types in this engine ride
-//! it: the peer's four per-connection queues and the reserved FIFO below. They
-//! are separate types because their surfaces genuinely differ — one needs
+//! `popHead` and `compactHead` are those rules, once. Both queue types in this
+//! engine ride them: the peer's four per-connection queues and the reserved
+//! FIFO below. They are separate types because their surfaces genuinely differ — one needs
 //! `peek` and `backPtr` for the outbound spine, the other needs `unpopped` for
 //! a teardown sweep and infallible reserved appends — but there is one
 //! implementation of the part that is the same, so their compaction and
@@ -26,6 +26,21 @@
 //! visible.
 
 const std = @import("std");
+
+/// Slide the live suffix to the front so append can reuse capacity behind a
+/// head-indexed queue. This is storage policy, independent of either queue's
+/// element ownership and reservation contract.
+pub fn compactHead(
+    comptime T: type,
+    list: *std.ArrayListUnmanaged(T),
+    head: *usize,
+) void {
+    if (head.* == 0) return;
+    const live = list.items.len - head.*;
+    std.mem.copyForwards(T, list.items[0..live], list.items[head.*..]);
+    list.shrinkRetainingCapacity(live);
+    head.* = 0;
+}
 
 /// Dequeue the front row of a head-indexed queue, or null when it is drained.
 ///
@@ -80,26 +95,26 @@ pub fn ActionFifo(comptime T: type) type {
         head: usize = 0,
 
         pub fn push(self: *Self, allocator: std.mem.Allocator, row: T) !void {
-            if (self.list.items.len == self.list.capacity) self.compactForAppend();
+            if (self.list.items.len == self.list.capacity) compactHead(T, &self.list, &self.head);
             try self.list.append(allocator, row);
         }
 
         /// Reserve room for `rows` more pushes so a later `pushReserved`
         /// cannot fail — the fallible half of an infallible-fire contract.
         pub fn reserve(self: *Self, allocator: std.mem.Allocator, rows: usize) !void {
-            if (rows > self.list.capacity - self.list.items.len) self.compactForAppend();
+            if (rows > self.list.capacity - self.list.items.len) compactHead(T, &self.list, &self.head);
             try self.list.ensureUnusedCapacity(allocator, rows);
         }
 
         /// Ensure the backing can hold `rows` live FIFO entries at once.
         pub fn ensureTotalCapacity(self: *Self, allocator: std.mem.Allocator, rows: usize) !void {
-            if (rows > self.list.capacity) self.compactForAppend();
+            if (rows > self.list.capacity) compactHead(T, &self.list, &self.head);
             try self.list.ensureTotalCapacity(allocator, rows);
         }
 
         /// Push into capacity `reserve` or `ensureTotalCapacity` already secured.
         pub fn pushReserved(self: *Self, row: T) void {
-            if (self.list.items.len == self.list.capacity) self.compactForAppend();
+            if (self.list.items.len == self.list.capacity) compactHead(T, &self.list, &self.head);
             std.debug.assert(self.list.items.len < self.list.capacity);
             self.list.appendAssumeCapacity(row);
         }
@@ -144,18 +159,6 @@ pub fn ActionFifo(comptime T: type) type {
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.list.deinit(allocator);
-        }
-
-        /// Reclaim a dead prefix before append reaches the backing's physical
-        /// end. Reserved capacity is a count of live future rows, not a promise
-        /// that the monotonic tail index may grow forever; this makes repeated
-        /// pop/push cycles reuse the same allocation.
-        fn compactForAppend(self: *Self) void {
-            if (self.head == 0) return;
-            const live = self.list.items.len - self.head;
-            std.mem.copyForwards(T, self.list.items[0..live], self.list.items[self.head..]);
-            self.list.shrinkRetainingCapacity(live);
-            self.head = 0;
         }
     };
 }

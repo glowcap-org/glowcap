@@ -1,3 +1,4 @@
+import { startServer } from "../test/support/native_server.ts";
 // Rooms DM-by-introduction over iroh Discovery: the gift names Bob by node id
 // alone, with no direct addresses, and Carol resolves it through n0 discovery
 // (relays + DNS/pkarr). Reaches the real internet, so it is opt-in:
@@ -43,13 +44,5 @@ runDmHandoff({
 			},
 		};
 	},
-	async startRoom() {
-		const room = await iroh.listen(
-			{ reachability: iroh.Reachability.Discovery },
-			{ host: roomsHost() },
-		);
-		const locator = formatPeerUri("iroh", room.nodeId);
-		console.log(`rooms-dm-iroh-discovery: Room published ${locator} (id only)`);
-		return { host: room.host, listener: room, locator, close: () => room.close() };
-	},
+	startRoom: () => startServer(["--transport=iroh", "--reachability=discovery"], 150_000),
 });

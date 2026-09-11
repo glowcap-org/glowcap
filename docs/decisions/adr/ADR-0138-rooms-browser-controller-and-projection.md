@@ -7,7 +7,7 @@ decision: "The Rooms browser injects browser-owned behavior and the established 
 supersedes: []
 superseded_by: []
 amends: [ADR-0134, ADR-0135]
-amended_by: []
+amended_by: [ADR-0142, ADR-0143]
 ---
 
 # ADR-0138 Rooms browser controller and projection

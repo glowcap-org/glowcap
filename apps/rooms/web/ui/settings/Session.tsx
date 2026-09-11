@@ -12,7 +12,7 @@
 import { useState } from "react";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { Button } from "../Button.tsx";
-import { useRoomsBrowser } from "../controller/browser.ts";
+import { useRoomsController } from "../controller/browser.ts";
 import { useRoomsState, useSessionPaused } from "../hooks.ts";
 import { Icon } from "../icons.tsx";
 import { useOpenModal } from "../modal.ts";
@@ -20,16 +20,15 @@ import { HistorySettings } from "./History.tsx";
 import { SessionDataModal } from "./SessionData.tsx";
 import { SessionMoves } from "./SessionMoves.tsx";
 import { effectiveRoomsSessionAccess } from "../controller/access.ts";
-import { sharedRoomsSession } from "../../../lib/rooms_state.ts";
+import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 
 export function SessionSettings(
 	{ keepHistory, archiveTarget }: { keepHistory: boolean; archiveTarget: ArchiveTargetView },
 ) {
 	const openModalFrom = useOpenModal();
-	const browser = useRoomsBrowser();
 	const sessionAccess = useRoomsState((state) => state.sessionAccess);
 	const paused = useSessionPaused();
-	const controller = browser.roomsController();
+	const controller = useRoomsController();
 	const hosting = controller.kind === "hosted";
 	const sharedSession = sharedRoomsSession(controller) != null;
 	const canAdminister = effectiveRoomsSessionAccess(controller, sessionAccess) === "admin";

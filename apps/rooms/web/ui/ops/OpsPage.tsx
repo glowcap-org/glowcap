@@ -15,7 +15,7 @@
 import { Fragment, lazy, type ReactNode, Suspense, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
-import { useRoomsBrowser } from "../controller/browser.ts";
+import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { useRoomsState } from "../hooks.ts";
 import { Button } from "../Button.tsx";
 import { type OpsHeld, opsHeldOf } from "../types.ts";
@@ -162,13 +162,12 @@ export function OpsMain({ segment }: { segment: string | null }) {
 		dirs: state.dirs,
 		sessionAccess: state.sessionAccess,
 	})));
-	const browser = useRoomsBrowser();
 	const navigate = useNavigate();
 	const held = opsHeldOf(s.listeners, s.diagnostics, s.irc, s.operator, s.peering, s.viz);
 	const pane = segment === null ? null : paneOf(segment);
 	const open = pane !== null && paneCapsHeld(pane, held).length > 0;
 	const heldPanes = OPS_PANES.filter((face) => paneCapsHeld(face, held).length > 0);
-	const canEdit = effectiveRoomsSessionAccess(browser.roomsController(), s.sessionAccess) === "admin";
+	const canEdit = effectiveRoomsSessionAccess(useRoomsController(), s.sessionAccess) === "admin";
 
 	return (
 		<section className="ops-main" id="opsPage" aria-label="Operations">

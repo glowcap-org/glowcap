@@ -36,7 +36,7 @@ import { reapOwned, spawnOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { fail, openDmTo } from "../support/page.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hello over the direct line, and onto the timeline";
@@ -84,19 +84,8 @@ const vizPort = freePort();
 // The room server serves the live timeline endpoint; serve.ts passes its own
 // environment to the child and answers `/viz` with the port, which is how each
 // tab finds it without being told.
-const web = spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-	],
+const web = spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	env: { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "inherit",

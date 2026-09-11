@@ -5,6 +5,8 @@
 //! structural: importing the Host implementation cannot make another archive
 //! emit the `glowcap_host_*` family.
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const api = @import("mod.zig");
 
 comptime {

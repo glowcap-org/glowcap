@@ -22,6 +22,8 @@
 /// iroh transport ABI can reuse it without inheriting libglowcap_ocapn's exported
 /// surface (ADR-0055 companion split). Re-exported here so the handle-family files
 /// and `tools/gen/header/ocapn.zig` see the full vocabulary from this root.
+pub const std_options = @import("c_abi_shared").library_options;
+
 const abi = @import("c_abi_shared");
 
 const context = @import("context.zig");

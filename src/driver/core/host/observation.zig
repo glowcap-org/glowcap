@@ -79,13 +79,13 @@ pub fn queueListenTo(self: *Host, session: *HostSession, target: model.Reference
 /// partner can notify us about and is refused `InvalidReference` without
 /// creating a Port projection.
 pub fn listenToCapability(self: *Host, session: *HostSession, target: capability.Ref) !u64 {
-    return listenToCapabilityWithProgress(self, session, target, true);
+    return (try observeCapability(self, session, target, false, true)).pending;
 }
 
 /// `listenToCapability` with progress deferred until its Host vow can be
 /// observed.
 pub fn queueListenToCapability(self: *Host, session: *HostSession, target: capability.Ref) !u64 {
-    return listenToCapabilityWithProgress(self, session, target, false);
+    return (try observeCapability(self, session, target, false, false)).pending;
 }
 
 fn listenToWithProgress(
@@ -117,34 +117,58 @@ fn listenToWithProgress(
     return commitRoutedListen(self, home, wire, drive_now);
 }
 
-fn listenToCapabilityWithProgress(
+/// An object contributes one owned application retain; a promise contributes
+/// a Host vow whose completion may be any value. Neither arm exposes the
+/// capability's route or representation to the application.
+pub const CapabilityResolution = union(enum) {
+    resolved: capability.Ref,
+    pending: u64,
+};
+
+/// Resolve an opaque capability. Live objects return immediately without a
+/// Port projection or wire listen. Promises use the existing Host observation
+/// machinery, including inline handoff redemption. Legal inside a callback.
+pub fn resolveCapability(self: *Host, session: *HostSession, target: capability.Ref) !CapabilityResolution {
+    return observeCapability(self, session, target, true, true);
+}
+
+fn observeCapability(
     self: *Host,
     session: *HostSession,
     target: capability.Ref,
+    accept_objects: bool,
     drive_now: bool,
-) !u64 {
+) !CapabilityResolution {
     self.assertOwner();
     try self.admitApplicationOperation();
-    const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
-    if (resolved_target == .deferred) {
+    var current = target;
+    var resolved_target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
+    while (resolved_target == .deferred) {
         const promise = self.capability_promises.get(resolved_target.deferred) orelse
             return error.UnknownCapability;
         switch (promise.state) {
             .pending, .settling => {
                 const id = try capability_promise.queueListen(self, resolved_target.deferred, session);
                 if (drive_now) host_pump.finishCommittedWork(self, session);
-                return id;
+                return .{ .pending = id };
             },
-            .fulfilled, .broken => {},
+            .fulfilled => |resolved| {
+                current = resolved;
+                resolved_target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
+            },
+            .broken => return error.PromiseBroken,
         }
     }
-    const routed = try self.routeCapability(session, target, false);
+    const routed = try self.routeCapability(session, current, false);
+    if (accept_objects and (routed.target == .local or routed.target.far.kind == .object)) {
+        return .{ .resolved = try self.capabilities.retain(self.allocator, resolved_target) };
+    }
     const wire = switch (routed.target) {
         .local => return error.InvalidReference,
         .far => |far| model.Reference{ .far = far },
     };
     try self.checkOutboundAdmission(routed.session);
-    return commitRoutedListen(self, routed.session, wire, drive_now);
+    return .{ .pending = try commitRoutedListen(self, routed.session, wire, drive_now) };
 }
 
 fn commitRoutedListen(

@@ -76,7 +76,7 @@ pub const Port = struct {
         if (ingress != self.ingress) return Error.UnknownIngress;
         _ = try ingress_mod.ingressState(vat, ingress);
         return switch (target) {
-            .local => |id| .{ .local = try ingress_mod.enqueueLocal(vat, ingress, self, id, msg) },
+            .local => |id| .{ .local = try ingress_mod.enqueueLocal(vat, ingress, self, id, msg, true) },
             .far => |far| self.sendFarTo(vat, .{ .far = far }, msg),
         };
     }
@@ -107,7 +107,7 @@ pub const Port = struct {
         if (ingress != self.ingress) return Error.UnknownIngress;
         _ = try ingress_mod.ingressState(vat, ingress);
         switch (target) {
-            .local => |id| _ = try ingress_mod.enqueueLocal(vat, ingress, self, id, msg),
+            .local => |id| _ = try ingress_mod.enqueueLocal(vat, ingress, self, id, msg, false),
             .far => |far| try farDeliverTo(vat, self, .{ .far = far }, msg, null),
         }
     }
@@ -141,7 +141,7 @@ pub const Port = struct {
     /// reaching into Vat or per-session listener maps independently.
     pub fn reserveListener(self: *Port, vat: *Vat, location: VowLocation) Error!ListenerReservation {
         switch (location) {
-            .local => try vat.listeners.ensureUnusedCapacity(vat.allocator, 1),
+            .local => try vows.reserveLocalListener(vat),
             .far => try self.far_listeners.ensureUnusedCapacity(self.allocator, 1),
         }
         return .{ .location = location };
@@ -160,9 +160,7 @@ pub const Port = struct {
         switch (vow) {
             .local => |id| {
                 std.debug.assert(reservation.location == .local);
-                std.debug.assert(vat.pending_local_vows.contains(.{ .id = id }));
-                std.debug.assert(!vat.listeners.contains(id));
-                vat.listeners.putAssumeCapacity(id, listener);
+                vows.onReservedLocal(vat, id, listener);
             },
             .far => |answer| {
                 std.debug.assert(reservation.location == .far);

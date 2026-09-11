@@ -91,7 +91,8 @@ exports with no binding at all.
 Serve `glowcap_host.wasm` (from `zig-out/wasm/` or a release) and bundle this package plus
 `@glowcap/runtime` and `@glowcap/abi`. Extend the adapter-only
 [`browser-bundle.json`](browser-bundle.json) from the application config, then add that application's
-framework and data dependencies there. The Rooms bundle is one concrete example. The inherited
+framework and data dependencies there. Rooms uses its linked Rust application Wasm
+and has a separate presentation-only bundle map. The TypeScript binding's
 browser mapping sends `@glowcap/runtime/ffi` to the wasm adapter's stem-only resolver, so
 the native archive-resolution cascade is absent from the browser module graph. The only host stubs
 left cover non-browser runtime adapters a bundler may discover through their dynamic import; the

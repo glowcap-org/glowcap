@@ -4,7 +4,7 @@
 // opened no listener (a browser, a NAT'd peer) is answered without a dial back.
 // Shared by the receiver-reply demos so they assert against one spine instead of
 // four hand-rolled copies. This is not the app's own path: the browser UI's
-// receiver (`web/ui/net.ts` `inboxFor`) captures the reply capability and answers on a
+// Rust receiver captures the reply capability and answers on a
 // later user send rather than inline, so this helper models the inline-reply
 // demos, not what the app ships.
 

@@ -20,7 +20,6 @@ const store = await import("../web/ui/store.ts");
 const { dirId } = await import("../web/ui/types.ts");
 const { RoomsPage } = await import("../web/ui/page.ts");
 const { workspaceStateOf } = await import("../web/ui/workspace_state.ts");
-const { leaveDirectory, send } = await import("../web/ui/net.ts");
 const { finishComposerSend } = await import("../web/ui/composer/commit.ts");
 const { attachedCommandPowers } = await import("../web/ui/session/attached_command_powers.ts");
 const { attachedComposerActions } = await import("../web/ui/session/attached_composer.ts");
@@ -80,6 +79,20 @@ Deno.test("the title's close mark asks to leave the directory without leaving ye
 	assert(projection.get().aboutDirLeave === false, "opening the card about the directory left it asking to leave");
 });
 
+Deno.test("forgetting a directory settles the card that was viewing its authority", () => {
+	const projection = new store.PageProjection();
+	const directory = dirId("departing-dir");
+	store.openDir(projection, directory, "departing-dir");
+	store.showAboutDir(projection, directory, true);
+
+	store.forgetDir(projection, directory);
+
+	assert(projection.get().aboutDir === null, "the removed directory left its card intent standing");
+	assert(projection.get().aboutDirLeave === false, "the removed directory left its confirmation intent standing");
+	store.openDir(projection, directory, "departing-dir");
+	assert(projection.get().aboutDir === null, "reacquiring the directory reopened its old card");
+});
+
 Deno.test("the title's close mark asks to leave a room without leaving yet", () => {
 	const projection = new store.PageProjection();
 	const directory = dirId("home-dir");
@@ -111,25 +124,6 @@ Deno.test("leaving a room does not return to a directory view that was only look
 	assert(store.getConv(projection, view.key)?.type === "directory", "leaving a room dropped the directory view");
 });
 
-Deno.test("leaving a directory you are viewing lands on a room still held", () => {
-	const page = new RoomsPage();
-	const home = dirId("home-dir");
-	const other = dirId("other-dir");
-	store.openDir(page.projection, home, "home-dir");
-	store.openDir(page.projection, other, "other-dir");
-	store.setHomeDir(page.projection, home);
-	const lobby = store.ensureRoom(page.projection, home, "lobby");
-	store.ensureRoom(page.projection, other, "elsewhere");
-	const view = store.ensureDirectory(page.projection, other);
-	store.switchTo(page.projection, view.key);
-	leaveDirectory(page, other);
-	assert(
-		page.projection.get().activeKey === lobby.key,
-		"leaving a directory dumped the join card while a room remained",
-	);
-	assert(store.getConv(page.projection, view.key) === null, "leaving a directory left its view");
-});
-
 Deno.test("a directory conversation is a view, not a workspace row", () => {
 	const page = new RoomsPage();
 	const directory = dirId("ocapn://directory.id");
@@ -144,12 +138,6 @@ Deno.test("a directory conversation is a view, not a workspace row", () => {
 		"the directory view was written into the workspace",
 	);
 	assert(document.session.active === null, "a directory view was remembered as the active conversation");
-	assert(
-		document.session.conversations.some((conversation) =>
-			conversation.kind === "room" && conversation.name === "general"
-		),
-		"serializing a directory view dropped the room beside it",
-	);
 });
 
 Deno.test("attached /leave on a directory view puts the view away without a session leave", () => {
@@ -168,7 +156,6 @@ Deno.test("attached /leave on a directory view puts the view away without a sess
 			},
 		} as never,
 		{} as never,
-		() => {},
 	);
 	powers.leaveHere();
 	assert(removed.length === 0, "leaveHere asked the session to leave a directory view");
@@ -187,9 +174,10 @@ Deno.test("sending /leave on a directory view does not empty another conversatio
 	const controller = {
 		stageDraft: () => {},
 		setDraft: () => Promise.resolve(),
+		scheduleDraft: () => Promise.resolve(),
 		retireDraft: () => {},
 	};
-	const powers = attachedCommandPowers(page.projection, controller as never, {} as never, () => {});
+	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
 	const actions = attachedComposerActions(page.projection, controller as never, powers, () => {});
 	actions.setDraft("/leave");
 	actions.send();
@@ -223,23 +211,6 @@ Deno.test("clearing the composer after a conversation has left does not empty th
 	);
 });
 
-Deno.test("a directory command runs without a live directory session", () => {
-	const page = new RoomsPage();
-	const directory = dirId("shown-dir");
-	store.openDir(page.projection, directory, "shown-dir");
-	const conv = store.ensureDirectory(page.projection, directory);
-	store.switchTo(page.projection, conv.key);
-	store.setDraft(page.projection, "/help");
-	send(page);
-	const said = store.historyOf(page.projection, conv.key)
-		.flatMap((item) => item.kind === "sys" ? [item.text] : [])
-		.join("\n");
-	assert(said.includes("You can use:"), "a directory /help did not run while disconnected");
-	assert(said.includes("/join:"), "/help on a directory omitted a tab command");
-	assert(!said.includes("/me:"), "/help on a directory listed a chat command");
-	assert(store.activeDraft(page.projection).text === "", "running /help left the field filled");
-});
-
 Deno.test("attached drafts on a directory view stay in this tab", () => {
 	const page = new RoomsPage();
 	const directory = dirId("shown-dir");
@@ -258,7 +229,7 @@ Deno.test("attached drafts on a directory view stay in this tab", () => {
 		},
 		retireDraft: () => {},
 	};
-	const powers = attachedCommandPowers(page.projection, controller as never, {} as never, () => {});
+	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
 	const actions = attachedComposerActions(page.projection, controller as never, powers, () => {});
 	actions.setDraft("/help");
 	assert(staged.size === 0, "staging a directory draft wrote it into the session");

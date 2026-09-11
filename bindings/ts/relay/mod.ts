@@ -26,14 +26,7 @@ export { denoIrohChannel, denoTcpChannel, type IrohReach } from "./deno_channels
 // The cold-dial rendezvous (ADR-0088): let a peer that cannot be dialed register
 // its identity and be reached through the relay by another peer.
 export { isRendezvousDesignator, Rendezvous } from "./rendezvous.ts";
-export {
-	connector,
-	installProvider,
-	type NativeTrust,
-	type NativeTrustSummary,
-	provider,
-	type RelayOptions,
-} from "./transport.ts";
+export { connector, installProvider, type NativeTrust, provider, type RelayOptions } from "./transport.ts";
 export { dialUrl, routeFromLocator } from "./route.ts";
 export { listenKeyed, listenNoise, type RelayListenOptions } from "./listen.ts";
 

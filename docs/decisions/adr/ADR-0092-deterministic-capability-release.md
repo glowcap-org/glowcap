@@ -28,9 +28,10 @@ with a capability.
 
 Two gaps, either of which alone would settle this.
 
-**Opting in does not reach every capability.** ADR-0063 tracks `fetch` results
-and says so in its Scope: a capability lifted from a delivered argument, a
-send reply, or an `enliven` is deliberately untracked. The case that surfaced
+**Opting in did not reach every capability.** At the time of this decision,
+ADR-0063 tracked `fetch` results; capabilities lifted from delivered arguments,
+send replies and `enliven` were untracked. The current ADR-0063 contract covers
+all those projected occurrences, including cached enliven results. The case that surfaced
 this is exactly that shape. A rooms direct-message line that only sends rides
 the directory's session and holds an import it did not fetch, so no amount of
 opting in would release it.

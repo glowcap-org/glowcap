@@ -8,9 +8,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const poll = @import("../../poll.zig");
+const accept_gate = @import("../../accept_gate.zig");
 const socket = @import("../../socket.zig");
-const wake_channel = @import("../../wake_channel.zig");
 
 const IpAddress = std.Io.net.IpAddress;
 const Socket = std.Io.net.Socket;
@@ -19,7 +18,7 @@ const Server = std.Io.net.Server;
 
 pub const Keepalive = socket.Keepalive;
 pub const ConfigurationError = socket.ConfigurationError;
-pub const WaitError = error{ ConnectionLost, WakeNudgeFailed, WakeDrainFailed };
+pub const WaitError = accept_gate.WaitError;
 pub const AcceptError = WaitError || ConfigurationError;
 
 pub const StreamOptions = struct {
@@ -95,23 +94,20 @@ pub const Connection = struct {
 };
 
 /// A bound TCP socket. Shutdown interrupts an in-flight readiness or accept
-/// wait through a private wake descriptor; deinit joins that operation before
-/// releasing storage.
+/// wait through the accept gate's private wake descriptor; deinit joins that
+/// operation before releasing storage.
 pub const Listener = struct {
     server: Server,
     io: std.Io,
-    wake: wake_channel.WakeChannel,
-    wake_failure: wake_channel.FailureLatch = .{},
-    operation_gate: std.Io.Mutex = .init,
-    stopping: std.atomic.Value(bool) = .init(false),
+    gate: accept_gate.Gate,
 
     pub fn bind(io: std.Io, address: IpAddress) (IpAddress.ListenError || error{WakeChannelFailed})!Listener {
-        const wake = try wake_channel.WakeChannel.open();
-        errdefer wake.deinit();
+        const gate = try accept_gate.Gate.open();
+        errdefer gate.deinit();
         return .{
             .server = try listenExclusiveReuseAddr(io, address),
             .io = io,
-            .wake = wake,
+            .gate = gate,
         };
     }
 
@@ -166,27 +162,9 @@ pub const Listener = struct {
     }
 
     pub fn waitAcceptable(self: *Listener, timeout_ms: i32) WaitError!bool {
-        self.operation_gate.lockUncancelable(self.io);
-        defer self.operation_gate.unlock(self.io);
-        try self.wake_failure.check();
-        if (self.stopping.load(.acquire)) return error.ConnectionLost;
-        var fds = [_]std.posix.pollfd{
-            .{ .fd = self.server.socket.handle, .events = std.posix.POLL.IN, .revents = 0 },
-            .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
-        };
-        const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
-        try self.wake_failure.check();
-        if (self.stopping.load(.acquire) or
-            fds[1].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0)
-        {
-            self.wake.drain() catch |err| {
-                self.wake_failure.record(err);
-                return err;
-            };
-            return error.ConnectionLost;
-        }
-        return ready != 0 and
-            fds[0].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0;
+        self.gate.lock(self.io);
+        defer self.gate.unlock(self.io);
+        return self.gate.waitReadable(self.server.socket.handle, timeout_ms);
     }
 
     pub fn accept(
@@ -195,8 +173,8 @@ pub const Listener = struct {
         write_buf: []u8,
         options: StreamOptions,
     ) AcceptError!Connection {
-        self.operation_gate.lockUncancelable(self.io);
-        defer self.operation_gate.unlock(self.io);
+        self.gate.lock(self.io);
+        defer self.gate.unlock(self.io);
         const stream = try self.acceptStreamLocked();
         return Connection.over(self.io, stream, read_buf, write_buf, options) catch |err| {
             stream.close(self.io);
@@ -205,8 +183,8 @@ pub const Listener = struct {
     }
 
     pub fn acceptStream(self: *Listener, options: StreamOptions) AcceptError!Stream {
-        self.operation_gate.lockUncancelable(self.io);
-        defer self.operation_gate.unlock(self.io);
+        self.gate.lock(self.io);
+        defer self.gate.unlock(self.io);
         const stream = try self.acceptStreamLocked();
         configureStream(stream, options) catch |err| {
             stream.close(self.io);
@@ -215,37 +193,22 @@ pub const Listener = struct {
         return stream;
     }
 
+    /// Accept under the gate's lease. The caller holds it through wrapper
+    /// construction so a concurrent deinit cannot free listener state between
+    /// the kernel accept and the last read of `self.io`.
     fn acceptStreamLocked(self: *Listener) WaitError!Stream {
-        try self.wake_failure.check();
-        if (self.stopping.load(.acquire)) return error.ConnectionLost;
-        var fds = [_]std.posix.pollfd{
-            .{ .fd = self.server.socket.handle, .events = std.posix.POLL.IN, .revents = 0 },
-            .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
-        };
-        const ready = poll.wait(&fds, -1) catch return error.ConnectionLost;
-        try self.wake_failure.check();
-        if (ready == 0 or self.stopping.load(.acquire) or
-            fds[1].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0)
-        {
-            self.wake.drain() catch |err| {
-                self.wake_failure.record(err);
-                return err;
-            };
-            return error.ConnectionLost;
-        }
+        if (!try self.gate.waitReadable(self.server.socket.handle, -1)) return error.ConnectionLost;
         return self.server.accept(self.io) catch error.ConnectionLost;
     }
 
     pub fn shutdown(self: *Listener) void {
-        self.stopping.store(true, .release);
-        _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
+        self.gate.shutdown();
     }
 
     pub fn deinit(self: *Listener) void {
-        self.shutdown();
-        self.operation_gate.lockUncancelable(self.io);
-        self.operation_gate.unlock(self.io);
+        self.gate.shutdown();
+        self.gate.join(self.io);
         self.server.deinit(self.io);
-        self.wake.deinit();
+        self.gate.deinit();
     }
 };

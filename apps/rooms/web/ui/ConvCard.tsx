@@ -30,7 +30,7 @@ import { ModalHead } from "./ModalHead.tsx";
 import { Confirm } from "./Confirm.tsx";
 import { Button } from "./Button.tsx";
 import { roomMarkGlyph, roomMarkTitle } from "./room_mark.tsx";
-import { roomPreset } from "../../lib/room/policy.ts";
+import { roomPreset } from "./room_policy.ts";
 import { Avatar, PresenceAvatar } from "./Avatar.tsx";
 import { StandingMenu } from "./Standing.tsx";
 import { ConvFacts } from "./ConvFacts.tsx";

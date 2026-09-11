@@ -1,0 +1,3810 @@
+{
+  "pages": [
+    {
+      "name": "stewardships",
+      "category": "stewardships",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "stewardships-row-short",
+      "category": "stewardships",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "stewardships-row-extra",
+      "category": "stewardships",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward",
+            "extra"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "stewardships-too-many",
+      "category": "stewardships",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "stewardships-float-total",
+      "category": "stewardships",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ]
+        ],
+        1
+      ],
+      "accepted": false
+    },
+    {
+      "name": "stewardships-bad-next",
+      "category": "stewardships",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "links",
+      "category": "links",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "links-row-short",
+      "category": "links",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "links-row-extra",
+      "category": "links",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            "extra"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "links-too-many",
+      "category": "links",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ],
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "links-float-total",
+      "category": "links",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ]
+        ],
+        1
+      ],
+      "accepted": false
+    },
+    {
+      "name": "links-bad-next",
+      "category": "links",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        [
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "registrations",
+      "category": "registrations",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "Ada",
+            "session",
+            true
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "registrations-row-short",
+      "category": "registrations",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "Ada",
+            "session"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "registrations-row-extra",
+      "category": "registrations",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "Ada",
+            "session",
+            true,
+            "extra"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "registrations-too-many",
+      "category": "registrations",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ],
+          [
+            "Ada",
+            "session",
+            true
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "registrations-float-total",
+      "category": "registrations",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "Ada",
+            "session",
+            true
+          ]
+        ],
+        1
+      ],
+      "accepted": false
+    },
+    {
+      "name": "registrations-bad-next",
+      "category": "registrations",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        [
+          [
+            "Ada",
+            "session",
+            true
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "sessions",
+      "category": "sessions",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "sessions-row-short",
+      "category": "sessions",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "session",
+            "iroh",
+            "Ada"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "sessions-row-extra",
+      "category": "sessions",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false,
+            "extra"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "sessions-too-many",
+      "category": "sessions",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ],
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "sessions-float-total",
+      "category": "sessions",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ]
+        ],
+        1
+      ],
+      "accepted": false
+    },
+    {
+      "name": "sessions-bad-next",
+      "category": "sessions",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        [
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "rooms",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "rooms-row-short",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ]
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "rooms-row-extra",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false,
+            "extra"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "rooms-too-many",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ],
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "rooms-float-total",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ]
+        ],
+        1
+      ],
+      "accepted": false
+    },
+    {
+      "name": "rooms-bad-next",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "references",
+      "category": "references",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "references-row-short",
+      "category": "references",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "references-row-extra",
+      "category": "references",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox",
+            "extra"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "references-too-many",
+      "category": "references",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ],
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "references-float-total",
+      "category": "references",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ]
+        ],
+        1
+      ],
+      "accepted": false
+    },
+    {
+      "name": "references-bad-next",
+      "category": "references",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        [
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "trouble",
+      "category": "trouble",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "trouble-row-short",
+      "category": "trouble",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "refused"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "trouble-row-extra",
+      "category": "trouble",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            },
+            "extra"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "trouble-too-many",
+      "category": "trouble",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ],
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "trouble-float-total",
+      "category": "trouble",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ]
+        ],
+        1
+      ],
+      "accepted": false
+    },
+    {
+      "name": "trouble-bad-next",
+      "category": "trouble",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        [
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "room-no-id",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "room-33-members",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "room-32-members",
+      "category": "rooms",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ],
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": true
+    },
+    {
+      "name": "steward-no-link",
+      "category": "stewardships",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            null
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "steward-retired-with-link",
+      "category": "stewardships",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            false,
+            "ocapn://peer.tcp/s/steward"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    },
+    {
+      "name": "trouble-utf8-bytes",
+      "category": "trouble",
+      "raw": [
+        {
+          "integer": "9"
+        },
+        null,
+        [
+          [
+            "💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬💬",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      "accepted": false
+    }
+  ],
+  "whole": [
+    {
+      "integer": "9"
+    },
+    [
+      [
+        "stewardships",
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed",
+            {
+              "integer": "2"
+            },
+            true,
+            "ocapn://peer.tcp/s/steward"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      [
+        "links",
+        null,
+        [
+          [
+            "garden",
+            "Garden",
+            "listed"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      [
+        "registrations",
+        null,
+        [
+          [
+            "Ada",
+            "session",
+            true
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      [
+        "sessions",
+        null,
+        [
+          [
+            "session",
+            "iroh",
+            "Ada",
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      [
+        "rooms",
+        null,
+        [
+          [
+            "room",
+            "local",
+            "Garden",
+            "",
+            "local",
+            {
+              "integer": "1"
+            },
+            [
+              [
+                "Ada",
+                "session",
+                "present"
+              ]
+            ],
+            false
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      [
+        "references",
+        null,
+        [
+          [
+            "ref",
+            "membership",
+            "room",
+            "garden",
+            "Ada",
+            "member inbox"
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ],
+      [
+        "trouble",
+        null,
+        [
+          [
+            "room",
+            "refused",
+            {
+              "integer": "1"
+            }
+          ]
+        ],
+        {
+          "integer": "1"
+        }
+      ]
+    ]
+  ],
+  "expected": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+  "snapshots": [
+    {
+      "name": "baseline",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": true
+    },
+    {
+      "name": "revision-leading-zero",
+      "raw": "{\"revision\":\"0009\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": true
+    },
+    {
+      "name": "revision-too-long",
+      "raw": "{\"revision\":\"111111111111111111111111111111111\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "revision-big",
+      "raw": "{\"revision\":\"99999999999999999999999999999999\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": true
+    },
+    {
+      "name": "revision-number",
+      "raw": "{\"revision\":9,\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "array-stewardships",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[[\"garden\",\"Garden\",\"listed\",2,true,\"ocapn://peer.tcp/s/steward\"]],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "missing-stewardships",
+      "raw": "{\"revision\":\"9\",\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "extra-stewardships",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\",\"extra\":true}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "array-links",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[[\"garden\",\"Garden\",\"listed\"]],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "missing-links",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "extra-links",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"extra\":true}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "array-registrations",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[[\"Ada\",\"session\",true]],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "missing-registrations",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "extra-registrations",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true,\"extra\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "array-sessions",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[[\"session\",\"iroh\",\"Ada\",false]],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "missing-sessions",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "extra-sessions",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false,\"extra\":true}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "array-rooms",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[[\"room\",\"local\",\"Garden\",\"\",\"local\",1,[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],false]],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "missing-rooms",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "extra-rooms",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false,\"extra\":true}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "array-references",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[[\"ref\",\"membership\",\"room\",\"garden\",\"Ada\",\"member inbox\"]],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "missing-references",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "extra-references",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\",\"extra\":true}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "array-trouble",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[[\"room\",\"refused\",1]],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "missing-trouble",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "extra-trouble",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1,\"extra\":true}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "member-array",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[[\"Ada\",\"session\",\"present\"]],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "next-array",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":[null,null,null,null,null,null,null],\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "totals-missing",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "surrogate-label",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"a\\ud800b\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": true
+    },
+    {
+      "name": "null-generation",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":null,\"issued\":true,\"steward\":\"ocapn://peer.tcp/s/steward\"}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    },
+    {
+      "name": "issued-no-link",
+      "raw": "{\"revision\":\"9\",\"stewardships\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\",\"generation\":2,\"issued\":true,\"steward\":null}],\"links\":[{\"name\":\"garden\",\"label\":\"Garden\",\"visibility\":\"listed\"}],\"registrations\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"you\":true}],\"sessions\":[{\"id\":\"session\",\"transport\":\"iroh\",\"nick\":\"Ada\",\"you\":false}],\"rooms\":[{\"id\":\"room\",\"kind\":\"local\",\"name\":\"Garden\",\"origin\":\"\",\"proof\":\"local\",\"retainedCapabilities\":1,\"members\":[{\"nick\":\"Ada\",\"sessionId\":\"session\",\"state\":\"present\"}],\"membersMore\":false}],\"references\":[{\"id\":\"ref\",\"kind\":\"membership\",\"owner\":\"room\",\"room\":\"garden\",\"member\":\"Ada\",\"detail\":\"member inbox\"}],\"trouble\":[{\"source\":\"room\",\"reason\":\"refused\",\"count\":1}],\"next\":{\"stewardships\":null,\"links\":null,\"registrations\":null,\"sessions\":null,\"rooms\":null,\"references\":null,\"trouble\":null},\"totals\":{\"stewardships\":1,\"links\":1,\"registrations\":1,\"sessions\":1,\"rooms\":1,\"references\":1,\"trouble\":1}}",
+      "accepted": false
+    }
+  ],
+  "operations": [
+    {
+      "name": "listeners",
+      "capability": "listeners",
+      "raw": "[{\"transport\":\"custom\",\"description\":\"\",\"reference\":\"\",\"referenceName\":\"\",\"takes\":[{\"name\":\"bind\",\"kind\":\"host\",\"hint\":\"\"}],\"unavailable\":\"\",\"id\":null,\"locator\":null,\"serving\":false}]",
+      "accepted": true
+    },
+    {
+      "name": "serving-down",
+      "capability": "listeners",
+      "raw": "[{\"transport\":\"custom\",\"description\":\"\",\"reference\":\"\",\"referenceName\":\"\",\"takes\":[{\"name\":\"bind\",\"kind\":\"host\",\"hint\":\"\"}],\"unavailable\":\"\",\"id\":null,\"locator\":null,\"serving\":true}]",
+      "accepted": false
+    },
+    {
+      "name": "missing-id",
+      "capability": "listeners",
+      "raw": "[{\"transport\":\"custom\",\"description\":\"\",\"reference\":\"\",\"referenceName\":\"\",\"takes\":[{\"name\":\"bind\",\"kind\":\"host\",\"hint\":\"\"}],\"unavailable\":\"\",\"locator\":null,\"serving\":false}]",
+      "accepted": false
+    },
+    {
+      "name": "locator-no-id",
+      "capability": "listeners",
+      "raw": "[{\"transport\":\"custom\",\"description\":\"\",\"reference\":\"\",\"referenceName\":\"\",\"takes\":[{\"name\":\"bind\",\"kind\":\"host\",\"hint\":\"\"}],\"unavailable\":\"\",\"id\":null,\"locator\":\"ocapn://peer.tcp\",\"serving\":false}]",
+      "accepted": false
+    },
+    {
+      "name": "reference-no-name",
+      "capability": "listeners",
+      "raw": "[{\"transport\":\"custom\",\"description\":\"\",\"reference\":\"https://example.com\",\"referenceName\":\"\",\"takes\":[{\"name\":\"bind\",\"kind\":\"host\",\"hint\":\"\"}],\"unavailable\":\"\",\"id\":null,\"locator\":null,\"serving\":false}]",
+      "accepted": false
+    },
+    {
+      "name": "array-listener",
+      "capability": "listeners",
+      "raw": "[[\"custom\",\"\",\"\",\"\",[{\"name\":\"bind\",\"kind\":\"host\",\"hint\":\"\"}],\"\",null,null,false]]",
+      "accepted": false
+    },
+    {
+      "name": "array-option",
+      "capability": "listeners",
+      "raw": "[{\"transport\":\"custom\",\"description\":\"\",\"reference\":\"\",\"referenceName\":\"\",\"takes\":[[\"bind\",\"host\",\"\"]],\"unavailable\":\"\",\"id\":null,\"locator\":null,\"serving\":false}]",
+      "accepted": false
+    },
+    {
+      "name": "viz",
+      "capability": "viz",
+      "raw": "{\"url\":\"ws://localhost\",\"connected\":false,\"refusal\":null}",
+      "accepted": true
+    },
+    {
+      "name": "viz-missing",
+      "capability": "viz",
+      "raw": "{\"url\":\"ws://localhost\",\"connected\":false}",
+      "accepted": false
+    },
+    {
+      "name": "peering",
+      "capability": "peering",
+      "raw": "[{\"id\":\"p\",\"name\":\"garden\",\"source\":\"dir\",\"phase\":\"publishing\"}]",
+      "accepted": true
+    },
+    {
+      "name": "peering-bad",
+      "capability": "peering",
+      "raw": "[{\"id\":\"p\",\"name\":\"garden\",\"source\":\"dir\",\"phase\":\"stopped\"}]",
+      "accepted": false
+    },
+    {
+      "name": "diagnostics",
+      "capability": "diagnostics",
+      "raw": "[{\"kind\":\"room\",\"name\":\"garden\",\"note\":\"a\\ud800b\"}]",
+      "accepted": true
+    },
+    {
+      "name": "diagnostic-empty",
+      "capability": "diagnostics",
+      "raw": "[{\"kind\":\"\",\"name\":\"garden\",\"note\":\"\"}]",
+      "accepted": false
+    },
+    {
+      "name": "gateway",
+      "capability": "irc",
+      "raw": "{\"title\":\"Gateway\",\"description\":\"\",\"connectionNoun\":\"connection\",\"connectionNounPlural\":\"connections\",\"leaseNoun\":\"lease\",\"leaseNounPlural\":\"leases\",\"leaseRemoval\":{\"label\":\"Remove\",\"say\":\"Remove lease\",\"keep\":\"Keep\",\"commit\":\"Remove\"},\"connectionForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"leaseForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"connections\":[{\"id\":\"conn\",\"title\":\"Connection\",\"facts\":[],\"status\":{\"label\":\"up\",\"tone\":\"ok\"},\"problem\":\"\",\"leases\":[{\"id\":\"lease\",\"title\":\"Lease\",\"status\":{\"label\":\"up\",\"tone\":\"ok\"},\"problem\":\"\",\"roomName\":null,\"publicationId\":\"\"}]}]}",
+      "accepted": true
+    },
+    {
+      "name": "missing-room-name",
+      "capability": "irc",
+      "raw": "{\"title\":\"Gateway\",\"description\":\"\",\"connectionNoun\":\"connection\",\"connectionNounPlural\":\"connections\",\"leaseNoun\":\"lease\",\"leaseNounPlural\":\"leases\",\"leaseRemoval\":{\"label\":\"Remove\",\"say\":\"Remove lease\",\"keep\":\"Keep\",\"commit\":\"Remove\"},\"connectionForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"leaseForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"connections\":[{\"id\":\"conn\",\"title\":\"Connection\",\"facts\":[],\"status\":{\"label\":\"up\",\"tone\":\"ok\"},\"problem\":\"\",\"leases\":[{\"id\":\"lease\",\"title\":\"Lease\",\"status\":{\"label\":\"up\",\"tone\":\"ok\"},\"problem\":\"\",\"publicationId\":\"\"}]}]}",
+      "accepted": false
+    },
+    {
+      "name": "array-status",
+      "capability": "irc",
+      "raw": "{\"title\":\"Gateway\",\"description\":\"\",\"connectionNoun\":\"connection\",\"connectionNounPlural\":\"connections\",\"leaseNoun\":\"lease\",\"leaseNounPlural\":\"leases\",\"leaseRemoval\":{\"label\":\"Remove\",\"say\":\"Remove lease\",\"keep\":\"Keep\",\"commit\":\"Remove\"},\"connectionForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"leaseForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"connections\":[{\"id\":\"conn\",\"title\":\"Connection\",\"facts\":[],\"status\":[\"up\",\"ok\"],\"problem\":\"\",\"leases\":[{\"id\":\"lease\",\"title\":\"Lease\",\"status\":{\"label\":\"up\",\"tone\":\"ok\"},\"problem\":\"\",\"roomName\":null,\"publicationId\":\"\"}]}]}",
+      "accepted": false
+    },
+    {
+      "name": "array-connection",
+      "capability": "irc",
+      "raw": "{\"title\":\"Gateway\",\"description\":\"\",\"connectionNoun\":\"connection\",\"connectionNounPlural\":\"connections\",\"leaseNoun\":\"lease\",\"leaseNounPlural\":\"leases\",\"leaseRemoval\":{\"label\":\"Remove\",\"say\":\"Remove lease\",\"keep\":\"Keep\",\"commit\":\"Remove\"},\"connectionForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"leaseForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"connections\":[[\"conn\",\"Connection\",[],{\"label\":\"up\",\"tone\":\"ok\"},\"\",[{\"id\":\"lease\",\"title\":\"Lease\",\"status\":{\"label\":\"up\",\"tone\":\"ok\"},\"problem\":\"\",\"roomName\":null,\"publicationId\":\"\"}]]]}",
+      "accepted": false
+    },
+    {
+      "name": "array-form",
+      "capability": "irc",
+      "raw": "{\"title\":\"Gateway\",\"description\":\"\",\"connectionNoun\":\"connection\",\"connectionNounPlural\":\"connections\",\"leaseNoun\":\"lease\",\"leaseNounPlural\":\"leases\",\"leaseRemoval\":{\"label\":\"Remove\",\"say\":\"Remove lease\",\"keep\":\"Keep\",\"commit\":\"Remove\"},\"connectionForm\":[\"gateway\",\"Open\",\"\",[],[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]],\"leaseForm\":{\"scope\":\"gateway\",\"title\":\"Open\",\"said\":\"\",\"fields\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"busyLabel\":\"Opening\",\"tone\":\"primary\",\"remembered\":false}]},\"connections\":[{\"id\":\"conn\",\"title\":\"Connection\",\"facts\":[],\"status\":{\"label\":\"up\",\"tone\":\"ok\"},\"problem\":\"\",\"leases\":[{\"id\":\"lease\",\"title\":\"Lease\",\"status\":{\"label\":\"up\",\"tone\":\"ok\"},\"problem\":\"\",\"roomName\":null,\"publicationId\":\"\"}]}]}",
+      "accepted": false
+    }
+  ]
+}

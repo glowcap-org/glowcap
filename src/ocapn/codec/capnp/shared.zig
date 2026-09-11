@@ -234,7 +234,7 @@ pub const Reader = struct {
     /// Points directly into the frame; copies nothing.
     pub fn byteSlice(self: Reader, seg_idx: usize, len: usize) Error![]const u8 {
         if (len == 0) return &.{};
-        // `seg_idx` and `len` both derive from an attacker-controlled list
+        // `seg_idx` and `len` both derive from a peer-supplied list
         // pointer, so add them checked: on a 32-bit target the sum could
         // otherwise wrap below `seg_words` and pass a bound meant to reject it.
         // This matches the checked arithmetic in `readerFromFrame` and
@@ -305,7 +305,7 @@ pub fn enumFromWire(comptime E: type, raw: u64) Error!E {
 }
 
 /// A bounds-validated composite (struct) list. A composite list pointer's word
-/// count and the per-element sizes in its tag word are attacker-controlled, so
+/// count and the per-element sizes in its tag word are untrusted, so
 /// before a caller allocates `element_count` rows or stride-walks the elements
 /// this proves the tag is consistent with the words the list pointer reserved.
 pub const CompositeList = struct {

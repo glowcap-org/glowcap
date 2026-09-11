@@ -25,6 +25,7 @@ const validate = @import("validate.zig");
 
 const Session = session.Session;
 const Error = session.Error;
+const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 const RecvViewError = session.RecvViewError;
 const AnswerDirection = session.AnswerDirection;
 
@@ -190,21 +191,7 @@ pub fn applySend(self: *Session, message: model.Message) !void {
         .resolve => unreachable,
         .gc_export => |gc_export| {
             try session.applyGcExportDecrement(&self.imports, gc_export);
-            // ADR-0009: a fully-released third-party import can never receive
-            // a relayed resolution, so drop its imported-promise row (host +
-            // listeners + stored resolution) alongside the import.
-            for (gc_export.positions) |pos| {
-                const import_id = model.ImportPosition.from(pos);
-                if (!self.imports.contains(import_id)) {
-                    // A sturdyref cache row is useful only while its import
-                    // row keeps that wire position's meaning alive. Once the
-                    // count reaches zero the partner may reuse the position,
-                    // so every swissnum that named it must enliven afresh.
-                    self.forgetSturdyrefEnlivenmentsAt(import_id);
-                    if (self.shorteningIncarnationForImport(import_id)) |source|
-                        self.releaseShorteningSourceAuthority(source);
-                }
-            }
+            retireReleasedImports(self, gc_export.positions);
         },
         // Outbound `op:gc-answers` releases a question we asked — decrement
         // our outbound answers and drop any outbound resolver link we
@@ -366,6 +353,36 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
 fn installIntroducedImports(self: *Session, introduced: *const validate.IntroducedImports) void {
     for (introduced.mentions.items) |import_position| {
         self.imports.retainAssumeCapacity(import_position);
+    }
+}
+
+/// Apply the session's own outbound `op:gc-exports`: each entry spends
+/// retains the session adopted for exactly this release, so the decrement
+/// cannot fail. The consequences of a row reaching zero are the caller
+/// release's, unchanged.
+pub fn applySessionImportRelease(self: *Session, gc_export: model.GcExport) void {
+    for (gc_export.positions, gc_export.deltas) |pos, delta| {
+        std.debug.assert(pos != BOOTSTRAP_POSITION);
+        self.imports.releaseSessionHeld(.from(pos), delta);
+    }
+    retireReleasedImports(self, gc_export.positions);
+}
+
+/// After an outbound release, retire whatever named a position whose import
+/// row is now gone. ADR-0009: a fully-released third-party import can never
+/// receive a relayed resolution, so its imported-promise row (host, listeners,
+/// stored resolution) goes with the import.
+fn retireReleasedImports(self: *Session, positions: []const u64) void {
+    for (positions) |pos| {
+        const import_id = model.ImportPosition.from(pos);
+        if (self.imports.contains(import_id)) continue;
+        // A sturdyref cache row is useful only while its import row keeps
+        // that wire position's meaning alive. Once the count reaches zero the
+        // partner may reuse the position, so every swissnum that named it
+        // must enliven afresh.
+        self.forgetSturdyrefEnlivenmentsAt(import_id);
+        if (self.shorteningIncarnationForImport(import_id)) |source|
+            self.releaseShorteningSourceAuthority(source);
     }
 }
 

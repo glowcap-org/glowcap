@@ -20,10 +20,6 @@ glowcap_devcontainer_validate_pins() {
         echo "pins.sh: DEBIAN_BASE_DIGEST must be sha256:<64 hex>, got '${DEBIAN_BASE_DIGEST:-}'" >&2
         return 1
     fi
-    if ! [[ "${DENO_IMAGE_DIGEST:-}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-        echo "pins.sh: DENO_IMAGE_DIGEST must be sha256:<64 hex>, got '${DENO_IMAGE_DIGEST:-}'" >&2
-        return 1
-    fi
     case "${ZLS_ENABLED:-true}" in
         true)
             if [[ "${ZIG_VERSION%%.*}" != "${ZLS_VERSION%%.*}" ]]; then
@@ -84,17 +80,16 @@ glowcap_devcontainer_host_state_rows() {
         .serena:/home/vscode/.serena
 }
 
-# Build caches the host and every worktree container share by bind, not a
-# named volume, so `ls ~/.cache/glowcap` is the same tree in and out. Subdirs
-# under it (tool, cargo, work) are created by initialize.sh; the worktree
-# slice is work/<name>/ at runtime.
+# Download and language-manager caches are shared with the host. Zig's local
+# build cache is separate because host-bind atomic-file semantics vary by
+# Docker host; docker-compose.yml owns its per-worktree volume.
 glowcap_devcontainer_host_cache_rows() {
     printf '%s\n' \
         .cache/glowcap:/home/vscode/.cache/glowcap
 }
 
 glowcap_devcontainer_host_cache_layout() {
-    printf '%s\n' tool cargo work
+    printf '%s\n' tool cargo
 }
 
 glowcap_devcontainer_host_cache_layout_text() {
@@ -103,10 +98,11 @@ glowcap caches — same tree on the host (~/.cache/glowcap) and in the
 container (/home/vscode/.cache/glowcap). See .devcontainer/README.md
 (Persistent paths).
 
-  tool/                         shared downloads (zig, deno, npm, pip, bun, uv, zls)
-  cargo/                        CARGO_HOME (registry, git, cargo install)
-  work/<worktree>/zig-local     that container's Zig compile objects
-  work/<worktree>/zig-pkg       that container's extracted Zig packages
+  tool/   shared downloads (zig, deno, npm, pip, bun, uv, zls)
+  cargo/  CARGO_HOME (registry, git, cargo install)
+
+Per-worktree Zig objects and extracted packages live in the Docker volume
+glowcap-<worktree>-zig-work. See .devcontainer/README.md (Persistent paths).
 EOF
 }
 
@@ -123,6 +119,7 @@ glowcap_devcontainer_host_home_bind_rows() {
 glowcap_devcontainer_compose_variables() {
     cat <<'EOF'
 GLOWCAP_WORKTREE
+GLOWCAP_CHECKOUT_DIR
 GLOWCAP_GIT_COMMON_DIR
 GLOWCAP_ROOMS_WEB_HOST_PORT
 GLOWCAP_ROOMS_CAPTP_HOST_PORT

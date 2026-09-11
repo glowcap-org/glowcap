@@ -16,9 +16,6 @@ Object.defineProperty(globalThis, "matchMedia", {
 
 const store = await import("../web/ui/store.ts");
 const projection = new store.PageProjection();
-const { opsLost } = await import("../web/ui/net/common.ts");
-const { OPS_CAPS } = await import("../web/ui/types.ts");
-const { OPS_CATALOG } = await import("../web/ui/ops/catalog.ts");
 const { assertEquals } = await import("./assert.ts");
 
 function clearToasts(): void {
@@ -61,20 +58,4 @@ Deno.test("dismissing a notice that is already gone is nothing", () => {
 	store.dismissToast(projection, id);
 	store.dismissToast(projection, id);
 	assertEquals(projection.get().toasts.length, 0);
-});
-
-Deno.test("a capability that stops answering is named, with the reason", () => {
-	for (const cap of OPS_CAPS) {
-		clearToasts();
-		opsLost(projection, cap, "the server said no.");
-		assertEquals(
-			projection.get().toasts.map((notice) => [notice.kind, notice.text]),
-			[[
-				"failure",
-				`${OPS_CATALOG[cap].short}: this tab no longer holds that capability. the server said no.`,
-			]],
-			"every capability the page knows can say it has gone, by the name its pane wears",
-		);
-	}
-	clearToasts();
 });

@@ -277,11 +277,6 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("trust_pem", 56, 8),
         ("trust_pem_len", 64, 8),
     )),
-    "GLOWCAP_RELAY_TRUST_SUMMARY": (24, (
-        ("loaded", 0, 8),
-        ("skipped_by_engine", 8, 8),
-        ("first_skipped_engine_code", 16, 4),
-    )),
     "GLOWCAP_WEBRTC_READY_EVENT": (16, (
         ("subject", 0, 8),
         ("events", 8, 4),

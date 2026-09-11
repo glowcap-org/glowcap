@@ -10,18 +10,19 @@ const engine = @import("engine");
 const net = @import("net");
 const sidecar = @import("sidecar.zig");
 const locators = @import("locators.zig");
+const stream = @import("stream.zig");
 
 const crypto = foundation.crypto;
 const Io = std.Io;
 const Connection = net.Connection;
 const Netlayer = net.netlayer.Netlayer;
-const Listener = net.netlayer.Listener;
 const Buffers = net.netlayer.Buffers;
 
 const CEndpoint = sidecar.CEndpoint;
 const CConn = sidecar.CConn;
 const CEndpointConfig = sidecar.CEndpointConfig;
 const ReadyEvent = sidecar.ReadyEvent;
+const DialText = sidecar.DialText;
 const Reachability = locators.Reachability;
 const known_transport = locators.known_transport;
 const transport_name = locators.transport_name;
@@ -35,64 +36,6 @@ const ev_writable = sidecar.ev_writable;
 const ev_closed = sidecar.ev_closed;
 const ev_accept = sidecar.ev_accept;
 const ev_connect = sidecar.ev_connect;
-
-// ── The stream over one QUIC connection ──────────────────────────────────────
-
-/// The sidecar connection as a `stream_shim` byte source. The sidecar write
-/// is synchronous: it copies or sends the bytes before returning, so the caller
-/// may free them as soon as the call returns, unlike the completion loop's
-/// queued writes, which borrow until retire. QUIC sends written bytes eagerly,
-/// so `flush` only surfaces a connection that died under the writes.
-const ConnSource = struct {
-    conn: *CConn,
-
-    pub fn readSome(self: ConnSource, dest: []u8) Io.Reader.Error!usize {
-        const n = sidecar.glowcap_iroh_sidecar_conn_read(self.conn, dest.ptr, dest.len);
-        if (n == 0) return error.EndOfStream;
-        if (n < 0) return error.ReadFailed;
-        return @intCast(n);
-    }
-
-    pub fn writeAll(self: ConnSource, bytes: []const u8) Io.Writer.Error!void {
-        if (sidecar.glowcap_iroh_sidecar_conn_write(self.conn, bytes.ptr, bytes.len) < 0) return error.WriteFailed;
-    }
-
-    pub fn flush(self: ConnSource) Io.Writer.Error!void {
-        if (sidecar.glowcap_iroh_sidecar_conn_flush(self.conn) != 0) return error.WriteFailed;
-    }
-};
-
-/// One dialed/accepted QUIC stream, pinned so its reader/writer interfaces hold
-/// a stable address for the `Connection`'s life. It is the shared
-/// `net.netlayer.PinnedStream` over the sidecar's `ConnSource`; closing it
-/// finishes the QUIC stream (the partner reads a clean end of stream) and frees
-/// the sidecar connection handle. Read and write ride the one `*CConn`, so both
-/// Shim sources name it.
-const IrohContext = struct {
-    conn: *CConn,
-
-    pub fn closeStream(self: IrohContext) void {
-        sidecar.glowcap_iroh_sidecar_conn_free(self.conn);
-    }
-};
-
-const IrohStream = net.netlayer.PinnedStream(ConnSource, IrohContext);
-
-fn irohStreamCreate(allocator: std.mem.Allocator, conn: *CConn, bufs: Buffers) std.mem.Allocator.Error!*IrohStream {
-    return IrohStream.create(allocator, .{ .conn = conn }, .{ .conn = conn }, bufs, .{ .conn = conn });
-}
-
-/// Adopt one sidecar connection into the netlayer stream. Ownership transfers
-/// on entry, including every failure path. The authenticated identity becomes
-/// durable only after the last fallible stream allocation, so a refused
-/// connection cannot leave a phantom channel proof on `peer`.
-pub fn adoptOwnedConn(io: Io, peer: *engine.Peer, conn: *CConn, bufs: Buffers) (error{ConnectionLost} || std.mem.Allocator.Error)!Connection {
-    errdefer sidecar.glowcap_iroh_sidecar_conn_free(conn);
-    const remote_key = connRemoteKey(conn) orelse return error.ConnectionLost;
-    const stream = try irohStreamCreate(peer.allocator, conn, bufs);
-    peer.bindVerifiedChannelKey(remote_key);
-    return stream.intoConnection(io, peer);
-}
 
 // ── The resident ─────────────────────────────────────────────────────────────
 
@@ -168,13 +111,13 @@ pub const Resident = struct {
     /// comma-separated `direct_addrs` hint, opening the session's one QUIC
     /// stream. A hint-less dial on a direct endpoint is the caller's defect,
     /// typed `InvalidAddress` before the network is touched. The dial itself
-    /// projects the sidecar's classification onto the `DialError` retry axis:
-    /// a malformed id or hint is `InvalidAddress`, a deadline is `TimedOut`, a
-    /// connection that could not be established is `NetworkUnreachable`, and a
-    /// connection that came up then failed is `ConnectionLost` (ADR-0081). The
-    /// returned `*CConn` is owned by the caller, freed with
+    /// projects the sidecar's classification onto the `DialError` retry axis
+    /// through `dialErrorFromCode`. On failure the sidecar's own text for the
+    /// fault lands in `text` when the caller supplies one; the blocking
+    /// netlayer vtable has nowhere to keep it and passes null. The returned
+    /// `*CConn` is owned by the caller, freed with
     /// `sidecar.glowcap_iroh_sidecar_conn_free`.
-    fn dialRawConn(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*CConn {
+    fn dialRawConn(self: *Resident, designator: []const u8, direct_addrs: []const u8, text: ?*DialText) net.netlayer.DialError!*CConn {
         // Canonical node-id shape is owned by `DialResolver.resolve` before the
         // blocking `residentDial` reaches here. This path owns reachability
         // hint policy.
@@ -183,6 +126,7 @@ pub const Resident = struct {
         // the network. A discovery endpoint resolves the partner by id.
         if (direct_addrs.len == 0 and !locators.resolvesById(self.reachability)) return error.InvalidAddress;
         var code: i32 = 0;
+        const sink = TextSink.of(text);
         if (sidecar.glowcap_iroh_sidecar_connect_blocking(
             self.endpoint,
             designator.ptr,
@@ -190,16 +134,11 @@ pub const Resident = struct {
             direct_addrs.ptr,
             direct_addrs.len,
             &code,
+            sink.ptr,
+            sink.cap,
+            sink.len,
         )) |conn| return conn;
-        // The sidecar header's dial codes: 1 invalid, 2 timeout, 3 unreachable,
-        // 4 lost. iroh has no connection-refused — a dead port times out — so
-        // that arm never appears here.
-        return switch (code) {
-            1 => error.InvalidAddress,
-            2 => error.TimedOut,
-            3 => error.NetworkUnreachable,
-            else => error.ConnectionLost,
-        };
+        return dialErrorFromCode(code);
     }
 
     /// Write this endpoint's id — the dialable designator — into `out` and
@@ -324,28 +263,30 @@ pub const Resident = struct {
             2 => error.TimedOut,
             3 => error.NetworkUnreachable,
             7 => error.WouldBlock,
+            8 => error.InvalidOptions,
+            9 => error.ConnectionRefused,
             else => error.ConnectionLost,
         };
     }
 
     /// Consume one terminal evented dial and move the connection onto the
-    /// readiness surface. The caller owns the returned handle.
-    pub fn loopFinishConnect(self: *Resident, request_id: usize) net.netlayer.DialError!*anyopaque {
+    /// readiness surface. The caller owns the returned handle. On failure the
+    /// sidecar's own text for the fault lands in `text` when the caller
+    /// supplies one, alongside the `DialError` classification
+    /// `dialErrorFromCode` projects; a caller with nowhere durable to keep the
+    /// bytes passes null. The sidecar's copy dies with the request's row on
+    /// this call either way.
+    pub fn loopFinishConnect(self: *Resident, request_id: usize, text: ?*DialText) net.netlayer.DialError!*anyopaque {
         var conn: ?*CConn = null;
-        return switch (sidecar.glowcap_iroh_sidecar_endpoint_finish_connect(self.endpoint, request_id, &conn)) {
-            0 => blk: {
-                const ready_conn = conn orelse return error.ConnectionLost;
-                if (sidecar.glowcap_iroh_sidecar_conn_set_nonblocking(self.endpoint, ready_conn) != 0) {
-                    sidecar.glowcap_iroh_sidecar_conn_free(ready_conn);
-                    return error.ConnectionLost;
-                }
-                break :blk ready_conn;
-            },
-            1 => error.InvalidAddress,
-            2 => error.TimedOut,
-            3 => error.NetworkUnreachable,
-            else => error.ConnectionLost,
-        };
+        const sink = TextSink.of(text);
+        const code = sidecar.glowcap_iroh_sidecar_endpoint_finish_connect(self.endpoint, request_id, &conn, sink.ptr, sink.cap, sink.len);
+        if (code != 0) return dialErrorFromCode(code);
+        const ready_conn = conn orelse return error.ConnectionLost;
+        if (sidecar.glowcap_iroh_sidecar_conn_set_nonblocking(self.endpoint, ready_conn) != 0) {
+            sidecar.glowcap_iroh_sidecar_conn_free(ready_conn);
+            return error.ConnectionLost;
+        }
+        return ready_conn;
     }
 
     /// Request cancellation while leaving the terminal row for an explicit
@@ -359,7 +300,9 @@ pub const Resident = struct {
     /// finish call. A connect that won the race is closed instead of leaked.
     pub fn loopCancelConnect(self: *Resident, request_id: usize) void {
         self.loopRequestConnectCancel(request_id);
-        if (self.loopFinishConnect(request_id)) |conn| self.loopConnClose(conn) else |_| {}
+        // The row is consumed for its handle only: a canceled dial's code is
+        // the whole fact, and no caller waits on its text.
+        if (self.loopFinishConnect(request_id, null)) |conn| self.loopConnClose(conn) else |_| {}
     }
 
     pub fn loopConnId(self: *const Resident, conn: *const anyopaque) usize {
@@ -405,6 +348,43 @@ pub const Resident = struct {
     }
 };
 
+/// The sidecar's three out-parameters for one dial's failure text, derived
+/// from an optional caller sink. A null sink declines the text and the sidecar
+/// copies nothing; a supplied one is reset so a success leaves it empty.
+const TextSink = struct {
+    ptr: ?[*]u8,
+    cap: usize,
+    len: ?*usize,
+
+    fn of(text: ?*DialText) TextSink {
+        const sink = text orelse return .{ .ptr = null, .cap = 0, .len = null };
+        sink.len = 0;
+        return .{ .ptr = &sink.bytes, .cap = sink.bytes.len, .len = &sink.len };
+    }
+};
+
+/// Project a sidecar dial code onto the `DialError` retry axis (ADR-0081).
+/// The codes: 1 invalid, 2 timeout, 3 unreachable, 4 lost, 5 canceled, 8
+/// endpoint closed, 9 refused. A malformed id or hint is `InvalidAddress`, a
+/// deadline is `TimedOut`, a connection that could not be established is
+/// `NetworkUnreachable`, and one that came up then failed is
+/// `ConnectionLost`. A closed endpoint is a permanent local fault, so it
+/// lands on the permanent `InvalidOptions` arm rather than on the transient
+/// path fault it once wore. A refused handshake is permanent on that axis
+/// too (`ConnectionRefused`); at the C surface it still projects to the I/O
+/// code, so an embedder's own retry policy has only the last-error text to
+/// tell them apart, which is why the sidecar's text rides beside the code.
+fn dialErrorFromCode(code: i32) net.netlayer.DialError {
+    return switch (code) {
+        1 => error.InvalidAddress,
+        2 => error.TimedOut,
+        3 => error.NetworkUnreachable,
+        8 => error.InvalidOptions,
+        9 => error.ConnectionRefused,
+        else => error.ConnectionLost,
+    };
+}
+
 /// `loopTryRead` / `loopTryWrite` return this when the operation cannot make
 /// progress without blocking, the resident-surface spelling of the sidecar's
 /// `WOULD_BLOCK`, distinct from 0 (clean end of stream) and negative (fault).
@@ -424,7 +404,7 @@ const resident_ctx = net.netlayer.ResidentContext(Resident);
 const resident_vtable: Netlayer.VTable = .{
     .profile = known_transport.metadata(),
     .dial = .{ .blocking = net.netlayer.adaptBlockingDial(residentDial) },
-    .listen = residentListen,
+    .listen = net.netlayer.adaptListen(residentListen),
     .io = resident_ctx.io,
 };
 
@@ -441,23 +421,19 @@ fn residentDial(
     // canonical node-id; dialRawConn owns reachability hint policy (needs
     // resident posture).
     const target = resolveConnectTarget(candidate) catch return error.InvalidAddress;
-    const conn = try self.dialRawConn(target.id, target.hints);
+    // The text is declined here: a dial failure's chain may carry a cause
+    // name only when the bytes outlive every projection of the chain, and
+    // this frame is gone when the outcome returns. The C archives, which
+    // project straight into a copying last-error slot, are the callers that
+    // take it.
+    const conn = try self.dialRawConn(target.id, target.hints, null);
     // The dial half of the same proof the accept half makes (ADR-0105): QUIC
     // authenticated the endpoint this connection reached, so read it back off
     // the connection rather than assuming the dial got what it asked for.
-    return adoptOwnedConn(self.io, peer, conn, bufs);
+    return stream.adoptOwnedConn(self.io, peer, conn, bufs);
 }
 
 fn residentListen(
-    ctx: *anyopaque,
-    allocator: std.mem.Allocator,
-    config: net.netlayer.ListenConfig,
-) net.netlayer.ListenStartOutcome {
-    return .{ .admitted = residentListenFallible(ctx, allocator, config) catch |err|
-        return .{ .failed = .init(err) } };
-}
-
-fn residentListenFallible(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     config: net.netlayer.ListenConfig,
@@ -474,8 +450,9 @@ fn residentListenFallible(
     }
     const box = allocator.create(ListenerBox) catch return error.OutOfMemory;
     box.* = .{ .resident = self, .allocator = allocator };
-    return .{ .ready = .{ .ctx = box, .vtable = &listener_vtable } };
+    return .{ .ready = ListenerShell.listener(box) };
 }
+
 /// A heap-pinned accept seat over the resident's one endpoint, freed by the
 /// contract listener's `close`. Closing the listener does not close the
 /// endpoint, the resident owns that. `stashed` holds a conn claimed by
@@ -493,29 +470,27 @@ const ListenerBox = struct {
 
 const accept_cancel_poll_ms: i32 = 50;
 
-const listener_vtable: Listener.VTable = .{
-    .transport_name = transport_name,
-    // Key scheme, like the netlayer: the responder's signed designator derives
-    // from its identity key, and the complete locator publishes any direct
-    // addresses the endpoint knows.
-    .designator_scheme = known_transport.metadata().designator_scheme,
-    .sealed_channel = known_transport.metadata().sealed_channel,
-    .accept = net.netlayer.adaptAccept(listenerAccept),
-    .wait_acceptable = net.netlayer.adaptAcceptReadiness(listenerWaitAcceptable),
-    .local_locator = net.netlayer.adaptListenerLocator(listenerLocalLocator),
-    .canonicalize_locator = net.netlayer.adaptListenerCanonicalize(listenerCanonicalizeLocator),
-    .close = listenerClose,
-};
+/// The contract listener over the box. Key scheme, like the netlayer: the
+/// responder's signed designator derives from its identity key, and the
+/// complete locator publishes any direct addresses the endpoint knows.
+const ListenerShell = net.netlayer.ListenerShell(struct {
+    pub const State = ListenerBox;
+    pub const metadata = known_transport.metadata();
 
-fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptError!bool {
-    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+    pub const accept = listenerAccept;
+    pub const waitAcceptable = listenerWaitAcceptable;
+    pub const localLocator = listenerLocalLocator;
+    pub const canonicalizeLocator = listenerCanonicalizeLocator;
+    pub const close = listenerClose;
+});
+
+fn listenerWaitAcceptable(box: *ListenerBox, timeout_ms: i32) net.netlayer.AcceptError!bool {
     box.operation_gate.lockUncancelable(box.resident.io);
     defer box.operation_gate.unlock(box.resident.io);
     return waitForConnection(box, timeout_ms);
 }
 
-fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlayer.AcceptError!Connection {
-    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+fn listenerAccept(box: *ListenerBox, peer: *engine.Peer, bufs: Buffers) net.netlayer.AcceptError!Connection {
     box.operation_gate.lockUncancelable(box.resident.io);
     defer box.operation_gate.unlock(box.resident.io);
     if (box.stashed == null and !try waitForConnection(box, -1)) return error.ConnectionLost;
@@ -527,7 +502,7 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlay
     // is fed, so the pre-open chokepoint sees the evidence when the partner's
     // claim arrives. A connection whose proof cannot be read is refused rather
     // than admitted unbound.
-    return adoptOwnedConn(box.resident.io, peer, conn, bufs);
+    return stream.adoptOwnedConn(box.resident.io, peer, conn, bufs);
 }
 
 /// Wait on the sidecar's direct accept path without touching the evented
@@ -571,8 +546,7 @@ fn waitForConnection(box: *ListenerBox, timeout_ms: i32) net.netlayer.AcceptErro
 ///
 /// An empty direct-address set is ordinary for a discovery-capable endpoint:
 /// the locator remains complete and dials by endpoint id.
-fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) net.netlayer.ListenError!model.PeerLocator {
-    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+fn listenerLocalLocator(box: *ListenerBox, allocator: std.mem.Allocator) net.netlayer.ListenError!model.PeerLocator {
     const direct = box.resident.directAddrsOwned(allocator) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.SidecarFailed, error.AddressListTooLarge => return error.BindFailed,
@@ -589,19 +563,17 @@ fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) net.netla
 }
 
 fn listenerCanonicalizeLocator(
-    ctx: *anyopaque,
+    box: *ListenerBox,
     allocator: std.mem.Allocator,
     candidate: model.PeerLocator,
 ) net.netlayer.ListenError!model.PeerLocator {
-    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     var expected: [node_id_len]u8 = undefined;
     if (box.resident.nodeId(&expected).len != expected.len) return error.BindFailed;
     try validateListenerLocator(&expected, candidate);
     return model.clonePeerLocator(allocator, candidate);
 }
 
-fn listenerClose(ctx: *anyopaque) ?net.netlayer.ListenerCloseFailure {
-    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+fn listenerClose(box: *ListenerBox) ?net.netlayer.ListenerCloseFailure {
     box.stopping.store(true, .release);
     box.operation_gate.lockUncancelable(box.resident.io);
     box.operation_gate.unlock(box.resident.io);

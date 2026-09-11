@@ -3,7 +3,7 @@ id: ADR-0074
 status: accepted
 date: 2026-07-11
 tags: [session, engine, actors, driver, c-abi, security, gc]
-decision: "Partner admission of a near export requires a wire-count grant: an export row's refcount is its local baseline plus the wire references and explicit grants on top, a partner may address only a position whose wire-held share (`ExportTable.wireHeld`, count minus baseline) is nonzero, and a reserved-but-ungranted position is refused with the same `InvalidReference` as a nonexistent one. `Session.allocateExport` / `reserveExport` are the reservation (baseline only); the capability's first marshal is the grant (`retainSentExports`, which also mints absent rows registerExport-shaped and advances the allocator past them); `Session.registerExport` / `Peer.exportObject` / `glowcap_peer_register_export` are the explicit out-of-band grant; `Port.bindExport` reserves and never grants. Inbound `op:gc-exports` validates its cumulative deltas against `wireHeld`, never raw `count`, so a hostile over-release is a loud `GcUnderflow` and an export row can never be deleted by the partner."
+decision: "Partner admission of a near export requires a wire-count grant: an export row's refcount is its local baseline plus the wire references and explicit grants on top, a partner may address only a position whose wire-held share (`ExportTable.wireHeld`, count minus baseline) is nonzero, and a reserved-but-ungranted position is refused with the same `InvalidReference` as a nonexistent one. `Session.allocateExport` / `reserveExport` are the reservation (baseline only); the capability's first marshal is the grant (`retainSentExports`, which also mints absent rows registerExport-shaped and advances the allocator past them); `Session.registerExport` / `Peer.exportObject` / `glowcap_peer_register_export` are the explicit out-of-band grant; `Port.bindExport` reserves and never grants. Inbound `op:gc-exports` validates its cumulative deltas against `wireHeld`, never raw `count`, so a partner over-release is a loud `GcUnderflow` and an export row can never be deleted by the partner."
 supersedes: []
 superseded_by: []
 ---
@@ -23,7 +23,7 @@ capabilities (`registerBootstrapCap`). Positions are not swiss numbers; they
 carry no entropy, so "the partner has not been told the number yet" was no
 boundary at all. This engages the capability-semantics First Principle: a
 reference is authority, and an integer a partner never received must not be,
-and the resilience posture that every inbound frame is attacker-controlled
+and the resilience posture that every inbound frame is untrusted
 until session validation says otherwise.
 
 Review of the same table surfaced an adjacent live bug: every export row
@@ -31,7 +31,7 @@ carries a local baseline of one (`allocateExport` / `registerExport` seed the
 row at count 1, and `count == 1 + wire references` was pinned by
 `test/session/gc_test.zig`), but inbound `op:gc-exports` validated its
 deltas against the raw `count`, and `SlotTable.decrement` removes a row at
-zero. A hostile partner releasing one more than it was ever sent passed
+zero. An untrusted peer releasing one more than it was ever sent passed
 validation, drove the count to zero, and deleted the row: after which our own
 next marshal of that capability failed `validateSend`. A partner could kill
 our live capability with one frame.
@@ -69,7 +69,7 @@ can never re-issue a marshal-minted integer.
 
 The GC floor rides the same arithmetic: `checkGcExportDecrement`
 (`src/ocapn/session/gc.zig`) validates an inbound `op:gc-exports`' cumulative
-deltas against `wireHeld`, never raw `count`, so a hostile over-release is the
+deltas against `wireHeld`, never raw `count`, so a partner over-release is the
 loud `GcUnderflow` it should always have been and inbound GC can never delete
 an export row. Releasing every wire reference returns the row to its reserved
 state: alive at baseline, unaddressable until re-granted.

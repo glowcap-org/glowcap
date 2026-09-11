@@ -60,7 +60,7 @@ const REPLAY_BATCH_KINDS = new Set([
  * what it has.
  *
  * The batch is bounded because everything on this feed is
- * attacker-controlled until it has been read: the viewer dials the
+ * untrusted until it has been read: the viewer dials the
  * endpoint, and a feed that marked records `replay` forever would
  * otherwise grow this buffer for the connection's life. Past the
  * bound the batch is drawn rather than dropped — a viewer that

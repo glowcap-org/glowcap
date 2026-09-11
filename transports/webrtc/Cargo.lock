@@ -746,6 +746,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "glowcap-sidecar-common"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
+name = "glowcap-webrtc"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "glowcap-sidecar-common",
+ "serde_json",
+ "tokio",
+ "webrtc",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1121,17 +1140,6 @@ dependencies = [
  "elliptic-curve",
  "primeorder",
  "sha2",
-]
-
-[[package]]
-name = "glowcap-webrtc"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "serde_json",
- "tokio",
- "webrtc",
 ]
 
 [[package]]

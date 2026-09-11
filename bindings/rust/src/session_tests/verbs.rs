@@ -53,6 +53,9 @@ async fn enliven_round_trips_then_caches() {
 			// A repeat enliven hits the dedup cache: the same live capability.
 			let again = session.enliven(&sturdyref).await.unwrap();
 			assert_eq!(again, cap);
+			let resolved = Ref::try_from(&session.resolve(&again).await.unwrap()).unwrap();
+			assert_eq!(resolved, again);
+			drop(resolved);
 			let reply2 = session.send(&again, "hello", &[]).await.unwrap();
 			assert_eq!(reply2, Argument::Symbol("alive".into()));
 
@@ -77,8 +80,12 @@ async fn enliven_round_trips_then_caches() {
 			// Listen (CapTP `op:listen`): a held capability's resolution comes
 			// back through the vow — a listen on an already-settled capability
 			// answers at once.
-			let observation = session.listen(&cap);
-			let refused = session.send(&observation, "hello", &[]).await.unwrap_err();
+			let observation = session.listen(&cap).into_admitted().unwrap();
+			let refused = session
+				.send(&observation, "hello", &[])
+				.into_admitted()
+				.err()
+				.expect("an observer vow cannot admit a pipelined send");
 			assert_eq!(refused.kind(), ErrorKind::InvalidArgument);
 			let settled = observation.await.unwrap();
 			assert!(matches!(settled, Argument::Reference(_)));
@@ -133,6 +140,7 @@ async fn send_surfaces_the_partner_break_reason() {
 			let cap = session.fetch("svc").await.unwrap();
 			let err = session.send(&cap, "do", &[]).await.unwrap_err();
 			assert_eq!(err.message(), Some("nope: revoked"));
+			assert!(!err.is_publication_not_found());
 			// A break is GLOWCAP_ERR_BROKEN, not a transport or value error.
 			assert_eq!(err.code(), crate::sys::ERR_BROKEN);
 			session.close(crate::PendingWork::Cancel).await.unwrap();
@@ -286,7 +294,11 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 						Ok(Argument::Void)
 					})
 					.unwrap();
-				session.serve().await.unwrap();
+				// The failed reply flush is retained by the session. Serving now
+				// observes that retirement result instead of reporting clean EOF.
+				let failure = session.serve().await.unwrap_err();
+				assert_eq!(failure.code(), sys::ERR_IO);
+				assert_eq!(session.closed().await.unwrap_err(), failure);
 			});
 
 			let session = connect(
@@ -299,6 +311,7 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 			let err = session.send(&cap, "hang", &[]).await.unwrap_err();
 			assert_eq!(err.code(), crate::sys::ERR_CLOSED);
 			assert_eq!(err.message(), Some("connection closed"));
+			assert!(!err.is_publication_not_found());
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
 		})
@@ -335,6 +348,7 @@ async fn a_failed_fetch_rejects_typed() {
 			let err = session.fetch("not-a-capability").await.unwrap_err();
 			assert_eq!(err.code(), crate::sys::ERR_BROKEN);
 			assert_eq!(err.message(), Some("unknown swissnum"));
+			assert!(err.is_publication_not_found());
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
 		})
@@ -392,12 +406,10 @@ async fn a_failed_command_replies_typed_and_the_connection_survives() {
 		.await;
 }
 
-// A local tell returns after admitting its detached behavior task. If that
-// behavior tail-forwards to a target the Host refuses, the task has no answer
-// channel; retain the exact refusal for the next observable verb instead of
-// dropping it or condemning the otherwise-live session.
+// A no-answer forward has no result channel. Its behavior refusal must not
+// become an unrelated later verb's error or close the connection.
 #[tokio::test]
-async fn detached_local_tell_forward_retains_its_exact_refusal() {
+async fn local_tell_forward_refusal_does_not_poison_a_later_verb() {
 	let local = LocalSet::new();
 	local
 		.run_until(async {
@@ -424,9 +436,16 @@ async fn detached_local_tell_forward_retains_its_exact_refusal() {
 
 			shared.tell(&proxy, "notify", &[]).unwrap();
 			tokio::task::yield_now().await;
-			let refusal = shared.tell(&proxy, "later", &[]).unwrap_err();
-			assert_eq!(refusal.code(), crate::sys::ERR_NOT_FOUND);
-			assert!(refusal.to_string().contains("UnknownCapability"), "{refusal}");
+			let calls = Rc::new(Cell::new(0));
+			let seen = calls.clone();
+			let sink = shared
+				.spawn_actor(Box::new(move |_, _| {
+					seen.set(seen.get() + 1);
+					crate::trampoline::TurnOutcome::Value(Argument::Void)
+				}))
+				.unwrap();
+			shared.tell(&sink, "later", &[]).unwrap();
+			assert_eq!(calls.get(), 1);
 
 			shared.close_transport();
 			tokio::task::yield_now().await;
@@ -474,6 +493,39 @@ async fn send_to_a_self_spawned_actor_resolves_in_process() {
 				.await
 				.unwrap();
 			assert_eq!(reply, Argument::String("hi self".into()));
+			// Native local vows remain await-only for projection/pipelining;
+			// delegation preserves the Host's exact refusal and the source.
+			let target = me.clone();
+			let factory = session
+				.spawn_owned(move |_, _| Ok(Argument::List(vec![target.clone().into()])))
+				.unwrap();
+			let made = session.send(&factory, "create", &[]);
+			assert!(made.index(0).await.unwrap_err().to_string().contains("NotPipelineable"));
+			let result = made.await.unwrap();
+			let reference = Ref::try_from(&result.as_list().unwrap()[0]).unwrap();
+			assert_eq!(
+				session
+					.send(&reference, "greet", &["returned".into()])
+					.await
+					.unwrap()
+					.as_str(),
+				Some("hi returned")
+			);
+
+			// The Host can defer a local eventual answer off-turn as well.
+			let worker_host = session.host();
+			let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+			let worker = session
+				.spawn_owned(move |_, _| {
+					tx.try_send(worker_host.defer_turn().map_err(|e| e.to_string())?)
+						.map_err(|e| e.to_string())?;
+					Ok(Argument::Void)
+				})
+				.unwrap();
+			let pending = session.send(&worker, "work", &[]);
+			let mut resolver = rx.recv().await.unwrap();
+			resolver.fulfill(&"computed locally".into()).unwrap();
+			assert_eq!(pending.await.unwrap().as_str(), Some("computed locally"));
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
 		})

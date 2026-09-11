@@ -1,4 +1,4 @@
-//! Hostile-bytes fuzzing of the whole inbound path, against live session state.
+//! Untrusted-bytes fuzzing of the whole inbound path, against live session state.
 //!
 //! The codec fuzzers next door stop at decode. This one starts where a socket
 //! does: bytes go into `Peer.recvStreamPrefix`, which finds frame boundaries,
@@ -6,7 +6,7 @@
 //! events. Every layer the protocol has is downstream of that call.
 //!
 //! What makes it worth more than a decode fuzzer is the state underneath. A
-//! cold peer has empty tables, so hostile bytes meet almost no code: they are
+//! cold peer has empty tables, so untrusted bytes meet almost no code: they are
 //! refused for being out of order and the run ends. The interesting bugs live
 //! where a message is *plausible* — an answer position that exists, an import
 //! that was just released, a promise with listeners already queued on it — and
@@ -16,7 +16,7 @@
 //! either to run a legitimate operation between two paired peers, which grows
 //! the tables, or to inject a chunk of its own bytes into whichever peer it
 //! likes. Over a few dozen steps that reaches sessions with live answers,
-//! exports, imports, and listeners, and then attacks them.
+//! exports, imports, and listeners, and then feeds them untrusted bytes.
 //!
 //! Three properties are checked, and only the first is about crashing.
 //!
@@ -59,8 +59,88 @@ const seeds = @import("../support/corpus_seeds.zig");
 
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it
-/// finds one.
-const regression_seeds = [_][]const u8{};
+/// finds one. A finding is kept as the program written out in draws rather
+/// than the bytes the fuzzer saved: the bytes mean a program only under the
+/// exact draws the operations make, and one added draw silently turns a saved
+/// crash into a program that does something else.
+const regression_seeds = [_][]const u8{
+    resolverRetainReleasedProgram(),
+};
+
+/// A program written out draw by draw, for a state the search is not owed to
+/// find on its own. `step` opens one loop iteration (an empty chunk, then
+/// "not the end"); the draws after it are the iteration's own, in the order
+/// `programOne` and `legitimateOp` make them.
+const Program = struct {
+    bytes: [512]u8 = undefined,
+    len: usize = 0,
+
+    fn draw(self: *Program, value: u64) void {
+        std.mem.writeInt(u64, self.bytes[self.len..][0..8], value, .little);
+        self.len += 8;
+    }
+
+    fn step(self: *Program) void {
+        std.mem.writeInt(u32, self.bytes[self.len..][0..4], 0, .little);
+        self.bytes[self.len + 4] = 0;
+        self.len += 5;
+    }
+
+    fn end(self: *Program) void {
+        std.mem.writeInt(u32, self.bytes[self.len..][0..4], 0, .little);
+        self.bytes[self.len + 4] = 1;
+        self.len += 5;
+    }
+};
+
+/// The fuzzer's first finding here, kept as the program that reaches it. The
+/// pair speaks V1.0, so p1's question carries a resolver p2 imports and holds
+/// for its settlement. p2 releases that import as if it were the
+/// application's, then answers: the callback still addresses the row, and
+/// `importRequiresWireRelease` asserts it is there. The release has to be
+/// refused instead. Validated against the defect by returning
+/// `ImportTable.releasable` and `ImportTable.decrement` to the bare count,
+/// which lets the release through and lands the callback on the assertion.
+///
+/// The listener's retain has the same shape and the same fix, but its fire is
+/// refused with a typed `InvalidReference` rather than a crash, which this
+/// target's properties cannot see; `test/engine/listener_fire_budget_test.zig`
+/// pins that case directly.
+fn resolverRetainReleasedProgram() []const u8 {
+    const entry = comptime blk: {
+        var p: Program = .{};
+        // No allocation failure this run.
+        p.draw(0);
+        // p1 asks p2's bootstrap a question, opening answer 3 on p2 with the
+        // resolver p1 minted for it.
+        p.step();
+        p.draw(0);
+        p.draw(0);
+        p.draw(0);
+        p.draw(3);
+        // p2 takes the question.
+        p.step();
+        p.draw(1);
+        p.draw(0);
+        p.draw(6);
+        // p2 releases its lowest import, releasable or not: the resolver.
+        p.step();
+        p.draw(1);
+        p.draw(0);
+        p.draw(5);
+        p.draw(0);
+        p.draw(0);
+        // p2 answers 3, and the callback addresses the resolver's row.
+        p.step();
+        p.draw(1);
+        p.draw(0);
+        p.draw(1);
+        p.draw(3);
+        p.end();
+        break :blk p.bytes[0..p.len].*;
+    };
+    return &entry;
+}
 
 /// Upper bound on one injected chunk.
 const max_chunk = 1024;
@@ -114,18 +194,58 @@ const program_seeds = blk: {
     break :blk built;
 };
 
+/// Which end of the import table a release addresses. The table iterates in
+/// hash order, so "the first row" would name a different import from one
+/// build to the next; the lowest and highest positions are the same rows every
+/// time, and a program that needs one of them can say which.
+const ImportPick = enum { lowest, highest };
+
 /// The position of some import this peer currently holds, or null when it holds
 /// none. A release for a position nobody holds is refused before it reaches any
-/// of the accounting worth exercising.
-fn firstHeldImport(peer: *engine.Peer) ?u64 {
+/// of the accounting worth exercising. With `releasable_only`, a row the
+/// session holds entirely for a release of its own — a pending listener's — is
+/// skipped, so the release lands where a caller's may; without it, that row
+/// is exactly the one a release has to be refused on.
+fn heldImport(peer: *engine.Peer, releasable_only: bool, pick: ImportPick) ?u64 {
     const Found = struct {
+        releasable_only: bool,
+        pick: ImportPick,
         position: ?u64 = null,
         fn take(self: *@This(), view: glowcap.ocapn.session.ImportView) void {
-            if (self.position == null and view.refcount > 0) self.position = view.position.int();
+            if (view.refcount == 0) return;
+            if (self.releasable_only and view.session_held == view.refcount) return;
+            const candidate = view.position.int();
+            const current = self.position orelse {
+                self.position = candidate;
+                return;
+            };
+            self.position = switch (self.pick) {
+                .lowest => @min(current, candidate),
+                .highest => @max(current, candidate),
+            };
+        }
+    };
+    var found: Found = .{ .releasable_only = releasable_only, .pick = pick };
+    glowcap.ocapn.session.inspect.forEachImport(&peer.session_state, &found, Found.take);
+    return found.position;
+}
+
+/// The lowest wire position of a question this peer asked and still holds, or
+/// null when it holds none. Lowest, for the same reason `heldImport` picks by
+/// position rather than table order.
+fn heldOutboundAnswer(peer: *engine.Peer) ?u64 {
+    const Found = struct {
+        position: ?u64 = null,
+        fn take(self: *@This(), view: glowcap.ocapn.session.AnswerRowView) void {
+            const candidate = switch (view.position) {
+                .wire => |wire| wire.int(),
+                .virtual => return,
+            };
+            self.position = if (self.position) |current| @min(current, candidate) else candidate;
         }
     };
     var found: Found = .{};
-    glowcap.ocapn.session.inspect.forEachImport(&peer.session_state, &found, Found.take);
+    glowcap.ocapn.session.inspect.forEachOutboundAnswer(&peer.session_state, &found, Found.take);
     return found.position;
 }
 
@@ -184,7 +304,7 @@ fn inject(peer: *engine.Peer, bytes: []const u8) !void {
 
     while (valid > 0) {
         const outcome = peer.recvStreamPrefix(scratch[0..valid]) catch {
-            // A refusal is a legitimate answer to hostile bytes; the session is
+            // A refusal is a legitimate answer to untrusted bytes; the session is
             // condemned and there is nothing further to apply.
             try drainApplication(peer);
             return;
@@ -243,7 +363,7 @@ fn injectDamagedFrame(smith: *std.testing.Smith, actor: *engine.Peer, partner: *
 /// One legitimate operation, chosen by the fuzzer. These are what build the
 /// tables the injected bytes then meet.
 fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine.Peer) !void {
-    switch (smith.valueRangeAtMost(u8, 0, 6)) {
+    switch (smith.valueRangeAtMost(u8, 0, 7)) {
         // Call the partner's bootstrap, which mints an answer on both sides.
         0 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
@@ -261,12 +381,20 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
                 .resolution = .{ .fulfill = .{ .integer = 7 } },
             } }) catch {};
         },
-        // Watch a promise, the act that queues listener fires.
+        // Watch a promise, the act that queues listener fires. Half the time
+        // the listener is an object of this peer's own, so the partner takes a
+        // retain it must release beside the fire: the row a release from that
+        // side may never spend.
         2 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
+            const listener: model.Reference = if (smith.valueRangeAtMost(u8, 0, 1) == 1) blk: {
+                const position = actor.exportNextObject() catch return;
+                actor.session_state.registerExport(model.ExportPosition.from(position)) catch return;
+                break :blk .{ .near = model.NearRef.object(position) };
+            } else .{ .far = model.FarRef.object(0) };
             actor.sendCopying(.{ .listen = .{
                 .target = .{ .promise = .{ .answer_position = model.AnswerPosition.from(answer) } },
-                .listener = .{ .far = model.FarRef.object(0) },
+                .listener = listener,
                 .mode = if (smith.valueRangeAtMost(u8, 0, 1) == 1)
                     .shortening_or_settling
                 else
@@ -296,7 +424,9 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
         // the live table is what makes this the real release path, where the
         // refcount and the wire delta have to agree, rather than a refusal.
         5 => {
-            const held = firstHeldImport(actor) orelse return;
+            const releasable_only = smith.valueRangeAtMost(u8, 0, 3) != 0;
+            const pick: ImportPick = if (smith.valueRangeAtMost(u8, 0, 1) == 0) .lowest else .highest;
+            const held = heldImport(actor, releasable_only, pick) orelse return;
             const positions = [_]u64{held};
             const deltas = [_]u64{1};
             actor.sendCopying(.{ .gc_export = .{
@@ -306,7 +436,15 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
         },
         // Let the partner's queued traffic land. This is what turns the
         // reference sent above into an import row on the other side.
-        else => shuttle(partner, actor),
+        6 => shuttle(partner, actor),
+        // Release a question this peer asked, while whatever the engine
+        // queued against its answer may still be pending: the same shape as
+        // the import release above, one table over.
+        else => {
+            const answer = heldOutboundAnswer(actor) orelse return;
+            const positions = [_]u64{answer};
+            actor.sendCopying(.{ .gc_answer = .{ .positions = positions[0..] } }) catch {};
+        },
     }
     try drainApplication(actor);
 }
@@ -335,13 +473,13 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
         const len = smith.slice(&chunk);
         if (smith.eos()) break;
 
-        // Which peer this step acts on. Attacking both sides of one session
-        // reaches states neither reaches alone.
+        // Which peer this step acts on. Driving untrusted bytes into both sides
+        // of one session reaches states neither side reaches alone.
         const on_p1 = smith.valueRangeAtMost(u8, 0, 1) == 0;
         const actor = if (on_p1) &pair.p1 else &pair.p2;
         const partner = if (on_p1) &pair.p2 else &pair.p1;
 
-        // Hostile bytes condemn a session, and every later operation on a
+        // Untrusted bytes condemn a session, and every later operation on a
         // condemned pair is refused and swallowed. Stopping there spends the
         // rest of the budget on building state somewhere else instead of on
         // forty no-op steps.
@@ -349,7 +487,7 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
         // Weighted towards legitimate traffic: bytes injected into an empty
         // session are refused immediately and teach the fuzzer nothing, so the
-        // state has to get built before it is worth attacking.
+        // state has to get built before injection teaches anything.
         //
         // The two injection draws are the top of the range, not the bottom.
         // When a draw runs past the input the generator falls back to the low
@@ -363,7 +501,7 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
         // After every step, not only at the end: a table that overflows and is
         // then trimmed back would slip past an end-of-program check, and the
-        // window where it was over the cap is exactly the window an attacker
+        // window where it was over the cap is exactly the window a peer
         // holds the memory.
         try bounds.checkDeclared(&pair.p1.session_state);
         try bounds.checkDeclared(&pair.p2.session_state);
@@ -383,7 +521,7 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
     }
 }
 
-test "fuzz: no program of operations and hostile bytes crashes or leaks a session" {
+test "fuzz: no program of operations and untrusted bytes crashes or leaks a session" {
     // The pair has to really open, otherwise every program runs against a cold
     // peer and the whole point of this target is gone with no failing test to
     // say so.
@@ -430,7 +568,7 @@ test "fuzz: no program of operations and hostile bytes crashes or leaks a sessio
             var f = f_in;
             f.deinit();
         }
-        try std.testing.expect(firstHeldImport(&pair.p2) != null);
+        try std.testing.expect(heldImport(&pair.p2, true, .lowest) != null);
     }
 
     // The damaged-frame arm has to produce a frame. If the partner never has

@@ -3,12 +3,20 @@
 </head>
 <main id="content">
 	<header class="hero">
-		<img class="hero-mark" src="$site.asset('glowcap-icon-256.png').link()" alt="A smiling stack of pancakes" width="160" height="160">
+		<!-- The mark, live. brand_mark.ts runs the shader here where this
+		     browser can draw one: the whole cycle once as the page opens, then
+		     a lockup that answers the pointer. The still artwork stands in
+		     where no device can be had. Its own box, so the pointer play
+		     answers to the mark rather than to the whole hero. -->
+		<span class="hero-mark" data-mark-play="arrive">
+			<span class="mark-live" aria-hidden="true"></span>
+			<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-rim"></i><i class="mark-piece mark-flesh"></i><i class="mark-piece mark-shade"></i><i class="mark-piece mark-windows"></i></span>
+		</span>
 		<div class="hero-copy">
 			<p class="hero-eyebrow">Object-capability RPC for OCapN, in Zig</p>
 			<h1>glowcap</h1>
 			<p class="hero-tagline">Two programs hand each other references to live objects and call them across the network. Holding the reference is the permission.</p>
-			<p class="hero-kicker">Because you can't have pancakes without <a href="https://github.com/ocapn/syrup">Syrup</a>.</p>
+			<p class="hero-kicker">A glowcap is a mushroom that makes its own light.</p>
 			<div class="hero-actions">
 				<a class="btn btn-primary" href="$site.page('start').link()">Start building <svg class="btn-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></a>
 				<a class="btn btn-secondary" href="$site.page('why').link()">Why OCapN</a>
@@ -26,7 +34,7 @@
 		</a>
 		<a class="card" href="$site.page('cli').link()">
 			<h2>Talk to a live peer from your shell</h2>
-			<p>Build the binary, then listen, dial, fetch, and call from the shell.</p>
+			<p>Build the binary, then run <code>glowcap app rooms-peer</code> for an encrypted conversation over iroh.</p>
 		</a>
 		<a class="card" href="$site.page('start').link()">
 			<h2>Start building</h2>

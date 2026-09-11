@@ -12,6 +12,15 @@ impl HostShared {
 		self.note_close_activity();
 	}
 
+	pub(crate) fn record_retirement_failure(&self, error: Error) {
+		let mut retained = self.retirement_failure.borrow_mut();
+		*retained = Some(match retained.take() {
+			Some(primary) => primary.with_secondary(error),
+			None => error,
+		});
+		self.note_close_activity();
+	}
+
 	pub(crate) fn take_background_failure(&self) -> Option<Error> {
 		self.background_failure.borrow_mut().take()
 	}
@@ -24,6 +33,7 @@ impl HostShared {
 		// On a loop-adopted Host the native loop is the one drain, so the kick
 		// becomes a scheduled loop step — deferred, so a kick from inside a
 		// turn steps only after the enclosing step unwinds.
+		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
 			lp.schedule_step();
 			return lp.guard_handle();
@@ -85,6 +95,7 @@ impl HostShared {
 		// The native loop is the drain on a loop-adopted Host: one step flushes
 		// what a verb queued and routes completions as loop events. No
 		// `glowcap_host_pump_drain` may run beside it — the loop owns the queue.
+		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
 			return match lp.step_now() {
 				Ok(()) => Ok(()),

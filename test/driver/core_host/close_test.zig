@@ -89,11 +89,16 @@ test "abort delivery failure without a recorded origin becomes primary" {
     try std.testing.expect(info.abort_delivery_error == null);
 }
 
-test "Host action failure detail remains diagnostic when retaining it cannot allocate" {
+test "Host action failure detail carries allocation ownership in its tag" {
+    const owned = driver.core.testing.retainFailureMessage(std.testing.allocator, "specific partner refusal");
+    defer owned.deinit(std.testing.allocator);
+    try std.testing.expect(owned == .owned);
+    try std.testing.expectEqualStrings("specific partner refusal", owned.bytes());
+
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
     const retained = driver.core.testing.retainFailureMessage(failing.allocator(), "specific partner refusal");
-    try std.testing.expect(!retained.owned);
-    try std.testing.expectEqualStrings("failure detail unavailable: allocation failed", retained.bytes);
+    try std.testing.expect(retained == .fallback);
+    try std.testing.expectEqualStrings("failure detail unavailable: allocation failed", retained.bytes());
 }
 
 test "Host admission frame cap defaults to the canonical session limit" {
@@ -316,6 +321,9 @@ test "core host failures classify at the sans-I/O authority" {
     const HostFailure = driver.core.HostFailure;
     try std.testing.expectEqual(HostFailure.Kind.internal, HostFailure.classify(error.OutOfMemory));
     try std.testing.expectEqual(HostFailure.Kind.not_found, HostFailure.classify(error.CapabilityRouteUnavailable));
+    try std.testing.expectEqual(HostFailure.Kind.not_found, HostFailure.classify(error.NoSuchVow));
+    try std.testing.expectEqual(HostFailure.Kind.not_found, HostFailure.classify(error.NoSuchResolver));
+    try std.testing.expectEqual(HostFailure.Kind.invalid_argument, HostFailure.classify(error.AlreadySettled));
     try std.testing.expectEqual(HostFailure.Kind.invalid_argument, HostFailure.classify(error.ForeignArgument));
     try std.testing.expectEqual(HostFailure.Kind.would_block, HostFailure.classify(error.OutboundBackpressure));
     try std.testing.expectEqual(HostFailure.Kind.would_block, HostFailure.classify(error.SessionOperationLimitReached));

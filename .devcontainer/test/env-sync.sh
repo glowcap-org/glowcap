@@ -15,6 +15,7 @@ dockerfile="${dir}/Dockerfile"
 devcontainer_json="${dir}/devcontainer.json"
 compose_file="${dir}/docker-compose.yml"
 env_example="${dir}/.env.example"
+cli_rule="${dir}/../.agents/rules/cli.md"
 
 # grep -F literal. Escape `$` and backticks in double quotes; single quotes
 # around backticks fail post-create's shellcheck (SC2016) and block container open.
@@ -24,6 +25,16 @@ require_literal() {
     local label="$3"
     if ! grep -Fq -- "${needle}" "${file}"; then
         echo "${label}: expected literal '${needle}' in ${file}" >&2
+        return 1
+    fi
+}
+
+require_line() {
+    local file="$1"
+    local line="$2"
+    local label="$3"
+    if ! grep -Fxq -- "${line}" "${file}"; then
+        echo "${label}: expected exact line '${line}' in ${file}" >&2
         return 1
     fi
 }
@@ -98,7 +109,9 @@ fi
 require_literal "${dockerfile}" "npm_config_cache=${NPM_CACHE_DIR}" "Dockerfile npm_config_cache"
 require_literal "${dockerfile}" "PIP_CACHE_DIR=${PIP_CACHE_DIR}" "Dockerfile PIP_CACHE_DIR"
 require_literal "${dockerfile}" "PATH=/home/vscode/.cache/glowcap/cargo/bin:" "Dockerfile runtime cargo bin on PATH"
-# Local Zig cache is work/<worktree>/zig-local, interpolated by Compose.
+# Local Zig cache is a per-worktree Docker volume with daemon-native filesystem
+# semantics on native Linux and Docker Desktop. The host bind remains the
+# authority for shared download caches.
 # uv's download cache is runtime-only so the image layer does not fill a
 # directory the host bind then hides.
 require_absent "${dockerfile}" "ZIG_LOCAL_CACHE_DIR=" "Dockerfile must not set ZIG_LOCAL_CACHE_DIR"
@@ -106,27 +119,28 @@ require_absent "${dockerfile}" "ZIG_LOCAL_PKG_DIR=" "Dockerfile must not set ZIG
 require_absent "${dockerfile}" "UV_CACHE_DIR=" "Dockerfile must not set UV_CACHE_DIR"
 require_absent "${devcontainer_json}" "ZIG_LOCAL_CACHE_DIR" "devcontainer.json must not pin ZIG_LOCAL_CACHE_DIR (Compose interpolates the worktree)"
 require_absent "${devcontainer_json}" "ZIG_LOCAL_PKG_DIR" "devcontainer.json must not pin ZIG_LOCAL_PKG_DIR (Compose interpolates the worktree)"
-require_absent "${devcontainer_json}" "type=volume" "devcontainer.json caches are host binds, not named volumes"
-require_absent "${compose_file}" "type: volume" "docker-compose.yml caches are host binds, not named volumes"
-if grep -qE '^volumes:' "${compose_file}"; then
-    echo "docker-compose.yml: a top-level volumes key would declare a named volume; caches are host binds" >&2
-    exit 1
-fi
+require_absent "${devcontainer_json}" "type=volume" "devcontainer.json owns host binds; the Zig volume belongs in Compose"
 require_literal "${devcontainer_json}" "source=\${localEnv:HOME}/.cache/glowcap,target=${GLOWCAP_CACHE_DIR},type=bind" "devcontainer.json glowcap cache bind"
-require_literal "${compose_file}" "ZIG_LOCAL_CACHE_DIR: ${WORK_CACHE_DIR}/\${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}/zig-local" "docker-compose.yml ZIG_LOCAL_CACHE_DIR"
-require_literal "${compose_file}" "ZIG_LOCAL_PKG_DIR: ${WORK_CACHE_DIR}/\${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}/zig-pkg" "docker-compose.yml ZIG_LOCAL_PKG_DIR"
+require_literal "${compose_file}" "ZIG_LOCAL_CACHE_DIR: ${ZIG_WORK_CACHE_DIR}/zig-local" "docker-compose.yml ZIG_LOCAL_CACHE_DIR"
+require_literal "${compose_file}" "ZIG_LOCAL_PKG_DIR: ${ZIG_WORK_CACHE_DIR}/zig-pkg" "docker-compose.yml ZIG_LOCAL_PKG_DIR"
+require_line "${compose_file}" "        source: glowcap-zig-work" "docker-compose.yml Zig work-cache volume source"
+require_line "${compose_file}" "        target: ${ZIG_WORK_CACHE_DIR}" "docker-compose.yml Zig work-cache volume target"
+require_line "${compose_file}" "    name: glowcap-\${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}-zig-work" "docker-compose.yml per-worktree Zig volume name"
 require_literal "${dockerfile}" "/home/vscode/.cache/glowcap" "Dockerfile glowcap cache mount point"
+require_literal "${dockerfile}" "${ZIG_WORK_CACHE_DIR}" "Dockerfile Zig volume mount point"
+require_literal "${cli_rule}" 'glowcap-<worktree>-zig-work' "CLI rule names the per-worktree Zig volume"
 require_literal "${devcontainer_json}" '"workspaceFolder": "/workspaces/glowcap"' "devcontainer.json workspace path"
 require_literal "${dir}/hooks/initialize.sh" 'glowcap_devcontainer_host_home_bind_rows' "hooks/initialize.sh creates every host-home bind source"
 require_literal "${dir}/hooks/initialize.sh" 'glowcap_devcontainer_host_cache_layout' "hooks/initialize.sh creates glowcap cache subdirs"
 require_literal "${dir}/hooks/initialize.sh" 'glowcap_devcontainer_host_cache_layout_text' "hooks/initialize.sh writes LAYOUT from the one inventory"
 require_literal "${dir}/hooks/post-create.sh" 'glowcap_devcontainer_host_home_bind_rows' "hooks/post-create.sh checks every host-home bind"
+require_literal "${dir}/hooks/post-create.sh" 'test/zig-cache-filesystem.py' "hooks/post-create.sh proves the Zig cache filesystem supports atomic response files"
 expected_host_mounts=0
 owned_dir_block="$(sed -n '/^sudo chown -R vscode:vscode /p' "${dir}/hooks/post-create.sh")"
 while IFS=: read -r host_relative host_target; do
     expected_host_mounts=$((expected_host_mounts + 1))
     require_literal "${devcontainer_json}" "source=\${localEnv:HOME}/${host_relative},target=${host_target},type=bind" "devcontainer.json shared host-home mount"
-    if grep -Fq "target: ${host_target}" "${compose_file}"; then
+    if grep -qE "^[[:space:]]*target: ${host_target}[[:space:]]*$" "${compose_file}"; then
         echo "docker-compose.yml: ${host_target} must come from the shared host bind in devcontainer.json" >&2
         exit 1
     fi
@@ -201,14 +215,19 @@ require_literal "${dir}/pane/container/.zshrc" "GLOWCAP_TMUX_DETACH_STATUS" "the
 require_literal "${compose_file}" "container_name: glowcap-\${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}" "docker-compose.yml worktree container name"
 require_literal "${compose_file}" "image: vsc-glowcap-\${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}" "docker-compose.yml worktree image name"
 require_literal "${compose_file}" "GLOWCAP_WORKTREE: \${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}" "docker-compose.yml worktree environment"
+require_literal "${compose_file}" "GLOWCAP_CHECKOUT_DIR: \${GLOWCAP_CHECKOUT_DIR:?Run bash .devcontainer/bin/configure.sh}" "docker-compose.yml checkout environment"
 require_literal "${env_example}" "GLOWCAP_WORKTREE=main" ".env.example primary worktree default"
+require_literal "${env_example}" "GLOWCAP_CHECKOUT_DIR=" ".env.example checkout directory"
 while IFS=: read -r port_variable port_default; do
     require_literal "${env_example}" "${port_variable}=${port_default}" ".env.example primary host port"
 done <<< "$(glowcap_devcontainer_port_rows)"
 require_literal "${env_example}" "EGRESS_NET=$(glowcap_devcontainer_default_egress_network main)" ".env.example primary egress network"
+require_literal "${compose_file}" "source: \${GLOWCAP_CHECKOUT_DIR:?" "docker-compose.yml checkout source"
+require_literal "${compose_file}" "target: \${GLOWCAP_CHECKOUT_DIR:?" "docker-compose.yml checkout target"
 require_literal "${compose_file}" "source: \${GLOWCAP_GIT_COMMON_DIR:?" "docker-compose.yml Git common-dir source"
 require_literal "${compose_file}" "target: \${GLOWCAP_GIT_COMMON_DIR:?" "docker-compose.yml Git common-dir target"
 require_literal "${env_example}" "GLOWCAP_GIT_COMMON_DIR=" ".env.example Git common directory"
+require_literal "${dir}/../conformance/bootstrap-submodules.sh" "git config --file \"\${store}/config\" core.worktree \"\${checkout}/\${path}\"" "submodule bootstrap records one cross-boundary worktree path"
 require_literal "${dir}/hooks/initialize.sh" "bash \"\${dir}/bin/configure.sh\"" "hooks/initialize.sh bootstraps the checkout environment"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_WEB_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:8000" "docker-compose.yml web host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_CAPTP_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9099" "docker-compose.yml CapTP host port"
@@ -218,6 +237,7 @@ require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_OCAPNVIZ_HOST_PORT:?Run 
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_DOCS_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:1990" "docker-compose.yml docs-serve host port"
 require_literal "${compose_file}" "OCAPNVIZ_HOST: 0.0.0.0" "docker-compose.yml ocapnviz Vite bind"
 require_literal "${compose_file}" "DOCS_SERVE_HOST: 0.0.0.0" "docker-compose.yml docs-serve bind"
+require_line "${compose_file}" "    init: true" "docker-compose.yml reaps orphaned tool grandchildren"
 require_literal "${dir}/../apps/ocapnviz/vite-dev-listen.ts" "allowedHosts: true" "ocapnviz Vite Host-header policy for a wide bind"
 require_literal "${dir}/../site/docs-serve.sh" 'DOCS_SERVE_HOST:-127.0.0.1' "docs-serve.sh forwards the container-wide bind"
 
@@ -272,7 +292,7 @@ devcontainer_untracked() {
     return 1
 }
 require_named_paths() {
-    local file="$1" label="$2" path relative missing=0
+    local file="$1" label="$2" path relative copied_source missing=0
     while IFS= read -r path; do
         relative="${path#.devcontainer/}"
         relative="${relative#\$\{GLOWCAP_DEVCONTAINER_DIR\}/}"
@@ -280,6 +300,20 @@ require_named_paths() {
             continue
         fi
         if [[ ! -e "${dir}/${relative}" ]]; then
+            # A literal COPY may install a product-owned manifest beside the
+            # installers. Verify its actual source instead of demanding a
+            # second, drifting copy of that manifest under .devcontainer/.
+            copied_source=""
+            if [[ "${file}" == "${dockerfile}" ]]; then
+                copied_source="$(awk -v destination="${path}" '
+                    $1 == "COPY" && NF == 3 {
+                        gsub(/"/, "", $2); gsub(/"/, "", $3);
+                        if ($3 == destination) print $2;
+                    }' "${dockerfile}")"
+            fi
+            if [[ -n "${copied_source}" && -f "${dir}/../${copied_source}" ]]; then
+                continue
+            fi
             echo "${label} names ${path}, which is not in .devcontainer/" >&2
             missing=1
         fi

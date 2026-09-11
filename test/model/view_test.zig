@@ -11,6 +11,7 @@ const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
 const view = model.view;
+const codec = glowcap.ocapn.codec;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 
 /// Round-trip one owned message through the neutral view and assert the
@@ -128,4 +129,21 @@ test "view.PeerLocator.toOwned clones transport and designator" {
     defer model.freePeerLocator(std.testing.allocator, owned);
     try std.testing.expectEqualStrings("tcp", owned.transport);
     try std.testing.expectEqualStrings("host:9045", owned.designator);
+}
+
+test "a Syrup sequence length is the count the framing walk recorded, not a second walk" {
+    const allocator = std.testing.allocator;
+    const inner = [_]model.Argument{ .{ .integer = 7 }, .{ .string = "seven" } };
+    const args = [_]model.Argument{ .{ .string = "hello" }, .{ .list = &inner }, .{ .tagged = .{ .tag = "rec", .value = &inner } } };
+    var frame = try codec.syrup.encodeMessageForProfile(allocator, .v1_0, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &args,
+    } });
+    defer frame.deinit();
+    const decoded = try codec.syrup.decodeBodyForProfile(.v1_0, frame.view());
+    try std.testing.expectEqual(@as(usize, args.len), try decoded.deliver.args.len());
+    const nested = try decoded.deliver.args.at(1);
+    try std.testing.expectEqual(@as(usize, inner.len), try nested.list.len());
+    const tagged = try decoded.deliver.args.at(2);
+    try std.testing.expectEqual(@as(usize, inner.len), try tagged.tagged.value.len());
 }

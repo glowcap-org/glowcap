@@ -39,7 +39,7 @@ pub fn Machine(
                 c.external_send_len = send_len;
                 c.external_send_remainder = bytes;
                 errdefer clearExternal(c);
-                if (c.pending.send) {
+                if (c.pending.get(.send)) {
                     // Only a control reply can own this seat: another
                     // application send would already hold external_send_ud.
                     std.debug.assert(c.ws_send_kind == .control);
@@ -53,7 +53,7 @@ pub fn Machine(
 
         pub fn stageExternalChunk(backend: *Backend, c: *RelayConn) !void {
             if (c.external_send_ud == null or
-                c.pending.send or
+                c.pending.get(.send) or
                 c.state != .open or
                 c.close.wire != .open) return;
             std.debug.assert(c.external_send_remainder.len != 0);
@@ -131,10 +131,10 @@ pub fn Machine(
             if (Access.isSecure(backend, c)) return Access.driveSecure(backend, c);
             // Closing admits no new wrapped send after platform close is
             // queued; an integer descriptor may otherwise already be reused.
-            if (c.pending.send or c.ws_out_off == c.ws_out.items.len) return;
+            if (c.pending.get(.send) or c.ws_out_off == c.ws_out.items.len) return;
             try backend.platform.submitSend(
                 Access.sendUserData(c.id),
-                c.os_fd,
+                c.inner_fd,
                 c.ws_out.items[c.ws_out_off..],
             );
             c.pending.arm(.send);

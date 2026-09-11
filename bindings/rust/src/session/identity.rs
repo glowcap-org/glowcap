@@ -77,6 +77,12 @@ impl PartnerIdentity {
 }
 
 impl Session {
+	/// Compare the actual local connection shared by two handles, including
+	/// callback views. Equal partner identities do not imply equal sessions.
+	pub fn same_session(&self, other: &Self) -> bool {
+		std::rc::Rc::ptr_eq(&self.shared, &other.shared)
+	}
+
 	/// Who this session's partner proved itself to be during the handshake.
 	///
 	/// A partner's keyed `op:start-session` carries an Ed25519 signature over

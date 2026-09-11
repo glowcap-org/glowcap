@@ -118,7 +118,13 @@ export {
 	Session,
 } from "./session.ts";
 export { type ConnectOptions, Runtime, type RuntimeOptions } from "./runtime.ts";
-export { Connector, type ConnectorRequest, type DriverProvider, type TransportOperationOptions } from "./transport.ts";
+export {
+	abortable,
+	Connector,
+	type ConnectorRequest,
+	type DriverProvider,
+	type TransportOperationOptions,
+} from "./transport.ts";
 // The WebSocket byte channel and the cold-dial rendezvous accept half
 // (ADR-0088). Runtime-neutral: the `WebSocket` global is a web standard every
 // supported runtime ships. The dialing half is not exported here: a

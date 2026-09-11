@@ -284,7 +284,7 @@ pub fn checkCommunityReviewCiMatrix(
 
 /// Collect the build-step names that follow each occurrence of `prefix`, up to
 /// the next backtick or end of line.
-fn collectBuildSteps(
+pub fn collectBuildSteps(
     arena: std.mem.Allocator,
     haystack: []const u8,
     prefix: []const u8,
@@ -492,5 +492,10 @@ pub fn checkFirstReadProvenance(
     const iroh_step_at = std.mem.indexOf(u8, readme_lower, "goblins-iroh");
     if (interop_at != null and iroh_step_at != null and iroh_step_at.? < interop_at.?) {
         try appendViolation(gpa, violations, "README.md: `goblins-iroh` appears before `goblins-interop`; recurring Goblins evidence is the testing-TCP step", .{});
+    }
+
+    const onion_at = std.mem.indexOf(u8, readme_lower, "goblins-onion");
+    if (onion_at != null and interop_at != null and interop_at.? < onion_at.?) {
+        try appendViolation(gpa, violations, "README.md: `goblins-onion` must appear before `goblins-interop`; the standardized Goblins meeting is Tor", .{});
     }
 }

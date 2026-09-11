@@ -71,9 +71,8 @@ This decision ships read-only handover for one direct conversation. It does not
 add room, standing, multi-conversation, or durable share links. A live facet is
 not revocable independently of its hosting session. Attachment metadata follows
 line records through a facet, and the facet scopes each blob reader to its
-owning line. Combining
-several archive accounts into one evidence-backed view remains a presentation
-decision.
+owning line. ADR-0144 settles the deferred combination of several archive
+accounts into one evidence-backed view.
 
 ## Alternatives considered
 

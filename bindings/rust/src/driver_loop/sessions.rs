@@ -4,7 +4,7 @@ use super::*;
 
 impl LoopShared {
 	/// The listener's complete canonical OCapN locator.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
+	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 	pub(crate) fn listener_locator(&self, listener: u64) -> Result<Locator> {
 		self.guard_handle()?;
 		self.driver.listener_locator(listener)
@@ -23,7 +23,7 @@ impl LoopShared {
 		self.driver.advertise_listener(listener, &locator)
 	}
 
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
+	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 	pub(crate) fn select_listener(&self, listener: u64) -> Result<()> {
 		self.guard_handle()?;
 		self.driver.select_listener(listener)
@@ -32,7 +32,7 @@ impl LoopShared {
 	/// Stop one listener while keeping the loop and yielded sessions alive.
 	/// Provider teardown may span steps; the returned future joins that native
 	/// barrier and preserves its exact asynchronous failure.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
+	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 	pub(crate) async fn close_listener(self: &Rc<Self>, listener: u64) -> Result<()> {
 		self.begin_listener_close(listener)?;
 		loop {
@@ -109,7 +109,7 @@ impl LoopShared {
 	/// A dropped setup future may race a committed READY event. Remove its
 	/// waiter before draining native events, then retire either the still-pending
 	/// or newly-active binding state without exposing a listener to the caller.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
+	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 	pub(super) fn cancel_listener_setup(self: &Rc<Self>, listener: u64) {
 		self.pending_listeners.borrow_mut().remove(&listener);
 		if self.released.get() {

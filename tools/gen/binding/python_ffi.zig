@@ -288,6 +288,6 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{ "_WebrtcReadyEvent", "_WebrtcConfig", "_TransportProvider" }, "``libglowcap_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, cr, "relay_sigs", &.{ "_RelayConfig", "_RelayTrustSummary", "_TransportProvider" }, "``libglowcap_net_transport_relay`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, cr, "relay_sigs", &.{ "_RelayConfig", "_TransportProvider" }, "``libglowcap_net_transport_relay`` signatures, in the inventory's order.", &.{});
     return out.toOwnedSlice(gpa);
 }

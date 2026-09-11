@@ -16,8 +16,8 @@ amended_by: [ADR-0106, ADR-0120]
 
 Accepted and implemented. The wire name is `driver_core.trace.wireName`, the
 drained seam is `glowcap_host_set_trace_queue` plus `glowcap_host_next_trace`,
-and the endpoint is `apps/rooms/server/viz.ts` with its producer half in
-`apps/rooms/lib/viz_publish.ts`.
+and the endpoint is `apps/rooms/rust/native/src/room_server/viz/` with its
+TypeScript producer adapter in `apps/rooms/lib/viz_publish.ts`.
 
 ## Context
 

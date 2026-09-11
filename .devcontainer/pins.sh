@@ -15,47 +15,43 @@ DEBIAN_BASE_TAG="trixie-slim"
 DEBIAN_BASE_DIGEST="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
 
 # --- Zig ---
-ZIG_VERSION="0.17.0-dev.1963+e00c6c439"
+ZIG_VERSION="0.17.0-dev.2085+5e36170b5"
 # ZLS currently refuses the pinned Zig 0.17 compiler. Keep its upstream source
 # pin recorded for update checks, but do not build or advertise it until
 # upstream supports this compiler generation.
 ZLS_ENABLED="false"
 ZLS_VERSION="0.17.0-dev"
-ZLS_SOURCE_REVISION="8da87d4f3305a550e7b739bad764e34bf1e46a08"
-ZLS_SOURCE_SHA256="621bbf0eddfcd909499338767a6d48941a9ab3d6fd3302ce72f0ccf3ebba4d43"
+ZLS_SOURCE_REVISION="3df042851351abdcfcdab9e133f3e144fe37b783"
+ZLS_SOURCE_SHA256="b4de1b4f28dcfdf473dfad1f5ce2e1b106b07bb8d6f4113a7bd91c41d935dde5"
 
 # --- Rust (C ABI dogfood) ---
-RUST_VERSION="1.98.0"
+RUST_VERSION="1.98.1"
 RUSTUP_INIT_VERSION="1.29.1"
 
 # --- JavaScript / TypeScript dogfood ---
 DENO_VERSION="2.9.6"
-# Multi-architecture index for `denoland/deno:bin-${DENO_VERSION}`, used by the
-# toolchain-free Rooms image. The Deno bump stages version, digest, Dockerfile,
-# and release-asset checksums as one transaction.
-DENO_IMAGE_DIGEST="sha256:4cf0029b9aeeeed5efcbb71828737f0d7c8c8a20072df960e51a5679ef0d21ba"
-NODE_VERSION="26.8.1"
-BUN_VERSION="1.4.0"
+NODE_VERSION="26.8.2"
+BUN_VERSION="1.4.2"
 
 # --- Playwright (the browser proofs' Chromium) ---
 # This is the one place the version is written. The root deno.json resolves the
 # browser proofs' `playwright` import from the same number, and
 # `zig build source-check` fails if the two ever disagree. The browser build
 # number (chromium-<rev>) is Playwright's to choose, so nothing here restates it.
-PLAYWRIGHT_VERSION="1.62.1"
+PLAYWRIGHT_VERSION="1.63.0"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.12.9"
+UV_VERSION="0.12.12"
 OCAPN_CONFORMANCE_PYTHON="3.12.14"
 SERENA_AGENT_VERSION="1.7.0"
 SERENA_PYTHON="3.13"
-CLAUDE_CODE_VERSION="2.1.258"
-OPENCODE_VERSION="1.18.26"
-CODEX_VERSION="0.152.1"
+CLAUDE_CODE_VERSION="2.1.267"
+OPENCODE_VERSION="1.18.30"
+CODEX_VERSION="0.154.0"
 # Cursor publishes the agent CLI as one dated build per platform. The version
 # string is the whole path segment (date and commit), so it is copied verbatim
 # into the download URL rather than composed from parts.
-CURSOR_AGENT_VERSION="2026.08.31-4057e58"
+CURSOR_AGENT_VERSION="2026.09.08-6caf4ff"
 
 # --- Host side (not in the image; used by up.sh when no CLI is installed) ---
 DEVCONTAINER_CLI_VERSION="0.89.0"
@@ -90,9 +86,10 @@ UV_CACHE_DIR="${CACHE_ROOT}/uv"
 ZIG_CACHE_DIR="${CACHE_ROOT}/zig"
 BUN_CACHE_DIR="${CACHE_ROOT}/bun"
 BUN_INSTALL_CACHE_DIR="${BUN_CACHE_DIR}/install"
-# Per-worktree Zig local cache and extracted packages:
-# work/<GLOWCAP_WORKTREE>/zig-local and zig-pkg at runtime.
-WORK_CACHE_DIR="${GLOWCAP_CACHE_DIR}/work"
+# Per-worktree Zig local cache and extracted packages live on a Docker volume.
+# The daemon-owned filesystem supplies Zig's atomic-file semantics consistently
+# under native Linux Docker and Docker Desktop; host-bind implementations vary.
+ZIG_WORK_CACHE_DIR="/home/vscode/.cache/glowcap-zig-work"
 PLTUSERHOME="/opt/glowcap-racket-userhome"
 # Playwright's default download directory is ~/.cache/ms-playwright, which is
 # outside the glowcap cache bind, so a browser landing there would vanish with

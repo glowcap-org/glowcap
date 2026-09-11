@@ -124,6 +124,9 @@ test "libglowcap_host: the full three-party handoff through the C surface — on
     try std.testing.expectEqual(@as(usize, 1), dials.len);
     const parked = dials.items[0];
     try std.testing.expect(parked.host == recipient);
+    var source: ?*cd.GlowcapHostSession = null;
+    try expectOk(cd.glowcap_host_pending_dial_introducer(recipient, parked.ticket, parked.route_index, &source));
+    try std.testing.expect(source == r_to_g.a);
 
     // Pending-row dial parts for this exact route: this tcp give has only the
     // signed feature offer, never a fabricated transport route hint.
@@ -154,6 +157,8 @@ test "libglowcap_host: the full three-party handoff through the C surface — on
     var adopted: u8 = 0;
     try expectOk(cd.glowcap_host_dialed(recipient, parked.ticket, parked.route_index, r_to_e, &adopted));
     try std.testing.expectEqual(@as(u8, 1), adopted);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_pending_dial_introducer(recipient, parked.ticket, parked.route_index, &source));
+    try std.testing.expect(source == r_to_g.a); // Refusal did not overwrite the output.
     try pump(&hosts, &all_pairs, &dials, &watches);
 
     try std.testing.expect(redeemed.fired);
@@ -413,6 +418,10 @@ test "libglowcap_host: select-or-dial enliven rides a live session, then parks o
         "127.0.0.1:7022",
         dials.items[0].designator[0..dials.items[0].designator_len],
     );
+
+    var source = pair.a;
+    try expectOk(cd.glowcap_host_pending_dial_introducer(client, dials.items[0].ticket, dials.items[0].route_index, &source));
+    try std.testing.expect(source == null); // An application dial has no introducing session.
 
     // The embedder opens what it was told to and reports it; the parked
     // enliven then runs over that session and settles the pre-minted vow.

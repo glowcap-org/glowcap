@@ -76,10 +76,31 @@ test "a resolver pair settles its listener once, and every second path refuses" 
     // The resolver is consumed: a second settle refuses, either arm.
     try std.testing.expectError(actors.Error.AlreadySettled, vat.fulfillVow(pair.resolver, .{ .void = {} }));
     try std.testing.expectError(actors.Error.AlreadySettled, vat.breakVow(pair.resolver, "late"));
-    // An id never minted refuses the same way.
-    try std.testing.expectError(actors.Error.AlreadySettled, vat.breakVow(9999, "unminted"));
+    // An id never minted is distinct from a consumed settle authority.
+    for ([_]u64{ 0, vat.next_resolver, std.math.maxInt(u64) }) |id| {
+        try std.testing.expectError(error.NoSuchResolver, vat.breakVow(id, "unminted"));
+        try std.testing.expectError(error.NoSuchResolver, vat.fulfillVow(id, .{ .void = {} }));
+    }
     // The settled vow refuses a late listener, like any settled local vow.
     try std.testing.expectError(actors.Error.AlreadySettled, vat.on(pair.vow, .{ .ctx = &captured, .func = Capture.listener }));
+}
+
+test "unminted local vows cannot capture a future operation's listener" {
+    var vat = actors.Vat.init(std.testing.allocator);
+    defer vat.deinit();
+    var captured = Capture{};
+    const listener = actors.Listener{ .ctx = &captured, .func = Capture.listener };
+    for ([_]u64{ vat.next_vow, 0, std.math.maxInt(u64) }) |id| {
+        try std.testing.expectError(error.NoSuchVow, vat.on(.{ .local = id }, listener));
+        try std.testing.expectEqual(@as(usize, 0), vat.listeners.count());
+    }
+
+    const real = try vat.spawnVow();
+    try vat.on(real.vow, listener);
+    try vat.fulfillVow(real.resolver, .{ .bytes = "real answer" });
+    try std.testing.expectEqualStrings("real answer", captured.buf[0..captured.len]);
+    try std.testing.expectEqual(@as(usize, 0), vat.listeners.count());
+    try std.testing.expectError(error.AlreadySettled, vat.on(real.vow, listener));
 }
 
 test "resolver fulfillment OOM leaves the same settle authority retryable" {
@@ -361,4 +382,58 @@ test "forwardVow checks vows that are settled or already observed" {
     };
     try std.testing.expectError(actors.Error.AlreadyListening, observed_turn.forwardVow(observed.vow));
     try std.testing.expect(!observed_turn.forwarded);
+}
+
+test "a queued local answer can defer and preserves a dynamic break across listener reentry" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    const pair = try vat.spawnVow();
+    const Deferred = struct {
+        vow: actors.Vow,
+        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+            try turn.forwardVow(self.vow);
+            return .{ .boolean = false }; // deferral owns the answer
+        }
+    };
+    const actor = try vat.spawn(Deferred, .{ .vow = pair.vow });
+    const sent = try vat.send(actor, .{ .verb = "wait" });
+    var result = Capture{};
+    try vat.on(sent, .{ .ctx = &result, .func = Capture.listener });
+    try vat.drive();
+    try std.testing.expect(!result.fulfilled and !result.broke);
+    try vat.fulfillVow(pair.resolver, .{ .bytes = "later" });
+    try std.testing.expect(result.fulfilled);
+    try std.testing.expectEqualStrings("later", result.buf[0..result.len]);
+
+    const Refuser = struct {
+        pub fn handle(_: *@This(), turn: *Turn, msg: Message) !model.Argument {
+            if (std.mem.eql(u8, msg.verb, "reset")) {
+                @memset(try turn.arena.alloc(u8, 2048), 0xcc);
+            } else {
+                var text = [_]u8{ 'e', 'x', 'a', 'c', 't' };
+                try turn.breakWith(&text);
+                @memset(&text, 0xaa);
+            }
+            return .{ .void = {} };
+        }
+    };
+    const refuser = try vat.spawn(Refuser, .{});
+    const Reentrant = struct {
+        vat: *actors.Vat,
+        target: actors.Ref,
+        capture: Capture = .{},
+        fn listen(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            _ = self.vat.near(self.target, .{ .verb = "reset" }) catch unreachable;
+            Capture.listener(&self.capture, resolution);
+        }
+    };
+    var reentrant = Reentrant{ .vat = &vat, .target = refuser };
+    const broken = try vat.send(refuser, .{ .verb = "refuse" });
+    try vat.on(broken, .{ .ctx = &reentrant, .func = Reentrant.listen });
+    try vat.drive();
+    try std.testing.expect(reentrant.capture.broke);
+    try std.testing.expectEqualStrings("exact", reentrant.capture.buf[0..reentrant.capture.len]);
+    try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
 }

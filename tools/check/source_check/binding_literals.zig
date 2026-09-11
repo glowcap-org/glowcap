@@ -24,6 +24,10 @@ pub fn check(
             "bindings/rust/src/abi_constants_gen.rs",
             "bindings/ts/abi/constants.ts",
             "bindings/racket/private/constants-gen.rkt",
+            // The Rooms policy crate has no glowcap dependency; its seat
+            // transport enum mirrors the symbols, and the native room server's
+            // tests pin every name to glowcap's constant.
+            "apps/rooms/rust/application/src/server/operations/listeners.rs",
         };
         const roots = [_][]const u8{
             "bindings/python",
@@ -112,6 +116,17 @@ pub fn check(
             },
             .{
                 .connection = "bindings/rust/src/session.rs",
+                .owner = "bindings/rust/src/tcp.rs",
+                .banned_in_connection = &.{
+                    "fn host_port_from_direct_hint",
+                    "fn socket_addr_designator",
+                },
+                .required_in_owner = &.{
+                    "pub fn address_designator",
+                },
+            },
+            .{
+                .connection = "bindings/rust/src/session/establish.rs",
                 .owner = "bindings/rust/src/tcp.rs",
                 .banned_in_connection = &.{
                     "fn host_port_from_direct_hint",

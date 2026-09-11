@@ -9,7 +9,7 @@
 //
 // Run: deno run -A bindings/proofs/noise_relay_listen/harness.ts -- <listener argv...>
 
-import { awaitMarker, fail } from "../_support/harness.ts";
+import { awaitMarker, fail, runProofOrFail } from "../_support/harness.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../../zig-out/lib/", import.meta.url).pathname;
@@ -22,46 +22,41 @@ const sep = Deno.args.indexOf("--");
 const listenerArgv = sep === -1 ? [...Deno.args] : Deno.args.slice(sep + 1);
 if (listenerArgv.length === 0) fail("harness needs a listener argv after --");
 
-const deadline = setTimeout(
-	() => fail("noise-relay listen proof timed out after 120s"),
-	120_000,
-);
-
-const relay = new Deno.Command("deno", {
-	args: [
-		"run",
-		"--allow-net",
-		"--allow-ffi",
-		"--allow-env",
-		"--allow-read",
-		"bindings/ts/relay/serve.ts",
-		"0",
-	],
-	cwd: ROOT,
-	env: installedArchiveEnv,
-	stdout: "piped",
-	stderr: "inherit",
-}).spawn();
-
-let listener: Deno.ChildProcess | null = null;
-let clientCode = 1;
-let listenerCode: number | null = null;
-let listenerForcedClosed = false;
-try {
+const outcome = await runProofOrFail({
+	// The build owner stops this process at 30 seconds. Keep the diagnostic
+	// deadline inside it, with room for process-group teardown.
+	deadlineMs: 27_000,
+	timeoutMessage: () => "noise-relay listen proof timed out after 27s",
+}, async (processes) => {
+	const relay = processes.spawn("deno", {
+		args: [
+			"run",
+			"--allow-net",
+			"--allow-ffi",
+			"--allow-env",
+			"--allow-read",
+			"bindings/ts/relay/serve.ts",
+			"0",
+		],
+		cwd: ROOT,
+		env: installedArchiveEnv,
+		stdout: "piped",
+		stderr: "inherit",
+	});
 	const relayPort = await awaitMarker(relay, "DENO-RELAY-READY", "relay");
 	const relayUrl = `ws://localhost:${relayPort}/relay`;
 	const registerUrl = `ws://localhost:${relayPort}/register`;
 
-	listener = new Deno.Command(listenerArgv[0], {
+	const listener = processes.spawn(listenerArgv[0], {
 		args: [...listenerArgv.slice(1), relayUrl, registerUrl],
 		cwd: ROOT,
 		env: installedArchiveEnv,
 		stdout: "piped",
 		stderr: "inherit",
-	}).spawn();
+	});
 	const locator = await awaitMarker(listener, "RELAY-LISTENER-READY", "listener");
 
-	const client = new Deno.Command("deno", {
+	const client = processes.spawn("deno", {
 		args: [
 			"run",
 			"-A",
@@ -73,31 +68,25 @@ try {
 		env: installedArchiveEnv,
 		stdout: "inherit",
 		stderr: "inherit",
-	}).spawn();
-	clientCode = (await client.status).code;
-} finally {
-	clearTimeout(deadline);
-	if (listener !== null) {
-		const status = listener.status;
-		const exited = await Promise.race([
-			status.then(() => true),
-			new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
-		]);
-		if (!exited) {
-			listenerForcedClosed = true;
-			try {
-				listener.kill();
-			} catch { /* already gone */ }
-		}
-		listenerCode = (await status).code;
+	});
+	const clientCode = (await processes.status(client)).code;
+
+	const listenerStatus = processes.status(listener);
+	const listenerExited = await Promise.race([
+		listenerStatus.then(() => true),
+		new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
+	]);
+	if (!listenerExited) {
+		await processes.stop(listener);
 	}
-	try {
-		relay.kill();
-	} catch { /* already gone */ }
-	await relay.status;
-}
-if (clientCode !== 0) fail(`dial client exited ${clientCode}`);
-if (listenerForcedClosed) fail("listener did not close itself after the served session");
-if (listenerCode !== 0) fail(`listener exited ${listenerCode}`);
+	return {
+		clientCode,
+		listenerCode: (await listenerStatus).code,
+		listenerForcedClosed: !listenerExited,
+	};
+});
+if (outcome.clientCode !== 0) fail(`dial client exited ${outcome.clientCode}`);
+if (outcome.listenerForcedClosed) fail("listener did not close itself after the served session");
+if (outcome.listenerCode !== 0) fail(`listener exited ${outcome.listenerCode}`);
 console.log("PASS: the managed listener registered, advertised, and served a sealed session");
 Deno.exit(0);

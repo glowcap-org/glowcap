@@ -22,7 +22,8 @@ pub(crate) struct AcceptedRaw {
 
 /// One endpoint's in-flight and completed outbound dials. A request id exists
 /// in exactly one state until `finish_connect` consumes it. The endpoint owns a
-/// successful raw connection until that transfer.
+/// successful raw connection, or the failure that replaced it, until that
+/// transfer.
 pub(crate) struct DialState {
 	entries: Mutex<HashMap<usize, DialEntry>>,
 	readiness: Arc<Readiness>,
@@ -30,11 +31,129 @@ pub(crate) struct DialState {
 
 enum DialEntry {
 	Pending { abort: Option<tokio::task::AbortHandle> },
-	Terminal(Result<AcceptedRaw, i32>),
+	Terminal(Result<AcceptedRaw, DialFailure>),
+}
+
+/// The bounded text of one failed dial: iroh's own account of the fault,
+/// kept beside the code that classifies it. Fixed storage rather than a
+/// `String`, so a failed dial allocates nothing to say why. Text past the
+/// bound is dropped at the last whole UTF-8 sequence that fits, and a caller's
+/// copy into a smaller buffer truncates the same way, so a consumer may treat
+/// the bytes as a string on either side. Empty when the code is the whole
+/// fact, as for a canceled dial or a sidecar panic.
+pub(crate) struct DialText {
+	len: usize,
+	bytes: [u8; DIAL_TEXT_BYTES],
+}
+
+impl DialText {
+	const EMPTY: DialText = DialText {
+		len: 0,
+		bytes: [0; DIAL_TEXT_BYTES],
+	};
+
+	/// Render `args` into fresh bounded storage.
+	pub(crate) fn describe(args: std::fmt::Arguments<'_>) -> DialText {
+		let mut text = DialText::EMPTY;
+		// The writer never reports an error: a full buffer drops the tail
+		// rather than failing the format that produced it.
+		let _ = std::fmt::Write::write_fmt(&mut text, args);
+		text
+	}
+
+	pub(crate) fn as_str(&self) -> &str {
+		// Every byte arrived through `write_str` at a char boundary.
+		std::str::from_utf8(&self.bytes[..self.len]).unwrap_or("")
+	}
+
+	/// Copy the longest whole-UTF-8 prefix that fits `out_cap` bytes into
+	/// `out` and report the copied count through `out_len`. A null `out`
+	/// declines the text and reports zero.
+	pub(crate) fn copy_to(&self, out: *mut u8, out_cap: usize, out_len: *mut usize) {
+		let copied = if out.is_null() {
+			0
+		} else {
+			char_boundary_at_most(self.as_str(), out_cap)
+		};
+		if copied > 0 {
+			// Safety: the contract requires `out_cap` writable bytes at `out`.
+			unsafe { std::ptr::copy_nonoverlapping(self.bytes.as_ptr(), out, copied) };
+		}
+		if !out_len.is_null() {
+			// Safety: the contract requires a writable `usize` when non-null.
+			unsafe { *out_len = copied };
+		}
+	}
+}
+
+/// The largest index at or under `limit` that is a char boundary of `s`.
+/// Index zero is always one, so the walk terminates.
+fn char_boundary_at_most(s: &str, limit: usize) -> usize {
+	let mut end = limit.min(s.len());
+	while !s.is_char_boundary(end) {
+		end -= 1;
+	}
+	end
+}
+
+impl std::fmt::Write for DialText {
+	fn write_str(&mut self, s: &str) -> std::fmt::Result {
+		let room = DIAL_TEXT_BYTES - self.len;
+		let take = char_boundary_at_most(s, room);
+		self.bytes[self.len..self.len + take].copy_from_slice(&s.as_bytes()[..take]);
+		self.len += take;
+		Ok(())
+	}
+}
+
+/// Why one dial failed: the classification every caller branches on, and the
+/// text only a diagnostic reads. It lives in the endpoint's dial table from
+/// completion until `finish_connect` removes the row, and dies with it; the
+/// blocking dial never stores one, handing the text straight to its caller.
+pub(crate) struct DialFailure {
+	code: i32,
+	text: DialText,
+}
+
+impl DialFailure {
+	fn code_only(code: i32) -> DialFailure {
+		DialFailure {
+			code,
+			text: DialText::EMPTY,
+		}
+	}
+
+	fn described(code: i32, args: std::fmt::Arguments<'_>) -> DialFailure {
+		DialFailure {
+			code,
+			text: DialText::describe(args),
+		}
+	}
+}
+
+impl From<i32> for DialFailure {
+	fn from(code: i32) -> DialFailure {
+		DialFailure::code_only(code)
+	}
+}
+
+/// Publish one failed dial's text through the caller's optional buffer. The
+/// copied byte count lands in `out_text_len`: zero on success, for a pending
+/// request, or when the caller passed no buffer.
+fn report_text(failure: Option<&DialFailure>, out_text: *mut u8, out_text_cap: usize, out_text_len: *mut usize) {
+	match failure {
+		Some(failure) => failure.text.copy_to(out_text, out_text_cap, out_text_len),
+		None => {
+			if !out_text_len.is_null() {
+				// Safety: the contract requires a writable `usize` when non-null.
+				unsafe { *out_text_len = 0 };
+			}
+		}
+	}
 }
 
 impl DialState {
-	fn complete(&self, request_id: usize, result: Result<AcceptedRaw, i32>) {
+	fn complete(&self, request_id: usize, result: Result<AcceptedRaw, DialFailure>) {
 		let publish = {
 			let mut entries = self.entries.lock().unwrap();
 			match entries.get_mut(&request_id) {
@@ -59,7 +178,7 @@ impl DialState {
 						DialEntry::Pending { abort } => abort.take(),
 						DialEntry::Terminal(_) => unreachable!(),
 					};
-					*entry = DialEntry::Terminal(Err(DIAL_CANCELED));
+					*entry = DialEntry::Terminal(Err(DialFailure::code_only(DIAL_CANCELED)));
 					(true, true, abort)
 				}
 				Some(DialEntry::Terminal(_)) => (true, false, None),
@@ -85,7 +204,7 @@ impl DialState {
 					if let Some(abort) = abort.take() {
 						aborts.push(abort);
 					}
-					*entry = DialEntry::Terminal(Err(DIAL_CANCELED));
+					*entry = DialEntry::Terminal(Err(DialFailure::code_only(DIAL_CANCELED)));
 					signals.push(*request_id);
 				}
 			}
@@ -131,27 +250,76 @@ pub(crate) fn parse_target(
 pub(crate) fn connection_failure_code(error: &ConnectionError) -> i32 {
 	match error {
 		ConnectionError::TimedOut => DIAL_TIMEOUT,
+		ConnectionError::ConnectionClosed(_) | ConnectionError::ApplicationClosed(_) => DIAL_REFUSED,
 		_ => DIAL_UNREACHABLE,
 	}
 }
 
+/// Every iroh connect error maps onto one dial code by what an embedder may do
+/// about it: retry a path fault, refuse to retry a closed endpoint or a
+/// rejected handshake, reject an invalid target. Folding all of them into
+/// "unreachable" once made a closed endpoint look like a transient network
+/// fault, and the driver retried a dial that could never succeed.
 pub(crate) fn connect_failure_code(error: &ConnectError) -> i32 {
+	use iroh::endpoint::{ConnectWithOptsError, ConnectingError};
 	match error {
+		ConnectError::Connect { source, .. } => match source {
+			ConnectWithOptsError::EndpointClosed { .. } => DIAL_CLOSED,
+			ConnectWithOptsError::SelfConnect { .. } | ConnectWithOptsError::InvalidAlpn { .. } => DIAL_INVALID,
+			ConnectWithOptsError::LocallyRejected { .. } => DIAL_REFUSED,
+			_ => DIAL_UNREACHABLE,
+		},
+		ConnectError::Connecting { source, .. } => match source {
+			ConnectingError::ConnectionError { source, .. } => connection_failure_code(source),
+			ConnectingError::HandshakeFailure { .. } | ConnectingError::LocallyRejected { .. } => DIAL_REFUSED,
+			_ => DIAL_UNREACHABLE,
+		},
 		ConnectError::Connection { source, .. } => connection_failure_code(source),
 		_ => DIAL_UNREACHABLE,
 	}
 }
 
-async fn dial_raw(ep: Endpoint, addr: EndpointAddr, connect_timeout: std::time::Duration) -> Result<AcceptedRaw, i32> {
+/// Establish the QUIC connection and its one bidirectional stream, or say
+/// exactly why not. The code classifies; the text is iroh's own account, or
+/// for a local deadline the deadline itself.
+async fn dial_raw(
+	ep: Endpoint,
+	addr: EndpointAddr,
+	connect_timeout: std::time::Duration,
+) -> Result<AcceptedRaw, DialFailure> {
+	let ms = connect_timeout.as_millis();
 	let conn = match tokio::time::timeout(connect_timeout, ep.connect(addr, ALPN)).await {
 		Ok(Ok(conn)) => conn,
-		Ok(Err(error)) => return Err(connect_failure_code(&error)),
-		Err(_) => return Err(DIAL_TIMEOUT),
+		// `{:#}` is iroh's one-line report: the error and its source chain
+		// joined by ": ", which is where the relay, the address, or the QUIC
+		// close reason lives.
+		Ok(Err(error)) => {
+			return Err(DialFailure::described(
+				connect_failure_code(&error),
+				format_args!("{error:#}"),
+			))
+		}
+		Err(_) => {
+			return Err(DialFailure::described(
+				DIAL_TIMEOUT,
+				format_args!("no QUIC connection within {ms} ms"),
+			))
+		}
 	};
 	let (send, recv) = match tokio::time::timeout(connect_timeout, conn.open_bi()).await {
 		Ok(Ok(streams)) => streams,
-		Ok(Err(_)) => return Err(DIAL_LOST),
-		Err(_) => return Err(DIAL_TIMEOUT),
+		Ok(Err(error)) => {
+			return Err(DialFailure::described(
+				DIAL_LOST,
+				format_args!("connected, then the stream open failed: {error}"),
+			))
+		}
+		Err(_) => {
+			return Err(DialFailure::described(
+				DIAL_TIMEOUT,
+				format_args!("connected, but no bidirectional stream within {ms} ms"),
+			))
+		}
 	};
 	Ok(AcceptedRaw { conn, send, recv })
 }
@@ -186,7 +354,8 @@ pub(crate) fn endpoint_dials(ep: &GlowcapIrohEndpoint) -> Option<&Arc<DialState>
 }
 
 /// Deliberately blocking convenience for the explicit blocking resident. The
-/// evented backend and public ABI use start/finish/cancel below.
+/// evented backend and public ABI use start/finish/cancel below. The failure
+/// text is handed to the caller's buffer directly; nothing is retained.
 #[no_mangle]
 pub extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 	ep: *mut GlowcapIrohEndpoint,
@@ -195,24 +364,28 @@ pub extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 	addr_hints: *const u8,
 	addr_hints_len: usize,
 	out_code: *mut i32,
+	out_text: *mut u8,
+	out_text_cap: usize,
+	out_text_len: *mut usize,
 ) -> *mut GlowcapIrohConn {
-	let result = catch_unwind(AssertUnwindSafe(|| -> Result<*mut GlowcapIrohConn, i32> {
+	let result = catch_unwind(AssertUnwindSafe(|| -> Result<*mut GlowcapIrohConn, DialFailure> {
 		if ep.is_null() {
-			return Err(DIAL_INVALID);
+			return Err(DIAL_INVALID.into());
 		}
 		let ep = unsafe { &*ep };
 		let addr = parse_target(node_id, node_id_len, addr_hints, addr_hints_len)?;
 		let raw = ep.rt.block_on(dial_raw(ep.ep.clone(), addr, ep.connect_timeout))?;
-		make_conn(ep, raw).ok_or(DIAL_LOST)
+		make_conn(ep, raw).ok_or(DialFailure::code_only(DIAL_LOST))
 	}));
-	let (handle, code) = match result {
-		Ok(Ok(handle)) => (handle, DIAL_OK),
-		Ok(Err(code)) => (std::ptr::null_mut(), code),
-		Err(_) => (std::ptr::null_mut(), DIAL_LOST),
+	let (handle, failure) = match result {
+		Ok(Ok(handle)) => (handle, None),
+		Ok(Err(failure)) => (std::ptr::null_mut(), Some(failure)),
+		Err(_) => (std::ptr::null_mut(), Some(DialFailure::code_only(DIAL_LOST))),
 	};
 	if !out_code.is_null() {
-		unsafe { *out_code = code };
+		unsafe { *out_code = failure.as_ref().map_or(DIAL_OK, |failure| failure.code) };
 	}
+	report_text(failure.as_ref(), out_text, out_text_cap, out_text_len);
 	handle
 }
 
@@ -277,21 +450,25 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 }
 
 /// Consume one terminal dial result. Returns the dial classification and writes
-/// the owned connection on success. A pending request returns DIAL_PENDING.
+/// the owned connection on success, or the retained failure text into the
+/// caller's buffer. A pending request returns DIAL_PENDING and leaves its row.
 #[no_mangle]
 pub extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 	ep: *mut GlowcapIrohEndpoint,
 	request_id: usize,
 	out_conn: *mut *mut GlowcapIrohConn,
+	out_text: *mut u8,
+	out_text_cap: usize,
+	out_text_len: *mut usize,
 ) -> i32 {
-	let result = catch_unwind(AssertUnwindSafe(|| {
+	let result = catch_unwind(AssertUnwindSafe(|| -> Result<(), DialFailure> {
 		if ep.is_null() || out_conn.is_null() {
-			return DIAL_INVALID;
+			return Err(DIAL_INVALID.into());
 		}
 		unsafe { *out_conn = std::ptr::null_mut() };
 		let ep = unsafe { &*ep };
 		let Some(dials) = ep.dials.get() else {
-			return DIAL_INVALID;
+			return Err(DIAL_INVALID.into());
 		};
 		let terminal = {
 			let mut entries = dials.entries.lock().unwrap();
@@ -299,24 +476,22 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 				Some(DialEntry::Terminal(result)) => result,
 				Some(pending @ DialEntry::Pending { .. }) => {
 					entries.insert(request_id, pending);
-					return DIAL_PENDING;
+					return Err(DIAL_PENDING.into());
 				}
-				None => return DIAL_INVALID,
+				None => return Err(DIAL_INVALID.into()),
 			}
 		};
-		match terminal {
-			Ok(raw) => {
-				if let Some(conn) = make_conn(ep, raw) {
-					unsafe { *out_conn = conn };
-					DIAL_OK
-				} else {
-					DIAL_LOST
-				}
-			}
-			Err(code) => code,
-		}
+		let conn = make_conn(ep, terminal?).ok_or(DialFailure::code_only(DIAL_LOST))?;
+		unsafe { *out_conn = conn };
+		Ok(())
 	}));
-	result.unwrap_or(DIAL_LOST)
+	let failure = match result {
+		Ok(Ok(())) => None,
+		Ok(Err(failure)) => Some(failure),
+		Err(_) => Some(DialFailure::code_only(DIAL_LOST)),
+	};
+	report_text(failure.as_ref(), out_text, out_text_cap, out_text_len);
+	failure.map_or(DIAL_OK, |failure| failure.code)
 }
 
 /// Cancel one admitted dial. The pending-to-canceled winner emits the request's

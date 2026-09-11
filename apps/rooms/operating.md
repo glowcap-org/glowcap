@@ -16,8 +16,7 @@ timeline and writing traces into it alike. The sturdyref carries that swiss as i
 beyond the announcement:
 
 ```sh
-deno run --allow-ffi --allow-net --allow-read --allow-env \
-  apps/rooms/server/main.ts 9099 --viz
+zig build rooms-server -- --transport=tcp --port=9099 --viz
 ```
 
 Entering Live connects to the feed. Press **Record** to capture: every session the room accepts, every message in either
@@ -51,7 +50,7 @@ back; one that exits the moment it starts, the shape of a taken port or an unrea
 restarted more slowly each time up to half a minute, so the line it printed about why stays readable instead of
 scrolling past under copies of itself.
 
-Its development default is a private temporary `GLOWCAP_ROOMS_STATE` directory that lives as long as `serve.ts`. Set
+Its development default is a private temporary `GLOWCAP_ROOMS_STATE` directory that lives as long as `rooms-web`. Set
 `GLOWCAP_ROOMS_STATE` yourself when identity, issued room links, public topics, operator-added listeners, and IRC bridge
 choices must survive restarting the web supervisor. The container deployment does this with its `rooms-state` volume.
 Rooms has no released persistence predecessor. The current `rooms.json` uses version one and refuses every other shape
@@ -64,6 +63,26 @@ Cargo must be on `PATH` for the iroh transport sidecar; Deno is required for the
 Cargo requirement and the encryption with it. Either command prints a `ROOMS-VIZ-LISTENING` line once the room server is
 up. Open [ocapnviz](../ocapnviz/) (`cd apps/ocapnviz && bash dev.sh`), switch the top bar to **Live**, and give the
 Source field that sturdyref.
+
+## Session archive identity
+
+Earlier Rust `rooms-session` builds encoded the private identity seed as the
+archive source field. A history reader or remote archive receiving those records
+could recover that identity. New recordings use the public identity instead.
+This change does not rewrite existing archives or retract copies already shared.
+If history from an affected session crossed its private storage boundary, treat
+that session identity as exposed. Replacing it also changes identity-bound links;
+account for those links and retained history before replacing the session state.
+The ordinary browser tab's separate archive source was not produced by this code.
+
+## Web relay admission
+
+The web relay keeps file-descriptor admission separate from iroh endpoint admission. Every live iroh relay leg owns a
+native endpoint runtime, so `GLOWCAP_RELAY_MAX_IROH_SESSIONS` sets that live limit (16 by default) and
+`GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE` bounds how quickly failed legs can replace it (32 by default). The existing
+`GLOWCAP_RELAY_MAX_SESSIONS`, `GLOWCAP_RELAY_MAX_REGISTRATIONS`, and
+`GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY` settings govern the transport-neutral WebSocket and registration costs.
+Raise each limit only for the resource it names.
 
 ## The IRC gateway
 
@@ -86,7 +105,9 @@ log into a registered account. The Operations pane sends those credentials over 
 protected operations state so it can reconnect after a restart. They never enter snapshots, the browser's saved state,
 or the trouble journal. A member manages their own nick and optional registered account from the IRC panel on their
 member row. The password is cleared before the request starts, never enters the composer or its recall history, and the
-credentials live only in the seat beside the connection they authenticate. Changing identity is transactional: a refused
+credentials live only in the seat beside the connection they authenticate. A durable session peer that submitted them
+keeps its own copy, described under running one below, so a restart can log in again; a browser holds none across a
+reload and asks the member to answer the bridge form again. Changing identity is transactional: a refused
 login restores the prior working identity. Disconnecting keeps the Rooms membership explicitly Rooms-only, and a later
 post never silently reconnects it. A cleartext bridge refuses registered credentials, the same custody rule as the
 feed's. An automatically projected Rooms name may take one collision suffix, but a nick the member chose explicitly
@@ -105,15 +126,33 @@ Storage is something the operator grants the server, off by default. `--history`
 retention on: each listed room keeps its last lines and answers them to any member who asks; the browser asks on
 entering a room whose log is empty and stands the answer under a divider that names the room as the keeper. Where kept
 lines persist is one separate value, `--storage=` (or `GLOWCAP_ROOMS_STORAGE`), whose shape picks the implementation
-inside `server/storage.ts`: a `postgres://` URL opens the managed-database backend, any other scheme is refused out
-loud, a plain value is a directory for the JSONL file backend, and naming nothing keeps the default: the state directory
-when one exists, memory for the life of the process otherwise. Naming a destination is itself a retention statement, so
-it also turns retention on; a destination that cannot be opened is a startup refusal in the operator's own words, never
-a silent fall back. No backend name appears above `storage.ts`, and retention semantics — how many lines, when a copy is
-forgotten — live in `history.ts` alone, so a backend can never disagree about policy. The database walk is pinned
-in-tree against RFC 7677's vector and a scripted fixture; `test/storage/postgres_live_test.ts` runs the same round
-trip against a real database whenever `GLOWCAP_ROOMS_STORAGE_LIVE_URL` names a disposable one, and reports itself
-ignored otherwise. File lines retain only their captions. Refiling changes that kept caption, and withdrawing or
+in the native server: a `postgres://` or `postgresql://` URL opens PostgreSQL, any other scheme is refused,
+and a plain value names a directory for JSONL files. Without a destination, history uses the state directory when
+one exists, or memory for the process's life. Naming a destination turns retention on unless `--history=false`
+explicitly disables it. An unusable destination refuses startup before the listener opens.
+
+The shared Rust history index owns retention; native adapters persist its admitted changes. PostgreSQL keeps the
+existing `room_lines` schema and takes a database session lock so only one native Rooms server can own that history.
+Use separate databases for independent servers. Stop the old TypeScript server before migrating; it does not take
+this lock. Database URLs accept `sslmode=disable`, `prefer` (the default), or `require`. TLS verifies the certificate
+and server name against system trust. Use `require` when the connection must be encrypted; `prefer` permits plaintext
+when the database declines TLS. Connection and transaction work has a 30-second deadline. A persistence failure
+ends the server with an error; an uncertain commit is never retried automatically.
+
+`zig build rooms-postgres-test` exercises the installed Rust binary against the database named by
+`GLOWCAP_ROOMS_STORAGE_LIVE_URL`. The process contracts require TLS and the repository fixture CA;
+use a disposable cluster because the test creates and removes schemas. To create that cluster, run
+`python3 apps/rooms/rust/native/tests/postgres_fixture.py` after `zig build rooms-server-build`.
+The fixture requires PostgreSQL server/client tools on PATH, or `--pg-bin=/path/to/postgresql/bin`.
+It owns its temporary cluster, uses TLS with SCRAM authentication, and stops the cluster on exit.
+Run again with `--auth=password` to exercise password authentication over TLS.
+
+The contracts cover existing schema recovery, edits, withdrawals, multiple rooms, restart,
+competing-server refusal, bounded writer admission, malformed rows, transaction failure, wrong
+password, hostname mismatch, and missing trust. Passwords must not appear in refusal diagnostics.
+The native unit and process suite separately exercises connection deadlines and shutdown while
+waiting for database startup, including closure of the unfinished connection before readiness.
+File lines retain only their captions. Refiling changes that kept caption, and withdrawing or
 refiling to an empty line removes it; file bytes remain under the attachment store's separate bounds and never enter
 room history.
 
@@ -122,7 +161,7 @@ edge drops the least recently active room's complete tail, with the room name br
 applies that policy before either backend sees a write. Startup restores and validates storage before opening a
 listener. File storage refuses a room file above 64 MiB, more than 512 MiB across the history directory, unexpected
 entries, and complete corrupt rows; an unfinished final append is the one recoverable tear. PostgreSQL refuses more than
-the retained 4,096 rows. `SIGINT` and `SIGTERM` stop new history admission, close the listeners, drain admitted writes,
+the retained 4,096 rows and bounds field sizes before reading them into Rust. `SIGINT` and `SIGTERM` stop new history admission, close the listeners, drain admitted writes,
 and then release storage. A process or machine crash can still lose an append the operating system had not made durable;
 the next startup restores the last complete bounded state rather than inventing a successful write.
 
@@ -137,23 +176,40 @@ as an ordinary capability. When this browser is the recorder, turning retention 
 write epoch in one IndexedDB transaction; queued work from another tab cannot put an erased line back. A failed clear
 leaves the switch on and reports the failure. A standalone peer can retain the same object beyond the tab. Capabilities
 in Settings accepts its whole-archive sturdyref as the direct-message recorder and can remember that bearer when the
-reader explicitly asks. A direct conversation's details can narrow the selected recorder to a read-only account of that
+reader explicitly asks. History reads answer from every archive the member holds at once — this browser's store
+beside a selected peer — coalesced by recorder coordinates with each account's keeper named at its own divider
+([ADR-0144](../../docs/decisions/adr/ADR-0144-combined-archive-views.md)); an unreachable peer refuses writes without
+hiding what this browser already kept. A direct conversation's details can narrow the selected recorder to a read-only account of that
 line and offer it to the other member. The receiver reads it only by choice, or gives it back unread.
 
 ### Running a durable user session
 
-A durable session peer owns one user's intended Rooms workspace and reconnects the directories, rooms, direct
-conversations, archive, and retained operation capabilities needed to realize it:
+A durable session peer owns one user's intended Rooms workspace. Attach from the
+browser to its administrator sturdyref. The native `rooms-session` process
+answers the whole attached-view contract: snapshot and watch, workspace
+adoption and checkpoint replacement, grant administration, checkpoint commands,
+live room and direct-message effects including files and refiling, typing,
+history and archived-attachment reads, archive shares issued and received,
+managed-room results and their resumption, operator and operations inspection
+and mutation, and narrower delegated facets. It reconnects the committed
+directories, sits in the committed public and managed rooms, opens direct
+conversations as they are needed, records kept history into a session-owned
+archive, and reports what it could not reach as issues in the snapshot. An
+attached view sees exactly what the authority it attached through allows,
+re-read on every call: narrowing or revoking a grant reaches the views already
+holding it, and a grant without the history right cannot read the archive. A
+visualizer credential the endpoint refuses shows that refusal in the operations
+snapshot rather than retrying forever:
 
 ```sh
-zig build rooms-session -- --state=.local/rooms-session
+zig build rooms-session -- --state=.local/.state/rooms
 ```
 
-After its durable state, grants, listener, and administrator publication are ready, the process schedules network
-reconciliation, prints `ROOMS-SESSION-LISTENING`, and by default writes the same administrator sturdyref to
+After its durable state, grants, listener, and administrator publication are ready, the native process prints `ROOMS-SESSION-LISTENING` and by default writes the same administrator sturdyref to
 `admin.sturdyref` in that state directory. `--readiness-file` can put this generated process fact on ephemeral runtime
 storage instead, as the Compose deployment does. The mode-0600 file is removed on an orderly stop and before every
-restart; while the process is running, its presence is the readiness fact. An unreachable saved directory remains
+restart; while the process is running, its presence is the readiness fact, and `rooms-session --check-ready=<path>`
+reads it back as the deployment's healthcheck. An unreachable saved directory remains
 visible for repair and retry; it does not prevent the owner from attaching. It is a generated mirror of the durable Host
 identity and publication—not another source of authority. The sturdyref grants complete session administration. Give it
 only to the owner; use a narrower facet when another person should merely observe or interact.
@@ -166,18 +222,100 @@ until the tab closes or reloads. Join a room on this page's directory first, the
 Holdings, including from a different Rooms page: the capability names this directory so they can reach it without the
 hosting tab joining theirs. Reloading the tab ends sharing.
 
+A password the member answered a bridge form with is kept in `bridge-secrets.json` in that directory, never in the
+checkpoint, a snapshot to an attached view, or an export. The peer writes it before the checkpoint that records the
+answer, so a restart replays the bridged identity without asking again. It keeps that credential only while a room in
+the checkpoint still holds an intent that needed one: leaving the last room on that network, or submitting the form
+again with the password field empty, removes it. A workspace adopted from a browser carries the intent without the
+password, because the browser never had custody of it, and that room asks the member to answer the bridge once more.
+The file is plain JSON under the directory's own permissions, not an encrypted store: anyone who can read the directory
+can already act as the session from the identity seed beside it.
+
 Only one process may hold the state directory. Stop it before copying the directory for backup, and restore the
-directory as a unit. The checkpoint, effect ledger, session-owned archive, Host identity, and publication entropy are
-one custody boundary; copying only `session.json` does not preserve it.
+directory as a unit. The checkpoint, effect ledger, bridge credentials, session-owned archive, Host identity, and
+publication entropy are one custody boundary; copying only `session.json` does not preserve it.
+
+### Running the native room server
+
+The native room server is the directory members register with and the rooms they enter. It files names, tells
+watchers who is registered and which rooms are listed, relays introductions and direct-route requests between
+members, and carries WebRTC signaling between them. It opens rooms, seats members, delivers lines, topics, presence,
+typing, and invitations, derives room links, managers, and stewards from its room-state document, hosts files under
+the room and host budgets, and retains history in a file journal. It needs one state directory, where it keeps
+`rooms.json`, the same server document the TypeScript server keeps, and takes its Host identity from that document's
+seed:
+
+```sh
+zig build rooms-server -- --state=.local/rooms --history
+```
+
+Without `--state` the server is process-local: a fresh identity each start and nothing kept past it. To build it
+separately, run `zig build rooms-server-build`; `zig-out/bin/rooms-server` uses the companion library in
+`zig-out/lib`. The process prints `ROOMS-SERVER-LISTENING` followed by the address members dial, the bare port for a
+loopback TCP room and the complete locator otherwise, and answers `directory` there. Options use `--name=value` and
+may also come from the `GLOWCAP_ROOMS_*` environment variables the TypeScript server reads; unknown or repeated
+options are refused. `--history` keeps listed rooms' recent lines in the `history` directory under `--storage=<dir>`
+or the state directory, and in memory when there is neither. A PostgreSQL URL selects the database backend described
+above. The transport options are the archive peer's: discovery-backed iroh by
+default, `--reachability=direct` for a self-contained same-host run, and `--transport=tcp --port=0` for cleartext
+loopback inspection, with `--bind` and `--announce-host` for a LAN. SIGINT and SIGTERM close the listener, end every
+accepted connection, and release state custody. Only one process may use a state directory at once.
+
+All three native peers also accept `--transport=onion`. Supply a running Tor's
+endpoints through `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL`, or
+`--onion-socks=<endpoint>` and `--onion-control=<endpoint>`. Endpoints may be
+absolute Unix socket paths or host/port pairs; the control endpoint must accept
+unauthenticated local control. The peers start no Tor themselves. With onion,
+`--port` selects the loopback port Tor forwards to; zero chooses one.
+`--onion-forward=<absolute-path> --port=0` selects a Unix forwarding socket.
+Each state
+directory keeps `onion-key` before readiness and restores it unchanged on restart.
+An unusable saved key refuses startup. A room server without a state directory
+creates a fresh onion service each run.
+
+The operator capability flags are `--admin-listeners`, `--diagnostics`,
+`--operator`, `--peering`, `--irc`, and `--viz`, or their `GLOWCAP_ROOMS_*` environment twins. Each mints a swiss number
+the state directory keeps, and the boot block prints its `ROOMS-*` token line; under a supervisor only the token
+lines print. `--viz` binds the live timeline endpoint on loopback at `--viz-port` (default 9300, `0` for any) and
+prints `ROOMS-VIZ-LISTENING` followed by the sturdyref that admits its sockets.
+`rooms-server --capabilities=<state-directory>` reads the kept token lines without
+starting a server; `--capabilities` uses `GLOWCAP_ROOMS_STATE`. It can read while
+the server owns that directory. Missing capabilities are identified, while unreadable
+or malformed state fails the command without a partial handoff. Kept tokens do not
+by themselves show which capabilities the current server has enabled.
+
+The native `--irc` gateway currently supports network and channel leases,
+subscriptions, posting, member identity changes, durable moderators and one-shot
+observer/participant invitations. Its operator inventories include IRC rooms,
+stewards and membership inboxes, with reference release, bulk retirement and
+room reset. Diagnostics include IRC rooms and occupants without exposing their
+authority tokens; the timeline follows membership annotations. Pending public
+names remain reserved during durable writes. Replacing a subscriber retains its
+IRC channel lease while retiring the old capability. Failed identity changes
+restore through surviving channels and cannot alter a newly joined identity.
+TLS/SASL and pressure coverage remain part of final migration verification.
+
+The web front starts the installed Rust server by default and forwards the
+operator flags it was given, including `--irc`. `GLOWCAP_ROOMS_SERVER_BIN` can
+name another native executable. The `zig build rooms-web*` launch steps build
+their native server first; direct `deno run` use requires `zig build
+rooms-server-build` beforehand. Onion selections pass the supervised Tor endpoints
+and local forward port to the native server.
 
 ### Running a member archive peer
 
-The archive peer needs one state directory. It keeps its Host identity, archive authority, and retained revision log
+The archive peer is a native Rust executable and needs one state directory. It keeps its Host identity, archive authority, and retained revision log
 together there:
 
 ```sh
 zig build rooms-archive -- --state=.local/member-archive
 ```
+
+This command builds and runs the service without Deno. To build it separately,
+run `zig build rooms-archive-build`; `zig-out/bin/rooms-archive` uses the companion
+library in `zig-out/lib`. Keep those directories together when moving the build.
+SIGINT and SIGTERM drain admitted archive work before releasing state custody.
+Options use `--name=value`; unknown or repeated options are refused.
 
 The ordinary transport is discovery-backed iroh, so the sturdyref's bare node ID stays dialable when endpoint addresses
 change across restart. The process prints `ROOMS-ARCHIVE-LISTENING` followed by that complete sturdyref. It is bearer
@@ -234,7 +372,8 @@ management and moderation on every local room this server owns, including privat
 Active IRC bridges also appear, but their bridge source issues and revokes their moderator capability. Peered rooms
 remain with their remote source and do not appear. A live native room exposes a stable, non-bearer
 management identity that lets the operator recover the exact manager without learning or accepting a display label as
-authority. The operator also lists moderator inventory, gives an unissued moderator or recovers the current one, and
+authority. Two recoveries of the same manager at once join one operation and receive its one result; the second never
+re-enters the Host to mint a rival. The operator also lists moderator inventory, gives an unissued moderator or recovers the current one, and
 revokes exact room-link, manager, or moderator generations. It cannot enter or kick by implication: the recovered
 room-scoped capabilities remain the authorities that perform those acts.
 
@@ -260,8 +399,8 @@ occupy the bounded watcher table.
 ## Operations capabilities
 
 Swiss numbers persist under `GLOWCAP_ROOMS_STATE`, one file per capability, and
-`deno run --allow-read --allow-env apps/rooms/server/capabilities.ts` prints the token lines for whatever that directory
-holds — the same lines the boot block prints, readable any time after startup.
+`zig build rooms-server -- --capabilities=<state-directory>` prints the token lines for whatever that directory
+holds, the same lines the boot block prints and readable any time after startup.
 
 The same state directory contains `operations.json`. It records listener options, retained IRC network configurations,
 and their channel leases. Startup restores network authority before replaying its channels. Taking a listener down,

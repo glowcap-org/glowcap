@@ -52,7 +52,7 @@
 
 ;; Mint either half of a byte-fed Host session over an arbitrary transport.
 ;; These helpers stop before establishment so each scenario can drive the
-;; precise hello or hostile-frame boundary it owns.
+;; precise hello or untrusted-frame boundary it owns.
 (define (open-dialed-over m transport-name designator tr)
   (call-with-locator-view (locator transport-name designator (hash) 'boolean-false)
     (lambda (view)

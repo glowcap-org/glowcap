@@ -14,8 +14,8 @@ const expectFileContains = util.expectFileContains;
 /// relative `./load.ts` import from quietly bringing Node built-ins back into
 /// a browser bundle where a tolerant bundler would merely externalize them.
 /// Deno config inheritance does not merge import maps, so an application map
-/// mirrors the binding-owned entries explicitly; the built-artifact test under
-/// `apps/rooms/test/` is the final authority that this source contract worked.
+/// mirrors the binding-owned entries explicitly when it uses the TS Host. Rooms
+/// instead uses Rust Wasm and must not retain those Host or transport mappings.
 pub fn checkBrowserFfiResolver(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -34,23 +34,19 @@ pub fn checkBrowserFfiResolver(
     });
     try expectFileContains(io, gpa, root, violations, "apps/rooms/web/browser-bundle.json", &.{
         "\"@glowcap/abi\": \"../../../bindings/ts/abi/constants.ts\"",
-        "\"@glowcap/web\": \"../../../bindings/ts/web/mod.ts\"",
-        "\"@glowcap/runtime\": \"../../../bindings/ts/runtime/mod.ts\"",
-        "\"@glowcap/runtime/websocket\": \"../../../bindings/ts/runtime/websocket.ts\"",
-        "\"@glowcap/runtime/ffi\": \"../../../bindings/ts/web/browser_ffi.ts\"",
-        "\"@glowcap/runtime/transport\": \"../../../bindings/ts/runtime/transport.ts\"",
-        "\"@glowcap/relay\": \"../../../bindings/ts/relay/mod.ts\"",
-        "\"@glowcap/iroh\": \"../../../bindings/ts/web/browser_iroh_stub.ts\"",
-        "\"@glowcap/iroh/internal\": \"../../../bindings/ts/web/browser_iroh_stub.ts\"",
-        "\"@glowcap/webrtc\": \"../../../bindings/ts/webrtc/mod.ts\"",
-        "\"@glowcap/webrtc/channel\": \"../../../bindings/ts/webrtc/channel.ts\"",
-        "\"@glowcap/tcp\": \"../../../bindings/ts/tcp/mod.ts\"",
-        "\"node:net\": \"../../../bindings/ts/web/browser_ffi_stubs.ts\"",
-        "\"bun:ffi\": \"../../../bindings/ts/web/browser_ffi_stubs.ts\"",
+        "\"@glowcap/runtime/cleanup\": \"../../../bindings/ts/runtime/cleanup.ts\"",
         "\"react\": \"npm:react@",
         "\"zustand\": \"npm:zustand@",
         "\"zod/mini\": \"npm:zod@",
     });
+    const rooms_path = "apps/rooms/web/browser-bundle.json";
+    const rooms_bundle = try root.readFileAlloc(io, rooms_path, gpa, .limited(1 << 20));
+    defer gpa.free(rooms_bundle);
+    for ([_][]const u8{ "\"@glowcap/runtime\"", "@glowcap/runtime/ffi", "@glowcap/runtime/transport", "@glowcap/web\"", "@glowcap/webrtc", "@glowcap/relay", "@glowcap/tcp", "@glowcap/iroh", "node:net", "bun:ffi" }) |retired| {
+        if (std.mem.indexOf(u8, rooms_bundle, retired) != null) {
+            try appendViolation(gpa, violations, "{s}: retired TypeScript runtime mapping `{s}`; Rooms uses its Rust Wasm application", .{ rooms_path, retired });
+        }
+    }
     const binding_bundle = try root.readFileAlloc(io, "bindings/ts/web/browser-bundle.json", gpa, .limited(1 << 20));
     defer gpa.free(binding_bundle);
     for ([_][]const u8{ "npm:react", "npm:zustand", "npm:zod" }) |application_dependency| {

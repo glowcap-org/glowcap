@@ -30,12 +30,10 @@
 mod channel;
 mod conn;
 mod constants_gen;
-mod lifecycle;
 mod peer_connection;
 mod signaling;
 
 use channel::*;
-mod readiness;
 
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
@@ -52,8 +50,10 @@ use webrtc::peer_connection::{
 	RTCPeerConnectionState, RTCSessionDescription,
 };
 
-use lifecycle::{CloseTasks, RuntimeOwner};
-use readiness::Readiness;
+use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier};
+
+/// The shared readiness channel, drained into this sidecar's own record layout.
+type Readiness = glowcap_sidecar_common::Readiness<GlowcapWebrtcReadyEvent>;
 
 /// The label of the one data channel a glowcap `webrtc` session runs over. Both
 /// peers agree on it out of band; the offerer creates it under this name.
@@ -146,6 +146,12 @@ pub struct GlowcapWebrtcEndpointConfig {
 pub struct GlowcapWebrtcReadyEvent {
 	pub subject: usize,
 	pub events: u32,
+}
+
+impl From<(usize, u32)> for GlowcapWebrtcReadyEvent {
+	fn from((subject, events): (usize, u32)) -> Self {
+		GlowcapWebrtcReadyEvent { subject, events }
+	}
 }
 
 /// Largest DataChannel message glowcap sends or admits. The Zig transport
@@ -284,7 +290,7 @@ struct EndpointInner {
 	/// Peer handles may release before their asynchronous crate-level close has
 	/// completed. This owner survives them and makes endpoint release their one
 	/// deterministic completion/failure barrier.
-	close_tasks: Arc<CloseTasks>,
+	close_tasks: Arc<TaskBarrier>,
 	/// The signaling/raw-peer subscription. Its event stream remains independent
 	/// from the generic driver's subscription so neither consumer can steal the
 	/// other's wake or readiness record.
@@ -447,7 +453,7 @@ pub extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
 		Box::into_raw(Box::new(GlowcapWebrtcEndpoint {
 			inner: Arc::new(EndpointInner {
 				rt: RuntimeOwner::new(rt),
-				close_tasks: Arc::new(CloseTasks::new()),
+				close_tasks: Arc::new(TaskBarrier::new()),
 				readiness,
 				driver_readiness: Mutex::new(None),
 				next_peer_id: AtomicUsize::new(1),

@@ -4,29 +4,23 @@
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
-.row.mine .bubble a {
-	color: var(--on-accent);
-}
-/* The page-wide inline-code chip serves the bubble too; only our own
-   bubble's amber ground needs a wash the cream chip cannot give it. */
-.row.mine .bubble code {
-	background: color-mix(in srgb, var(--on-accent) 20%, transparent);
-}
+/* A block of code inside a line: recessed to the page's ground and squared
+   off to the chip radius. The mono and the recess already say listing; a
+   coloured rule down its side said it a third time. */
 .bubble .code-block {
 	max-width: min(70vw, 520px);
 	margin: 6px 0 2px;
-	padding: 10px 12px;
+	padding: 9px 12px;
 	overflow-x: auto;
 	border: 1px solid var(--rule);
-	border-radius: 8px;
+	border-radius: var(--radius-chip);
 	background: var(--paper);
 	color: var(--ink);
 	white-space: pre;
 	line-height: 1.45;
 	tab-size: 4;
 }
-.bubble .code-block code,
-.row.mine .bubble .code-block code {
+.bubble .code-block code {
 	display: block;
 	padding: 0;
 	border-radius: 0;
@@ -34,19 +28,12 @@
 	color: inherit;
 	font-size: var(--type-caption);
 }
-.row.mine .bubble .code-block {
-	border-color: color-mix(in srgb, var(--on-accent) 28%, transparent);
-}
 .mention {
 	color: var(--accent-ink);
 	background: color-mix(in srgb, var(--accent) 16%, transparent);
 	padding: 0 4px;
 	border-radius: 5px;
 	font-weight: 600;
-}
-.row.mine .mention {
-	color: var(--on-accent);
-	background: color-mix(in srgb, var(--on-accent) 24%, transparent);
 }
 .mention.you {
 	background: var(--mine-from);
@@ -155,16 +142,12 @@
 	font-size: var(--type-fine);
 	color: var(--ink-soft);
 }
-/* On a bubble with the accent fill behind it, the ink is the bubble's own,
-   quieted rather than greyed: a grey chosen against paper turns to mud on
-   amber, and this is small text that still has to be read. Quieting by mixing
-   toward the fill rather than by opacity, so what it lands on is stated here
-   instead of being whatever happens to be underneath. */
-/* Only the edited note. A withdrawn line no longer stands on the accent, so
-   ink chosen to be read against the accent would be the wrong ink there; it
-   takes the soft ink above, which is what its bubble is now drawn for. */
+/* On a line of yours the ground is warmed paper, a shade darker than the paper
+   the soft ink was chosen against, so the note takes a step toward the full
+   ink to keep its 4.5:1; the browser proof measures it over both stops. A
+   withdrawn line stands on no tint and keeps the soft ink above. */
 .row.mine .edited-said {
-	color: var(--on-accent-soft);
+	color: color-mix(in srgb, var(--ink-soft) 55%, var(--ink));
 }
 /* After the words rather than among them, because it qualifies what was said
    rather than being part of it. */
@@ -313,8 +296,22 @@
 	right: 100%;
 	padding-right: 6px;
 	display: none;
-	gap: var(--gap-hair);
+	align-items: center;
+	gap: var(--gap-tight);
 	z-index: 2;
+}
+/* The minute this one line landed, set as the group's stamp is, standing
+   nearest the bubble on whichever side the strip is on: on your own line the
+   strip is to the left, so its order turns around and the stamp still sits
+   against the line it belongs to. */
+.line-at {
+	font-size: var(--type-fine);
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-soft);
+	white-space: nowrap;
+}
+.row.mine .line-acts {
+	flex-direction: row-reverse;
 }
 @media (hover: hover) {
 	.bubble:hover .line-acts,
@@ -332,6 +329,12 @@
 	}
 	.line-acts:focus-within {
 		opacity: 1;
+	}
+	/* The strip is always up here, and a stamp beside every line would be a
+	   second column of numbers down a narrow screen; the group's stamp under
+	   the stack is the phone's answer. */
+	.line-at {
+		display: none;
 	}
 }
 /* On somebody else's message the bubble is on the left, so the mark goes to its
@@ -539,6 +542,11 @@
 .complete-label {
 	flex: none;
 	white-space: nowrap;
+	/* A command name is typed, so it takes the mono the page keeps for what
+	   is typed, one step under the row's sans because the mono sets larger. */
+	font-family: var(--font-mono);
+	font-size: var(--type-caption);
+	font-weight: 600;
 }
 /* What that name is. Quieter, and the first thing to give up room, because the
    beginning of a summary is what answers "which one is this". */

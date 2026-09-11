@@ -94,7 +94,7 @@ export function SessionSetup(
 		<main className="session-setup card-plane" id="sessionSetup">
 			<div className="session-setup-inner">
 				<header className="session-setup-brand brand-lockup">
-					<Icon name="mark" size={44} />
+					<Icon name="mark" size={56} />
 					<Wordmark />
 				</header>
 				<div className="session-setup-heading">

@@ -7,7 +7,7 @@ import { useConversationMembers } from "../hooks.ts";
 import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, phaseWord, roomCalled } from "../text.ts";
 import { Icon } from "../icons.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
-import { roomPreset } from "../../../lib/room/policy.ts";
+import { roomPreset } from "../room_policy.ts";
 import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
 

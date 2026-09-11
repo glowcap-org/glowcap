@@ -44,6 +44,16 @@ the vision itself when a tradeoff between them is unclear.
   publishing a live object; whether that failure ends the process is consumer
   policy. A panic or `unreachable` is reserved for an internal invariant whose
   preconditions exclude runtime input, never an error path.
+- **Errors climb to the tier that can act.** A library tier never swallows a
+  failure: it returns the typed cause to its caller, settles the waiter that
+  owns it, or latches it in the bounded diagnostic journal
+  ([ADR-0115](../../docs/decisions/adr/ADR-0115-structured-diagnostic-waist.md))
+  when no caller survives. It logs nothing and chooses no recovery. The
+  application tier chooses among three responses: retry, propagate, or catch
+  and record. The outermost handler between the software and a person shows
+  an unrecoverable failure with what happened and one next action, never a
+  silent stop. A failure that is expected but must stay rare is counted where
+  it is caught, so its frequency is a fact rather than a guess.
 - **No hidden runtime.** The protocol core is deterministic, sync, and no-I/O.
   Adapters own host integration.
 - **Boring public surface.** The C ABI ships as a small declared set of

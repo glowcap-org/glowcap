@@ -1,4 +1,6 @@
 /// <reference lib="dom" />
+import "./support/browser_application.ts";
+import { workspaceStorageKey } from "../web/ui/application.ts";
 
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
@@ -16,13 +18,11 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const {
-	adoptAttachedSessionState,
-	forgetForkedDirectoryNames,
-	parseWorkspaceState,
-	rememberedWorkspaceArchivePeer,
+	retainSessionState,
 	setWorkspaceControllerSelection,
+	parseWorkspaceState,
+	setWorkspaceControllerAndSession,
 	workspaceStateOf,
-	WORKSPACE_STATE_KEY,
 } = await import("../web/ui/workspace_state.ts");
 const { exportWorkspaceState, importWorkspaceState, restoreWorkspaceState } = await import(
 	"../web/ui/workspace/bundle.ts"
@@ -35,11 +35,15 @@ const { parseRoomsSessionStateValue, redactWorkspaceCapabilities, sharedRoomsSes
 const store = await import("../web/ui/store.ts");
 const { dirId } = await import("../web/ui/types.ts");
 const { fixtureSturdyref, workspaceFixture: valid } = await import("./support/workspace.ts");
-const { splitBridgeSubmission } = await import("../lib/bridge/form.ts");
-const { IRC_SECRET_FIELDS } = await import("../irc/bridge/identity_form.ts");
+const { bridgeFormSecretIds, splitBridgeSubmission } = await import("../lib/bridge/form.ts");
 
 function assert(ok: boolean, what: string): asserts ok {
 	if (!ok) throw new Error(what);
+}
+
+function freshPage() {
+	memory.clear();
+	return new RoomsPage();
 }
 
 Deno.test("workspace state keeps reconstructible user choices under stable conversation ids", () => {
@@ -61,7 +65,7 @@ Deno.test("workspace state keeps reconstructible user choices under stable conve
 });
 
 Deno.test("a fresh browser has no implicit session controller", () => {
-	const page = new RoomsPage();
+	const page = freshPage();
 	assert(
 		workspaceStateOf(page, page.projection.get()).controller.kind === "none",
 		"fresh state silently established a local session",
@@ -82,24 +86,24 @@ Deno.test("a fresh browser has no implicit session controller", () => {
 });
 
 Deno.test("attached session adoption retains the complete shared capability and peering projection", () => {
-	const page = new RoomsPage();
+	const page = freshPage();
 	const attached = valid().session as unknown as RoomsSessionState;
 	attached.peering = [{ id: "publication", destination: "destination", source: "room-id", name: "general" }];
-	adoptAttachedSessionState(page, attached);
+	retainSessionState(page, attached);
 	assert(
-		workspaceStateOf(page, page.projection.get()).session.peering[0]?.id === "publication",
+		page.workspace.retained.peering[0]?.id === "publication",
 		"attached session adoption dropped shared peering intent",
 	);
 	assert(
-		rememberedWorkspaceArchivePeer(page) === attached.capabilities.archivePeer,
+		page.workspace.retained.archivePeer === attached.capabilities.archivePeer,
 		"attached session adoption left archive selection behind in browser storage",
 	);
 	attached.peering = [];
-	adoptAttachedSessionState(page, attached);
+	retainSessionState(page, attached);
 });
 
-Deno.test("controller selection persists once and redacts from ordinary export", () => {
-	const page = new RoomsPage();
+Deno.test("controller selection and its verified session cache persist as one document", () => {
+	const page = freshPage();
 	const base = valid();
 	const reset = {
 		...base,
@@ -117,7 +121,13 @@ Deno.test("controller selection persists once and redacts from ordinary export",
 		kind: "attached" as const,
 		sturdyref: fixtureSturdyref("ocapn://session.iroh", "shared-session"),
 	};
-	assert(setWorkspaceControllerSelection(page, controller), "the attached controller selection was not saved");
+	const targetSession = { ...reset.session, standing: "the target session" };
+	assert(
+		setWorkspaceControllerAndSession(page, controller, targetSession),
+		"the attached controller selection was not saved",
+	);
+	const saved = parseWorkspaceState(memory.get(workspaceStorageKey()) ?? null);
+	assert(saved?.session.standing === "the target session", "the new controller retained the prior session cache");
 	const complete = JSON.parse(exportWorkspaceState(page, true));
 	const ordinary = JSON.parse(exportWorkspaceState(page, false));
 	assert(complete.controller.sturdyref === controller.sturdyref, "complete export lost the attached controller");
@@ -180,7 +190,7 @@ Deno.test("workspace and session parsers accept only their current prerelease sc
 });
 
 Deno.test("workspace projection restores room and moderator capabilities together", () => {
-	const page = new RoomsPage();
+	const page = freshPage();
 	const directory = dirId("ocapn://directory.id");
 	store.openDir(page.projection, directory, directory);
 	store.patchDir(page.projection, directory, { requestedNick: "ada", nick: "granted-ada" });
@@ -193,34 +203,52 @@ Deno.test("workspace projection restores room and moderator capabilities togethe
 	// by IRC's own declaration of which field is a credential. Handing the
 	// already-split answers in instead would prove only that this test can leave
 	// a password out.
-	const submission = splitBridgeSubmission(IRC_SECRET_FIELDS, {
+	const declared = {
+		scope: "network",
+		title: "IRC identity",
+		said: "Choose an identity",
+		fields: [
+			{ kind: "text" as const, id: "nick", label: "Nick", required: true },
+			{ kind: "text" as const, id: "account", label: "Account", required: false },
+			{ kind: "secret" as const, id: "password", label: "Password", required: false },
+		],
+		actions: [{
+			id: "connect",
+			label: "Connect",
+			busyLabel: "Connecting…",
+			tone: "primary" as const,
+			remembered: true,
+		}],
+	};
+	const submission = splitBridgeSubmission(bridgeFormSecretIds(declared), {
 		nick: "glowcap",
 		account: "acct",
 		password: "hunter2",
 	});
-	store.setRoomBridgeIntent(
-		page.projection,
-		room.key,
-		{
-			scope: "Libera",
-			action: "link",
-			answers: submission.answers,
-			secretsGiven: Object.keys(submission.secrets).length > 0,
-		},
-		"Libera",
-	);
-	store.addInvite(page.projection, {
+	const saved = valid();
+	const savedRoom = saved.session.conversations[0];
+	assert(savedRoom.kind === "room", "fixture must contain a room");
+	savedRoom.link = roomLink;
+	savedRoom.steward = moderatorLink;
+	savedRoom.bridgeIntent = {
+		scope: "Libera",
+		action: "link",
+		answers: submission.answers,
+		secretsGiven: Object.keys(submission.secrets).length > 0,
+	};
+	saved.session.invitations = [{
+		kind: "room-link",
 		id: "saved-invite",
-		dir: dirId("ocapn://target.id"),
-		way: "link",
+		directory: "ocapn://target.id",
+		locator: "ocapn://target.id",
+		nick: "ada",
 		label: "quiet room",
 		from: "bo",
 		link: fixtureSturdyref("ocapn://target.id", "invited-room"),
-		locator: "ocapn://target.id",
-		nick: "ada",
-	});
-	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
-	const persisted = memory.get(WORKSPACE_STATE_KEY)!;
+	}];
+	assert(parseWorkspaceState(JSON.stringify(saved)) != null, JSON.stringify(saved));
+	memory.set(workspaceStorageKey(), JSON.stringify(saved));
+	const persisted = memory.get(workspaceStorageKey())!;
 	assert(!persisted.includes("hunter2"), "a secret answer entered browser storage");
 	assert(persisted.includes("glowcap"), "the remembered answers did not reach browser storage");
 	store.dropInvite(page.projection, "saved-invite");
@@ -255,12 +283,13 @@ Deno.test("workspace projection restores room and moderator capabilities togethe
 		clearedRoom?.type === "room" && clearedRoom.bridgeIntent === null,
 		"the Rooms-only IRC choice was not retained",
 	);
-	const roomsOnly = workspaceStateOf(page, page.projection.get());
+	const roomsOnly = saved;
+	savedRoom.bridgeIntent = null;
 	assert(
 		roomsOnly.session.conversations[0]?.kind === "room" && roomsOnly.session.conversations[0].bridgeIntent === null,
 		"workspace projection dropped the explicit Rooms-only IRC choice",
 	);
-	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(roomsOnly));
+	memory.set(workspaceStorageKey(), JSON.stringify(roomsOnly));
 	store.forgetConv(page.projection, room.key);
 	store.forgetDir(page.projection, directory);
 	restoreWorkspaceState(page, (locator) => locator === directory ? directory : null);
@@ -279,17 +308,32 @@ Deno.test("workspace projection restores room and moderator capabilities togethe
 	store.dropInvite(page.projection, "saved-invite");
 	store.forgetConv(page.projection, room.key);
 	store.forgetDir(page.projection, directory);
-	memory.delete(WORKSPACE_STATE_KEY);
+	memory.delete(workspaceStorageKey());
 });
 
 Deno.test("workspace restore preserves actual reach evidence without inventing it", () => {
-	const page = new RoomsPage();
+	const page = freshPage();
 	page.projection.reset();
 	const reached = dirId("ocapn://reached.id");
 	const route = "ocapn://reached.iroh";
 	store.openDir(page.projection, reached, route);
 	store.markDirReached(page.projection, reached);
-	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
+	const saved = valid();
+	saved.controller = page.workspace.retained.controller;
+	saved.session.directories = [{
+		id: reached,
+		locator: route,
+		home: true,
+		nick: "ada",
+		standing: null,
+		reached: true,
+	}];
+	saved.session.capabilities.operations = [];
+	saved.session.conversations = [];
+	saved.session.invitations = [];
+	saved.session.active = null;
+	assert(parseWorkspaceState(JSON.stringify(saved)) != null, JSON.stringify(saved));
+	memory.set(workspaceStorageKey(), JSON.stringify(saved));
 	store.forgetDir(page.projection, reached);
 	restoreWorkspaceState(page, (locator) => locator === route ? reached : null);
 	assert(
@@ -304,17 +348,35 @@ Deno.test("workspace restore preserves actual reach evidence without inventing i
 });
 
 Deno.test("an attached restore does not present directories as a dropped live connection", () => {
-	const page = new RoomsPage();
+	const page = freshPage();
 	page.projection.reset();
 	const reached = dirId("ocapn://reached.id");
 	const route = "ocapn://reached.iroh";
 	store.openDir(page.projection, reached, route);
 	store.markDirReached(page.projection, reached);
-	page.workspace.retained.controller = {
-		kind: "attached",
-		sturdyref: fixtureSturdyref("ocapn://session.iroh", "attached-restore"),
+	page.workspace.retained = {
+		...page.workspace.retained,
+		controller: {
+			kind: "attached",
+			sturdyref: fixtureSturdyref("ocapn://session.iroh", "attached-restore"),
+		},
 	};
-	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
+	const saved = valid();
+	saved.controller = page.workspace.retained.controller;
+	saved.session.directories = [{
+		id: reached,
+		locator: route,
+		home: true,
+		nick: "ada",
+		standing: null,
+		reached: true,
+	}];
+	saved.session.capabilities.operations = [];
+	saved.session.conversations = [];
+	saved.session.invitations = [];
+	saved.session.active = null;
+	assert(parseWorkspaceState(JSON.stringify(saved)) != null, JSON.stringify(saved));
+	memory.set(workspaceStorageKey(), JSON.stringify(saved));
 	store.forgetDir(page.projection, reached);
 	restoreWorkspaceState(page, (locator) => locator === route ? reached : null);
 	assert(
@@ -463,7 +525,7 @@ Deno.test("workspace state refuses runtime-shaped and unbounded content", () => 
 });
 
 Deno.test("a local fork of an attached session drops directory names and keeps rooms unreadied", () => {
-	const page = new RoomsPage();
+	const page = freshPage();
 	const directory = dirId("ocapn://fork.id");
 	store.openDir(page.projection, directory, directory);
 	store.patchDir(page.projection, directory, { requestedNick: "ada", nick: "ada" });
@@ -472,26 +534,46 @@ Deno.test("a local fork of an attached session drops directory names and keeps r
 		publicationId: "bridge-gen",
 		reconnect: "manual",
 	});
-	const restore = forgetForkedDirectoryNames(page);
-	assert(
-		page.projection.get().dirs.get(directory)?.requestedNick === "",
-		"the forked copy kept the shared nickname intent",
-	);
-	assert(page.projection.get().dirs.get(directory)?.nick === "", "the forked copy kept a live nickname grant");
-	restore();
-	assert(
-		page.projection.get().dirs.get(directory)?.requestedNick === "ada" &&
-			page.projection.get().dirs.get(directory)?.nick === "ada" &&
-			page.projection.get().remembered.nick === "ada",
-		"a failed controller commit could not put the shared names back",
-	);
-	forgetForkedDirectoryNames(page);
-	memory.set(WORKSPACE_STATE_KEY, JSON.stringify(workspaceStateOf(page, page.projection.get())));
+	const attached = valid();
+	attached.controller = { kind: "attached", sturdyref: fixtureSturdyref("ocapn://session.iroh", "fork") };
+	attached.session.directories = [{ id: directory, locator: directory, home: true, nick: "ada", standing: null }];
+	attached.session.conversations = [{
+		kind: "room",
+		id: "fork-room",
+		directory,
+		name: "general",
+		held: false,
+		standing: null,
+		draft: "",
+		publicationId: "bridge-gen",
+		reconnect: "manual",
+	}];
+	attached.session.invitations = [];
+	attached.session.active = "fork-room";
+	attached.session.capabilities.operations = [];
+	assert(parseWorkspaceState(JSON.stringify(attached)) != null, "fork fixture is invalid");
+	memory.set(workspaceStorageKey(), JSON.stringify(attached));
+	restoreWorkspaceState(page, (locator) => locator === directory ? directory : null);
+	const originalWrite = localStorage.setItem;
+	localStorage.setItem = () => {
+		throw new Error("storage full");
+	};
+	try {
+		assert(!setWorkspaceControllerSelection(page, { kind: "local" }), "a refused fork was committed");
+		assert(
+			page.projection.get().dirs.get(directory)?.requestedNick === "ada",
+			"a refused fork mutated nickname intent",
+		);
+		assert(memory.get(workspaceStorageKey()) === JSON.stringify(attached), "a refused fork changed durable state");
+	} finally {
+		localStorage.setItem = originalWrite;
+	}
+	assert(setWorkspaceControllerSelection(page, { kind: "local" }), "the fork did not commit");
 	store.forgetConv(page.projection, room.key);
 	store.forgetDir(page.projection, directory);
 	restoreWorkspaceState(page, (locator) => locator === directory ? directory : null);
 	const restored = store.getConv(page.projection, room.key);
-	assert(restored?.type === "room", "the copied room was not restored");
+	assert(restored?.type === "room", "the copied room was not restored: " + memory.get(workspaceStorageKey()));
 	assert(restored.membership === "unavailable", "the copied room reconstructed as already joining");
 	assert(restored.reconnect === "manual", "explicit rejoin intent was lost");
 	assert(restored.publicationId === "bridge-gen", "the bridge publication identity was lost");

@@ -33,7 +33,7 @@ pub const DurableProvenance = enum {
 /// This is a target requirement, never proof. A partner hello selecting a key
 /// route must claim it; an address route makes no durable claim and is weighed
 /// on the realizer/netlayer evidence. Repeating the same demand is idempotent;
-/// naming another key is a caller bug because no attacker input reaches here.
+/// naming another key is a caller bug because no peer input reaches here.
 pub fn demandPartnerDurableKey(self: *Peer, key: foundation.crypto.PeerKey) void {
     if (self.durable_pin.demanded_partner) |existing| std.debug.assert(existing.eql(key));
     self.durable_pin.demanded_partner = key;

@@ -1,0 +1,308 @@
+{
+  "authority": "apps/rooms/archive/storage.ts",
+  "cases": [
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n",
+      "valid": true,
+      "next": 0,
+      "records": [],
+      "repaired": false
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": true,
+      "next": 1,
+      "records": [
+        {
+          "revision": 1,
+          "json": "{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}",
+          "id": [
+            111,
+            110,
+            101
+          ],
+          "text": [
+            104,
+            101,
+            108,
+            108,
+            111
+          ],
+          "name": null
+        }
+      ],
+      "repaired": false
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":3}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n{\"revision\":3,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"two\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": true,
+      "next": 3,
+      "records": [
+        {
+          "revision": 1,
+          "json": "{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}",
+          "id": [
+            111,
+            110,
+            101
+          ],
+          "text": [
+            104,
+            101,
+            108,
+            108,
+            111
+          ],
+          "name": null
+        },
+        {
+          "revision": 3,
+          "json": "{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"two\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}",
+          "id": [
+            116,
+            119,
+            111
+          ],
+          "text": [
+            104,
+            101,
+            108,
+            108,
+            111
+          ],
+          "name": null
+        }
+      ],
+      "repaired": false
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n{\"revision\":2,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"edited\",\"mine\":false,\"at\":99,\"order\":99,\"state\":\"edited\",\"attachments\":[]}}\n",
+      "valid": true,
+      "next": 2,
+      "records": [
+        {
+          "revision": 2,
+          "json": "{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"edited\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"edited\",\"attachments\":[]}",
+          "id": [
+            111,
+            110,
+            101
+          ],
+          "text": [
+            101,
+            100,
+            105,
+            116,
+            101,
+            100
+          ],
+          "name": null
+        }
+      ],
+      "repaired": false
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n{\"revision\":2",
+      "valid": true,
+      "next": 1,
+      "records": [
+        {
+          "revision": 1,
+          "json": "{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}",
+          "id": [
+            111,
+            110,
+            101
+          ],
+          "text": [
+            104,
+            101,
+            108,
+            108,
+            111
+          ],
+          "name": null
+        }
+      ],
+      "repaired": true
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n{\"revision\":2,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"withdrawn\",\"attachments\":[]}}\n",
+      "valid": true,
+      "next": 2,
+      "records": [
+        {
+          "revision": 2,
+          "json": "{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"withdrawn\",\"attachments\":[]}",
+          "id": [
+            111,
+            110,
+            101
+          ],
+          "text": [],
+          "name": null
+        }
+      ],
+      "repaired": false
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":2}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"s\\ud802\",\"generation\":\"generation\",\"id\":\"\\ud800\",\"conversationKind\":\"room\",\"directory\":\"d\\ud803\",\"conversation\":\"garden\",\"from\":\"a\\ud804\",\"text\":\"saved\\ud801text\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[{\"name\":\"f\\ud805\",\"mime\":\"x\\ud806\",\"size\":0,\"width\":0,\"height\":0,\"blob\":null}]}}\n{\"revision\":2,\"record\":{\"kind\":\"line\",\"source\":\"s\\ud802\",\"generation\":\"generation\",\"id\":\"\\ud801\",\"conversationKind\":\"room\",\"directory\":\"d\\ud803\",\"conversation\":\"garden\",\"from\":\"a\\ud804\",\"text\":\"saved\\ud801text\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[{\"name\":\"f\\ud805\",\"mime\":\"x\\ud806\",\"size\":0,\"width\":0,\"height\":0,\"blob\":null}]}}\n",
+      "valid": true,
+      "next": 2,
+      "records": [
+        {
+          "revision": 1,
+          "json": "{\"kind\":\"line\",\"source\":\"s\\ud802\",\"generation\":\"generation\",\"id\":\"\\ud800\",\"conversationKind\":\"room\",\"directory\":\"d\\ud803\",\"conversation\":\"garden\",\"from\":\"a\\ud804\",\"text\":\"saved\\ud801text\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[{\"name\":\"f\\ud805\",\"mime\":\"x\\ud806\",\"size\":0,\"width\":0,\"height\":0,\"blob\":null}]}",
+          "id": [
+            55296
+          ],
+          "text": [
+            115,
+            97,
+            118,
+            101,
+            100,
+            55297,
+            116,
+            101,
+            120,
+            116
+          ],
+          "name": [
+            102,
+            55301
+          ]
+        },
+        {
+          "revision": 2,
+          "json": "{\"kind\":\"line\",\"source\":\"s\\ud802\",\"generation\":\"generation\",\"id\":\"\\ud801\",\"conversationKind\":\"room\",\"directory\":\"d\\ud803\",\"conversation\":\"garden\",\"from\":\"a\\ud804\",\"text\":\"saved\\ud801text\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[{\"name\":\"f\\ud805\",\"mime\":\"x\\ud806\",\"size\":0,\"width\":0,\"height\":0,\"blob\":null}]}",
+          "id": [
+            55297
+          ],
+          "text": [
+            115,
+            97,
+            118,
+            101,
+            100,
+            55297,
+            116,
+            101,
+            120,
+            116
+          ],
+          "name": [
+            102,
+            55301
+          ]
+        }
+      ],
+      "repaired": false
+    },
+    {
+      "input": "﻿{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": false,
+      "reason": "Error: archive file has invalid JSON in header"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1.0,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":1e1,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": true,
+      "next": 1,
+      "records": [
+        {
+          "revision": 1,
+          "json": "{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}",
+          "id": [
+            111,
+            110,
+            101
+          ],
+          "text": [
+            104,
+            101,
+            108,
+            108,
+            111
+          ],
+          "name": null
+        }
+      ],
+      "repaired": false
+    },
+    {
+      "input": "",
+      "valid": false,
+      "reason": "Error: archive file has no complete header"
+    },
+    {
+      "input": "{}\n",
+      "valid": false,
+      "reason": "Error: archive file has an invalid header:\n✖ Invalid input\n  → at archive\n✖ Invalid input\n  → at version\n✖ Invalid input\n  → at revision"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}",
+      "valid": false,
+      "reason": "Error: archive file has no complete header"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":2,\"revision\":0}\n",
+      "valid": false,
+      "reason": "Error: archive file was written as glowcap-rooms-member-archive version 2, and this build reads glowcap-rooms-member-archive version 1. Rooms does not rewrite prerelease state: stop the peer and remove its state directory (apps/rooms/operating.md)."
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":2,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": false,
+      "reason": "Error: archive revision is not the next revision"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":2}\n{\"revision\":2,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"two\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": false,
+      "reason": "Error: archive snapshot rows are not ordered"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":2}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n{\"revision\":2,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": false,
+      "reason": "Error: archive snapshot repeats a record key"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[],\"extra\":true}}\n",
+      "valid": false,
+      "reason": "Error: archive file has an invalid record row:\n✖ Invalid input\n  → at record"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[],\"room\":\"extra\"}}\n",
+      "valid": false,
+      "reason": "Error: archive file has an invalid record row:\n✖ Invalid input\n  → at record"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":null,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": false,
+      "reason": "Error: archive file has an invalid record row:\n✖ Invalid input\n  → at record"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":-1,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": false,
+      "reason": "Error: archive file has an invalid record row:\n✖ Invalid input\n  → at record.at"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[{\"name\":\"file\",\"mime\":\"\",\"size\":1,\"width\":65536,\"height\":0,\"blob\":null}]}}\n",
+      "valid": false,
+      "reason": "Error: archive file has an invalid record row:\n✖ Invalid input\n  → at record.attachments[0].width"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n{bad}\n{\"revision\":2,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"two\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": false,
+      "reason": "Error: archive file has invalid JSON in record row"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"hello\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n\n",
+      "valid": false,
+      "reason": "Error: archive file has invalid JSON in record row"
+    },
+    {
+      "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n{\"revision\":1,\"record\":{\"kind\":\"line\",\"source\":\"source\",\"generation\":\"generation\",\"id\":\"one\",\"conversationKind\":\"room\",\"directory\":\"directory\",\"conversation\":\"garden\",\"from\":\"alice\",\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"mine\":false,\"at\":10,\"order\":1,\"state\":\"present\",\"attachments\":[]}}\n",
+      "valid": false,
+      "reason": "Error: archive file has an invalid record row:\n✖ Invalid input\n  → at record.text"
+    }
+  ]
+}

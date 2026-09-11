@@ -52,13 +52,10 @@ const neutral_positions_vtable = model.view.PositionList.VTable{
     .next = neutralPositionsNext,
 };
 
+/// The element count the slicing walk stored in `w2`, so `len()` is a read
+/// rather than a second walk of the subtree.
 fn neutralArgsLen(ctx: model.view.Args.Ctx) model.view.ProjectError!usize {
-    var cursor: usize = 0;
-    var total: usize = 0;
-    while (cursor < ctx.bytes.len) : (total += 1) {
-        _ = readNeutralArgument(ctx.bytes, &cursor, 0, syntax.no_limit) catch return error.MalformedView;
-    }
-    return total;
+    return @intCast(ctx.w2);
 }
 
 fn neutralArgsAt(ctx: model.view.Args.Ctx, index: usize) model.view.ProjectError!model.view.Argument {
@@ -83,12 +80,7 @@ fn neutralArgsNext(ctx: model.view.Args.Ctx, cursor: *u64) model.view.ProjectErr
 }
 
 fn neutralPositionsLen(ctx: model.view.PositionList.Ctx) model.view.ProjectError!usize {
-    var cursor: usize = 0;
-    var total: usize = 0;
-    while (cursor < ctx.bytes.len) : (total += 1) {
-        _ = syntax.readPositiveInt(ctx.bytes, &cursor) catch return error.MalformedView;
-    }
-    return total;
+    return @intCast(ctx.w2);
 }
 
 fn neutralPositionsAt(ctx: model.view.PositionList.Ctx, index: usize) model.view.ProjectError!u64 {
@@ -109,12 +101,15 @@ fn neutralPositionsNext(ctx: model.view.PositionList.Ctx, cursor: *u64) model.vi
     return value;
 }
 
-pub fn neutralArgs(list_body: []const u8) model.view.Args {
-    return model.view.Args.fromBacking(.{ .bytes = list_body }, &neutral_args_vtable);
+pub fn neutralArgs(sliced: syntax.Sliced) model.view.Args {
+    return model.view.Args.fromBacking(.{ .bytes = sliced.body, .w2 = sliced.elements }, &neutral_args_vtable);
 }
 
-pub fn neutralPositions(list_body: []const u8) model.view.PositionList {
-    return model.view.PositionList.fromBacking(.{ .bytes = list_body }, &neutral_positions_vtable);
+pub fn neutralPositions(sliced: syntax.Sliced) model.view.PositionList {
+    return model.view.PositionList.fromBacking(
+        .{ .bytes = sliced.body, .w2 = sliced.elements },
+        &neutral_positions_vtable,
+    );
 }
 
 pub fn neutralReference(reference: ReferenceView) model.view.Reference {
@@ -237,7 +232,7 @@ fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usi
 /// Slice a foreign record's field run: zero or more values up to the closing
 /// `>`, which stays for the caller to consume. Width and depth ride the same
 /// bounds as every collection walk.
-fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error![]const u8 {
+fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
     const body_start = cursor.*;
     var elements: usize = 0;
     while (cursor.* < bytes.len and bytes[cursor.*] != '>') {
@@ -246,7 +241,7 @@ fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize, lim
         _ = try readNeutralArgument(bytes, cursor, depth, limit);
     }
     if (cursor.* >= bytes.len) return Error.Incomplete;
-    return bytes[body_start..cursor.*];
+    return .{ .body = bytes[body_start..cursor.*], .elements = elements };
 }
 
 /// Slice one delimited sequence body (between `open` and `close`) using the
@@ -261,7 +256,7 @@ fn sliceSequenceNeutral(
     limit: usize,
     comptime open: u8,
     comptime close: u8,
-) Error![]const u8 {
+) Error!syntax.Sliced {
     try syntax.readByte(bytes, cursor, open);
     const body_start = cursor.*;
     var elements: usize = 0;
@@ -273,11 +268,11 @@ fn sliceSequenceNeutral(
     if (cursor.* >= bytes.len) return Error.Incomplete;
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
-    return body;
+    return .{ .body = body, .elements = elements };
 }
 
 /// Slice a `[ … ]` argument list body, advancing `cursor` past the closing `]`.
-pub fn sliceArgumentListNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error![]const u8 {
+pub fn sliceArgumentListNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
     return sliceSequenceNeutral(bytes, cursor, depth, limit, '[', ']');
 }
 
@@ -289,7 +284,7 @@ pub fn sliceArgumentListNeutral(bytes: []const u8, cursor: *usize, depth: usize,
 /// are self-delimiting and therefore prefix-free, so a non-ascending element is a
 /// non-canonical spelling and an equal element is a duplicate; both are refused
 /// `MalformedFrame` here rather than admitted as a second spelling of one set.
-fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error![]const u8 {
+fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
     try syntax.readByte(bytes, cursor, '#');
     const body_start = cursor.*;
     var previous_element: ?[]const u8 = null;
@@ -308,7 +303,7 @@ fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize
     if (cursor.* >= bytes.len) return Error.Incomplete;
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
-    return body;
+    return .{ .body = body, .elements = elements };
 }
 
 /// Slice a `{ … }` dictionary body (between the braces) into the bytes the lazy
@@ -325,7 +320,7 @@ fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize
 /// message, refused like a non-canonical length digit, and a duplicate key
 /// (ADR-0046) is never strictly ascending, so the same O(1) comparison refuses
 /// it without re-walking the prior entries.
-fn sliceStructNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error![]const u8 {
+fn sliceStructNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
     if (depth > syntax.max_decode_nesting) return Error.MalformedFrame;
     try syntax.readByte(bytes, cursor, '{');
     const body_start = cursor.*;
@@ -346,7 +341,7 @@ fn sliceStructNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: us
     if (cursor.* >= bytes.len) return Error.Incomplete;
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
-    return body;
+    return .{ .body = body, .elements = entries };
 }
 
 const neutral_struct_vtable = model.view.StructEntries.VTable{
@@ -356,12 +351,7 @@ const neutral_struct_vtable = model.view.StructEntries.VTable{
 };
 
 fn neutralStructLen(ctx: model.view.StructEntries.Ctx) model.view.ProjectError!usize {
-    var cursor: usize = 0;
-    var total: usize = 0;
-    while (cursor < ctx.bytes.len) : (total += 1) {
-        _ = readStructEntry(ctx.bytes, &cursor) catch return error.MalformedView;
-    }
-    return total;
+    return @intCast(ctx.w2);
 }
 
 fn neutralStructAt(ctx: model.view.StructEntries.Ctx, index: usize) model.view.ProjectError!model.view.StructEntry {
@@ -390,8 +380,11 @@ fn readStructEntry(bytes: []const u8, cursor: *usize) Error!model.view.StructEnt
     return .{ .key = key, .value = value };
 }
 
-fn neutralStructEntries(struct_body: []const u8) model.view.StructEntries {
-    return model.view.StructEntries.fromBacking(.{ .bytes = struct_body }, &neutral_struct_vtable);
+fn neutralStructEntries(sliced: syntax.Sliced) model.view.StructEntries {
+    return model.view.StructEntries.fromBacking(
+        .{ .bytes = sliced.body, .w2 = sliced.elements },
+        &neutral_struct_vtable,
+    );
 }
 
 pub fn readNeutralResolution(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Resolution {

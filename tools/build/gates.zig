@@ -7,7 +7,6 @@ const std = @import("std");
 const root = @import("../../build.zig");
 const arch_check = @import("../check/arch_check.zig");
 const source_check = @import("../check/source_check.zig");
-const toolchain_check = @import("../check/toolchain_check.zig");
 const common = @import("common.zig");
 const execution = @import("execution.zig");
 
@@ -15,42 +14,6 @@ const transportAbiModule = common.transportAbiModule;
 const layer_table = root.layer_table;
 const layerIndex = root.layerIndex;
 const graphFromTable = root.graphFromTable;
-/// What `zig build check` requires on PATH besides Zig. A row raises the floor
-/// for every contributor, so the graph checker below holds this inventory to
-/// the gate's actual process dependencies.
-const check_runtimes = [_]toolchain_check.Runtime{
-    .{
-        .program = "python3",
-        .scripts = &.{"tools/run-with-timeout.py"},
-        .modules = &.{"py_compile"},
-        .why = "deterministic subprocesses use the shared deadline wrapper and the Python benchmark client is compile-checked",
-    },
-    .{
-        .program = "bash",
-        .scripts = &.{
-            ".devcontainer/test/env-sync.sh",
-            ".devcontainer/test/host-invariants.sh",
-            "tools/check/ocapnviz-build-check.sh",
-            "tools/check/ocapnviz-test.sh",
-            "tools/c-abi/c-abi-extract-matrix.sh",
-            "tools/check/worktree-integration-test.sh",
-        },
-        .why = "devcontainer, worktree, C-ABI extract, and visualizer harnesses are shell-owned",
-    },
-    .{
-        .program = "deno",
-        .why = "checked TypeScript examples and site surfaces catch binding API drift",
-    },
-    .{
-        .program = "cargo",
-        .why = "the Rust benchmark client is compile-checked against the current binding",
-    },
-    .{
-        .program = "raco",
-        .why = "the Racket benchmark clients are compiled against the current binding",
-    },
-};
-
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -73,6 +36,7 @@ pub const Registered = struct {
     /// The wasm module's install step; every serve path and browser proof
     /// reads the on-disk artifact it writes.
     wasm_install: *std.Build.Step,
+    wasm_archives: *std.Build.Step,
 };
 
 /// The full `src/root.zig` module graph for an arbitrary target, used by the
@@ -131,7 +95,13 @@ fn wasmGraphMask() [layer_table.len]bool {
     return mask;
 }
 
-fn wasmDriverExe(b: *std.Build, o: std.builtin.OptimizeMode) *std.Build.Step.Compile {
+const WasmModules = struct {
+    browser: *std.Build.Module,
+    host: *std.Build.Module,
+    ocapn: *std.Build.Module,
+};
+
+fn wasmModules(b: *std.Build, o: std.builtin.OptimizeMode) WasmModules {
     const t = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const mask = comptime wasmGraphMask();
     var buf: [layer_table.len]arch_check.LayerSpec = undefined;
@@ -167,7 +137,11 @@ fn wasmDriverExe(b: *std.Build, o: std.builtin.OptimizeMode) *std.Build.Step.Com
         .{ .name = "c_abi", .module = pick(sub, mods, "c_abi") },
         .{ .name = "c_abi_host", .module = driver_mod },
     });
-    const exe = b.addExecutable(.{ .name = "glowcap_host", .root_module = wasm_root });
+    return .{ .browser = wasm_root, .host = driver_mod, .ocapn = pick(sub, mods, "c_abi") };
+}
+
+fn wasmDriverExe(b: *std.Build, o: std.builtin.OptimizeMode) *std.Build.Step.Compile {
+    const exe = b.addExecutable(.{ .name = "glowcap_host", .root_module = wasmModules(b, o).browser });
     // A loadable module, not a command: no `_start`, exports discovered from the
     // `export fn`s (`entry = .disabled`, `rdynamic`). The linker exports linear
     // memory so JS can read/write `ptr + len` across the boundary.
@@ -203,7 +177,7 @@ pub fn register(ctx: Context) Registered {
     // (`zig build rust-dogfood`, and the wider `zig build bindings`) needs
     // cargo/deno/python/racket on PATH, so it is a sibling step run alongside
     // `check`, not a dependency of it. `check` itself requires the small host
-    // tool set declared by `check_runtimes` above; the devcontainer supplies it.
+    // tool set `check_runtimes` declares in toolchain.zig; the container has it.
     // CI: the checks workflow (.github/workflows/)
     // runs `check` and the sibling gates inside the committed devcontainer
     // image via ci/gates.sh.
@@ -315,7 +289,7 @@ pub fn register(ctx: Context) Registered {
     const fuzz_driver = execution.addArtifact(b, .search, fuzz_driver_exe);
     fuzz_driver.addArgs(&.{ b.graph.zig_exe, b.fmt("--fuzz={s}", .{fuzz_budget}) });
     fuzz_driver.has_side_effects = true;
-    b.step("fuzz", "Mutation-fuzz every hostile-input target (-Dfuzz-runs to change how long each one searches)")
+    b.step("fuzz", "Mutation-fuzz every untrusted-input target (-Dfuzz-runs to change how long each one searches)")
         .dependOn(&fuzz_driver.step);
 
     const test_step = b.step("test", "Run the unit and scenario test suite (test/all_test.zig)");
@@ -489,6 +463,19 @@ pub fn register(ctx: Context) Registered {
     wasm_driver_step.dependOn(&wasm_driver_install.step);
     cross_check_step.dependOn(&wasm_driver.step);
 
+    // Static consumers share a linear memory with the Host and call the C ABI
+    // directly. They do not need the JavaScript trampolines in the browser root.
+    const wasm_static = wasmModules(b, .ReleaseSmall);
+    const wasm_archives_step = b.step("wasm-archives", "Build freestanding Host and OCapN static archives for Wasm application linking");
+    inline for (.{
+        .{ "glowcap_host", wasm_static.host },
+        .{ "glowcap_ocapn", wasm_static.ocapn },
+    }) |entry| {
+        const archive = b.addLibrary(.{ .name = entry[0], .linkage = .static, .root_module = entry[1] });
+        const install = b.addInstallArtifact(archive, .{ .dest_dir = .{ .override = .{ .custom = "wasm/lib" } } });
+        wasm_archives_step.dependOn(&install.step);
+    }
+
     // Behavioral proof that the wasm32 Host runs real CapTP from JavaScript: two
     // Hosts with distinct identities complete a keyed handshake over an in-memory
     // byte pipe, then the dialer refuses a wrong-peer sturdyref before output.
@@ -543,12 +530,6 @@ pub fn register(ctx: Context) Registered {
         .check_step = check_step,
         .test_filter = test_filter,
         .wasm_install = &wasm_driver_install.step,
+        .wasm_archives = wasm_archives_step,
     };
-}
-
-pub fn registerToolchainCheck(b: *std.Build, check_step: *std.Build.Step) void {
-    const toolchain_check_step_inner = toolchain_check.create(b, check_step, &check_runtimes);
-    const toolchain_check_step = b.step("toolchain-check", "Hold `zig build check` to its declared external runtimes");
-    toolchain_check_step.dependOn(toolchain_check_step_inner);
-    check_step.dependOn(toolchain_check_step);
 }

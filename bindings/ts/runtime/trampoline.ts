@@ -24,7 +24,7 @@ import { ab, outPointer, outU64, readBytes } from "./internal/seam.ts";
 import { MAX_LOCAL_FORWARD_HOPS, OK } from "@glowcap/abi";
 import { FORWARD_CYCLE_MESSAGE } from "./internal/constants.ts";
 import { checkHost, GlowcapError, hostLastError, VowBroken } from "./errors.ts";
-import { type Argument, type Behavior, Forward, Ref, refFromId } from "./value.ts";
+import { type Argument, type Behavior, Forward, liveRefId, Ref, refFromId } from "./value.ts";
 import { encodeArgs, readArgArray, refStruct } from "./abi_value.ts";
 import { type PromiseFactoryHandle, RemotePromise, sendFar } from "./promise.ts";
 import { type BehaviorEntry, entryFor, releaseNativeBehavior } from "./behavior_registry.ts";
@@ -71,7 +71,8 @@ function chaseLocalForwards(
 			throw new Error(FORWARD_CYCLE_MESSAGE);
 		}
 		const target = result.target;
-		const inner = entry.resolveLocal !== null ? entry.resolveLocal(target.id) : undefined;
+		const id = liveRefId(target);
+		const inner = entry.resolveLocal !== null ? entry.resolveLocal(id) : undefined;
 		if (inner === undefined) return result;
 		entry = inner;
 		result = inner.run(result.verb, result.args) as BehaviorResult;
@@ -239,7 +240,7 @@ export function dispatchSend(
 	) => RemotePromise,
 ): RemotePromise {
 	if (target instanceof Ref) {
-		const ctx = hosted.get(target.id);
+		const ctx = hosted.get(liveRefId(target));
 		if (ctx !== undefined) {
 			return sendLocal(ctx, verb, args, recurse);
 		}
@@ -259,7 +260,7 @@ export async function dispatchTell(
 	recordFailure: (error: unknown) => void,
 ): Promise<void> {
 	if (target instanceof Ref) {
-		const ctx = hosted.get(target.id);
+		const ctx = hosted.get(liveRefId(target));
 		if (ctx !== undefined) {
 			await tellLocal(ctx, verb, args, recurse, recordFailure);
 			return;

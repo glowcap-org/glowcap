@@ -244,28 +244,44 @@ class _PublicationMixin(HostMixinBase):
         self.schedule_kick()
         return True
 
-    def publish_durable(self, behavior: Behavior) -> str:
+    def publish_durable(
+        self, behavior: Behavior, entropy: Optional[bytes] = None
+    ) -> str:
         """Publish ``behavior`` under a freshly minted durable swiss name and
         return that name — the swiss to place in a sturdyref beside this
         host's own locator (ADR-0098).
 
         The name is unpredictable, never reassigned, structurally disjoint
         from every mutable alias, and removable only through
-        :meth:`remove_durable`. Entropy is drawn here, from the OS RNG."""
+        :meth:`remove_durable`. When supplied, ``entropy`` must be exactly
+        ``HOST_DURABLE_ENTROPY_LEN`` bytes and restores the same name on a
+        Host reconstructed from the same seed; otherwise this method draws
+        it from the OS RNG."""
+        raw = self.raw
+        width = _abi.HOST_DURABLE_ENTROPY_LEN
+        if entropy is None:
+            entropy_bytes = secrets.token_bytes(width)
+        else:
+            entropy_bytes = bytes(entropy)
+            if len(entropy_bytes) != width:
+                raise GlowcapError(
+                    _ERR_INVALID_ARGUMENT,
+                    f"durable entropy must be exactly {width} bytes",
+                )
         ctx = self._register_behavior(_BehaviorEntry(run=behavior, resolve_local=None))
-        entropy = secrets.token_bytes(16)
-        ebuf, eptr = _byte_buf(entropy)
-        out = (ctypes.c_ubyte * 64)()
+        ebuf, eptr = _byte_buf(entropy_bytes)
+        swiss_len = _abi.HOST_DURABLE_SWISS_LEN
+        out = (ctypes.c_ubyte * swiss_len)()
         try:
             written = _host.glowcap_host_publish_durable(
-                self.raw,
+                raw,
                 eptr,
-                len(entropy),
+                len(entropy_bytes),
                 _TRAMPOLINE,
                 ctypes.c_void_p(ctx),
                 None,
                 out,
-                64,
+                swiss_len,
             )
             if written <= 0:
                 _check_host(written)

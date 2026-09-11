@@ -5,7 +5,7 @@
 //! key both signs records and, mapped to X25519, runs the Noise handshake's
 //! key agreement. That reuse is safe while everything the key signs is a
 //! fixed-shape record under a known constructor, and it stops being safe the
-//! day some site signs attacker-shaped bytes. This check is the mechanical
+//! day some site signs peer-supplied bytes. This check is the mechanical
 //! bound the ADR's step 2 calls for: a new signing site, a bare secret-key
 //! read, or a conversion outside the wrappers fails the build and forces the
 //! conversation instead of quietly widening what the key vouches for.

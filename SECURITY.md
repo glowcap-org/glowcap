@@ -51,7 +51,7 @@ to trigger:
   reference under the other codec changes its validated descriptor — its
   variant, table position, kind, or pipeline path — so one table row is read as
   two references, or two rows as one.
-- **Inbound frames are attacker-controlled.** A frame escapes the resource caps
+- **Inbound frames are untrusted.** A frame escapes the resource caps
   (frame size, table count and retained-byte bounds, nesting depth, validation
   comparison work) to exhaust memory or CPU, or to overflow the stack, instead
   of failing loud with a typed abort.
@@ -67,7 +67,7 @@ remaining edge defeats a revocation, report it.
 
 A bug in example code that breaks none of the invariants above is an ordinary
 issue. Products built on glowcap carry their own security policies, and a
-dependency issue that does not reach glowcap's threat surface belongs
+dependency issue that does not reach glowcap's protocol surface belongs
 upstream.
 
 ## Handoff signature verification

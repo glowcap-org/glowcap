@@ -139,8 +139,8 @@ fn signExtend30(value: u30) i32 {
 /// `model.Message` reaching those limits is on the order of tens of gigabytes — not constructible
 /// in practice (it would exhaust memory first) and never produced by decode,
 /// which bounds an inbound frame to `max_frame_bytes`. The casts therefore name a
-/// precondition the local caller is responsible for, not an attacker-reachable
-/// path; the inbound side is bounds-checked separately in the decoder.
+/// precondition the local caller is responsible for, not a path inbound bytes
+/// can reach; the inbound side is bounds-checked separately in the decoder.
 pub const Builder = struct {
     /// The segment table sits in the backing list rather than in a second
     /// buffer, so `finishOwned` hands the whole allocation to the frame.

@@ -1,13 +1,14 @@
-import { type Behavior, type Host } from "@glowcap/runtime";
+import { type Behavior } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
+import { Reachability } from "@glowcap/iroh";
 import { DirectMessage, Directory, Room } from "../../lib/room/client.ts";
 import { inboxPublisher } from "../../lib/dm_inbox.ts";
 import { DM } from "../../lib/protocol.ts";
-import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
+import { dial, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
-import { RoomServer } from "../../server/room_server.ts";
-import { serveIrcFront } from "../../irc/front/serve.ts";
-import { frontInboxRouter } from "../../irc/front/inbox.ts";
+import { startServer } from "../support/native_server.ts";
+import { within } from "../support/rooms_server.ts";
+import { startFront } from "./front_process.ts";
 import { encodeIrc, type IrcMessage, readIrcLines } from "../../irc/protocol.ts";
 import { assertEquals } from "../assert.ts";
 
@@ -27,14 +28,12 @@ async function nextMatching(
 ): Promise<IrcMessage> {
 	const deadline = Date.now() + 10_000;
 	while (Date.now() < deadline) {
-		const next = await Promise.race([
-			lines.next(),
-			new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), 10_000)
-			),
-		]);
+		const next = await within(lines.next(), what);
 		if (next.done) throw new Error(`IRC socket ended while waiting for ${what}`);
 		if (match(next.value)) return next.value;
+		if (["400", "432", "433"].includes(next.value.command)) {
+			throw new Error(`IRC refused ${what}: ${next.value.command} ${next.value.params.join(" ")}`);
+		}
 	}
 	throw new Error(`timed out waiting for ${what}`);
 }
@@ -43,12 +42,7 @@ async function nextRoomLine(room: Room, from: string, text: string): Promise<voi
 	const reader = room.messages.getReader();
 	try {
 		while (true) {
-			const next = await Promise.race([
-				reader.read(),
-				new Promise<never>((_, reject) =>
-					setTimeout(() => reject(new Error(`timed out waiting for ${from}: ${text}`)), 10_000)
-				),
-			]);
+			const next = await within(reader.read(), `${from}: ${text}`);
 			if (next.done) throw new Error(`room ended while waiting for ${from}: ${text}`);
 			if (next.value.from === from && next.value.text === text) return;
 		}
@@ -70,10 +64,9 @@ Deno.test({
 	sanitizeOps: false,
 	sanitizeResources: false,
 	fn: async () => {
-		const server = new RoomServer();
-		const roomServer = await roomsListen("127.0.0.1", 0);
-		const roomLocator = loopbackTcpDesignator(roomServer.port);
-		const roomServing = server.serve(roomServer.host, roomServer);
+		const server = await startServer();
+		await using _serverOwner = { [Symbol.asyncDispose]: () => server.close() };
+		const roomLocator = server.locator;
 
 		const nativeRuntime = await openRoomsRuntime();
 		const nativeDir = await Directory.connect(roomLocator, (locator) => dial(locator, nativeRuntime));
@@ -98,29 +91,10 @@ Deno.test({
 			dir: () => bobDir,
 			behaviorFor: bobBehavior,
 		});
-		await bobDir.register("bob", bobEndpoint.uri, bobOfferer.offer);
+		await bobDir.register("bob", bobEndpoint.uri, { onMintInboxFor: bobOfferer.offer });
 
-		// The front deliberately uses the interoperability floor. Its Directory,
-		// room callbacks, registrations, and DM handoffs therefore prove the same
-		// v1.0/Syrup profile Goblins peers consume.
-		const frontHost: Host = roomsHost(undefined, "interop");
-		const frontDm = await tcp.noise.listen("127.0.0.1", 0, { host: frontHost });
-		const frontAccepting = acceptDirect(frontDm);
-		const frontRuntime = await openRoomsRuntime({ host: frontHost });
-		const ircListener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-		const frontServing = (async () => {
-			const accepted = await ircListener.accept();
-			ircListener.close();
-			await serveIrcFront(accepted, {
-				directory: roomLocator,
-				dial: (locator) => dial(locator, frontRuntime),
-				dmLocator: frontDm.uri,
-				inboxRouter: frontInboxRouter(frontHost),
-				serverName: "rooms.test",
-			});
-		})();
-
-		const irc = await Deno.connect({ hostname: "127.0.0.1", port: ircListener.addr.port });
+		await using front = await startFront(roomLocator);
+		const irc = await Deno.connect({ hostname: "127.0.0.1", port: front.port });
 		const lines = readIrcLines(irc.readable)[Symbol.asyncIterator]();
 		try {
 			await writeAll(irc, encodeIrc("CAP", ["LS", "302"]));
@@ -225,7 +199,6 @@ Deno.test({
 				"introduced direct message toward IRC",
 			);
 			assertEquals(direct.prefix?.startsWith("bob!rooms@"), true, "direct attribution");
-			await bobToAlice.close();
 
 			await writeAll(irc, encodeIrc("PING", ["clock"]));
 			const pong = await nextMatching(lines, (line) => line.command === "PONG", "PONG");
@@ -233,27 +206,151 @@ Deno.test({
 			await writeAll(irc, encodeIrc("PART", ["#general", "done"]));
 			await nextMatching(lines, (line) => line.command === "PART" && line.params[0] === "#general", "own PART");
 			await writeAll(irc, encodeIrc("QUIT", ["done"]));
+			while (!(await within(lines.next(), "IRC disconnect")).done) { /* drain final protocol output */ }
+			const again = await Deno.connect({ hostname: "127.0.0.1", port: front.port });
+			try {
+				const nextLines = readIrcLines(again.readable)[Symbol.asyncIterator]();
+				await writeAll(again, encodeIrc("NICK", ["alice"]));
+				await writeAll(again, encodeIrc("USER", ["alice", "0", "*", "Alice again"]));
+				await nextMatching(nextLines, (line) => line.command === "001", "immediate name reuse");
+				let stale = "";
+				try {
+					await bobToAlice.say("stale inbox must not reach the new client");
+				} catch (error) {
+					stale = String(error);
+				}
+				assertEquals(stale.includes("direct-not-accepted"), true, stale);
+				const fresh = await DirectMessage.open(bobDir, "alice");
+				await fresh.say("fresh authority").then((posted) => posted?.release());
+				await nextMatching(
+					nextLines,
+					(line) => line.command === "PRIVMSG" && line.params[1] === "fresh authority",
+					"fresh inbox after reconnect",
+				);
+				await fresh.close();
+			} finally {
+				try {
+					again.close();
+				} catch { /* front closed first */ }
+			}
+			await bobToAlice.close();
 		} finally {
 			try {
 				irc.close();
 			} catch { /* front closed first */ }
 		}
 
-		await frontServing;
+		await front.close();
 		await bobRoom.leave();
 		await unicodeRoom.leave();
 		await nativeRoom.leave();
 		await bobDir.close();
 		await unicodeDir.close();
 		await nativeDir.close();
-		frontDm.close();
 		bobEndpoint.close();
-		roomServer.close();
-		await frontRuntime.close();
 		await bobRuntime.close();
 		await unicodeRuntime.close();
 		await nativeRuntime.close();
-		await Promise.allSettled([frontAccepting, bobAccepting, roomServing]);
-		await server.close();
+		await bobAccepting;
 	},
 });
+
+for (const [directoryTransport, inboxTransport] of [["tcp", "noise"], ["iroh", "iroh"], ["tcp", "tcp"]] as const) {
+	Deno.test(`native TLS IRC clients hold independent sessions and multiple rooms (${directoryTransport}/${inboxTransport})`, async () => {
+		const server = await startServer(
+			directoryTransport === "iroh"
+				? ["--transport=iroh", "--reachability=direct"]
+				: ["--transport=tcp", "--port=0"],
+		);
+		await using _serverOwner = { [Symbol.asyncDispose]: () => server.close() };
+		await using runtime = await openRoomsRuntime(
+			directoryTransport === "iroh" ? { iroh: { reachability: Reachability.Direct } } : {},
+		);
+		const directory = await Directory.connect(server.locator, (locator) => dial(locator, runtime));
+		await directory.open("one");
+		await directory.open("two");
+		await using front = await startFront(server.locator, [
+			`--dm-transport=${inboxTransport}`,
+			"--tls-cert=test/net/fixtures/tls_server.pem",
+			"--tls-key=test/net/fixtures/tls_server.key",
+		]);
+		const root = await Deno.readTextFile("test/net/fixtures/tls_root.pem");
+		const alice = await Deno.connectTls({ hostname: "localhost", port: front.port, caCerts: [root] });
+		const bob = await Deno.connectTls({ hostname: "localhost", port: front.port, caCerts: [root] });
+		const aliceLines = readIrcLines(alice.readable)[Symbol.asyncIterator]();
+		const bobLines = readIrcLines(bob.readable)[Symbol.asyncIterator]();
+		try {
+			for (const [socket, lines, nick] of [[alice, aliceLines, "alice"], [bob, bobLines, "[bob]"]] as const) {
+				await writeAll(socket, encodeIrc("NICK", [nick]));
+				await writeAll(socket, encodeIrc("USER", [nick, "0", "*", nick]));
+				await nextMatching(lines, (line) => line.command === "001", `${nick} TLS registration`);
+			}
+			const collision = await Deno.connectTls({ hostname: "localhost", port: front.port, caCerts: [root] });
+			try {
+				const refused = readIrcLines(collision.readable)[Symbol.asyncIterator]();
+				await writeAll(collision, encodeIrc("NICK", ["{bob}"]));
+				await writeAll(collision, encodeIrc("USER", ["bob", "0", "*", "Bob"]));
+				await nextMatching(refused, (line) => line.command === "433", "IRC casemapping collision refusal");
+			} finally {
+				try {
+					collision.close();
+				} catch { /* refusal ended the socket */ }
+			}
+			await writeAll(alice, encodeIrc("JOIN", ["#one,#two"]));
+			await nextMatching(
+				aliceLines,
+				(line) => line.command === "366" && line.params[1] === "#two",
+				"Alice in both rooms",
+			);
+			await writeAll(bob, encodeIrc("JOIN", ["#two"]));
+			const names = await nextMatching(
+				bobLines,
+				(line) => line.command === "353",
+				"Bob's independent membership",
+			);
+			assertEquals(names.params.at(-1)?.split(" ").sort(), ["[bob]", "alice"]);
+			await writeAll(bob, encodeIrc("PRIVMSG", ["#two", "hello sibling"]));
+			const received = await nextMatching(aliceLines, (line) => line.command === "PRIVMSG", "sibling traffic");
+			assertEquals(received.params, ["#two", "hello sibling"]);
+			assertEquals(received.prefix?.startsWith("[bob]!"), true);
+			await writeAll(alice, encodeIrc("PRIVMSG", ["[bob]", "private sibling"]));
+			const privateLine = await nextMatching(
+				bobLines,
+				(line) => line.command === "PRIVMSG" && line.params[0] === "[bob]",
+				"sibling DM",
+			);
+			assertEquals(privateLine.params, ["[bob]", "private sibling"]);
+			await writeAll(bob, encodeIrc("PRIVMSG", ["alice", "private reply"]));
+			const reply = await nextMatching(
+				aliceLines,
+				(line) => line.command === "PRIVMSG" && line.params[0] === "alice",
+				"sibling DM reply",
+			);
+			assertEquals(reply.params, ["alice", "private reply"]);
+			await writeAll(bob, encodeIrc("PART", ["#two"]));
+			await nextMatching(bobLines, (line) => line.command === "PART", "Bob's departure");
+			await writeAll(bob, encodeIrc("QUIT"));
+			await writeAll(alice, encodeIrc("LIST"));
+			const counts = new Map<string, string>();
+			while (true) {
+				const row = await nextMatching(
+					aliceLines,
+					(line) => line.command === "322" || line.command === "323",
+					"counted room list",
+				);
+				if (row.command === "323") break;
+				counts.set(row.params[1], row.params[2]);
+			}
+			assertEquals([...counts.entries()].sort(), [["#one", "1"], ["#two", "1"]]);
+			await writeAll(alice, encodeIrc("PING", ["still here"]));
+			await nextMatching(aliceLines, (line) => line.command === "PONG", "surviving client");
+		} finally {
+			for (const conn of [alice, bob]) {
+				try {
+					conn.close();
+				} catch { /* QUIT already closed */ }
+			}
+			await directory.close();
+		}
+	});
+}

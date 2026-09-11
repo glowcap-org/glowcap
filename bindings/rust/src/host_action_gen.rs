@@ -69,7 +69,7 @@ pub fn decode(raw: &ffi::GlowcapHostAction) -> Result<HostAction> {
 			String::new()
 		} else {
 			// The bytes originate in a partner-authored give, so decode
-			// leniently rather than let hostile bytes fault mid-drain.
+			// leniently rather than let untrusted bytes fault mid-drain.
 			String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
 		}
 	};

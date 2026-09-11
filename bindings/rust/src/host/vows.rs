@@ -62,9 +62,8 @@ impl VowTable {
 			let Some(row) = rows.get_mut(&vow) else {
 				return; // an outcome nobody registered for
 			};
-			if let (Ok(value), Some(session)) = (&mut outcome, row.gc_session.as_ref().and_then(std::rc::Weak::upgrade))
-			{
-				crate::gc::track_argument(&session, value);
+			if let (Ok(value), Some(host)) = (&mut outcome, row.gc_host.as_ref().and_then(std::rc::Weak::upgrade)) {
+				crate::gc::track_owned_argument(&host, value);
 			}
 			match std::mem::replace(&mut row.state, VowState::Minted) {
 				VowState::Awaited(waiter) => {
@@ -149,9 +148,10 @@ enum VowState {
 
 struct VowRow {
 	state: VowState,
-	/// Session whose opt-in owns finalizer policy for this application-facing
-	/// outcome. Weak: a late settlement cannot keep a closed Session alive.
-	gc_session: Option<std::rc::Weak<SessionShared>>,
+	/// Host whose application retain this outcome owns. Session opt-in is
+	/// sampled at mint; Host-owned lookup results always track their retains.
+	/// Weak custody cannot keep the native Host alive after retirement.
+	gc_host: Option<std::rc::Weak<HostShared>>,
 }
 
 impl HostShared {
@@ -164,12 +164,22 @@ impl HostShared {
 		// Finalizer policy belongs to the operation that exposes the value, so
 		// sample the opt-in at mint rather than letting a later toggle rewrite
 		// an already-admitted outcome's ownership contract.
-		let gc_session = gc_session.filter(|session| session.gc.get()).map(Rc::downgrade);
+		let gc_host = gc_session
+			.filter(|session| session.gc.get())
+			.map(|session| Rc::downgrade(&session.host));
+		self.insert_vow(vow, gc_host);
+	}
+
+	pub(crate) fn owned_vow_minted(self: &Rc<Self>, vow: u64) {
+		self.insert_vow(vow, Some(Rc::downgrade(self)));
+	}
+
+	fn insert_vow(&self, vow: u64, gc_host: Option<Weak<Self>>) {
 		self.vows.insert(
 			vow,
 			VowRow {
 				state: VowState::Minted,
-				gc_session,
+				gc_host,
 			},
 		);
 	}
@@ -224,7 +234,7 @@ mod tests {
 	fn row() -> VowRow {
 		VowRow {
 			state: VowState::Minted,
-			gc_session: None,
+			gc_host: None,
 		}
 	}
 

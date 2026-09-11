@@ -69,7 +69,7 @@ export function UnifiedCanvas(
 	);
 
 	// The cursor currently stamped on the canvas element, and the one function
-	// that stamps it. Both the scene's per-frame write and the Pixi hijack below
+	// that stamps it. Both the scene's per-frame write and the Pixi intercept below
 	// go through this pair, so the element never has two writers.
 	const desiredCursorRef = useRef<string>("default");
 	const setCursor = useCallback((next: string) => {
@@ -168,7 +168,7 @@ export function UnifiedCanvas(
 		app.renderer.background.color = themedColors(theme).canvas;
 	}, [theme]);
 
-	// Keep the app's answer in place by hijacking Pixi's
+	// Keep the app's answer in place by intercepting Pixi's
 	// `cursorStyles.default` callback. Pixi writes the canvas cursor itself on
 	// every pointer event: it runs `setCursor(rootBoundary.cursor)`, which falls
 	// back to `cursorStyles.default` when the hit-test found no sprite with a

@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
-# Versions and paths: pins.sh (enforced by test/env-sync.sh at container open).
+# Toolchain versions and paths: pins.sh; Rooms Wasm glue follows its Cargo.lock.
+# Environment consistency is enforced by test/env-sync.sh at container open.
 # Gate: zig build check
 
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
@@ -28,6 +29,11 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CURSOR_DATA_DIR=/home/vscode/.cursor \
     PATH=/home/vscode/.cache/glowcap/cargo/bin:/usr/local/cargo/bin:/usr/local/bin:${PATH}
 
+# `ripgrep` is a floor for the agent CLIs this image installs. Every one of them
+# reaches for `rg` by default, and only Claude Code carries its own copy behind a
+# shell function, so without the real binary the others fail their first search
+# and fall back to something slower that does not read `.gitignore`.
+#
 # `tor` is here for the `onion` netlayer (ADR-0108), whose live checks talk to a
 # Tor daemon over SOCKS and the control protocol. glowcap never starts,
 # supervises, or configures one, so the image installs the binary and nothing
@@ -41,7 +47,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  && apt-get install -y -qq --no-install-recommends \
       build-essential ca-certificates curl gdb gh git hyperfine jq libssl-dev \
       linux-perf lldb netcat-openbsd pkg-config python-is-python3 python3 \
-      python3-pip python3-venv shellcheck strace tar tor unzip valgrind \
+      python3-pip python3-venv ripgrep shellcheck strace tar tor unzip valgrind \
       xz-utils util-linux zsh
 
 # ==============================================================================
@@ -54,6 +60,7 @@ RUN groupadd --gid 1000 vscode \
 && useradd --uid 1000 --gid 1000 -m -s /bin/zsh vscode \
 && mkdir -p /home/vscode/.cache \
      /home/vscode/.cache/glowcap \
+     /home/vscode/.cache/glowcap-zig-work \
      /home/vscode/.claude \
      /home/vscode/.codex \
      /home/vscode/.config \
@@ -91,6 +98,12 @@ RUN bash "${GLOWCAP_DEVCONTAINER_DIR}/image/zig.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/python.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/serena.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/racket-goblins.sh"
+
+# Browser application builds use the compiler matching the locked library.
+# Keep this layer separate so application lock changes do not reinstall the
+# language toolchains or agent tools above.
+COPY apps/rooms/rust/Cargo.lock "${GLOWCAP_DEVCONTAINER_DIR}/rooms-Cargo.lock"
+RUN bash "${GLOWCAP_DEVCONTAINER_DIR}/image/rust-wasm.sh"
 
 # Playwright's browser install is its own layer because it is the only installer
 # that also runs apt, and apt wants the same caches the first apt layer used.

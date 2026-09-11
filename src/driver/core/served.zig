@@ -386,24 +386,6 @@ pub const Served = struct {
         return .{ .position = position, .ref = ref };
     }
 
-    /// Spawn an opaque hosted object (C trampoline / language binding) in the
-    /// caller-supplied Vat. The Port does not own that actor graph.
-    pub fn spawnHosted(self: *Served, vat: *actors.Vat, hosted: actors.HostedActor) !actors.Ref {
-        _ = self;
-        return vat.spawnHosted(hosted);
-    }
-
-    /// Unwind a hosted spawn whose following export bind failed.
-    pub fn discardFreshActor(self: *Served, vat: *actors.Vat, actor: actors.Ref) void {
-        _ = self;
-        vat.discardFreshActor(actor);
-    }
-
-    /// Bind `actor` at `position` on this session's export table.
-    pub fn bindExport(self: *Served, vat: *actors.Vat, actor: actors.Ref, position: u64) !void {
-        try self.port.bindExport(vat, actor, position);
-    }
-
     /// The local actor bound at `position`, or null when nothing is bound
     /// there: the read half of the seating surface above, so a consumer that
     /// seats through `Served` resolves through it too.

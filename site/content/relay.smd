@@ -412,7 +412,7 @@ It relays wherever a WebSocket points it, named by `?to=` or `?locator=`, and
 reclaims a silent session once its idle timeout passes (`GLOWCAP_RELAY_IDLE_MS`,
 one minute by default). Target allowlists and admission caps are left to the
 embedding app. The rooms relay
-([`relay.ts`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/relay.ts))
+([`relay.ts`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/rust/native/src/web/relay.rs))
 shows how an embedding adds target policy and admission limits. The
 [relay README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/relay/README.md)
 covers the package itself, and the Python, Rust, and Racket relays take the

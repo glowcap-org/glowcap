@@ -70,9 +70,16 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
     });
     if (ctx.target.result.ofmt == .elf) {
         shared.version_script = b.path("tools/build/exports/iroh.map");
+        // The self-hosted backend accepts --version-script but does not honor
+        // it, which would leak the Rust sidecar's runtime symbols in a Debug
+        // link. The boundary is the artifact's contract in every mode, so this
+        // archive always compiles and links through LLVM/lld.
+        shared.use_llvm = true;
+        shared.use_lld = true;
     }
 
     const install = b.addInstallArtifact(shared, .{});
+    common.checkArchiveTls(b, shared, &install.step);
     const header = b.addInstallHeaderFile(
         b.path("include/glowcap_net_transport_iroh.h"),
         "glowcap_net_transport_iroh.h",

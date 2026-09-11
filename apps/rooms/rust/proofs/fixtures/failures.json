@@ -1,0 +1,811 @@
+{
+  "codes": [
+    "attachment-refused",
+    "bad-attachment",
+    "blob-expired",
+    "direct-not-accepted",
+    "introduction-pending",
+    "listener-serving",
+    "listener-transport-held",
+    "listener-unsupported",
+    "nick-taken",
+    "nick-too-long",
+    "no-room-managers",
+    "no-such-listener",
+    "no-such-room",
+    "not-registered",
+    "not-room-member",
+    "not-steward",
+    "not-your-locator",
+    "peer-offline",
+    "read-only-membership",
+    "room-exists",
+    "room-full",
+    "room-links-full",
+    "room-retired",
+    "room-too-long",
+    "too-many-peered-rooms",
+    "too-many-rooms",
+    "upload-incomplete"
+  ],
+  "reasons": [
+    {
+      "reason": "attachment-refused",
+      "parsed": {
+        "code": "attachment-refused",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "attachment-refused: ",
+      "parsed": {
+        "code": "attachment-refused",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "attachment-refused: first: second",
+      "parsed": {
+        "code": "attachment-refused",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: attachment-refused: detail",
+      "parsed": {
+        "code": "attachment-refused",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "bad-attachment",
+      "parsed": {
+        "code": "bad-attachment",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "bad-attachment: ",
+      "parsed": {
+        "code": "bad-attachment",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "bad-attachment: first: second",
+      "parsed": {
+        "code": "bad-attachment",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: bad-attachment: detail",
+      "parsed": {
+        "code": "bad-attachment",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "blob-expired",
+      "parsed": {
+        "code": "blob-expired",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "blob-expired: ",
+      "parsed": {
+        "code": "blob-expired",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "blob-expired: first: second",
+      "parsed": {
+        "code": "blob-expired",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: blob-expired: detail",
+      "parsed": {
+        "code": "blob-expired",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "direct-not-accepted",
+      "parsed": {
+        "code": "direct-not-accepted",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "direct-not-accepted: ",
+      "parsed": {
+        "code": "direct-not-accepted",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "direct-not-accepted: first: second",
+      "parsed": {
+        "code": "direct-not-accepted",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: direct-not-accepted: detail",
+      "parsed": {
+        "code": "direct-not-accepted",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "introduction-pending",
+      "parsed": {
+        "code": "introduction-pending",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "introduction-pending: ",
+      "parsed": {
+        "code": "introduction-pending",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "introduction-pending: first: second",
+      "parsed": {
+        "code": "introduction-pending",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: introduction-pending: detail",
+      "parsed": {
+        "code": "introduction-pending",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "listener-serving",
+      "parsed": {
+        "code": "listener-serving",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "listener-serving: ",
+      "parsed": {
+        "code": "listener-serving",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "listener-serving: first: second",
+      "parsed": {
+        "code": "listener-serving",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: listener-serving: detail",
+      "parsed": {
+        "code": "listener-serving",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "listener-transport-held",
+      "parsed": {
+        "code": "listener-transport-held",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "listener-transport-held: ",
+      "parsed": {
+        "code": "listener-transport-held",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "listener-transport-held: first: second",
+      "parsed": {
+        "code": "listener-transport-held",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: listener-transport-held: detail",
+      "parsed": {
+        "code": "listener-transport-held",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "listener-unsupported",
+      "parsed": {
+        "code": "listener-unsupported",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "listener-unsupported: ",
+      "parsed": {
+        "code": "listener-unsupported",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "listener-unsupported: first: second",
+      "parsed": {
+        "code": "listener-unsupported",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: listener-unsupported: detail",
+      "parsed": {
+        "code": "listener-unsupported",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "nick-taken",
+      "parsed": {
+        "code": "nick-taken",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "nick-taken: ",
+      "parsed": {
+        "code": "nick-taken",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "nick-taken: first: second",
+      "parsed": {
+        "code": "nick-taken",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: nick-taken: detail",
+      "parsed": {
+        "code": "nick-taken",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "nick-too-long",
+      "parsed": {
+        "code": "nick-too-long",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "nick-too-long: ",
+      "parsed": {
+        "code": "nick-too-long",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "nick-too-long: first: second",
+      "parsed": {
+        "code": "nick-too-long",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: nick-too-long: detail",
+      "parsed": {
+        "code": "nick-too-long",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "no-room-managers",
+      "parsed": {
+        "code": "no-room-managers",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "no-room-managers: ",
+      "parsed": {
+        "code": "no-room-managers",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "no-room-managers: first: second",
+      "parsed": {
+        "code": "no-room-managers",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: no-room-managers: detail",
+      "parsed": {
+        "code": "no-room-managers",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "no-such-listener",
+      "parsed": {
+        "code": "no-such-listener",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "no-such-listener: ",
+      "parsed": {
+        "code": "no-such-listener",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "no-such-listener: first: second",
+      "parsed": {
+        "code": "no-such-listener",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: no-such-listener: detail",
+      "parsed": {
+        "code": "no-such-listener",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "no-such-room",
+      "parsed": {
+        "code": "no-such-room",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "no-such-room: ",
+      "parsed": {
+        "code": "no-such-room",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "no-such-room: first: second",
+      "parsed": {
+        "code": "no-such-room",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: no-such-room: detail",
+      "parsed": {
+        "code": "no-such-room",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "not-registered",
+      "parsed": {
+        "code": "not-registered",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "not-registered: ",
+      "parsed": {
+        "code": "not-registered",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "not-registered: first: second",
+      "parsed": {
+        "code": "not-registered",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: not-registered: detail",
+      "parsed": {
+        "code": "not-registered",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "not-room-member",
+      "parsed": {
+        "code": "not-room-member",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "not-room-member: ",
+      "parsed": {
+        "code": "not-room-member",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "not-room-member: first: second",
+      "parsed": {
+        "code": "not-room-member",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: not-room-member: detail",
+      "parsed": {
+        "code": "not-room-member",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "not-steward",
+      "parsed": {
+        "code": "not-steward",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "not-steward: ",
+      "parsed": {
+        "code": "not-steward",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "not-steward: first: second",
+      "parsed": {
+        "code": "not-steward",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: not-steward: detail",
+      "parsed": {
+        "code": "not-steward",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "not-your-locator",
+      "parsed": {
+        "code": "not-your-locator",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "not-your-locator: ",
+      "parsed": {
+        "code": "not-your-locator",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "not-your-locator: first: second",
+      "parsed": {
+        "code": "not-your-locator",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: not-your-locator: detail",
+      "parsed": {
+        "code": "not-your-locator",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "peer-offline",
+      "parsed": {
+        "code": "peer-offline",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "peer-offline: ",
+      "parsed": {
+        "code": "peer-offline",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "peer-offline: first: second",
+      "parsed": {
+        "code": "peer-offline",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: peer-offline: detail",
+      "parsed": {
+        "code": "peer-offline",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "read-only-membership",
+      "parsed": {
+        "code": "read-only-membership",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "read-only-membership: ",
+      "parsed": {
+        "code": "read-only-membership",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "read-only-membership: first: second",
+      "parsed": {
+        "code": "read-only-membership",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: read-only-membership: detail",
+      "parsed": {
+        "code": "read-only-membership",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "room-exists",
+      "parsed": {
+        "code": "room-exists",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-exists: ",
+      "parsed": {
+        "code": "room-exists",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-exists: first: second",
+      "parsed": {
+        "code": "room-exists",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: room-exists: detail",
+      "parsed": {
+        "code": "room-exists",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "room-full",
+      "parsed": {
+        "code": "room-full",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-full: ",
+      "parsed": {
+        "code": "room-full",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-full: first: second",
+      "parsed": {
+        "code": "room-full",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: room-full: detail",
+      "parsed": {
+        "code": "room-full",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "room-links-full",
+      "parsed": {
+        "code": "room-links-full",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-links-full: ",
+      "parsed": {
+        "code": "room-links-full",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-links-full: first: second",
+      "parsed": {
+        "code": "room-links-full",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: room-links-full: detail",
+      "parsed": {
+        "code": "room-links-full",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "room-retired",
+      "parsed": {
+        "code": "room-retired",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-retired: ",
+      "parsed": {
+        "code": "room-retired",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-retired: first: second",
+      "parsed": {
+        "code": "room-retired",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: room-retired: detail",
+      "parsed": {
+        "code": "room-retired",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "room-too-long",
+      "parsed": {
+        "code": "room-too-long",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-too-long: ",
+      "parsed": {
+        "code": "room-too-long",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "room-too-long: first: second",
+      "parsed": {
+        "code": "room-too-long",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: room-too-long: detail",
+      "parsed": {
+        "code": "room-too-long",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "too-many-peered-rooms",
+      "parsed": {
+        "code": "too-many-peered-rooms",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "too-many-peered-rooms: ",
+      "parsed": {
+        "code": "too-many-peered-rooms",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "too-many-peered-rooms: first: second",
+      "parsed": {
+        "code": "too-many-peered-rooms",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: too-many-peered-rooms: detail",
+      "parsed": {
+        "code": "too-many-peered-rooms",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "too-many-rooms",
+      "parsed": {
+        "code": "too-many-rooms",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "too-many-rooms: ",
+      "parsed": {
+        "code": "too-many-rooms",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "too-many-rooms: first: second",
+      "parsed": {
+        "code": "too-many-rooms",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: too-many-rooms: detail",
+      "parsed": {
+        "code": "too-many-rooms",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "upload-incomplete",
+      "parsed": {
+        "code": "upload-incomplete",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "upload-incomplete: ",
+      "parsed": {
+        "code": "upload-incomplete",
+        "detail": ""
+      }
+    },
+    {
+      "reason": "upload-incomplete: first: second",
+      "parsed": {
+        "code": "upload-incomplete",
+        "detail": "first: second"
+      }
+    },
+    {
+      "reason": "glowcap error -14: upload-incomplete: detail",
+      "parsed": {
+        "code": "upload-incomplete",
+        "detail": "detail"
+      }
+    },
+    {
+      "reason": "unknown: detail",
+      "parsed": null
+    },
+    {
+      "reason": "blob-expired without delimiter",
+      "parsed": null
+    },
+    {
+      "reason": "prefix: : blob-expired: nested",
+      "parsed": {
+        "code": "blob-expired",
+        "detail": "nested"
+      }
+    },
+    {
+      "reason": "blob-expired: upload-incomplete: detail",
+      "parsed": {
+        "code": "blob-expired",
+        "detail": "upload-incomplete: detail"
+      }
+    }
+  ]
+}

@@ -60,5 +60,5 @@ to a peer that already has a transport name.
 
 One program can listen on several of these at once, and today's locator
 vocabulary makes that two peers. [Multi-home peers]($link.page('multihome'))
-is glowcap's prototype answer: one durable key as the name, with the routes
+is glowcap's `id` locator: one durable key as the name, with the routes
 underneath it.

@@ -18,6 +18,7 @@ const enliven = @import("../enliven.zig");
 const capability_promise = @import("../capability_promise.zig");
 const action = @import("action.zig");
 const admission = @import("admission.zig");
+const host_pump = @import("pump.zig");
 
 const Host = host_mod.Host;
 const crypto = foundation.crypto;
@@ -95,6 +96,7 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     self.sessions.deinit(self.allocator);
     // Provisional exporter peers can retain local actor roots, so the Node
     // retires while the Vat those projections name is still alive.
+    host_pump.deinitParkedNodeActions(self);
     self.node.deinit();
     self.vat.deinit();
     var giftables = self.giftables.valueIterator();

@@ -61,6 +61,13 @@ impl Locator {
 			hint_wire_form: HintWireForm::BooleanFalse,
 		}
 	}
+	/// Add routing information while selecting the map wire form required to
+	/// carry it. A bare locator's boolean-false form cannot contain entries.
+	pub fn with_hint(mut self, name: impl Into<String>, value: HintValue) -> Self {
+		self.hints.insert(name.into(), value);
+		self.hint_wire_form = HintWireForm::Map;
+		self
+	}
 }
 
 /// A parsed OCapN sturdyref. The swissnum is authority, so it never collapses
@@ -79,6 +86,19 @@ impl Locator {
 			Some(_) => Err(Error::with_detail(
 				sys::ERR_INVALID_ARGUMENT,
 				format!("locator hint {name:?} must be a string"),
+			)),
+		}
+	}
+
+	/// The string hint `name` a transport needs before it can act on this
+	/// locator. An absent, empty, or non-string hint is refused as
+	/// `ERR_INVALID_ARGUMENT`, so no caller acts on an empty stand-in.
+	pub fn require_string_hint(&self, name: &str) -> Result<&str> {
+		match self.string_hint(name)? {
+			Some(value) if !value.is_empty() => Ok(value),
+			_ => Err(Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				format!("{} locator requires a non-empty {name:?} string hint", self.transport),
 			)),
 		}
 	}
@@ -453,7 +473,7 @@ fn format_uri(
 	}
 }
 
-#[cfg(all(feature = "async", feature = "tcp"))]
+#[cfg(all(feature = "async", any(feature = "tcp", all(test, feature = "iroh"))))]
 pub(crate) fn format_peer_locator(transport: &str, designator: &str, direct_addresses: &str) -> Result<String> {
 	let mut hints = BTreeMap::new();
 	if !direct_addresses.is_empty() {
@@ -539,6 +559,32 @@ mod tests {
 
 		assert_eq!(locator.string_hint("missing").expect("absent hint"), None);
 		assert!(locator.string_hint("priority").is_err());
+	}
+
+	#[test]
+	fn require_string_hint_refuses_an_absent_empty_or_mismatched_hint() {
+		let mut hints = BTreeMap::new();
+		hints.insert("priority".to_string(), HintValue::Integer(1));
+		hints.insert("route".to_string(), HintValue::String(String::new()));
+		hints.insert(
+			"relay".to_string(),
+			HintValue::String("wss://relay.example/relay".to_string()),
+		);
+		let locator = Locator {
+			transport: "test".to_string(),
+			designator: "peer".to_string(),
+			hints,
+			hint_wire_form: HintWireForm::Map,
+		};
+
+		assert_eq!(
+			locator.require_string_hint("relay").expect("present hint"),
+			"wss://relay.example/relay"
+		);
+		for name in ["missing", "route", "priority"] {
+			let error = locator.require_string_hint(name).expect_err("refused hint");
+			assert_eq!(error.code(), crate::sys::ERR_INVALID_ARGUMENT);
+		}
 	}
 
 	#[test]

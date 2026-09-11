@@ -35,7 +35,7 @@
  * means here. Filing one would be the application putting words in the
  * reader's mouth; filing none leaves the last real answer standing, and
  * leaves anything the reader had typed exactly where they left it. */
-import type { RoomPreset } from "../../lib/room/policy.ts";
+import type { RoomPreset } from "./room_policy.ts";
 
 export type Source =
 	/** A control on this page was operated. */

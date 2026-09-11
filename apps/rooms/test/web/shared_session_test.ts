@@ -6,7 +6,6 @@
 
 import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { Buffer } from "node:buffer";
 import {
 	DEFAULT_ROOMS_VIEW_STATE,
 	ROOMS_SESSION_STATE_VERSION,
@@ -23,6 +22,7 @@ import { announcedSturdyref } from "../support/standalone_peer.ts";
 import { nextMessage, within } from "../support/rooms_server.ts";
 import { png } from "../page/png.ts";
 import { proveSharedMixedDirect } from "../page/shared_mixed_dm.ts";
+import { proveReloadMidUpload, proveSharedImage } from "../page/shared_session_files.ts";
 import { proveSharedDirectoryRecovery } from "../page/shared_directory_recovery.ts";
 import {
 	issueReadOnlySessionAccess,
@@ -33,10 +33,11 @@ import { attachThroughSettings, reattachThroughSettings } from "../page/session_
 import { proveAttachedSessionHolding, provePrivateRoomHolding } from "../page/holdings.ts";
 import { proveReturnToSetupDoesNotFlashACrash, proveSharedSessionMoveLayout } from "../page/shared_session_moves.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
+import { startSessionPeer as startNativeSessionPeer } from "../support/session_peer.ts";
 import { proveSharedRoomAuthorityRotation } from "../page/shared_room_authority.ts";
+import { openRustAttachedView } from "../page/rust_attached.ts";
 import { proveSharedRoomLink } from "../page/shared_room_link.ts";
 
-const SESSION = new URL("../../session/main.ts", import.meta.url).pathname;
 const httpPort = freePort();
 const roomPort = freePort();
 const sessionPort = freePort();
@@ -56,42 +57,16 @@ let witnessDirectory: Directory | null = null;
 let witness: Room | null = null;
 
 function startSessionPeer(state: string, port: number, checkpoint?: string): Deno.ChildProcess {
-	return spawnOwned("deno", {
-		args: [
-			"run",
-			"--allow-ffi",
-			"--unstable-ffi",
-			`--allow-read=${ROOT},${state}`,
-			`--allow-write=${state}`,
-			"--allow-net=127.0.0.1",
-			"--allow-env=GLOWCAP_LIB_DIR",
-			SESSION,
-			`--state=${state}`,
-			...(checkpoint == null ? [] : [`--checkpoint=${checkpoint}`]),
-			"--transport=tcp",
-			`--port=${port}`,
-		],
-		cwd: ROOT,
-		env: { GLOWCAP_ROOMS_SESSION_RELAY_URL: `ws://127.0.0.1:${httpPort}/relay` },
-		stdout: "piped",
-		stderr: "inherit",
-	});
+	return startNativeSessionPeer(
+		state,
+		[...(checkpoint == null ? [] : [`--checkpoint=${checkpoint}`]), "--transport=tcp", `--port=${port}`],
+		{ GLOWCAP_ROOMS_SESSION_RELAY_URL: `ws://127.0.0.1:${httpPort}/relay` },
+	);
 }
 
 try {
-	spawnOwned("deno", {
-		args: [
-			"run",
-			"--allow-ffi",
-			"--allow-read",
-			"--allow-write",
-			"--allow-net",
-			"--allow-env",
-			"--allow-run",
-			WEB,
-			String(httpPort),
-			String(roomPort),
-		],
+	spawnOwned(WEB, {
+		args: ["--transport=tcp", String(httpPort), String(roomPort)],
 		cwd: ROOT,
 		env: {
 			GLOWCAP_RELAY_TCP_PEERS:
@@ -141,6 +116,7 @@ try {
 	});
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
+	const rustView = await openRustAttachedView(browser, httpPort, sturdyref);
 	const setupPeer = startSessionPeer(setupState, setupSessionPort);
 	const setupSturdyref = await announcedSturdyref(
 		setupPeer,
@@ -188,8 +164,11 @@ try {
 	if (await setupPage.inputValue("#locator") !== "") {
 		fail("a fresh attached session silently filled the directory locator field");
 	}
-	if (await setupPage.getAttribute("#locator", "placeholder") !== locator) {
-		fail("a fresh attached session did not present the page directory behind its empty locator field");
+	const setupDirectoryPlaceholder = await setupPage.getAttribute("#locator", "placeholder");
+	if (setupDirectoryPlaceholder !== locator) {
+		fail(
+			`a fresh attached session did not present its page directory: expected ${locator}, got ${setupDirectoryPlaceholder}`,
+		);
 	}
 	if (!(await setupPage.locator('label[for="locator"]').textContent())?.includes("This page")) {
 		fail("a fresh attached session did not identify its view-local page directory default");
@@ -284,7 +263,14 @@ try {
 	await first.press("#line", "Enter");
 	for (const page of [first, second]) {
 		await page.waitForSelector('.bubble:has-text("shared draft")', { timeout: 20_000 })
-			.catch(() => fail("a line sent through the shared owner did not reach both browsers"));
+			.catch(async () => {
+				const visible = await page.evaluate(() => ({
+					composer: (document.getElementById("line") as HTMLTextAreaElement | null)?.value ?? null,
+					bubbles: [...document.querySelectorAll("#log .bubble")].map((row) => row.textContent),
+					notices: [...document.querySelectorAll("#log .sys, .toast")].map((row) => row.textContent),
+				}));
+				fail(`a line sent through the shared owner did not reach both browsers: ${JSON.stringify(visible)}`);
+			});
 	}
 	if (await noticeWhileSending) {
 		fail("the session notice asked the reader to decide something while a line of theirs was simply being sent");
@@ -309,24 +295,9 @@ try {
 			fail(`the attached composer produced the wrong slash-command line: ${JSON.stringify(said)}`);
 		}
 	}
-	await first.setInputFiles("#filePick", {
-		name: "shared-session.png",
-		mimeType: "image/png",
-		buffer: Buffer.from(png),
-	});
-	await first.waitForSelector('.composer-file:has-text("shared-session.png")');
-	await first.click("#sendBtn");
-	for (const page of [first, second]) {
-		await page.waitForFunction(
-			() => {
-				const image = [...document.querySelectorAll<HTMLImageElement>(".bubble .attach-image img")]
-					.find((candidate) => candidate.alt === "shared-session.png");
-				return image?.src.startsWith("blob:") === true && image.naturalWidth === 4 && image.naturalHeight === 2;
-			},
-			undefined,
-			{ timeout: 20_000 },
-		).catch(() => fail("a shared-session image reserved its rectangle but never rendered its bytes"));
-	}
+	await proveSharedImage(first, second, png);
+	await rustView.expectFile(png);
+	await proveReloadMidUpload(first, second);
 	await proveSharedMixedDirect(browser, httpPort, [first, second], png);
 	await second.click("#newRoomBtn");
 	await second.fill("#newRoomInput", "mirror-three");

@@ -98,8 +98,16 @@ test "a staged dial serves a fetch and retirement preserves its claimed session"
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var client_runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    var sink = RecordingSink{};
+    var client_runtime = try driver.HostRuntime.init(
+        allocator,
+        io,
+        &netlayers,
+        .ephemeral,
+        harness.stepped(sink.sink(), harness.Quiet.observer()),
+    );
     defer client_runtime.deinit();
+    sink.core = client_runtime.core;
     var recorder = DialRecorder{};
 
     // Stage the dial and return unopened: the blocking `connectLocator`
@@ -132,8 +140,6 @@ test "a staged dial serves a fetch and retirement preserves its claimed session"
 
     // The staged-open session is a full session: a host-tier fetch settles
     // through the completion sink while this same thread steps both ends.
-    var sink = RecordingSink{ .core = client_runtime.core };
-    client_runtime.setCompletionSink(.{ .ctx = &sink, .take = RecordingSink.take });
     const vow_id = try client_runtime.core.fetch(hs, "treasure");
     var waited: usize = 0;
     while (sink.settled.load(.acquire) == 0 and waited < 1_000) : (waited += 1) {
@@ -556,12 +562,17 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var client_runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
-    defer client_runtime.deinit();
-    var recorder = DialRecorder{};
     var closed = std.atomic.Value(bool).init(false);
     var close_flag = CloseFlag{ .flag = &closed };
-    try client_runtime.setCloseObserver(.{ .ctx = &close_flag, .closed = CloseFlag.notify });
+    var client_runtime = try driver.HostRuntime.init(
+        allocator,
+        io,
+        &netlayers,
+        .ephemeral,
+        harness.stepped(harness.Quiet.sink(), .{ .ctx = &close_flag, .closed = CloseFlag.notify }),
+    );
+    defer client_runtime.deinit();
+    var recorder = DialRecorder{};
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     try client_runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 11, .{

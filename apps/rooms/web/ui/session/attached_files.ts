@@ -1,28 +1,33 @@
+import type { AttachedFile as Attachment, AttachedFileData } from "./remote.ts";
 // Live attachment capabilities projected from a durable Rooms session.
 
 import * as store from "../store.ts";
-import { blobOf } from "../net/files.ts";
+import { blobOf } from "../blob.ts";
 import type { AttachmentView, Item, ViewerDirection } from "../types.ts";
 import type { AttachedRoomsController } from "./attached.ts";
 import { ARCHIVED_BYTES_UNAVAILABLE } from "../archive_attachments.ts";
-import { settleCapabilityCleanup } from "../../../lib/capability_cleanup.ts";
+import { settleViewCleanup } from "./cleanup.ts";
 import type { PageProjection } from "../store/core.ts";
-import type { Attachment } from "../../../lib/attachment.ts";
+
 import type { ArchiveLine } from "../../../lib/archive/protocol.ts";
 interface HeldFile {
 	readonly mime: string;
 	readonly durable: boolean;
-	fetch(onProgress: (got: number) => void): Promise<Uint8Array>;
+	fetch(onProgress: (got: number) => void): Promise<AttachedFileData>;
 	release(): void;
 }
+
+export const EARLIER_CONNECTION_BYTES_UNAVAILABLE =
+	"This file belonged to an earlier connection and is no longer available.";
 
 export class AttachedSessionFiles {
 	readonly #controller: AttachedRoomsController;
 	readonly #projection: PageProjection;
 	readonly #stopLineCustody: () => void;
 	readonly #files = new Map<number, HeldFile>();
-	readonly #urls = new Map<number, string>();
-	readonly #progress = new Map<number, { key: string; got: number }>();
+	readonly #urls = new Map<number, { url: string; release(): void }>();
+	readonly #transfers = new Map<number, symbol>();
+	readonly #progress = new Map<number, { key: string; attempt: symbol; got: number }>();
 	#frame: number | null = null;
 
 	constructor(controller: AttachedRoomsController, projection: PageProjection) {
@@ -35,19 +40,28 @@ export class AttachedSessionFiles {
 		});
 	}
 
-	hold(attachment: Attachment): AttachmentView {
+	hold(attachment: Attachment, unavailable?: string): AttachmentView {
 		const view = store.attachmentView(this.#projection, {
 			name: attachment.name,
 			mime: attachment.mime,
 			size: attachment.size,
 			width: attachment.width,
 			height: attachment.height,
+			...(unavailable == null ? {} : { lost: true, error: unavailable }),
 		});
+		if (unavailable != null) {
+			this.releaseIncoming([attachment]);
+			return view;
+		}
+		const stop = new AbortController();
 		this.#files.set(view.id, {
 			mime: attachment.mime,
 			durable: false,
-			fetch: (onProgress) => this.#controller.fetchAttachment(attachment, onProgress),
-			release: () => this.#controller.releaseAttachment(attachment),
+			fetch: (onProgress) => this.#controller.fetchAttachment(attachment, onProgress, stop.signal),
+			release: () => {
+				stop.abort();
+				this.#controller.releaseAttachment(attachment);
+			},
 		});
 		return view;
 	}
@@ -61,16 +75,29 @@ export class AttachedSessionFiles {
 			width: attachment.width,
 			height: attachment.height,
 			...(attachment.blob == null ? { lost: true, error: ARCHIVED_BYTES_UNAVAILABLE } : {}),
+			...(attachment.blob == null ? {} : { archiveDigest: attachment.blob }),
 		});
-		if (attachment.blob != null) {
-			this.#files.set(view.id, {
-				mime: attachment.mime,
-				durable: true,
-				fetch: (onProgress) => this.#controller.fetchArchivedAttachment(record, index, onProgress),
-				release: () => {},
-			});
-		}
+		const file = this.#archivedFile(record, index);
+		if (file != null) this.#files.set(view.id, file);
 		return view;
+	}
+
+	/** Move an existing view from its live occurrence to the archive's durable
+	 * byte source. Presentation identity and any settled object URL stay put.
+	 * An in-flight automatic fetch resumes against the durable source instead of
+	 * leaving its original intent stranded on an aborted occurrence. */
+	adoptArchived(key: string, id: number, record: ArchiveLine, index: number): void {
+		const durable = this.#archivedFile(record, index);
+		if (durable == null || this.#files.get(id)?.durable === true) return;
+		const prior = this.#files.get(id);
+		const transferring = this.#transfers.has(id);
+		if (prior != null) settleViewCleanup("attached file capability release failed", prior.release);
+		this.#files.set(id, durable);
+		if (!transferring) return;
+		this.#transfers.delete(id);
+		this.#progress.delete(id);
+		store.updateAttachment(this.#projection, key, id, { got: undefined, error: undefined });
+		this.open(key, id);
 	}
 
 	release(views: readonly AttachmentView[]): void {
@@ -79,7 +106,7 @@ export class AttachedSessionFiles {
 
 	releaseIncoming(attachments: readonly Attachment[]): void {
 		for (const attachment of attachments) {
-			settleCapabilityCleanup(
+			settleViewCleanup(
 				"attached file capability release failed",
 				() => this.#controller.releaseAttachment(attachment),
 			);
@@ -107,22 +134,44 @@ export class AttachedSessionFiles {
 		);
 		const view = item?.kind === "chat" ? item.attachments?.find((attachment) => attachment.id === id) : undefined;
 		const file = this.#files.get(id);
-		if (view == null || file == null || view.url != null || view.got != null || view.lost === true) return;
+		if (view == null || view.url != null || view.got != null || view.lost === true) return;
+		// The view can outlive the transport capability that supplied its bytes.
+		// A press is still an intent and must settle visibly rather than becoming a
+		// silent no-op merely because connection cleanup won the race.
+		if (file == null) {
+			store.updateAttachment(this.#projection, key, id, {
+				error: EARLIER_CONNECTION_BYTES_UNAVAILABLE,
+				lost: true,
+			});
+			return;
+		}
+		const attempt = Symbol();
+		this.#transfers.set(id, attempt);
 		store.updateAttachment(this.#projection, key, id, { got: 0, error: undefined });
-		void file.fetch((got) => this.#noteProgress(key, id, got))
+		void file.fetch((got) => this.#noteProgress(key, id, attempt, got))
 			.then((bytes) => {
-				if (this.#files.get(id) !== file) return;
-				file.release();
+				if (this.#files.get(id) !== file || this.#transfers.get(id) !== attempt) {
+					releaseData(bytes);
+					return;
+				}
+				this.#transfers.delete(id);
+				const display = displayData(bytes, file.mime);
 				this.#files.delete(id);
+				settleViewCleanup("attached file capability release failed", file.release);
 				const prior = this.#urls.get(id);
-				if (prior != null) URL.revokeObjectURL(prior);
-				const url = URL.createObjectURL(blobOf(bytes, file.mime));
-				this.#urls.set(id, url);
+				this.#urls.delete(id);
+				if (prior != null) settleViewCleanup("attached file display release failed", prior.release);
+				this.#urls.set(id, display);
 				this.#progress.delete(id);
-				store.updateAttachment(this.#projection, key, id, { got: undefined, error: undefined, url });
+				store.updateAttachment(this.#projection, key, id, {
+					got: undefined,
+					error: undefined,
+					url: display.url,
+				});
 			})
 			.catch((error) => {
-				if (this.#files.get(id) !== file) return;
+				if (this.#files.get(id) !== file || this.#transfers.get(id) !== attempt) return;
+				this.#transfers.delete(id);
 				this.#progress.delete(id);
 				store.updateAttachment(this.#projection, key, id, {
 					got: undefined,
@@ -148,34 +197,48 @@ export class AttachedSessionFiles {
 		this.#frame = null;
 		this.#progress.clear();
 		for (const id of [...this.#files.keys()]) this.#release(id);
-		for (const url of this.#urls.values()) URL.revokeObjectURL(url);
-		this.#urls.clear();
+		for (const id of [...this.#urls.keys()]) this.#release(id);
 	}
 
-	#noteProgress(key: string, id: number, got: number): void {
-		this.#progress.set(id, { key, got });
+	#noteProgress(key: string, id: number, attempt: symbol, got: number): void {
+		if (this.#transfers.get(id) !== attempt) return;
+		this.#progress.set(id, { key, attempt, got });
 		if (this.#frame != null) return;
 		this.#frame = requestAnimationFrame(() => {
 			this.#frame = null;
 			for (const [file, progress] of this.#progress) {
+				if (this.#transfers.get(file) !== progress.attempt) continue;
 				store.updateAttachment(this.#projection, progress.key, file, { got: progress.got });
 			}
 			this.#progress.clear();
 		});
 	}
 
+	#archivedFile(record: ArchiveLine, index: number): HeldFile | null {
+		const attachment = record.attachments[index];
+		if (attachment.blob == null) return null;
+		const stop = new AbortController();
+		return {
+			mime: attachment.mime,
+			durable: true,
+			fetch: (onProgress) => this.#controller.fetchArchivedAttachment(record, index, onProgress, stop.signal),
+			release: () => stop.abort(),
+		};
+	}
+
 	#release(id: number): void {
 		const file = this.#files.get(id);
 		if (file != null) {
 			this.#files.delete(id);
-			settleCapabilityCleanup("attached file capability release failed", file.release);
+			settleViewCleanup("attached file capability release failed", file.release);
 		}
 		const url = this.#urls.get(id);
 		if (url != null) {
-			URL.revokeObjectURL(url);
 			this.#urls.delete(id);
+			settleViewCleanup("attached file display release failed", url.release);
 		}
 		this.#progress.delete(id);
+		this.#transfers.delete(id);
 	}
 
 	#attachmentIsOn(id: number, directory: string): boolean {
@@ -204,4 +267,21 @@ export class AttachedSessionFiles {
 			});
 		}
 	}
+}
+
+function releaseData(data: AttachedFileData): void {
+	if (!(data instanceof Uint8Array)) {
+		try {
+			data.release();
+		} finally {
+			data.free();
+		}
+	}
+}
+function displayData(data: AttachedFileData, mime: string): { url: string; release(): void } {
+	if (data instanceof Uint8Array) {
+		const url = URL.createObjectURL(blobOf(data, mime));
+		return { url, release: () => URL.revokeObjectURL(url) };
+	}
+	return { url: data.url, release: () => releaseData(data) };
 }

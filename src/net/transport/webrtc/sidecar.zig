@@ -158,7 +158,7 @@ pub const PeerId = enum(usize) {
 
 /// A signaling call that could not complete. `BufferTooSmall` names an SDP or
 /// candidate too large for the caller's buffer; the caller retries with a larger
-/// one. `SignalTooLarge` names hostile or unusable signaling input before it
+/// one. `SignalTooLarge` names malformed or unusable signaling input before it
 /// enters the sidecar parser. `SignalFailed` is any other sidecar refusal.
 pub const SignalError = error{ SignalFailed, BufferTooSmall, SignalTooLarge };
 

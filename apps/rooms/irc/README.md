@@ -1,6 +1,6 @@
 # IRC on Rooms
 
-This directory holds the two IRC edges of the rooms app. The bridge reads an
+The two IRC edges of the Rooms app run as native Rust executables. The bridge reads an
 IRC channel as an ordinary Rooms room. The front lets an ordinary IRC client
 enter rooms that live on a native Rooms directory. Both run over the same
 CapTP machinery as every other Rooms client; IRC is a projection at the edge,
@@ -12,6 +12,8 @@ never a second protocol inside.
 zig build rooms-irc-bridge
 ```
 
+The command builds and runs the native Rust `rooms-irc-bridge` executable.
+`zig build rooms-irc-bridge-build` installs it without starting a service.
 The default follows Libera's `#ocapn` over TLS and serves the resulting
 `libera/#ocapn` room on a loopback CapTP listener. The command prints the
 listener port and the room name; join them with any Rooms client. IRC members
@@ -28,8 +30,16 @@ zig build rooms-irc-bridge -- \
 
 Two-way mode requires TLS. It sends Rooms lines as `<nick> text`, paces them
 at one every 1.2 seconds, and retains at most 64 complete IRC lines (32 KiB)
-across a reconnect. The bridge joins IRC when its first Rooms reader arrives
-and parts after the last reader and queued line leave. Options after `--`
+across a reconnect. A post answers after its socket write succeeds; a write
+with an uncertain outcome is refused instead of replayed. Shutdown refuses
+every admitted line that did not reach the socket. The bridge joins IRC when its first Rooms reader arrives
+and parts after the last reader and queued line leave. An operator-held
+gateway keeps its network capabilities apart from its channel leases, and a
+network with no channels owns no socket. Each channel publication has a
+source-owned durable entry and a separately issued Rooms moderator capability
+the native directory cannot forge; parting retires both live publications, and
+recreating the channel receives a fresh generation. Bridge moderation removes
+Rooms memberships and carries no IRC operator privilege. Options after `--`
 choose another network, channel, nick, IRC endpoint, or Rooms port
 (`--network --channel --irc-host --irc-port --irc-nick --mode --sasl-account
 --bind --announce-host --port --tls`); use `--tls=false` only against a
@@ -47,7 +57,8 @@ Point the IRC client at `127.0.0.1:6667`, choose a nickname, and
 connection: changing a name across several independently granted room
 memberships has no atomic capability operation, so reconnect to claim another
 one. `JOIN` enters an existing room and reports the directory's refusal when
-there is none.
+there is none, and a connection holds one membership per room, the same rule a
+native member follows.
 
 Each IRC connection holds the Directory, Room, and introduced direct-message
 capabilities it acquired, so direct messages use the same introduction and
@@ -85,11 +96,15 @@ retargets an old capability.
 
 ## Evidence
 
-The in-tree tests (`../test/irc_*_test.ts`) run inside
+The in-tree tests (`../test/irc/`) run inside
 `zig build rooms-server-test`, which `zig build check` depends on; the front
-scenario drives a real socket at the Goblins-compatible 1.0/Syrup floor and
-proves channel traffic, metadata, and introduced direct messages in both
-directions over Noise. `zig build goblins-rooms-irc` runs both edges against
+scenario starts the installed Rust server and front and proves channel traffic,
+metadata, and introduced direct messages in both directions over Noise. TLS
+scenarios cover independent clients and rooms, sibling direct messages and
+departure with Noise, TCP and iroh inboxes. A reconnect reuses its nickname
+without reviving the previous connection's inbox. Native checks cover bounded
+nickname ownership and asynchronous socket failures reaching the direct sender.
+`zig build goblins-rooms-irc` runs both edges against
 a real Goblins vat: fixture IRC through the bridge both ways, ordinary IRC
 through the front with channel traffic and an IRC-initiated direct message
 the vat answers.
@@ -99,18 +114,15 @@ the vat answers.
 The two edges point opposite ways, so each has its own directory and the
 vocabulary they share stays between them.
 
-- `bridge/`: an IRC network presented as Rooms. `main.ts` and `config.ts` are
-  the entry and its flags; `room.ts`, `client.ts`, and `outbound.ts` are the
-  channel, its connection, and its pacing; `seat.ts`, `roster.ts`, and
-  `watchers.ts` are who is present and who is told; `identity.ts` and
-  `identity_form.ts` are the identity a Rooms member links.
-- `front/`: Rooms presented to ordinary IRC clients. `main.ts` and `config.ts`
-  are the entry and its flags, `serve.ts` is the per-connection projection onto
-  a Directory session, and `inbox.ts`, `limits.ts`, and `render.ts` are its
-  direct-message routing, bounds, and message forms.
-- `protocol.ts`, `registration.ts`, `socket_writer.ts`: the vocabulary both
-  edges speak. Line parsing and encoding, what IRC accepts as a nick or SASL
-  credential, and the bounded write queue.
+- `../rust/native/src/irc_bridge/`: the standalone bridge executable
+  adapter, configuration, capability serving and outbound ownership.
+  `../rust/application/src/server/irc/` owns portable IRC policy;
+  `../rust/native/src/irc/` owns sockets, TLS and serialized writes.
+- `../rust/native/src/irc_front/`: the native IRC listener, each client's
+  capability ownership, room pumps and direct-message receipts. Portable
+  spelling and rendering policy lives in `../rust/application/src/server/irc/front/`.
+- `protocol.ts`: the TypeScript test consumer's line parsing and encoding.
+  Rust owns nickname and SASL admission plus the bounded write queue.
 
 Project provenance and upstream-contact policy live in
 [`PROVENANCE.md`](../../../PROVENANCE.md).

@@ -10,7 +10,6 @@ import { encodeIrc, type IrcMessage, readIrcLines } from "../../apps/rooms/irc/p
 const ROOT = Deno.cwd();
 const PHASE = Deno.args.find((arg) => arg.startsWith("--phase="))?.slice("--phase=".length);
 const WAIT_MS = 60_000;
-const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env"];
 
 function fail(message: string): never {
 	throw new Error(message);
@@ -182,19 +181,25 @@ async function bridgePhase(): Promise<void> {
 		}
 	})();
 
-	const bridge = new LiveChild("deno", [
-		...DENO_FLAGS,
-		"--unsafely-ignore-certificate-errors=127.0.0.1",
-		`${ROOT}/apps/rooms/irc/bridge/main.ts`,
-		"--network=fixture",
-		"--channel=#ocapn",
-		"--irc-host=127.0.0.1",
-		`--irc-port=${(listener.addr as Deno.NetAddr).port}`,
-		"--irc-nick=bridgebot",
-		"--mode=two-way",
-		"--sasl-account=bridge-account",
-		"--tls=true",
-	], { env: { GLOWCAP_ROOMS_IRC_SASL_PASSWORD: "bridge-password" } });
+	const bridge = new LiveChild(
+		Deno.env.get("GLOWCAP_ROOMS_IRC_BRIDGE_BIN") || `${ROOT}/zig-out/bin/rooms-irc-bridge`,
+		[
+			"--network=fixture",
+			"--channel=#ocapn",
+			"--irc-host=localhost",
+			`--irc-port=${(listener.addr as Deno.NetAddr).port}`,
+			"--irc-nick=bridgebot",
+			"--mode=two-way",
+			"--sasl-account=bridge-account",
+			"--tls=true",
+		],
+		{
+			env: {
+				GLOWCAP_ROOMS_IRC_SASL_PASSWORD: "bridge-password",
+				SSL_CERT_FILE: `${ROOT}/test/net/fixtures/tls_root.pem`,
+			},
+		},
+	);
 	try {
 		const announced = await bridge.waitFor(
 			/ROOMS-IRC-BRIDGE-LISTENING (\d+) (\S+)/,
@@ -229,7 +234,10 @@ async function bridgePhase(): Promise<void> {
 }
 
 async function frontPhase(): Promise<void> {
-	const room = new LiveChild("deno", [...DENO_FLAGS, `${ROOT}/apps/rooms/server/main.ts`, "0"]);
+	const room = new LiveChild(Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") || `${ROOT}/zig-out/bin/rooms-server`, [
+		"--transport=tcp",
+		"--port=0",
+	]);
 	let goblins: LiveChild | null = null;
 	let front: LiveChild | null = null;
 	let irc: Deno.Conn | null = null;
@@ -247,9 +255,7 @@ async function frontPhase(): Promise<void> {
 		await goblins.waitFor(/\* you are in irc-front-live/, "Goblins room join");
 		await goblins.waitFor(/\* the room granted you the name goblins-carol/, "Goblins DM registration");
 
-		front = new LiveChild("deno", [
-			...DENO_FLAGS,
-			`${ROOT}/apps/rooms/irc/front/main.ts`,
+		front = new LiveChild(Deno.env.get("GLOWCAP_ROOMS_IRC_FRONT_BIN") || `${ROOT}/zig-out/bin/rooms-irc-front`, [
 			`--directory=${locator}`,
 			"--port=0",
 			"--dm-transport=tcp",

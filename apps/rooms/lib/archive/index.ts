@@ -17,6 +17,7 @@ import {
 } from "./blobs.ts";
 import { archiveMatches } from "./scope.ts";
 import { BLOB_CHUNK } from "../limits.ts";
+import { preserveArchiveLineChronology } from "./chronology.ts";
 
 /** Whole-archive resident record ceiling. Least recently revised records
  * leave first. A held reference is authority to use the archive, not to grow
@@ -100,10 +101,11 @@ export class ArchiveIndex {
 	}
 
 	/** Apply exactly the next committed revision. The storage adapter transfers
-	 * one already-validated immutable record after committing it; this index
-	 * retains that object rather than copying a wire-path record. The returned
-	 * record is no longer reachable after the transition, so byte-owning
-	 * adapters can retire their dependent content under the same policy. */
+	 * one already-validated immutable record after committing it. A first record
+	 * is retained directly; replacing a line canonicalizes its chronology to the
+	 * immutable first occurrence. The returned record is no longer
+	 * reachable after the transition, so byte-owning adapters can retire their
+	 * dependent content under the same policy. */
 	apply(revision: number, record: ArchiveRecord): ArchiveRecord | null {
 		if (!Number.isSafeInteger(revision) || revision !== this.#revision + 1) {
 			throw new Error("archive revision is not the next revision");
@@ -112,7 +114,10 @@ export class ArchiveIndex {
 		const key = archiveRecordKey(record);
 		const previous = this.#byKey.get(key);
 		if (previous != null) this.#byRevision.delete(previous.revision);
-		const entry = { revision, record };
+		const retained = previous?.record.kind === "line" && record.kind === "line"
+			? preserveArchiveLineChronology(previous.record, record)
+			: record;
+		const entry = { revision, record: retained };
 		this.#byKey.set(key, entry);
 		this.#byRevision.set(revision, key);
 		this.#revision = revision;

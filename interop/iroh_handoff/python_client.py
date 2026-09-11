@@ -150,15 +150,16 @@ async def run() -> None:
         "redeemed it by dialing the exporter directly over encrypted QUIC"
     )
 
-    # Teardown: close the dialing connections, then every accepted connection,
-    # then the servers, closing a server ends its accept loop, which we await so
-    # no readiness fd reader outlives the endpoint it watches.
+    # Teardown: close both dialing connections and every accepted connection
+    # while their owning loops are still live, then release runtimes and
+    # listeners. Closing an adopted runtime first retires its loop-owned
+    # sessions, so a later close would correctly refuse them as SessionNotOwned.
     await recipient.close()
-    await recipient_runtime.close()
     await to_exporter.close()
-    await gifter_runtime.close()
     for session in (*exporter_served, *gifter_served):
         await session.close()
+    await recipient_runtime.close()
+    await gifter_runtime.close()
     await exporter.close()
     await gifter.close()
     await exporter_task

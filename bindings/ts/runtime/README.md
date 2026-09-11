@@ -176,3 +176,7 @@ step passes them and resolves the shared libraries relative to `zig-out/`.
 ```sh
 zig build bindings        # builds the glowcap archives, runs every binding consumer
 ```
+
+The `@glowcap/runtime/cleanup` subpath provides bounded secondary-error custody
+and ordered rollback helpers without importing a Host or FFI adapter. The same
+helpers remain exported from `@glowcap/runtime`; both paths share one custody map.

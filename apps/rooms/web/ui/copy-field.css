@@ -1,0 +1,113 @@
+/* ── Copy fields ───────────────────────────────────────────────────────
+   The boxed value a reader takes away: a locator, a capability, a build.
+   Split from settings.css by subject; the modal machinery stays there. */
+/* A locator is a field only in the sense that it is a boxed value the reader
+   wants to take away; nothing in it can be typed into. So the box is the
+   control (see `CopyField` in Copy.tsx), and the mark in the corner says a
+   press does something rather than being the only place a press counts.
+
+   The corner is held open by the field's own trailing padding rather than by a
+   column beside the text, because a locator breaks anywhere: given a floated
+   corner to clear, the text would clear it on the first line and run under it
+   on every line after. Padding holds it open on all of them. */
+.copy-field {
+	all: unset;
+	box-sizing: border-box;
+	position: relative;
+	display: block;
+	width: 100%;
+	padding: 10px 34px 10px 12px;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--paper);
+	/* What a copy field holds is a locator, a capability, or a build: pasted
+	   text in every case, so the mono page.css keeps for what is typed or
+	   pasted. It keeps the fine step rather than dropping one, because a
+	   locator is read character by character and compared, and ten pixels is
+	   too small for that. */
+	font-family: var(--font-mono);
+	font-size: var(--type-fine);
+	line-height: 1.4;
+	text-align: left;
+	color: var(--ink);
+	cursor: pointer;
+	transition: background .12s ease, border-color .12s ease;
+}
+.copy-field:not(:disabled):hover,
+.copy-field:focus-visible {
+	border-color: color-mix(in srgb, var(--accent) 34%, var(--rule));
+	background: color-mix(in srgb, var(--accent) 6%, var(--paper));
+}
+.copy-field:disabled {
+	cursor: default;
+	color: var(--ink-soft);
+}
+.copy-field-text {
+	display: block;
+	word-break: break-all;
+	user-select: all;
+}
+/* The ordinary form: one line at the in-row height, cut with an ellipsis, the
+   whole value in the title and on the clipboard. Expanded values opt out when
+   reading and comparison, rather than copying, is the surface's actual task. */
+.copy-field[data-compact] {
+	min-height: var(--control-h);
+	padding: 0 32px 0 10px;
+	display: flex;
+	align-items: center;
+}
+.copy-field[data-compact] .copy-field-text {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	word-break: normal;
+}
+.copy-field[data-compact] .copy-field-mark {
+	top: 50%;
+	transform: translateY(-50%);
+}
+/* Pinned to the top of the box, so a locator taking three lines leaves the mark
+   where a locator taking one put it. It answers to the field rather than to
+   itself: it is quiet until the field is under a pointer or holds focus, and it
+   takes the tick's colour for as long as the reply stands. */
+.copy-field-mark {
+	position: absolute;
+	top: 9px;
+	right: 10px;
+	display: inline-flex;
+	color: var(--ink-soft);
+	opacity: .55;
+	transition: opacity .12s ease, color .12s ease;
+}
+.copy-field:not(:disabled):hover .copy-field-mark,
+.copy-field:focus-visible .copy-field-mark {
+	opacity: 1;
+}
+.copy-field[data-copied] .copy-field-mark {
+	opacity: 1;
+	color: var(--teal);
+}
+.copy-field .copy-said {
+	left: auto;
+	right: 4px;
+	bottom: calc(100% - 2px);
+	transform: none;
+}
+/* The build stamp at the foot of Help: the same field, shrunk to a chip. */
+.modal[aria-labelledby="helpTitle"] .modal-body > .copy-field:last-child {
+	align-self: center;
+	width: auto;
+	min-height: 26px;
+	padding: 0 26px 0 8px;
+	border-radius: 8px;
+	font-size: var(--type-tiny);
+}
+.modal[aria-labelledby="helpTitle"] .modal-body > .copy-field:last-child::before {
+	content: "Build";
+	margin-right: var(--gap-row);
+	color: var(--ink-soft);
+	font-family: var(--font-sans);
+}
+.modal[aria-labelledby="helpTitle"] .modal-body > .copy-field:last-child .copy-field-mark {
+	right: 6px;
+}

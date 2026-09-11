@@ -1,0 +1,2088 @@
+{
+  "authority": "apps/rooms/lib/archive/protocol.ts",
+  "records": [
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        {
+          "integer": "100"
+        }
+      ],
+      "valid": true,
+      "output": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        {
+          "integer": "100"
+        }
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "0"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        {
+          "integer": "0"
+        }
+      ],
+      "valid": true,
+      "output": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        {
+          "integer": "0"
+        }
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "-1"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "-1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        {
+          "integer": "-1"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "9007199254740991"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "9007199254740991"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "9007199254740991"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "9007199254740991"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        {
+          "integer": "9007199254740991"
+        }
+      ],
+      "valid": true,
+      "output": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        {
+          "integer": "9007199254740991"
+        }
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "9007199254740992"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "9007199254740992"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        {
+          "integer": "9007199254740992"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        1,
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        1,
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        1
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        "1",
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        "1",
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        "1"
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        null,
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        null,
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "standing",
+        "source",
+        "generation",
+        "standing",
+        "directory",
+        "garden",
+        "alice",
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "a\u0000",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "a",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "a",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀a",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "a b",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "a b",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "a\n",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀a",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀a",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "edited",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "edited",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "withdrawn",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "unknown",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "withdrawn",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "withdrawn",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        true,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        true,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        0,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        null,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        [],
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        []
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        [
+          "a",
+          "b",
+          {
+            "integer": "1"
+          },
+          {
+            "integer": "0"
+          },
+          {
+            "integer": "0"
+          },
+          null
+        ]
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        [
+          [
+            "a",
+            "",
+            {
+              "integer": "1"
+            },
+            {
+              "integer": "0"
+            },
+            {
+              "integer": "0"
+            },
+            null
+          ]
+        ]
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        [
+          [
+            "a",
+            "",
+            {
+              "integer": "1"
+            },
+            {
+              "integer": "0"
+            },
+            {
+              "integer": "0"
+            },
+            null
+          ]
+        ]
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        [
+          [
+            "a",
+            "b",
+            {
+              "integer": "1"
+            },
+            {
+              "integer": "65536"
+            },
+            {
+              "integer": "0"
+            },
+            null
+          ]
+        ]
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        [
+          [
+            "a",
+            "b",
+            {
+              "integer": "1"
+            },
+            {
+              "integer": "65535"
+            },
+            {
+              "integer": "0"
+            },
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        ]
+      ],
+      "valid": true,
+      "output": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        [
+          [
+            "a",
+            "b",
+            {
+              "integer": "1"
+            },
+            {
+              "integer": "65535"
+            },
+            {
+              "integer": "0"
+            },
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        ]
+      ]
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        [
+          [
+            "a",
+            "b",
+            {
+              "integer": "1"
+            },
+            {
+              "integer": "0"
+            },
+            {
+              "integer": "0"
+            },
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          ]
+        ]
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present"
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "line",
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "alice",
+        "hello",
+        false,
+        {
+          "integer": "100"
+        },
+        {
+          "integer": "1"
+        },
+        "present",
+        [],
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [],
+      "valid": false
+    },
+    {
+      "input": null,
+      "valid": false
+    }
+  ],
+  "filters": [
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": true,
+      "output": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "input": [
+        "",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        {
+          "integer": "1"
+        },
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        [],
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "valid",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": true,
+      "output": [
+        "valid",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "input": [
+        null,
+        "",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        {
+          "integer": "1"
+        },
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        [],
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        "valid",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": true,
+      "output": [
+        null,
+        "valid",
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "input": [
+        null,
+        null,
+        "",
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        {
+          "integer": "1"
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        [],
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        "valid",
+        null,
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        "",
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        {
+          "integer": "1"
+        },
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        [],
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        "valid",
+        null,
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        "",
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        {
+          "integer": "1"
+        },
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        [],
+        null,
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        "valid",
+        null,
+        null
+      ],
+      "valid": true,
+      "output": [
+        null,
+        null,
+        null,
+        null,
+        "valid",
+        null,
+        null
+      ]
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        "",
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        {
+          "integer": "1"
+        },
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        [],
+        null
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        "valid",
+        null
+      ],
+      "valid": true,
+      "output": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        "valid",
+        null
+      ]
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        ""
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        {
+          "integer": "1"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        []
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "valid"
+      ],
+      "valid": false
+    },
+    {
+      "input": [
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "valid": true,
+      "output": [
+        "source",
+        "generation",
+        "line",
+        "room",
+        "directory",
+        "garden",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+    },
+    {
+      "input": [
+        null,
+        null,
+        "standing",
+        "direct",
+        null,
+        null,
+        null
+      ],
+      "valid": true,
+      "output": [
+        null,
+        null,
+        "standing",
+        "direct",
+        null,
+        null,
+        null
+      ]
+    }
+  ]
+}

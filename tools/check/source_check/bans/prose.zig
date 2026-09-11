@@ -90,6 +90,37 @@ pub const human_doc_voice: []const Ban = voice_rows: {
     break :voice_rows rows;
 };
 
+/// Always-loaded scaffolding and first-read pages stay in protocol
+/// vocabulary: untrusted inbound, peer-supplied, partner-chosen, malformed.
+pub const inbound_vocabulary: []const Ban = inbound_rows: {
+    const phrases = [_]struct { needle: []const u8, why: []const u8 }{
+        .{ .needle = "attack", .why = "inbound vocabulary: write untrusted, peer-supplied, inject, or refuse (doc-voice)" },
+        .{ .needle = "malicious", .why = "inbound vocabulary: write untrusted or uncooperative (doc-voice)" },
+        .{ .needle = "hostile", .why = "inbound vocabulary: write untrusted, malformed, or uncooperative (doc-voice)" },
+    };
+    const scopes = [_]Where{
+        .{ .file = "AGENTS.md" },
+        .{ .file = "SECURITY.md" },
+        .{ .tree = .{ .dir = ".agents", .suffixes = &.{".md"} } },
+        .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
+        .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },
+    };
+    var rows: []const Ban = &.{};
+    for (scopes) |scope| {
+        for (phrases) |phrase| {
+            rows = rows ++ &[_]Ban{.{
+                .where = scope,
+                .kind = .forbid,
+                .needles = &.{phrase.needle},
+                .insensitive = true,
+                .check = "inbound-vocabulary",
+                .why = phrase.why,
+            }};
+        }
+    }
+    break :inbound_rows rows;
+};
+
 /// Diagram wire vocabulary: an op's target ("to ...") is a `desc:export` or
 /// `desc:answer` — the spec's to-desc grammar. The import-side descriptors
 /// introduce references; they are never a delivery target. The wrong spelling
@@ -111,4 +142,29 @@ pub const diagram_wire_vocabulary: []const Ban = &.{
         .check = "diagram-wire-vocabulary",
         .why = "a deliver target is desc:export or desc:answer; desc:import-promise only introduces (CapTP Specification, op:deliver to-desc)",
     },
+};
+
+/// The Rooms Settings radio for native-initiated DMs is **Through the room
+/// relay**. The old label survived a rename in CLI and skill prose; a closed
+/// file list would let the next page revive it.
+pub const rooms_settings_label: []const Ban = label_rows: {
+    const scopes = [_]Where{
+        .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"} } },
+        .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },
+        .{ .tree = .{ .dir = ".agents/skills", .suffixes = &.{".md"} } },
+        .{ .tree = .{ .dir = "apps/rooms", .suffixes = &.{".md"} } },
+        .{ .file = "README.md" },
+        .{ .file = "examples/README.md" },
+    };
+    var rows: []const Ban = &.{};
+    for (scopes) |scope| {
+        rows = rows ++ &[_]Ban{.{
+            .where = scope,
+            .kind = .forbid,
+            .needles = &.{"Via this server"},
+            .check = "rooms-settings-label",
+            .why = "Rooms Settings label is Through the room relay",
+        }};
+    }
+    break :label_rows rows;
 };

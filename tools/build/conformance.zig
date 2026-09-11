@@ -93,8 +93,8 @@ pub fn register(
     // The core external protocol baseline, in one step.
     //
     // `check` is deliberately hermetic: it needs no network or live external
-    // authority. Its small host tool set is declared by `check_runtimes`
-    // above; CLI tests link the trap-on-use iroh stub, so Cargo and its cache
+    // authority. Its small host tool set is declared by `check_runtimes` in
+    // toolchain.zig; CLI tests link the trap-on-use iroh stub, so Cargo and its cache
     // stay outside this gate. A green `check` still proves only that glowcap
     // agrees with glowcap. These
     // are the baseline that can contradict it — the upstream OCapN suite, a live
@@ -114,14 +114,14 @@ pub fn register(
     check_external_step.dependOn(goblins_reg.exporter_step);
     check_external_step.dependOn(fixture_gen_check_step);
 
-    // Hermetic C-ABI extract refuse matrix (ADR-0077): zip-slip / symlink
+    // Hermetic C-ABI extract refuse matrix (ADR-0077): archive path escape / symlink
     // fixtures against each resolve port's hard-fail hygiene. `tar` is
     // required; optional language runtimes exercise their production
     // validators when present and name each skipped port. It remains in
     // `check` because a soft-green extract is a footgun.
     const c_abi_extract = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/c-abi/c-abi-extract-matrix.sh" });
     c_abi_extract.setCwd(b.path("."));
-    const c_abi_extract_check_step = b.step("c-abi-extract-check", "Hermetic C-ABI extract hygiene matrix: refuse zip-slip/symlink, accept clean lib/ (ADR-0077)");
+    const c_abi_extract_check_step = b.step("c-abi-extract-check", "Hermetic C-ABI extract hygiene matrix: refuse archive path escape/symlink, accept clean lib/ (ADR-0077)");
     c_abi_extract_check_step.dependOn(&c_abi_extract.step);
     check_step.dependOn(c_abi_extract_check_step);
 }

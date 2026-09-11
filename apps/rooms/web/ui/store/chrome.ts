@@ -6,17 +6,17 @@
 // the verbs here answer for the layout in force rather than making every
 // control know which one it is on.
 
-import {
-	type AttachmentView,
-	type DiagnosticRow,
-	type DirId,
-	type ListenerRow,
-	type OpsCap,
-	type PeeringState,
-	type RoomsOperatorState,
-	type ToastKind,
-	type ViewerDirection,
-	type VizPublishState,
+import type {
+	AttachmentView,
+	DiagnosticRow,
+	DirId,
+	ListenerRow,
+	OpsCap,
+	PeeringState,
+	RoomsOperatorState,
+	ToastKind,
+	ViewerDirection,
+	VizPublishState,
 } from "../types.ts";
 import type { IrcGatewayState, MemberRef } from "../types.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
@@ -67,21 +67,28 @@ export function activeDraft(projection: PageProjection): Draft {
 	return draftFor(projection, projection.get().activeKey);
 }
 
-/** Write one conversation's draft, dropping the row once there is nothing left
- * in it so an untouched conversation costs nothing and a cleared one stops
- * being remembered.
- *
- * The conversation must still be one this tab holds. A command that leaves or
- * dismisses has already dropped the row; writing whoever is on screen then would
- * empty the conversation that came forward. */
+/** Each edit has its own immutable identity, including an explicit clear.
+ * Pending submissions use that identity to distinguish a newer empty draft
+ * from the empty draft they left behind. Untouched conversations have no row;
+ * touched rows are bounded by open conversations and retire with them. */
 function setDraftOn(projection: PageProjection, key: string, next: Draft): void {
 	if (!projection.get().convs.has(key)) return;
 	const drafts = new Map(projection.get().drafts);
-	// An empty draft keeps its row while it is changing a line: emptying the box
-	// to retype a message must not lose which message is being retyped.
-	if (next.text === "" && next.files.length === 0 && next.changing === undefined) drafts.delete(key);
-	else drafts.set(key, next);
+	drafts.set(key, next);
 	projection.set({ drafts });
+}
+
+/** Replace only the draft an asynchronous submission observed. A later edit,
+ * file selection, or retired conversation keeps ownership of its own state. */
+export function replaceDraft(
+	projection: PageProjection,
+	key: string,
+	expected: Draft,
+	next: Draft,
+): boolean {
+	if (!projection.get().convs.has(key) || draftFor(projection, key) !== expected) return false;
+	setDraftOn(projection, key, next);
+	return true;
 }
 
 /** Write the conversation on screen's draft. Nothing happens with none on
@@ -130,9 +137,13 @@ export function dropKeptFile(projection: PageProjection, index: number): void {
 }
 
 /** Stop changing, leaving the line as it was posted and the composer empty. */
-export function cancelChange(projection: PageProjection): void {
-	setActiveDraft(projection, {
-		...activeDraft(projection),
+export function cancelChange(
+	projection: PageProjection,
+	key: string | null = projection.get().activeKey,
+): void {
+	if (key == null) return;
+	setDraftOn(projection, key, {
+		...draftFor(projection, key),
 		text: "",
 		changing: undefined,
 		keeping: undefined,

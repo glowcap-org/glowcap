@@ -56,166 +56,39 @@
 	gap: var(--gap-group);
 	text-align: center;
 }
-.boot-lockup {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: var(--gap-group);
-}
 /* The product's own mark rather than a spinner, and the mark being made
-   rather than sitting there: the pancakes fall in from above and land with a
-   hint of give, bottom first, butter last; the finished stack holds a
-   moment, sighs down out of view, and a fresh one falls in. A loop, because
-   nothing here knows how far along the wait is and a bar that filled would
-   be making that up. The pieces are the shared mark layers from
-   mark.css; only the choreography lives here. The sheet-wide
-   reduced-motion rule collapses the cycle to the finished stack. */
-.boot-mark {
-	/* When one stack has finished landing: the butter's settle, 63.5% of
-	   the 1.6s cycle, plus the .15s start delay. ui/boot.ts reads this to keep the screen up through at
-	   least one full build on a fast network, so the number and the
-	   keyframes it summarizes live side by side. */
-	--boot-stacked: 1.17s;
+   rather than sitting there: the stem grows up, the cap blooms from the
+   brim, then the lantern lights; it holds, fades, and plays again. A
+   loop, because nothing here knows how far along the wait is and a bar
+   that filled would be making that up. The play is the shader mark's own
+   (ui/mark_gpu_live.ts), drawn into the box below once the bundle is
+   running; until then the box is empty, and the mark growing up out of
+   the ground is how the code's arrival reads. ui/boot.ts asks the mark
+   when one play has assembled before it hands over. */
+.boot-mark-stack {
 	position: relative;
-	width: 44px;
-	height: 44px;
-	color: var(--accent);
-	animation: boot-cycle 1.6s ease-in .15s infinite backwards;
+	display: grid;
+	place-items: center;
+	/* Room for the light around the mark. A box the mark's own size around
+	   a mark that reaches past itself clips overflow on iOS. The negative
+	   margin hands that room back to the layout exactly, so the lockup above
+	   spaces by the mark's box and not by the air: 142 less twice 43 is the
+	   56 below, which is the box the session page lays out directly. */
+	width: 142px;
+	height: 142px;
+	margin: -43px 0;
 }
-.boot-mark .mark-piece {
-	/* The .15s delay is a still beat before the first cake lets go — the page
-	   paints, a breath, then the drop. `backwards` holds each piece at its
-	   hidden 0% frame through the delay, so the beat is empty air rather than
-	   a flash of the finished stack. */
-	animation: 1.6s cubic-bezier(.3, .7, .4, 1.1) .15s infinite backwards;
-}
-.boot-mark .mark-cake-3 {
-	animation-name: boot-fall-3;
-}
-.boot-mark .mark-cake-2 {
-	animation-name: boot-fall-2;
-}
-.boot-mark .mark-cake-1 {
-	animation-name: boot-fall-1;
-}
-.boot-mark .mark-butter {
-	animation-name: boot-fall-butter;
-}
-/* One fall per piece, staggered wide enough to touch: each cake lets go
-   about a hundred milliseconds behind the one below, so by the
-   time it dips past its seat the piece under it has mostly sprung back —
-   the overshoot lands on something, and the stack reads as compressing
-   rather than four shapes moving in unison. The landing is slow motion
-   played at speed: a quick squish, the squash held for a beat of
-   anticipation, then a recovery slower than the fall itself: from max
-   overshoot the cake eases in and eases out into its seat, no snap at
-   either end. The dip
-   sinks each cake visibly into its neighbor (later siblings paint on top).
-   The butter is butter, not glowcap: it lets go a further beat behind the
-   cakes' rhythm — late enough to notice, never enough to wait for — and it
-   does not bounce; it lands, smushes, and relaxes with no overshoot.
-   The percentages are of the 1.6s cycle. */
-@keyframes boot-fall-3 {
-	0% {
-		opacity: 0;
-		transform: translateY(-140%);
-	}
-	10% {
-		opacity: 1;
-		transform: translateY(0);
-		animation-timing-function: ease-out;
-	}
-	14%,
-	17% {
-		transform: translateY(10%) scaleX(1.1) scaleY(.7);
-		animation-timing-function: cubic-bezier(.4, 0, .2, 1);
-	}
-	35%,
-	100% {
-		opacity: 1;
-		transform: translateY(0) scaleY(1);
-	}
-}
-@keyframes boot-fall-2 {
-	0%,
-	6% {
-		opacity: 0;
-		transform: translateY(-140%);
-	}
-	16% {
-		opacity: 1;
-		transform: translateY(0);
-		animation-timing-function: ease-out;
-	}
-	20%,
-	23% {
-		transform: translateY(10%) scaleX(1.1) scaleY(.7);
-		animation-timing-function: cubic-bezier(.4, 0, .2, 1);
-	}
-	41%,
-	100% {
-		opacity: 1;
-		transform: translateY(0) scaleY(1);
-	}
-}
-@keyframes boot-fall-1 {
-	0%,
-	12% {
-		opacity: 0;
-		transform: translateY(-140%);
-	}
-	22% {
-		opacity: 1;
-		transform: translateY(0);
-		animation-timing-function: ease-out;
-	}
-	26%,
-	29% {
-		transform: translateY(10%) scaleX(1.1) scaleY(.7);
-		animation-timing-function: cubic-bezier(.4, 0, .2, 1);
-	}
-	47%,
-	100% {
-		opacity: 1;
-		transform: translateY(0) scaleY(1);
-	}
-}
-@keyframes boot-fall-butter {
-	0%,
-	31.5% {
-		opacity: 0;
-		transform: translateY(-110%);
-	}
-	41.5% {
-		opacity: 1;
-		transform: translateY(0);
-		animation-timing-function: ease-out;
-	}
-	45.5%,
-	48.5% {
-		transform: translateY(1.5%) scaleX(1.12) scaleY(.66);
-		animation-timing-function: cubic-bezier(.25, .7, .35, 1);
-	}
-	63.5%,
-	100% {
-		opacity: 1;
-		transform: translateY(0) scaleY(1);
-	}
-}
-/* The whole stack's exit: hold, then fade and pan down, and a short empty
-   beat before the cycle's next fall. The children are already transparent at
-   their own 0%, so the container coming back is invisible. */
-@keyframes boot-cycle {
-	0%,
-	77% {
-		opacity: 1;
-		transform: translateY(0);
-	}
-	88%,
-	100% {
-		opacity: 0;
-		transform: translateY(16%);
-	}
+/* The mushroom's own box. Its canvas hangs around this by the mark's plume
+   box, so the light has somewhere to go. The session chooser draws the same
+   lockup at this same size — the number's twin is the `size` its `Icon` takes
+   in ui/SessionSetup.tsx — so the mark does not jump when the screen fades
+   into it. */
+.boot-mark {
+	position: relative;
+	z-index: 1;
+	width: 56px;
+	height: 56px;
+	overflow: visible;
 }
 /* The boot screen's name is the logotype lockup from mark.css; this rule
    adds only what the boot layout owns. */

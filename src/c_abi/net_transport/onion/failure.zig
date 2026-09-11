@@ -4,10 +4,7 @@ const net = @import("net");
 const c = @import("c_abi_shared");
 
 pub fn providerDial(err: net.netlayer.DialError) i32 {
-    return switch (err) {
-        error.InvalidAddress => c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        else => c.GLOWCAP_ERR_IO,
-    };
+    return c.dialFailureCode(err);
 }
 
 pub fn providerListen(err: anyerror) i32 {
@@ -23,7 +20,7 @@ pub fn dial(err: net.netlayer.DialError) i32 {
         error.InvalidAddress => result(c.GLOWCAP_ERR_INVALID_ARGUMENT, "connect: not a well-formed version 3 onion service id, or an unusable socks endpoint"),
         error.ConnectionRefused => result(c.GLOWCAP_ERR_IO, "connect: nothing is listening at the configured tor socks endpoint"),
         error.NetworkUnreachable => result(c.GLOWCAP_ERR_IO, "connect: tor could not reach that onion service"),
-        error.TimedOut => result(c.GLOWCAP_ERR_IO, "connect: timed out reaching tor"),
+        error.TimedOut => result(c.GLOWCAP_ERR_TIMEOUT, "connect: timed out reaching tor"),
         error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
         else => blk: {
             c.setLastError("connect: onion dial failed: {s}", .{@errorName(err)});

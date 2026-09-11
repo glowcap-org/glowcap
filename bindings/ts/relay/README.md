@@ -16,7 +16,8 @@ and the same five shapes appear in every language's relay.
 1. **A raw byte channel** to the target — `read() → Uint8Array | null`,
    `write(bytes) → Promise<void>`, `close() → Promise<void>` (one idempotent release barrier): the `RelayChannel` type. For an iroh
    target it comes from `@glowcap/iroh`'s `dialLocatorForRelay`; for a TCP target it is the
-   runtime's own socket.
+   runtime's own socket. One channel request makes one dial attempt; retry belongs to the
+   embedding application's connection lifecycle.
 2. **The pump**, `relayBytes(source, sink, channel, config, closeSource)`: moves bytes between the
    two legs with pair-atomic teardown, an idle timeout, a byte cap, and awaited-write backpressure.
    It joins both close barriers before returning and preserves close refusals after the first I/O failure.
@@ -31,7 +32,7 @@ and the same five shapes appear in every language's relay.
    grammar and loading iroh only on the `?locator=` path (a `source-check` gate holds that lazy load).
    Routing classification through the shared core `glowcap_host_plan_dial` would link the capability
    core for one bit the parameter already carries, so only the production rooms relay
-   (`apps/rooms/web/relay.ts`) does that, to keep its SSRF allow-list in lockstep with the dial it
+   (`apps/rooms/web/relay.ts`) does that, to keep its target allow-list in lockstep with the dial it
    admits (ADR-0086).
 5. **Config** — `{ idleTimeoutMs, maxBytesPerSession }`. The embedding app supplies which targets
    may be dialed separately, as policy.

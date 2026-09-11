@@ -203,7 +203,7 @@ export async function run(managed: Runtime): Promise<void> {
 			session.serve().catch(() => {});
 
 			// A caretaker over a local tool, called locally by its own host.
-			const local = session.spawn((verb, args) => {
+			const local = session.publish("local-double", (verb, args) => {
 				if (verb === "double") {
 					const n = typeof args[0] === "bigint" ? args[0] : 0n;
 					return n * 2n;
@@ -233,6 +233,28 @@ export async function run(managed: Runtime): Promise<void> {
 				severed !== null && severed.reason.includes("Revoked"),
 				"revoke breaks a local call too",
 			);
+
+			const retained = session.publishedRef("local-double");
+			assert(retained !== null && retained.equals(local), "a second occurrence keeps the same target");
+			const releasedForward = session.caretaker(local);
+			session.release(local);
+			for (
+				const invoke of [
+					() => session.send(local, "double", [1n]),
+					() => session.tell(local, "double", [1n]),
+					() => session.send(releasedForward.proxy, "double", [1n]),
+				]
+			) {
+				let refused = false;
+				try {
+					await invoke();
+				} catch (error) {
+					refused = error instanceof Error && error.message.includes("released");
+				}
+				assert(refused, "a released occurrence cannot invoke a still-live local target");
+			}
+			assert(await session.send(retained, "double", [21n]) === 42n, "the other occurrence stays usable");
+			session.release(retained);
 
 			await session.close();
 		}

@@ -14,6 +14,22 @@ export async function proveSharedDirectoryRecovery(page: Page, port: number): Pr
 	try {
 		await readPort(peer);
 		await page.click("#newRoomBtn");
+		await page.waitForSelector("#newRoomInput", { state: "visible", timeout: 10_000 }).catch(async () => {
+			// The field is put away when the page lands in a conversation, so a
+			// field that never shows is usually a selection that keeps moving.
+			const state = await page.evaluate(() => ({
+				path: location.pathname,
+				button: document.getElementById("newRoomBtn")?.outerHTML ?? null,
+				input: document.getElementById("newRoomInput")?.closest("[hidden], .hidden, details")?.outerHTML?.slice(
+					0,
+					300,
+				) ?? "not in a hidden container",
+				rooms: [...document.querySelectorAll("#rooms li, .room-row")].map((row) => row.textContent?.trim())
+					.slice(0, 8),
+				issues: document.getElementById("issues")?.textContent?.trim() ?? null,
+			}));
+			fail(`the new-room field did not open on the attached page: ${JSON.stringify(state)}`);
+		});
 		await page.fill("#newRoomInput", "other-room");
 		await page.focus("#newRoomElsewhere");
 		await page.press("#newRoomElsewhere", "Enter");

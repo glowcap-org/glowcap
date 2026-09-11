@@ -98,3 +98,30 @@ Deno.test("a failed send restores text when its clear is still current", async (
 	await waitForDraftSave();
 	controller.draftWrites[0].resolve(controller.current);
 });
+
+Deno.test("a locally recoverable send is drawn before dispatch and retries the same intent", async () => {
+	const page = new RoomsPage();
+	resetStore(page);
+	addActiveDm(page);
+	store.setDraft(page.projection, "visible intent");
+	const controller = new FakeController();
+	const session = sessionFor(page, controller, true);
+	const conversation = store.activeConv(page.projection);
+	if (conversation == null) throw new Error("the send fixture has no conversation");
+
+	session.send();
+	const pending = store.historyOf(page.projection, conversation.key).at(-1);
+	assertEquals(pending?.kind === "chat" ? [pending.text, pending.state] : null, ["visible intent", "sending"]);
+	assertEquals(store.activeDraft(page.projection).text, "");
+
+	controller.sends[0].reject(new Error("send failed"));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	const failed = store.historyOf(page.projection, conversation.key).at(-1);
+	assertEquals(failed?.kind === "chat" ? failed.state : null, "failed");
+	assertEquals(store.activeDraft(page.projection).text, "");
+
+	session.retry(conversation.key, failed!.id);
+	assertEquals(controller.sends.length, 2);
+	const retried = store.historyOf(page.projection, conversation.key).at(-1);
+	assertEquals(retried?.kind === "chat" ? [retried.id, retried.state] : null, [failed!.id, "sending"]);
+});

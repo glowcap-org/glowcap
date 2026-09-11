@@ -192,6 +192,26 @@ const ObservedOpen = struct {
         releaseClose(ctx);
         self.close_events += 1;
     }
+
+    /// Completions are not under test here: refuse each, so the drain frees it.
+    fn discard(_: *anyopaque, _: driver_core.HostAction) bool {
+        return false;
+    }
+
+    /// `opts` on the stepped face, publishing closes to this recorder.
+    fn steppedOpts(self: *ObservedOpen) driver.SessionOptions {
+        var options = opts;
+        options.drive = .{ .stepped = .{
+            .completion_sink = .{ .ctx = self, .take = discard },
+            .close_observer = .{
+                .ctx = self,
+                .reserve = reserveClose,
+                .release = releaseClose,
+                .closed = closed,
+            },
+        } };
+        return options;
+    }
 };
 
 test "runtime close cancels a resident open after core reaches closed" {
@@ -286,20 +306,14 @@ test "external adoption commits its pending-open owner before immediate EOF" {
     };
     defer resident.wake.deinit();
 
-    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    var observed = ObservedOpen{};
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, observed.steppedOpts());
     defer runtime.deinit();
     _ = try runtime.addResident(.{
         .symbol = ImmediateClosedExternalResident.transport,
         .designator_scheme = .key,
     }, resident.multiplexedResident());
 
-    var observed = ObservedOpen{};
-    try runtime.setCloseObserver(.{
-        .ctx = &observed,
-        .reserve = ObservedOpen.reserveClose,
-        .release = ObservedOpen.releaseClose,
-        .closed = ObservedOpen.closed,
-    });
     try runtime.startAdoptExternal(
         ImmediateClosedExternalResident.transport,
         ImmediateClosedExternalResident.conn_id,

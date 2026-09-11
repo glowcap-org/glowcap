@@ -83,7 +83,7 @@ const FakeSocksResult = struct {
 /// byte left to be parsed as a frame and no session byte thrown away.
 fn fakeSocksServe(
     io: std.Io,
-    listener: *glowcap.net.tcp.plain.Listener,
+    listener: *glowcap.net.tcp.Listener,
     allocator: std.mem.Allocator,
     out: *FakeSocksResult,
 ) anyerror!void {
@@ -146,7 +146,7 @@ test "a dial hands the session a stream positioned after the SOCKS reply" {
     const io = threaded.io();
 
     // The fake proxy stands in for Tor's SOCKS endpoint on loopback.
-    var proxy = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var proxy = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer proxy.deinit();
     var socks_text: [64]u8 = undefined;
     const socks = try std.fmt.bufPrint(&socks_text, "{f}", .{proxy.localAddress()});
@@ -229,7 +229,7 @@ const FakeControlResult = struct {
 /// Answer `AUTHENTICATE` and one `ADD_ONION`, recording what was asked.
 fn fakeControlServe(
     io: std.Io,
-    listener: *glowcap.net.tcp.plain.Listener,
+    listener: *glowcap.net.tcp.Listener,
     out: *FakeControlResult,
 ) anyerror!void {
     const stream = try listener.acceptStream();
@@ -272,7 +272,7 @@ fn takeLine(allocator: std.mem.Allocator, r: *std.Io.Reader) anyerror![]u8 {
     return buf.toOwnedSlice(allocator);
 }
 
-fn fakeControlRejectAuth(io: std.Io, listener: *glowcap.net.tcp.plain.Listener) anyerror!void {
+fn fakeControlRejectAuth(io: std.Io, listener: *glowcap.net.tcp.Listener) anyerror!void {
     const stream = try listener.acceptStream();
     defer stream.close(io);
 
@@ -298,7 +298,7 @@ test "a refused control authentication closes the unreturned stream" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const endpoint_text = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -319,7 +319,7 @@ test "a listener publishes the service id Tor named, not one glowcap chose" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -349,7 +349,7 @@ test "onion listener returns Unix-socket removal failure" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -415,7 +415,7 @@ test "onion listener shutdown wakes and joins a blocked accept before release" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
@@ -448,7 +448,7 @@ test "onion listener shutdown joins a blocked readiness wait before release" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var ctrl_listener = try glowcap.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
     const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});

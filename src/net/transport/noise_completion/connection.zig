@@ -7,56 +7,20 @@
 const std = @import("std");
 
 const foundation = @import("foundation");
+const adapter = @import("../../completion/adapter.zig");
 const intrusive_queue = @import("../../completion/intrusive_queue.zig");
 
 const crypto = foundation.crypto;
 const sealed = foundation.sealed;
 
-pub fn Types(comptime Inner: type) type {
+pub fn Types(comptime Inner: type, comptime Namespace: type) type {
     return struct {
         pub const steady_ciphertext_bytes: usize = 4096;
         pub const ConnId = u32;
         pub const InternalOp = enum(u3) { connect, recv, send, close };
         pub const RetryLinks = intrusive_queue.Links(ConnId);
-
-        pub const InternalPending = struct {
-            connect: bool = false,
-            recv: bool = false,
-            send: bool = false,
-
-            pub fn get(p: InternalPending, op: InternalOp) bool {
-                return switch (op) {
-                    .connect => p.connect,
-                    .recv => p.recv,
-                    .send => p.send,
-                    .close => unreachable,
-                };
-            }
-
-            pub fn arm(p: *InternalPending, op: InternalOp) void {
-                std.debug.assert(!p.get(op));
-                switch (op) {
-                    .connect => p.connect = true,
-                    .recv => p.recv = true,
-                    .send => p.send = true,
-                    .close => unreachable,
-                }
-            }
-
-            pub fn retire(p: *InternalPending, op: InternalOp) void {
-                std.debug.assert(p.get(op));
-                switch (op) {
-                    .connect => p.connect = false,
-                    .recv => p.recv = false,
-                    .send => p.send = false,
-                    .close => unreachable,
-                }
-            }
-
-            pub fn count(p: InternalPending) usize {
-                return @intFromBool(p.connect) + @intFromBool(p.recv) + @intFromBool(p.send);
-            }
-        };
+        pub const PendingOps = adapter.PendingOps(InternalOp, &.{ .connect, .recv, .send });
+        pub const Identity = Namespace.RowIdentity(InternalOp);
 
         pub const NoiseConn = struct {
             id: ConnId,
@@ -79,8 +43,8 @@ pub fn Types(comptime Inner: type) type {
             inner_recv_bytes: []const u8 = &.{},
             inner_recv_off: u32 = 0,
             inner_recv_token: u32 = 0,
-            pending: InternalPending = .{},
-            inner_close: enum { open, in_flight, failed, closed } = .open,
+            pending: PendingOps = .{},
+            inner_close: adapter.InnerClose = .open,
             /// Intrusive memberships: recycle-gated starvation and actionable
             /// submission debt. A row can occupy each queue at most once.
             recv_starvation: RetryLinks = .{},
@@ -114,42 +78,11 @@ pub fn Types(comptime Inner: type) type {
                 }
                 c.ct_front_off = 0;
             }
-
-            pub fn externalSeatCount(c: *const NoiseConn) usize {
-                return @intFromBool(c.external_connect_ud != null) +
-                    @intFromBool(c.external_recv_ud != null) +
-                    @intFromBool(c.external_send_ud != null);
-            }
         };
 
+        /// The row the shared leg lifecycle and submission debt drive.
+        pub const Conn = NoiseConn;
+
         pub const ConnMap = std.AutoHashMapUnmanaged(ConnId, *NoiseConn);
-
-        fn recvStarvationLinks(c: *NoiseConn) *RetryLinks {
-            return &c.recv_starvation;
-        }
-
-        fn submissionRetryLinks(c: *NoiseConn) *RetryLinks {
-            return &c.submission_retry;
-        }
-
-        pub const RecvStarvationQueue = intrusive_queue.Queue(
-            ConnId,
-            NoiseConn,
-            recvStarvationLinks,
-        );
-        pub const SubmissionRetryQueue = intrusive_queue.Queue(
-            ConnId,
-            NoiseConn,
-            submissionRetryLinks,
-        );
-
-        pub fn submissionBit(op: InternalOp) u8 {
-            std.debug.assert(op != .connect);
-            return @as(u8, 1) << @backingInt(op);
-        }
-
-        pub fn owesSubmission(c: *const NoiseConn, op: InternalOp) bool {
-            return c.submission_retry_mask & submissionBit(op) != 0;
-        }
     };
 }

@@ -42,16 +42,30 @@ pub fn roomLine(args: []const model.Argument, own_nick: []const u8) ?RoomLine {
     return .{ .from = from, .text = text };
 }
 
-pub const SubscribeSettlement = enum { fulfilled, refused, malformed };
+pub const SubscribeSettlement = union(enum) {
+    /// The membership seat the room answered with; every later membership
+    /// verb (post, leave, away) goes to it, never to the room.
+    fulfilled: model.Reference,
+    refused,
+    malformed,
+};
 
-/// The room contract may grant topic authority as a capability or fulfill void
+/// The room answers `subscribe` with `[seat, kind, topic]`: the membership
+/// seat, which facet it is, and the topic authority as a capability or void
 /// when it grants none. A broken vow is a server refusal; every other
 /// fulfillment shape (and a handoff, which the Host tier should have redeemed)
 /// is malformed and must not publish a false joined state.
 pub fn classifySubscribeSettlement(resolution: actors.Resolution) SubscribeSettlement {
     return switch (resolution) {
         .fulfilled => |value| switch (value) {
-            .reference, .void => .fulfilled,
+            .list => |items| if (items.len == 3 and items[0] == .reference and
+                items[1] == .string and
+                (std.mem.eql(u8, items[1].string, "observer") or
+                    std.mem.eql(u8, items[1].string, "participant")) and
+                (items[2] == .reference or items[2] == .void))
+                .{ .fulfilled = items[0].reference }
+            else
+                .malformed,
             else => .malformed,
         },
         .broken => .refused,
@@ -459,7 +473,7 @@ fn onSubscribed(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     defer state.gpa.destroy(pending);
     if (!phase_mod.isJoiningSession(&state.phase, session)) return;
     switch (classifySubscribeSettlement(resolution)) {
-        .fulfilled => if (!phase_mod.noteSubscribed(&state.phase, redial_cooldown_wakes)) {
+        .fulfilled => |seat| if (!phase_mod.noteSubscribed(&state.phase, seat, redial_cooldown_wakes)) {
             log.err(state.io, "subscribe fulfilled without a complete joining state", .{});
             state.requestAbandonJoin();
             return;

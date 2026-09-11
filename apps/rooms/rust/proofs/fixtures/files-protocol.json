@@ -1,0 +1,544 @@
+{
+  "limits": {
+    "chunk": 65536,
+    "file": 16777216,
+    "pending": 67108864,
+    "held": 268435456,
+    "roomBytes": 67108864,
+    "roomFiles": 128,
+    "idle": 30000,
+    "readers": 256
+  },
+  "fixtures": [
+    {
+      "args": [
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "exact": true
+    },
+    {
+      "args": [
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        }
+      ],
+      "prefix": [
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "exact": false
+    },
+    {
+      "args": [
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "two",
+        "",
+        1,
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "exact": false
+    },
+    {
+      "args": [
+        "file",
+        "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [
+        {
+          "name": "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "exact": true
+    },
+    {
+      "args": [
+        "file",
+        "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [],
+      "exact": false
+    },
+    {
+      "args": [
+        "file",
+        "",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [],
+      "exact": false
+    },
+    {
+      "args": [
+        "file",
+        "name",
+        "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [],
+      "exact": false
+    },
+    {
+      "args": [
+        "file",
+        "name",
+        "",
+        {
+          "integer": "16777216"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [
+        {
+          "name": "name",
+          "mime": "",
+          "size": 16777216,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "exact": true
+    },
+    {
+      "args": [
+        "file",
+        "name",
+        "",
+        {
+          "integer": "16777217"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [],
+      "exact": false
+    },
+    {
+      "args": [
+        "file",
+        "name",
+        "",
+        {
+          "integer": "-1"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [],
+      "exact": false
+    },
+    {
+      "args": [
+        "file",
+        "name",
+        "",
+        0,
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [],
+      "exact": false
+    },
+    {
+      "args": [
+        "file",
+        "name",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "65535"
+        },
+        {
+          "integer": "65536"
+        }
+      ],
+      "prefix": [
+        {
+          "name": "name",
+          "mime": "",
+          "size": 0,
+          "width": 65535,
+          "height": 0
+        }
+      ],
+      "exact": true
+    },
+    {
+      "args": [
+        "file",
+        "name",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "-1"
+        },
+        1
+      ],
+      "prefix": [
+        {
+          "name": "name",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "exact": true
+    },
+    {
+      "args": [
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        },
+        "file",
+        "one.bin",
+        "",
+        {
+          "integer": "0"
+        },
+        {
+          "capability": true
+        },
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "0"
+        }
+      ],
+      "prefix": [
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "name": "one.bin",
+          "mime": "",
+          "size": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "exact": false
+    }
+  ]
+}

@@ -78,6 +78,13 @@ pub const ReadySet = struct {
     /// The cross-thread wake, a member of the set from birth.
     wake: wake_channel.WakeChannel,
     wake_failure: wake_channel.FailureLatch = .{},
+    /// Set by `postWake` after its byte is sent, cleared by `drainWake`
+    /// before it reads. The owner drains at the top of every wait, and this
+    /// turns that into a load instead of a `recv` syscall when nothing was
+    /// posted, which is nearly every wait. A post racing the clear leaves the
+    /// flag set again, so its byte is read by the next drain, never left to
+    /// pin the set readable.
+    wake_posted: std.atomic.Value(bool) = .init(false),
 
     pub fn init() InitError!ReadySet {
         const set_fd: i32 = if (is_linux) blk: {
@@ -187,6 +194,7 @@ pub const ReadySet = struct {
             self.wake_failure.record(err);
             return err;
         };
+        self.wake_posted.store(true, .release);
     }
 
     /// The wake channel's read half, for a wait that polls it as its own row
@@ -202,10 +210,12 @@ pub const ReadySet = struct {
     /// until a `kevent` read consumes it.
     pub fn drainWake(self: *ReadySet) (wake_channel.Failure || DrainError)!void {
         try self.wake_failure.check();
-        self.wake.drain() catch |err| {
-            self.wake_failure.record(err);
-            return err;
-        };
+        if (self.wake_posted.swap(false, .acq_rel)) {
+            self.wake.drain() catch |err| {
+                self.wake_failure.record(err);
+                return err;
+            };
+        }
         try self.drainQueuedEvents();
     }
 

@@ -44,6 +44,35 @@ fn listenFrame(comptime position: []const u8) []const u8 {
     return "<9'op:listen<11'desc:answer42+><18'desc:import-object" ++ position ++ "+>3+>";
 }
 
+test "an outbound release cannot spend the retain a pending listener keeps" {
+    var peer = preSpecPeer(std.testing.allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+    try std.testing.expectEqual(@as(u64, 1), peer.session_state.importRefcount(.from(9)));
+
+    // The listener's retain is the session's own, released beside its fire,
+    // so an application release addressing it is refused rather than spent.
+    try std.testing.expectError(error.GcUnderflow, peer.sendCopying(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{1} } }));
+    // A retain the application holds on the same import is releasable, and
+    // only that one.
+    try peer.session_state.registerImport(.from(9));
+    try std.testing.expectError(error.GcUnderflow, peer.sendCopying(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{2} } }));
+    try peer.sendCopying(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{1} } });
+    try std.testing.expectEqual(@as(u64, 1), peer.session_state.importRefcount(.from(9)));
+
+    // The fire still addresses its row, and its paired release retires it.
+    const payload = try std.testing.allocator.dupe(u8, "ok");
+    try peer.send(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{ .bytes = payload } } } });
+    while (try peer.step() != .idle) {}
+    try std.testing.expect(!peer.session_state.hasImport(.from(9)));
+}
+
 test "resolving an answer with three listeners copies the resolution payload zero times" {
     var counter = CountingAllocator{ .backing = std.testing.allocator };
     const gpa = counter.allocator();

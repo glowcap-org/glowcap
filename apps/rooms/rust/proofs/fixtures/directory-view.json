@@ -1,0 +1,459 @@
+{
+  "limit": 128,
+  "initial": [
+    {
+      "id": "garden",
+      "name": "garden",
+      "kind": "local",
+      "count": 1,
+      "origin": "",
+      "proof": "local",
+      "offers": "participant"
+    },
+    {
+      "id": "workshop",
+      "name": "workshop",
+      "kind": "local",
+      "count": 1,
+      "origin": "",
+      "proof": "local",
+      "offers": "participant"
+    }
+  ],
+  "trace": [
+    {
+      "event": {
+        "kind": "count",
+        "entry": {
+          "id": "garden",
+          "name": "garden",
+          "kind": "local",
+          "count": 2,
+          "origin": "",
+          "proof": "local",
+          "offers": "participant"
+        }
+      },
+      "changed": true,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "garden",
+            "name": "garden",
+            "kind": "local",
+            "count": 2,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [],
+        "truncated": false
+      }
+    },
+    {
+      "event": {
+        "kind": "count",
+        "entry": {
+          "id": "garden",
+          "name": "garden",
+          "kind": "local",
+          "count": 2,
+          "origin": "",
+          "proof": "local",
+          "offers": "participant"
+        }
+      },
+      "changed": false,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "garden",
+            "name": "garden",
+            "kind": "local",
+            "count": 2,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [],
+        "truncated": false
+      }
+    },
+    {
+      "event": {
+        "kind": "registered",
+        "entry": null,
+        "name": "Ada",
+        "registrationId": "11111111-1111-4111-8111-111111111111",
+        "count": 1
+      },
+      "changed": true,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "garden",
+            "name": "garden",
+            "kind": "local",
+            "count": 2,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [
+          {
+            "name": "Ada",
+            "registrationId": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "truncated": false
+      }
+    },
+    {
+      "event": {
+        "kind": "registered",
+        "entry": null,
+        "name": "ADA",
+        "registrationId": "11111111-1111-4111-8111-111111111111",
+        "count": 1
+      },
+      "changed": false,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "garden",
+            "name": "garden",
+            "kind": "local",
+            "count": 2,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [
+          {
+            "name": "Ada",
+            "registrationId": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "truncated": false
+      }
+    },
+    {
+      "event": {
+        "kind": "registered",
+        "entry": null,
+        "name": "ada",
+        "registrationId": "22222222-2222-4222-8222-222222222222",
+        "count": 1
+      },
+      "changed": true,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "garden",
+            "name": "garden",
+            "kind": "local",
+            "count": 2,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [
+          {
+            "name": "ada",
+            "registrationId": "22222222-2222-4222-8222-222222222222"
+          }
+        ],
+        "truncated": false
+      }
+    },
+    {
+      "event": {
+        "kind": "unregistered",
+        "entry": null,
+        "name": "Ada",
+        "registrationId": "11111111-1111-4111-8111-111111111111",
+        "count": 1
+      },
+      "changed": false,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "garden",
+            "name": "garden",
+            "kind": "local",
+            "count": 2,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [
+          {
+            "name": "ada",
+            "registrationId": "22222222-2222-4222-8222-222222222222"
+          }
+        ],
+        "truncated": false
+      }
+    },
+    {
+      "event": {
+        "kind": "closed",
+        "entry": {
+          "id": "garden",
+          "name": "garden",
+          "kind": "local",
+          "count": 2,
+          "origin": "",
+          "proof": "local",
+          "offers": "participant"
+        }
+      },
+      "changed": true,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [
+          {
+            "name": "ada",
+            "registrationId": "22222222-2222-4222-8222-222222222222"
+          }
+        ],
+        "truncated": false
+      }
+    },
+    {
+      "event": {
+        "kind": "opened",
+        "entry": {
+          "id": "new",
+          "name": "new",
+          "kind": "local",
+          "count": 1,
+          "origin": "",
+          "proof": "local",
+          "offers": "participant"
+        }
+      },
+      "changed": true,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "new",
+            "name": "new",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [
+          {
+            "name": "ada",
+            "registrationId": "22222222-2222-4222-8222-222222222222"
+          }
+        ],
+        "truncated": false
+      }
+    },
+    {
+      "event": {
+        "kind": "truncated",
+        "name": "",
+        "entry": null,
+        "count": 1
+      },
+      "changed": true,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "new",
+            "name": "new",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [
+          {
+            "name": "ada",
+            "registrationId": "22222222-2222-4222-8222-222222222222"
+          }
+        ],
+        "truncated": true
+      }
+    },
+    {
+      "event": {
+        "kind": "truncated",
+        "name": "",
+        "entry": null,
+        "count": 1
+      },
+      "changed": false,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "new",
+            "name": "new",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [
+          {
+            "name": "ada",
+            "registrationId": "22222222-2222-4222-8222-222222222222"
+          }
+        ],
+        "truncated": true
+      }
+    },
+    {
+      "event": {
+        "kind": "unregistered",
+        "entry": null,
+        "name": "ADA",
+        "registrationId": "22222222-2222-4222-8222-222222222222",
+        "count": 0
+      },
+      "changed": true,
+      "snapshot": {
+        "directoryId": "directory",
+        "rooms": [
+          {
+            "id": "workshop",
+            "name": "workshop",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "new",
+            "name": "new",
+            "kind": "local",
+            "count": 1,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          }
+        ],
+        "peers": [],
+        "truncated": true
+      }
+    }
+  ]
+}

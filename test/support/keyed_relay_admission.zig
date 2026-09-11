@@ -275,7 +275,7 @@ pub fn startUpgradeRelay(backend: *AdmissionBackend) !AdmissionBackend.Fd {
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
     const conn = backend.conns.get(1).?;
     try std.testing.expectEqual(.reading_upgrade, conn.state);
-    try std.testing.expect(conn.pending.recv);
+    try std.testing.expect(conn.pending.get(.recv));
     return fd;
 }
 
@@ -299,10 +299,15 @@ pub fn openAdmissionRelay(backend: *AdmissionBackend) !AdmissionBackend.Fd {
     try std.testing.expectEqual(@as(u64, 7), completions[0].user_data);
     try std.testing.expectEqual(.open, conn.state);
 
-    // Post-open unit tests inject one operation at a time. Retire the mock's
-    // background receive arm without manufacturing protocol state; the helper
-    // above has already driven connect, upgrade send, and upgrade receive.
-    conn.pending.recv = false;
+    // Post-open unit tests inject one operation at a time, so the leg must
+    // start with nothing armed: the upgrade receive completed above and
+    // retired itself, and no application receive is armed until a caller asks
+    // for one. Assert that rather than clearing it, so an adapter that leaves
+    // a receive armed here fails loudly instead of suppressing the next arm.
+    std.debug.assert(!conn.pending.get(.recv));
+
+    // The mock still records the completed upgrade receive; that record is
+    // the helper's to clear.
     backend.platform.armed_recv_ud = null;
     backend.platform.pending_recv = null;
     backend.ready.deinit(backend.allocator);

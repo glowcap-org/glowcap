@@ -1,6 +1,6 @@
 // The capability viewer the browser proofs watch the live timeline with.
 //
-// The endpoint hands records to an OCapN viewer (`apps/rooms/server/viz.ts`):
+// The native Rooms server hands records to an OCapN viewer:
 // the WebSocket is only the byte channel, and records arrive through an inbox
 // capability after enlivening the `ROOMS-VIZ-LISTENING` sturdyref the server
 // announces on stderr. Raw JSON text frames stopped being the viewer contract
@@ -46,7 +46,7 @@ export function scrapeVizSturdyref(stderr: ReadableStream<Uint8Array>): Promise<
 				if (mark !== -1) resolve(line.slice(mark + ANNOUNCE.length).trim());
 			}
 		}
-		reject(new Error("serve.ts ended without announcing a viz sturdyref"));
+		reject(new Error("rooms-server ended without announcing a viz sturdyref"));
 	})().catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
 	return found;
 }

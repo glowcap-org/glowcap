@@ -471,6 +471,13 @@ def main() -> int:
         "python zig-smoke OK: canceled Session.close waiter leaves the shared close driver running"
     )
 
+    runtime.run_managed(
+        lifecycle._observe_session_retirement_without_serve_or_close()
+    )
+    print(
+        "python zig-smoke OK: Session.closed observes retirement without serve or close"
+    )
+
     runtime.run_managed(lifecycle._repeated_host_close_observes_recorded_timeout())
     print(
         "python zig-smoke OK: repeated Host.close observes the recorded finish timeout"

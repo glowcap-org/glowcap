@@ -106,14 +106,17 @@ pub fn startListener(
                 Internal.reportListenAttemptFailure(self, observer, tag, &attempt, err);
                 return;
             };
-            if (self.ready_set) |*rs| rs.add(fd) catch |err| {
-                self.allocator.destroy(row);
-                Internal.releaseListenerProfile(self, provider.transport);
-                profile_owned = false;
-                observation_owned = false;
-                Internal.reportListenAttemptFailure(self, observer, tag, &attempt, err);
-                return;
-            };
+            switch (self.drive) {
+                .blocking => {},
+                .stepped => |*stepped| stepped.ready_set.add(fd) catch |err| {
+                    self.allocator.destroy(row);
+                    Internal.releaseListenerProfile(self, provider.transport);
+                    profile_owned = false;
+                    observation_owned = false;
+                    Internal.reportListenAttemptFailure(self, observer, tag, &attempt, err);
+                    return;
+                },
+            }
             row.* = .{
                 .stage = .{ .stream = attempt.take() },
                 .transport = provider.transport,

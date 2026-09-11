@@ -210,6 +210,9 @@ test "V1.0 resolver-only registration rolls back its virtual answer on OOM" {
     failing.fail_index = std.math.maxInt(usize);
     const prepared = (try engine.v1_0.preparePartnerResolver(&peer, deliver)).?;
     const retried = prepared.virtual_answer.?;
+    // The frame's introduced-import transaction takes the resolver's retain
+    // before the commit adopts it; this unit test stands in for that step.
+    try peer.session_state.registerImport(.from(7));
     prepared.commit(&peer.session_state);
     try std.testing.expectEqual(virtual.virtual.int(), retried.int());
     try std.testing.expect(peer.session_state.hasInboundAnswerNamed(.fromVirtual(retried)));

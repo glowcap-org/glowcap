@@ -26,6 +26,9 @@ const BindingFamily = struct {
     aggregate_name: []const u8,
     aggregate_desc: []const u8,
     needs_iroh_abi: bool,
+    /// The family's harness delegates every child to the shared proof process
+    /// owner, whose injected-timeout regression must gate the aggregate.
+    uses_proof_process_owner: bool = false,
     rows: []const BindingClientRow,
 };
 
@@ -35,7 +38,7 @@ fn addBindingFamily(
     family: BindingFamily,
     pin_port: ?u16,
     iroh_abi_step: *std.Build.Step,
-) void {
+) *std.Build.Step {
     const aggregate = b.step(family.aggregate_name, family.aggregate_desc);
     for (family.rows) |client| {
         const run = addInstalledSystemRun(b, client.posture, client.argv);
@@ -48,6 +51,7 @@ fn addBindingFamily(
         b.step(client.step_name, client.description).dependOn(&run.step);
         aggregate.dependOn(&run.step);
     }
+    return aggregate;
 }
 
 /// Keep cold Cargo compilation and Deno dependency resolution outside the
@@ -388,6 +392,40 @@ const keyed_relay_rendezvous_clients = [_]BindingClientRow{
     },
 };
 
+// The verb spine as behavior: each binding walks promise (a far send's handle,
+// its `index`/`untag`/`get` projections, and the settled failure a send that
+// could never be issued comes back as), dial (a happy connect and a typed
+// refusal), listen (its own listener, served and closed), and GC (a lifted
+// capability released, then refused) against one fixed Deno peer over loopback
+// TCP. The shared harness owns the peer, the dead address, and the marker
+// contract every client prints.
+const verb_spine_clients = [_]BindingClientRow{
+    .{
+        .step_name = "deno-verb-spine",
+        .description = "Verb-spine behavior proof: the Deno binding walks promise, dial, listen, and GC against one fixed peer (needs deno)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/verb_spine/harness.ts", "--", "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/verb_spine/deno_client.ts" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "python-verb-spine",
+        .description = "Verb-spine behavior proof: the Python binding walks promise, dial, listen, and GC against one fixed peer (needs deno + uv)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/verb_spine/harness.ts", "--", "uv", "run", "--project", "bindings/python", "--locked", "python3", "bindings/proofs/verb_spine/python_client.py" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "rust-verb-spine",
+        .description = "Verb-spine behavior proof: the Rust binding walks promise, dial, listen, and GC against one fixed peer (needs deno + cargo)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/verb_spine/harness.ts", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "verb_spine", "--" },
+        .posture = .{ .deterministic = 30 },
+    },
+    .{
+        .step_name = "racket-verb-spine",
+        .description = "Verb-spine behavior proof: the Racket binding walks promise, dial, listen, and GC against one fixed peer (needs deno + racket)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/verb_spine/harness.ts", "--", "racket", "-y", "bindings/proofs/verb_spine/racket_client.rkt" },
+        .posture = .{ .deterministic = 30 },
+    },
+};
+
 // The managed noise-relay listen half: each binding's `noise` listen helper
 // registers a durable key at the reference relay and serves an accepted
 // Noise_XK-sealed session, dialed by one fixed known-good Deno client. The
@@ -534,12 +572,21 @@ const binding_families = [_]BindingFamily{
         .aggregate_name = "bindings-keyed-relay-rendezvous",
         .aggregate_desc = "Per-consumer keyed-relay rendezvous cold-dial proof: each language binding and the native CLI dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)",
         .needs_iroh_abi = false,
+        .uses_proof_process_owner = true,
         .rows = &keyed_relay_rendezvous_clients,
+    },
+    .{
+        .aggregate_name = "bindings-verb-spine",
+        .aggregate_desc = "Per-binding verb-spine behavior proof: each binding walks promise, dial, listen, and GC end to end against one fixed peer over loopback TCP (needs deno + the runtimes)",
+        .needs_iroh_abi = false,
+        .uses_proof_process_owner = true,
+        .rows = &verb_spine_clients,
     },
     .{
         .aggregate_name = "bindings-noise-relay-listen",
         .aggregate_desc = "Per-binding managed noise-relay listen proof: each binding registers a durable key at the reference relay, advertises its locator, and serves a sealed session dialed by one fixed client (needs deno + the runtimes)",
         .needs_iroh_abi = false,
+        .uses_proof_process_owner = true,
         .rows = &noise_relay_listen_clients,
     },
     .{
@@ -558,7 +605,16 @@ const binding_families = [_]BindingFamily{
 /// Register every family: the aggregate steps, their per-binding rows, and
 /// the iroh ABI dependency where a family needs it.
 pub fn register(b: *std.Build, pin_port: ?u16, iroh_abi_step: *std.Build.Step) void {
+    // The process-owned harnesses share this injected-timeout regression. A
+    // family declares that dependency beside its rows, so the table remains
+    // the authority when another harness adopts the owner.
+    const harness_test = common.addRootedSystemCommand(b, .{ .deterministic = 5 }, &.{
+        "deno", "test", "-A", "bindings/proofs/_support/harness_test.ts",
+    });
     for (binding_families) |family| {
-        addBindingFamily(b, family, pin_port, iroh_abi_step);
+        const aggregate = addBindingFamily(b, family, pin_port, iroh_abi_step);
+        if (family.uses_proof_process_owner) {
+            aggregate.dependOn(&harness_test.step);
+        }
     }
 }

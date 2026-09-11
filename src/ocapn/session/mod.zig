@@ -103,7 +103,6 @@ pub const BOOTSTRAP_POSITION: u64 = 0;
 pub const PromiseIncarnation = promise_types.PromiseIncarnation;
 pub const RetiredResolverState = promise_types.RetiredResolverState;
 pub const RetiredResolver = promise_types.RetiredResolver;
-pub const NodeSettlingResolver = promise_types.NodeSettlingResolver;
 pub const ResolverPurpose = promise_types.ResolverPurpose;
 pub const ShorteningNomination = shortening.Nomination;
 pub const SettlingMovePlan = imported_promise.SettlingMovePlan;
@@ -339,7 +338,6 @@ pub const Session = struct {
     /// while the bodies sit beside the link they operate on. The field itself
     /// stays on `Session`.
     pub const nominateResolverExport = resolver_export.nominateResolverExport;
-    pub const bindFreshResolverExport = resolver_export.bindFreshResolverExport;
     pub const mintMentionedResolverExport = resolver_export.mintMentionedResolverExport;
     pub const abandonMentionedResolverExport = resolver_export.abandonMentionedResolverExport;
     pub const abandonResolverExport = resolver_export.abandonResolverExport;
@@ -427,6 +425,9 @@ pub const Session = struct {
     pub const registerExport = positions.registerExport;
     pub const reserveExport = positions.reserveExport;
     pub const registerImport = positions.registerImport;
+    pub const retainImportForSession = positions.retainImportForSession;
+    pub const adoptImportRetain = positions.adoptImportRetain;
+    pub const listenerRetainHeld = positions.listenerRetainHeld;
     pub const importRequiresWireRelease = positions.importRequiresWireRelease;
 
     pub const installInboundAnswer = answer_lifecycle.installInbound;
@@ -439,6 +440,7 @@ pub const Session = struct {
 
     pub const recordSend = protocol.recordSend;
     pub const recordPreparedSend = protocol.recordPreparedSend;
+    pub const recordSessionImportRelease = protocol.recordSessionImportRelease;
     pub const recordSentResolutionNamed = protocol.recordSentResolutionNamed;
     pub const recordRecv = protocol.recordRecv;
 
@@ -493,9 +495,9 @@ pub const Session = struct {
     pub const hasImport = positions.hasImport;
     pub const holdsImport = positions.holdsImport;
     pub const exportSlot = positions.exportSlot;
-    pub const importSlot = positions.importSlot;
     pub const exportRefcount = positions.exportRefcount;
     pub const importRefcount = positions.importRefcount;
+    pub const importReleasable = positions.importReleasable;
     pub const allocateExport = positions.allocateExport;
     pub const allocatePromiseExport = positions.allocatePromiseExport;
 
@@ -507,6 +509,7 @@ pub const Session = struct {
 
     pub const releaseUnsharedExport = positions.releaseUnsharedExport;
     pub const releaseImportRetain = positions.releaseImportRetain;
+    pub const releaseSessionImportRetain = positions.releaseSessionImportRetain;
 
     pub const abandonOutboundAnswer = answer_lifecycle.abandonOutbound;
     pub const claimOutboundAnswerRelease = answer_lifecycle.claimOutboundRelease;
@@ -537,12 +540,9 @@ pub const Session = struct {
     // owner; Session remains their deliberate public method index.
     pub const allocateOutboundAnswer = pipeline.allocateOutboundAnswer;
     pub const enqueuePipelinedCall = pipeline.enqueuePipelinedCall;
-    pub const enqueuePipelinedCallNamed = pipeline.enqueuePipelinedCallNamed;
     pub const preparePipelinedCallNamed = pipeline.preparePipelinedCallNamed;
-    pub const preparePipelinedCallTarget = pipeline.preparePipelinedCallTarget;
     pub const enqueuePipelinedCallTarget = pipeline.enqueuePipelinedCallTarget;
     pub const takePipelinedCalls = pipeline.takePipelinedCalls;
-    pub const takePipelinedCallsNamed = pipeline.takePipelinedCallsNamed;
     pub const takeAnswerPayloadCalls = pipeline.takePayloadCalls;
     pub const takePipelinedListeners = pipeline.takePipelinedListeners;
     pub const takePipelinedListenersNamed = pipeline.takePipelinedListenersNamed;
@@ -551,10 +551,7 @@ pub const Session = struct {
     pub const PreparedListenerBatch = pipeline.PreparedListenerBatch;
     pub const prepareListenerBatchTarget = pipeline.prepareListenerBatchTarget;
     pub const installProjection = pipeline.installProjection;
-    pub const installProjectionNamed = pipeline.installProjectionNamed;
     pub const installProjectionTarget = pipeline.installProjectionTarget;
-    pub const takeProjections = pipeline.takeProjections;
-    pub const takeProjectionsNamed = pipeline.takeProjectionsNamed;
     pub const takeAnswerPayloadProjections = pipeline.takePayloadProjections;
 
     pub const storeResolution = answers.storeResolution;

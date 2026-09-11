@@ -37,40 +37,6 @@ pub const actors_layer_purity: []const Ban = &.{
     },
 };
 
-/// Head-indexed FIFO compaction lives in `engine/fifo.zig`. Node export-range
-/// recycling and Host dirty-session scheduling ride `ActionFifo` so their
-/// cursor thresholds, drain rewinds, and append compaction cannot diverge.
-pub const core_fifo_spine: []const Ban = &.{
-    .{
-        .where = .{ .file = "src/ocapn/engine/node.zig" },
-        .kind = .forbid,
-        .needles = &.{ "freed_export_head", "std.ArrayListUnmanaged(u64) = .empty" },
-        .check = "core-fifo-spine",
-        .why = "released export ranges use engine/fifo.zig's ActionFifo; do not restore a private ArrayList+head queue",
-    },
-    .{
-        .where = .{ .file = "src/ocapn/engine/export_ranges.zig" },
-        .kind = .forbid,
-        .needles = &.{ "self.freed_export_head", "self.freed_export_bases.items", "std.mem.copyForwards(u64" },
-        .check = "core-fifo-spine",
-        .why = "released export ranges use engine/fifo.zig's ActionFifo; do not hand-roll cursor compaction",
-    },
-    .{
-        .where = .{ .file = "src/driver/core/host.zig" },
-        .kind = .forbid,
-        .needles = &.{ "pending_flush_head", "pending_flush: std.ArrayListUnmanaged(engine.PeerHandle)" },
-        .check = "core-fifo-spine",
-        .why = "dirty-session scheduling uses engine/fifo.zig's ActionFifo; do not restore a private ArrayList+head queue",
-    },
-    .{
-        .where = .{ .file = "src/driver/core/host/pump/schedule.zig" },
-        .kind = .forbid,
-        .needles = &.{ "compactDirtyPrefix", "self.pending_flush_head", "std.mem.copyForwards(\n            engine.PeerHandle" },
-        .check = "core-fifo-spine",
-        .why = "dirty-session scheduling uses engine/fifo.zig's ActionFifo; do not hand-roll cursor compaction",
-    },
-};
-
 /// Outbound answer positions are minted only by the Session answer-consequence
 /// owner. Callers reserve one answer or a contiguous span there; they never
 /// advance the cursor by hand and risk wraparound aliasing.

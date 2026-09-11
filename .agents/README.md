@@ -15,8 +15,9 @@ Canonical home for agent-facing guidance in this Zig repository.
 
 The tables below enumerate the contents and `zig build source-check` holds them to
 the directories in both directions, so the tree shows shape only and cannot
-drift behind a file the tables already gate. Named people and person-named
-slugs live only in user XDG (`$XDG_CONFIG_HOME/agents/personas/`), never here.
+drift behind a file the tables already gate. A named person and a person-named
+slug live in an unpublished persona source, never here; the order is in
+[`personas/README.md`](personas/README.md).
 
 Tool overlays must point back to canonical rules here rather than duplicating
 guidance:
@@ -45,10 +46,11 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [debugging](rules/debugging.md)                     | A failure is data: evidence before theory, ordered suspects, halved search, a fix that explains it     |
 | [doc-drift](rules/doc-drift.md)                     | Living-state docs must match current code or drop the state claim                                      |
 | [doc-voice](rules/doc-voice.md)                     | Human-readable prose for first-read docs and public examples                                           |
-| [memory](rules/memory.md)                           | Frame ownership, bounded borrows, copy budget, allocator discipline                                    |
+| [memory](rules/memory.md)                           | Frame ownership, bounded borrows, copy budget, allocator discipline, footprint budgets                 |
+| [memory-ledger](rules/memory-ledger.md)             | Every named wire-path allocation and copy, one entry each, held to its declaration by the gate         |
 | [prerelease](rules/prerelease.md)                   | No compatibility debt yet, so the default verdict is fix the root now, not defer it                    |
 | [project-values](rules/project-values.md)           | Explicit systems design, polished library surface, and no hidden costs                                 |
-| [resilience](rules/resilience.md)                   | Attacker-controlled bytes, parse limits, and layer-owned refusal policy                                |
+| [resilience](rules/resilience.md)                   | Untrusted inbound bytes, parse limits, and layer-owned refusal policy                                    |
 | [serena-mcp](rules/serena-mcp.md)                   | When to use Serena symbol tools vs. host file tools for Zig code                                       |
 | [tests](rules/tests.md)                             | Test taxonomy and vocabulary: which layer, what authority, what a failure means                        |
 
@@ -69,8 +71,8 @@ inventory; update it in the same change as any intentional scaffolding move.
 
 ## Personas
 
-Anonymous project lenses only (`slug` = filename stem). Lookup order, XDG, and
-file shape: [`personas/README.md`](personas/README.md).
+Anonymous project lenses only (`slug` = filename stem). Lookup order and file
+shape: [`personas/README.md`](personas/README.md).
 
 | Persona | Purpose |
 | ------- | ------- |

@@ -14,7 +14,7 @@ import { awayByPeer, awayOf, membersHere } from "./types.ts";
 import { PresenceAvatar } from "./Avatar.tsx";
 import { Icon } from "./icons.tsx";
 import { roomMarkGlyph } from "./room_mark.tsx";
-import { roomPreset } from "../../lib/room/policy.ts";
+import { roomPreset } from "./room_policy.ts";
 import { IconButton } from "./IconButton.tsx";
 import { SettingsButton } from "./SettingsButton.tsx";
 import { StandingMenu } from "./Standing.tsx";
@@ -113,7 +113,7 @@ function TopbarPane(
 		<IconButton
 			id="backBtn"
 			className={unread > 0 ? "mark-btn has-unread" : "mark-btn"}
-			icon="mark"
+			icon="mark-line"
 			label="Rooms and direct messages"
 			size={mobile ? "large" : "normal"}
 			title={railShown ? "Hide the rooms list" : "Show the rooms list"}

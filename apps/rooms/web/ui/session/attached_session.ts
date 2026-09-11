@@ -6,10 +6,8 @@ import type { RoomsBrowserController } from "../controller/browser.ts";
 import type { RoomsSessionController } from "../controller/session.ts";
 import type { AttachedRoomsController } from "./attached.ts";
 import type { AttachedSessionFiles } from "./attached_files.ts";
-import { roomsPeerAuthority } from "../../../lib/routes.ts";
-import { roomsLocator } from "../../../lib/locator.ts";
-import { MAX_ROOM, newManagedRoomId, nickRefusal } from "../../../lib/limits.ts";
-import { attachedCommandPowers, startAttachedDirectMessage } from "./attached_command_powers.ts";
+import { directoryId as inspectDirectoryId } from "../application.ts";
+import { attachedCommandPowers } from "./attached_command_powers.ts";
 import { attachedStateActions, reloadWouldEndHostedSession } from "./attached_state.ts";
 import { attachedArchiveShareActions } from "./attached_archive_shares.ts";
 import { attachedComposerActions } from "./attached_composer.ts";
@@ -17,12 +15,12 @@ import { attachedOperations } from "./attached_operations.ts";
 import type { CapabilitySetEventSource } from "../ops/capability_set_events.ts";
 import type { RoomsSessionState } from "../../../lib/rooms_state.ts";
 import type { RoomsSessionSnapshot } from "../../../lib/session/client.ts";
-import { planJoinDestination, privateRoomNameRefusal } from "../joining.ts";
-import { type DirId, dirId } from "../types.ts";
-import { PRIVATE_ROOM_POLICY } from "../../../lib/room/policy.ts";
+import type { DirId, SessionConv } from "../types.ts";
+import { privateRoomPolicy } from "../room_policy.ts";
 import type { RoomsPageContext } from "../page.ts";
 import { coverForReload, finishCoveredReload, uncoverReload } from "../boot.ts";
-import { directoryReachIsStanding, waitForDirectoryReach } from "./attached_directory_reach.ts";
+import { persistCurrentWorkspace } from "../workspace_state.ts";
+import { writeSearch } from "../prefs.ts";
 
 function settleTransientTypingFailure(_error: unknown): void {
 	// Connection state owns the visible failure. Typing is presence, not a
@@ -35,13 +33,17 @@ export function createAttachedRoomsSession(
 	browser: Pick<RoomsBrowserController, "aboutConversation" | "setTheme" | "showRoster">,
 	controller: AttachedRoomsController,
 	files: AttachedSessionFiles,
-	options: { defaultDirectoryLocator?: string | null; capabilityEvents?: CapabilitySetEventSource } = {},
+	options: {
+		defaultDirectoryLocator?: string | null;
+		capabilityEvents?: CapabilitySetEventSource;
+		recoverSends?: boolean;
+	} = {},
 ): RoomsSessionController {
 	const projection = page.projection;
 	const defaultDirectoryLocator = options.defaultDirectoryLocator ?? null;
 	const failure = (error: unknown) =>
 		store.toast(projection, "failure", error instanceof Error ? error.message : String(error));
-	const powers = attachedCommandPowers(projection, controller, browser, failure);
+	const powers = attachedCommandPowers(projection, controller, browser);
 	const active = () => store.activeConv(projection);
 	const readOnly = () => controller.current?.access !== "interact" && controller.current?.access !== "admin";
 	const showConversation = (conversationId: string) => {
@@ -68,57 +70,51 @@ export function createAttachedRoomsSession(
 	};
 	const stateActions = attachedStateActions(page, controller);
 	const archiveShareActions = attachedArchiveShareActions(projection, page, controller, failure);
-	const { retireConversation, retireDirectory, ...composerActions } = attachedComposerActions(
+	const { retireConversation, ...composerActions } = attachedComposerActions(
 		projection,
 		controller,
 		powers,
 		failure,
+		options.recoverSends,
 	);
-	const operations = attachedOperations(projection, controller);
+	const retireConversations = (
+		conversations: readonly SessionConv[],
+		work: Promise<unknown>,
+	): void => {
+		const drafts = conversations.flatMap((conversation) => {
+			const draft = projection.get().drafts.get(conversation.key);
+			return draft == null ? [] : [{ conversation, draft }];
+		});
+		for (const conversation of conversations) controller.cancelDraftSave(conversation.persistId);
+		void work.then(
+			() => {
+				for (const conversation of conversations) retireConversation(conversation.persistId);
+			},
+			(error) => {
+				for (const { conversation, draft } of drafts) {
+					if (controller.closed || store.draftFor(projection, conversation.key) !== draft) continue;
+					void controller.scheduleDraft(conversation.persistId, draft.text).catch(failure);
+				}
+				failure(error);
+			},
+		).catch(failure);
+	};
+	const retireOne = (conversation: SessionConv): void =>
+		retireConversations([conversation], controller.leaveConversation(conversation.persistId));
+	const retireDirectoryAfterCommit = (directory: DirId): void => {
+		const conversations = [...projection.get().convs.values()].filter(
+			(conversation): conversation is SessionConv =>
+				conversation.type !== "directory" && conversation.dir === directory,
+		);
+		retireConversations(conversations, controller.leaveDirectory(directory));
+	};
+	const operations = attachedOperations(page, projection, controller);
 	const openManagedRoom = (
 		directory: DirId,
 		label: string,
-		policy: import("../../../lib/room/policy.ts").RoomPolicy,
+		policy: import("../room_policy.ts").RoomPolicy,
 	) => {
-		void controller.openManagedRoom(
-			{
-				kind: "room",
-				id: crypto.randomUUID(),
-				directory,
-				name: label,
-				held: policy.visibility === "secret",
-				standing: null,
-				draft: "",
-			},
-			newManagedRoomId(),
-			policy,
-		).then(showSnapshotSelection).catch(failure);
-	};
-	// The workspace record a directory needs before anything in it can be
-	// named. Entering a room and reaching a directory to read its listing both
-	// want it, and want it identically, so it is made once here rather than
-	// spelled at each — two copies of a record shape are two things to keep
-	// agreeing. Holding one already is not an error: the entry only has its
-	// name brought up to date.
-	const ensureDirectoryEntry = async (
-		checkpoint: NonNullable<typeof controller.current>["checkpoint"],
-		id: string,
-		locator: string,
-		nick: string,
-	): Promise<void> => {
-		const existing = checkpoint.directories.find((entry) => entry.id === id);
-		if (existing == null) {
-			await controller.joinDirectory({
-				id,
-				locator,
-				home: checkpoint.directories.length === 0,
-				reached: false,
-				nick,
-				standing: null,
-			});
-		} else if (existing.nick !== nick) {
-			await controller.setDirectoryNick(id, nick);
-		}
+		void controller.chooseRoom(directory, label, policy).then(showSnapshotSelection).catch(failure);
 	};
 
 	return {
@@ -205,7 +201,7 @@ export function createAttachedRoomsSession(
 			if (conversation?.type !== "room") return "That room is no longer open.";
 			try {
 				await controller.unregisterManagedRoom(conversation.persistId);
-				store.setRoomPolicy(projection, key, PRIVATE_ROOM_POLICY);
+				store.setRoomPolicy(projection, key, privateRoomPolicy());
 				return "";
 			} catch (error) {
 				return error instanceof Error ? error.message : String(error);
@@ -289,6 +285,15 @@ export function createAttachedRoomsSession(
 			}
 		},
 		pickRoom: (directory, name, key) => {
+			if (!readOnly()) {
+				const conversation = key == null ? null : store.getConv(projection, key);
+				if (conversation != null && conversation.type !== "directory") {
+					selectConversation(conversation.persistId);
+				} else {
+					void controller.chooseRoom(directory, name).then(showSnapshotSelection).catch(failure);
+				}
+				return;
+			}
 			const existing = key == null
 				? controller.current?.checkpoint.conversations.find((conversation) =>
 					conversation.kind === "room" && conversation.directory === directory && conversation.name === name
@@ -304,19 +309,7 @@ export function createAttachedRoomsSession(
 				openExisting(existing);
 				return;
 			}
-			if (readOnly()) {
-				failure(new Error("This session capability is read only and cannot join another room."));
-				return;
-			}
-			void controller.joinRoom({
-				kind: "room",
-				id: crypto.randomUUID(),
-				directory,
-				name,
-				held: false,
-				standing: null,
-				draft: "",
-			}).then(showSnapshotSelection).catch(failure);
+			failure(new Error("This session capability is read only and cannot join another room."));
 		},
 		openConv: async (key) => {
 			const conversation = store.getConv(projection, key);
@@ -339,35 +332,32 @@ export function createAttachedRoomsSession(
 			}
 			showConversation(intended.id);
 		},
-		setStanding: (standing) => void controller.setStanding(standing).catch(failure),
+		setStanding: (standing) => void controller.preferences.setStanding(standing).catch(failure),
 		releaseNick: async (directory) => {
 			try {
-				await controller.setDirectoryNick(directory, "");
+				await controller.preferences.setDirectoryNick(directory, "");
 				return "";
 			} catch (error) {
 				return error instanceof Error ? error.message : String(error);
 			}
 		},
 		setDirStanding: (directory, standing) =>
-			void controller.setDirectoryStanding(directory, standing).catch(failure),
+			void controller.preferences.setDirectoryStanding(directory, standing).catch(failure),
 		setRoomStanding: (key, standing) => {
 			const conversation = store.getConv(projection, key);
 			if (conversation?.type !== "room") return;
-			void controller.setRoomStanding(conversation.persistId, standing).catch(failure);
+			void controller.preferences.setRoomStanding(conversation.persistId, standing).catch(failure);
 		},
 		leaveRoom: (key) => {
 			const conversation = store.getConv(projection, key);
 			if (conversation?.type !== "room") return;
-			retireConversation(conversation.persistId);
-			void controller.leaveConversation(conversation.persistId).catch(failure);
+			retireOne(conversation);
 		},
 		leaveDirectory: (directory) => {
-			retireDirectory(directory);
-			void controller.leaveDirectory(directory).catch(failure);
+			retireDirectoryAfterCommit(directory);
 		},
 		closeDm: (conversation) => {
-			retireConversation(conversation.persistId);
-			void controller.leaveConversation(conversation.persistId).catch(failure);
+			retireOne(conversation);
 		},
 		endConv: () => {
 			const conversation = active();
@@ -376,8 +366,7 @@ export function createAttachedRoomsSession(
 				store.dismissDirectoryView(projection, conversation.key);
 				return;
 			}
-			retireConversation(conversation.persistId);
-			void controller.leaveConversation(conversation.persistId).catch(failure);
+			retireOne(conversation);
 		},
 		applySettings: async (next) => {
 			const checkpoint = controller.current?.checkpoint;
@@ -385,10 +374,18 @@ export function createAttachedRoomsSession(
 			const hosting = reloadWouldEndHostedSession(page);
 			if (!hosting) coverForReload();
 			try {
-				await controller.chooseConnection(
+				const selected = await controller.chooseConnection(
 					next.dm ?? checkpoint.dmMode,
 					next.viz ?? checkpoint.vizOverride,
 				);
+				if (!persistCurrentWorkspace(page)) {
+					throw new Error(
+						"The session changed its connection choice, but this browser refused to save it. Retry Save before reloading.",
+					);
+				}
+				const url = new URL(location.href);
+				writeSearch(url, { dm: selected.checkpoint.dmMode, viz: selected.checkpoint.vizOverride });
+				history.replaceState(null, "", url);
 				if (!hosting) finishCoveredReload();
 				return true;
 			} catch (error) {
@@ -482,13 +479,7 @@ export function createAttachedRoomsSession(
 		dirAddress: (directory) =>
 			controller.current?.checkpoint.directories.find((candidate) => candidate.id === directory)?.locator ??
 				directory,
-		directoryId: (locator) => {
-			try {
-				return roomsPeerAuthority(roomsLocator(locator)) as ReturnType<RoomsSessionController["directoryId"]>;
-			} catch {
-				return null;
-			}
-		},
+		directoryId: inspectDirectoryId,
 		startDm: (who) => {
 			const directory = active()?.dir ??
 				controller.current?.checkpoint.directories.find((candidate) => candidate.home)?.id;
@@ -496,13 +487,11 @@ export function createAttachedRoomsSession(
 				store.toast(projection, "failure", "Join a directory before starting a direct conversation.");
 				return;
 			}
-			const why = startAttachedDirectMessage(projection, controller, directory, who, failure);
-			if (why != null) failure(new Error(why));
+			void controller.chooseDirect(directory, who, true).catch(failure);
 		},
-		// Shared sends are recovered by the durable session, so the attached view
-		// does not expose local retry or cancellation controls. Keep the session
-		// verbs harmless if a stale caller invokes one during a transition.
-		retry: () => {},
+		// File cancellation is local custody that the attached facade does not yet
+		// expose. Keep the verb harmless if a stale caller invokes it during a
+		// controller transition.
 		stopSend: () => {},
 		setTyping: (on) => {
 			const conversation = active();
@@ -511,117 +500,28 @@ export function createAttachedRoomsSession(
 			// connection boundary must not surface as a durable operation failure.
 			void controller.setTyping(conversation.persistId, on).catch(settleTransientTypingFailure);
 		},
-		// The directory half of `join`, on its own: a card that needs a listing
-		// before it can tell one room from another asks for the directory first
-		// and the room after. Adding one the session already holds is not an
-		// error, so an existing entry only has its name brought up to date.
 		reachDirectory: async (locator, nick, signal) => {
 			if (signal?.aborted) return "";
-			const address = locator === "" ? defaultDirectoryLocator : locator;
-			if (address == null) return "Name the directory to join.";
-			let directory: string;
 			try {
-				directory = roomsPeerAuthority(roomsLocator(address));
-			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
-			}
-			const nickWhy = nickRefusal(nick);
-			if (nickWhy != null) return nickWhy;
-			const checkpoint = controller.current?.checkpoint;
-			if (checkpoint == null) return "The shared session has not produced its workspace yet.";
-			const existing = checkpoint.directories.find((entry) => entry.id === directory);
-			try {
-				await ensureDirectoryEntry(checkpoint, directory, address, nick);
-				const why = await waitForDirectoryReach(controller, directory, signal);
-				if (!directoryReachIsStanding(existing) && (why !== "" || signal?.aborted === true)) {
-					await controller.leaveDirectory(directory).catch(() => {
-						// best-effort: the card already has the reach refusal or the stop;
-						// a leftover workspace row would keep dialling a locator the reader
-						// is still looking at to correct.
-					});
-				}
-				if (signal?.aborted) return "";
-				return why;
+				await controller.reachDirectory(locator, nick, defaultDirectoryLocator ?? "", signal);
+				return "";
 			} catch (error) {
 				return error instanceof Error ? error.message : String(error);
 			}
 		},
 		join: async (destination, nick, signal) => {
 			if (signal?.aborted) return "";
-			let planned: ReturnType<typeof planJoinDestination>;
 			try {
-				planned = planJoinDestination(destination);
-			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
-			}
-			if (planned.kind === "directory" && (planned.room === "" || planned.room.length > MAX_ROOM)) {
-				return `A room name must be between 1 and ${MAX_ROOM} characters.`;
-			}
-			if (planned.kind === "room-link" && planned.label.length > MAX_ROOM) {
-				return `A room name must be at most ${MAX_ROOM} characters.`;
-			}
-			const nickWhy = nickRefusal(nick);
-			if (nickWhy != null) return nickWhy;
-			const checkpoint = controller.current?.checkpoint;
-			if (checkpoint == null) return "The shared session has not produced its workspace yet.";
-			if (planned.kind === "room-link") {
-				if (signal?.aborted) return "";
-				try {
-					showSnapshotSelection(
-						await controller.joinRoom({
-							kind: "room",
-							id: crypto.randomUUID(),
-							directory: planned.directory,
-							name: planned.label || "a room",
-							held: true,
-							link: planned.link,
-							standing: null,
-							draft: "",
-						}, { locator: planned.address, nick }),
-					);
-					return "";
-				} catch (error) {
-					return error instanceof Error ? error.message : String(error);
-				}
-			}
-			const locator = planned.locator.trim() || checkpoint.directories.find((entry) => entry.home)?.locator ||
-				defaultDirectoryLocator;
-			if (locator == null) return "Name the directory to join.";
-			let directoryId: string;
-			try {
-				directoryId = roomsPeerAuthority(roomsLocator(locator));
-			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
-			}
-			if (signal?.aborted) return "";
-			try {
-				const room = {
-					kind: "room" as const,
-					id: crypto.randomUUID(),
-					directory: directoryId,
-					name: planned.room,
-					held: planned.policy.visibility === "secret",
-					standing: null,
-					draft: "",
-				};
-				if (planned.policy.visibility === "listed" && planned.policy.speaking === "open") {
-					showSnapshotSelection(await controller.joinRoom(room, { locator, nick }));
-					return "";
-				}
-				if (planned.policy.visibility === "secret") {
-					const collision = privateRoomNameRefusal(
-						planned.room,
-						[...(projection.get().dirs.get(dirId(directoryId))?.liveRooms.values() ?? [])].map((
-							entry,
-						) => entry.name),
-					);
-					if (collision != null) return collision;
-				}
-				await ensureDirectoryEntry(checkpoint, directoryId, locator, nick);
-				if (signal?.aborted) return "";
-				showSnapshotSelection(await controller.openManagedRoom(room, newManagedRoomId(), planned.policy));
+				const snapshot = await controller.joinDestination(
+					destination,
+					nick,
+					defaultDirectoryLocator ?? "",
+					signal,
+				);
+				if (!signal?.aborted) showSnapshotSelection(snapshot);
 				return "";
 			} catch (error) {
+				if (signal?.aborted) return "";
 				return error instanceof Error ? error.message : String(error);
 			}
 		},

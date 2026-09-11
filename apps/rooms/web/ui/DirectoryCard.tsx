@@ -142,11 +142,17 @@ function DirectoryDialog(
 	// card's own Leave control still own the local answer. Closing must not
 	// rewrite that answer, or the exit transition would drop the question.
 	const [asking, setAsking] = useState(askingLeave);
+	const [retrying, setRetrying] = useState(false);
 	useEffect(() => {
 		if (askingLeave) setAsking(true);
 		else if (open) setAsking(false);
 	}, [askingLeave, open]);
 	const name = directoryName(dir.id, homeDir);
+	const retry = (): void => {
+		if (retrying) return;
+		setRetrying(true);
+		void session.reachDirectory(dir.locator, dir.requestedNick).finally(() => setRetrying(false));
+	};
 	return (
 		// `modal` is the layer; its ::backdrop uses the same `--cover` paint as
 		// the phone's `#cover`. `modal-card` is the panel that rises in it. Naming
@@ -246,6 +252,11 @@ function DirectoryDialog(
 						)
 						: (
 							<div className="actions">
+								{dir.session === "disconnected" && (
+									<Button id="dircardRetry" onClick={retry} disabled={retrying}>
+										{retrying ? "Retrying…" : "Retry connection"}
+									</Button>
+								)}
 								<Button id="dircardLeaveAsk" variant="quiet" onClick={() => setAsking(true)}>
 									Leave this directory…
 								</Button>

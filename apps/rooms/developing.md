@@ -57,7 +57,7 @@ Transparency logs, so choose the Tailscale machine name with that disclosure in 
 
 ## Hosting the room as an onion service
 
-`zig build rooms-web-onion` publishes the room directory as a Tor onion service (`--transport=onion` on `serve.ts`)
+`zig build rooms-web-onion` publishes the room directory as a Tor onion service (`--transport=onion` on `rooms-web`)
 while the page itself is still served over HTTP as usual. The supervisor starts a private Tor under a temporary
 directory and stops it with the process; set `GLOWCAP_ONION_SOCKS` and `GLOWCAP_ONION_CONTROL` to use a Tor you already
 run (it needs an open control endpoint, which a distribution's Tor does not ship by default).
@@ -72,72 +72,16 @@ Three things are worth knowing before reaching for it:
   the service's local forward endpoint (the room port on loopback), the same bytes a circuit would deliver there. The
   relay opens no circuits itself, so it reaches no onion service other than the supervised room's own.
 - A terminal client needs an onion-capable runtime to dial through Tor; `apps/rooms/demos/onion_demo.ts` is the working
-  example. The plain `chat.ts` command the TCP and iroh runs print does not apply here.
+  example. The plain `rooms-chat` command the TCP and iroh runs print does not apply here.
 
 ## Bringing a Spritely Goblins vat into the room
 
-Every peer described so far is a glowcap peer, and a room of glowcap peers uses glowcap's own wire profile. A
-[Spritely Goblins](https://spritely.institute/goblins/) vat speaks the OCapN v1.0 baseline instead, and it can join the
-same room: each connection settles its own profile from what the two ends offer, so the Goblins member arrives on the
-baseline while the glowcap members keep talking to each other on the native one.
+A [Spritely Goblins](https://spritely.institute/goblins/) vat speaks the OCapN v1.0 baseline and can join the same
+room as the glowcap members, each connection on the profile its own two ends agree on. The walkthrough, with the
+browser, the live timeline, a real vat in a third terminal, and a direct message to it, is its own page:
+[Bringing a Spritely Goblins vat into the room](goblins-vat.md).
 
-Watching that happen takes three terminals and a browser.
-
-Start the browser UI with the live timeline switched on. The shortest walkthrough uses the cleartext TCP testing adapter
-and needs no transport sidecar. The repository also supplies the iroh netlayer used by the automated encrypted scenario;
-it is an adapter for Goblins rather than a transport shipped by Goblins itself. The TCP room server listens on port
-9099:
-
-```sh
-zig build rooms-web-tcp -Dviz
-```
-
-Open `http://localhost:8000`, enter the room `general`, and pick a nickname. That is your glowcap member.
-
-In a second terminal, start the viewer, switch the top bar to **Live**, and give the Source field the
-`ROOMS-VIZ-LISTENING` sturdyref:
-
-```sh
-cd apps/ocapnviz && bash dev.sh
-```
-
-In a third terminal, join the same room as a real Goblins vat and start typing:
-
-```sh
-racket -y conformance/goblins-peer/racket/rooms-chat.rkt \
-  127.0.0.1:9099 general goblins-carol 9200
-```
-
-This is a chat terminal like `clients/deno/chat.ts`, except that the peer on the other end of it is a Goblins vat rather
-than a glowcap one. It takes the same commands — `/list`, `/open <name>`, `/enter <name>`, `/leave`, `/help` — and
-Ctrl-D quits. Anything else you type is a line in the room. The trailing `9200` is the port the vat's own netlayer
-binds, which is where other members reach it privately.
-
-What you type appears in the browser, what the browser types appears here, and on the viewer's stage the new session is
-labeled `goblins-carol` and drawn on `syrup/v1_0` while yours stays on `capnp/next`: one room, two implementations, each
-connection on the profile its own two ends could agree on.
-
-`zig build goblins-rooms` runs the same meeting without the browser and checks it: a scripted Goblins vat and a glowcap
-client exchange lines in one room, and the server's own trace has to show the two profiles. The scripted member is
-`conformance/goblins-peer/racket/rooms-member.rkt`, next door to the interactive one.
-
-### Direct-messaging the vat
-
-Click the vat's name in the member pane and type. The room introduces you and then carries none of it: the line runs
-between your browser and the vat, and the viewer draws it as a session of its own that disappears when you close the
-thread. The vat prints it as `(dm) <you>`, and anything it types back with `/dm` comes home over the connection your
-message arrived on.
-
-Over cleartext TCP this needs one thing from the server. The browser reaches everything through the relay, and the relay
-will not open a cleartext socket to an address a page named, so start the server with the vat's own address listed:
-
-```sh
-GLOWCAP_RELAY_TCP_PEERS=127.0.0.1:9200 zig build rooms-web-tcp
-```
-
-Over iroh there is nothing to list: an iroh destination has to be a peer holding the key it is named by, and the relay
-dials any of them. `zig build goblins-rooms-dm` and `zig build goblins-rooms-dm-iroh` run the whole conversation, one
-arm each, and check that it reaches the timeline and leaves it again.
+## Scenarios
 
 The room may already contain people. Each demo client checks broadcasts against the demo's own roster, so other members
 may appear in the transcript without affecting the result.
@@ -156,19 +100,19 @@ The main scenarios are:
 | `zig build goblins-rooms-dm-iroh`        | Both Goblins-facing DM directions over encrypted iroh QUIC: the vat exports to the browser, then redeems a native member's introduction.  | Cargo, Deno, Racket, `goblins`, Playwright Chromium. |
 | `zig build rooms-web`                    | Browser peer and iroh room, the ordinary way to run the UI.                                                                               | Deno and Cargo.                                      |
 | `zig build rooms-web-iroh`               | The same UI, named by transport.                                                                                                          | Deno and Cargo.                                      |
-| `zig build rooms-web-tcp`                | The same UI over cleartext TCP, for a peer that speaks nothing else.                                                                      | Deno.                                                |
-| `zig build rooms-web-onion`              | The same UI with the room directory published as a Tor onion service.                                                                     | Deno and Tor.                                        |
-| `zig build rooms-web-relay-peer`         | A wasm peer drives the directory through the relay, no browser.                                                                           | Deno.                                                |
-| `zig build rooms-web-browser-peer`       | A real browser runs the wasm peer through the relay.                                                                                      | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-page`               | The whole page as a peer: join, round-trip a line, and hold both layouts.                                                                 | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-routes`             | The page address is shareable: a cold link arrives named, back and forward walk it, and following one never moves the rail.               | Deno and Playwright Chromium.                        |
+| `zig build rooms-web-tcp`                | The same UI over cleartext TCP, for a peer that speaks nothing else.                                                                      | Cargo, Deno. |
+| `zig build rooms-web-onion`              | The same UI with the room directory published as a Tor onion service.                                                                     | Cargo, Deno and Tor. |
+| `zig build rooms-web-relay-peer`         | A wasm peer drives the directory through the relay, no browser.                                                                           | Cargo, Deno. |
+| `zig build rooms-web-page`               | The whole page as a peer: join, round-trip a line, and hold both layouts.                                                                 | Cargo, Deno and Playwright Chromium. |
+| `zig build rooms-web-routes`             | The page address is shareable: a cold link arrives named, back and forward walk it, and following one never moves the rail.               | Cargo, Deno and Playwright Chromium. |
 | `zig build rooms-web-reconnect`          | The page survives a room-server restart, re-enters listed rooms by name and private rooms by a durable link, and keeps both conversations. | Deno, Cargo, and Playwright Chromium.                |
-| `zig build rooms-web-dm`                 | Browser-to-native direct messaging.                                                                                                       | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-dm-tabs`            | Two tabs cold-dial through one relay and message off-room.                                                                                | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-dm-native`          | A native peer cold-dials a browser member through the relay rendezvous.                                                                   | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-dm-webrtc`          | Two members DM over a DataChannel the room only signaled; the live timeline must name `webrtc`, never relay substitution.                 | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-dm-retarget`        | A direct conversation does not follow a reused nickname.                                                                                  | Deno and Playwright Chromium.                        |
-| `zig build rooms-web-dm-reopen`          | Reopening a closed conversation opens a second connection, and that one carries.                                                          | Deno and Playwright Chromium.                        |
+| `zig build rooms-web-dm`                 | Browser-to-native direct messaging.                                                                                                       | Cargo, Deno and Playwright Chromium. |
+| `zig build rooms-web-dm-tabs`            | Two tabs cold-dial through one relay and message off-room.                                                                                | Cargo, Deno and Playwright Chromium. |
+| `zig build rooms-web-dm-native`          | A native peer cold-dials a browser member through the relay rendezvous.                                                                   | Cargo, Deno and Playwright Chromium. |
+| `zig build rooms-web-dm-webrtc`          | Two members DM over a DataChannel the room only signaled; the live timeline must name `webrtc`, never relay substitution.                 | Cargo, Deno and Playwright Chromium. |
+| `zig build rooms-web-dm-retarget`        | A direct conversation does not follow a reused nickname.                                                                                  | Cargo, Deno and Playwright Chromium. |
+| `zig build rooms-web-dm-reopen`          | Reopening a closed conversation opens a second connection, and that one carries.                                                          | Cargo, Deno and Playwright Chromium. |
+| `zig build rooms-web-hosted-session`     | A tab shares its local session, and a browser on a different Rooms page origin attaches through the named signaling directory.            | Deno, Cargo, and Playwright Chromium.                |
 
 The browser and demo commands are separate from `zig build check` because they depend on external runtimes or a real
 browser. The devcontainer image carries the Playwright Chromium these rows want, so there is nothing to install first;
@@ -183,15 +127,14 @@ fixed, `-Ddiagnostics` to mint an inspect capability, `-Dadmin-listeners` to min
 Start a TCP server on a known port:
 
 ```sh
-deno run --allow-ffi --allow-read --allow-net \
-  apps/rooms/server/main.ts 9099
+zig build rooms-server -- --transport=tcp --port=9099
 ```
 
-It prints `ROOMS-SERVER-LISTENING 9099`. Join it with the interactive Deno client:
+It prints `ROOMS-SERVER-LISTENING 9099`. Join it with the native Rust client:
 
 ```sh
-deno run --allow-ffi --allow-read --allow-net \
-  apps/rooms/clients/deno/chat.ts 127.0.0.1:9099 general alice
+zig build rooms-chat-build
+zig build rooms-chat -- 127.0.0.1:9099 general alice
 ```
 
 Chat lines are sent on Enter. Room notices begin with `*`; Ctrl-D leaves. Commands begin with `/`:
@@ -225,10 +168,10 @@ Each client also accepts the `ocapn://…` locator printed by an iroh server.
 The page loads the WebAssembly `@glowcap/web` Host. It is an OCapN peer: it dials the directory, holds room
 capabilities, hosts inbox objects, and redeems introductions itself.
 
-A browser cannot open raw TCP or iroh sockets, so `web/serve.ts` exposes a WebSocket byte relay:
+A browser cannot open raw TCP or iroh sockets, so `rooms-web` exposes a WebSocket byte relay:
 
 ```text
-browser peer ──WebSocket /relay──▶ serve.ts ──TCP or iroh──▶ peer
+browser peer ──WebSocket /relay──▶ rooms-web ──TCP or iroh──▶ peer
 ```
 
 The relay does not parse CapTP or hold application capabilities. The keyed session passes through it end to end. Local
@@ -241,7 +184,7 @@ is carried to that service's local forward endpoint rather than through a circui
 
 The relay also refuses a dial whose `Origin` names a host other than the one it was asked on. Otherwise a page from
 elsewhere could use a reader's local relay to reach whatever the rules above still allow. The shipped page is served by
-`serve.ts` and dials the relay on the host it came from, so it is unaffected. A test or probe that fabricates its own
+`rooms-web` and dials the relay on the host it came from, so it is unaffected. A test or probe that fabricates its own
 page has to serve it from that same origin. A request with no `Origin` at all (every non-browser client) passes.
 
 Browser peers also register a rendezvous identity with the relay. Another peer on the same relay — a browser tab, or a
@@ -263,14 +206,19 @@ The directory owns room discovery and introductions:
 - `register(...)` records a member's dialable identity.
 - `introduce(nick)` returns the inbox that member minted for this caller.
 
-A room grants a nickname when `subscribe(nick, inbox)` succeeds. Later `post(text)` calls need no sender field: the room
-already knows which membership capability received the call. Leaving or disconnecting releases the nickname.
+A room grants a nickname when `subscribe(nick, inbox)` succeeds, and answers with three things: the membership seat,
+which facet it is (`participant` or `observer`), and the topic authority. Every later membership verb, `post(text)`,
+`leave`, `away`, and `typing`, goes to the seat, never to the room reference it was answered for, so a post needs no
+sender field: the seat is the membership. Leaving or disconnecting releases the nickname. `lib/room/membership.ts`
+reads that answer for every TypeScript client, and each other language's client reads the same three-element shape
+from the protocol table `zig build gen-rooms-protocol` generates beside it (`tools/gen/rooms_protocol.zig` declares
+the grammar once; `test/protocol_gen_test.ts` holds the Deno copy to the server's readers).
 
-`subscribe` answers with a reference carrying `setTopic(text)`, and holding it is the authority to say what the room is
-about. Every member is answered with one, because the room has no ranks to hand out, and because it is a reference
-rather than a rank a member can pass it to somebody who is not even here. The room states its topic to each arrival and
-broadcasts every change with the `topic` tag, so a client that has never heard of topics still shows the line saying it
-moved.
+The topic authority is a reference carrying `setTopic(text)`, and holding it is the authority to say what the room is
+about. Every participant is answered with one (an observer gets null), because the room has no ranks to hand out, and
+because it is a reference rather than a rank a member can pass it to somebody who is not even here. The room states
+its topic to each arrival and broadcasts every change with the `topic` tag, so a client that has never heard of topics
+still shows the line saying it moved.
 
 `away(reason)` says this membership has stepped away and `away("")` says it is back. Nothing is handed over for it: a
 member's own standing is theirs to state, and the room writes it against the membership that called rather than against
@@ -292,7 +240,7 @@ that row. Line numbers and mutation tokens restart with a room generation and ne
 room cannot govern a row restored from an earlier one. Attachment bytes remain outside this room-owned history; the
 member archive keeps them behind its own scoped blob capabilities.
 
-`server/history_index.ts` is the room-history policy owner. It admits at most 500 lines per room and 4,096 lines across
+`rust/application/src/server/history.rs` is the room-history policy owner. It admits at most 500 lines per room and 4,096 lines across
 256 rooms, evicting one least-recently-active whole room at the global edge so an ordinary post transfers one line to
 storage rather than copying another room's tail. Both storage adapters restore through that index before a listener
 opens. JSONL bounds each startup read at 64 MiB and the directory at 512 MiB, validates even compactable rows outside
@@ -316,7 +264,7 @@ does not change whether messages, typing levels, room invitations, or archive sh
 capability-bearing verb that the receiver does not implement returns that imported occurrence before refusing. The
 requester whose ordinary dial fails can ask the directory to wake the target, which may establish the reciprocal carrier
 and hand over a reply capability without inventing an empty message. This lets a browser dial a durable session even when
-the session does not implement the browser's chosen carrier, without racing the ordinary WebRTC path. It creates no conversation until a real message arrives. `test/session/mixed_dm_peer_test.ts` and
+the session does not implement the browser's chosen carrier, without racing the ordinary WebRTC path. It creates no conversation until a real message arrives. The native session-service direct scenarios and
 `rooms-web-shared-session` prove messages, typing, files, archive sharing, restart, and replacement-route adoption in
 both mixed directions.
 
@@ -330,8 +278,8 @@ Neither the source nor the generation is a person identity: a nickname and fresh
 At the wire edge a record is validated once, then transferred as one immutable object through storage and the shared
 index; the index does not rebuild or clone its text-bearing record. One passable row is allocated for an outbound put.
 
-`web/ui/net/archive_target.ts` owns a selected peer's sturdyref, session, and reference below the presentation store.
-It validates a candidate with one bounded read, then asks `web/ui/history.ts` to drain the old target before swapping.
+`rust/runtime/src/session_archive.rs` owns archive selection and the bounded work queue. Its worker
+validates the selected peer and retains admitted work through target replacement and retirement.
 The archive-peer card the Holdings tab opens may retain the bearer only by explicit opt-in. A failed selected peer becomes unavailable and never
 falls back to the device archive; retry preserves the original retention choice. The conversation card waits
 for earlier writes, mints a read-only facet for the named archive coordinate, and hands it over a DM. Room and
@@ -341,12 +289,27 @@ refuses that mint. The receiver validates the live directory, keeps a bounded of
 facets as one-shot while durable offers survive until the issuer revokes them.
 `zig build rooms-web-archive` proves live handover, selection, and fresh-profile recovery through a live iroh peer.
 
-`archive/main.ts` hosts the same behavior on a durable v1/Syrup Host. `archive/storage.ts` appends and syncs one
-revision before applying the shared `ArchiveIndex` transition, then atomically compacts a bounded delta tail. Its state
-directory also retains the Host seed and publication entropy, so restarting on the same locator reproduces the same
-sturdyref. An operating-system lock admits one live writer. iroh is the deployed default; TCP is the cleartext local and
-self-contained-check posture. `zig build rooms-archive-test` owns the contract, recovery, resource-bound, wire, and
-restart evidence.
+`zig build rooms-archive` runs the native Rust service on a durable v1/Syrup Host.
+Its journal appends and syncs a revision before applying the shared Rust index,
+then atomically compacts a bounded delta tail. The state directory retains the
+Host seed and publication entropy in the existing `peer.json` format; restarting
+on the same locator reproduces the same sturdyref. An operating-system lock
+admits one live writer. iroh is the deployed default; TCP is explicitly cleartext.
+`zig build rooms-peers-test` proves native identity, restart and signal
+shutdown for the archive peer, the session peer, and the room server. `zig build rooms-archive-test` checks
+compatibility with the existing Rooms clients, including archived files and durable shares.
+
+`zig build rooms-server` runs the native room server: the directory members register with and the rooms they enter,
+with hosted files and retained history. Its policy lives in `rooms-application` under `server` and is read as values
+in its own tests. The service tests drive it with the Rust clients over TCP and iroh, through a three-party
+introduction handed off to the member's own listener and through a room's whole life. The session peer's tests
+register with it and open a room on it across a restart. The web front runs it in place of the TypeScript server when
+`GLOWCAP_ROOMS_SERVER_BIN` names the executable, and the browser proofs that need rooms and the operator
+capabilities run against it that way. The native server mints the same operator capabilities under the same flags,
+and its service tests drive each one: the listener seats up and down with every typed refusal, the diagnostic
+snapshot, the operator's inventories, search, retirement, stewardship, and watch, a peered room from another
+directory through its lease, and the live timeline endpoint's producers and a viewer over a WebSocket. The IRC
+gateway is the TypeScript server's, so the front refuses a native server asked for it.
 
 The application wrappers use only the public binding surface: connect, fetch, spawn, send, and serve. Protocol tables,
 export positions, and frame movement remain below them.
@@ -374,9 +337,10 @@ Orange controls stay orange. Wrapping prose on a card, the rail's empty lines, a
 welcome panel keeps a last line of one word from dangling. A heading on a card or the welcome panel
 breaks into even halves.
 
-It is a React application under `web/ui/`, entered through `main.tsx` and bundled to `page.js` by `serve.ts`. Deno
-splits that graph at the waits a reader can name. The opening screen in `page.html` covers the boot module, the wasm
-runtime, and whichever of session choice or the session shell is next — that next chunk starts as soon as the branch
+It is a React application under `web/ui/`, entered through `main.tsx`. Native `rooms-web` invokes Deno's browser
+compiler to bundle `page.js`, splitting that graph at the waits a reader can name. The opening screen in `page.html`
+covers the boot module, the wasm runtime, and whichever of session choice or the session shell is next — that next
+chunk starts as soon as the branch
 is known, so the splash does not fade onto a second wait. After a session exists, Operations is its own chunk, each
 pane another except Directory — its shell stays with Operations so opening it is not two sheens, and the operator and
 inspect halves are two more chunks — and Help's parts catalog the last. A hover or
@@ -402,9 +366,11 @@ a red commitment, so a leave, a delete, or a revoke can never wear the same butt
 onto the way out, Escape is the way out and stays inside the card, and keeping hands focus back to the act that asked. A
 list of things the surface knows about is `entries` (`entries.css`), each with a head (name, a short fact, the acts at the line's end) and its longer facts
 under it. A door to another card is a `launch` row: a mark, a name and one sentence, and the act at the end. Sections
-are an overline title over a `well`. Session setup, the Session, Holdings, and Network tabs, the room and directory
-cards, and every Operations pane are built from these and nothing else, so a form in one of them looks like a form in
-the rest.
+are an overline title over a `well`. Session setup, the Session, Holdings, and Reachability tabs, the room and
+directory cards, and every Operations pane are built from these and nothing else, so a form in one of them looks like a
+form in the rest. The tabs divide by what they are about: Reachability holds the locators, Session holds storage
+ownership and retention policy, and Holdings holds live and saved authority, which is room entry, archive peers and
+their independently revocable shares, operations capabilities, the attached-session facet, and access grants.
 
 A form that takes a pasted capability opens a card of its own rather than standing on the tab that owns the subject.
 The Session and Holdings tabs are written that way: each card says who keeps data or authority and offers the acts that
@@ -416,23 +382,19 @@ where they left it. A file to choose is a `FilePick`, which is the platform's ow
 the page draws, because the platform's control cannot be dressed and reads as pasted in from another program.
 
 The operator pane is written for a directory holding more rows than one page. Each inventory offers its rows to
-`server/operator/page.ts` as sources: the lowercased text a search matches, which every row pays, and the work of
+`rust/application/src/server/operations/operator/page.rs` as sources: the lowercased text a search matches, which every row pays, and the work of
 building the row, which only a row on the asked-for page pays. A count is therefore the directory's own number of
 matches rather than the length of what was sent, and a search over a hundred thousand rooms costs a hundred thousand
-string tests instead of a hundred thousand member lists. `server/operator/inventory.ts` gives every category the same
+string tests instead of a hundred thousand member lists. `rust/application/src/server/operations/operator/inventory.rs` gives every category the same
 face — the wire row, and the act that retires it where one exists — so the search, the paging, and the bulk retire are
 written once. The bulk retire is bounded per call and answers how many rows still match, so a sweep over a very large
 inventory can be interrupted without losing its real progress.
 
-`RoomsBrowserController` owns presentation and establishment before a session exists. After establishment,
-`RoomsSessionController` supplies either the local or attached implementation of Rooms commands. Both are stable React
-context values; changing snapshots stay in the selector store. `net.ts` owns the local CapTP session outside the React
-tree, while an attached controller owns the durable session connection. Both project results into the store. For an
-attached session, `AttachedSessionFeed` owns snapshot acceptance, revision waits, line sequencing, and invalidation
-observers; `AttachedRoomsController` owns serialized commands and operation identity. The opening screen in `page.html`
-stays until `boot.ts` has the controller's first answer. `zig build source-check`
-(`tools/check/source_check/rooms_ui.zig`) holds the ids and classes the browser proofs select on, and keeps `net.ts` and
-`store.ts` off the document.
+`RoomsBrowserController` owns presentation and establishment before a session exists. Local, hosted and attached
+pages use the Rust application owner through `RoomsSessionController`. Rust owns command identity, serialization,
+observation ordering and connection lifetime; TypeScript projects typed results into the selector store.
+The opening screen stays until the controller supplies its first answer. Source checks keep presentation
+projections separate from DOM access and prevent route parsing from returning to TypeScript protocol clients.
 
 ### Form answers
 
@@ -474,6 +436,8 @@ rooms stay, and they say not connected — not an establishment to unwind. The f
 split: connecting while the first answer is still coming, reconnecting or not connected after a directory that has
 already answered drops. Restore and both controllers derive those words from whether the directory has answered, so a
 first Connect cannot read as a drop. Those words are a directory's. A person who is not in the room is offline.
+After sixty seconds of unsuccessful automatic reconnects, the directory reads not connected and its card offers Retry
+connection. The directory and its rooms remain in the workspace; retry starts a fresh bounded reconnect window.
 
 While that card is the workarea, the rail's room panel is a second view of it: one room name, one lock, and one
 destination, all read from the card's own answers and all changed from either side. Picking a directory on the panel's
@@ -600,13 +564,15 @@ These are decided directions, so a session picking one up starts from the decisi
   no locator RPC, URI reconstruction, or steady-state source retain after send admission. The destination owns one
   bounded reservation until the handed promise settles, then one foreign row until its exact lease revokes it or the
   publisher Session disconnects. A synchronous listen refusal rolls the reservation and received occurrence back in
-  the admitting turn. `zig build goblins-rooms-peering` holds the v1.0/Syrup product floor.
+  the admitting turn. `zig build goblins-rooms-peering` holds the v1.0/Syrup product floor, and an on-demand iroh
+  scenario publishes through an identity route and redeems through its weak TCP fallback when the destination has no
+  iroh provider.
 
 ## Source map
 
 | Path                 | Role                                                             |
 | -------------------- | ---------------------------------------------------------------- |
-| `server/main.ts`     | Directory and room host.                                         |
+| `rust/native/src/room_server`     | Directory and room host.                                         |
 | `lib/protocol.ts`    | Directory, room, and direct-message verbs.                       |
 | `lib/protocol_irc.ts`, `lib/protocol_operator.ts` | IRC bridging and operator verbs.    |
 | `lib/archive/`       | Member-owned archive records, bounds, behavior, and client.       |
@@ -615,14 +581,14 @@ These are decided directions, so a session picking one up starts from the decisi
 | `lib/session/`       | Client contract for a durable session.                           |
 | `lib/dm_*.ts`        | Direct inboxes, replies, and handoff choreography.               |
 | `lib/locator.ts`     | TCP and iroh dialing for Deno clients.                           |
-| `clients/`           | Deno, Python, Racket, Rust, and Zig clients.                     |
+| `clients/`           | Deno, Python, Racket, Rust, and Zig clients, each with a generated protocol table. |
 | `irc/`               | Bounded IRC grammar, channel bridge, and native Rooms front.     |
 | `session/`           | Durable session actor, document store, and Deno process host.    |
-| `web/serve.ts`       | Page server, room supervisor, and relay endpoint.                |
-| `web/relay.ts`       | Byte relay and browser rendezvous bridge.                        |
+| `rust/native/src/web.rs` | Native page server and room supervisor. |
+| `rust/native/src/web/relay.rs` | Native byte relay and browser rendezvous bridge. |
 | `web/ui/`            | Browser Rooms client and interface.                              |
 | `web/ui/controller/` | Browser and established-session React controller boundaries.     |
-| `web/ui/net.ts`      | Local session, rooms, and direct-message effects.                |
+| `rust/browser/src/attached.rs` | Browser application and typed session handles. |
 | `web/ui/session/`    | Attached client, in-tab host bind, projection, and UI adapter.   |
 | `web/ui/store.ts`    | Non-authoritative page projection and its domain updates.        |
 | `web/ui/intent.ts`   | What the reader meant, and how firmly, for forms to answer from. |
@@ -630,3 +596,5 @@ These are decided directions, so a session picking one up starts from the decisi
 | `web/ui/*.tsx`       | React components subscribed to projection selectors.            |
 | `demos/`             | Command-line scenario orchestrators.                             |
 | `test/`              | Server, relay, browser, and direct-message checks.               |
+
+`zig build rooms-web-operations-refresh` exercises Rust-owned operations pagination, search, credential removal, and reload on the shipped page.

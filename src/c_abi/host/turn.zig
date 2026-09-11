@@ -61,7 +61,7 @@ pub export fn glowcap_host_turn_defer(
 /// caretaker/attenuator primitive. `target` is an opaque Host-scoped
 /// capability; the Host resolves local and remote delivery itself (and refuses
 /// stale or foreign-Host identities rather than reading them as wire names).
-/// In a wire-served turn the real answer rides the forwarded vow and
+/// In an eventual or wire-served turn the real answer rides the forwarded vow and
 /// `*out_reply` gets a void placeholder; pass your behavior's own `out_reply`
 /// and return `GLOWCAP_OK`. The written reply is BORROWED — valid until the
 /// next turn verb or drive on this host.
@@ -174,8 +174,9 @@ pub export fn glowcap_host_turn_spawn(
 
 /// From inside a behavior callback, break this turn's own answer with
 /// `message` — how a behavior refuses with a diagnostic, since a non-OK
-/// return settles the answer broken with only a generic reason. The answer
-/// resolves broken inside this call (a no-answer tell breaks nothing); leave
+/// return settles the answer broken with only a generic reason. A wire answer
+/// breaks inside this call; a local eventual answer breaks when the turn
+/// unwinds. A no-answer tell breaks nothing. Leave
 /// `out_reply` untouched and return `GLOWCAP_OK` from the behavior, whose
 /// return value then resolves nothing. `message` is borrowed and copied.
 pub export fn glowcap_host_turn_break(turn: ?*GlowcapHostTurn, message: ?[*]const u8, message_len: usize) i32 {

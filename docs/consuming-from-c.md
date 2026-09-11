@@ -20,6 +20,12 @@ zig build
 Headers are installed under `zig-out/include/`; static and shared libraries are
 installed under `zig-out/lib/`.
 
+The embedding application owns process signal handlers and alternate signal
+stacks. The C ABI libraries disable Zig's automatic signal-handler and signal-stack
+setup, so linking several archives does not reserve a separate alternate stack
+per archive on every thread. Fatal faults remain subject to the application's
+handler or the operating system's default behavior.
+
 | Library | Header | Purpose |
 | --- | --- | --- |
 | `libglowcap_ocapn` | `glowcap_ocapn.h` | Shared values, locators, frames, and URI helpers. |
@@ -223,6 +229,14 @@ worker's diagnostic before returning. A partial request—buffer or nonzero
 capacity without a length slot—is rejected before the operation begins. This is
 one call contract, including `glowcap_iroh_netlayer_new` and its allocator-aware
 `_in` form, rather than a second diagnostic API to select correctly.
+
+A failure with no call left to return it, such as a finalizer refusing or a
+retirement failing after the request that started it has returned, goes to the
+`GlowcapContext` that owns the Host as one typed record. Drain that journal
+with `glowcap_context_next_failure` when your application decides how to
+respond. The journal is bounded: a full one drops its oldest record and counts
+the loss on the next, so what you drain is never mistaken for a complete
+history.
 
 Serialize calls on one Host behind one thread or lock. Distinct Hosts are
 independent. A binding that exposes an event-loop owner should reject

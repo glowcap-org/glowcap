@@ -140,7 +140,7 @@ def driver_sigs(
         "glowcap_host_fetch_at": ([P, ctypes.POINTER(_LocatorView), P, size, u64_p], i32),
         "glowcap_host_set_trace": ([P, _TraceCallback, P], i32),
         "glowcap_host_resolver_fulfill": ([P, u64, ctypes.POINTER(_Argument)], i32),
-        "glowcap_host_resolver_break": ([P, u64, P, size], i32),
+        "glowcap_host_resolver_abandon": ([P, u64, P, size], i32),
         "glowcap_host_session_listen": ([P, ctypes.POINTER(_Reference), u64_p], i32),
         "glowcap_host_session_send": ([P, ctypes.POINTER(_Reference), P, size, ctypes.POINTER(_Argument), size, u64_p], i32),
         "glowcap_host_session_tell": ([P, ctypes.POINTER(_Reference), P, size, ctypes.POINTER(_Argument), size], i32),
@@ -372,7 +372,7 @@ def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider):
     }
 
 
-def relay_sigs(_RelayConfig, _RelayTrustSummary, _TransportProvider):
+def relay_sigs(_RelayConfig, _TransportProvider):
     """``libglowcap_net_transport_relay`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
@@ -384,7 +384,6 @@ def relay_sigs(_RelayConfig, _RelayTrustSummary, _TransportProvider):
         "glowcap_relay_last_error": ([P, size], size),
         "glowcap_relay_clear_last_error": ([], None),
         "glowcap_relay_runtime_new": ([ctypes.POINTER(_RelayConfig), ctypes.POINTER(P)], i32),
-        "glowcap_relay_runtime_trust_summary": ([P, ctypes.POINTER(_RelayTrustSummary)], i32),
         "glowcap_relay_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
         "glowcap_relay_runtime_release": ([P, P, size, size_p], i32),
     }

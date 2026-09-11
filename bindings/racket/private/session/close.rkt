@@ -181,3 +181,17 @@
                         #:grace-ms [grace-ms grace-unspecified])
   (define options (close-options 'session-close! pending grace-ms))
   (session-close/options! c options))
+
+;; Observe terminal session retirement without requesting close or starting
+;; `session-serve`. Independent and late observers share the terminal result.
+;; Breaking a waiting thread leaves the connection and its other observers live.
+(define (session-wait-closed c)
+  (let loop ()
+    (cond
+      [(session-released? c)
+       (raise-session-terminal-failure! c)]
+      [else
+       (define gen (host-progress-evt (session-host c)))
+       (unless (session-released? c)
+         (sync gen)
+         (loop))])))

@@ -218,7 +218,8 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
                 if (pos == BOOTSTRAP_POSITION) return Error.GcUnderflow;
             }
             // Outbound `op:gc-exports` releases our refs to the partner's
-            // exports — decrements the import table.
+            // exports — decrements the import table, never below the retains
+            // the session keeps for releases of its own.
             try session.checkGcExportDecrement(self.allocator, &self.imports, gc_export);
         },
         .gc_answer => |gc_answer| {
@@ -377,7 +378,7 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *Intr
 /// `tests.third_party_handoffs` loses its Exporter and Receiver cases to a
 /// closed socket. Length is not what makes a gift id safe here either — the
 /// signed envelope is the authority, and a short id costs one bounded retry
-/// against the fixed-width tag that keeps an attacker-chosen length out of
+/// against the fixed-width tag that keeps a partner-chosen length out of
 /// coordination state. This follows the same posture as `op:listen`'s operand
 /// count, recorded in `conformance/ocapn-findings`: interoperate with what runs
 /// today, and record the disagreement rather than settle it here.

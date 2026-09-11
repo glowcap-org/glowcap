@@ -4,7 +4,7 @@
 // live, the head also offers the Operations page that can use it.
 
 import { memo, useEffect, useRef, useState } from "react";
-import { useRoomsBrowser } from "./controller/browser.ts";
+import { useRoomsBrowser, useRoomsController } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { current, type DmMode } from "./prefs.ts";
 import { Button } from "./Button.tsx";
@@ -18,7 +18,7 @@ import { SessionSettings } from "./settings/Session.tsx";
 import { Holdings } from "./settings/Holdings.tsx";
 import { Said } from "./Said.tsx";
 import type { RoomsSessionAccess } from "../../lib/session/client.ts";
-import { mayInteract } from "../../lib/session/client.ts";
+import { mayInteract } from "../../lib/session/access_view.ts";
 import { effectiveRoomsSessionAccess } from "./controller/access.ts";
 import { useChangeGroup, useCommitments } from "./commitment.tsx";
 
@@ -82,7 +82,7 @@ function SettingsDialog(
 	const browser = useRoomsBrowser();
 	const commitments = useCommitments();
 	const session = useRoomsSession();
-	const controller = browser.roomsController();
+	const controller = useRoomsController();
 	const access = effectiveRoomsSessionAccess(controller, sessionAccess);
 	const canInteract = access != null && mayInteract(access);
 	const canAdminister = access === "admin";

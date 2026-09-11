@@ -1,8 +1,8 @@
 # Root rustfmt config for every crate in the monorepo (rustfmt searches upward
-# for this file, so the bindings, the examples, the bench client, and the iroh
-# sidecar all share it). Tabs for indentation, four columns wide, matching the
-# repo-wide .editorconfig; rustfmt still uses spaces for alignment, which tabs
-# cannot express. Enforced by `zig build bindings-fmt-check`.
+# for this file, so the bindings, the examples, the bench client, and the
+# transport sidecar crates all share it). Tabs for indentation, four columns
+# wide, matching the repo-wide .editorconfig; rustfmt still uses spaces for
+# alignment, which tabs cannot express. Enforced by `zig build bindings-fmt-check`.
 hard_tabs = true
 tab_spaces = 4
 max_width = 120

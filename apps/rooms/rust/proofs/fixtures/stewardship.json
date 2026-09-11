@@ -1,0 +1,329 @@
+{
+  "links": {
+    "room": "ocapn://directory.id/s/cm9vbQ",
+    "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+    "manager": "ocapn://directory.id/s/bWFuYWdlcg"
+  },
+  "trace": [
+    {
+      "action": [
+        "claim"
+      ],
+      "result": false,
+      "accepted": true,
+      "state": {
+        "room": null,
+        "manager": null,
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "link"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "manager"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "claim"
+      ],
+      "result": true,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "take"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "release"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "take"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "forget",
+        "steward",
+        "old"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "forget",
+        "manager",
+        "manager"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "kick"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "drop"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "claim"
+      ],
+      "result": false,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "manager"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "claim"
+      ],
+      "result": true,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "forget",
+        "steward",
+        "steward"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "kick"
+      ],
+      "result": null,
+      "accepted": false,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "claim"
+      ],
+      "result": true,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "forget",
+        "room",
+        "room"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": null,
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "kick"
+      ],
+      "result": null,
+      "accepted": false,
+      "state": {
+        "room": null,
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": null,
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "claim"
+      ],
+      "result": true,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": "ocapn://directory.id/s/bWFuYWdlcg",
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "dropManager"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "release"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": false
+      }
+    },
+    {
+      "action": [
+        "take"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": "ocapn://directory.id/s/c3Rld2FyZA",
+        "held": true
+      }
+    },
+    {
+      "action": [
+        "drop"
+      ],
+      "result": null,
+      "accepted": true,
+      "state": {
+        "room": "ocapn://directory.id/s/cm9vbQ",
+        "manager": null,
+        "steward": null,
+        "held": false
+      }
+    }
+  ]
+}

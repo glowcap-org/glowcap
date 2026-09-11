@@ -5,6 +5,11 @@
 // read-only facet for exactly their direct conversation; the receiver chooses
 // to read it and sees its separate attribution.
 //
+// The first profile writes one line before selecting the peer, so the same
+// conversation generation is split across this browser's store and the peer.
+// The reopen is the combined view of ADR-0144: both lines stand once, and the
+// account divider names both keepers.
+//
 // The room uses the self-contained TCP relay. The archive uses direct iroh for
 // this same-host proof; deployments use discovery-backed iroh so its node-ID
 // locator survives endpoint address changes.
@@ -16,10 +21,11 @@ import { confirmTitleLeave } from "../support/page.ts";
 import { namedDirectRow } from "../support/conversation_row.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
-const ARCHIVE = new URL("../../archive/main.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
+import { startArchivePeer } from "../support/archive_peer.ts";
 const ROOM = "archive-room";
 const KEPT = "this line outlives the browser that wrote it";
+const KEPT_DEVICE = "this line was this browser's account of it";
 const AFTER_PEER = "this still reaches its recipient while the archive is away";
 
 function fail(message: string): never {
@@ -103,14 +109,13 @@ async function chooseArchive(tab: Page, sturdyref: string): Promise<void> {
 				holdings?.contains(document.getElementById("opsLegend")) ===
 					true &&
 				data === null && history === null,
-			designSystemCheckbox: remember?.classList.contains("checkbox") === true,
-			contained: form?.contains(remember) === true &&
-				form?.contains(document.getElementById("archivePeerLink")) === true,
+			sessionOwned: remember === null && (form?.textContent ?? "").includes("shared session retains"),
+			contained: form?.contains(document.getElementById("archivePeerLink")) === true,
 			copy: (card?.textContent ?? "") + (document.getElementById("archivePeerLinkHint")?.textContent ?? ""),
 		};
 	});
 	if (!historyForm.ordered) fail("archive authority is not in Holdings, separate from Data's history policy");
-	if (!historyForm.designSystemCheckbox || !historyForm.contained) {
+	if (!historyForm.sessionOwned || !historyForm.contained) {
 		fail(`the archive choice is not one design-system form: ${JSON.stringify(historyForm)}`);
 	}
 	// Case-folded: the claim is that the copy names what this peer is and what
@@ -119,9 +124,6 @@ async function chooseArchive(tab: Page, sturdyref: string): Promise<void> {
 	if (!explained.includes("separate glowcap peer") || !explained.includes("bearer authority")) {
 		fail(`the archive peer explanation does not name its role and authority: ${JSON.stringify(historyForm.copy)}`);
 	}
-	await tab.click("#rememberArchivePeer");
-	if (!await tab.isChecked("#rememberArchivePeer")) fail("the archive-peer checkbox did not accept a press");
-	await tab.click("#rememberArchivePeer");
 	await tab.fill("#archivePeerLink", sturdyref);
 	await tab.click('#archivePeerForm button:has-text("Use archive peer")');
 	await tab.waitForSelector("#archivePeerTaken")
@@ -158,25 +160,9 @@ const deadline = setTimeout(() => fail("archive browser proof timed out after 12
 const state = await Deno.makeTempDir();
 const httpPort = freePort();
 const roomPort = freePort();
-const archive = spawnOwned("deno", {
-	args: ["run", "-A", "--unstable-ffi", ARCHIVE, `--state=${state}`, "--reachability=direct"],
-	cwd: ROOT,
-	stdout: "piped",
-	stderr: "inherit",
-});
-spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-	],
+const archive = startArchivePeer(state, ["--reachability=direct"], "inherit");
+spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
@@ -188,8 +174,19 @@ try {
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const alice = await join(browser, httpPort, "archive-alice");
 	const bob = await join(browser, httpPort, "archive-bob");
+	// Written before any peer selection, this line is the device store's account
+	// of the conversation the peer is about to start recording too. The direct
+	// button waits for Bob's registration rather than navigating away from a
+	// members list that has not drawn him yet. The conversation stays open
+	// across the selection change, so both writes share one generation.
+	const firstDm = alice.tab.locator('#members li:has-text("archive-bob") button.dm-btn');
+	await firstDm.waitFor({ state: "visible", timeout: 90_000 });
+	await firstDm.click();
+	await alice.tab.waitForSelector("#line:not([disabled])", { timeout: 15_000 });
+	await send(alice.tab, KEPT_DEVICE);
+	await see(alice.tab, KEPT_DEVICE, "Alice before archive selection");
 	await chooseArchive(alice.tab, sturdyref);
-	await openDm(alice.tab, "archive-bob");
+	await alice.tab.waitForSelector("#line:not([disabled])", { timeout: 15_000 });
 	await send(alice.tab, KEPT);
 	await openDm(bob.tab, "archive-alice");
 	await see(bob.tab, KEPT, "Bob");
@@ -248,15 +245,44 @@ try {
 	// first profile disappears, so the proof never races a fire-and-forget put.
 	await confirmTitleLeave(alice.tab);
 	await openDm(alice.tab, "archive-bob");
-	await alice.tab.waitForSelector('.sys-line:has-text("kept by iroh peer")', { timeout: 30_000 });
+	await alice.tab.waitForSelector('.sys-line:has-text("kept by the shared Rooms session archive peer")', {
+		timeout: 30_000,
+	}).catch(async () =>
+		fail(
+			`the archive read did not identify peer custody: ${
+				JSON.stringify(
+					await alice.tab.locator('.sys-line:has-text("Earlier messages")').allTextContents(),
+				)
+			}`,
+		)
+	);
 	await see(alice.tab, KEPT, "Alice's first profile");
+	// The combined read: the device-kept line stands beside the peer-kept one,
+	// each exactly once, under one divider naming both keepers (ADR-0144).
+	await see(alice.tab, KEPT_DEVICE, "Alice's device-kept line");
+	const dividers = await alice.tab.locator('.sys-line:has-text("Earlier messages")').allTextContents();
+	const combined = dividers.filter((text) => text.includes("kept by the shared Rooms session archive peer"));
+	if (combined.length !== 1 || !combined[0].includes("and on this device")) {
+		fail(`the split generation's divider did not name both keepers: ${JSON.stringify(dividers)}`);
+	}
+	for (const text of [KEPT, KEPT_DEVICE]) {
+		const shown = await alice.tab.locator(`.bubble:has-text("${text}")`).count();
+		if (shown !== 1) fail(`a combined account showed ${JSON.stringify(text)} ${shown} times`);
+	}
 	await alice.context.close();
 
 	const returned = await join(browser, httpPort, "archive-returned");
 	await chooseArchive(returned.tab, sturdyref);
 	await openDm(returned.tab, "archive-bob");
-	await returned.tab.waitForSelector('.sys-line:has-text("kept by iroh peer")', { timeout: 30_000 });
+	await returned.tab.waitForSelector('.sys-line:has-text("kept by the shared Rooms session archive peer")', {
+		timeout: 30_000,
+	});
 	await see(returned.tab, KEPT, "Alice's fresh profile");
+	// A fresh profile's device store holds nothing, so the combined read shows
+	// the peer's account only: the first profile's device line stays behind.
+	if (await returned.tab.locator(`.bubble:has-text("${KEPT_DEVICE}")`).count() !== 0) {
+		fail("a fresh profile showed the first profile's device-only account");
+	}
 
 	// A selected peer going away is a visible recording failure, never a reason
 	// to fork the member's history into this fresh profile. Sending still belongs
@@ -264,6 +290,18 @@ try {
 	archive.kill("SIGTERM");
 	const archiveExit = await archive.status;
 	if (!archiveExit.success) fail(`the archive peer did not stop cleanly: ${JSON.stringify(archiveExit)}`);
+	await returned.tab.locator('.toast:has-text("archive peer is unavailable")').waitFor({
+		state: "visible",
+		timeout: 30_000,
+	}).catch(async () =>
+		fail(
+			`the page did not report that its selected archive peer became unavailable: ${
+				JSON.stringify(
+					await returned.tab.locator(".toast").allTextContents(),
+				)
+			}`,
+		)
+	);
 	await send(returned.tab, AFTER_PEER);
 	const incoming = namedDirectRow(bob.tab, "archive-returned").locator(".dm-open");
 	await incoming.waitFor({ state: "visible", timeout: 30_000 }).catch(() =>
@@ -271,13 +309,9 @@ try {
 	);
 	await incoming.click();
 	await see(bob.tab, AFTER_PEER, "Bob after the archive stopped");
-	await returned.tab.locator('.toast:has-text("archive peer is unavailable")').waitFor({
-		state: "visible",
-		timeout: 30_000,
-	}).catch(() => fail("the page did not report that its selected archive peer became unavailable"));
 
 	console.log(
-		"PASS: a browser selected a durable iroh archive peer, handed one direct-line facet over explicitly, recovered history in a fresh profile, and declined archive writes visibly without interrupting delivery when the peer stopped",
+		"PASS: a browser selected a durable iroh archive peer, handed one direct-line facet over explicitly, read one split generation back as a single account under both keepers, recovered history in a fresh profile, and declined archive writes visibly without interrupting delivery when the peer stopped",
 	);
 } finally {
 	clearTimeout(deadline);

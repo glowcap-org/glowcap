@@ -11,6 +11,7 @@
 @import url("rail-captions.css");
 @import url("filter.css");
 @import url("workarea.css");
+@import url("topbar.css");
 @import url("session-effect.css");
 @import url("members.css");
 @import url("composer.css");
@@ -19,6 +20,7 @@
 @import url("forms.css");
 @import url("entries.css");
 @import url("settings.css");
+@import url("copy-field.css");
 @import url("session-setup.css");
 @import url("operations.css");
 @import url("operations-irc.css");
@@ -34,7 +36,20 @@
 /* Rooms wears glowcap's own colours — cream paper, cocoa ink, an amber accent,
    a teal flourish — so it looks like part of the project rather than like any
    chat app it borrows ideas from. Those come from ui/tokens.css, linked ahead of
-   this file in page.html; what follows is only what rooms means by them. */
+   this file in page.html; what follows is only what rooms means by them.
+
+   One face, with one exception a reader never has to notice. Everything is
+   the sans. The mono appears only where a thing is typed or pasted: code, a
+   locator or capability in a copy field or the join card, and a command name
+   in the list that completes one. Titles, room names, labels, stamps, and
+   counts stay in the sans, because a page that changes face at every kind of
+   thing asks a reader to learn a code before reading a word. The logotype is
+   its own drawing in ui/mark.css and takes the one other face.
+
+   The mono sets a larger eye than the sans at the same nominal size, so a
+   rule that takes it steps one ramp step down from the sans it stands beside;
+   the inline `code` chip below makes the same correction relatively, because
+   it follows whatever prose surrounds it. */
 :root {
 	--danger: #b23b2e;
 	--ok: var(--teal);
@@ -51,10 +66,23 @@
 	   rooms means by it. */
 	--mine-from: var(--accent-fill);
 	--mine-to: var(--accent-fill-deep);
-	/* The same ink, quieted, for a remark that qualifies a message rather than
-	   being part of it. Mixed from --on-accent against transparent so the 88%
-	   is the one fact this token adds. */
-	--on-accent-soft: color-mix(in srgb, var(--on-accent) 88%, transparent);
+	/* Your own lines. Not the filled amber above: that is a commitment, the
+	   thing you are about to do, and a line you already sent is history. Filled,
+	   your own words were the loudest thing in the log, and they are the words
+	   you least need to read. So a line of yours is the paper warmed a little
+	   toward the accent, in the page's own ink, and the one filled amber thing
+	   left in the column is Send. The tint is deeper in syrup than on cream
+	   because dark paper takes more colour to show the same warmth, and in
+	   syrup the bloom from --glow-color sits around it, so your lines read as
+	   lit rather than as painted. */
+	--said-from: color-mix(in srgb, var(--accent) 12%, var(--paper-raised));
+	--said-to: color-mix(in srgb, var(--accent) 22%, var(--paper-raised));
+	--said-edge: color-mix(in srgb, var(--accent) 34%, var(--rule));
+	--said-ink: var(--ink);
+	/* A card resting on its column, as against --shadow below, which is a menu
+	   floating over the page. The composer is the one card in the conversation
+	   and it rests; it does not float. */
+	--lift: 0 6px 20px var(--shadow-color);
 	/* An interactive wash inside our own message bubble. The bubble reverses
 	   both fill and ink between themes, so a page-surface hover cannot serve it:
 	   dark paper under dark on-accent ink was the broken Download state. Darken
@@ -99,6 +127,70 @@
 	   standing on, and everything here stands on the same paper. */
 	--ring: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 	--ring-danger: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
+	/* The light the product is named for. A glowcap makes its own light, and
+	   the interface does too, but only at night and only from two places: the
+	   field with the caret, which is the lantern you hold, and the lines you
+	   have said, which are what it lit. Nothing else glows. A Send button, a
+	   primary button, and the bar on the room being read each took the bloom
+	   for a while, and four lights are a fairground where one is a lantern. In
+	   the light theme the colour is transparent and every shadow that names it
+	   draws nothing, so paper keeps its paper shadows and nothing has to be
+	   written twice. The colour is the token because a shadow list cannot be
+	   switched off with `none` from inside a comma-separated value; a shadow
+	   in a colour nobody can see can. */
+	--glow-color: transparent;
+	/* The field's bloom is the wide one, and wide at full colour was a
+	   floodlight under the conversation; it takes a little over half. The
+	   lines take a share of that again, and are dimmer than it on purpose,
+	   because the field with the caret is the lantern and the lines are what
+	   it lit. Equal strengths read as every line emitting on its own, and a
+	   halo around each of them is the fairground this palette keeps warning
+	   about. So the lines come in nearer the paper: less reach, and rather
+	   over half of what the lantern spends. */
+	--glow-tint: color-mix(in srgb, var(--glow-color) 55%, transparent);
+	--glow: 0 0 22px var(--glow-tint);
+	--glow-soft: 0 0 10px color-mix(in srgb, var(--glow-tint) 55%, transparent);
+}
+/* The logotype in rooms wears the lantern's own light: "glowcap" is a faint,
+   near-white teal, the colour the mark's windows go when the tube has caught,
+   so the word and the mushroom beside it are lit by one thing. By day the
+   page is cream and a near-white word would vanish into it, so there the
+   word keeps the ink the shared lockup gives it. Rooms only: the site draws
+   the same lockup and keeps its own colour. */
+.wordmark span {
+	color: var(--ink);
+}
+@supports (color: light-dark(#000, #fff)) {
+	.wordmark span {
+		color: light-dark(var(--ink), color-mix(in srgb, var(--teal) 22%, #fff));
+	}
+}
+/* The brand lockup: the mark standing over the logotype, one drawn unit. Two
+   screens carry it, the opening screen in page.html and the session chooser's
+   header, and the second is what the first fades into. A difference between
+   them reads as the page redrawing rather than as one screen becoming the
+   next. Each home separately naming the column and its fit is how the opening
+   screen came to hold its logotype three pixels closer than the chooser did:
+   the air the mark's light needs was taken back out of the layout slightly too
+   far, and no rule stood over both to notice. The mark's own box is still
+   named at each home, because one is markup and the other a component's prop;
+   what stands between the mark and the word is settled here. */
+.brand-lockup {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	/* Not one of the spacing steps above: this is the lockup's own fit,
+	   measured against the mark at the size it is set at, the way the
+	   wordmark's letterfit was (mark.css). It moves when the drawing moves,
+	   not when the layout ramp does. */
+	gap: 17.5px;
+}
+/* The scrollbars belong to the page, not to the platform: thin, in the page's
+   own ink, with no track. Both properties inherit, so the root is the one
+   place to say it, and the log, the rails, and every card that scrolls follow. */
+:root {
+	scrollbar-width: thin;
+	scrollbar-color: color-mix(in srgb, var(--ink) 22%, transparent) transparent;
 }
 /* Inline code: one chip wherever a sentence names a flag, a verb, or an
    address — the mono a step under the prose, a breath of ink behind it, and
@@ -307,18 +399,14 @@ code {
 		var(--raised-foot)) 78%, color-mix(in srgb, var(--paper-raised) 80%,
 		var(--raised-foot)) 94%);
 }
-/* "Syrup" — the same warmth turned down to a dark roast. Two arms, mirroring
-   ui/tokens.css: the media query answers for a reader who never touches the
-   toggle, the attribute for one who does, and the attribute wins either way.
-   Guarded like the token pairs, so a browser without `light-dark()` keeps
-   light native controls on its light-locked palette. */
+/* "Syrup" — the same warmth turned down to a dark roast, and the face this
+   app wears. One arm, mirroring ui/tokens.css: a page nobody has stamped and
+   a page stamped `dark` are the same page, and `data-theme="light"` is the
+   only thing that turns it off. Guarded like the token pairs, so a browser
+   without `light-dark()` keeps light native controls on its light-locked
+   palette. */
 @supports (color: light-dark(#000, #fff)) {
-	@media (prefers-color-scheme: dark) {
-		html:not([data-theme="light"]) {
-			color-scheme: dark;
-		}
-	}
-	html[data-theme="dark"] {
+	html:not([data-theme="light"]) {
 		color-scheme: dark;
 	}
 }
@@ -358,6 +446,15 @@ code {
 		--shadow-color: light-dark(color-mix(in srgb, var(--ink) 16%, transparent), rgba(0,0,0,.5));
 		--field-fill: light-dark(#fff, var(--paper));
 		--field-lift: light-dark(0 1px 2px var(--shadow-sm-color), none);
+		--glow-color: light-dark(transparent, color-mix(in srgb, var(--accent) 55%, transparent));
+		--said-from: light-dark(
+			color-mix(in srgb, var(--accent) 12%, var(--paper-raised)),
+			color-mix(in srgb, var(--accent) 22%, var(--paper-raised))
+		);
+		--said-to: light-dark(
+			color-mix(in srgb, var(--accent) 22%, var(--paper-raised)),
+			color-mix(in srgb, var(--accent) 32%, var(--paper-raised))
+		);
 	}
 	:root {
 		--dir-mark-1: light-dark(#145200, #6ab759);

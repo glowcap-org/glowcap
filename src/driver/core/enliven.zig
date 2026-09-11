@@ -374,8 +374,7 @@ pub fn failParkedEnliven(
         .peer_handle = session_peer,
         .vow_id = parked.vow_id,
         .failure = failure,
-        .message = retained.bytes,
-        .message_owned = retained.owned,
+        .message = retained,
     } });
 }
 

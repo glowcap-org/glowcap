@@ -152,3 +152,30 @@ so beside the advice this mechanism completes.
   from inside a turn, a full mailbox), each typed and tested; nothing
   silent. Spawning the pair inside a turn is legal — that is the primary
   use: a behavior mints, forwards, and hands the resolver to its worker.
+
+Queued local eventual calls now support the same answer deferral as wire calls.
+A synchronous near call still refuses deferral, and the Host refuses deferring
+a tell because it has no answer. This distinction belongs to `Turn.origin`;
+Rust's runtime no longer substitutes its own local callback execution.
+
+### Owning-thread application values
+
+The plain-data resolver remains the worker/mailbox contract. The Host also
+exposes `resolverFulfillValue`: it uses the deferred row's original caller
+session to lower an owning `Value` through the existing transactional capability
+projection. Stale and cross-session capabilities refuse the whole value, including
+nested containers, without consuming the resolver or retaining new projections.
+Successful settlement consumes the resolver once. This path borrows leaf data;
+the caller supplies the arena for temporary lowering containers and rollback
+receipts. The C adapter gives those receipts an independent arena so listener
+reentry cannot overwrite them through argument scratch.
+
+The C ABI exports `glowcap_host_resolver_fulfill_value`; Rust exposes
+`Resolver::fulfill_value`. Rust's existing `fulfill` and the other bindings'
+current resolver veneers remain capability-free. A cross-session gift still
+requires ordinary send/handoff machinery. The owning-thread value method does
+not relax the mailbox or one-thread Host contract. Core tests cover local and
+wire callers, projection rollback after a nested foreign capability, one-shot
+settlement and calling a returned actor after its application root is released.
+The native Rooms archive exercises the C/Rust path with asynchronous digest
+lookup followed by calls to the returned blob reader.

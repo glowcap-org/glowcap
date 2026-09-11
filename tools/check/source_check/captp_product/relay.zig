@@ -85,50 +85,27 @@ pub fn checkReferenceRelayIrohLazy(
     }
 }
 
-/// The rooms production relay funnels every dial through the shared
-/// `classifyRelayTarget` (over `glowcap_host_plan_dial`), so its SSRF allow-list
-/// sorts a target exactly as the dial that follows: one classified value gates
-/// admission (`relayAllowed`) and drives the dial (`relayToTarget`). The
-/// reference relays' local `?to=` / `?locator=` parameter dispatch must not leak
-/// into the production path, where dialing a raw parameter would bypass the
-/// classifier and the allow-list and reopen the SSRF hole (ADR-0086).
+/// The native Rooms relay admits one parsed target and passes that owned target
+/// to its dial job. Raw reference-relay parameters cannot bypass admission.
 pub fn checkProductionRelayClassifierLockstep(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const web = "apps/rooms/web/serve_http.ts";
-    const server = "apps/rooms/web/relay.ts";
-    // The reference relays' two-parameter dispatch; forbidden in the production
-    // path, which dials only a classified `?target=` and bridges `?rendezvous=`.
-    const params = [_][]const u8{ ".get(\"to\")", ".get(\"locator\")" };
-
-    web_blk: {
-        const contents = root.readFileAlloc(io, web, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for production-relay-classifier check with {s}", .{ web, @errorName(err) });
-            break :web_blk;
+    const web = "apps/rooms/rust/native/src/web/http.rs";
+    const relay = "apps/rooms/rust/native/src/web/relay.rs";
+    try expectFileContains(io, gpa, root, violations, relay, &.{"self.target(target)"});
+    try expectFileContains(io, gpa, root, violations, relay, &.{"match target {"});
+    for ([_][]const u8{ web, relay }) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read relay admission with {s}", .{ path, @errorName(err) });
+            continue;
         };
         defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, "classifyRelayTarget(") == null) {
-            try appendViolation(gpa, violations, "{s}: the production relay must classify its dial target through `classifyRelayTarget` (the plan_dial SSRF chokepoint) (ADR-0086)", .{web});
-        }
-        for (params) |param| {
-            if (std.mem.indexOf(u8, contents, param) != null) {
-                try appendViolation(gpa, violations, "{s}: reads a `{s}` parameter — the reference-relay dispatch; the production relay dials only a classified `?target=` (ADR-0086 SSRF lockstep)", .{ web, param });
-            }
-        }
-    }
-
-    srv_blk: {
-        const contents = root.readFileAlloc(io, server, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for production-relay-classifier check with {s}", .{ server, @errorName(err) });
-            break :srv_blk;
-        };
-        defer gpa.free(contents);
-        for (params) |param| {
-            if (std.mem.indexOf(u8, contents, param) != null) {
-                try appendViolation(gpa, violations, "{s}: reads a `{s}` parameter — the reference-relay dispatch; the production relay dials only a classified `?target=` (ADR-0086 SSRF lockstep)", .{ server, param });
+        for ([_][]const u8{ "parameter(\"to\")", "parameter(\"locator\")" }) |bypass| {
+            if (std.mem.indexOf(u8, contents, bypass) != null) {
+                try appendViolation(gpa, violations, "{s}: reference-relay parameter `{s}` bypasses Rooms target admission", .{ path, bypass });
             }
         }
     }

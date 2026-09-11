@@ -5,7 +5,7 @@ import type { SeatPhase } from "../protocol_irc.ts";
 import { boundedText, nonemptyText } from "../schema.ts";
 import * as z from "zod/mini";
 
-const SEAT_PHASES = ["rooms", "connecting", "linked", "failed"] as const satisfies readonly SeatPhase[];
+export const SEAT_PHASES = ["rooms", "connecting", "linked", "failed"] as const satisfies readonly SeatPhase[];
 
 export const PresenceSchema = z.union([
 	z.strictObject({ kind: z.literal("typing"), name: nonemptyText(MAX_NICK), on: z.boolean() }),

@@ -8,5 +8,11 @@
 
 pub use crate::abi_constants_gen::*;
 
+#[cfg(target_arch = "wasm32")]
+pub use crate::sys::layouts_gen::OCAPN_ARCHIVE_FINGERPRINT;
+
 /// Cycle break message when a local Forward chain exceeds the hop cap.
 pub const FORWARD_CYCLE_MESSAGE: &str = "forward cycle: the local forward chain never terminates";
+
+#[cfg(all(target_arch = "wasm32", feature = "async"))]
+pub use crate::sys::layouts_gen::HOST_ARCHIVE_FINGERPRINT;

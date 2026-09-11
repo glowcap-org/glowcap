@@ -1,3 +1,4 @@
+import "../support/browser_application.ts";
 // How this page names and colors directories, and how a locator field treats
 // this directory as the empty destination rather than a second address.
 
@@ -60,6 +61,10 @@ Deno.test("an empty locator field hints at this directory's shared address", () 
 	assert(
 		joining.joinLocatorPlaceholder("127.0.0.1:8000") === "127.0.0.1:8000",
 		"a host locator was rewritten as an ocapn URI",
+	);
+	assert(
+		joining.joinLocatorPlaceholder("ocapn://127.0.0.1%3A8000.tcp") === "127.0.0.1:8000",
+		"a native TCP URI hid its host and port behind abbreviation",
 	);
 });
 

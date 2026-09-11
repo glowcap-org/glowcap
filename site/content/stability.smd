@@ -13,10 +13,12 @@ Three kinds of evidence sit behind a claim:
 
 - In-tree checks (`zig build check`) show glowcap agrees with itself: scenarios,
   fixtures, budgets, and public examples.
-- Recurring live checks on every main-branch push talk to the upstream OCapN
-  suite and to a [Spritely Goblins](https://spritely.institute/goblins/) vat.
-- On-demand checks cover Tor, two-NAT iroh, public certificates, and browsers
-  that CI does not install.
+- Recurring live checks on every main and `dev` push and every pull request
+  talk to the upstream OCapN suite and to a
+  [Spritely Goblins](https://spritely.institute/goblins/) vat. A Chromium Wasm
+  peer over local WSS is in that recurring set.
+- On-demand checks cover Tor, two-NAT iroh, public certificates, and
+  browser-to-browser WebRTC.
 
 A live Goblins session proves protocol interop, not API stability. A live iroh
 endpoint proves the transport stack, not agreement with another CapTP

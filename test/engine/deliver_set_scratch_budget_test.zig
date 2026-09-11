@@ -6,7 +6,7 @@
 //! is turn-scratch: `Session.validateInboundDeliverView` must reset it every turn,
 //! exactly as the other recv entry points do. Without the reset a partner
 //! streaming set-carrying `op:deliver` frames grows `recv_scratch` for the
-//! session's whole life — attacker-controlled unbounded growth on the hottest
+//! session's whole life — untrusted unbounded growth on the hottest
 //! inbound path. This test pins the reset: the per-turn allocation budget is a
 //! flat constant, so a dropped reset (scratch retained turn over turn) fails.
 

@@ -21,6 +21,14 @@
   (list (lambda (a b _recur) (= (ref-id a) (ref-id b)))
         (lambda (a recur) (recur (ref-id a)))
         (lambda (a recur) (recur (ref-id a)))))
+
+;; Local routing and ABI projection share the occurrence's use check.
+;; Equality and release bookkeeping still read the immutable identity.
+(define (ref-live-id capability)
+  (when (ref-released? capability)
+    (error 'glowcap "this capability was released"))
+  (ref-id capability))
+
 (struct sym (value) #:transparent)             ; tag a string as an OCapN symbol
 (struct kw (value) #:transparent)              ; an OCapN keyword
 (struct error-arg (message) #:transparent)     ; a fulfilled OCapN Error value

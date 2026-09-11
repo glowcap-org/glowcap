@@ -261,7 +261,7 @@ pub const WithdrawOutcome = union(enum) {
 /// The verified subset a withdrawal needs after its deposit was absent. The
 /// signatures, locator, receiving names, and verbatim signed envelope have
 /// already done their work and are not retained. Only `gift_id` is variable
-/// attacker-sized storage; the authenticated keys/session name are fixed-width.
+/// partner-sized storage; the authenticated keys/session name are fixed-width.
 pub const PendingReceive = struct {
     handoff_count: u64,
     recipient_key: [crypto.PEER_KEY_BYTES]u8,
@@ -378,7 +378,7 @@ fn giveGifterSide(give: model.view.HandoffGive) [32]u8 {
 
 /// Resolve a borrowed give to the still-open Gifter–Exporter session it names.
 /// This performs no allocation or signature work, so admission checks can run
-/// before materializing attacker-controlled handoff data.
+/// before materializing untrusted handoff data.
 pub fn liveGifterSession(resolver: ?gifts.GifterSessionResolver, give: model.view.HandoffGive) ?gifts.GifterSession {
     const r = resolver orelse return null;
     return r.resolve(r.ctx, giveGifterSide(give), give.gifter_exporter_session);

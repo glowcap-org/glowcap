@@ -6,11 +6,10 @@
 ;; `runtime.rkt` owns the resident, readiness loop, and raw byte endpoint.
 
 (require racket/lazy-require
-         racket/random
          "../constants.rkt"
-         "../errors.rkt"
          "../host.rkt"
          "../host/state.rkt"
+         "../listen-loop.rkt"
          "../locator.rkt"
          "../seam.rkt"
          "../transport.rkt"
@@ -18,17 +17,9 @@
 
 (lazy-require
  ["../loop.rkt"
-  (open-driver-loop
-   driver-loop-start!
-   driver-loop-abort!
-   driver-loop-host
-   loop-listen!
-   loop-listener-ready!
-   loop-listener-close!
-   loop-listener-locator
-   loop-listener-select!
-   make-loop-server
+  (loop-listener-locator
    loop-server-locator
+   loop-server-host
    loop-server-accept
    loop-server-close!)])
 
@@ -73,35 +64,35 @@
 ;; native loop; the binding does not implement a second CapTP admission path.
 (struct iroh-server (node-id host loop-server))
 
-(define (listen-iroh config [seed #f] #:host [host #f])
-  (define seed*
-    (or seed (and host (host-seed host)) (crypto-random-bytes 32)))
-  (unless (= (bytes-length seed*) 32)
-    (raise-glowcap 'listen-iroh ERR-INVALID-ARGUMENT
-                   "the iroh seed must be 32 bytes"))
-  (when (and host seed (not (bytes=? seed (host-seed host))))
-    (raise-glowcap 'listen-iroh ERR-INVALID-ARGUMENT
-                   "the seed conflicts with the supplied Host"))
-  (define-values (lp owns-loop?)
-    (if (and host (host-loop-of host))
-        (values (host-loop-of host) #f)
-        (values (open-driver-loop #:host host #:seed seed*) #t)))
-  (define listener #f)
-  (with-handlers ([(lambda (_) #t)
-                   (lambda (e)
-                     (when listener (loop-listener-close! lp listener))
-                     (when (and owns-loop? (not host)) (driver-loop-abort! lp))
-                     (raise e))])
-    (iroh-adopt-loop! lp config #:seed seed*)
-    (set! listener
-          (loop-listen! lp TRANSPORT-IROH (designator-from-seed seed*)))
-    (driver-loop-start! lp)
-    (set! listener (loop-listener-ready! listener))
-    (define initial (loop-listener-locator lp listener))
-    (define node-id (locator-designator initial))
-    (loop-listener-select! lp listener)
-    (iroh-server node-id (driver-loop-host lp)
-                 (make-loop-server lp listener #f (not host)))))
+;; The iroh designator derives from the durable seed, so the identity is
+;; settled here before the listener opens and the shared spine opens the loop
+;; with that same seed. `#:codec`, `#:captp-version`, `#:features`, and
+;; `#:options` are the TCP listeners' keywords: each is honored exactly or
+;; refused, and the iroh provider defines no per-listen options, so any value
+;; other than an empty one is refused as the listener opens.
+(define (listen-iroh config [seed #f] #:host [host #f]
+                     #:codec [codec #f]
+                     #:captp-version [captp-version #f]
+                     #:features [features #f]
+                     #:options [options #f])
+  (unless (iroh-config? config)
+    (raise-argument-error 'listen-iroh "iroh-config?" config))
+  (define durable (listen-loop-identity 'listen-iroh #t seed host))
+  (define node-id #f)
+  (define server
+    (listen-loop-profile 'listen-iroh TRANSPORT-IROH (designator-from-seed durable)
+                         #:identity? #t
+                         #:seed durable #:codec codec #:captp-version captp-version
+                         #:features features #:options options
+                         #:host host #:time-travel? #f
+                         #:install (lambda (lp)
+                                     (iroh-adopt-loop! lp config #:seed durable))
+                         #:after-ready
+                         (lambda (lp listener)
+                           (set! node-id
+                                 (locator-designator
+                                  (loop-listener-locator lp listener))))))
+  (iroh-server node-id (loop-server-host server) server))
 
 (define (iroh-server-direct-addresses server)
   (define loc (loop-server-locator (iroh-server-loop-server server)))

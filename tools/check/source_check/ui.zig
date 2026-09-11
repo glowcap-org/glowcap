@@ -53,7 +53,7 @@ const UiConsumer = struct {
     fonts_dir: []const u8,
     /// What each of those symlinks must point at, before the file name.
     fonts_target: []const u8,
-    /// The file that has to name every face for this consumer to serve it.
+    /// The stylesheet or document that declares every shared face for this consumer.
     names_faces_in: []const u8,
     /// What a missing name costs, in the consumer's own terms.
     miss_costs: []const u8,
@@ -69,8 +69,8 @@ const ui_consumers = [_]UiConsumer{
     .{
         .fonts_dir = "apps/rooms/web/ui/fonts",
         .fonts_target = "../../../../../ui/fonts/",
-        .names_faces_in = "apps/rooms/web/serve_http.ts",
-        .miss_costs = "rooms would serve it as 404",
+        .names_faces_in = "apps/rooms/web/ui/tokens.css",
+        .miss_costs = "the Rooms stylesheet would omit its shared face",
     },
 };
 
@@ -373,19 +373,21 @@ const Scanner = struct {
     }
 };
 
-/// A surface that still declares dark tokens must declare the same ones, with
-/// the same values, under both the dark media query and `[data-theme="dark"]`.
-/// Two copies of a list drift, and the drift shows only in whichever theme the
-/// editor was not looking at.
+/// Syrup is the default face, so the dark theme is reachable by a root nobody
+/// has stamped and `data-theme="light"` is the only thing that turns it off.
+/// One selector says exactly that, and this holds each surface to it: the dark
+/// arm must be `:not([data-theme="light"])`, and no surface may hang theme
+/// tokens off `prefers-color-scheme` instead, which would hand the decision
+/// back to the desktop the default was chosen over.
 ///
-/// Most of the palette folded onto `light-dark()`, which needs no second arm.
-/// What remains two-armed is the diagram tints: they have no light value at all,
+/// Most of the palette folded onto `light-dark()`, which needs no arm of its
+/// own. What remains is the diagram tints: they have no light value at all,
 /// because each SVG names them as `var(--dia-…, #literal)` and several distinct
 /// pale tints share one token.
 ///
-/// The expectation is per surface and is checked both ways, so a file that folds
-/// its last two-armed token fails here rather than quietly becoming a check that
-/// cannot fail.
+/// The expectation is per surface and is checked both ways, so a file that
+/// folds its last unfolded token fails here rather than quietly becoming a
+/// check that cannot fail.
 const UiSurface = struct { css: []const u8, two_armed: bool };
 
 const ui_surfaces = [_]UiSurface{
@@ -408,55 +410,47 @@ pub fn checkUiThemeParity(
         };
         defer gpa.free(css);
 
-        const media_at = std.mem.indexOf(u8, css, "prefers-color-scheme: dark") orelse {
-            try appendViolation(gpa, violations, "{s}: has no dark media query, so a reader who never touches the toggle never gets the dark theme", .{path});
-            continue;
-        };
-        const media_body = declarationBlock(css, media_at, .at_rule) orelse {
-            try appendViolation(gpa, violations, "{s}: could not read the dark media-query block", .{path});
-            continue;
-        };
-        const attr_at = std.mem.indexOf(u8, css, "[data-theme=\"dark\"]") orelse {
-            try appendViolation(gpa, violations, "{s}: declares a dark media query but no `[data-theme=\"dark\"]` rule, so the toggle cannot reach it", .{path});
+        const attr_at = std.mem.indexOf(u8, css, ":not([data-theme=\"light\"])") orelse {
+            try appendViolation(gpa, violations, "{s}: has no `:not([data-theme=\"light\"])` arm, so a reader who never touches the toggle never gets the default theme", .{path});
             continue;
         };
         const attr_body = declarationBlock(css, attr_at, .rule) orelse {
-            try appendViolation(gpa, violations, "{s}: could not read the `[data-theme=\"dark\"]` block", .{path});
+            try appendViolation(gpa, violations, "{s}: could not read the default dark block", .{path});
             continue;
         };
 
-        var media_decls = std.StringHashMap([]const u8).init(gpa);
-        defer media_decls.deinit();
-        try collectDecls(media_body, &media_decls);
         var attr_decls = std.StringHashMap([]const u8).init(gpa);
         defer attr_decls.deinit();
         try collectDecls(attr_body, &attr_decls);
 
         // The expectation, checked both ways.
-        const declares = media_decls.count() != 0 or attr_decls.count() != 0;
+        const declares = attr_decls.count() != 0;
         if (surface.two_armed and !declares) {
-            try appendViolation(gpa, violations, "{s}: is listed as two-armed but declares no token in either dark arm, so this comparison cannot fail; fold it or update the surface table", .{path});
+            try appendViolation(gpa, violations, "{s}: is listed as carrying its own dark tokens but declares none in the default arm, so this check cannot fail; fold it or update the surface table", .{path});
             continue;
         }
         if (!surface.two_armed and declares) {
-            try appendViolation(gpa, violations, "{s}: folded onto `light-dark()` but still declares a token in a dark arm; fold it too, or mark the surface two-armed", .{path});
+            try appendViolation(gpa, violations, "{s}: folded onto `light-dark()` but still declares a token in the dark arm; fold it too, or mark the surface as carrying its own", .{path});
         }
 
-        var it = media_decls.iterator();
-        while (it.next()) |entry| {
-            const other = attr_decls.get(entry.key_ptr.*) orelse {
-                try appendViolation(gpa, violations, "{s}: `{s}` is set for a dark system preference but not by the theme toggle, so the two disagree", .{ path, entry.key_ptr.* });
-                continue;
+        // The desktop no longer decides the theme, so nothing about the theme
+        // may hang off it. A media query is still fine for anything else.
+        var media_at = std.mem.indexOf(u8, css, "prefers-color-scheme: dark");
+        while (media_at) |at| {
+            const media_body = declarationBlock(css, at, .at_rule) orelse {
+                try appendViolation(gpa, violations, "{s}: could not read a dark media-query block", .{path});
+                break;
             };
-            if (!std.mem.eql(u8, other, entry.value_ptr.*)) {
-                try appendViolation(gpa, violations, "{s}: `{s}` is `{s}` under the media query and `{s}` under the toggle", .{ path, entry.key_ptr.*, entry.value_ptr.*, other });
+            if (std.mem.indexOf(u8, media_body, "color-scheme:") != null or
+                std.mem.indexOf(u8, media_body, "data-theme") != null)
+            {
+                try appendViolation(gpa, violations, "{s}: sets the theme from `prefers-color-scheme`, which the default face replaced; put it under `:not([data-theme=\"light\"])`", .{path});
             }
-        }
-        var it2 = attr_decls.iterator();
-        while (it2.next()) |entry| {
-            if (media_decls.get(entry.key_ptr.*) == null) {
-                try appendViolation(gpa, violations, "{s}: `{s}` is set by the theme toggle but not for a dark system preference, so a reader who never toggles never gets it", .{ path, entry.key_ptr.* });
-            }
+            const next = at + "prefers-color-scheme: dark".len;
+            media_at = if (next < css.len) blk: {
+                const rest = std.mem.indexOf(u8, css[next..], "prefers-color-scheme: dark") orelse break :blk null;
+                break :blk next + rest;
+            } else null;
         }
     }
 }

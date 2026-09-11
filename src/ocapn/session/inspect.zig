@@ -7,6 +7,7 @@
 const model = @import("model");
 const session_mod = @import("mod.zig");
 const slot = @import("slot.zig");
+const slot_table = @import("slot_table.zig");
 const answers = @import("answers/store.zig");
 
 const Session = session_mod.Session;
@@ -19,11 +20,15 @@ pub const ExportView = struct {
     refcount: u64,
 };
 
-/// Read-only import row for session table walks (inspect / status).
+/// Read-only import row for session table walks (inspect / status). The row
+/// stores no cell: a far import is always the `remote_value` of its own
+/// position, projected here so the export and import panes draw one shape.
 pub const ImportView = struct {
     position: model.ImportPosition,
     slot: slot.Slot,
     refcount: u64,
+    /// How many of `refcount` the session keeps for a release of its own.
+    session_held: u64,
 };
 
 /// Read-only answer row (inbound or outbound) plus position.
@@ -48,21 +53,36 @@ pub fn outboundAnswerCount(self: *const Session) usize {
     return self.outbound_answers.len();
 }
 
-/// Walk a slot table (exports or imports), projecting each row to `View`.
-/// Read-only: the borrowed `*const` table cannot mutate under the callback.
-fn forEachSlotRow(
-    comptime View: type,
-    comptime Pos: type,
-    table: anytype,
+/// Walk the export table, projecting each row to `ExportView`. Read-only: the
+/// borrowed `*const` table cannot mutate under the callback.
+fn forEachExportRow(
+    table: *const slot_table.ExportTable,
     ctx: anytype,
-    comptime f: *const fn (@TypeOf(ctx), View) void,
+    comptime f: *const fn (@TypeOf(ctx), ExportView) void,
 ) void {
     var it = table.slots.rows.iterator();
     while (it.next()) |entry| {
-        f(ctx, View{
-            .position = Pos.from(entry.key_ptr.*),
+        f(ctx, .{
+            .position = .from(entry.key_ptr.*),
             .slot = entry.value_ptr.cell,
             .refcount = entry.value_ptr.count,
+        });
+    }
+}
+
+/// Walk the import table, projecting each row to `ImportView`. Read-only.
+fn forEachImportRow(
+    table: *const slot_table.ImportTable,
+    ctx: anytype,
+    comptime f: *const fn (@TypeOf(ctx), ImportView) void,
+) void {
+    var it = table.slots.rows.iterator();
+    while (it.next()) |entry| {
+        f(ctx, .{
+            .position = .from(entry.key_ptr.*),
+            .slot = .{ .remote_value = entry.key_ptr.* },
+            .refcount = entry.value_ptr.count,
+            .session_held = entry.value_ptr.session_held,
         });
     }
 }
@@ -88,12 +108,12 @@ fn forEachAnswerRow(
 
 /// Walk every live export row. Callback must not mutate the table.
 pub fn forEachExport(self: *const Session, ctx: anytype, comptime f: *const fn (@TypeOf(ctx), ExportView) void) void {
-    forEachSlotRow(ExportView, model.ExportPosition, &self.exports, ctx, f);
+    forEachExportRow(&self.exports, ctx, f);
 }
 
 /// Walk every live import row. Callback must not mutate the table.
 pub fn forEachImport(self: *const Session, ctx: anytype, comptime f: *const fn (@TypeOf(ctx), ImportView) void) void {
-    forEachSlotRow(ImportView, model.ImportPosition, &self.imports, ctx, f);
+    forEachImportRow(&self.imports, ctx, f);
 }
 
 /// Walk every live inbound answer. Callback must not mutate the table.

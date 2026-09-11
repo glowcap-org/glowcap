@@ -44,9 +44,6 @@ pub const Wire = struct {
     detached: bool = false,
     retiring_prev: ?*Wire = null,
     retiring_next: ?*Wire = null,
-    /// The installed close observer reserved publication before this session
-    /// became visible. Close consumes it; release-before-close gives it back.
-    close_event_reserved: bool = false,
     /// One owning session handle claimed release authority for this wire.
     session_handle_claimed: bool = false,
     /// Whether inbound application frames may dispatch. A stream can leave

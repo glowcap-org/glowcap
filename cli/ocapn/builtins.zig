@@ -53,16 +53,16 @@ const cow_figure =
     \\                ||     ||
 ;
 
-/// Stack-of-pancakes speech balloon (CLI demo — the product's own joke).
-/// Middle cake wears a little face.
+/// Glowcap mushroom speech balloon (CLI demo — the product's own doodle).
+/// The cap wears a little face.
 const glowcap_figure =
     \\
     \\       \
-    \\        \    .------.
-    \\         \  (_|___|__)
-    \\            (_|^_^|__)
-    \\            (_____|__)
-    \\             ~~syrup~~
+    \\        \     .-=-.
+    \\         \   / ^_^ \ 
+    \\             \_____/
+    \\               |||
+    \\               |||
 ;
 
 /// Friendly goblin speech balloon (CLI demo doodle — not Spritely's mascot art).

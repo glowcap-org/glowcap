@@ -1,100 +1,56 @@
+import type { AttachedLineEvent as RoomsSessionLineEvent } from "./remote.ts";
 // Projection of one durable Rooms session into the existing presentation store.
 //
 // Checkpoint `direct` becomes presentation `dm`. Checkpoint conversation `id`
 // becomes `persistId`; a room `name` or DM `peer` becomes presentation `id`.
 
+import type { HistoryChange } from "../../../lib/session/history.ts";
 import * as store from "../store.ts";
-import { type ArchiveLine, sameArchiveCoordinates } from "../../../lib/archive/protocol.ts";
 import type { AttachedRoomsController } from "./attached.ts";
 import type { CapabilitySetEventSource } from "../ops/capability_set_events.ts";
 import type { AttachedSessionFiles } from "./attached_files.ts";
-import { adoptAttachedSessionState } from "../workspace_state.ts";
-import { archivedAttachmentViews } from "../archive_attachments.ts";
-import { fetchesOnArrival } from "../media.ts";
-import {
-	type AttachmentView,
-	type Conv,
-	directoryLivePhase,
-	dirId,
-	isSessionConv,
-	type SessionConv,
-	silencedFrom,
-} from "../types.ts";
+import { retainSessionState } from "../workspace_state.ts";
+import { type Conv, directoryLivePhase, dirId, isSessionConv, type SessionConv } from "../types.ts";
+import { ArchiveTargetProjection } from "./archive_target_projection.ts";
 import { AttachedLineProjection } from "./line_projection.ts";
 import type { RoomsPageContext } from "../page.ts";
-import type { RoomsSessionIssue, RoomsSessionLineEvent, RoomsSessionSnapshot } from "../../../lib/session/client.ts";
+import type { RoomsSessionIssue, RoomsSessionSnapshot } from "../../../lib/session/client.ts";
 import type {
 	RoomsSessionState,
 	WorkspaceConversation,
 	WorkspaceOperationCredential,
 } from "../../../lib/rooms_state.ts";
+import { sameConversationIdentity, sameOperations, sameTopology } from "./checkpoint_identity.ts";
+import { projectAttachedHistoryRead, reconcileAttachedHistory } from "./history_reconciliation.ts";
 type SelectionRepair =
 	| { readonly kind: "unchanged" }
 	| { readonly kind: "replaced"; readonly key: string | null };
 
 const HISTORY_RECONCILE_CONCURRENCY = 4;
 
-function sameOperations(
-	left: readonly WorkspaceOperationCredential[],
-	right: readonly WorkspaceOperationCredential[],
-): boolean {
-	return left.length === right.length && left.every((operation, index) => {
-		const other = right[index];
-		return other != null && operation.capability === other.capability && operation.scope === other.scope &&
-			operation.swiss === other.swiss;
-	});
-}
-
-function sameConversationTopology(left: WorkspaceConversation, right: WorkspaceConversation): boolean {
-	if (left.kind !== right.kind || left.id !== right.id || left.directory !== right.directory) return false;
-	if (left.kind === "direct" && right.kind === "direct") {
-		return left.peer === right.peer && left.peerRegistrationId === right.peerRegistrationId;
-	}
-	if (left.kind !== "room" || right.kind !== "room") return false;
-	return left.name === right.name && left.held === right.held &&
-		(left.reconnect ?? null) === (right.reconnect ?? null) &&
-		(left.publicationId ?? null) === (right.publicationId ?? null);
-}
-
-function sameTopology(left: RoomsSessionState, right: RoomsSessionState): boolean {
-	return left.directories.length === right.directories.length &&
-		left.directories.every((directory, index) => {
-			const other = right.directories[index];
-			return other != null && directory.id === other.id && directory.locator === other.locator &&
-				directory.home === other.home && directory.nick === other.nick;
-		}) &&
-		left.conversations.length === right.conversations.length &&
-		left.conversations.every((conversation, index) => {
-			const other = right.conversations[index];
-			return other != null && sameConversationTopology(conversation, other);
-		});
-}
-
-function sameConversationIdentity(existing: SessionConv, intended: WorkspaceConversation): boolean {
-	if (existing.persistId !== intended.id || existing.dir !== dirId(intended.directory)) return false;
-	if (intended.kind === "direct") {
-		return existing.type === "dm" && existing.id === intended.peer &&
-			existing.peerRegistrationId === intended.peerRegistrationId;
-	}
-	return existing.type === "room" && existing.id === intended.name && existing.held === intended.held &&
-		(existing.publicationId ?? null) === (intended.publicationId ?? null);
-}
-
 export class AttachedSessionProjection {
 	readonly #page: RoomsPageContext;
 	readonly #files: AttachedSessionFiles | null;
 	readonly #capabilityEvents: CapabilitySetEventSource | null;
 	readonly #lines: AttachedLineProjection;
+	readonly #archiveTarget = new ArchiveTargetProjection();
 	#topology: RoomsSessionState | null = null;
 	#operations: readonly WorkspaceOperationCredential[] | null = null;
 	readonly #keys = new Map<string, string>();
 	readonly #historyLoads = new Map<string, symbol>();
+	readonly #historyReads = new Set<string>();
+	readonly #historyFailures = new Set<string>();
+	readonly #reportedIssues = new Map<string, string>();
+	#historyCursor = 0;
+	#historyRequest: { controller: AttachedRoomsController; session: RoomsSessionState } | null = null;
 	readonly #truncatedDirectories = new Set<string>();
 	readonly #truncatedRooms = new Set<string>();
 	#sessionDisconnected = false;
 	#accessRevoked = false;
+	#archiveUnavailable = false;
 	#projectedActive: string | null | undefined;
 	#pendingDraft: (conversationId: string) => string | undefined = () => undefined;
+	#ignoredNickname: (conversationId: string) => string | undefined = () => undefined;
 	/** Which of the session's pending operations this tab is answering for.
 	 *
 	 * Empty until a controller is bound, which is the safe way round: with
@@ -120,22 +76,54 @@ export class AttachedSessionProjection {
 
 	bind(controller: AttachedRoomsController): () => void {
 		this.#pendingDraft = (conversationId) => controller.pendingDraft(conversationId);
+		this.#ignoredNickname = (conversationId) => controller.ignoredNickname(conversationId);
 		this.#driving = () => controller.driving();
+		let checkpoint: RoomsSessionState | null = null;
+		// Subscribe before the first read. An invalidation during a read retires
+		// its token and queues one fresh pass after current reads have settled.
+		const stopHistory = controller.observesHistory
+			? () => {}
+			: controller.onHistoryInvalidated((change: HistoryChange) => {
+				if (checkpoint == null) return;
+				for (const conversation of checkpoint.conversations) {
+					if (
+						change == null || (change.kind === conversation.kind &&
+							change.directory === conversation.directory && change.conversation === conversation.id)
+					) {
+						this.#historyLoads.delete(conversation.id);
+					}
+				}
+				void this.#hydrate(controller, checkpoint);
+			});
 		const stopSnapshot = controller.onSnapshot((snapshot) => {
+			checkpoint = snapshot.checkpoint;
 			this.apply(snapshot);
-			void this.#hydrate(controller, snapshot.checkpoint);
+			if (!controller.observesHistory) void this.#hydrate(controller, snapshot.checkpoint);
 		});
+		const stopRead = controller.observesHistory
+			? controller.onHistoryRead((result) => {
+				const key = this.#keys.get(result.conversationId);
+				if (key != null) projectAttachedHistoryRead(this.#page, key, result, this.#files);
+			})
+			: () => {};
 		const stopLine = controller.onLine((event) => this.line(event));
 		return () => {
 			stopLine();
+			stopRead();
 			stopSnapshot();
+			stopHistory();
+			checkpoint = null;
+			this.#historyRequest = null;
+			this.#historyLoads.clear();
+			this.#historyFailures.clear();
 			this.#pendingDraft = () => undefined;
+			this.#ignoredNickname = () => undefined;
 		};
 	}
 
 	apply(snapshot: RoomsSessionSnapshot): void {
 		const session = snapshot.checkpoint;
-		adoptAttachedSessionState(this.#page, session);
+		retainSessionState(this.#page, session);
 		const operations = session.capabilities.operations;
 		if (this.#operations != null && !sameOperations(operations, this.#operations)) {
 			void this.#capabilityEvents?.note();
@@ -157,8 +145,22 @@ export class AttachedSessionProjection {
 				sessionIssue = issue;
 			}
 			if (accessIssue == null && issue.subject === "session-access") accessIssue = issue;
-			if (archiveIssue == null && issue.subject === "archive") archiveIssue = issue;
+			if (archiveIssue == null && (issue.subject === "archive" || issue.subject.startsWith("archive:"))) {
+				archiveIssue = issue;
+			}
 			if (issue.subject.startsWith("event-gap:")) eventGaps.add(issue.subject.slice("event-gap:".length));
+		}
+		// Every runtime failure reaches the bounded diagnostics journal even when a
+		// more specific control also explains it. Remember the current reason so a
+		// stable snapshot does not manufacture repeated failures; clearing and later
+		// recurring is a new event and is filed again.
+		for (const issue of issues.values()) {
+			if (this.#reportedIssues.get(issue.subject) === issue.reason) continue;
+			this.#reportedIssues.set(issue.subject, issue.reason);
+			store.noteTrouble(this.#page.projection, `shared session ${issue.subject}`, issue.reason);
+		}
+		for (const subject of this.#reportedIssues.keys()) {
+			if (!issues.has(subject)) this.#reportedIssues.delete(subject);
 		}
 		this.#projectDirectoryViews(snapshot);
 		this.#projectRoomViews(session, snapshot, issues);
@@ -166,7 +168,16 @@ export class AttachedSessionProjection {
 			store.toast(this.#page.projection, "failure", accessIssue.reason);
 		}
 		this.#accessRevoked = accessIssue != null;
-		if (sessionIssue != null) this.#files?.markLost(sessionIssue.reason);
+		if (archiveIssue != null && !this.#archiveUnavailable) {
+			store.toast(this.#page.projection, "failure", archiveIssue.reason);
+		}
+		this.#archiveUnavailable = archiveIssue != null;
+		if (sessionIssue != null) {
+			this.#files?.markLost(sessionIssue.reason);
+			for (const directory of session.directories) {
+				store.dropHeldLines(this.#page.projection, dirId(directory.id));
+			}
+		}
 		const recovered = this.#sessionDisconnected && sessionIssue == null;
 		this.#sessionDisconnected = sessionIssue != null;
 		if (recovered) this.#historyLoads.clear();
@@ -174,7 +185,10 @@ export class AttachedSessionProjection {
 		const connectedDirectories = new Set(snapshot.connectedDirectories);
 		for (const directory of session.directories) {
 			const issue = issues.get(`directory:${directory.id}`);
-			if (issue != null) this.#files?.markLost(issue.reason, directory.id);
+			if (issue != null) {
+				this.#files?.markLost(issue.reason, directory.id);
+				store.dropHeldLines(this.#page.projection, dirId(directory.id));
+			}
 			const id = dirId(directory.id);
 			const alreadyReached = this.#page.projection.get().dirs.get(id)?.reached === true;
 			const live = directoryLivePhase(
@@ -189,6 +203,8 @@ export class AttachedSessionProjection {
 				...(live.session === "connected" ? { reached: true } : {}),
 			});
 		}
+		// Read the Rust claim projection once, only when there are pending effects.
+		const driving = snapshot.pendingEffectDetails.length === 0 ? null : this.#driving();
 		this.#projectSharedState(
 			session,
 			// The ledger's leftovers, not everything in it. An operation this tab
@@ -198,7 +214,7 @@ export class AttachedSessionProjection {
 			// store says it holds: operations awaiting an explicit decision.
 			// Sending a line is one of these operations, so without this the
 			// notice appeared and left again on every message anybody sent.
-			snapshot.pendingEffectDetails.filter((effect) => !this.#driving().has(effect.id)),
+			snapshot.pendingEffectDetails.filter((effect) => !driving?.has(effect.id)),
 			snapshot.access,
 			snapshot.suspendedNote ?? "",
 			snapshot.grants,
@@ -253,11 +269,12 @@ export class AttachedSessionProjection {
 			if (key == null) continue;
 			const view = byConversation.get(conversation.id);
 			const unnamed = unnamedDirectories.has(conversation.directory);
-			const issue = issues.has(`room:${conversation.directory}:${conversation.id}`);
+			const issue = issues.get(`room:${conversation.directory}:${conversation.id}`);
 			store.setRoomMembership(
 				this.#page.projection,
 				key,
-				view != null ? "joined" : issue || unnamed ? "unavailable" : "joining",
+				view != null ? "joined" : issue != null || unnamed ? "unavailable" : "joining",
+				issue?.reason ?? "",
 			);
 			store.setRoomView(this.#page.projection, key, {
 				members: view?.members ?? [],
@@ -339,7 +356,22 @@ export class AttachedSessionProjection {
 				restored = undefined;
 			}
 			if (restored == null) restored = this.#restoreConversation(conversation) ?? undefined;
-			if (restored != null) this.#keys.set(conversation.id, restored.key);
+			if (restored != null) {
+				this.#keys.set(conversation.id, restored.key);
+				if (!existingConversations.has(conversation.id)) {
+					const ignored = this.#ignoredNickname(conversation.id);
+					if (ignored != null) {
+						store.deliver(
+							this.#page.projection,
+							restored.key,
+							store.sysItem(
+								this.#page.projection,
+								`${ignored} is on your ignore list. Your own messages stay shown.`,
+							),
+						);
+					}
+				}
+			}
 		}
 		return selectedReplaced
 			? {
@@ -349,15 +381,34 @@ export class AttachedSessionProjection {
 			: { kind: "unchanged" };
 	}
 
-	async #hydrate(controller: AttachedRoomsController, session: RoomsSessionState): Promise<void> {
-		const pending = session.conversations.filter((conversation) =>
-			!this.#historyLoads.has(conversation.id) && this.#keys.has(conversation.id)
-		);
-		let next = 0;
-		const worker = async () => {
-			while (next < pending.length) await this.#hydrateConversation(controller, pending[next++]);
-		};
-		await Promise.all(Array.from({ length: Math.min(HISTORY_RECONCILE_CONCURRENCY, pending.length) }, worker));
+	#hydrate(controller: AttachedRoomsController, session: RoomsSessionState): void {
+		// A failure retries on the next outside observation, never in the drain loop.
+		for (const id of this.#historyFailures) this.#historyLoads.delete(id);
+		this.#historyFailures.clear();
+		this.#historyRequest = { controller, session };
+		this.#drainHistory();
+	}
+
+	#drainHistory(): void {
+		const request = this.#historyRequest;
+		if (request == null) return;
+		const conversations = request.session.conversations;
+		const start = this.#historyCursor;
+		// A busy conversation cannot consume every newly available read slot.
+		for (let offset = 0; offset < conversations.length; offset++) {
+			if (this.#historyReads.size === HISTORY_RECONCILE_CONCURRENCY) break;
+			const index = (start + offset) % conversations.length;
+			const conversation = conversations[index];
+			if (this.#historyLoads.has(conversation.id) || !this.#keys.has(conversation.id)) continue;
+			const identity = JSON.stringify([conversation.kind, conversation.directory, conversation.id]);
+			if (this.#historyReads.has(identity)) continue;
+			this.#historyReads.add(identity);
+			this.#historyCursor = index + 1;
+			void this.#hydrateConversation(request.controller, conversation).finally(() => {
+				this.#historyReads.delete(identity);
+				this.#drainHistory();
+			});
+		}
 	}
 
 	async #hydrateConversation(
@@ -369,8 +420,10 @@ export class AttachedSessionProjection {
 		const token = Symbol(conversation.id);
 		this.#historyLoads.set(conversation.id, token);
 		const room = store.getConv(this.#page.projection, key);
-		const awaitingHistory = room?.type === "room" && room.earlierHistory === "unasked";
-		if (awaitingHistory) store.setEarlierHistory(this.#page.projection, key, "loading");
+		const awaitingHistory = room?.type === "room";
+		if (awaitingHistory && room.earlierHistory === "unasked") {
+			store.setEarlierHistory(this.#page.projection, key, "loading");
+		}
 		try {
 			const records = await controller.readHistory(
 				conversation.kind,
@@ -380,52 +433,13 @@ export class AttachedSessionProjection {
 			if (this.#historyLoads.get(conversation.id) !== token || this.#keys.get(conversation.id) !== key) {
 				return;
 			}
-			const existing = store.historyOf(this.#page.projection, key)
-				.filter((item) => item.kind === "chat" && item.history != null)
-				.map((item) => item.kind === "chat" ? item.history : undefined);
-			const seen = (record: ArchiveLine) =>
-				existing.some((coordinate) => sameArchiveCoordinates(coordinate, record));
-			const files = this.#files;
-			const lines = records.filter((record): record is ArchiveLine =>
-				record.kind === "line" && record.state !== "withdrawn"
-			)
-				.filter((record) => !seen(record))
-				.sort((left, right) => left.at - right.at)
-				.map((record) => ({
-					from: record.from,
-					text: record.text,
-					mine: record.mine,
-					at: record.at,
-					history: { source: record.source, generation: record.generation, id: record.id },
-					attachments: files == null
-						? archivedAttachmentViews(record.attachments)
-						: record.attachments.map((_attachment, index) => files.holdArchived(record, index)),
-				}));
-			if (lines.length > 0) {
-				store.prependHistory(
-					this.#page.projection,
-					key,
-					lines,
-					"Earlier messages kept by the shared Rooms session archive",
-				);
-				for (const line of lines) {
-					for (const attachment of line.attachments) {
-						if (
-							typeof (attachment as { id?: unknown }).id === "number" && attachment.lost !== true &&
-							fetchesOnArrival(
-								attachment,
-								silencedFrom(line.from, line.mine, this.#page.projection.get().ignored),
-							)
-						) this.#files?.open(key, (attachment as AttachmentView).id);
-					}
-				}
-			}
+			const retained = reconcileAttachedHistory(this.#page, key, records, this.#files);
 			if (awaitingHistory) {
-				store.setEarlierHistory(this.#page.projection, key, lines.length === 0 ? "empty" : "shown");
+				store.setEarlierHistory(this.#page.projection, key, retained ? "shown" : "empty");
 			}
 		} catch (error) {
 			if (this.#historyLoads.get(conversation.id) !== token) return;
-			this.#historyLoads.delete(conversation.id);
+			this.#historyFailures.add(conversation.id);
 			if (awaitingHistory) store.setEarlierHistory(this.#page.projection, key, "unavailable");
 			store.noteTrouble(
 				this.#page.projection,
@@ -491,9 +505,11 @@ export class AttachedSessionProjection {
 			const conversation = convs.get(key);
 			if (conversation == null) continue;
 			const localDraft = current.drafts.get(key);
-			const text = this.#pendingDraft(intended.id) ?? intended.draft;
+			const text = localDraft?.changing != null
+				? localDraft.text
+				: this.#pendingDraft(intended.id) ?? intended.draft;
 			if (text !== "" || localDraft != null) {
-				drafts.set(key, { ...(localDraft ?? { files: [] }), text });
+				drafts.set(key, localDraft?.text === text ? localDraft : { ...(localDraft ?? { files: [] }), text });
 			}
 			if (conversation.type === "room" && intended.kind === "room") {
 				const {
@@ -519,7 +535,8 @@ export class AttachedSessionProjection {
 					},
 				);
 			} else if (conversation.type === "dm" && intended.kind === "direct") {
-				const directIssue = issues.has(`direct:${intended.directory}:${intended.id}`);
+				const directIssue = issues.has(`direct:${intended.directory}:${intended.id}`) ||
+					issues.has(`direct-retired:${intended.id}`);
 				convs.set(key, {
 					...conversation,
 					line: intended.closed ? "closed" : directIssue ? "introducing" : conversation.line,
@@ -582,17 +599,21 @@ export class AttachedSessionProjection {
 				}];
 			}),
 		});
-		const archivePeer = session.capabilities.archivePeer;
+		const previousShares = new Set(current.archiveShares.map((share) => share.id));
+		for (const share of this.#page.projection.get().archiveShares) {
+			if (previousShares.has(share.id) || share.status !== "offered") continue;
+			store.deliver(
+				this.#page.projection,
+				share.conversationKey,
+				store.sysItem(
+					this.#page.projection,
+					`${share.from} shared read-only history. Open the conversation details to read it.`,
+				),
+			);
+		}
 		store.setArchiveTarget(
 			this.#page.projection,
-			archivePeer == null ? { kind: "owned", owner: "session" } : {
-				owner: "session",
-				kind: "peer",
-				status: archiveIssue == null ? "connected" : "unavailable",
-				label: "Shared session archive peer",
-				remembered: true,
-				error: archiveIssue?.reason ?? "",
-			},
+			this.#archiveTarget.update(session.capabilities.archivePeer, archiveIssue?.reason ?? ""),
 		);
 	}
 }

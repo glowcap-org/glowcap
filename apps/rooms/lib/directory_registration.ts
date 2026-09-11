@@ -2,7 +2,9 @@
 
 import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { ask } from "./ask.ts";
+import { claimCapabilityWithin } from "./capability_cleanup.ts";
 import { parseRegistrationId } from "./directory_publications.ts";
+import { REQUEST_TIMEOUT_MS } from "./limits.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 import {
 	DIRECT_REQUESTED,
@@ -15,6 +17,12 @@ import {
 } from "./protocol.ts";
 
 const REGISTER_ACK_TIMEOUT_MS = 10_000;
+
+export interface DirectoryRegisterOptions {
+	onMintInboxFor?: (peer: string, registrationId: string) => void;
+	onDirectRequested?: (peer: string, registrationId: string) => void;
+	reconnectVoucher?: Uint8Array;
+}
 
 export class DirectoryRegistration {
 	readonly #session: Session;
@@ -38,10 +46,13 @@ export class DirectoryRegistration {
 	register(
 		nick: string,
 		locator: string,
-		onMintInboxFor?: (peer: string, registrationId: string) => void,
-		onDirectRequested?: (peer: string, registrationId: string) => void,
+		options: DirectoryRegisterOptions = {},
 	): Promise<string> {
+		const { onMintInboxFor, onDirectRequested, reconnectVoucher } = options;
 		const acknowledgement = Promise.withResolvers<string>();
+		// Capability ownership settles before this is awaited below. Observe an
+		// earlier refusal now without changing the later caller-visible answer.
+		void acknowledgement.promise.catch(() => {});
 		let settled = false;
 		const settle = (complete: () => void) => {
 			if (settled) return;
@@ -83,7 +94,11 @@ export class DirectoryRegistration {
 		}
 		let sent: ReturnType<Session["send"]>;
 		try {
-			sent = this.#session.send(this.#directory, REGISTER, [nick, locator, inbox]);
+			sent = this.#session.send(
+				this.#directory,
+				REGISTER,
+				reconnectVoucher === undefined ? [nick, locator, inbox] : [nick, locator, inbox, reconnectVoucher],
+			);
 		} catch (error) {
 			void retainCleanupFailures(error, [() => this.#session.release(inbox)]).then((primary) =>
 				settle(() => acknowledgement.reject(primary))
@@ -91,7 +106,7 @@ export class DirectoryRegistration {
 			return acknowledgement.promise;
 		}
 		const prior = this.#nameCapability;
-		const nameCapability = sent.then(
+		const pendingNameCapability = sent.then(
 			(reply) => {
 				this.#releaseLocal(inbox);
 				if (!(reply instanceof Ref)) {
@@ -107,6 +122,12 @@ export class DirectoryRegistration {
 				throw primary;
 			},
 		);
+		const nameCapability = claimCapabilityWithin(
+			this.#session,
+			pendingNameCapability,
+			`register("${nick}") did not answer with its name capability`,
+			REQUEST_TIMEOUT_MS,
+		);
 		this.#nameCapability = nameCapability;
 		void nameCapability.then(
 			() => {
@@ -118,7 +139,10 @@ export class DirectoryRegistration {
 				if (this.#nameCapability === nameCapability) this.#nameCapability = prior;
 			},
 		);
-		return Promise.all([acknowledgement.promise, nameCapability]).then(([registrationId]) => registrationId);
+		// Capability ownership commits or rolls back before this attempt answers.
+		// The acknowledgement names that committed registration; it must not race
+		// ahead and expose the replacement promise as the current authority.
+		return nameCapability.then(() => acknowledgement.promise);
 	}
 
 	async requestDirect(peer: string, registrationId: string): Promise<void> {

@@ -543,12 +543,10 @@ test "libglowcap_host: a composed forward's inner behavior keeps its args across
     try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
     try std.testing.expectEqualStrings("the payload survives", settled.text[0..settled.text_len]);
 
-    // The sharp edge: a NEAR send runs the forwarder in a local-origin turn,
-    // whose turn_forward runs the echo object synchronously with the
-    // forwarded args BORROWED from the shared arg scratch — so the inner
-    // behavior's nested verb must bump that scratch, not reset it under its
-    // own live args. The local vow settles inside the call; its completion
-    // waits on the action queue for the watch registered right after.
+    // A local eventual send forwards through the same queue authority. The
+    // queued args must survive the inner behavior's nested tell. The Host
+    // drives both turns inside this call; completion waits on the action queue
+    // for the watch registered right after.
     const fwd_ref = fwd_local_ref;
     var near_vow: u64 = 0;
     try expectOk(cd.glowcap_host_session_send(pair.b, &fwd_ref, "relay", 5, null, 0, &near_vow));

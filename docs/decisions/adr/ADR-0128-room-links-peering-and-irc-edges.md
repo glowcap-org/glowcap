@@ -168,13 +168,13 @@ module so the mapping has one authority, and they never talk to each other.
 
 ## Consequences
 
-`apps/rooms/lib/locator.ts` owns Rooms locator parsing and dialing. The server
-under `apps/rooms/server/` owns the bounded durable room-link record, swiss
+`apps/rooms/lib/locator.ts` owns the TypeScript consumer's locator parsing and dialing. The Rust server policy
+under `apps/rooms/rust/application/src/server/` owns the bounded durable room-link record, swiss
 derivation, and complete sturdyref construction. The web state keys every
 table by directory;
-`apps/rooms/server/peering.ts` and `apps/rooms/lib/peering.ts` carry peered
-rooms through the handoff path with profile-aware lowering; `apps/rooms/irc/`
-holds the bridge, the front, and their shared vocabulary module. No netlayer
+`apps/rooms/rust/application/src/server/peering/` carries peered rooms through
+the handoff path with profile-aware lowering; `apps/rooms/irc/` retains only
+the shared TypeScript consumer vocabulary. No netlayer
 symbol, locator scheme, or session type learned that IRC exists.
 
 ## Evidence and gate

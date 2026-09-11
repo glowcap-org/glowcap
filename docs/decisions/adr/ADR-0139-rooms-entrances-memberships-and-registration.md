@@ -7,7 +7,7 @@ decision: "A room has stable identity independent of its public registration. Re
 supersedes: []
 superseded_by: []
 amends: [ADR-0128, ADR-0134, ADR-0135]
-amended_by: []
+amended_by: [ADR-0142]
 ---
 
 # ADR-0139 Rooms entrances, memberships, and registration

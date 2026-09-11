@@ -141,11 +141,12 @@
        (session-serve hsession)
        (channel-put lc-ch 'served)))))
 
-(define lc-session (open-test-session (tcp-locator "127.0.0.1" (server-port lc-server))))
+(define lc-runtime (open-runtime #:providers (list (tcp-provider))))
+(define lc-session (runtime-connect lc-runtime (tcp-locator "127.0.0.1" (server-port lc-server))))
 (semaphore-wait lc-ready)
 
 ;; A caretaker over a local tool, called locally by its own host.
-(define lc-local (session-spawn lc-session ^doubler))
+(define lc-local (session-publish lc-session "local-double" ^doubler))
 (define lc-care (session-caretaker lc-session lc-local))
 (expect (= 42 (session-send lc-session lc-care 'double 21))
         "local-call: a local proxy answers a local call")
@@ -166,10 +167,114 @@
              (regexp-match? #rx"Revoked" (exn-message lc-severed)))
         "local-call: revoke breaks a local call too")
 
+(define lc-retained (session-published-ref lc-session "local-double"))
+(expect (equal? lc-retained lc-local) "release: another occurrence holds the same target")
+(session-release! lc-session lc-local)
+(for ([invoke (in-list
+               (list (lambda () (session-send lc-session lc-local 'double 1))
+                     (lambda () (session-await lc-session (session-send-promise lc-session lc-local 'double 1)))
+                     (lambda () (session-tell lc-session lc-local 'double 1))))])
+  (define refused
+    (with-handlers ([exn:fail? (lambda (e) (regexp-match? #rx"released" (exn-message e)))])
+      (invoke)
+      #f))
+  (expect refused "release: a spent occurrence cannot invoke a still-live local target"))
+(expect (= 42 (session-send lc-session lc-retained 'double 21))
+        "release: the other occurrence stays usable")
+
+;; Native release succeeds before the driver drains its consequences. A drain
+;; refusal cannot turn that committed release into a retryable operation; the
+;; still-live Host owns the exact failure and the native queue owns the work.
+(define lc-last (session-published-ref lc-session "local-double"))
+(define lc-effects-failure (exn:fail "release effects refused" (current-continuation-marks)))
+;; Run `thunk` with this session's post-commit drain intercepted on this
+;; thread only; `intercept` receives the original hook to delegate to.
+(define (with-release-drain-hook intercept thunk)
+  (define original (unbox loop-drain-hook))
+  (define owner (current-thread))
+  (dynamic-wind
+   (lambda ()
+     (set-box! loop-drain-hook
+               (lambda (m lp)
+                 (if (and (eq? m (session-host lc-session))
+                          (eq? owner (current-thread)))
+                     (intercept original m lp)
+                     (original m lp)))))
+   thunk
+   (lambda () (set-box! loop-drain-hook original))))
+(define (with-refused-release-drain thunk)
+  (with-release-drain-hook (lambda (_original _m _lp) (raise lc-effects-failure)) thunk))
+(define lc-release-failure
+  (with-handlers ([exn:fail? values])
+    (with-refused-release-drain (lambda () (session-release! lc-session lc-retained)))
+    #f))
+(expect (not lc-release-failure) "release: a committed release reports success")
+(expect (eq? (host-runtime-primary (session-host lc-session)) lc-effects-failure)
+        "release: the surviving Host retains the exact drain refusal")
+(expect (ref-released? lc-retained) "release: committed native release spends the wrapper before effects")
+(expect
+ (with-handlers ([exn:fail? (lambda (e) (regexp-match? #rx"already released" (exn-message e)))])
+   (session-release! lc-session lc-retained)
+   #f)
+ "release: failed effects cannot authorize a second native release")
+(expect (= 42 (session-send lc-session lc-last 'double 21)) "release: the remaining retain was not spent")
+
+;; An operator interrupt during the post-commit drain is not a Host failure.
+;; It escapes as a break, the committed release stays spent, and the Host's
+;; retained failure is untouched.
+(define (with-breaking-release-drain thunk)
+  (with-release-drain-hook
+   (lambda (original m lp) (break-thread (current-thread)) (original m lp))
+   thunk))
+(expect
+ (with-handlers ([exn:break? (lambda (_) #t)])
+   (with-breaking-release-drain
+    (lambda ()
+      (session-release! lc-session lc-last)
+      ;; Delivery may wait for the next break-enabled point; a bounded wait
+      ;; turns an absorbed break into a failure rather than a hang.
+      (sync/enable-break (alarm-evt (+ (current-inexact-milliseconds) 2000)))))
+   #f)
+ "release: an interrupt during the drain escapes as a break")
+(expect (ref-released? lc-last) "release: an interrupted drain leaves the committed release spent")
+(expect (eq? (host-runtime-primary (session-host lc-session)) lc-effects-failure)
+        "release: an interrupt is not recorded as a Host failure")
+(expect
+ (with-handlers ([exn:fail? (lambda (e) (regexp-match? #rx"already released" (exn-message e)))])
+   (session-release! lc-session lc-last)
+   #f)
+ "release: an interrupted drain cannot authorize a second native release")
+
+(define lc-vow (session-send-promise lc-session lc-far 'ping))
+(define lc-closed-host (make-fresh-host))
+(host-close! lc-closed-host)
+(expect
+ (with-handlers ([exn:fail:glowcap? (lambda (_e) #t)])
+   (release-vow-from-host! lc-closed-host lc-vow)
+   #f)
+ "vow release: a closed Host refuses admission")
+(expect (unbox (session-vow-release-armed lc-vow)) "vow release: admission refusal stays retryable")
+
+(define lc-vow-release-failure
+  (with-handlers ([exn:fail? values])
+    (with-refused-release-drain (lambda () (release-vow! lc-vow)))
+    #f))
+(expect (not lc-vow-release-failure) "vow release: a committed release reports success")
+(expect (not (unbox (session-vow-release-armed lc-vow)))
+        "vow release: failed effects cannot rearm a committed native release")
+(release-vow! lc-vow)
+
 (session-close! lc-session)
 (define lc-host-result (channel-get lc-ch))
 (when (exn? lc-host-result) (raise lc-host-result))
 (server-close! lc-server)
+(for ([_ (in-range 2)])
+  (define observed
+    (with-handlers ([exn:fail? values])
+      (runtime-close! lc-runtime)
+      #f))
+  (expect (eq? observed lc-effects-failure)
+          "release: Runtime close repeatedly returns the exact retained drain failure"))
 
 (printf "racket zig-smoke OK: a forwarding proxy answers its host's own local call (local and far target)\n")
 
@@ -214,5 +319,3 @@
 (server-close! rt-server)
 
 (printf "racket zig-smoke OK: a behavior's mid-turn driving verb is refused and breaks its own answer\n")
-
-

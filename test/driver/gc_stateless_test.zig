@@ -174,6 +174,27 @@ test "stateless GC skips a before-serve-claimed event" {
     try std.testing.expect(p2.session_state.hasImport(.from(7)));
 }
 
+/// A V1.0 resolver-callback deliver as the engine surfaces it: a real
+/// `op:deliver` frame decoded once, tagged `.resolve` on the answer it settles.
+fn resolverCallbackEvent(allocator: std.mem.Allocator, answer: model.AnswerPosition) !engine.Event {
+    var args = [_]model.Argument{ .{ .symbol = "fulfill" }, .{ .integer = 1 } };
+    var frame = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &args,
+    } });
+    errdefer frame.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.next, frame.view());
+    return .{
+        .frame = frame,
+        .body = body,
+        .tag = .resolve,
+        .codec = .syrup,
+        .captp_version = .next,
+        .answer_override = .{ .resolver_callback = answer },
+        .allocator = allocator,
+    };
+}
+
 test "stateless GC releases every answer sharing a resolve callback" {
     const allocator = std.testing.allocator;
     var peer = engine.Peer.initWithSession(allocator, session.Session.initWith(allocator, .{
@@ -184,20 +205,7 @@ test "stateless GC releases every answer sharing a resolve callback" {
     try peer.session_state.installOutboundAnswer(.from(6));
     try peer.session_state.installOutboundAnswer(.from(7));
 
-    const storage = try allocator.dupe(u8, "resolve");
-    var event: engine.Event = .{
-        .frame = try glowcap.foundation.Frame.initOwned(
-            allocator,
-            storage,
-            .byte,
-            .fromByteUnits(1),
-        ),
-        .tag = .resolve,
-        .codec = .syrup,
-        .captp_version = .next,
-        .answer_override = .{ .resolver_callback = .from(5) },
-        .allocator = allocator,
-    };
+    var event = try resolverCallbackEvent(allocator, .from(5));
     defer event.deinit();
     try event.resolve_aliases.append(allocator, .from(6));
     try event.resolve_aliases.append(allocator, .from(7));
@@ -227,20 +235,7 @@ test "stateless GC reports an enqueue allocation failure" {
     peer.session_state.captp_version = .next;
     try peer.session_state.installOutboundAnswer(.from(5));
 
-    const storage = try std.testing.allocator.dupe(u8, "resolve");
-    var event: engine.Event = .{
-        .frame = try glowcap.foundation.Frame.initOwned(
-            std.testing.allocator,
-            storage,
-            .byte,
-            .fromByteUnits(1),
-        ),
-        .tag = .resolve,
-        .codec = .syrup,
-        .captp_version = .next,
-        .answer_override = .{ .resolver_callback = .from(5) },
-        .allocator = std.testing.allocator,
-    };
+    var event = try resolverCallbackEvent(std.testing.allocator, .from(5));
     defer event.deinit();
 
     failing.fail_index = failing.alloc_index;

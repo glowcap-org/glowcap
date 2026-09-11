@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 from typing import Any, Callable, Coroutine
 
-from .._action import _park_actions, _run_action
+from .._action import _Handlers, _park_actions, _run_action
 from .._errors import _check_host
 from .._ffi_host import _host
 from .._trampoline import _enter_host_deliver, _exit_deliver, _inside_turn
@@ -26,6 +27,11 @@ async def _next_loop_turn() -> None:
 
 
 class _ProgressMixin(HostMixinBase):
+    @functools.cached_property
+    def action_handlers(self) -> _Handlers:
+        """The one executor for this Host's popped actions."""
+        return _Handlers(self)
+
     def vow_minted(self, vow: int, *, track_gc: bool = False) -> None:
         """Record a freshly minted vow so the drain can route its completion.
         Runs in the same synchronous block as the minting FFI call, so no drain

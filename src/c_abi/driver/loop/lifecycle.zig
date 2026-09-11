@@ -94,24 +94,30 @@ fn buildInstance(
         .providers = undefined,
     };
     errdefer inst.threaded.deinit();
-    inst.runtime = try driver.HostRuntime.initWithCore(alloc, inst.io(), claim.core(), &.{}, opts);
+    // The loop is stepped from birth: the runtime is built with its readiness
+    // set and both event recipients, so no wire ever exists without a
+    // reserved close seat and no completion without a taker.
+    var adoption = opts;
+    adoption.drive = .{ .stepped = .{
+        .completion_sink = .{
+            .ctx = inst,
+            .reserve = reserveSinkEvent,
+            .release = releaseSinkEvent,
+            .take = sinkTake,
+        },
+        .close_observer = .{
+            .ctx = inst,
+            .reserve = reserveSinkEvent,
+            .release = releaseSinkEvent,
+            .closed = observeClose,
+        },
+    } };
+    inst.runtime = try driver.HostRuntime.initWithCore(alloc, inst.io(), claim.core(), &.{}, adoption);
     errdefer inst.runtime.deinitAfterFailedAdoption();
     inst.providers = provider_registry.Registry.init(alloc, inst.io(), &inst.runtime);
-    // Mint the settle mailbox now, so its wake descriptor is in the
-    // readiness set from the moment the set is armed.
+    // Mint the settle mailbox now, so its wake descriptor joins the readiness
+    // set before the embedder's first park.
     _ = try inst.runtime.settleMailbox();
-    inst.runtime.setCompletionSink(.{
-        .ctx = inst,
-        .reserve = reserveSinkEvent,
-        .release = releaseSinkEvent,
-        .take = sinkTake,
-    });
-    try inst.runtime.setCloseObserver(.{
-        .ctx = inst,
-        .reserve = reserveSinkEvent,
-        .release = releaseSinkEvent,
-        .closed = observeClose,
-    });
     return inst;
 }
 
@@ -222,12 +228,12 @@ pub export fn glowcap_driver_release(
     const inst = instanceFrom(raw) orelse return GLOWCAP_OK;
     if (reentrancyCode(inst, "release")) |code|
         return failure_output.refuse(failure_slot, code, error.ReenteredHost);
-    // No projection survives release. Retire core-owned completion payloads
-    // while the core is still live, then detach the two optional event sinks;
-    // operation observers still run during Runtime teardown to release their
-    // reservations and C metadata.
-    inst.runtime.setCompletionSink(null);
-    inst.runtime.clearCloseObserver();
+    // No projection survives release. The runtime's recipients stay installed
+    // for its teardown, but from here `sinkTake` refuses (the drain then frees
+    // each completion through the still-live core) and `observeClose` only
+    // gives its reserved seat back; operation observers still run during
+    // Runtime teardown to release their reservations and C metadata.
+    inst.releasing = true;
     if (inst.handed_completion) |action| {
         inst.runtime.freeAction(action);
         inst.handed_completion = null;
@@ -242,8 +248,8 @@ pub export fn glowcap_driver_release(
         failure_output.noteError(&teardown_failure, error.ProviderContract);
     inst.listeners.deinit(inst.allocator);
     while (popEvent(inst)) |event| switch (event) {
-        // Detaching the completion sink makes this impossible through the
-        // public state machine. If that invariant regresses, preserve the
+        // A releasing sink refuses every take, which makes this impossible
+        // through the public state machine. If that invariant regresses, preserve the
         // consumed-handle release outcome instead of aborting the process.
         // The core is already gone, so the unexpected payload cannot safely
         // be traversed and is deliberately leaked on this contract-failure

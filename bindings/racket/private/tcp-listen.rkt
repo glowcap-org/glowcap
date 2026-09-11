@@ -2,32 +2,24 @@
 ;; Native TCP-provider listener surface. The driver owns provider sockets,
 ;; admission, handshakes, events, session release, and canonical locator
 ;; metadata. `tcp`, `keyed-tcp`, and `noise-tcp` share one server shape and one
-;; setup path; only their locator profile differs.
+;; setup path; only their locator profile differs. The setup path itself is
+;; `listen-loop.rkt`'s; this module owns the provider install and the bound
+;; address a listener advertises.
 
 (require racket/lazy-require
-         racket/random
          racket/string
          "constants.rkt"
-         "abi-value.rkt"
          "errors.rkt"
+         "listen-loop.rkt"
          "locator.rkt"
          "server-verbs.rkt"
          "socket-address.rkt"
-         "tcp-config.rkt"
-         "host/state.rkt")
+         "tcp-config.rkt")
 
 (lazy-require
  ["loop.rkt"
-  (open-driver-loop
-   driver-loop-start!
-   driver-loop-abort!
-   loop-listen!
-   loop-listener-ready!
-   loop-listener-locator
-   loop-listener-advertise!
-   loop-listener-select!
-   loop-listener-close!
-   make-loop-server)]
+  (loop-listener-locator
+   loop-listener-advertise!)]
  ["tcp-provider.rkt" (driver-loop-add-tcp!)])
 
 (provide (all-from-out "server-verbs.rkt")
@@ -65,84 +57,52 @@
                   (raise-glowcap who ERR-INVALID-ARGUMENT
                                  "listener locator has no direct-addresses hint")))))
 
+;; The bound address is what the provider reports; the advertised address is
+;; what partners dial. A wildcard bind is deployment policy with no dialable
+;; form, so it needs an explicit advertised host, and only a differing
+;; advertised address rewrites the listener's locator.
+(define ((advertise-bound-address! who transport advertised-host) lp listener)
+  (define loc (loop-listener-locator lp listener))
+  (define direct (locator-direct-address who loc))
+  (define-values (bound-host bound-port) (split-designator who direct))
+  (when (and (wildcard-address? bound-host) (not advertised-host))
+    (raise-glowcap who ERR-INVALID-ARGUMENT
+                   "a wildcard bind has no dialable address; provide #:advertised-host"))
+  (when (and advertised-host (wildcard-address? advertised-host))
+    (raise-glowcap who ERR-INVALID-ARGUMENT
+                   "an advertised host must be dialable"))
+  (define advertised-direct
+    (if advertised-host
+        (tcp-address-designator advertised-host bound-port)
+        direct))
+  (unless (equal? direct advertised-direct)
+    (define locator-uri
+      (if (string=? transport TRANSPORT-TCP)
+          (format-peer-uri transport advertised-direct)
+          (format-peer-uri
+           transport
+           (locator-designator loc)
+           (hash HINT-DIRECT-ADDRESSES advertised-direct))))
+    (loop-listener-advertise! lp listener locator-uri)))
+
 (define (listen-tcp-profile who transport bind-host port seed codec captp-version
                             features advertised-host time-travel? shared-host config options)
-  (when (and shared-host codec (not (eq? codec (host-codec shared-host))))
-    (raise-glowcap who ERR-INVALID-ARGUMENT
-                   "the supplied Host codec conflicts with #:codec"))
-  (when (and seed shared-host (not (bytes=? seed (host-seed shared-host))))
-    (raise-glowcap who ERR-INVALID-ARGUMENT
-                   "the seed conflicts with the supplied Host"))
-  (define durable
-    (and (identity-profile? transport)
-         (or seed (and shared-host (host-seed shared-host))
-             (crypto-random-bytes 32))))
-  (when (and durable (not (= (bytes-length durable) 32)))
-    (raise-glowcap who ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
-  (define-values (lp owns-loop?)
-    (if (and shared-host (host-loop-of shared-host))
-        (values (host-loop-of shared-host) #f)
-        (values
-         (if durable
-             (open-driver-loop #:host shared-host #:seed durable
-                               #:codec (or codec
-                                           (and shared-host (host-codec shared-host))
-                                           DEFAULT-CODEC-SYMBOL)
-                               #:captp-version captp-version #:features features)
-             (open-driver-loop #:host shared-host
-                               #:codec (or codec
-                                           (and shared-host (host-codec shared-host))
-                                           DEFAULT-CODEC-SYMBOL)
-                               #:captp-version captp-version #:features features))
-         #t)))
-  (define listener #f)
-  (with-handlers ([(lambda (_) #t)
-                   (lambda (e)
-                     (define failed-listener listener)
-                     (raise-after-cleanups
-                      e
-                      (append
-                       (if failed-listener
-                           (list (lambda () (loop-listener-close! lp failed-listener)))
-                           '())
-                       (if (and owns-loop? (not shared-host))
-                           (list (lambda () (driver-loop-abort! lp)))
-                           '()))))])
-    (driver-loop-add-tcp! lp config)
-    (set! listener
-          (loop-listen! lp transport (format "~a:~a" bind-host port) options))
-    (driver-loop-start! lp)
-    (set! listener (loop-listener-ready! listener))
-    (define loc (loop-listener-locator lp listener))
-    (define direct (locator-direct-address who loc))
-    (define-values (bound-host bound-port) (split-designator who direct))
-    (when (and (wildcard-address? bound-host) (not advertised-host))
-      (raise-glowcap who ERR-INVALID-ARGUMENT
-                     "a wildcard bind has no dialable address; provide #:advertised-host"))
-    (when (and advertised-host (wildcard-address? advertised-host))
-      (raise-glowcap who ERR-INVALID-ARGUMENT
-                     "an advertised host must be dialable"))
-    (define advertised-direct
-      (if advertised-host
-          (tcp-address-designator advertised-host bound-port)
-          direct))
-    (unless (equal? direct advertised-direct)
-      (define locator-uri
-        (if (string=? transport TRANSPORT-TCP)
-            (format-peer-uri transport advertised-direct)
-            (format-peer-uri
-             transport
-             (locator-designator loc)
-             (hash HINT-DIRECT-ADDRESSES advertised-direct))))
-      (loop-listener-advertise! lp listener locator-uri))
-    (loop-listener-select! lp listener)
-    (define server (make-loop-server lp listener time-travel? (not shared-host)))
-    (set! listener #f)
-    server))
+  (listen-loop-profile who transport (format "~a:~a" bind-host port)
+                       #:identity? (identity-profile? transport)
+                       #:seed seed #:codec codec #:captp-version captp-version
+                       #:features features #:options options
+                       #:host shared-host #:time-travel? time-travel?
+                       #:install (lambda (lp) (driver-loop-add-tcp! lp config))
+                       #:after-ready (advertise-bound-address! who transport advertised-host)))
 
+;; Every keyword below is honored exactly or refused. `#:codec`,
+;; `#:captp-version`, and `#:features` default to the supplied Host's profile,
+;; else the generated default; a value that differs from a supplied Host's is
+;; refused. `#:options` is the TCP operation options value (`make-tcp-options`)
+;; for this one listen.
 (define (listen bind-host [port 0] #:codec [codec #f]
-                #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
-                #:features [features DEFAULT-FEATURES-SYMBOL]
+                #:captp-version [captp-version #f]
+                #:features [features #f]
                 #:advertised-host [advertised-host #f]
                 #:time-travel? [time-travel? #f]
                 #:host [shared-host #f]
@@ -153,8 +113,8 @@
                       shared-host config options))
 
 (define (listen-keyed-tcp bind-host [port 0] #:seed [seed #f] #:codec [codec #f]
-                          #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
-                          #:features [features DEFAULT-FEATURES-SYMBOL]
+                          #:captp-version [captp-version #f]
+                          #:features [features #f]
                           #:advertised-host [advertised-host #f]
                           #:time-travel? [time-travel? #f]
                           #:host [shared-host #f]
@@ -165,8 +125,8 @@
                       shared-host config options))
 
 (define (listen-noise-tcp bind-host [port 0] #:seed [seed #f] #:codec [codec #f]
-                          #:captp-version [captp-version DEFAULT-CAPTP-VERSION-SYMBOL]
-                          #:features [features DEFAULT-FEATURES-SYMBOL]
+                          #:captp-version [captp-version #f]
+                          #:features [features #f]
                           #:advertised-host [advertised-host #f]
                           #:time-travel? [time-travel? #f]
                           #:host [shared-host #f]

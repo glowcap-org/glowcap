@@ -1,7 +1,8 @@
 // Capability cleanup outcomes shared by Rooms runtime owners.
 
 import { CLOSED } from "@glowcap/abi";
-import { GlowcapError } from "@glowcap/runtime";
+import { GlowcapError, type Ref, type Session } from "@glowcap/runtime";
+import { claimWithin } from "./deadline.ts";
 
 /** A closed CapTP session has already reclaimed every reference it carried.
  * Later release or unwatch calls cannot do more cleanup and are successful for
@@ -20,4 +21,20 @@ export function settleCapabilityCleanup(label: string, cleanup: () => void): voi
 		if (cleanupSettledBySessionClose(error)) return;
 		console.error(`rooms: ${label}: ${error instanceof Error ? error.message : error}`);
 	}
+}
+
+/** Claim a capability answer before its deadline, or return an answer that
+ * arrives later to the session that transferred it. */
+export function claimCapabilityWithin(
+	session: Session,
+	answer: Promise<Ref>,
+	what: string,
+	ms: number,
+): Promise<Ref> {
+	return claimWithin(
+		answer,
+		what,
+		ms,
+		(late) => settleCapabilityCleanup(`${what}: late capability release failed`, () => session.release(late)),
+	);
 }

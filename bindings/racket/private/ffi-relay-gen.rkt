@@ -26,8 +26,6 @@
   (_fun (_or-null _GlowcapRelayConfig-pointer) _pointer -> _int32)
   #:c-id glowcap_relay_runtime_new)
 (define glowcap_relay_runtime_new (wrap-out1 glowcap_relay_runtime_new* _pointer #f))
-(define-glowcap-relay glowcap_relay_runtime_trust_summary
-  (_fun _pointer (_or-null _GlowcapRelayTrustSummary-pointer) -> _int32))
 (define-glowcap-relay glowcap_relay_transport_provider
   (_fun _pointer (_or-null _GlowcapTransportProvider-pointer) -> _int32))
 (define-glowcap-relay glowcap_relay_runtime_release*

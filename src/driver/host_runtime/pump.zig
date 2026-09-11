@@ -76,11 +76,14 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
     if (wire.closed or wire.attended) return;
     wire.attended = true;
     switch (wire.link) {
-        .stream => |*sl| if (self.ready_set) |*rs| if (sl.conn.socketHandle()) |fd| {
-            rs.add(fd) catch |err| {
-                wire.attended = false;
-                return err;
-            };
+        .stream => |*sl| switch (self.drive) {
+            .blocking => {},
+            .stepped => |*stepped| if (sl.conn.socketHandle()) |fd| {
+                stepped.ready_set.add(fd) catch |err| {
+                    wire.attended = false;
+                    return err;
+                };
+            },
         },
         .resident => |*rl| {
             if (rl.parked.items.len > 0) {
@@ -115,7 +118,10 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
     }
     // A parked embedder must re-poll: the rejoined fd or the resumable
     // tail is progress its current wait set cannot see.
-    if (self.ready_set) |*rs| rs.postWake() catch |err| self.noteTerminalFailure(err);
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| stepped.ready_set.postWake() catch |err| self.noteTerminalFailure(err),
+    }
 }
 
 /// Resume any session whose `feed_tail` holds paused frames: the core
@@ -265,7 +271,10 @@ pub fn settleMailbox(self: *HostRuntime) !*settle_mailbox.SettleMailbox {
     if (self.mailbox) |mb| return mb;
     const mb = try settle_mailbox.SettleMailbox.init(self.allocator, settle_mailbox.default_slots);
     errdefer mb.deinit();
-    if (self.ready_set) |*rs| try rs.add(mb.wakeFd());
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| try stepped.ready_set.add(mb.wakeFd()),
+    }
     self.mailbox = mb;
     return mb;
 }
@@ -301,10 +310,13 @@ pub fn applySettleMailboxWith(self: *HostRuntime, effect_mode: ExternalEffectMod
 /// which runs whether or not the poll happened to select that row).
 pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?ReadySource {
     Internal.progressCarrierCloseDeadlines(self);
-    if (self.ready_set) |*rs| rs.drainWake() catch |err| {
-        self.noteTerminalFailure(err);
-        return err;
-    };
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| stepped.ready_set.drainWake() catch |err| {
+            self.noteTerminalFailure(err);
+            return err;
+        },
+    }
     self.conn_scratch.clearRetainingCapacity();
     var it = self.wires.valueIterator();
     while (it.next()) |wire| {
@@ -335,10 +347,8 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?Read
     if (n == 0 and self.residents.items.len == 0 and staged_stream_dials == 0 and
         self.pending_listeners.items.len == 0 and !empty_ok)
         return Error.ConnectionClosed;
-    if (n > 0) {
-        std.mem.rotate(*Wire, self.conn_scratch.items, self.wait_cursor % n);
-        self.wait_cursor +%= 1;
-    }
+    const start = if (n > 0) self.wait_cursor % n else 0;
+    self.wait_cursor +%= 1;
     self.extra_fd_scratch.clearRetainingCapacity();
     for (self.residents.items) |runtime| {
         try self.extra_fd_scratch.append(self.allocator, runtime.readiness_fd);
@@ -375,7 +385,10 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?Read
     // The readiness wake polls as its own row, so a cross-thread
     // `wakeReadiness` interrupts a blocking wait here, not only an
     // embedder parked outside on the set descriptor.
-    if (self.ready_set) |*rs| try self.extra_fd_scratch.append(self.allocator, rs.wakeFd());
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| try self.extra_fd_scratch.append(self.allocator, stepped.ready_set.wakeFd()),
+    }
     try self.poll_scratch.resize(self.allocator, n + self.extra_fd_scratch.items.len);
     // Borrow the connections for the wait through retained scratch; net
     // polls, we route by index, and the wait itself allocates nothing
@@ -396,6 +409,7 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?Read
         Internal.clampTimeoutToPendingWork(self, timeout_ms),
         self.extra_fd_scratch.items,
         &.{},
+        start,
     ) orelse return null;
     if (idx < n) return .{ .wire = self.conn_scratch.items[idx] };
     const extra = idx - n;

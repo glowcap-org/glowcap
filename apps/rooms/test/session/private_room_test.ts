@@ -8,20 +8,17 @@ import { PRIVATE_ROOM_POLICY } from "../../lib/room/policy.ts";
 import { roomsPeerAuthority } from "../../lib/routes.ts";
 import { RoomsSessionClient } from "../../lib/session/client.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
-import { spawnOwned, stopOwned } from "../support/children.ts";
+import { stopOwned } from "../support/children.ts";
 import {
 	assert,
 	dial,
 	freePort,
 	readPort,
 	roomsTest,
-	ROOT,
 	startStatefulServer,
 	stopServer,
 } from "../support/rooms_server.ts";
-import { announcedSturdyref } from "../support/standalone_peer.ts";
-
-const PEER = new URL("../../session/main.ts", import.meta.url).pathname;
+import { announcedSturdyref, startRoomsSessionPeer } from "../support/standalone_peer.ts";
 
 async function stage<T>(name: string, work: Promise<T>): Promise<T> {
 	try {
@@ -29,28 +26,6 @@ async function stage<T>(name: string, work: Promise<T>): Promise<T> {
 	} catch (error) {
 		throw new Error(`${name}: ${error instanceof Error ? error.message : error}`, { cause: error });
 	}
-}
-
-function startPeer(directory: string, port: number, checkpoint?: string): Deno.ChildProcess {
-	return spawnOwned("deno", {
-		args: [
-			"run",
-			"--allow-ffi",
-			"--unstable-ffi",
-			`--allow-read=${ROOT},${directory}`,
-			`--allow-write=${directory}`,
-			"--allow-net=127.0.0.1",
-			"--allow-env=GLOWCAP_LIB_DIR",
-			PEER,
-			`--state=${directory}`,
-			...(checkpoint == null ? [] : [`--checkpoint=${checkpoint}`]),
-			"--transport=tcp",
-			`--port=${port}`,
-		],
-		cwd: ROOT,
-		stdout: "piped",
-		stderr: "piped",
-	});
 }
 
 roomsTest("a durable Rooms session creates one private room and reconstructs it from its link", async () => {
@@ -72,7 +47,7 @@ roomsTest("a durable Rooms session creates one private room and reconstructs it 
 				directories: [{ id: directoryId, locator, home: true, nick: "private-member", standing: null }],
 			}),
 		);
-		peer = startPeer(directory, peerPort, checkpointPath);
+		peer = startRoomsSessionPeer(directory, peerPort, checkpointPath);
 		const sturdyref = await announcedSturdyref(peer, "ROOMS-SESSION-LISTENING", "private Rooms session peer");
 		const parsed = parseSturdyRef(sturdyref, "v1_0");
 		let session = await dial(roomsAddress(parsed.locator), roomsHost(undefined, "interop"));
@@ -169,7 +144,7 @@ roomsTest("a durable Rooms session creates one private room and reconstructs it 
 		}
 
 		await stopOwned(peer);
-		peer = startPeer(directory, peerPort);
+		peer = startRoomsSessionPeer(directory, peerPort);
 		const restoredRef = await announcedSturdyref(peer, "ROOMS-SESSION-LISTENING", "restored private Rooms session");
 		assert(restoredRef === sturdyref, "private-room restart changed the Rooms session sturdyref");
 		session = await dial(roomsAddress(parsed.locator), roomsHost(undefined, "interop"));

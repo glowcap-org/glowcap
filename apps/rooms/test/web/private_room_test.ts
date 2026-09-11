@@ -37,9 +37,12 @@
 // behind in the rail.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
-// (serve.ts's room server is native), and a Playwright Chromium.
+// (the web front and room server run Rust), and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/private_room_test.ts`.
 
+import { SERVER } from "../support/server_binary.ts";
+import { WEB } from "../support/web_binary.ts";
+import { formatRoomsSturdyref, parseRoomsSturdyref } from "../../lib/locator.ts";
 import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
@@ -61,7 +64,6 @@ import {
 } from "../support/private_room_page.ts";
 import { reachDirectoryOnCard } from "../support/page.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const LABEL = "plans";
 const PRIVATE_LINE = "just us then";
@@ -77,31 +79,16 @@ const foreignRoomPort = freePort();
 const deadPort = freePort();
 const foreignLocator = `127.0.0.1:${foreignRoomPort}`;
 
-spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-net",
-		"--allow-env",
-		`${ROOT}apps/rooms/server/main.ts`,
-		String(foreignRoomPort),
-	],
+spawnOwned(SERVER, {
+	args: ["--transport=tcp", `--port=${foreignRoomPort}`],
 	cwd: ROOT,
 	stdout: "null",
 	stderr: "inherit",
 });
 
-spawnOwned("deno", {
+spawnOwned(WEB, {
 	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
+		"--transport=tcp",
 		String(httpPort),
 		String(roomPort),
 	],
@@ -393,7 +380,10 @@ try {
 
 	// This one names the right peer and the wrong room, so it fails at the
 	// directory. The reader is told which of the two happened.
-	const wrongSecret = elsewhere.slice(0, -1) + (elsewhere.endsWith("0") ? "1" : "0");
+	const parsedLink = parseRoomsSturdyref(elsewhere);
+	const wrongSwiss = parsedLink.swissnum.slice();
+	wrongSwiss[wrongSwiss.length - 1] ^= 1;
+	const wrongSecret = formatRoomsSturdyref(parsedLink.locator, wrongSwiss);
 	await say(cy, `/join ${wrongSecret} nothing`);
 	await cy.waitForFunction(
 		() =>

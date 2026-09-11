@@ -138,7 +138,7 @@ The positions are public and settled, and glowcap argues with neither:
   hide provenance, or wording a disclosure to mislead. It is dishonest, and it
   would be found.
 - Treating the policies as an obstacle to route around rather than a position to
-  meet honestly. Name the policy; do not editorialize the community as hostile.
+  meet honestly. Name the policy; do not editorialize the community as unwelcome.
 - Overclaiming a personal audit of every line, or putting the destination's
   ambition on a first-read page as a slogan. Responsibility is public;
   biography and rank are not.

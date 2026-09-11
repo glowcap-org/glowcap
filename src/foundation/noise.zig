@@ -47,7 +47,7 @@ pub const MAX_MESSAGE_BYTES: usize = 65535;
 /// once in `crypto.zig` and hands the result straight in.
 pub const KeyPair = crypto.X25519KeyMaterial;
 
-/// The ways the state machine can refuse. Everything an attacker can reach
+/// The ways the state machine can refuse. Everything inbound bytes can reach
 /// arrives through `readMessage` or `CipherState.decrypt`, and both fail
 /// closed with a typed reason; the rest guard caller arithmetic.
 pub const NoiseError = error{
@@ -183,7 +183,7 @@ pub const Role = enum(u8) { initiator, responder };
 /// writes first), then call `split` after the third message. Turn order is
 /// the caller's contract and asserted, not error-mapped: inbound bytes only
 /// ever reach `readMessage`, so a turn violation is a driver bug, never
-/// attacker input.
+/// peer input.
 pub const HandshakeState = struct {
     ck: [KEY_BYTES]u8,
     h: [KEY_BYTES]u8,
@@ -390,7 +390,7 @@ pub const HandshakeState = struct {
     pub fn split(self: *HandshakeState) NoiseError!TransportKeys {
         if (self.stage <= 2) return NoiseError.HandshakeNotComplete;
         // A second split would derive from the zeroed chaining key; that is a
-        // driver bug, not attacker input, so it asserts like turn misuse.
+        // driver bug, not peer input, so it asserts like turn misuse.
         std.debug.assert(self.stage != retired_stage);
         self.stage = retired_stage;
         var derived: [KEY_BYTES * 2]u8 = undefined;

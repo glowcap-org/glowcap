@@ -124,14 +124,26 @@ pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, 
 
 /// Commit a validated callback. Both rows already exist, so this is
 /// allocation-free and cannot strand an applied import introduction halfway.
-pub fn complete(self: *Session, resolver: model.ExportPosition, target: model.FarRef) void {
+///
+/// The callback's deliver introduced `target`, and that one retain has one
+/// of two owners. While the source is still held the edge is stable and
+/// keeps it (`edge_owns_retain`): the session adopts it here and spends it
+/// through the closure `expandGcExportReleases` adds to the release that
+/// finally drops the source. A source already released leaves the edge no
+/// reason to exist, and the engine releases the retain in the same
+/// transaction instead.
+pub fn complete(self: *Session, resolver: model.ExportPosition, target: model.FarRef, edge_owns_retain: bool) void {
     const purpose = self.outbound_resolver_link.getByKey(resolver) orelse unreachable;
     const source = switch (purpose) {
         .shortening_pending => |incarnation| incarnation,
         else => unreachable,
     };
-    if (incarnationIsCurrent(self, source))
-        self.findImportedPromise(source.position).?.shortening_target = target.import_position;
+    if (incarnationIsCurrent(self, source)) {
+        const entry = self.findImportedPromise(source.position).?;
+        entry.shortening_target = target.import_position;
+        entry.shortening_target_retained = edge_owns_retain;
+        if (edge_owns_retain) self.adoptImportRetain(target.import_position);
+    }
     self.outbound_resolver_link.replaceValueForKey(resolver, .{ .shortening_complete = source });
 }
 
@@ -232,20 +244,24 @@ const ReleaseState = struct {
     processed: bool = false,
 };
 
-/// Extend one owned outbound GC operation with the private import retains held
-/// by completed shortening edges whose sources this operation releases. The
+/// Extend one owned outbound GC operation with the import retains held by
+/// stable shortening edges whose sources this operation releases in full. The
 /// closure matters for chains: releasing 5 may release the edge-owned retain
 /// of 6, which can in turn release the edge-owned retain of 7.
 ///
 /// This runs before `recordSend`, so all fallible scratch and replacement
 /// storage is acquired before any import count or shortening metadata changes.
-/// The expanded positions remain one operation and ordinary GC validation
-/// proves the complete decrement before apply commits it.
+/// The caller's entries stay first and are bounded by `releasable` exactly as
+/// `recordSend` will bound them; the closure's entries trail them and are the
+/// session's own, adopted at `complete` and applied through
+/// `recordSessionImportRelease`. Returns how many trailing entries the closure
+/// added: zero, with nothing allocated, for the ordinary release of a promise
+/// nothing shortened to.
 pub fn expandGcExportReleases(
     self: *Session,
     allocator: std.mem.Allocator,
     gc_export: *model.GcExport,
-) !void {
+) !usize {
     try session.validateGcExport(gc_export.*);
 
     var states: std.AutoHashMapUnmanaged(model.ImportPosition, ReleaseState) = .empty;
@@ -266,9 +282,8 @@ pub fn expandGcExportReleases(
 
     var state_it = states.iterator();
     while (state_it.next()) |entry| {
-        const held = self.imports.count(entry.key_ptr.*);
-        if (entry.value_ptr.total > held) return session.Error.GcUnderflow;
-        if (entry.value_ptr.total == held and shorteningTarget(self, entry.key_ptr.*) != null)
+        if (entry.value_ptr.total > self.imports.releasable(entry.key_ptr.*)) return session.Error.GcUnderflow;
+        if (entry.value_ptr.total == self.imports.count(entry.key_ptr.*) and retainedShorteningTarget(self, entry.key_ptr.*) != null)
             try queue.append(allocator, entry.key_ptr.*);
     }
 
@@ -276,20 +291,23 @@ pub fn expandGcExportReleases(
         const source_state = states.getPtr(source) orelse unreachable;
         if (source_state.processed) continue;
         source_state.processed = true;
-        const target = shorteningTarget(self, source) orelse continue;
+        const target = retainedShorteningTarget(self, source) orelse continue;
         try extra.append(allocator, target);
 
         const gop = try states.getOrPut(allocator, target);
         if (!gop.found_existing) gop.value_ptr.* = .{};
         gop.value_ptr.total = std.math.add(u64, gop.value_ptr.total, 1) catch
             return session.Error.GcUnderflow;
+        // The caller's entries on `target` were bounded by `releasable` above,
+        // and every retained edge into it adopted one retain at `complete`,
+        // so the running total cannot pass the row's count.
         const held = self.imports.count(target);
-        if (gop.value_ptr.total > held) return session.Error.GcUnderflow;
-        if (gop.value_ptr.total == held and shorteningTarget(self, target) != null)
+        std.debug.assert(gop.value_ptr.total <= held);
+        if (gop.value_ptr.total == held and retainedShorteningTarget(self, target) != null)
             try queue.append(allocator, target);
     }
 
-    if (extra.items.len == 0) return;
+    if (extra.items.len == 0) return 0;
 
     // The queue owns both slices until encode. Replacement is the one durable
     // allocation the synthesized wire release requires; all maps/lists above
@@ -309,11 +327,21 @@ pub fn expandGcExportReleases(
     allocator.free(gc_export.positions);
     allocator.free(gc_export.deltas);
     gc_export.* = .{ .positions = positions, .deltas = deltas };
+    return extra.items.len;
 }
 
 fn shorteningTarget(self: *const Session, source: model.ImportPosition) ?model.ImportPosition {
     const entry = self.imported_promises.get(source) orelse return null;
     return if (entry.shortening_target == source) null else entry.shortening_target;
+}
+
+/// The stable edge out of `source` whose retain the session owns: the only
+/// kind the closure on `source`'s final release may spend. Routing follows
+/// every edge; spending follows this one.
+fn retainedShorteningTarget(self: *const Session, source: model.ImportPosition) ?model.ImportPosition {
+    const entry = self.imported_promises.get(source) orelse return null;
+    if (!entry.shortening_target_retained or entry.shortening_target == source) return null;
+    return entry.shortening_target;
 }
 
 fn rewriteReference(self: *Session, reference: model.Reference) model.Reference {

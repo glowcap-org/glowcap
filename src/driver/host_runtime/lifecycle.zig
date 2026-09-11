@@ -104,6 +104,24 @@ pub const CloseObserver = struct {
     ) void,
 };
 
+/// How a HostRuntime is driven, chosen once at construction. The blocking
+/// native face waits on the live wires itself; the stepped face hands an
+/// embedder one readiness descriptor and publishes through the recipients
+/// below (ADR-0112).
+pub const DriveOptions = union(enum) {
+    blocking,
+    stepped: SteppedOptions,
+};
+
+/// The two recipients a stepped runtime publishes through. Both arrive with
+/// the readiness set, before any wire exists, so every wire the runtime adopts
+/// reserves its close publication at adoption and every unclaimed completion
+/// has a taker; neither is optional on that face.
+pub const SteppedOptions = struct {
+    completion_sink: CompletionSink,
+    close_observer: CloseObserver,
+};
+
 /// One staged session-open outcome recipient.
 pub const SessionOpenObserver = struct {
     ctx: *anyopaque,

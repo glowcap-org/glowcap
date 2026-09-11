@@ -94,7 +94,10 @@
 }
 /* It rises over the rows it covers, so it floats the way the page's other
    menus float, and it is as wide as the section it hangs from rather than as
-   the words that opened it.
+   the words that opened it. The edges below are measured against the section
+   head, which `Filter.tsx` hands the menu layer as its anchor: measured
+   against the heading, as every other menu is measured against its control,
+   the panel came out the width of "Your rooms" and cut every answer short.
 
    It also says its own type. The heading it hangs from is a label, set at
    eleven pixels in uppercase with letterspacing, and every word in the panel

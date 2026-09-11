@@ -51,8 +51,9 @@ pub fn checkBindingEmbedderPump(
             continue;
         };
         defer gpa.free(contents);
-        const ts_pump = std.mem.eql(u8, path, "bindings/ts/runtime/pump.ts");
-        const markers = if (ts_pump) &[_][]const u8{
+        const packet_pump = std.mem.eql(u8, path, "bindings/ts/runtime/pump.ts") or
+            std.mem.eql(u8, path, "bindings/rust/src/pump.rs");
+        const markers = if (packet_pump) &[_][]const u8{
             "glowcap_host_session_feed_packet",
             "take_packet",
             "transport_closed",
@@ -314,7 +315,8 @@ pub fn checkBindingEmbedderPump(
 
 /// Behavior trampoline spine (Pass 5): each binding keeps a named trampoline
 /// module, mid-turn latch, reply keep, and turn verbs; hop cap lives in the
-/// constant homes (mirrored against GLOWCAP_MAX_LOCAL_FORWARD_HOPS).
+/// constant homes for bindings that still execute locally. Rust delegates all
+/// delivery to the native Host; actor-liveness tests hold that boundary.
 pub fn checkBindingEmbedderTrampoline(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -332,7 +334,7 @@ pub fn checkBindingEmbedderTrampoline(
         },
         .{
             .path = "bindings/rust/src/trampoline.rs",
-            .markers = &.{ "chase_local_forwards", "run_hosted", "run_local_send", "caretaker_proxy", "attenuate_proxy", "CURRENT_TURN", "LAST_REPLY_KEEP", "glowcap_host_turn_break", "glowcap_host_turn_forward", "glowcap_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
+            .markers = &.{ "caretaker_proxy", "attenuate_proxy", "CURRENT_TURN", "LAST_REPLY_KEEP", "glowcap_host_turn_break", "glowcap_host_turn_forward", "glowcap_host_turn_spawn" },
         },
         .{
             .path = "bindings/racket/private/trampoline.rkt",

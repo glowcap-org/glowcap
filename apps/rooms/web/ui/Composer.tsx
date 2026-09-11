@@ -11,7 +11,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useCoarsePointer, useConversationMembers, useDismissOnClickOutside } from "./hooks.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsSession } from "./controller/session.ts";
-import { type AttachmentView, type Conv, type LiveRooms, type SessionPhase } from "./types.ts";
+import type { AttachmentView, Conv, LiveRooms, SessionPhase } from "./types.ts";
 import { acceptCompletion, type Candidate, commandArgTrigger, composerCandidates, triggerAt } from "./complete.ts";
 import { lineCapSaid, PHASE_SAID, PICKER, roomCalled } from "./text.ts";
 

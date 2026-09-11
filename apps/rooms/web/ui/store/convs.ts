@@ -5,15 +5,9 @@
 
 import type { Conv, ConvBase, DirectoryConv, DirId, DirView, DmConv, DmLine, RoomConv, SessionConv } from "../types.ts";
 import type { WorkspaceRoomBridgeIntent } from "../../../lib/rooms_state.ts";
-import {
-	OPEN_ROOM_POLICY,
-	PRIVATE_ROOM_POLICY,
-	roomPoliciesEqual,
-	type RoomPolicy,
-	roomPreset,
-} from "../../../lib/room/policy.ts";
+import { openRoomPolicy, privateRoomPolicy, roomPoliciesEqual, type RoomPolicy, roomPreset } from "../room_policy.ts";
 import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
-import { type PageProjection, type State } from "./core.ts";
+import type { PageProjection, State } from "./core.ts";
 import { isSelf } from "./dirs.ts";
 
 // ── Conversations ─────────────────────────────────────────────────────────
@@ -232,7 +226,7 @@ function makeConv(
 			earlierHistory: "unasked",
 			grants: new Set(),
 			membershipKind: roomIdentity?.membershipKind ?? "participant",
-			policy: roomIdentity?.policy ?? (roomIdentity?.held === true ? PRIVATE_ROOM_POLICY : OPEN_ROOM_POLICY),
+			policy: roomIdentity?.policy ?? (roomIdentity?.held === true ? privateRoomPolicy() : openRoomPolicy()),
 			standing: null,
 			bridgeIssue: "",
 			held: roomIdentity?.held === true,
@@ -516,8 +510,9 @@ export function forgetConv(projection: PageProjection, key: string): void {
 	const unreads = new Map(state.unreads);
 	unreads.delete(key);
 	const gone = { convs, drafts, lastSent, typers, members, histories, unreads };
-	if (state.activeKey === key) projection.set({ ...gone, activeKey: null });
-	else projection.set(gone);
+	if (state.activeKey === key) {
+		projection.set({ ...gone, activeKey: null, aboutConv: false, aboutConvLeave: false });
+	} else projection.set(gone);
 }
 
 /** Mark every direct conversation as no longer live, which is what a dropped

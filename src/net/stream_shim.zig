@@ -31,7 +31,7 @@ const max_iovecs = 8;
 /// The reader/writer pair over one `Source`. The concrete `Reader` / `Writer`
 /// values must live at a stable address for as long as their `interface` is
 /// borrowed (the vtable recovers them from `&interface` by field offset), so
-/// the owning transport pins them, exactly as tcp pins its `TcpStream`.
+/// the owning transport pins them, exactly as `PinnedRawStream` pins a socket.
 pub fn Shim(comptime Source: type) type {
     return struct {
         pub const Reader = struct {

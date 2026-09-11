@@ -169,3 +169,66 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     try std.testing.expect(broke);
     try std.testing.expectEqual(@as(i64, 5), (try coord_vat.near(target, .{ .verb = "get" })).integer);
 }
+
+test "a local eventual proxy defers to a far target and preserves no-answer tells" {
+    const allocator = std.testing.allocator;
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var local = actors.Vat.init(allocator);
+    defer local.deinit();
+    var local_port = actors.Port.init(allocator, &pair.p1);
+    defer local_port.deinit(&local);
+    var remote = actors.Vat.init(allocator);
+    defer remote.deinit();
+    var remote_port = actors.Port.init(allocator, &pair.p2);
+    defer remote_port.deinit(&remote);
+    const target = try remote.spawn(Counter, .{ .n = 7 });
+    try remote_port.bindExport(&remote, target, 9);
+    try pair.p2.exportObject(9);
+    try pair.p1.importObject(9);
+    const proxy = try actors.caretaker(&local, .{ .far = model.FarRef.object(9) });
+
+    // A synchronous caller still cannot cross the network.
+    try std.testing.expectError(actors.Error.NotNearCallable, local.near(proxy.proxy, .{ .verb = "get" }));
+    const answer = try local_port.send(&local, proxy.proxy, .{ .verb = "get" });
+    var result: i64 = 0;
+    try local.on(answer, .{ .ctx = &result, .func = capture.captureInt });
+    try local.drive();
+    try std.testing.expectEqual(@as(i64, 0), result);
+    try pump(&pair.p1, &pair.p2);
+    serveAll(&remote, &remote_port, &pair.p2);
+    try pump(&pair.p2, &pair.p1);
+    serveAll(&local, &local_port, &pair.p1);
+    try std.testing.expectEqual(@as(i64, 7), result);
+    try std.testing.expectEqual(@as(usize, 0), local.pending_local_vows.count());
+
+    try local_port.tell(&local, proxy.proxy, .{ .verb = "increment" });
+    try local.drive();
+    try pump(&pair.p1, &pair.p2);
+    var delivered = false;
+    while (pair.p2.pollEvent()) |event| {
+        var owned = event;
+        defer owned.deinit();
+        if ((try owned.view()) == .deliver) {
+            delivered = true;
+            try std.testing.expect(owned.deliverAnswerTarget() == null);
+        }
+        _ = try remote_port.serve(&remote, &owned);
+    }
+    try std.testing.expect(delivered);
+    try std.testing.expectEqual(@as(i64, 8), (try remote.near(target, .{ .verb = "get" })).integer);
+    try std.testing.expectEqual(@as(usize, 0), local.pending_local_vows.count());
+}
+
+test "a long local eventual forwarding chain settles without recursive listener calls" {
+    var vat = actors.Vat.init(std.testing.allocator);
+    defer vat.deinit();
+    var target = try vat.spawn(Counter, .{ .n = 42 });
+    for (0..4096) |_| target = (try actors.caretaker(&vat, target)).proxy;
+    const answer = try vat.send(target, .{ .verb = "get" });
+    var result: i64 = 0;
+    try vat.on(answer, .{ .ctx = &result, .func = capture.captureInt });
+    try vat.drive();
+    try std.testing.expectEqual(@as(i64, 42), result);
+    try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
+}

@@ -20,6 +20,7 @@
 // by default, or point every dial at a byte gateway).
 
 import { makeWebAdapter, type WsUrl } from "./adapter.ts";
+import { IROH_RELAY_DIAL_ALLOWANCE_MS } from "./relay_budget.ts";
 import { INVALID_ARGUMENT, TRANSPORT_ONION } from "@glowcap/abi";
 import type {
 	CaptpVersion,
@@ -91,6 +92,7 @@ export type WebRuntime = RuntimeModule & {
 const injected_adapter_key = Symbol.for("glowcap.runtime.adapter");
 
 export type { WsUrl } from "./adapter.ts";
+export { IROH_RELAY_DIAL_ALLOWANCE_MS } from "./relay_budget.ts";
 // The WebSocket byte channel and the rendezvous accept half are runtime-neutral
 // runtime surface (ADR-0088); re-exported here so a page keeps one import. The
 // redeeming (dialing) side follows the locator's `rendezvous-relay` hint
@@ -237,19 +239,26 @@ function browserConnectors(
 		request: ConnectorRequest,
 		url: string,
 		verifiedChannelKey: string | null = null,
+		handshakeAllowanceMs = 0,
 	) => {
-		const channel = await runtimeApi.openWebSocketChannel(url);
+		const channel = await runtimeApi.openWebSocketChannel(url, undefined, request.signal);
 		try {
-			return await runtimeApi.Session.establishDialedLocator(
-				host,
-				locator,
-				channel,
-				request.handshakeTimeoutMs,
-				verifiedChannelKey,
+			return await runtimeApi.abortable(
+				runtimeApi.Session.establishDialedLocator(
+					host,
+					locator,
+					channel,
+					request.handshakeTimeoutMs
+						? request.handshakeTimeoutMs + handshakeAllowanceMs
+						: request.handshakeTimeoutMs,
+					verifiedChannelKey,
+				),
+				request.signal,
+				(error) => host.recordCallerlessBindingFailure("web.session.cancel.cleanup", error),
+				(session) => session.closeTransport(),
 			);
 		} catch (error) {
-			channel.close();
-			throw error;
+			throw await runtimeApi.retainCleanupFailures(error, [() => channel.close()]);
 		}
 	};
 	const tcp = new runtimeApi.Connector(
@@ -271,7 +280,7 @@ function browserConnectors(
 	const connectors = [tcp];
 	if (options.relayUrl != null) {
 		const viaRelay =
-			(verifiedChannelKey: (locator: Locator) => string | null) =>
+			(verifiedChannelKey: (locator: Locator) => string | null, handshakeAllowanceMs = 0) =>
 			async (host: Host, locator: Locator, request: ConnectorRequest) =>
 				await establish(
 					host,
@@ -279,11 +288,20 @@ function browserConnectors(
 					request,
 					options.relayUrl!(runtimeApi.formatLocatorUri(locator)),
 					verifiedChannelKey(locator),
+					handshakeAllowanceMs,
 				);
 		connectors.push(
 			// The relay dials iroh itself and its QUIC handshake proves the node
 			// id, so the designator is the channel's verified key.
-			new runtimeApi.Connector([runtimeApi.TRANSPORT_IROH], viaRelay((locator) => locator.designator)),
+			new runtimeApi.Connector(
+				[runtimeApi.TRANSPORT_IROH],
+				viaRelay(
+					(locator) => locator.designator,
+					// The relay may spend the native discovery retry budget before
+					// forwarding the first handshake byte to this browser.
+					IROH_RELAY_DIAL_ALLOWANCE_MS,
+				),
+			),
 			// An onion service id is an address, not an identity (ADR-0108), so
 			// the relayed channel proves no key and the session reports what the
 			// partner claims about itself.

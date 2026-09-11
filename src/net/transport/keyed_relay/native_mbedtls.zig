@@ -37,10 +37,11 @@ pub const InitOutcome = union(enum) {
 /// and the immutable trust snapshot below them.
 pub const Provider = struct {
     relay: net.relay.Provider = undefined,
-    trust_summary: TrustSummary = undefined,
 
     /// Construct after `self` reaches its final address. All input bytes are
     /// borrowed only for this call. Refusal leaves no live state in `self`.
+    /// The ready outcome carries the trust-load result once; the provider
+    /// retains no copy of it.
     pub fn init(
         self: *Provider,
         io: std.Io,
@@ -68,12 +69,7 @@ pub const Provider = struct {
             if (tls.deinitOutcome()) |cleanup| failure.noteChain(cleanup);
             return .{ .failed = .{ .relay = failure } };
         };
-        self.trust_summary = initialized.trust;
-        return .{ .ready = self.trust_summary };
-    }
-
-    pub fn trustSummary(self: *const Provider) TrustSummary {
-        return self.trust_summary;
+        return .{ .ready = initialized.trust };
     }
 
     pub fn netlayers(self: *Provider) []const net.netlayer.Netlayer {

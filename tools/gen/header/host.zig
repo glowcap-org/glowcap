@@ -23,94 +23,13 @@ pub const outputs = [_]Output{
 };
 pub const step_name = "gen-header-host";
 
-// Every prototype the header emits, in order. The comptime guard below holds
-// this table against the real `c_abi_host` declarations in both directions,
-// so a new `pub export fn glowcap_host_*` cannot silently miss the header while
-// the gate stays green.
-const emitted_fn_names = [_][]const u8{
-    "glowcap_host_archive_fingerprint",
-    "glowcap_host_new",
-    "glowcap_host_new_in",
-    "glowcap_host_diagnostic_id",
-    "glowcap_host_close",
-    "glowcap_host_close_progress",
-    "glowcap_host_close_wait_ms",
-    "glowcap_host_lifecycle_state",
-    "glowcap_host_release",
-    "glowcap_host_designator_from_seed",
-    "glowcap_host_set_advertised_locator",
-    "glowcap_host_ensure_advertised_locator",
-    "glowcap_host_remove_advertised_locator",
-    "glowcap_host_set_session_limits",
-    "glowcap_host_session_open_dialed_locator",
-    "glowcap_host_session_open_accepted",
-    "glowcap_host_plan_dial",
-    "glowcap_host_pending_dial",
-    "glowcap_host_reference_exporter",
-    "glowcap_host_session_close",
-    "glowcap_host_session_close_progress",
-    "glowcap_host_session_lifecycle_state",
-    "glowcap_host_session_release",
-    "glowcap_host_session_is_open",
-    "glowcap_host_session_profile",
-    "glowcap_host_session_transport_name",
-    "glowcap_host_session_trace_id",
-    "glowcap_host_session_feed",
-    "glowcap_host_session_feed_bytes",
-    "glowcap_host_session_feed_packet",
-    "glowcap_host_session_resume_feed",
-    "glowcap_host_session_take_packet",
-    "glowcap_host_session_take_outbound",
-    "glowcap_host_next_action",
-    "glowcap_host_pump_drain",
-    "glowcap_host_dialed",
-    "glowcap_host_dial_failed",
-    "glowcap_host_dial_cancelled",
-    "glowcap_host_provide_gift_id",
-    "glowcap_host_gift_id_failed",
-    "glowcap_host_session_publish",
-    "glowcap_host_session_spawn",
-    "glowcap_host_publish",
-    "glowcap_host_unpublish",
-    "glowcap_host_publish_durable",
-    "glowcap_host_remove_durable",
-    "glowcap_host_session_fetch",
-    "glowcap_host_session_enliven",
-    "glowcap_host_enliven",
-    "glowcap_host_enliven_for_version",
-    "glowcap_host_fetch_at",
-    "glowcap_host_set_trace",
-    "glowcap_host_set_trace_queue",
-    "glowcap_host_next_trace",
-    "glowcap_host_resolver_fulfill",
-    "glowcap_host_resolver_break",
-    "glowcap_host_session_listen",
-    "glowcap_host_session_send",
-    "glowcap_host_session_tell",
-    "glowcap_host_vow_send",
-    "glowcap_host_vow_tell",
-    "glowcap_host_vow_release",
-    "glowcap_host_vow_index",
-    "glowcap_host_vow_untag",
-    "glowcap_host_vow_get",
-    "glowcap_host_turn_session",
-    "glowcap_host_turn_forward",
-    "glowcap_host_turn_defer",
-    "glowcap_host_turn_send",
-    "glowcap_host_turn_tell",
-    "glowcap_host_turn_spawn",
-    "glowcap_host_turn_break",
-    "glowcap_host_ref_release",
-    "glowcap_host_session_published_ref",
-    "glowcap_host_session_break_far_vows",
-    "glowcap_host_session_transport_closed",
-    "glowcap_host_session_set_exporter_location",
-    "glowcap_host_session_last_abort",
-    "glowcap_host_session_partner_abort",
-    "glowcap_host_session_partner_identity",
-    "glowcap_host_session_bind_verified_channel_key",
-    "glowcap_host_last_error",
-    "glowcap_host_clear_last_error",
+// The ABI metadata owns the symbol inventory used by every binding. Header
+// coverage still checks it against exported declarations and emitted prototypes.
+const emitted_fn_names = blk: {
+    const symbols = @import("c_abi_host").symbols.symbols;
+    var names: [symbols.len][]const u8 = undefined;
+    for (symbols, 0..) |symbol, i| names[i] = symbol.name;
+    break :blk names;
 };
 
 // Binds the shared reflection machinery to `libglowcap_host`. `special` names
@@ -526,6 +445,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try b.appendSlice(gpa, "\n");
     try emitFn(&b, gpa, "glowcap_host_pending_dial", &.{ "host", "ticket", "route_index", "hint_storage", "hint_capacity", "out_locator", "out_hint_count" }, "Project one concrete in-flight route for ticket into out_locator, using the\ncaller-owned hint_storage array. route_index comes from the DIAL action and is\npart of its report-back authority. On GLOWCAP_OK, *out_hint_count is the number\nof initialized hints and the locator plus all nested byte views remain\nHost-owned until glowcap_host_dialed / glowcap_host_dial_failed consumes that\nattempt (or Host teardown); hint_storage remains caller-owned. A null\nhint_storage with hint_capacity 0 is the size probe: when hints exist the call\nreturns GLOWCAP_ERR_BUFFER_TOO_SMALL, writes the exact required capacity to\n*out_hint_count, and leaves *out_locator untouched. The locator was parsed and\nretained once when the give was accepted; no URI is reparsed and no hint is\ndiscarded. Unknown or stale attempts return GLOWCAP_ERR_INVALID_ARGUMENT.");
+    try emitFn(&b, gpa, "glowcap_host_pending_dial_introducer", &.{ "host", "ticket", "route_index", "out_session" }, "Borrow the live session that supplied the oldest remaining give for this\npending dial, or write NULL when no live introducer remains (including a\npurely application-owned dial). Unknown or stale attempts return\nGLOWCAP_ERR_INVALID_ARGUMENT and leave the output untouched. A deduplicated\ndial may have several introducing sessions; this projects one source, not\nauthority over the others. Bindings capture it before starting the route effect\nto select application-owned signaling context without a global capture window.\nThe borrowed handle lives with that session; do not release it here. Waiter\nretirement can change a later observation; this call retains no session and\nmints no capability.");
     try emitFn(&b, gpa, "glowcap_host_reference_exporter", &.{ "host", "reference", "out_session" }, "Write the live session homing remote reference into *out_session, or NULL for\na local, stale, foreign-Host, or closed-session capability. Bindings compare\nthis result with the sending session after a call: the same session is an\nordinary reply, while another session is the exporter reached through handoff.\nThe answer comes from the reference's own Host row, with no dial-completion\ncapture window. The returned handle is Host-owned and lives with that session;\ndo not release it here.");
     try emitFn(&b, gpa, "glowcap_host_plan_dial", &.{ "transport", "transport_len", "designator", "designator_len", "direct_addresses_hint", "direct_addresses_hint_len", "posture_policy", "posture_value", "out_plan" }, "Resolve a dial without opening a socket: the transport dispatch, designator\nvalidation, host:port resolution, and peer-id reachability decision every binding\nused to re-express, done once here. transport/designator are the locator's\npieces (from glowcap_host_pending_dial or glowcap_uri_parse_peer);\ndirect_addresses_hint is the locator's direct-addresses hint (NULL/0 = none);\nposture_policy is a GLOWCAP_DIAL_POSTURE_* choosing the peer-id reachability rule,\nwith posture_value the caller's posture under GLOWCAP_DIAL_POSTURE_EXPLICIT.\nOn GLOWCAP_OK *out_plan is filled with views borrowing the caller's buffers; a\nbad locator returns GLOWCAP_ERR_INVALID_ARGUMENT (glowcap_host_last_error\ncarries which). Open the channel the plan names, then pass the same\nlocator view to glowcap_host_session_open_dialed_locator.");
     try b.appendSlice(gpa, "\n");
@@ -566,6 +486,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_host_enliven_for_version", &.{ "host", "captp_version", "sturdyref_uri", "sturdyref_uri_len", "out_vow" }, "The same Host-level select-or-dial enliven, parsing the sturdyref's swiss authority under the explicit GLOWCAP_CAPTP_* version that defined its spelling. Use this when the sturdyref arrived over a session whose settled version differs from the Host preference. Invalid versions are refused before any authority or dial state changes.");
     try emitFn(&b, gpa, "glowcap_host_fetch_at", &.{ "host", "locator", "name", "name_len", "out_vow" }, "Fetch a named publication at a typed peer locator through this Host's configured profile. Concrete locators select or open one physical session; an id/via locator is expanded by the Host's Node into its bounded authenticated route schedule. The caller names no CapTP version or codec. The host vow id lands in *out_vow and settles through the ordinary action queue. The locator and name are borrowed for this call; staged work retains its own copy. Refused inside a callback.");
     try emitFn(&b, gpa, "glowcap_host_session_listen", &.{ "session", "target", "out_vow" }, "Listen on a far capability this session holds (CapTP op:listen), minting a\nhost vow whose id lands in *out_vow; the listen notification arrives as that\nvow's SETTLE or FAIL action. In 1.0, the target may be a far promise or live\nfar object; a live object answers immediately. In glowcap-next, the target\nmust be a far promise because shortening and settling are promise-only. A\nre-gifted promise routes to its exporter session transparently, and a give in\nthe settlement auto-redeems exactly as a fetch's would. The vow is plain: a\nlisten makes no claim the result is a capability. Legal inside a callback.");
+    try emitFn(&b, gpa, "glowcap_host_session_resolve", &.{ "session", "target", "out_reference", "out_vow" }, "Resolve an opaque capability. An object returns one owned application retain\nin *out_reference and zero in *out_vow, without wire traffic. Release that\nretain with glowcap_host_ref_release. A promise returns a zero reference and\na settlement vow in *out_vow; its SETTLE/FAIL may carry any value. Inline\nhandoffs redeem through the Host. All pointers are required; outputs change\nonly on success. Legal inside a callback.");
 
     try emitFn(&b, gpa, "glowcap_host_session_send", &.{ "session", "target", "verb", "verb_len", "args", "args_len", "out_vow" }, "Eventual-send to an opaque Host-scoped target and mint a host vow for the\nanswer; the outcome arrives as that vow's SETTLE or FAIL action. The Host\nchooses local delivery or the owning exporter session. A target or nested\nargument from another Host, or a retired identity, is refused rather than\nbeing interpreted as a wire position. verb/args are borrowed; the host copies\nwhat it queues. An empty verb — including (NULL, 0), which the family's ptr+len\ncontract admits — is a real message, not an error: it delivers positionally,\nthe way Goblins invokes a capability. Legal inside a callback (the send\nencodes when the enclosing call unwinds).");
     try emitFn(&b, gpa, "glowcap_host_session_tell", &.{ "session", "target", "verb", "verb_len", "args", "args_len" }, "Fire-and-forget eventual-send: glowcap_host_session_send with no answer and no\nvow. Same routing, refusals, and empty-verb contract.");
@@ -579,15 +500,17 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_host_set_trace", &.{ "host", "callback", "ctx" }, "Install (or clear, with a NULL callback) the live trace: the host reports\nits own session opens, every message's verb in both directions, and session\ncloses through callback, on the host's one thread. Views in the event are\nborrowed for the call. The callback must call no host-driving verb.");
     try emitFn(&b, gpa, "glowcap_host_set_trace_queue", &.{ "host", "capacity", "payload_cap" }, "Install (or clear, with a zero capacity) the drained live trace: the host\ncaptures each fact into a fixed ring of capacity records, each holding up to\npayload_cap bytes of that record's strings, and the embedder pops them with\nglowcap_host_next_trace. This is the seam for an embedder that cannot hand\nthe library a function pointer. Nothing here grows: a full ring drops the\nnewest record and reports the count on the next one it captures, so tracing\nnever makes the protocol wait.");
     try emitFn(&b, gpa, "glowcap_host_next_trace", &.{ "host", "out_event" }, "Pop the oldest captured trace record into out_event. Its string views point\ninto the queue and stay valid until the next glowcap_host_next_trace call,\nthe same borrow glowcap_host_next_action carries. Returns\nGLOWCAP_ERR_WOULD_BLOCK when nothing is captured, so an embedder drains in a\nloop until it sees that code.");
-    try emitFn(&b, gpa, "glowcap_host_resolver_fulfill", &.{ "host", "resolver_id", "value" }, "Settle a resolver vow fulfilled with one capability-free value (a value\nnaming a capability refuses whole; an answer that carries authority uses\nthe turn's forward instead). Top-level: refused inside a callback; the\nsettle runs the deferred answers and pumps the sessions they dirtied. A\nsuccessful settle consumes the resolver; preparation failure is retryable,\nwhile a second successful settle or an unknown id refuses.");
+    try emitFn(&b, gpa, "glowcap_host_resolver_fulfill", &.{ "host", "resolver_id", "value" }, "Settle a resolver vow fulfilled with one capability-free value (a value\nnaming a capability refuses whole; owning-thread capability values use\nresolver_fulfill_value instead). Top-level: refused inside a callback; the\nsettle runs the deferred answers and pumps the sessions they dirtied. A\nsuccessful settle consumes the resolver; preparation failure is retryable.\nA consumed resolver refuses a second settle as INVALID_ARGUMENT, and an id\nthis host never minted refuses as NOT_FOUND.");
+    try emitFn(&b, gpa, "glowcap_host_resolver_fulfill_value", &.{ "host", "resolver_id", "value" }, "Fulfill a deferred answer with an owning-thread application value.\nCapabilities are projected in the original caller session. A stale or\ncross-session capability refuses the whole value and preserves the resolver\nfor retry; this seam does not perform a three-party handoff. Top-level and\nconsume-on-success, like resolver_fulfill. Plain worker/mailbox data continues\nto use resolver_fulfill.");
     try emitFn(&b, gpa, "glowcap_host_resolver_break", &.{ "host", "resolver_id", "message", "message_len" }, "Settle a resolver vow broken with a diagnostic borrowed for the call. The\nsame top-level, consume-on-success contract as\nglowcap_host_resolver_fulfill.");
+    try emitFn(&b, gpa, "glowcap_host_resolver_abandon", &.{ "host", "resolver_id", "message", "message_len" }, "Abandon a deferred answer, top-level. A resolver already consumed by\nsession teardown or settlement is complete cleanup. Unminted ids refuse\nNOT_FOUND; other failures leave the operation retryable.");
     try emitFn(&b, gpa, "glowcap_host_turn_session", &.{ "turn", "out_session" }, "Borrow the session whose Port delivered this callback turn. The handle is\nHost-owned and lives with that session; do not release it. This is how an\nembedder whose driver serves several sessions identifies the arriving\nconnection without reconstructing delivery state outside the core.");
-    try emitFn(&b, gpa, "glowcap_host_turn_forward", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_reply" }, "From inside a behavior callback, forward this turn's call to an opaque\nHost-scoped target and let this object's own answer settle on the forwarded\nresult — the caretaker/attenuator primitive. The Host resolves the target and\nevery nested capability; a stale or foreign-Host identity is refused. In a\nwire-served turn the real answer rides the forwarded vow and *out_reply gets a\nvoid placeholder; pass your behavior's own out_reply and return GLOWCAP_OK.\nThe written reply is BORROWED — valid until the next turn verb or drive on\nthis host. The empty-verb contract is glowcap_host_session_send's.");
+    try emitFn(&b, gpa, "glowcap_host_turn_forward", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_reply" }, "From inside a behavior callback, forward this turn's call to an opaque\nHost-scoped target and let this object's own answer settle on the forwarded\nresult — the caretaker/attenuator primitive. The Host resolves the target and\nevery nested capability; a stale or foreign-Host identity is refused. In a\nlocal eventual or wire-served turn the real answer rides the forwarded vow and *out_reply gets a\nvoid placeholder; pass your behavior's own out_reply and return GLOWCAP_OK.\nThe written reply is BORROWED — valid until the next turn verb or drive on\nthis host. The empty-verb contract is glowcap_host_session_send's.");
     try emitFn(&b, gpa, "glowcap_host_turn_defer", &.{ "turn", "out_resolver_id" }, "Atomically defer this turn's answer onto a fresh resolver vow (ADR-0102).\n*out_resolver_id receives the one-shot settle authority used by\nglowcap_host_resolver_fulfill / _break. All rows and the forward listener are\nreserved before publication, so refusal leaves no live resolver and no\nforwarded effect. The behavior returns normally after success; its return\nvalue resolves nothing once the turn is deferred.");
     try emitFn(&b, gpa, "glowcap_host_turn_send", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_vow" }, "From inside a behavior callback, eventual-send to target and mint a host vow\nfor the answer — the same routing, refusals, and empty-verb contract as\nglowcap_host_session_send, on the turn's own session. The send encodes when the\nenclosing top-level call unwinds.");
     try emitFn(&b, gpa, "glowcap_host_turn_tell", &.{ "turn", "target", "verb", "verb_len", "args", "args_len" }, "From inside a behavior callback, fire-and-forget eventual-send —\nglowcap_host_turn_send with no answer and no vow. Same empty-verb contract.");
     try emitFn(&b, gpa, "glowcap_host_turn_spawn", &.{ "turn", "behavior", "ctx", "free", "out_ref" }, "From inside a behavior callback, spawn a hosted object in the Host Vat and\ncreate its first projection on the Port that delivered this turn. This is how a\nserved factory mints a capability it replies with (a task board's create, a\ncaretaker wrapping a target), the turn-time form of\nglowcap_host_session_spawn. Same free contract; *out_ref receives the opaque\nHost-scoped capability, ready to ride this turn's own reply.");
-    try emitFn(&b, gpa, "glowcap_host_turn_break", &.{ "turn", "message", "message_len" }, "From inside a behavior callback, break this turn's own answer with message —\nhow a behavior refuses with a diagnostic, since a non-OK return settles the\nanswer broken with only a generic reason. The answer resolves broken inside\nthis call (a no-answer tell breaks nothing); leave out_reply untouched and\nreturn GLOWCAP_OK from the behavior, whose return value then resolves\nnothing. message is borrowed and copied.");
+    try emitFn(&b, gpa, "glowcap_host_turn_break", &.{ "turn", "message", "message_len" }, "From inside a behavior callback, break this turn's own answer with message —\nhow a behavior refuses with a diagnostic, since a non-OK return settles the\nanswer broken with only a generic reason. A wire answer breaks inside this\ncall; a local eventual answer breaks when its turn unwinds. A no-answer tell\nbreaks nothing. Leave out_reply untouched and\nreturn GLOWCAP_OK from the behavior, whose return value then resolves\nnothing. message is borrowed and copied.");
 
     try emitFn(&b, gpa, "glowcap_host_ref_release", &.{ "host", "ref", "delta" }, "Release delta application retains on one opaque Host capability. The Host\nresolves the owning session and emits any required op:gc-exports itself; the\ncaller never pairs a capability with a session-local wire position. If that\nsession already closed, its already-issued application units remain releaseable\nas wire-free success; every other use is stale. A fully released or foreign-Host\nidentity is refused. A non-OK return commits no release, so the same (ref, delta)\nmay be retried. OK consumes the release; any later pump cleanup failure becomes\ntyped session close and must not invite a duplicate release. Single-thread\naffinity applies: never call this from a finalizer thread.");
     try emitFn(&b, gpa, "glowcap_host_session_published_ref", &.{ "session", "name", "name_len", "out_ref" }, "Write to *out_ref the opaque Host-scoped capability currently published under\nname, or return GLOWCAP_ERR_NOT_FOUND when the Host has no such alias. The actor\nin the Host-owned Vat is lazily projected onto session when needed; the\nreturned identity itself carries no export position and retains no name.");

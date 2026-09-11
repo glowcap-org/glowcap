@@ -80,7 +80,7 @@ test "readFrameHeader accepts the plain server shapes" {
     try std.testing.expectEqual(keyed_relay.Opcode.continuation, cont.opcode);
 }
 
-test "readFrameHeader fails closed on every hostile shape" {
+test "readFrameHeader fails closed on every malformed shape" {
     try std.testing.expectError(error.ProtocolViolation, headerOf(&.{ 0xc2, 0x05 }));
     try std.testing.expectError(error.ProtocolViolation, headerOf(&.{ 0x82, 0x85, 1, 2, 3, 4 }));
     try std.testing.expectError(error.ProtocolViolation, headerOf(&.{ 0x81, 0x05 }));

@@ -12,13 +12,13 @@ use std::time::Duration;
 use crate::host::{Host, HostShared};
 use crate::session::{Session, HANDSHAKE_TIMEOUT};
 use crate::uri::{Locator, OwnedLocator};
-use crate::{sys, Connector, Error, Result, TransportOperationOptions};
+use crate::{sys, Connector, DialOrigin, Error, Result, TransportOperationOptions};
 
 pub(crate) async fn dial_with_connector(
 	connector: Connector,
 	locator: &Locator,
 	host: Host,
-	redeem: bool,
+	origin: DialOrigin,
 	transport_options: Option<&[u8]>,
 	handshake_timeout: Option<Duration>,
 ) -> Result<Session> {
@@ -28,6 +28,7 @@ pub(crate) async fn dial_with_connector(
 			format!("connector does not advertise transport {:?}", locator.transport),
 		));
 	}
+	#[cfg(not(target_arch = "wasm32"))]
 	if host.shared().driver_loop().is_some() {
 		return Err(Error::with_detail(
 			sys::ERR_INVALID_ARGUMENT,
@@ -35,12 +36,12 @@ pub(crate) async fn dial_with_connector(
 		));
 	}
 	let session = connector
-		.connect(host, locator, redeem, transport_options, handshake_timeout)
+		.connect(host, locator, origin, transport_options, handshake_timeout)
 		.await?;
 	Ok(session)
 }
 
-pub(crate) async fn dial_exporter(locator: &Locator, host: Rc<HostShared>) -> Result<Session> {
+pub(crate) async fn dial_exporter(locator: &Locator, host: Rc<HostShared>, origin: DialOrigin) -> Result<Session> {
 	let host = Host::from_shared(host);
 	let connector = host.shared().connector(&locator.transport).ok_or_else(|| {
 		Error::with_detail(
@@ -48,7 +49,7 @@ pub(crate) async fn dial_exporter(locator: &Locator, host: Rc<HostShared>) -> Re
 			format!("byte-fed Host has no connector for transport {:?}", locator.transport),
 		)
 	})?;
-	dial_with_connector(connector, locator, host, true, None, Some(HANDSHAKE_TIMEOUT)).await
+	dial_with_connector(connector, locator, host, origin, None, Some(HANDSHAKE_TIMEOUT)).await
 }
 
 /// Execute one byte-fed Host DIAL action and report its terminal result.
@@ -89,7 +90,22 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 			check_host(probe_rc)?;
 		}
 		let locator = OwnedLocator::clone_view(&view)?.value()?;
-		let session = Box::pin(dial_exporter(&locator, Rc::clone(host))).await?;
+		// Resolve the borrowed core session before yielding. This is a view of
+		// the existing wrapper, never an extra owner of its transport lifetime.
+		let mut source = core::ptr::null_mut();
+		check_host(unsafe { ffi::glowcap_host_pending_dial_introducer(host.raw(), ticket, route_index, &mut source) })?;
+		let introducer = if source.is_null() {
+			None
+		} else {
+			Some(Session::view(host.session_for_ptr(source).ok_or_else(|| {
+				Error::with_detail(
+					sys::ERR_INTERNAL,
+					"pending dial introducer has no byte-fed session wrapper".into(),
+				)
+			})?))
+		};
+		let origin = DialOrigin::Pending { introducer };
+		let session = Box::pin(dial_exporter(&locator, Rc::clone(host), origin)).await?;
 		host.guard_handle()?;
 		let raw_session = session.raw_session();
 		opened = Some(session);
@@ -118,7 +134,10 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 			session.close(crate::PendingWork::Cancel).await?;
 			return Ok(());
 		}
-		let session = opened.take().expect("reported session remains owned");
+		let session = opened
+			.take()
+			.expect("reported session remains owned")
+			.into_host_retained();
 		serve_tx.send(session).map_err(|_| {
 			Error::with_detail(
 				sys::ERR_INTERNAL,

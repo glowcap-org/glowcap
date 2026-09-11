@@ -30,7 +30,8 @@
 (require goblins
          "rooms-client.rkt"
          "trace-publish.rkt"
-         racket/async-channel)
+         racket/async-channel
+         racket/match)
 
 (file-stream-buffer-mode (current-output-port) 'line)
 
@@ -94,16 +95,24 @@
           (set-box! heard (list from text))
           (settle-when-both-done)))))
 
+   ;; The room answers subscribe with the membership seat, its kind, and the
+   ;; topic authority; the line is posted on the seat, never on the room.
    (define (join room)
      (on (<- room 'subscribe nick inbox)
-         (lambda (_ack)
+         (lambda (answer)
            (printf "~a subscribed to ~a~n" nick room-name)
-           (on (<- room 'post line)
-               (lambda (_posted)
-                 (printf "~a posted: ~a~n" nick line)
-                 (set-box! posted #t)
-                 (settle-when-both-done))
-               #:catch (lambda (err) (fail "post failed: ~v" err))))
+           (define seat
+             (match answer
+               [(list (? live-refr? seat) (or "observer" "participant") (or (? void?) (? live-refr?))) seat]
+               [_ #f]))
+           (if seat
+               (on (<- seat 'post line)
+                   (lambda (_posted)
+                     (printf "~a posted: ~a~n" nick line)
+                     (set-box! posted #t)
+                     (settle-when-both-done))
+                   #:catch (lambda (err) (fail "post failed: ~v" err)))
+               (fail "subscribe answered without a membership seat: ~v" answer)))
          #:catch (lambda (err) (fail "subscribe failed: ~v" err))))
 
    (define-values (directory-vow _our-locator)

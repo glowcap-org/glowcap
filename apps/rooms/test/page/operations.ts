@@ -24,6 +24,7 @@ import { runOperatorScene } from "./operations_operator.ts";
 import { runIrcScene } from "./operations_irc.ts";
 import { addCapability, removeCapability, saveCapabilitySet, takeCapability } from "./capability_set.ts";
 import { runPeeringScene } from "./operations_peering.ts";
+import { takeAndInspectDiagnostics } from "./operations_diagnostics.ts";
 import * as archiveOffline from "./archive_offline.ts";
 import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
 
@@ -184,8 +185,17 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await addCapability(tab, "#opsDiagnosticsToggle", "stale-diagnostics-swiss");
 	await tab.click("#opsCapabilitySetSave");
 	const staleFailures = tab.locator('.capability-set-errors .said[data-kind="failure"]');
-	await staleFailures.first().waitFor({ timeout: 15_000 });
-	if (await staleFailures.count() !== 2) fail("two stale capabilities did not produce two failure rows");
+	await tab.waitForFunction(
+		() => document.querySelectorAll('.capability-set-errors .said[data-kind="failure"]').length === 2,
+		undefined,
+		{ timeout: 15_000 },
+	).catch(async () =>
+		fail(
+			`two stale capabilities did not produce two failure rows: ${
+				JSON.stringify(await staleFailures.allTextContents())
+			}`,
+		)
+	);
 	if (await tab.locator("#opsCapabilitySetSaved").count() !== 0) {
 		fail("a partially refused capability set reported successful saving");
 	}
@@ -333,57 +343,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 		{ timeout: 15_000 },
 	).catch(() => fail("the keyed-relay listener did not come down"));
 
-	// Take diagnostics too: the page grows its pane navigation, and the diagnostics
-	// pane arrives holding its table.
-	await tab.click("#settingsBtn");
-	await tab.waitForSelector("#settingsTitle");
-	await tab.click("#holdingsTab");
-	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
-	await takeCapability(tab, "#opsDiagnosticsToggle", diagnosticsSwiss);
-	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
-	await tab.click("#opsBtn");
-	await tab.waitForSelector("#opsNav");
-	await tab.click("#directoryOpsLink");
-	await tab.waitForFunction(() => location.pathname === "/ops/directory");
-	// Inspect reads the directory's inventories under the operator's own
-	// headings, so a holder of either capability lands on one page. What it
-	// cannot do is act, so the pane draws no control at all rather than a
-	// disabled one.
-	await tab.waitForFunction(
-		() => {
-			const named = [...document.querySelectorAll("#directoryOpsPanel .entry-name")]
-				.map((row) => row.textContent ?? "");
-			return named.includes("directory");
-		},
-		undefined,
-		{ timeout: 10_000 },
-	).catch(() => fail("the diagnostics pane did not name the published bootstrap"));
-	const inspectShape = await tab.evaluate(() => {
-		const panel = document.getElementById("directoryOpsPanel");
-		return {
-			sections: [...(panel?.querySelectorAll(".ops-section .well-title") ?? [])]
-				.map((title) => (title.textContent ?? "").replace(/\d+$/, "").trim()),
-			// Everything pressable outside the head. The head's own control
-			// re-reads the directory, which is the one thing inspect may do.
-			acts: [...(panel?.querySelectorAll("button, input, select, textarea") ?? [])]
-				.filter((control) => control.closest(".ops-head") === null).length,
-		};
-	});
-	for (const heading of ["Room access", "Connections and live references", "Room moderator authority"]) {
-		if (!inspectShape.sections.includes(heading)) {
-			fail(`the diagnostics pane did not report ${heading}: ${JSON.stringify(inspectShape)}`);
-		}
-	}
-	if (inspectShape.acts !== 0) {
-		fail(`the diagnostics pane offered a control that acts: ${JSON.stringify(inspectShape)}`);
-	}
-	// Browser-only trouble stands beside the directory's holdings when there is
-	// something to inspect. An empty diagnostic well earns no space here.
-	if (await tab.locator("#pageTrouble").count() !== 0) {
-		fail("an empty browser-trouble journal still occupied the Directory pane");
-	}
-	await tab.click("#listenersOpsLink");
-	await tab.waitForSelector("#listenersList");
+	await takeAndInspectDiagnostics(tab, diagnosticsSwiss);
 
 	// The protocol visualizer. Its swiss is presented to
 	// the live timeline endpoint rather than fetched on the directory session,
@@ -443,7 +403,16 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.click("#holdingsTab");
 	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
 	await removeCapability(tab, "#opsVizToggle");
-	if ((await rememberedCaps()).includes("viz")) fail("dropping the viz capability kept its secret");
+	await tab.waitForFunction(
+		() => {
+			const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
+			const operations = state?.session?.capabilities?.operations;
+			return Array.isArray(operations) &&
+				!operations.some((row: { capability: string }) => row.capability === "viz");
+		},
+		undefined,
+		{ timeout: 10_000 },
+	).catch(async () => fail(`dropping the viz capability kept its secret: ${JSON.stringify(await rememberedCaps())}`));
 
 	// Dropping a capability takes its pane with it: with only listeners
 	// held, the page has no pane navigation and nothing of the diagnostics left.
@@ -584,8 +553,15 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	// after the next reload, and this browser keeps no swiss at all.
 	await removeCapability(tab, "#opsListenersToggle");
 	await tab.waitForSelector("#opsBtn", { state: "detached" });
-	const afterDrop = await rememberedCaps();
-	if (afterDrop.length !== 0) fail(`the drop kept a secret: ${JSON.stringify(afterDrop)}`);
+	await tab.waitForFunction(
+		() => {
+			const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
+			const operations = state?.session?.capabilities?.operations;
+			return Array.isArray(operations) && operations.length === 0;
+		},
+		undefined,
+		{ timeout: 10_000 },
+	).catch(async () => fail(`the drop kept a secret: ${JSON.stringify(await rememberedCaps())}`));
 	await tab.reload();
 	await tab.waitForSelector("#settingsBtn", { timeout: 30_000 });
 	const afterSecondReload = await rememberedCaps();

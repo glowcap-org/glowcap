@@ -1,4 +1,5 @@
 /// <reference lib="dom" />
+import "../support/browser_application.ts";
 
 // Type-only, so it is erased rather than evaluated: every value import here is
 // dynamic and below, because the store reads `matchMedia` as it loads.
@@ -22,19 +23,30 @@ function assert(ok: boolean, what: string): asserts ok {
 	if (!ok) throw new Error(what);
 }
 
-Deno.test("a join does not replace the conversation", () => {
+function memberView(away: string): import("../../web/ui/store.ts").RoomViewUpdate {
+	return {
+		members: [["bob", { online: true, away }]],
+		topic: null,
+		lineBytes: null,
+		bridge: null,
+		canSetTopic: false,
+		canModerate: false,
+	};
+}
+
+Deno.test("roster-only snapshots do not replace the conversation", () => {
 	projection.reset();
 	const room = store.ensureRoom(projection, dirId("test-dir"), "roster-identity");
 	const before = store.getConv(projection, room.key);
-	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	store.setRoomView(projection, room.key, memberView(""));
 	assert(store.getConv(projection, room.key) === before, "a join replaced the conversation");
 	assertEquals([...store.membersOf(projection, room.key).keys()], ["bob"]);
-	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	store.setRoomView(projection, room.key, memberView(""));
 	assert(store.getConv(projection, room.key) === before, "a repeated join replaced the conversation");
 	const roster = store.membersOf(projection, room.key);
-	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	store.setRoomView(projection, room.key, memberView(""));
 	assert(store.membersOf(projection, room.key) === roster, "a repeated join replaced the roster");
-	store.applyPresence(projection, room.key, { kind: "away", name: "bob", reason: "lunch" });
+	store.setRoomView(projection, room.key, memberView("lunch"));
 	assert(store.getConv(projection, room.key) === before, "an away word replaced the conversation");
 	assertEquals(store.membersOf(projection, room.key).get("bob")?.away, "lunch");
 });
@@ -99,9 +111,9 @@ Deno.test("an attached snapshot carries the bridge behind a room, and lets it go
 Deno.test("forgetting a conversation forgets who was in it", () => {
 	projection.reset();
 	const room = store.ensureRoom(projection, dirId("test-dir"), "roster-forget");
-	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	store.setRoomView(projection, room.key, memberView(""));
 	store.forgetConv(projection, room.key);
 	assertEquals([...store.membersOf(projection, room.key)], []);
-	store.applyPresence(projection, room.key, { kind: "join", name: "bob" });
+	store.setRoomView(projection, room.key, memberView(""));
 	assertEquals([...store.membersOf(projection, room.key)], []);
 });

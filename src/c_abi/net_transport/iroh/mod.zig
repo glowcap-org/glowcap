@@ -50,6 +50,8 @@
 //! `drain_ready` on one thread per netlayer, serialized against `_release` of the
 //! netlayer.
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const std = @import("std");
 
 const iroh = @import("iroh");

@@ -283,6 +283,23 @@ export async function run(
 	if (dim == null || dim.x >= dim.cardLeft) {
 		fail("the directory card had no dimmer around it to press");
 	}
+	// A reader selecting a line in the card and letting go past its edge has
+	// not asked for anything. The click that gesture reports names the dialog,
+	// which is the same thing the dim reports, so the card used to close and
+	// take their place with it. Pressed inside, released outside, and it stays.
+	await tab.mouse.move(dim.cardLeft + 24, dim.y);
+	await tab.mouse.down();
+	await tab.mouse.move(dim.x, dim.y, { steps: 8 });
+	await tab.mouse.up();
+	// Waited out rather than looked at: a card closes through a transition and
+	// stays in the document while it runs, so asking straight away finds it
+	// there whether or not the press took it.
+	const dragClosed = await tab.locator("#dircardTitle")
+		.waitFor({ state: "detached", timeout: 2_000 })
+		.then(() => true, () => false);
+	if (dragClosed) {
+		fail("dragging out of the directory card and releasing on the dim closed it");
+	}
 	await tab.mouse.click(dim.x, dim.y);
 	await tab.waitForSelector("#dircardTitle", { state: "detached", timeout: 10_000 })
 		.catch(() => fail("pressing the dim around the directory card did not close it"));

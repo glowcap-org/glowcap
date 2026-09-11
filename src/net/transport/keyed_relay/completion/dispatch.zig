@@ -34,7 +34,7 @@ pub fn Machine(
             defer if (op != .recv and comp.borrowed.active() and !borrow_transferred)
                 backend.platform.recycleBorrowed(comp);
             if (op == .close) {
-                std.debug.assert(c.close.platform == .in_flight);
+                std.debug.assert(c.inner_close == .in_flight);
             } else {
                 c.pending.retire(op);
             }
@@ -54,7 +54,7 @@ pub fn Machine(
                                 error.CloseFailed,
                             );
                     }
-                    c.close.platform = if (comp.result < 0) .failed else .closed;
+                    c.inner_close = if (comp.result < 0) .failed else .closed;
                     Access.maybeFinish(backend, c);
                 },
             }

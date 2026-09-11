@@ -203,7 +203,7 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
 
 /// Depth bound on a host-supplied argument tree. A foreign caller could nest
 /// `GlowcapArgument` lists/sets/tagged values arbitrarily deep and overflow the
-/// native stack inside `argumentFromC`, exactly as a hostile wire frame could in
+/// native stack inside `argumentFromC`, exactly as an untrusted wire frame could in
 /// the codec. Derived from the session's default `max_nesting_depth`, so the
 /// marshal boundary and the codec refuse at the same depth by construction.
 pub const max_marshal_depth: usize = (engine.SessionLimits{}).max_nesting_depth;

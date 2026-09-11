@@ -150,6 +150,12 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
   QUIC and dropping Tokio. Thus runtime shutdown cannot discard bytes for which
   `conn_try_write` already reported success. The old blocking compatibility
   calls keep their close-and-fence teardown outside the completion path.
+  A clean QUIC connection close has the same classification in reader and writer:
+  a write can observe it before the application closes its handle, without
+  poisoning the endpoint's later release. Readiness still closes the session and
+  further writes refuse. Other live-write failures and unfinished task permits
+  remain teardown failures. The sidecar lifecycle test fixes this ordering
+  explicitly; the native Rooms archive test also covers active-client shutdown.
 - **Native Zig QUIC stays rejected.** ADR-0055's flip condition is unchanged:
   this bridge makes the _sidecar_ scale, which removes the main reason to chase
   a native rewrite. A native path still waits on iroh's protocols stabilizing

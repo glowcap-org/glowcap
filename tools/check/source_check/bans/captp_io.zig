@@ -191,11 +191,11 @@ pub const captp_io_spine_table: []const Ban = &.{
         .why = "tcp netlayer reaches socket ops through net.socket, never completion/ internals",
     },
     .{
-        .where = .{ .file = "src/net/transport/tcp/key_addressed.zig" },
+        .where = .{ .file = "src/net/transport/tcp/profile.zig" },
         .kind = .forbid,
         .needles = &.{"@import(\"../completion/"},
         .check = "captp-io-spine",
-        .why = "keyed-tcp netlayer reaches socket ops through net.socket, never completion/ internals",
+        .why = "the TCP profile residents reach socket ops through net.socket, never completion/ internals",
     },
     .{
         .where = .{ .files = iroh_paths },

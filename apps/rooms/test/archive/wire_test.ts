@@ -36,16 +36,17 @@ roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", 
 					const revision = after + offset + 1;
 					const record: ArchiveLine = {
 						kind: "line",
-						source: "hostile-source",
-						generation: "hostile-generation",
-						id: `hostile-${revision}`,
+						source: "filler-source",
+						generation: "filler-generation",
+						id: `filler-${revision}`,
 						conversationKind: "direct",
-						directory: "hostile-directory",
-						conversation: "hostile-conversation",
-						from: "hostile",
+						directory: "filler-directory",
+						conversation: "filler-conversation",
+						from: "filler",
 						text: "still promising more",
 						mine: false,
 						at: revision,
+						order: revision,
 						state: "present",
 						attachments: [],
 					};
@@ -69,6 +70,7 @@ roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", 
 						text,
 						mine: false,
 						at: revision,
+						order: revision,
 						state: revision === 1 ? "present" : "edited",
 						attachments: [],
 					};
@@ -112,6 +114,7 @@ roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", 
 			text: "kept over the floor",
 			mine: false,
 			at: 1,
+			order: 1,
 			state: "present",
 			attachments: [],
 		};
@@ -159,6 +162,8 @@ roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", 
 			"archive blob bytes changed over the floor",
 		);
 		session.release(archivedFile.blob);
+		const originalFile = await readArchiveAttachment(session, archive, storedFile, 0);
+		assert(originalFile !== null, "archive did not mint a reader for the original file revision");
 
 		const elsewhere = { ...record, id: "elsewhere", directory: "ocapn://elsewhere.example" };
 		await putArchive(session, archive, elsewhere);
@@ -219,6 +224,39 @@ roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", 
 			"blob(digest) did not return the scoped facet's bytes",
 		);
 		session.release(hashed);
+		await putArchiveWithAttachments(session, archive, {
+			...fileRecord,
+			state: "edited",
+			attachments: [{ ...fileRecord.attachments[0], name: "renamed.txt" }],
+		}, [{ name: "renamed.txt", mime: "text/plain", bytes }]);
+		assert(
+			new TextDecoder().decode(await fetchBlob(session, originalFile)) === "kept blob bytes",
+			"a metadata-only revision revoked unchanged content bytes",
+		);
+
+		// A file capability is content authority, not a live coordinate lookup.
+		// Replacing the line's file must make an already-minted reader refuse;
+		// serving the replacement bytes under the original digest would retarget
+		// a capability the holder already received.
+		const replacementBytes = new Uint8Array(bytes.length).fill(0x78);
+		await putArchiveWithAttachments(session, archive, { ...fileRecord, state: "edited" }, [{
+			name: "floor.txt",
+			mime: "text/plain",
+			bytes: replacementBytes,
+		}]);
+		let replacedRead = "";
+		try {
+			await fetchBlob(session, originalFile);
+		} catch (error) {
+			replacedRead = error instanceof Error ? error.message : String(error);
+		} finally {
+			session.release(originalFile.blob);
+		}
+		assert(
+			replacedRead.includes("unavailable through this facet"),
+			"an archived-file capability retargeted to replacement bytes",
+		);
+
 		const foreignDigest = storedElsewhere.attachments[0]?.blob;
 		assert(typeof foreignDigest === "string", "the foreign file line lost its digest");
 		blobRefusal = "";

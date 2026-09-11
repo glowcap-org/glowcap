@@ -39,5 +39,5 @@ done
 }
 
 GLOWCAP_ONION_SOCKS="$socks" GLOWCAP_ONION_CONTROL="$control" \
-  deno run --allow-ffi --allow-read --allow-net --allow-env \
+  deno run --allow-run --allow-ffi --allow-read --allow-net --allow-env \
   apps/rooms/demos/onion_demo.ts

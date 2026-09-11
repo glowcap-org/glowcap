@@ -127,7 +127,7 @@ function endpointPeer(ev: StageEvent, side: "a" | "b"): string | null {
 	return null;
 }
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "general";
 const NICK1 = "nick1";
@@ -359,19 +359,8 @@ const httpPort = freePort();
 const roomPort = freePort();
 const vizPort = freePort();
 
-const web = spawnOwned("deno", {
-	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		WEB,
-		String(httpPort),
-		String(roomPort),
-	],
+const web = spawnOwned(WEB, {
+	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
 	env: { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "inherit",

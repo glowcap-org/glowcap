@@ -86,6 +86,11 @@ pub(crate) struct LoopShared {
 	/// Re-entrancy latch: `glowcap_driver_step` must never nest (a behavior
 	/// fired inside a step kicks through deferred tasks, never a direct step).
 	stepping: Cell<bool>,
+	/// Coalescing latch: one deferred step task is in flight, so every kick
+	/// that lands before it runs joins it instead of spawning its own. One
+	/// awaited send kicks several times (serve, attend, the vow guard) and
+	/// each used to be a task and a full step that found nothing to do.
+	step_scheduled: Cell<bool>,
 	parked: Cell<bool>,
 	park: RefCell<Option<tokio::task::AbortHandle>>,
 	pending_dials: RefCell<HashMap<u64, oneshot::Sender<Result<*mut ffi_host::GlowcapHostSession>>>>,
@@ -106,14 +111,14 @@ pub(crate) struct LoopShared {
 	wrapper: RefCell<Option<Weak<HostShared>>>,
 }
 
-#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
+#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 struct PendingListenerSetup {
 	lp: Rc<LoopShared>,
 	listener: u64,
 	armed: bool,
 }
 
-#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion"))]
+#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 impl Drop for PendingListenerSetup {
 	fn drop(&mut self) {
 		if !self.armed || self.lp.released.get() {
@@ -153,23 +158,10 @@ impl LoopShared {
 	/// here, at the binding's entropy boundary). The budgets must be positive:
 	/// the loop refuses an unbounded wait by construction.
 	pub(crate) fn open(handshake_ms: u32, settle_ms: u32) -> Result<Rc<LoopShared>> {
-		Self::open_with_durable_seed(handshake_ms, settle_ms, None)
-	}
-
-	/// Open a loop with an optional durable identity seed and a fresh
-	/// per-process session-key root.
-	pub(crate) fn open_with_durable_seed(
-		handshake_ms: u32,
-		settle_ms: u32,
-		durable_seed: Option<[u8; 32]>,
-	) -> Result<Rc<LoopShared>> {
 		let mut seed = [0u8; 64];
 		getrandom::fill(&mut seed).map_err(|error| {
 			Error::with_detail(sys::ERR_IO, format!("drawing the driver Host seed failed: {error}"))
 		})?;
-		if let Some(durable) = durable_seed {
-			seed[..32].copy_from_slice(&durable);
-		}
 		let driver = DriverLoop::open(
 			&seed,
 			DriverLoopOptions {
@@ -189,6 +181,7 @@ impl LoopShared {
 			terminal_failure: RefCell::new(None),
 			close_task_started: Cell::new(false),
 			stepping: Cell::new(false),
+			step_scheduled: Cell::new(false),
 			parked: Cell::new(false),
 			park: RefCell::new(None),
 			pending_dials: RefCell::new(HashMap::new()),
@@ -224,6 +217,7 @@ impl LoopShared {
 			terminal_failure: RefCell::new(None),
 			close_task_started: Cell::new(false),
 			stepping: Cell::new(false),
+			step_scheduled: Cell::new(false),
 			parked: Cell::new(false),
 			park: RefCell::new(None),
 			pending_dials: RefCell::new(HashMap::new()),
@@ -312,7 +306,7 @@ impl LoopShared {
 		self.note_step_activity();
 	}
 
-	#[cfg(test)]
+	#[cfg(all(test, feature = "tcp"))]
 	pub(crate) fn is_released(&self) -> bool {
 		self.released.get()
 	}
@@ -433,15 +427,19 @@ impl LoopShared {
 	/// drain. Deferred through a task, so a kick from inside a behavior turn
 	/// steps only after the enclosing step (or feed) unwinds.
 	pub(crate) fn schedule_step(self: &Rc<Self>) {
-		if self.released.get() {
+		if self.released.get() || self.step_scheduled.replace(true) {
 			return;
 		}
 		let lp = Rc::clone(self);
 		if !try_spawn_local(async move {
+			// Cleared before stepping, so a kick from inside this step
+			// schedules the next one rather than being lost.
+			lp.step_scheduled.set(false);
 			if let Err(error) = lp.step_now() {
 				lp.fail_background(error);
 			}
 		}) {
+			self.step_scheduled.set(false);
 			self.fail_background(Error::with_detail(
 				sys::ERR_INTERNAL,
 				"the driver loop needs a running LocalSet to schedule progress".to_string(),

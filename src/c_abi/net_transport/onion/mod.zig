@@ -5,6 +5,8 @@
 //! `framed/` projects blocking managed-frame handles. Tor control, SOCKS, onion
 //! service lifecycle, and socket policy remain in `net.onion`.
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const std = @import("std");
 const c = @import("c_abi_shared");
 const contract = @import("contract.zig");

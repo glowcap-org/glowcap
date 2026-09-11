@@ -112,10 +112,13 @@ function ChoiceAsk(
 
 /** The rooms heading, which is also what opens the rail's questions. */
 export function RailFilter(
-	{ title, criteria, answers, shown, total, onAnswers }: {
+	{ title, anchor, criteria, answers, shown, total, onAnswers }: {
 		/** What the list under this heading is called. The heading is the press
 		 * target, so the words are the control's own label as well. */
 		title: string;
+		/** The section head this heading stands in. The panel spans the section,
+		 * not the words that opened it, so it is measured against the head. */
+		anchor: { current: HTMLElement | null };
 		criteria: readonly Criterion[];
 		answers: FilterAnswers;
 		/** How many rows the rail is drawing, and how many it holds. Counted by
@@ -159,7 +162,7 @@ export function RailFilter(
 				{asked && <span className="rail-filter-count">{countSaid(shown, total)}</span>}
 			</button>
 			{open && (
-				<MenuLayer holder={holder} layer={layer}>
+				<MenuLayer holder={holder} anchor={anchor} layer={layer}>
 					<div
 						id="railFilterPanel"
 						className="filter-panel"

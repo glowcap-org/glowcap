@@ -21,7 +21,11 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 Object.defineProperty(globalThis, "location", {
 	configurable: true,
-	value: { reload() {} },
+	value: { href: "https://rooms.test/", reload() {} },
+});
+Object.defineProperty(globalThis, "history", {
+	configurable: true,
+	value: { replaceState() {} },
 });
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
@@ -36,6 +40,7 @@ Deno.test("an attached export never substitutes browser state for a missing shar
 	const controller = {
 		current: null,
 		onOperationsInvalidated: () => () => {},
+		onOperationsRead: () => () => {},
 		onSnapshot: () => () => {},
 	} as unknown as import("../../web/ui/session/attached.ts").AttachedRoomsController;
 	const page = new RoomsPage();
@@ -84,6 +89,9 @@ Deno.test("an attached state import replaces the remote checkpoint and preserves
 		onOperationsInvalidated() {
 			return () => {};
 		},
+		onOperationsRead() {
+			return () => {};
+		},
 		replaceCheckpoint: (next: typeof checkpoint) => {
 			checkpoint = next;
 			return Promise.resolve({ ...snapshot(), revision: 1 });
@@ -130,6 +138,9 @@ Deno.test("clearing an attached state empties the remote checkpoint without clea
 			return () => {};
 		},
 		onOperationsInvalidated() {
+			return () => {};
+		},
+		onOperationsRead() {
 			return () => {};
 		},
 		replaceCheckpoint: (next: typeof checkpoint) => {
@@ -219,6 +230,9 @@ Deno.test("a hosted state import replaces the checkpoint without reloading", asy
 		onOperationsInvalidated() {
 			return () => {};
 		},
+		onOperationsRead() {
+			return () => {};
+		},
 		replaceCheckpoint: (next: typeof checkpoint) => {
 			checkpoint = next;
 			return Promise.resolve({ ...snapshot(), revision: 1 });
@@ -262,6 +276,9 @@ Deno.test("a hosted connection choice does not reload this tab", async () => {
 			return () => {};
 		},
 		onOperationsInvalidated() {
+			return () => {};
+		},
+		onOperationsRead() {
 			return () => {};
 		},
 		chooseConnection: (dm: string, viz: string) => {

@@ -8,10 +8,11 @@
 		     iOS turns them into tel: links. -->
 		<meta name="format-detection" content="telephone=no" />
 		<!-- The colour a phone paints its own chrome with, so the browser's bar
-		     and the page are one surface rather than two. This is the light
-		     palette's paper; App.tsx keeps it agreeing with the theme in force,
-		     reading the value from the token the page itself paints with. -->
-		<meta name="theme-color" content="#f8e7c9" />
+		     and the page are one surface rather than two. This is syrup's paper,
+		     the face a reader who has chosen nothing opens on; App.tsx keeps it
+		     agreeing with the theme in force, reading the value from the token
+		     the page itself paints with. -->
+		<meta name="theme-color" content="#211911" />
 		<title>glowcap rooms</title>
 		<link rel="preload" as="font" type="font/woff2"
 			href="/fonts/ibm-plex-sans-latin-wght-normal.woff2" crossorigin />
@@ -29,8 +30,8 @@
 		// scripts and must not be told it is not.
 		//
 		// The second is a remembered theme. Without it the page paints once in
-		// the default palette and repaints when the module runs, which on a cold
-		// load is a visible flash.
+		// the default face and repaints when the module runs, which for a reader
+		// who chose light is a visible flash of syrup.
 		//
 		// It is a guess, and it is allowed to be wrong. The session decides the
 		// theme, and an attached one may say something else once it is up; the
@@ -51,7 +52,7 @@
 			var saved = JSON.parse(localStorage.getItem("rooms.workspace-state") || "null");
 			var t = saved && saved.view ? saved.view.theme : null;
 			if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
-		} catch (_) { /* private mode: the stylesheet's media query answers */ }
+		} catch (_) { /* private mode: the stylesheet's default face answers */ }
 		</script>
 		<link rel="stylesheet" href="/page.css" />
 	</head>
@@ -68,10 +69,12 @@
 		     bundle itself. -->
 		<div id="boot" class="boot">
 			<div class="boot-wait">
-				<div class="boot-lockup brand-lockup">
-					<div class="boot-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i
-						class="mark-piece mark-cake-2"
-					></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></div>
+				<div class="brand-lockup">
+					<!-- The mark's box. The mark itself is drawn by the bundle, in
+					     WebGPU, and grows into this box once its code has arrived. -->
+					<div class="boot-mark-stack">
+						<div class="boot-mark" aria-hidden="true"></div>
+					</div>
 					<p class="boot-name wordmark"><span>glowcap</span><small>rooms</small></p>
 				</div>
 				<!-- Two lines: what is happening, and something to read while it

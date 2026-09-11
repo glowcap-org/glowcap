@@ -10,7 +10,7 @@ import { confirmTitleLeave } from "../../apps/rooms/test/support/page.ts";
 import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const WEB = new URL("../../apps/rooms/web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../../apps/rooms/test/support/web_binary.ts";
 const CHAT = new URL("../../conformance/goblins-peer/racket/rooms-chat.rkt", import.meta.url)
 	.pathname;
 const RACKET_DIR = new URL("../../conformance/goblins-peer/racket/", import.meta.url).pathname;
@@ -387,17 +387,9 @@ async function reopenBrowserDm(
 const httpPort = freePort();
 const roomPort = freePort();
 const vizPort = freePort();
-const web = new Deno.Command("deno", {
+const web = new Deno.Command(WEB, {
 	args: [
-		"run",
-		"--allow-ffi",
-		"--allow-read",
-		"--allow-write",
-		"--allow-net",
-		"--allow-env",
-		"--allow-run",
-		"--unstable-ffi",
-		WEB,
+		"--transport=tcp",
 		"--transport=iroh",
 		String(httpPort),
 		String(roomPort),

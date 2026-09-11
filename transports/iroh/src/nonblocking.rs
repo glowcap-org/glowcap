@@ -82,8 +82,13 @@ impl Outbound {
 		batch
 	}
 
-	pub(crate) fn finish_batch(&mut self, mut batch: Vec<u8>, succeeded: bool) {
+	/// Retire the writer's borrowed batch and report whether the application had
+	/// closed the connection by the time the write completed. The writer must
+	/// classify a failed write from this completion-time state: `conn_close` can
+	/// set `closed` while QUIC flow control has the batch suspended.
+	pub(crate) fn finish_batch(&mut self, mut batch: Vec<u8>, succeeded: bool) -> bool {
 		debug_assert_eq!(self.in_flight, batch.len());
+		let closed_before_completion = self.closed;
 		self.in_flight = 0;
 		if !succeeded {
 			self.closed = true;
@@ -93,6 +98,7 @@ impl Outbound {
 			batch.shrink_to(NB_STEADY_BYTES);
 		}
 		self.spare = batch;
+		closed_before_completion
 	}
 }
 
@@ -177,6 +183,7 @@ async fn nb_reader(nb: Arc<NbConn>, mut recv: RecvStream) {
 /// Parks on `write_work` when the buffer is empty; finishes the stream and exits
 /// once the loop has closed the connection and the buffer has drained.
 async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) -> Result<(), ()> {
+	let mut close_deadline = None;
 	loop {
 		let notified = nb.write_work.notified();
 		let (chunk, closed) = {
@@ -186,29 +193,64 @@ async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) -> Result<(), ()> {
 			let chunk = out.take_batch();
 			(chunk, out.closed)
 		};
+		if closed && close_deadline.is_none() {
+			close_deadline = Some(tokio::time::Instant::now() + CLOSE_DRAIN_TIMEOUT);
+		}
 		if !chunk.is_empty() {
-			let succeeded = {
+			let outcome = {
 				let write = send.write_all(&chunk);
 				tokio::pin!(write);
-				tokio::select! {
-					result = &mut write => result.is_ok(),
-					_ = nb.close_work.notified() => {
-						tokio::time::timeout(CLOSE_DRAIN_TIMEOUT, &mut write)
-							.await
-							.is_ok_and(|result| result.is_ok())
+				if let Some(deadline) = close_deadline {
+					tokio::time::timeout_at(deadline, &mut write).await.ok()
+				} else {
+					tokio::select! {
+						result = &mut write => Some(result),
+						_ = nb.close_work.notified() => {
+							let deadline = tokio::time::Instant::now() + CLOSE_DRAIN_TIMEOUT;
+							close_deadline = Some(deadline);
+							tokio::time::timeout_at(deadline, &mut write).await.ok()
+						}
 					}
 				}
 			};
-			nb.outbound.lock().unwrap().finish_batch(chunk, succeeded);
+			let succeeded = outcome.as_ref().is_some_and(|result| result.is_ok());
+			let clean_close = matches!(
+				outcome,
+				Some(Err(iroh::endpoint::WriteError::ConnectionLost(
+					ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed
+				)))
+			);
+			let closed_before_completion = nb.outbound.lock().unwrap().finish_batch(chunk, succeeded);
 			if !succeeded {
 				nb.readiness.signal(nb.id, EV_CLOSED);
-				return Err(());
+				// Match the reader's connection-close classification. The writer
+				// can observe the peer's close before the application observes
+				// EV_CLOSED and closes its handle. That scheduling order must not
+				// turn a normal departure into a later endpoint release failure.
+				// Other live-write failures still fail the drain barrier; a local
+				// close retains its bounded best-effort farewell behavior.
+				return if clean_close || closed_before_completion {
+					Ok(())
+				} else {
+					Err(())
+				};
 			}
 			nb.readiness.signal(nb.id, EV_WRITABLE);
 			continue;
 		}
 		if closed {
-			return send.finish().map_err(|_| ());
+			send.finish().map_err(|_| ())?;
+			// finish queues FIN; it does not acknowledge the final bytes. The
+			// stream holds the last connection reference after conn_free, so
+			// dropping it here would implicitly close QUIC and discard the tail.
+			let deadline = close_deadline.expect("closed writer has a drain deadline");
+			return match tokio::time::timeout_at(deadline, send.stopped()).await {
+				Ok(Ok(_)) => Ok(()),
+				Ok(Err(iroh::endpoint::StoppedError::ConnectionLost(
+					ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed,
+				))) => Ok(()),
+				_ => Err(()),
+			};
 		}
 		notified.await;
 	}

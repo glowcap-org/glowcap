@@ -174,13 +174,15 @@ pub export fn glowcap_iroh_netlayer_start_connect(
     };
     nl.resident.loopStartConnectResolved(request_id, target.id, target.hints) catch |err| {
         if (err == error.WouldBlock) return GLOWCAP_ERR_WOULD_BLOCK;
-        return dialErrorToCode(@errorCast(err));
+        return dialErrorToCode(@errorCast(err), "");
     };
     return GLOWCAP_OK;
 }
 
 /// Consume one terminal dial after CONNECT readiness. Connection allocation
-/// and registration happen here, on the readiness owner thread.
+/// and registration happen here, on the readiness owner thread. A failure
+/// records iroh's own text for the fault beside its classification in this
+/// archive's last-error slot, read through `glowcap_iroh_last_error`.
 pub export fn glowcap_iroh_netlayer_finish_connect(
     netlayer: ?*GlowcapIrohNetlayer,
     request_id: usize,
@@ -190,7 +192,8 @@ pub export fn glowcap_iroh_netlayer_finish_connect(
     const nl = ownership.netlayerFromOpaque(netlayer) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_conn orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = null;
-    const raw = nl.resident.loopFinishConnect(request_id) catch |err| return dialErrorToCode(err);
+    var text: iroh.DialText = .{};
+    const raw = nl.resident.loopFinishConnect(request_id, &text) catch |err| return dialErrorToCode(err, text.slice());
     const payload = ownership.registerConn(nl, raw) orelse {
         nl.resident.loopConnClose(raw);
         return c.failInternal("iroh finish_connect", error.OutOfMemory);
@@ -270,7 +273,15 @@ fn drainInto(nl: *NetlayerPayload, dest: []GlowcapIrohReadyEvent) isize {
     return @intCast(out_n);
 }
 
-fn dialErrorToCode(err: net.netlayer.DialError) i32 {
+/// Project a dial's classification onto the C result and name the concrete
+/// cause in the last-error slot: the classification, then the transport's own
+/// text for the fault when the sidecar supplied one. The slot copies, so the
+/// text may live on the caller's stack.
+fn dialErrorToCode(err: net.netlayer.DialError, detail: []const u8) i32 {
+    if (detail.len != 0)
+        setLastError("connect: {s}: {s}", .{ @errorName(err), detail })
+    else
+        setLastError("connect: {s}", .{@errorName(err)});
     return switch (err) {
         // Permanent under ADR-0082 `isTransient`: bindings must not retry these.
         error.InvalidAddress, error.InvalidOptions, error.ConnectionRefused => GLOWCAP_ERR_INVALID_ARGUMENT,
@@ -280,9 +291,6 @@ fn dialErrorToCode(err: net.netlayer.DialError) i32 {
         error.ConnectionLost,
         error.SocketConfigurationFailed,
         error.WakeNudgeFailed,
-        => blk: {
-            setLastError("connect: {s}", .{@errorName(err)});
-            break :blk GLOWCAP_ERR_IO;
-        },
+        => GLOWCAP_ERR_IO,
     };
 }

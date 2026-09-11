@@ -26,24 +26,22 @@ glowcap_pins_companion_source() {
 
 glowcap_pins_companions() {
     local dep="$1" old="$2" new="$3"
-    local old_digest="${4:-${DENO_IMAGE_DIGEST:-}}" new_digest="${5:-${DENO_IMAGE_DIGEST:-}}"
     case "${dep}" in
         debian)
             printf '%s\t%s\t%s\n' \
                 .devcontainer/Dockerfile "debian:${DEBIAN_BASE_TAG}@${old}" "debian:${DEBIAN_BASE_TAG}@${new}" \
                 apps/rooms/web/deploy/rooms.Dockerfile "debian:${DEBIAN_BASE_TAG}@${old}" "debian:${DEBIAN_BASE_TAG}@${new}"
             ;;
-        deno)
-            printf '%s\t%s\t%s\n' \
-                apps/rooms/web/deploy/rooms.Dockerfile \
-                "denoland/deno:bin-${old}@${old_digest}" \
-                "denoland/deno:bin-${new}@${new_digest}"
-            ;;
         playwright)
-            # The root deno.json resolves the browser proofs' playwright import
-            # from the same number; source-check fails if the two disagree.
+            # Every Deno scope that drives a browser resolves its playwright
+            # import from the same number; source-check fails if any disagrees.
+            # Each scope's frozen deno.lock restates the version too, and only
+            # Deno can rewrite those: after the bump, run
+            # `deno install --frozen=false` in each scope listed here.
             printf '%s\t%s\t%s\n' \
-                deno.json "npm:playwright@${old}" "npm:playwright@${new}"
+                deno.json "npm:playwright@${old}" "npm:playwright@${new}" \
+                bindings/ts/deno.json "npm:playwright@${old}" "npm:playwright@${new}" \
+                apps/ocapnviz/deno.json "npm:playwright@${old}" "npm:playwright@${new}"
             ;;
     esac
 }

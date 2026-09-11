@@ -194,7 +194,7 @@ fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vi
 /// Parse hints with allocation; entries are heap-owned. Keys and values are
 /// duped so the result outlives the frame. Free with `model.freeHints`.
 /// Allocation failure propagates as `OutOfMemory`, never as a frame error:
-/// running out of heap is not evidence the partner sent hostile bytes.
+/// running out of heap is not evidence the partner sent untrusted bytes.
 fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.Hints {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     if (bytes[cursor.*] == 'f') {

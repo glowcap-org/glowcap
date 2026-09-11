@@ -53,6 +53,7 @@
          ffi/unsafe/port
          racket/lazy-require
          "private/constants.rkt"
+         (only-in "private/abi-value.rkt" DEFAULT-CODEC-SYMBOL)
          "private/ffi-onion.rkt"
          "private/ffi-shared.rkt"
          "private/locator.rkt"
@@ -62,20 +63,15 @@
          "private/transport.rkt")
 
 (lazy-require
- ["private/host/state.rkt" (host-loop-of host-codec)]
+ ["private/host/state.rkt" (host-loop-of)]
+ ["private/listen-loop.rkt" (listen-loop-profile resolve-host-profile)]
  ["private/loop.rkt"
   (open-driver-loop
    driver-loop-start!
    driver-loop-abort!
    driver-loop-add-provider!
    loop-connect-session
-   loop-listen!
-   loop-listener-ready!
-   loop-listener-locator
    loop-listener-restoration-state
-   loop-listener-select!
-   loop-listener-close!
-   make-loop-server
    loop-server-locator
    loop-server-host
    loop-server-accept
@@ -264,7 +260,12 @@
 ;; Host CapTP through an onion service using the generic driver listener. The
 ;; onion package owns only provider composition and the interpretation of its
 ;; restoration bytes; the driver owns the canonical locator and accepted
-;; Session handles.
+;; Session handles, and the shared listener spine owns the loop, its Host
+;; profile, and the setup rollback. A service id is an address, so the
+;; listener keeps no durable seed. `#:codec`, `#:captp-version`, `#:features`,
+;; and `#:options` are the TCP listeners' keywords: each is honored exactly or
+;; refused, and the onion provider defines no per-listen options, so any value
+;; other than an empty one is refused as the listener opens.
 (define (listen-onion #:socks socks
                       #:control [control #f]
                       #:auth-kind [auth-kind AUTH-NONE]
@@ -272,38 +273,30 @@
                       #:service-key [service-key #f]
                       #:forward [forward #f]
                       #:codec [codec #f]
-                      #:captp-version [captp-version 'v1_0]
-                      #:features [features 'full]
+                      #:captp-version [captp-version #f]
+                      #:features [features #f]
                       #:time-travel? [time-travel? #f]
-                      #:host [shared-host #f])
-  (define lp
-    (if (and shared-host (host-loop-of shared-host))
-        (host-loop-of shared-host)
-        (open-driver-loop #:host shared-host
-                          #:codec (or codec (and shared-host (host-codec shared-host)) 'syrup)
-                          #:captp-version (or captp-version 'v1_0)
-                          #:features (or features 'full))))
-  (define listener #f)
-  (with-handlers ([(lambda (_) #t)
-                   (lambda (e)
-                     (when listener (loop-listener-close! lp listener))
-                     (when (not shared-host) (driver-loop-abort! lp))
-                     (raise e))])
-    (onion-install-provider! lp
-                             #:socks socks
-                             #:control control
-                             #:auth-kind auth-kind
-                             #:auth-secret auth-secret
-                             #:service-key service-key
-                             #:forward forward)
-    (set! listener (loop-listen! lp TRANSPORT-ONION ""))
-    (driver-loop-start! lp)
-    (set! listener (loop-listener-ready! listener))
-    (loop-listener-select! lp listener)
-    (define key (loop-listener-restoration-state lp listener))
-    (onion-server
-     (make-loop-server lp listener time-travel? (not shared-host))
-     (bytes->immutable-bytes key))))
+                      #:host [shared-host #f]
+                      #:options [options #f])
+  (define key #f)
+  (define server
+    (listen-loop-profile 'listen-onion TRANSPORT-ONION ""
+                         #:identity? #f
+                         #:seed #f #:codec codec #:captp-version captp-version
+                         #:features features #:options options
+                         #:host shared-host #:time-travel? time-travel?
+                         #:install (lambda (lp)
+                                     (onion-install-provider! lp
+                                                              #:socks socks
+                                                              #:control control
+                                                              #:auth-kind auth-kind
+                                                              #:auth-secret auth-secret
+                                                              #:service-key service-key
+                                                              #:forward forward))
+                         #:after-ready
+                         (lambda (lp listener)
+                           (set! key (loop-listener-restoration-state lp listener)))))
+  (onion-server server (bytes->immutable-bytes key)))
 
 (define (onion-server-host s)
   (loop-server-host (onion-server-inner s)))
@@ -339,18 +332,23 @@
                        #:service-key [service-key #f]
                        #:forward [forward #f]
                        #:codec [codec #f]
-                       #:captp-version [captp-version 'v1_0]
-                       #:features [features 'full]
+                       #:captp-version [captp-version #f]
+                       #:features [features #f]
                        #:host [shared-host #f])
   (unless (locator? partner)
     (raise-argument-error 'connect-onion "locator?" partner))
+  ;; The same profile rule the listeners use: an explicit value that differs
+  ;; from a supplied Host's is refused, and an omitted one is the Host's, else
+  ;; the generated default.
+  (define-values (loop-codec loop-captp-version loop-features)
+    (resolve-host-profile 'connect-onion shared-host codec captp-version features))
   (define lp
     (if (and shared-host (host-loop-of shared-host))
         (host-loop-of shared-host)
         (open-driver-loop #:host shared-host
-                          #:codec (or codec (and shared-host (host-codec shared-host)) 'syrup)
-                          #:captp-version captp-version
-                          #:features features)))
+                          #:codec loop-codec
+                          #:captp-version loop-captp-version
+                          #:features loop-features)))
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (when (not shared-host) (driver-loop-abort! lp))
@@ -413,7 +411,8 @@
 
 ;; Dial the onion service `service-id` through the configured Tor. One that is not
 ;; a well-formed version 3 address is refused before any socket opens.
-(define (onion-netlayer-connect nl service-id [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
+(define (onion-netlayer-connect nl service-id [codec DEFAULT-CODEC-SYMBOL]
+                                [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
   (define bs (as-bytes service-id))
   (define cn
     (native-parent-open-child
@@ -433,7 +432,8 @@
 ;; Block until Tor forwards a circuit to this service. The partner's claimed
 ;; location is unverified here: Tor tells a hidden service nothing about who
 ;; dialed it.
-(define (onion-listener-accept lst [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
+(define (onion-listener-accept lst [codec DEFAULT-CODEC-SYMBOL]
+                               [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
   (call-with-semaphore
    (onion-listener-accept-gate lst)
    (lambda ()

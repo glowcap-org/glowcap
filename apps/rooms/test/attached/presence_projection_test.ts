@@ -77,14 +77,39 @@ Deno.test("attached IRC seat state updates the roster without drawing an empty l
 		history: null,
 		attachments: [],
 	});
+	const afterLine = store.getConv(page.projection, room.key);
+	assertEquals(
+		afterLine?.type === "room" ? store.membersOf(page.projection, room.key).get("ada")?.seat?.state : null,
+		undefined,
+	);
+	assertEquals(store.historyOf(page.projection, room.key).length, 0);
+	const seatedRoomViews = [{
+		...roomViews[0],
+		members: [["ada", {
+			online: true,
+			away: "",
+			seat: {
+				state: "connecting" as const,
+				nick: "ada_irc",
+				network: "Libera",
+				badge: "LINKING",
+				said: "Linking Libera as ada_irc",
+			},
+		}]],
+	}] satisfies RoomsSessionSnapshot["roomViews"];
+	projection.apply(roomsSessionSnapshot({
+		revision: 1,
+		checkpoint,
+		connectedDirectories: ["directory"],
+		roomViews: seatedRoomViews,
+	}));
 	const updated = store.getConv(page.projection, room.key);
 	assertEquals(
 		updated?.type === "room" ? store.membersOf(page.projection, room.key).get("ada")?.seat?.state : null,
 		"connecting",
 	);
-	assertEquals(store.historyOf(page.projection, room.key).length, 0);
 	projection.apply(roomsSessionSnapshot({
-		revision: 1,
+		revision: 2,
 		checkpoint: {
 			...checkpoint,
 			conversations: [{
@@ -93,7 +118,7 @@ Deno.test("attached IRC seat state updates the roster without drawing an empty l
 			}],
 		},
 		connectedDirectories: ["directory"],
-		roomViews,
+		roomViews: seatedRoomViews,
 	}));
 	const sameRoom = [...page.projection.get().convs.values()].find((conversation) =>
 		conversation.type !== "directory" && conversation.persistId === "bridge"

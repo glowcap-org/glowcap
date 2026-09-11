@@ -7,7 +7,7 @@
 // here instead, bounded, deduplicated against the newest entry, and drawn by
 // the operations page's diagnostics pane.
 
-import { type PageProjection } from "./core.ts";
+import type { PageProjection } from "./core.ts";
 
 /** The ring keeps this many distinct troubles; the oldest fall off. */
 const TROUBLE_KEPT = 50;

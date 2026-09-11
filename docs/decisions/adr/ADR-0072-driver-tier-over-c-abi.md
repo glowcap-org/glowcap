@@ -119,7 +119,7 @@ the loop's owner, not the library.
 **The core owns byte-stream delimiting end to end.** `feed_bytes` threads the
 same outer Syrup ByteArray parser the socket tier uses. The envelope parser
 owns the message boundary and frame cap; the active codec must consume the
-complete body as one frame. An embedder never parses hostile stream bytes.
+complete body as one frame. An embedder never parses untrusted stream bytes.
 Zig's `tcp`/`iroh` netlayers remain the stream-shaped residents of
 ADR-0043/0062; the byte-fed seam is not a rewrite of the stream contract.
 

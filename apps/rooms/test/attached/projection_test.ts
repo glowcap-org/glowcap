@@ -163,6 +163,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 	const welcomeLine = store.historyOf(page.projection, room.key).at(-1);
 	assertEquals(welcomeLine?.kind, "sys");
 	assertEquals(welcomeLine?.kind === "sys" ? welcomeLine.audience : null, "here");
+	const historyBeforePresence = store.historyOf(page.projection, room.key).length;
 	projection.line({
 		source: "lines",
 		sequence: 2,
@@ -178,10 +179,18 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		history: null,
 		attachments: [],
 	});
-	const joined = page.projection.get().convs.get(room.key);
-	assertEquals(joined?.type === "room" ? store.membersOf(page.projection, room.key).get("cy")?.online : false, true);
+	const afterPresence = page.projection.get().convs.get(room.key);
+	assertEquals(
+		afterPresence?.type === "room" ? store.membersOf(page.projection, room.key).get("cy") : undefined,
+		undefined,
+	);
+	assertEquals(store.historyOf(page.projection, room.key).length, historyBeforePresence + 1);
 	const joinedLine = store.historyOf(page.projection, room.key).at(-1);
 	assertEquals(joinedLine?.kind === "sys" ? joinedLine.audience : null, "shared");
+	const governed = store.chatItem(page.projection, "ada", "still said", true);
+	store.deliver(page.projection, room.key, governed);
+	store.nameLine(page.projection, room.key, governed.id, 6);
+	store.holdLine(page.projection, room.key, governed.id);
 	projection.apply({
 		revision: 1,
 		...adminView,
@@ -203,6 +212,16 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		unavailableRoom?.type === "room" ? unavailableRoom.membership : null,
 		"unavailable",
 	);
+	assertEquals(
+		unavailableRoom?.type === "room" ? unavailableRoom.membershipIssue : null,
+		"room membership was refused",
+	);
+	const retired = store.historyOf(page.projection, room.key).find((item) => item.id === governed.id);
+	assertEquals(
+		retired?.kind === "chat" ? [retired.text, retired.held, retired.lineId] : null,
+		["still said", false, undefined],
+		"directory loss left room-local mutation authority live",
+	);
 	projection.line({
 		source: "lines",
 		sequence: 1,
@@ -217,8 +236,12 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		history: null,
 		attachments: [],
 	});
-	assertEquals(page.projection.get().dirs.get(directory)?.session, "connected");
-	assertEquals(page.projection.get().dirs.get(directory)?.reached, true);
+	assertEquals(
+		page.projection.get().dirs.get(directory)?.session,
+		"disconnected",
+		"a queued line overruled the newer directory snapshot",
+	);
+	assertEquals(page.projection.get().dirs.get(directory)?.reached, false);
 	assertEquals(store.historyOf(page.projection, room.key).at(-1)?.at, 42);
 	projection.line({
 		source: "lines",

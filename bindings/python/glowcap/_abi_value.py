@@ -244,7 +244,7 @@ def _arg_from_c(a: _Argument) -> Argument:
     if a.kind == _ARG_BYTES:
         return _bytes_from_c(a)
     # Syrup strings/symbols are unchecked partner bytes; decode leniently so a
-    # hostile non-UTF-8 payload surfaces as a value (matching Rust's
+    # untrusted non-UTF-8 payload surfaces as a value (matching Rust's
     # from_utf8_lossy and Deno's non-fatal TextDecoder) instead of crashing the
     # poll with UnicodeDecodeError.
     if a.kind == _ARG_STRING:

@@ -68,13 +68,14 @@ pub const Options = struct {
     features: model.FeatureSet = model.Preference.default_offer.features,
     /// Per-session amplification cap. When set, a session that still has local
     /// work after this many turns is condemned; this is an explicit
-    /// hostile/self-amplification policy, not the Host scheduler quantum.
+    /// untrusted/self-amplification policy, not the Host scheduler quantum.
     local_turn_budget: ?usize = null,
-    /// Host-wide resumable work quantum. Every non-zero finite quantum
-    /// round-robins dirty sessions, Node effects, and handoff notifications,
-    /// requeueing continuation work at the FIFO tail. Null is the explicit
-    /// single-session/blocking escape hatch and drives each session to idle.
-    host_work_quantum: ?usize = 64,
+    /// Host-wide resumable work quantum. Every quantum round-robins dirty
+    /// sessions, Node effects, and handoff notifications, requeueing
+    /// continuation work at the FIFO tail, and a `resume_work` action carries
+    /// the rest into the next drain. Zero is refused at construction: a Host
+    /// always yields, so one hot session cannot hold the pump.
+    host_work_quantum: usize = 64,
     /// Optional core issuer for capability ids projected without their
     /// Registry pointer. Native `Ref` equality carries that pointer and leaves
     /// this null.

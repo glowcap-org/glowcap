@@ -1,12 +1,4 @@
-import { spawnOwned } from "./children.ts";
-import { ROOT } from "./rooms_server.ts";
-
-const ROOMS_SESSION_PEER = new URL("../../session/main.ts", import.meta.url).pathname;
-
-function parentDirectory(path: string): string {
-	const slash = path.lastIndexOf("/");
-	return slash < 0 ? "." : slash === 0 ? "/" : path.slice(0, slash);
-}
+import { startSessionPeer } from "./session_peer.ts";
 
 export function startRoomsSessionPeer(
 	directory: string,
@@ -14,29 +6,17 @@ export function startRoomsSessionPeer(
 	checkpoint?: string,
 	readinessFile?: string,
 ): Deno.ChildProcess {
-	const readinessDirectory = readinessFile == null ? undefined : parentDirectory(readinessFile);
-	const readable = [ROOT, directory, ...(readinessDirectory == null ? [] : [readinessDirectory])].join(",");
-	const writable = [directory, ...(readinessDirectory == null ? [] : [readinessDirectory])].join(",");
-	return spawnOwned("deno", {
-		args: [
-			"run",
-			"--allow-ffi",
-			"--unstable-ffi",
-			`--allow-read=${readable}`,
-			`--allow-write=${writable}`,
-			"--allow-net=127.0.0.1",
-			"--allow-env=GLOWCAP_LIB_DIR",
-			ROOMS_SESSION_PEER,
-			`--state=${directory}`,
+	return startSessionPeer(
+		directory,
+		[
 			...(checkpoint == null ? [] : [`--checkpoint=${checkpoint}`]),
 			...(readinessFile == null ? [] : [`--readiness-file=${readinessFile}`]),
 			"--transport=tcp",
 			`--port=${port}`,
 		],
-		cwd: ROOT,
-		stdout: "piped",
-		stderr: "piped",
-	});
+		{},
+		"piped",
+	);
 }
 
 export async function announcedSturdyref(

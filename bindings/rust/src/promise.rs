@@ -13,6 +13,7 @@ use std::rc::Rc;
 use crate::host::check_host;
 use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
+use crate::trampoline::DeliverGuard;
 use crate::{sys, Argument, Error, Ref, Result, SendArena};
 
 /// Shared fetch/enliven wait: the mint already registered the vow; kick the
@@ -48,9 +49,6 @@ pub(crate) async fn fetch_like(
 	}
 }
 
-/// The send spine both `Session::send` and a local `Forward`'s far arm
-/// ride: mint the vow (which IS the registration) under the same synchronous
-/// call stack, then hand back the promise.
 /// `Session::listen`'s wire half: mint the listen vow over a held far reference
 /// (CapTP `op:listen`) and hand back the settle handle. The vow is plain — a
 /// listen may settle to any value, not only a capability.
@@ -70,6 +68,7 @@ pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> Rem
 		Err(error) => return failed(error, shared),
 	};
 	let mut vow: u64 = 0;
+	let _arrival = DeliverGuard::enter(shared);
 	let rc = unsafe { ffi::glowcap_host_session_listen(shared.ptr.get(), &wire, &mut vow) };
 	if let Err(error) = check_host(rc) {
 		return failed(error, shared);
@@ -79,6 +78,27 @@ pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> Rem
 		shared.host.settle_vow(vow, Err(error));
 	}
 	RemotePromise::observer(vow, Rc::clone(shared))
+}
+
+/// Adapt the Host's immediate-owned / pending-vow resolution result without
+/// exposing capability representation to the binding or its callers.
+pub(crate) async fn resolve(shared: &Rc<SessionShared>, target: &Ref) -> Result<Argument> {
+	shared.guard_open()?;
+	shared.attend_inbound()?;
+	shared.drain_gc()?;
+	let wire = target.to_sys()?;
+	let mut reference = sys::GlowcapReference { id: 0 };
+	let mut vow = 0;
+	{
+		let _arrival = DeliverGuard::enter(shared);
+		check_host(unsafe { ffi::glowcap_host_session_resolve(shared.ptr.get(), &wire, &mut reference, &mut vow) })?;
+	}
+	if vow != 0 {
+		return await_minted(shared, vow, true).await;
+	}
+	let mut value = Argument::Reference(Ref::from_sys(&reference));
+	crate::gc::track_owned_argument(&shared.host, &mut value);
+	Ok(value)
 }
 
 pub(crate) fn send_promise(
@@ -97,20 +117,13 @@ pub(crate) fn send_promise(
 	if let Err(error) = shared.drain_gc() {
 		return failed(error, shared);
 	}
-	// A send to an object this side hosts runs its behavior in process — a
-	// proxy over a *far* target then defers onto the wire reply, the same
-	// forward semantics a partner's delivery gets (ADR-0064).
-	if let CmdTargetKind::Ref(reference) = &target.0 {
-		if shared.hosted_cell(reference.id()).is_some() {
-			return RemotePromise::local(reference.id(), verb.to_string(), args.to_vec(), Rc::clone(shared));
-		}
-	}
 	let mut arena = SendArena::default();
 	let (args_ptr, args_len) = match arena.build(args) {
 		Ok(built) => built,
 		Err(error) => return failed(error, shared),
 	};
 	let mut vow: u64 = 0;
+	let _arrival = DeliverGuard::enter(shared);
 	let rc = match &target.0 {
 		CmdTargetKind::Ref(reference) => {
 			let wire = match reference.to_sys() {
@@ -129,13 +142,12 @@ pub(crate) fn send_promise(
 				)
 			}
 		}
-		// Promise pipelining: eventual-send to the unresolved answer. A
-		// local send's promise has no wire answer to pipeline against.
+		// Promise pipelining: the Host admits addressable remote answers.
 		CmdTargetKind::Pipeline { vow: None, .. } => {
 			return failed(
 				Error::with_detail(
 					sys::ERR_INVALID_ARGUMENT,
-					"cannot pipeline against a local-send promise; await it for a Ref".to_string(),
+					"this promise is await-only or refused and has no pipeline target".to_string(),
 				),
 				shared,
 			)
@@ -176,19 +188,19 @@ pub(crate) fn send_promise(
 	if let Err(error) = shared.host.schedule_kick() {
 		shared.host.settle_vow(vow, Err(error));
 	}
-	RemotePromise::far(vow, Rc::clone(shared))
+	RemotePromise::admitted(vow, Rc::clone(shared))
 }
 
 /// Fire-and-forget eventual-send to a concrete capability or an unresolved
-/// far answer. Concrete refs retain Session's local-hosted fast path; promise
-/// targets use the Host-scoped vow identity directly.
+/// answer. The Host routes concrete capabilities and vow identities.
 pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &str, args: &[Argument]) -> Result<()> {
+	let _arrival = DeliverGuard::enter(shared);
 	match &target.0 {
 		CmdTargetKind::Ref(reference) => return shared.tell(reference, verb, args),
 		CmdTargetKind::Pipeline { vow: None, .. } => {
 			return Err(Error::with_detail(
 				sys::ERR_INVALID_ARGUMENT,
-				"cannot pipeline against a local-send promise; await it for a Ref".to_string(),
+				"this promise is await-only or refused and has no pipeline target".to_string(),
 			))
 		}
 		CmdTargetKind::Pipeline {
@@ -223,9 +235,8 @@ pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &
 
 /// Where a `send` is addressed. A `Ref` names a capability (a near export or a
 /// far token) as usual; a `Pipeline` names the still-pending answer of an
-/// earlier far send by its host vow, so the send pipelines at that answer — the
-/// wire form of promise pipelining. `None` inside `Pipeline` is a local send's
-/// promise, which has no wire answer to pipeline against and is refused.
+/// earlier send by its Host vow. `None` denotes an await-only observer or a
+/// refused operation; neither has a pipeline target.
 /// Public only because it appears in the [`AsSendTarget`] trait's plumbing;
 /// hidden from docs and not meant to be named by applications.
 #[doc(hidden)]
@@ -268,17 +279,12 @@ impl AsSendTarget for &Ref {
 	}
 }
 
-// How one operation settles when its handle is awaited: a pipelinable far
-// question, an await-only listen observer, a deferred local turn, or a refusal
+// How one operation settles when its handle is awaited: an admitted
+// call, an await-only listen observer, or a refusal
 // already in hand.
 pub(crate) enum PromiseState {
-	Far(u64),
+	Call(u64),
 	Observer(u64),
-	Local {
-		ref_id: u64,
-		verb: String,
-		args: Vec<Argument>,
-	},
 	Failed(Error),
 }
 
@@ -320,18 +326,22 @@ pub struct RemotePromise {
 }
 
 impl RemotePromise {
-	pub(crate) fn far(vow: u64, session: Rc<SessionShared>) -> Self {
-		Self {
-			state: PromiseState::Far(vow),
-			release: Some(crate::gc::VowGuard::new(&session.host, vow)),
-			session,
+	/// Return an eagerly refused operation before publishing dependent state.
+	/// Success means admission succeeded; the remote outcome still requires
+	/// awaiting this promise. This consumes the same operation without polling,
+	/// sending again, or running the event loop inside the caller's transaction.
+	pub fn into_admitted(self) -> Result<Self> {
+		if let PromiseState::Failed(error) = self.state {
+			Err(error)
+		} else {
+			Ok(self)
 		}
 	}
 
-	pub(crate) fn local(ref_id: u64, verb: String, args: Vec<Argument>, session: Rc<SessionShared>) -> Self {
+	pub(crate) fn admitted(vow: u64, session: Rc<SessionShared>) -> Self {
 		Self {
-			state: PromiseState::Local { ref_id, verb, args },
-			release: None,
+			state: PromiseState::Call(vow),
+			release: Some(crate::gc::VowGuard::new(&session.host, vow)),
 			session,
 		}
 	}
@@ -352,10 +362,10 @@ impl RemotePromise {
 		}
 	}
 
-	// The remotely addressable answer, or None for local and observer vows.
+	// The addressable answer, or None for observer vows and refused calls.
 	pub(crate) fn vow(&self) -> Option<u64> {
 		match self.state {
-			PromiseState::Far(vow) => Some(vow),
+			PromiseState::Call(vow) => Some(vow),
 			_ => None,
 		}
 	}
@@ -365,12 +375,12 @@ impl RemotePromise {
 	// *and* still awaited later for its own value (the late-source-await case).
 	fn project(&self, op: ProjectOp<'_>) -> RemotePromise {
 		let source = match &self.state {
-			PromiseState::Far(source) => *source,
-			// Preserve the first refusal. Reclassifying it as a local promise
+			PromiseState::Call(source) => *source,
+			// Preserve the first refusal. Reclassifying it as an await-only promise
 			// hides the operation that actually failed and sends callers debugging
 			// the projection instead of the rejected send.
 			PromiseState::Failed(error) => return RemotePromise::failed(error.clone(), Rc::clone(&self.session)),
-			PromiseState::Local { .. } | PromiseState::Observer(_) => {
+			PromiseState::Observer(_) => {
 				return RemotePromise::failed(
 					Error::with_detail(
 						sys::ERR_INVALID_ARGUMENT,
@@ -381,6 +391,7 @@ impl RemotePromise {
 			}
 		};
 		let mut vow: u64 = 0;
+		let _arrival = DeliverGuard::enter(&self.session);
 		let rc = match &op {
 			ProjectOp::Index(i) => unsafe {
 				ffi::glowcap_host_vow_index(self.session.host.raw(), source, *i as u64, &mut vow)
@@ -398,7 +409,7 @@ impl RemotePromise {
 				if let Err(error) = self.session.host.schedule_kick() {
 					self.session.host.settle_vow(vow, Err(error));
 				}
-				RemotePromise::far(vow, Rc::clone(&self.session))
+				RemotePromise::admitted(vow, Rc::clone(&self.session))
 			}
 			Err(error) => RemotePromise::failed(error, Rc::clone(&self.session)),
 		}
@@ -440,7 +451,7 @@ impl IntoFuture for RemotePromise {
 			let _release = self.release;
 			match self.state {
 				PromiseState::Failed(error) => Err(error),
-				PromiseState::Far(vow) | PromiseState::Observer(vow) => {
+				PromiseState::Call(vow) | PromiseState::Observer(vow) => {
 					self.session.attend_inbound()?;
 					// Await the drain-routed completion. The waiter registers
 					// synchronously (the row already exists — the mint was the
@@ -449,9 +460,6 @@ impl IntoFuture for RemotePromise {
 					let settled = self.session.host.await_vow(vow);
 					self.session.host.kick_actions().await?;
 					settled.await
-				}
-				PromiseState::Local { ref_id, verb, args } => {
-					crate::trampoline::run_local_send(self.session, ref_id, verb, args).await
 				}
 			}
 		})

@@ -36,9 +36,9 @@ pub fn checkRoomsWireProfile(
     try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/locator.ts", &.{
         "return new Host(seed, roomsHostOptions(posture));",
     });
-    try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/protocol.ts", &.{
-        "export const SUBSCRIBE = \"subscribe\"",
-    });
+    // The wire vocabulary itself is not held here by substring: the clients
+    // read it from the tables `zig build gen-rooms-protocol` emits, and
+    // `apps/rooms/test/protocol_gen_test.ts` holds those to `protocol.ts`.
     const profile_uses = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "apps/rooms/clients/python/room_client.py", .needle = "Host(profile=\"native\")" },
         .{ .path = "apps/rooms/clients/racket/room-client.rkt", .needle = "#:profile 'native" },
@@ -53,7 +53,6 @@ pub fn checkRoomsWireProfile(
 const rooms_peer_dirs = [_][]const u8{
     "apps/rooms/demos",
     "apps/rooms/test",
-    "apps/rooms/server",
     "apps/rooms/web",
     "apps/rooms/web/ui",
     "apps/rooms/lib",
@@ -135,42 +134,47 @@ pub fn checkRoomsPeerMinting(
     }
 }
 
-/// Join input may absorb only the parser's typed grammar refusal.
-///
-/// A broad catch here reports archive, Wasm, and runtime failures as malformed
-/// text, then asks the reader to retry an address that was valid. Both parser
-/// fronts share one translation so widening either catch cannot create a
-/// second error policy.
+/// Rust owns input refusal classification; presentation must not reinterpret
+/// a Wasm/runtime failure as malformed text or initialize a TS Host to parse.
 pub fn checkRoomsInputParseFailures(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const owner_path = "apps/rooms/web/ui/parse_failure.ts";
+    const owner_path = "apps/rooms/web/ui/application.ts";
     const owner = root.readFileAlloc(io, owner_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: cannot be read for the input parse-failure check ({s})", .{ owner_path, @errorName(err) });
         return;
     };
     defer gpa.free(owner);
-
-    const translation = "if (error instanceof GlowcapError && error.code === INVALID_ARGUMENT) return null;\n\tthrow error;";
-    if (std.mem.count(u8, owner, translation) != 1) {
-        try appendViolation(gpa, violations, "{s}: parser failures must have one typed INVALID_ARGUMENT-to-null translation that rethrows every other failure", .{owner_path});
+    for ([_][]const u8{ ".directoryAuthority(", ".inspectDirectory(", ".inspectCapability(" }) |call| {
+        if (std.mem.count(u8, owner, call) != 1) {
+            try appendViolation(gpa, violations, "{s}: route views must call the shared Rust {s} export exactly once", .{ owner_path, call });
+        }
+    }
+    for ([_][]const u8{ "catch (", "catch{", "catch {", ".catch(" }) |handler| {
+        if (std.mem.indexOf(u8, owner, handler) != null) {
+            try appendViolation(gpa, violations, "{s}: the application projection must propagate Rust/Wasm failures without a catch translation", .{owner_path});
+            break;
+        }
     }
     const consumers = [_][]const u8{
-        "apps/rooms/web/ui/net/bootstrap.ts",
+        "apps/rooms/web/ui/page_bootstrap.ts",
         "apps/rooms/web/ui/joining.ts",
+        "apps/rooms/web/ui/session/attached_session.ts",
+        "apps/rooms/web/ui/session/attached_command_powers.ts",
     };
-    const use = "return invalidArgumentOrThrow(error);";
     for (consumers) |path| {
         const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot be read for the input parse-failure check ({s})", .{ path, @errorName(err) });
             continue;
         };
         defer gpa.free(source);
-        if (std.mem.count(u8, source, use) != 1) {
-            try appendViolation(gpa, violations, "{s}: join parsers must use the shared typed INVALID_ARGUMENT translation exactly once", .{path});
+        if (std.mem.indexOf(u8, source, "lib/locator.ts") != null or
+            std.mem.indexOf(u8, source, "lib/routes.ts") != null)
+        {
+            try appendViolation(gpa, violations, "{s}: presentation route inspection must use the Rust application boundary without TS locator/runtime ownership", .{path});
         }
     }
 }

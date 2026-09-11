@@ -3,23 +3,14 @@
 // Field-level reads and writes, validation, and the persistence loop stay in
 // `workspace_state.ts`; this module only ever handles the complete document.
 
-import * as z from "zod/mini";
+import { applicationModule, readSavedWorkspace as parseWorkspaceState, workspaceStorageKey } from "../application.ts";
 import * as store from "../store.ts";
 import { LS } from "../storage.ts";
 import { directoryLivePhase, type DirId, dirId } from "../types.ts";
-import {
-	MAX_WORKSPACE_DOCUMENT_CHARS,
-	parseWorkspaceState,
-	redactWorkspaceCapabilities,
-	type RoomsControllerSelection,
-	type RoomsWorkspaceState,
-	RoomsWorkspaceStateSchema,
-	WORKSPACE_STATE_KEY,
-	type WorkspaceDirectory,
-} from "../../../lib/rooms_state.ts";
+import type { RoomsControllerSelection, RoomsWorkspaceState, WorkspaceDirectory } from "../../../lib/rooms_state.ts";
 import {
 	installWorkspaceStatePersistence,
-	persistCurrentWorkspace,
+	persistPreparedWorkspace,
 	retainWorkspace,
 	validatedWorkspaceState,
 } from "../workspace_state.ts";
@@ -27,12 +18,7 @@ import { announceWorkspaceReplacement } from "./sync.ts";
 import type { RoomsPageContext } from "../page.ts";
 
 export function encodeWorkspaceState(document: RoomsWorkspaceState, includeCapabilities = false): string {
-	const parsed = z.safeParse(RoomsWorkspaceStateSchema, document);
-	if (!parsed.success) throw new Error("the current Rooms workspace is not a valid state bundle");
-	const exported = includeCapabilities ? parsed.data : redactWorkspaceCapabilities(parsed.data);
-	const encoded = JSON.stringify(exported);
-	if (encoded.length > MAX_WORKSPACE_DOCUMENT_CHARS) throw new Error("the Rooms state is too large to export");
-	return encoded;
+	return applicationModule().exportWorkspace(JSON.stringify(document), includeCapabilities);
 }
 
 export function exportWorkspaceState(page: RoomsPageContext, includeCapabilities = false): string {
@@ -52,15 +38,15 @@ export function importWorkspaceState(
 	const document = parseWorkspaceState(raw);
 	if (document == null) return "That file is not a complete Rooms state bundle.";
 	const candidate = controllerOverride == null ? document : { ...document, controller: controllerOverride };
-	const accepted = z.safeParse(RoomsWorkspaceStateSchema, candidate);
-	if (!accepted.success) return "That file and session choice do not form a complete Rooms state bundle.";
-	const installed = accepted.data;
+	const installed = controllerOverride == null ? document : parseWorkspaceState(JSON.stringify(candidate));
+	if (installed == null) return "That file and session choice do not form a complete Rooms state bundle.";
 	const encoded = JSON.stringify(installed);
-	page.workspace.persistenceControl?.stop();
-	if (!LS.set(WORKSPACE_STATE_KEY, encoded)) {
-		installWorkspaceStatePersistence(page);
+	if (page.workspace.persistenceControl == null) installWorkspaceStatePersistence(page);
+	const persistence = page.workspace.persistenceControl;
+	if (persistence == null || !persistence.replace(encoded)) {
 		return "This browser refused to save the imported Rooms state.";
 	}
+	persistence.stop();
 	page.workspace.persistenceBlocked = false;
 	retainWorkspace(page, installed);
 	announceWorkspaceReplacement();
@@ -68,19 +54,14 @@ export function importWorkspaceState(
 }
 
 export function clearWorkspaceState(page: RoomsPageContext): boolean {
-	page.workspace.persistenceControl?.stop();
+	if (page.workspace.persistenceControl == null) installWorkspaceStatePersistence(page);
+	const persistence = page.workspace.persistenceControl;
+	if (persistence == null || !persistence.clear()) return false;
+	persistence.stop();
 	page.workspace.persistenceBlocked = true;
 	retainWorkspace(page, null);
-	let cleared = LS.remove(WORKSPACE_STATE_KEY);
-	try {
-		for (const key of Object.keys(localStorage)) {
-			if (key.startsWith("rooms.") && key !== WORKSPACE_STATE_KEY) localStorage.removeItem(key);
-		}
-	} catch {
-		cleared = false;
-	}
-	if (cleared) announceWorkspaceReplacement();
-	return cleared;
+	announceWorkspaceReplacement();
+	return true;
 }
 
 /** Rebuild the durable workspace projection before any directory starts dialing. */
@@ -88,14 +69,15 @@ export function restoreWorkspaceState(
 	page: RoomsPageContext,
 	resolve: (locator: string) => DirId | null,
 	restoreSelection = true,
+	read: (raw: string | null) => RoomsWorkspaceState | null = parseWorkspaceState,
 ): { foreignLocators: string[]; savedHomeLocator: string | null } {
 	const refuseRestore = (reason: string) => {
 		page.workspace.persistenceBlocked = true;
 		store.noteTrouble(page.projection, "workspace persistence", reason);
 		return { foreignLocators: [], savedHomeLocator: null };
 	};
-	const raw = LS.get(WORKSPACE_STATE_KEY);
-	const document = parseWorkspaceState(raw);
+	const raw = LS.get(workspaceStorageKey());
+	const document = read(raw);
 	if (raw != null && document == null) {
 		refuseRestore("the saved workspace was invalid and was not restored");
 	}
@@ -190,7 +172,9 @@ export function restoreWorkspaceState(
 	const home = page.projection.get().homeDir;
 	if (page.workspace.retained.controller.kind === "hosted") {
 		page.workspace.retained = { ...page.workspace.retained, controller: { kind: "local" } };
-		persistCurrentWorkspace(page);
+		// Withdraw the dead tab's selector in the already-admitted document.
+		// This choice must survive another reload even before a runtime opens.
+		persistPreparedWorkspace(page, { ...document, controller: { kind: "local" } });
 	}
 	return {
 		foreignLocators: [...page.projection.get().dirs.values()]

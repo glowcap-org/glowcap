@@ -142,8 +142,8 @@ pub fn settlePendingWithdraws(self: *Peer) !void {
     }
 
     // Removing the iterator's current entry only tombstones that slot; it
-    // neither reallocates nor moves backing, so iteration needs no attacker-
-    // sized auxiliary key copy.
+    // neither reallocates nor moves backing, so iteration needs no partner-sized
+    // auxiliary key copy.
     var it = self.pending_withdraws.iterator();
     while (it.next()) |entry| try settlePendingWithdrawGroup(self, entry.key_ptr.*);
 }

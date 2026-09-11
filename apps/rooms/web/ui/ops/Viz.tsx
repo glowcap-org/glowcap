@@ -9,10 +9,10 @@
 // the peer opens. The timeline itself is ocapnviz's screen, not this one.
 
 import { useEffect, useState } from "react";
-import { useRoomsBrowser } from "../controller/browser.ts";
+import { useRoomsController } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { advertisedViz, current } from "../prefs.ts";
-import { vizOverrideRefusal } from "../../../lib/viz_publish.ts";
+import { vizOverrideRefusal } from "../viz_endpoint.ts";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
@@ -20,12 +20,11 @@ import { Said } from "../Said.tsx";
 import type { VizPublishState } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
 import { SectionTitle } from "./Section.tsx";
-import { sharedRoomsSession } from "../../../lib/rooms_state.ts";
+import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 
 export function VizPane({ state }: { state: VizPublishState | null }) {
-	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
-	const sharedSession = sharedRoomsSession(browser.roomsController()) != null;
+	const sharedSession = sharedRoomsSession(useRoomsController()) != null;
 	const [live] = useState(current);
 	const [viz, setViz] = useState(live.viz);
 	const [hintUrl, setHintUrl] = useState<string | null>(null);

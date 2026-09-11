@@ -12,7 +12,7 @@ pub(super) enum CloseBarrierState {
 /// Removes a detached DIAL task from its Host on every terminal path, including
 /// panic and cancellation. It carries only a Weak owner, so task tracking never
 /// creates a Host -> task -> Host retention cycle.
-pub(super) struct OwnedTaskRegistration {
+pub(crate) struct OwnedTaskRegistration {
 	host: Weak<HostShared>,
 }
 
@@ -113,7 +113,7 @@ impl HostShared {
 		}
 	}
 
-	pub(super) fn start_owned_task(self: &Rc<Self>) -> Result<OwnedTaskRegistration> {
+	pub(crate) fn start_owned_task(self: &Rc<Self>) -> Result<OwnedTaskRegistration> {
 		let count = self
 			.owned_tasks
 			.get()
@@ -230,6 +230,7 @@ impl HostShared {
 		// A loop-adopted Host tears down through its loop, which releases the
 		// wrapped native Host itself; `loop_teardown` (called back from
 		// `LoopShared::close`) retires this wrapper's shells and vows.
+		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
 			return lp.request_close(pending);
 		}
@@ -319,7 +320,7 @@ impl HostShared {
 				Ok(Some(wait)) => {
 					tokio::select! {
 						() = notified.as_mut() => {}
-						() = tokio::time::sleep(wait) => {}
+						() = crate::execution::sleep(wait) => {}
 					}
 				}
 				Ok(None) => notified.await,
@@ -346,7 +347,13 @@ impl HostShared {
 		// A task may fail after the close driver's final action drain but before
 		// its owned-task count reaches zero. Claim that exact cause here, at the
 		// last surviving barrier, while still releasing native state below.
-		let background_failure = self.take_background_failure();
+		let background_failure = match (
+			self.take_background_failure(),
+			self.retirement_failure.borrow_mut().take(),
+		) {
+			(Some(primary), Some(retirement)) => Some(primary.with_secondary(retirement)),
+			(primary, retirement) => primary.or(retirement),
+		};
 		let raw = self.raw.get();
 		if raw.is_null() {
 			if let Some(error) = background_failure {
@@ -391,8 +398,6 @@ impl HostShared {
 		self.vows.clear();
 		// Native release ran every ctx-free callback. These maps contain only
 		// non-owning pointers and cannot retain stale lookup results afterward.
-		self.hosted.borrow_mut().clear();
-		self.giftables.borrow_mut().clear();
 	}
 }
 impl Drop for HostShared {
@@ -401,6 +406,7 @@ impl Drop for HostShared {
 		// (at the loop's own drop), never through `glowcap_host_release`. The
 		// wrapper dropping without an explicit close still closes the loop, so
 		// the park task and the native loop cannot outlive every handle.
+		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop.get_mut().take() {
 			let raw = self.raw.replace(core::ptr::null_mut());
 			if !raw.is_null() {

@@ -12,7 +12,7 @@ const containsIgnoringWhitespace = util.containsIgnoringWhitespace;
 
 /// Every port of the resolve cascade — the four binding loaders, the racket
 /// per-archive loaders, and the operator script — held to the same download,
-/// checksum, and extract-hygiene rules, with the hostile extract matrix and
+/// checksum, and extract-hygiene rules, with the malformed extract matrix and
 /// the shared host-alias fixture keeping the greps honest against fixtures
 /// that actually execute.
 pub fn checkCAbiResolvePorts(
@@ -155,7 +155,7 @@ pub fn checkCAbiResolvePorts(
             // fresh object is not enough: Deno's `spawnSync` merges the given
             // env with the parent's rather than replacing it, so an omitted
             // `TAR_OPTIONS` still reached tar. The matrix runs this exact
-            // path under a hostile value, which is how that was found.
+            // path under an untrusted value, which is how that was found.
             if (std.mem.indexOf(u8, contents, "const tarEnv = {") == null or
                 std.mem.indexOf(u8, contents, "...process.env") != null or
                 std.mem.indexOf(u8, contents, "TAR_OPTIONS: \"\"") == null or
@@ -444,7 +444,7 @@ pub fn checkCAbiResolvePorts(
         }
     }
 
-    // Extract matrix apex: hostile fixtures must execute the same validators
+    // Extract matrix apex: malformed fixtures must execute the same validators
     // the production ports import, not reassuring source-string greps.
     const extract_matrix = "tools/c-abi/c-abi-extract-matrix.sh";
     const matrix = root.readFileAlloc(io, extract_matrix, gpa, .limited(1 << 20)) catch |err| {
@@ -460,7 +460,7 @@ pub fn checkCAbiResolvePorts(
         "adversarial",
         "slip.tar.gz",
         "link.tar.gz",
-        // The hostile fixtures each stand for a defect that reached this
+        // The malformed fixtures each stand for a defect that reached this
         // tree: an owner field shaped like a date, a member name carrying
         // tar's own link separator, and a member that is neither file,
         // directory, nor link. Dropping one silently un-tests its fix.

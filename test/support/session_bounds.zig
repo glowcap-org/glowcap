@@ -20,7 +20,7 @@ const session = glowcap.ocapn.session;
 ///
 /// The frame cap and the nesting depth also matter: at the shipped megabyte a
 /// four-kilobyte input can never reach the cap-during-scan verdict, and at
-/// sixty-four levels an attacker-nested argument tree is out of reach too.
+/// sixty-four levels an deeply nested argument tree is out of reach too.
 pub const tight: session.SessionLimits = .{
     .max_frame_bytes = 512,
     .max_imports = 8,

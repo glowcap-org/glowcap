@@ -51,6 +51,14 @@ pub const OperationOptions = support.OperationOptions;
 /// Pinned shim reader/writer storage for userspace byte transports.
 pub const PinnedStream = support.PinnedStream;
 
+/// Pinned storage for a raw socket connection that carries its own std
+/// reader and writer (`tcp`, `onion`).
+pub const PinnedRawStream = support.PinnedRawStream;
+
+/// The contract listener vtable and its accessor stubs, emitted once from a
+/// resident's typed listener verbs.
+pub const ListenerShell = support.ListenerShell;
+
 /// Borrowed listener bind configuration.
 pub const ListenConfig = support.ListenConfig;
 
@@ -270,6 +278,20 @@ pub const ListenStartOutcome = union(enum) {
     admitted: ListenResult,
     failed: ListenFailure,
 };
+
+/// Present a fallible listener constructor as the vtable's `listen` callback,
+/// for a resident whose setup has no cleanup consequence to attach beyond the
+/// refusal itself. A resident that does carry one builds the outcome directly.
+pub fn adaptListen(
+    comptime callback: fn (*anyopaque, std.mem.Allocator, ListenConfig) ListenError!ListenResult,
+) *const fn (*anyopaque, std.mem.Allocator, ListenConfig) ListenStartOutcome {
+    return struct {
+        fn call(ctx: *anyopaque, allocator: std.mem.Allocator, config: ListenConfig) ListenStartOutcome {
+            return .{ .admitted = callback(ctx, allocator, config) catch |err|
+                return .{ .failed = .init(err) } };
+        }
+    }.call;
+}
 
 /// A bound listener for one transport: accept partners into caller-owned peers,
 /// and report the dialable designator to sign into `op:start-session`. A runtime

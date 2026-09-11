@@ -2,6 +2,57 @@
 
 use super::support::*;
 
+#[tokio::test]
+async fn released_local_targets_are_refused_without_spending_another_occurrence() {
+	LocalSet::new()
+		.run_until(async {
+			let server = listen("127.0.0.1:0").await.unwrap();
+			let locator = crate::tcp::locator("127.0.0.1", server.port().unwrap());
+			let (session, peer) = tokio::join!(connect(&locator, ConnectOptions::default()), server.accept());
+			let session = session.unwrap();
+			let peer = peer.unwrap();
+			let calls = Rc::new(Cell::new(0));
+			let observed = Rc::clone(&calls);
+			let target = session
+				.publish("counter", move |_, _| {
+					observed.set(observed.get() + 1);
+					Ok(Argument::Integer(observed.get()))
+				})
+				.unwrap();
+			let retained = session.published_ref("counter").unwrap().unwrap();
+			assert_eq!(target, retained);
+			assert_eq!(session.send(&target, "bump", &[]).await.unwrap(), Argument::Integer(1));
+			let stale = target.clone();
+			let caretaker = session.caretaker(&target).unwrap();
+			session.release(target).unwrap();
+			assert!(stale.released());
+			assert!(!retained.released());
+			assert_eq!(
+				session.send(&stale, "bump", &[]).await.unwrap_err().kind(),
+				ErrorKind::InvalidArgument
+			);
+			assert_eq!(
+				session.tell(&stale, "bump", &[]).unwrap_err().kind(),
+				ErrorKind::InvalidArgument
+			);
+			assert!(session
+				.send(&caretaker.proxy, "bump", &[])
+				.await
+				.unwrap_err()
+				.to_string()
+				.contains("released"));
+			assert_eq!(calls.get(), 1);
+			assert_eq!(
+				session.send(&retained, "bump", &[]).await.unwrap(),
+				Argument::Integer(2)
+			);
+			session.release(retained).unwrap();
+			session.close(crate::PendingWork::Cancel).await.unwrap();
+			peer.close(crate::PendingWork::Cancel).await.unwrap();
+		})
+		.await;
+}
+
 // Promise pipelining (ADR-0007), the questioner's half: `send` returns a
 // `RemotePromise` that is itself a `send` target, so a create -> assign ->
 // complete -> status chain may be issued against the create answer after a

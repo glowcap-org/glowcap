@@ -238,7 +238,7 @@ export async function runChrome(
 	// land on the same pixel while the marks inside them differ.
 	const markBox = (sel: string) =>
 		tab.evaluate((s) => {
-			const e = document.querySelector(s)!.querySelector(".icon-mark")!;
+			const e = document.querySelector(s)!.querySelector(".mark-glyph")!;
 			const r = e.getBoundingClientRect();
 			return { x: r.left, y: r.top, size: `${r.width}×${r.height}` };
 		}, sel);
@@ -393,29 +393,27 @@ export async function runChrome(
 		fail(`a toggle wears its pressed colour on hover: ${tonedToggles.join("; ")}`);
 	}
 
-	// The mark hands one exact brand colour from the opening screen to both of
-	// its homes. Check the actual glyphs in both palettes: a token spelling in
-	// one restored theme would not hold that visible handoff.
+	// The mark is a glyph in these two homes, so it answers to the control the
+	// way every other glyph does rather than carrying a colour of its own. It
+	// is drawn through a mask over currentColor where its neighbours stroke
+	// currentColor, so what has to hold is that the paint and the control's own
+	// colour are the same in every palette. A mark that kept a fixed brand
+	// colour would sit visibly out of step with the roster button beside it in
+	// the same state, which is the fault this checks for.
 	const markTheme = await tab.evaluate(() => document.documentElement.getAttribute("data-theme"));
 	for (const theme of ["light", "dark"] as const) {
 		await tab.evaluate((theme) => document.documentElement.setAttribute("data-theme", theme), theme);
 		const marks = await tab.evaluate(() => {
-			const probe = document.createElement("span");
-			probe.style.color = "var(--accent)";
-			document.body.append(probe);
-			const brand = getComputedStyle(probe).color;
-			probe.remove();
-			return {
-				brand,
-				// The mark is its four animated pieces; each paints currentColor,
-				// so the brand check reads a piece's fill.
-				rail: getComputedStyle(document.querySelector("#railToggle .mark-piece")!).backgroundColor,
-				bar: getComputedStyle(document.querySelector("#backBtn .mark-piece")!).backgroundColor,
+			const read = (sel: string) => {
+				const glyph = document.querySelector(sel)!;
+				const style = getComputedStyle(glyph);
+				return { painted: style.backgroundColor, ink: style.color };
 			};
+			return { rail: read("#railToggle .mark-glyph"), bar: read("#backBtn .mark-glyph") };
 		});
-		for (const [home, painted] of [["rail", marks.rail], ["bar", marks.bar]]) {
-			if (painted !== marks.brand) {
-				fail(`the ${theme} ${home} mark is ${painted} where the brand is ${marks.brand}`);
+		for (const [home, seen] of [["rail", marks.rail], ["bar", marks.bar]] as const) {
+			if (seen.painted !== seen.ink) {
+				fail(`the ${theme} ${home} mark paints ${seen.painted} where its control's ink is ${seen.ink}`);
 			}
 		}
 	}

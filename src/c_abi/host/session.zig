@@ -152,6 +152,39 @@ pub export fn glowcap_host_session_listen(
     return GLOWCAP_OK;
 }
 
+/// Resolve an opaque capability without requiring the caller to classify it.
+/// An object returns one owned retain in out_reference and zero in out_vow.
+/// A promise returns zero in out_reference and a settlement vow in out_vow.
+/// All pointers are required. Outputs change only on success.
+pub export fn glowcap_host_session_resolve(
+    raw: ?*GlowcapHostSession,
+    target: ?*const shared.GlowcapReference,
+    out_reference: ?*shared.GlowcapReference,
+    out_vow: ?*u64,
+) i32 {
+    shared.lastErrorClear();
+    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
+    const reference_slot = out_reference orelse return GLOWCAP_ERR_NULL_POINTER;
+    const vow_slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
+    const inst = instOf(session.host);
+    const resolution = inst.core.resolveCapability(
+        session,
+        inst.core.capabilityFromRaw(target_ptr.id),
+    ) catch |err| return errToCode(err);
+    switch (resolution) {
+        .resolved => |reference| {
+            reference_slot.* = .{ .id = reference.raw() };
+            vow_slot.* = 0;
+        },
+        .pending => |vow| {
+            reference_slot.* = .{ .id = 0 };
+            vow_slot.* = vow;
+        },
+    }
+    return GLOWCAP_OK;
+}
+
 // ── Send, tell, vows, projections ────────────────────────────────────────────
 
 /// Eventual-send to `target` and mint a host vow for the answer; the outcome

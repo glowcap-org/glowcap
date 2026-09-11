@@ -59,8 +59,8 @@ async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> R
     # the host vow with `mint`, await its drain-routed completion, and
     # classify — only an opaque Host reference is a live capability this
     # surface can hand out. `track` enrolls the fulfilled value in
-    # distributed GC: a fetch's import is finalizer-tracked, an enliven's
-    # is owned by the ADR-0012 dedup cache instead (ADR-0063).
+    # distributed GC. Fetch and fresh/cached enliven results each project
+    # an application retain, independently of the session dedup cache.
     session.guard_open()
     session.gc.drain_gc()
     buf, ptr = _byte_buf(swiss)

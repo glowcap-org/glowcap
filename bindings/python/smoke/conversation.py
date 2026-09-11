@@ -183,13 +183,13 @@ async def _async_behavior_defers() -> None:
     host's turn loop never blocks on it. A raise crosses as the caller's
     break carrying the behavior's own words."""
     host = Host()
-    entered = {verb: asyncio.Event() for verb in ("work", "fail", "unsupported")}
+    entered = {verb: asyncio.Event() for verb in ("work", "fail", "unsupported", "late-work", "late-fail")}
     resume = {verb: asyncio.Event() for verb in entered}
 
     async def work(verb, args):
         entered[verb].set()
         await resume[verb].wait()
-        if verb == "fail":
+        if verb in ("fail", "late-fail"):
             raise ValueError("worker gave up")
         if verb == "unsupported":
             return object()
@@ -229,8 +229,22 @@ async def _async_behavior_defers() -> None:
             assert "unsupported" in str(broke).lower(), f"async marshal failure carries the reason, got {broke!s}"
         else:
             raise AssertionError("an unsupported async result must break the caller")
+        late = asyncio.gather(
+            client.send(worker, "late-work", []),
+            client.send(worker, "late-fail", []),
+            return_exceptions=True,
+        )
+        await entered["late-work"].wait()
+        await entered["late-fail"].wait()
         await client.close()
         await asyncio.wait_for(hosted, timeout=5)
+        settlements = tuple(host._behavior_tasks)
+        assert len(settlements) == 2, "both deferred completions remain owned"
+        resume["late-work"].set()
+        resume["late-fail"].set()
+        await asyncio.gather(*settlements)
+        assert all(isinstance(reply, BaseException) for reply in await late)
+        assert not host.terminal_failures, "late completion poisoned the Host"
     finally:
         await server.close()
     await asyncio.wait_for(host.close(), timeout=1)

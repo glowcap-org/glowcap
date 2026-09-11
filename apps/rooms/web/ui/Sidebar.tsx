@@ -30,7 +30,7 @@ import {
 	privateRoomNameRefusal,
 	resolveJoin,
 } from "./joining.ts";
-import { policyForRoomPreset } from "../../lib/room/policy.ts";
+import { policyForRoomPreset } from "./room_policy.ts";
 import {
 	CAUGHT_UP,
 	type DirId,
@@ -58,7 +58,7 @@ import { DirectoryPicks, typeAnotherAddress } from "./DirectoryPicks.tsx";
 import { Wordmark } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
 import { SettingsButton } from "./SettingsButton.tsx";
-import { MAX_ROOM } from "../../lib/limits.ts";
+import { MAX_ROOM } from "./limits.ts";
 import { Foot } from "./sidebar/Foot.tsx";
 import { RailSection } from "./sidebar/Section.tsx";
 import type { AddField } from "./sidebar/NamePanel.tsx";
@@ -311,7 +311,7 @@ function SidebarPane(
 				<IconButton
 					id="railToggle"
 					className="mark-btn"
-					icon="mark"
+					icon="mark-line"
 					label="Rooms and direct messages"
 					size={mobile ? "large" : "normal"}
 					title={railShown ? "Hide the rooms list" : "Show the rooms list"}
@@ -328,9 +328,10 @@ function SidebarPane(
 					title="Your rooms"
 					listId="roomList"
 					field={roomField}
-					heading={(title) => (
+					heading={(title, head) => (
 						<RailFilter
 							title={title}
+							anchor={head}
 							criteria={criteria}
 							answers={filter}
 							shown={shown}

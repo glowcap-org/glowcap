@@ -14,6 +14,8 @@
 //! memory and reclaim them. It declares no CapTP surface of its own: every
 //! capability decision stays in the core.
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const std = @import("std");
 const shared = @import("c_abi_shared");
 const driver = @import("c_abi_host");

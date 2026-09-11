@@ -1,4 +1,4 @@
-import { answerWithin, Unanswered } from "./deadline.ts";
+import { claimWithin, Unanswered } from "./deadline.ts";
 
 type Waiter<Route extends object> = {
 	route: Route;
@@ -22,12 +22,7 @@ export async function claimRedeemWithin<T>(
 	waitMs: number,
 	abandon: (late: T) => void,
 ): Promise<T> {
-	try {
-		return await answerWithin(redemption, what, waitMs);
-	} catch (error) {
-		if (error instanceof Unanswered) void redemption.then(abandon, () => {});
-		throw error;
-	}
+	return await claimWithin(redemption, what, waitMs, abandon);
 }
 
 /** Serialize route-sensitive handoff redemption without turning one stalled

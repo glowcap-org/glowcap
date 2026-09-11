@@ -177,7 +177,7 @@ pub const RecvStream = union(enum) {
 /// frame is still open; it never reports a boundary itself.
 ///
 /// This single stream entry point fails closed at `max_frame_bytes`, preventing
-/// an incomplete attacker-controlled frame from growing its consumer without
+/// an incomplete untrusted frame from growing its consumer without
 /// end. Malformed and oversized frames project typed aborts and close; an
 /// incomplete prefix changes no state.
 ///
@@ -231,7 +231,9 @@ pub fn recvStreamPrefix(self: *Peer, buffer: []const u8) !RecvStream {
     }
 }
 
-/// Transfer the next surfaced event to the caller, or null when drained.
+/// Transfer the next surfaced event to the caller, or null when drained. The
+/// queued row decodes its frame here, once, for every reader downstream.
 pub fn pollEvent(self: *Peer) ?events.Event {
-    return self.events.pop(self.allocator);
+    const queued = self.events.pop(self.allocator) orelse return null;
+    return queued.surface();
 }

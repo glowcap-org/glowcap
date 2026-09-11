@@ -476,7 +476,7 @@ and remain opt-in, the same split `iroh-reachability` carries.
    demo-rooms-onion` runs the Rooms application over one onion service with two
    independent peers.
 
-## Adversarial review
+## Review lenses
 
 Five objections, each answered in the design rather than in prose.
 

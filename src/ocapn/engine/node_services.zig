@@ -33,7 +33,7 @@ pub const PromiseShorteningError = std.mem.Allocator.Error || error{
 };
 
 /// Scheduler-only identity for one gift dependency. The BLAKE3 tag keeps
-/// attacker-selected gift ids out of the Node's coordination tables while the
+/// partner-chosen gift ids out of the Node's coordination tables while the
 /// gifter PeerHandle preserves session scope. This is never capability authority:
 /// the exact signed give and exact registry key are checked again at withdraw,
 /// so a digest collision can only cause an extra bounded wake.

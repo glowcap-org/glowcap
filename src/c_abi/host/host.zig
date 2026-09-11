@@ -258,6 +258,18 @@ pub export fn glowcap_host_pending_dial(
     return host_plan.pendingDial(host, ticket, route_index, hint_storage, hint_capacity, out_locator, out_hint_count);
 }
 
+/// Borrow the session that supplied this pending dial's oldest remaining give.
+/// NULL means no live introducer. Unknown attempts leave the output untouched.
+pub export fn glowcap_host_pending_dial_introducer(
+    host: ?*GlowcapHost,
+    ticket: u64,
+    route_index: usize,
+    out_session: ?*?*GlowcapHostSession,
+) i32 {
+    shared.lastErrorClear();
+    return host_plan.pendingDialIntroducer(host, ticket, route_index, out_session);
+}
+
 /// The live session homing remote `reference`, into `*out_session`, or NULL for
 /// a local, stale, foreign-Host, or closed-session capability. Bindings use this
 /// after a send to distinguish a capability homed on the sending session from
@@ -338,6 +350,13 @@ pub export fn glowcap_host_resolver_fulfill(
     return host_actions.resolverFulfill(host, resolver_id, value);
 }
 
+/// Fulfill a deferred answer with an owning-thread value. Capability projection
+/// uses the original caller session; cross-session authority refuses atomically.
+pub export fn glowcap_host_resolver_fulfill_value(host: ?*GlowcapHost, resolver_id: u64, value: ?*const shared.GlowcapArgument) i32 {
+    shared.lastErrorClear();
+    return host_actions.resolverFulfillValue(host, resolver_id, value);
+}
+
 /// Settle a resolver vow broken with a diagnostic borrowed for the call. The
 /// same top-level, consume-on-success contract as glowcap_host_resolver_fulfill.
 pub export fn glowcap_host_resolver_break(
@@ -348,6 +367,19 @@ pub export fn glowcap_host_resolver_break(
 ) i32 {
     shared.lastErrorClear();
     return host_actions.resolverBreak(host, resolver_id, message, message_len);
+}
+
+/// Abandon a deferred answer, top-level. A resolver already consumed by session
+/// teardown or settlement is complete cleanup. Unminted ids remain errors;
+/// every other refusal leaves the operation retryable.
+pub export fn glowcap_host_resolver_abandon(
+    host: ?*GlowcapHost,
+    resolver_id: u64,
+    message: ?[*]const u8,
+    message_len: usize,
+) i32 {
+    shared.lastErrorClear();
+    return host_actions.resolverAbandon(host, resolver_id, message, message_len);
 }
 
 /// Enliven a sturdyref now or stage its dial; settlement returns as an action.

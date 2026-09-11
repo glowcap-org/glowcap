@@ -1,17 +1,15 @@
 //! The byte-fed embedder pump choreography the [`Session`](crate::Session)
-//! drives: read raw bytes off the transport, hand them to the core's stream
-//! delimiter (`glowcap_host_session_feed_bytes`, which owns framing), drain the
-//! host's action queue, and write what `glowcap_host_session_take_outbound`
+//! drives: read transport packets, hand them to the core's packet surface
+//! (`glowcap_host_session_feed_packet`, which owns framing), drain the
+//! host's action queue, and write what `glowcap_host_session_take_packet`
 //! drains. CapTP verbs, hosting, and vows stay on `Session`; this module owns
 //! the conn byte path (handshake, serve loop, feed, flush, feed-refusal, EOF /
 //! `glowcap_host_session_transport_closed`).
 
 use std::rc::Rc;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
 use crate::host::{check_host, host_last_error};
-use crate::session_shared::{io_err, SessionShared, READ_CHUNK};
+use crate::session_shared::{io_err, SessionShared};
 use crate::sys::host as ffi;
 use crate::trampoline::DeliverGuard;
 use crate::{sys, AbortDomain, AbortInfo, Error, Result};
@@ -24,9 +22,10 @@ use crate::{sys, AbortDomain, AbortInfo, Error, Result};
 /// Host-owned resume step — otherwise a pipelined fetch would answer before
 /// the object it names exists. Abandonment on failure stays on
 /// `Session::establish`.
-#[cfg(any(test, feature = "iroh"))]
+#[cfg(any(test, feature = "async"))]
 pub(crate) async fn run_handshake(shared: &Rc<SessionShared>) -> Result<()> {
 	shared.host.kick_actions().await?;
+	handshake_live(shared)?;
 	let Some(mut reader) = shared.reader.borrow_mut().take() else {
 		return Err(Error::with_detail(
 			sys::ERR_INTERNAL,
@@ -34,26 +33,41 @@ pub(crate) async fn run_handshake(shared: &Rc<SessionShared>) -> Result<()> {
 		));
 	};
 	let result = async {
-		let mut chunk = vec![0u8; READ_CHUNK];
 		while !shared.session_open() {
-			let n = reader.read(&mut chunk).await.map_err(io_err)?;
-			if n == 0 {
+			handshake_live(shared)?;
+			let Some(chunk) = reader.read().await.map_err(io_err)? else {
 				return Err(Error::with_detail(
 					sys::ERR_CLOSED,
 					"connection closed during the OCapN handshake".to_string(),
 				));
-			}
-			feed(shared, &chunk[..n]).await?;
+			};
+			feed(shared, chunk).await?;
 		}
-		Ok(())
+		handshake_live(shared)
 	}
 	.await;
-	*shared.reader.borrow_mut() = Some(reader);
+	if !shared.channel_retiring.get() && !shared.released.get() {
+		*shared.reader.borrow_mut() = Some(reader);
+	}
 	result
 }
 
-/// Run the inbound loop: read raw bytes, hand them to the core's stream
-/// delimiter (behaviors run and vow completions queue inside the feed), and
+fn handshake_live(shared: &SessionShared) -> Result<()> {
+	// FLUSH failures are session-scoped: the Host action drain retains them and
+	// keeps other sessions progressing. Observe that outcome before claiming a
+	// read half that retirement may already have released.
+	shared.terminal_result()?;
+	if shared.closing() || shared.channel_retiring.get() {
+		return Err(Error::with_detail(
+			sys::ERR_CLOSED,
+			"connection closed during the OCapN handshake".into(),
+		));
+	}
+	Ok(())
+}
+
+/// Run the inbound loop: read packets and hand them to the core
+/// (behaviors run and vow completions queue inside the feed), then
 /// drain the action queue. Returns when the connection closes cleanly; a
 /// transport or protocol error ends the loop and the teardown below breaks
 /// the vows.
@@ -64,7 +78,6 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 			"the connection's read half is already taken".to_string(),
 		));
 	};
-	let mut chunk = vec![0u8; READ_CHUNK];
 	let mut outcome: Result<()> = async {
 		resume_feed(&shared).await?;
 		loop {
@@ -74,10 +87,10 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 			tokio::select! {
 				biased;
 				_ = shared.closed.notified() => return Ok(()),
-				read = reader.read(&mut chunk) => {
+				read = reader.read() => {
 					match read {
-						Ok(0) => return Ok(()), // clean EOF
-						Ok(n) => feed(&shared, &chunk[..n]).await?,
+						Ok(None) => return Ok(()), // clean EOF
+						Ok(Some(chunk)) => feed(&shared, chunk).await?,
 						// A read cancelled by our own close is a clean
 						// shutdown; any other failure ends the loop and the
 						// teardown below breaks the vows.
@@ -98,7 +111,7 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 	// The wire is gone: report the physical fact so the core retires the
 	// session and settles pending work, then release the connection.
 	// Idempotent with an application `close()`.
-	if !shared.released.get() {
+	if !shared.released.get() && !shared.channel_retiring.get() {
 		shared.closing.set(true);
 		let message = b"connection closed";
 		let reported = check_host(unsafe {
@@ -114,14 +127,17 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 				outcome = Err(error);
 			}
 		}
+		if let Err(error) = &outcome {
+			shared.record_wire_failure(error.clone());
+		}
 		shared.close_transport();
 	}
 	outcome
 }
 
-/// Feed freshly read bytes to the core's stream delimiter: the session's
-/// codec splits each complete frame off the front — both codecs, both frame
-/// shapes, the frame cap enforced during the scan — and dispatches it
+/// Feed one transport packet. The core dispatches a complete message-framed
+/// packet or delimits an arbitrary byte-stream chunk, enforcing its frame cap,
+/// and dispatches it
 /// (behavior trampolines fire and completions queue inside), then the
 /// actions the dispatch queued drain. The library owns the unconsumed tail —
 /// a partial frame straddling two reads stays buffered in the session — so
@@ -134,7 +150,7 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 		}
 		let _deliver = DeliverGuard::enter(shared);
 		let rc = unsafe {
-			ffi::glowcap_host_session_feed_bytes(
+			ffi::glowcap_host_session_feed_packet(
 				shared.ptr.get(),
 				if chunk.is_empty() {
 					std::ptr::null()
@@ -189,7 +205,7 @@ async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
 /// The feed refusal choreography: capture last_error / last_abort before
 /// another verb can clobber them, then run the shared action drain so the
 /// projected op:abort (and any CLOSE/FAIL queued with it) leave through the
-/// same spine as a steady FLUSH — not a private `take_outbound` path.
+/// same spine as a steady FLUSH — not a private output-drain path.
 async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 	let message = host_last_error();
 	let (abort, abort_failure) = match last_abort(shared) {
@@ -248,10 +264,10 @@ fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 	}))
 }
 
-/// Drain every encoded outbound frame on this CapTP session and write it to
-/// the byte-stream transport, which is how a FLUSH action lands. The managed
-/// frame is held across both writes and released after them, so the canonical
-/// Syrup byte-string prefix uses stack storage and the frame is not copied.
+/// Drain each Host-selected transport packet. The managed frame stays owned
+/// across the write and is released afterward. A byte stream writes the stack
+/// prefix then the borrowed frame; a message channel accepts the packet as one
+/// unit. The binding neither copies the frame nor chooses its framing.
 ///
 /// Writes serialize on the write half's lock, which keeps them in submission
 /// order. It does not make one write atomic: `write_all` is not
@@ -276,7 +292,7 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		let mut prefix = [0u8; sys::HOST_OUTBOUND_PREFIX_CAP];
 		let mut prefix_len = 0usize;
 		let rc = unsafe {
-			ffi::glowcap_host_session_take_outbound(
+			ffi::glowcap_host_session_take_packet(
 				shared.ptr.get(),
 				&mut raw,
 				prefix.as_mut_ptr(),
@@ -297,31 +313,34 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		if in_flight.is_none() {
 			in_flight = Some(TornOnDrop { shared });
 		}
-		write_all_or_closed(shared, sink, &prefix[..prefix_len]).await?;
-		write_all_or_closed(shared, sink, frame.bytes()).await?;
-	}
-	if let Some(sink) = guard.inner.as_mut() {
-		flush_or_closed(shared, sink).await?;
+		write_or_closed(shared, sink, &prefix[..prefix_len], frame.bytes()).await?;
 	}
 	if let Some(in_flight) = in_flight {
+		// Only this drain's transferred packets own a flush. An empty action
+		// drain may race transport EOF; touching the retired writer then would
+		// turn a clean peer close into a synthetic I/O failure.
+		if let Some(sink) = guard.inner.as_mut() {
+			flush_or_closed(shared, sink).await?;
+		}
 		in_flight.finished();
 	}
 	Ok(())
 }
 
-async fn write_all_or_closed(
+async fn write_or_closed(
 	shared: &SessionShared,
-	sink: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
-	bytes: &[u8],
+	sink: &mut crate::channel::Writer,
+	prefix: &[u8],
+	body: &[u8],
 ) -> Result<()> {
 	tokio::select! {
 		biased;
 		_ = shared.closed.notified() => Err(Error::from_code(sys::ERR_CLOSED)),
-		result = sink.write_all(bytes) => result.map_err(io_err),
+		result = sink.write(prefix, body) => result.map_err(io_err),
 	}
 }
 
-async fn flush_or_closed(shared: &SessionShared, sink: &mut Box<dyn tokio::io::AsyncWrite + Unpin>) -> Result<()> {
+async fn flush_or_closed(shared: &SessionShared, sink: &mut crate::channel::Writer) -> Result<()> {
 	tokio::select! {
 		biased;
 		_ = shared.closed.notified() => Err(Error::from_code(sys::ERR_CLOSED)),
@@ -333,7 +352,7 @@ async fn flush_or_closed(shared: &SessionShared, sink: &mut Box<dyn tokio::io::A
 // take that lock while a write awaits, so the lease itself retires the sink
 // when close raced it or cancellation marked the stream torn.
 struct WriterLease<'a> {
-	inner: tokio::sync::MutexGuard<'a, Option<Box<dyn tokio::io::AsyncWrite + Unpin>>>,
+	inner: tokio::sync::MutexGuard<'a, Option<crate::channel::Writer>>,
 	shared: &'a SessionShared,
 }
 

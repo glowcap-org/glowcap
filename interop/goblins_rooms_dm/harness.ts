@@ -60,7 +60,7 @@ import { establishLocalSession } from "../../apps/rooms/test/support/session_set
 const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-dm-iroh" : "goblins-rooms-dm";
 const ROOT = new URL("../../", import.meta.url).pathname;
-const WEB = new URL("../../apps/rooms/web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../../apps/rooms/test/support/web_binary.ts";
 const VAT = new URL("../../conformance/goblins-peer/racket/rooms-dm-member.rkt", import.meta.url)
 	.pathname;
 const RACKET_DIR = new URL("../../conformance/goblins-peer/racket/", import.meta.url).pathname;
@@ -210,17 +210,9 @@ try {
 	// iroh destination has to be a peer holding a key.
 	const env: Record<string, string> = { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) };
 	if (!IROH) env.GLOWCAP_RELAY_TCP_PEERS = loopbackTcpDesignator(vatPort);
-	web = new Deno.Command("deno", {
+	web = new Deno.Command(WEB, {
 		args: [
-			"run",
-			"--allow-ffi",
-			"--allow-read",
-			"--allow-write",
-			"--allow-net",
-			"--allow-env",
-			"--allow-run",
-			...(IROH ? ["--unstable-ffi"] : []),
-			WEB,
+			"--transport=tcp",
 			...(IROH ? ["--transport=iroh"] : []),
 			String(httpPort),
 			String(roomPort),
@@ -329,9 +321,11 @@ try {
 		});
 		// The locator registered here is what the room stamps as this member's
 		// exporter location, and therefore what the vat's give has to name.
-		await nativeDir.register(NATIVE_NICK, native.locator, (peer, registrationId) => {
-			console.log(`  [native] the room asked for an inbox for ${peer}`);
-			nativeOfferer.offer(peer, registrationId);
+		await nativeDir.register(NATIVE_NICK, native.locator, {
+			onMintInboxFor: (peer, registrationId) => {
+				console.log(`  [native] the room asked for an inbox for ${peer}`);
+				nativeOfferer.offer(peer, registrationId);
+			},
 		});
 		console.log(`  [native] registered as ${NATIVE_NICK} at ${native.locator}`);
 	}

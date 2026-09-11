@@ -3,8 +3,7 @@
 // Each test gets a server of its own on a free port and a runtime scope that
 // closes what it opened, because these tests bind real loopback sockets and a
 // leaked one fails whichever test runs next rather than the one that leaked it.
-// The iroh arm probes whether this tree can actually run iroh before using it,
-// and skips only for the loader's own refusal.
+// All scenarios start the installed Rust server; the build owns that prerequisite.
 
 import type { Host, Runtime, Session } from "@glowcap/runtime";
 import { Reachability } from "@glowcap/iroh";
@@ -13,12 +12,8 @@ import { dial as dialWithRuntime, isUriLocator, roomsHost } from "../../lib/loca
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { spawnOwned, stopOwned } from "./children.ts";
 export const ROOT = new URL("../../../../", import.meta.url).pathname;
-export const SERVER = new URL("../../server/main.ts", import.meta.url).pathname;
-export const RACKET_CLIENT = new URL("../../clients/racket/client.rkt", import.meta.url).pathname;
-export const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env"];
-// iroh dials through the sidecar over nonblocking FFI, which needs broader
-// permissions and --unstable-ffi; the server reads its own lib path.
-export const IROH_FLAGS = ["run", "-A", "--unstable-ffi"];
+import { SERVER } from "./server_binary.ts";
+export { SERVER };
 
 export class TestRuntimeScope {
 	readonly #byHost = new Map<Host, Promise<Runtime>>();
@@ -68,66 +63,10 @@ export function dial(locator: string, host?: Host): Promise<Session> {
 	return activeRuntimeScope.dial(locator, host);
 }
 
-// The optional iroh ABI companion library (`zig build iroh-abi`, needs cargo).
-// The iroh tests below skip when this tree cannot run it, matching the demo's
-// join-when-available posture, so this suite stays green without cargo.
-//
-// The question is whether the library *loads*, not whether the file is there.
-// Asking `statSync` answered the easier one and got it wrong in the ordinary
-// case: `check` deliberately never rebuilds the cargo sidecar, so after any ABI
-// change the file is present and stale, the probe said yes, and four tests then
-// failed on a server that had already refused to start — the gate red for a
-// reason it believed it tolerated.
-//
-// So the probe starts the thing the tests need and reads the answer, once for
-// the suite. Only the loader's own "not built here" refusal counts as absent;
-// a server that fails any other way is still a failure, because a skip that
-// swallows a real iroh regression would be worse than the wrong question.
-const IROH_UNAVAILABLE = "iroh transport unavailable";
-
-let irohProbe: Promise<boolean> | null = null;
-
-export function irohUsable(): Promise<boolean> {
-	irohProbe ??= probeIroh();
-	return irohProbe;
-}
-
-async function probeIroh(): Promise<boolean> {
-	const proc = spawnOwned("deno", {
-		args: [...IROH_FLAGS, SERVER, "0", "--transport=iroh"],
-		cwd: ROOT,
-		stdout: "piped",
-		stderr: "piped",
-	});
-	try {
-		const announced = await readAnnounce(proc, 20_000).then(() => true).catch(() => false);
-		if (announced) return true;
-		// Not announced: read what it said. The loader's refusal names itself,
-		// and that is the only sentence that means "this tree has no iroh".
-		// A refusing server has already exited by now — that is how it refuses —
-		// so ending it is only for the case where it hung instead, and asking a
-		// process that is already gone to stop is not an error worth raising.
-		try {
-			proc.kill("SIGTERM");
-		} catch {
-			// already exited, which is the ordinary way this path is reached
-		}
-		const said = await new Response(proc.stderr).text().catch(() => "");
-		if (said.includes(IROH_UNAVAILABLE)) return false;
-		throw new Error(`the iroh room server would not start, and not for want of the library: ${said.trim()}`);
-	} finally {
-		await stopOwned(proc);
-	}
-}
-
+// The native test server includes iroh. Probe one direct endpoint once per
+// suite; failure is a failure, not an implicit skip of supported behavior.
 export function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
-}
-
-export function assertMatch(value: string, pattern: RegExp): void {
-	if (!pattern.test(value)) {
-		throw new Error(`expected ${JSON.stringify(value)} to match ${pattern}`);
-	}
 }
 
 export const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -147,19 +86,6 @@ export async function within<T>(work: Promise<T>, what: string, ms = 10_000): Pr
 		return await Promise.race([work, expiry]);
 	} finally {
 		clearTimeout(timer);
-	}
-}
-
-export async function onPath(cmd: string): Promise<boolean> {
-	try {
-		const out = await new Deno.Command(cmd, {
-			args: ["--version"],
-			stdout: "null",
-			stderr: "null",
-		}).output();
-		return out.success;
-	} catch {
-		return false;
 	}
 }
 
@@ -205,15 +131,15 @@ export async function readPort(proc: Deno.ChildProcess): Promise<number> {
  * `spawnOwned` is the authority that actually hides the pane directory
  * (Deno overlays `env` unless `clearEnv` is set). This helper still names
  * that absence for callers who pass an explicit environment map. */
-export function ephemeralRoomsEnv(): Record<string, string> {
+function ephemeralRoomsEnv(): Record<string, string> {
 	const env = { ...Deno.env.toObject() };
 	delete env.GLOWCAP_ROOMS_STATE;
 	return env;
 }
 
 export async function withServer(fn: (port: number) => Promise<void>): Promise<void> {
-	const proc = spawnOwned("deno", {
-		args: [...DENO_FLAGS, SERVER, "0"],
+	const proc = spawnOwned(SERVER, {
+		args: ["--transport=tcp", "--port=0"],
 		cwd: ROOT,
 		env: ephemeralRoomsEnv(),
 		stdout: "piped",
@@ -230,8 +156,8 @@ export async function withPeeringServer(
 	fn: (port: number, swiss: string) => Promise<void>,
 ): Promise<void> {
 	const state = await Deno.makeTempDir();
-	const proc = spawnOwned("deno", {
-		args: [...DENO_FLAGS, "--allow-write", SERVER, "0", "--peering"],
+	const proc = spawnOwned(SERVER, {
+		args: ["--transport=tcp", "--port=0", "--peering"],
 		cwd: ROOT,
 		env: { ...Deno.env.toObject(), GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",
@@ -246,23 +172,6 @@ export async function withPeeringServer(
 		await stopOwned(proc);
 		await Deno.remove(state, { recursive: true });
 	}
-}
-
-export async function withCapturedServer(fn: (port: number) => Promise<void>): Promise<string> {
-	const proc = spawnOwned("deno", {
-		args: [...DENO_FLAGS, SERVER, "0"],
-		cwd: ROOT,
-		env: ephemeralRoomsEnv(),
-		stdout: "piped",
-		stderr: "piped",
-	});
-	const stderr = new Response(proc.stderr).text();
-	try {
-		await fn(await readPort(proc));
-	} finally {
-		await stopOwned(proc);
-	}
-	return await stderr;
 }
 
 export function freePort(): number {
@@ -289,30 +198,9 @@ export async function waitForHttp(port: number): Promise<void> {
 	throw new Error("serve.ts did not answer with a room locator");
 }
 
-/** A port for a server that must keep its number across a restart, from below
- * the kernel's ephemeral range (32768 up on Linux). A learned bind-0 port is
- * ephemeral, and the build runs test steps in parallel, so between a stop and
- * a rebind any concurrent step's socket can legitimately land on it. Below the
- * range, only an explicit binder can collide, and nothing in this repository
- * binds these numbers deliberately. The probe-then-bind gap still exists, which
- * is what `restartStatefulServer`'s retry is for. */
-export function stablePort(): number {
-	for (let attempt = 0; attempt < 32; attempt++) {
-		const candidate = 20000 + Math.floor(Math.random() * 10000);
-		try {
-			const probe = Deno.listen({ hostname: "127.0.0.1", port: candidate });
-			probe.close();
-			return candidate;
-		} catch {
-			continue;
-		}
-	}
-	throw new Error("no stable port below the ephemeral range answered in 32 draws");
-}
-
 /** Restart a stateful server on the port it held before. The number comes from
- * `stablePort`, so only an explicit binder can be holding it, and the one seen
- * in practice is our own predecessor's teardown finishing; exactly the
+ * the caller's explicit allocation. The one collision seen in practice is our
+ * own predecessor's teardown finishing; exactly the
  * "already in use" refusal retries on a short clock. Any other failure, and
  * exhaustion, stay loud. */
 export async function restartStatefulServer(
@@ -343,8 +231,8 @@ export function startStatefulServer(
 	stateDirectory: string,
 	serverArgs: readonly string[] = [],
 ): Deno.ChildProcess {
-	return spawnOwned("deno", {
-		args: [...DENO_FLAGS, `--allow-write=${stateDirectory}`, SERVER, String(port), ...serverArgs],
+	return spawnOwned(SERVER, {
+		args: ["--transport=tcp", `--port=${port}`, ...serverArgs],
 		cwd: ROOT,
 		env: { GLOWCAP_ROOMS_STATE: stateDirectory },
 		stdout: "piped",
@@ -356,9 +244,7 @@ export function stopServer(proc: Deno.ChildProcess): Promise<void> {
 	return stopOwned(proc);
 }
 
-/** Read the server's announce token (`ROOMS-SERVER-LISTENING <token>`), the iroh
- * ocapn:// URI a client dials. Like `readPort`, but the token is a URI, not a
- * port. */
+/** Read the server's announce token: a TCP port or a dialable transport URI. */
 export async function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): Promise<string> {
 	const reader = proc.stdout.getReader();
 	const decoder = new TextDecoder();
@@ -367,11 +253,7 @@ export async function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): 
 	try {
 		while (Date.now() < deadline) {
 			const remaining = deadline - Date.now();
-			const chunk = await Promise.race([
-				reader.read(),
-				delay(remaining).then(() => undefined),
-			]);
-			if (chunk === undefined) break;
+			const chunk = await within(reader.read(), "the room server announcement", remaining);
 			const { value, done } = chunk;
 			if (done) break;
 			buf += decoder.decode(value, { stream: true });
@@ -382,24 +264,6 @@ export async function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): 
 		reader.releaseLock();
 	}
 	throw new Error("rooms server never announced its locator");
-}
-
-/** Run the rooms server over iroh and hand its dialable ocapn:// URI to `fn`. */
-export async function withIrohServer(
-	fn: (uri: string) => Promise<void>,
-): Promise<void> {
-	const proc = spawnOwned("deno", {
-		args: [...IROH_FLAGS, SERVER, "--transport=iroh"],
-		cwd: ROOT,
-		env: ephemeralRoomsEnv(),
-		stdout: "piped",
-		stderr: "piped",
-	});
-	try {
-		await fn(await readAnnounce(proc));
-	} finally {
-		await stopOwned(proc);
-	}
 }
 
 export {

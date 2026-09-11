@@ -25,8 +25,7 @@
          "transport.rkt"
          (only-in "abi-value.rkt"
                   DEFAULT-FEATURES-SYMBOL
-                  host-profile-values
-                  feature-mask)
+                  host-profile-values)
          "action.rkt"
          "session/state.rkt"
          ;; The handshake bound lives with the deadline machinery it feeds, so
@@ -84,21 +83,8 @@
                  (not (eq? selected-captp-version (host-captp-version adopted-host)))))
     (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                    "#:profile ~a conflicts with the adopted Host" profile))
-  (when (and adopted-host codec (not (eq? codec (host-codec adopted-host))))
-    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
-                   "#:codec ~a conflicts with the Host's ~a"
-                   codec (host-codec adopted-host)))
-  (when (and adopted-host captp-version
-             (not (eq? captp-version (host-captp-version adopted-host))))
-    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
-                   "#:captp-version ~a conflicts with the Host's ~a"
-                   captp-version (host-captp-version adopted-host)))
-  (when (and adopted-host features
-             (not (= (feature-mask features)
-                     (feature-mask (host-features adopted-host)))))
-    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
-                   "#:features ~a conflicts with the Host's ~a"
-                   features (host-features adopted-host))))
+  (check-host-profile-conflicts 'open-runtime adopted-host
+                                codec captp-version features))
 
 (define (runtime-host-for adopted-host seed profile codec captp-version features)
   (or adopted-host

@@ -211,7 +211,7 @@ test "cross-session: a released session's export range comes back for reuse" {
     const allocator = std.testing.allocator;
     // The ranges are carved out of one integer, so they are a fixed budget. A
     // host that never took a released session's range back would spend its
-    // whole slot just by churning connections, and an attacker who can open and
+    // whole slot just by churning connections, and a peer who can open and
     // close them reaches that on purpose. Reuse is what makes the slot a bound
     // on how many sessions are live at once rather than on how many the host
     // may ever open.

@@ -93,15 +93,18 @@ def main() -> int:
                 loc = rel.removesuffix("index.html")
                 # The link-preview card needs what only the deployed origin
                 # can say: the page's one absolute address and an absolute
-                # image URL, so a link pasted into a chat shows the mascot
-                # instead of a bare domain.
+                # image URL, so a link pasted into a chat shows the mark
+                # instead of a bare domain. The image is the touch icon,
+                # which the template already names, because Zine installs an
+                # asset only where a template asks for it and this URL is a
+                # plain string the build cannot see.
                 social = ""
                 if 'property="og:url"' not in rewritten:
                     social += f'<meta property="og:url" content="{base}/{loc}">'
                 if 'property="og:image"' not in rewritten:
                     social += (
-                        f'<meta property="og:image" content="{base}/glowcap-goblin-512.png">'
-                        '<meta property="og:image:alt" content="The glowcap mascot: a smiling stack of pancakes with a pat of butter.">'
+                        f'<meta property="og:image" content="{base}/glowcap-icon-256.png">'
+                        '<meta property="og:image:alt" content="The glowcap mark.">'
                     )
                 rewritten = rewritten.replace(
                     head_close,

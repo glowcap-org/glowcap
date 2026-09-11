@@ -7,7 +7,7 @@ decision: "A browser peer reaches a native CapTP server through a byte-transpare
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0117]
+amended_by: [ADR-0117, ADR-0143]
 ---
 
 # ADR-0086 Byte-transparent relay for browser peers
@@ -79,7 +79,7 @@ relay matrix (below) proves every runtime filled them the same way.
    links the full stack, so it takes a single `?target=<locator>` and routes it
    through `glowcap_host_plan_dial` (the same classifier the handoff redeem-dial
    uses), which is where transport-symbol parsing and fail-closed-on-unknown
-   live, because its SSRF allow-list must sort a target exactly as the dial it
+   live, because its target allow-list must sort a target exactly as the dial it
    admits will. A dependency-light reference relay must not, because routing a
    byte pump's classification through the core would link the capability library
    for one bit the parameter already carries, the fat entry point the constraints
@@ -149,7 +149,7 @@ the relay core, and it never migrates into the session or codec layer.
 | TCP target open → raw byte channel | the runtime's own socket | binding-native |
 | Pump semantics | this contract, one thin impl per runtime | per-binding, pinned by conformance |
 | WebSocket / browser leg | the runtime's HTTP/WebSocket server | per-runtime |
-| Target admission (allow-list, Origin, SSRF) | the embedding app | above glowcap |
+| Target admission (allow-list, Origin, open dial) | the embedding app | above glowcap |
 
 There is deliberately **no** single cross-transport relay-dial entry point. One
 symbol routing every transport would link every transport archive, dragging the
@@ -190,20 +190,20 @@ marker change per row.
   rendezvous, a held WebSocket. So the channel is a shape each binding fills in
   its own language, not a C-ABI object. The rejected shape below says why.
 
-## Threat Model
+## Relay bounds
 
-**SSRF.** A browser asking an open relay to dial an arbitrary `host:port` could
-attack internal networks. The app's TCP allow-list admits only the room server's
+**Open dial.** A browser asking an open relay to dial an arbitrary `host:port` could
+reach private networks. The app's TCP allow-list admits only the room server's
 own port. An iroh target is an `ocapn://` locator dialed over the iroh netlayer,
 which reaches no local service a direct dial could not; a deployment that wants
 to bound the iroh destination set pins it the same way.
 
-**Session hijacking.** A relay sits on the wire path, so it could try to
+**Wire position.** A relay sits on the wire path, so it could try to
 eavesdrop or forge. The keyed handshake is signature-verified end to end, and
 the relay cannot forge a signature without the peer's private key. A deployment
 that does not trust its network runs TLS to the relay and keyed CapTP on top.
 
-**Resource exhaustion.** Many sessions, or sessions held open forever. The
+**Resource pressure.** Many sessions, or sessions held open forever. The
 live-session cap refuses new upgrades when full, the idle timeout reclaims
 stalled pairs, and the backpressure plus byte cap bound a streaming session.
 
@@ -231,8 +231,9 @@ against one runtime's relay, so this ADR names the shape and points at the gate.
   feature so the TCP relay stays archive-free). A single runtime's cells are also
   addressable on their own (`deno-relay-test`, `python-relay-iroh-test`,
   `racket-relay-idle-test`, and so on). Beyond the matrix,
-  `rooms-web-relay-peer`, `rooms-web-browser-peer`, and `rooms-web-page` drive the
-  room directory through the Deno relay with a real Chromium.
+  `rooms-web-relay-peer` drives the room directory through the relay from the
+  standalone Web binding, while `rooms-web-page` drives the shipped Rust
+  browser application through it in real Chromium.
 - **A named `GlowcapRelayChannel` C-ABI shape: rejected,** for the reasons in
   Alternatives below. The iroh calls a relay leg composes are named as a set in
   `glowcap_net_transport_iroh.h` instead, which is the part of that idea that was
@@ -316,9 +317,11 @@ adapter; the contract is already defined over an abstract byte duplex, not over
 - **Reference implementation:** `@glowcap/relay` (`bindings/ts/relay/`):
   `relayBytes` (the pump) and `webSocketRelay` (the WebSocket adapter), with the
   `RelayChannel` shape. The rooms endpoint that adds policy is
-  `apps/rooms/web/relay.ts`.
-- **Shared classifier:** `glowcap_host_plan_dial` (`src/driver/core/dial_plan.zig`,
-  exported in `libglowcap_driver`).
+  `apps/rooms/rust/native/src/web/relay.rs`.
+- **Rooms target admission:** the native relay uses glowcap locator and
+  host/port parsing, admits the resulting endpoint, and transfers that selected
+  target to the byte-channel dial job. The relay owns deployment admission;
+  CapTP negotiation and peer authentication remain with the endpoints.
 - **iroh byte channel:** the `glowcap_iroh_*` conn and readiness primitives in
   `libglowcap_net_transport_iroh`, named as a set in
   `include/glowcap_net_transport_iroh.h` and driven identically by all four

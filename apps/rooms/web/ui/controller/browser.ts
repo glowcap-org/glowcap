@@ -1,9 +1,9 @@
 // Browser-owned presentation and session-establishment, independent of whether
 // the established session is local or attached.
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 import type { RoomsControllerSelection } from "../../../lib/rooms_state.ts";
-import type { RoomPreset } from "../../../lib/room/policy.ts";
+import type { RoomPreset } from "../room_policy.ts";
 import type { Reach } from "../intent.ts";
 import type { AttachmentView, DirId, MemberRef, OpsCap, SettingsTab, ToastKind } from "../types.ts";
 
@@ -50,7 +50,10 @@ export interface RoomsBrowserController {
 	shareRoomsSession(): Promise<string>;
 	useLocalRoomsSession(): string;
 	leaveRoomsSession(): string;
-	roomsController(): RoomsControllerSelection;
+	readonly controllerSelection: {
+		getSnapshot(): RoomsControllerSelection;
+		subscribe(changed: () => void): () => void;
+	};
 	resetBrowserWorkspace(): string;
 	deleteBrowserData(): Promise<string>;
 }
@@ -65,4 +68,10 @@ export function useRoomsBrowser(): RoomsBrowserController {
 		throw new Error("rooms: browser behavior was requested outside its provider");
 	}
 	return controller;
+}
+
+/** Every component rendering session kind or custody subscribes to its owner. */
+export function useRoomsController(): RoomsControllerSelection {
+	const selection = useRoomsBrowser().controllerSelection;
+	return useSyncExternalStore(selection.subscribe, selection.getSnapshot, selection.getSnapshot);
 }

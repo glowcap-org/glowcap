@@ -20,7 +20,6 @@
 
 (provide driver-loop-add-relay!
          relay-provider
-         (struct-out relay-trust-summary)
          relay-connector
          keyed-relay-locator
          noise-relay-locator
@@ -92,9 +91,6 @@
       (raise-invalid (format "rendezvous-relay reserves the ~a query parameter"
                              name))))
   value)
-(struct relay-trust-summary
-  (loaded skipped-by-engine first-skipped-engine-code)
-  #:transparent)
 
 (define (profile-locator transport designator relay-url)
   (validate-designator designator)
@@ -144,9 +140,6 @@
   ;; live for the whole constructor.
   (void/reference-sink relay-ptr register-ptr trust-ptr)
   (check-with rc (lambda () (read-last-error glowcap_relay_last_error)))
-  (define summary (make-GlowcapRelayTrustSummary 0 0 0))
-  (check-with (glowcap_relay_runtime_trust_summary raw summary)
-              (lambda () (read-last-error glowcap_relay_last_error)))
   (define package (make-GlowcapTransportProvider 0 0 #f 0 #f #f #f #f))
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
@@ -164,11 +157,7 @@
     ;; Registration retained the package; release the constructor lease.
     (check-with (glowcap_relay_runtime_release raw)
                 (lambda () (read-last-error glowcap_relay_last_error)))
-    (relay-trust-summary
-     (GlowcapRelayTrustSummary-loaded summary)
-     (GlowcapRelayTrustSummary-skipped_by_engine summary)
-     (let ([code (GlowcapRelayTrustSummary-first_skipped_engine_code summary)])
-       (and (not (zero? code)) code)))))
+    (void)))
 
 (define (relay-provider #:relay-url relay-url
                         #:register-url [register-url ""]

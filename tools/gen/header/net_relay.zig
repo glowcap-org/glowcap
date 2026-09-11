@@ -14,7 +14,6 @@ const emitted_fn_names = [_][]const u8{
     "glowcap_relay_archive_fingerprint",
     "glowcap_relay_runtime_new",
     "glowcap_relay_runtime_new_in",
-    "glowcap_relay_runtime_trust_summary",
     "glowcap_relay_transport_provider",
     "glowcap_relay_runtime_release",
     "glowcap_relay_last_error",
@@ -83,17 +82,10 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Byte length of trust_pem.",
     });
     try b.append(gpa, '\n');
-    try E.emitStruct(&b, gpa, c.GlowcapRelayTrustSummary, "GlowcapRelayTrustSummary", &.{
-        "Roots loaded into the native TLS engine.",
-        "Platform roots the native TLS engine could not consume.",
-        "Exact first engine code for a skipped root; zero when none were skipped.",
-    });
-    try b.append(gpa, '\n');
 
     try emitFn(&b, gpa, "glowcap_relay_archive_fingerprint", &.{}, "Return the exact callable-surface fingerprint. Compare it with the binding-generated GLOWCAP_RELAY_ARCHIVE_FINGERPRINT before any other call.");
     try emitFn(&b, gpa, "glowcap_relay_runtime_new", &.{ "config", "out_runtime" }, "Create a relay runtime with the library allocator. Configuration bytes are\ncopied. Release the runtime after every driver holding its provider lease.");
     try emitFn(&b, gpa, "glowcap_relay_runtime_new_in", &.{ "context", "config", "out_runtime" }, "Create a relay runtime whose owned state uses `context`.");
-    try emitFn(&b, gpa, "glowcap_relay_runtime_trust_summary", &.{ "runtime", "out_summary" }, "Copy the immutable trust-load result retained by this runtime.");
     try emitFn(&b, gpa, "glowcap_relay_transport_provider", &.{ "runtime", "out_provider" }, "Fill `out_provider` with the shared keyed-relay/noise-relay multiplexed package.\nInstall it once with glowcap_driver_add_provider; the driver retains its lease.");
     try emitFn(&b, gpa, "glowcap_relay_runtime_release", &.{ "runtime", "out_error", "error_cap", "out_error_len" }, "Release the caller's runtime reference. The provider lease keeps the runtime\nalive until its driver is released. out_error/out_error_len optionally capture\nthis call's diagnostic before an off-thread runtime regains control: omit all\nthree diagnostic arguments, or provide out_error_len.");
     try emitFn(&b, gpa, "glowcap_relay_last_error", &.{ "out_buf", "cap" }, "Copy this archive's calling-thread diagnostic, NUL-terminating when cap is\nnonzero. NULL or zero capacity queries the full length." ++ header_emit.last_error_freshness_doc);

@@ -316,7 +316,7 @@ pub fn projectCompletion(
         .failed => |failed| .{ .failed = .{
             .vow_id = failed.vow_id,
             .failure = failed.failure,
-            .message = failed.message,
+            .message = failed.message.bytes(),
         } },
         else => unreachable,
     };

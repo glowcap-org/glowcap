@@ -1,14 +1,14 @@
 # Deploy the Rooms browser app
 
 This Compose stack runs the Rooms browser UI, an iroh room server, and one
-durable shared workspace session in small Deno containers. The tracked base
+durable shared workspace session as native Rust services. The tracked base
 publishes no host port. An ignored `docker-compose.override.yml` says how this
 machine reaches the page, so a host's ports and network names never enter the
 repository.
 
-Build artifacts stay outside the image. The container mounts this repository
-and `zig-out/lib` read-only, then serves the prebuilt browser bundle and loads
-the glowcap shared libraries at runtime.
+Build artifacts stay outside the image. Each container mounts `zig-out` at
+`/runtime` read-only, including native executables, their shared libraries,
+and the complete browser artifact. Serving needs no source tree or compiler.
 
 This is the source distribution described in the Rooms
 [prerelease scope](../../README.md#prerelease-distribution), not a standalone
@@ -55,12 +55,13 @@ tunnel container already runs on. That neighbor reaches
 host may use either way, or both.
 
 `./up.sh` is the front door. It builds, recreates both containers, waits for
-each to serve, and prints one handoff block with the room locator and every
-capability. Underneath it, `./compose.sh` is the front for everything else. It
-always selects `docker-compose.yml`, explicitly adds the ignored override when
-it exists, and disables Compose's implicit `.env` loading, so operator values
-come from the exported process environment unless an explicit `--env-file` is
-passed:
+each to serve, and prints one handoff block with the room locator, browser
+interface build, and every capability. The same short Git revision appears at
+the bottom of Help in the browser. Underneath it, `./compose.sh` is the front
+for everything else. It always selects `docker-compose.yml`, explicitly adds
+the ignored override when it exists, and disables Compose's implicit `.env`
+loading, so operator values come from the exported process environment unless
+an explicit `--env-file` is passed:
 
 ```sh
 ./compose.sh logs -f rooms
@@ -86,20 +87,20 @@ is being served and the room server it supervises has announced itself. A
 container stuck at `starting` or turning `unhealthy` is telling you the room
 server is not coming up, and `./compose.sh logs rooms` says why.
 
-The most likely why, after pulling new work, is that the prebuilt shared
-libraries under `zig-out/lib` are older than the source mounted beside them.
-They are mounted rather than baked in, so nothing rebuilds them for you and
-nothing checks the pair. The server says so when it can — a status no version
-defines is reported as exactly this — and the repair is to run
-`zig build rooms-deploy-prep` again in the devcontainer and restart the
-service.
+After pulling new work, `./up.sh` refuses a dirty checkout or a completed
+deployment revision from another commit. Run `zig build rooms-deploy-prep`
+again in the devcontainer. Its revision is written only after the shared
+libraries, iroh transport, Wasm Host, browser bundle, and native session peer
+all finish, so a
+failed or partial preparation cannot authorize the new checkout.
 
 ## Your shared workspace
 
 The `glowcap-rooms-session` container owns one durable user workspace. Its
 identity, intended rooms and direct conversations, drafts, shared connection
-and retention choices, retained capabilities, and member-owned history live in
-the separate `rooms-session-state` volume. Restarting the stack republishes the
+and retention choices, retained capabilities, member-owned history, and the
+passwords answered to bridge forms all live in the separate
+`rooms-session-state` volume. Restarting the stack republishes the
 same session capability and reconciles that saved intent; unreachable peers
 remain visible as disconnected until they return.
 
@@ -119,10 +120,13 @@ The page therefore does not fetch it from a public endpoint and Compose does
 not inject it into HTML. Read it again from the operator side with:
 
 ```sh
-./compose.sh exec -T rooms-session deno run \
-  --allow-read=/run/rooms-session --no-lock \
-  /repo/apps/rooms/web/deploy/session_healthcheck.ts --print
+./compose.sh exec -T rooms-session \
+  /runtime/bin/rooms-session --check-ready=/run/rooms-session/admin.sturdyref
 ```
+
+That same command is the container's healthcheck: the native peer reads its
+own readiness mirror, prints the sturdyref when the file holds exactly one, and
+exits nonzero otherwise, so the session container runs no second runtime.
 
 That readiness mirror lives on a mode-0700 tmpfs, not in the durable session
 volume. Every container start therefore begins without a stale ready marker;
@@ -188,8 +192,7 @@ read them, any time:
 
 ```sh
 # The capability printer reads the state volume and prints the token lines:
-./compose.sh exec rooms deno run --allow-read --allow-env --no-lock \
-  /repo/apps/rooms/server/capabilities.ts
+./compose.sh exec rooms /runtime/bin/rooms-server --capabilities
 
 # The startup logs carry the same lines:
 ./compose.sh logs rooms | grep 'ROOMS-'
@@ -260,36 +263,36 @@ channel; it is not Rooms' separately selectable Noise-sealed relay DM transport.
 
 ## How the container is assembled
 
-The image contains Deno on the same pinned glibc-based Debian image used by the
-supported devcontainer. It contains no Zig or Rust toolchain. The iroh sidecar
-is already linked into `libglowcap_net_transport_iroh.so`.
+The image uses the same pinned glibc-based Debian base as the supported
+devcontainer, with system CA certificates. It runs the installed Rust
+executables; the iroh sidecar is already linked into
+`libglowcap_net_transport_iroh.so`.
 
 `zig build rooms-deploy-prep` creates:
 
-- the glowcap shared libraries;
+- the native Rooms executables and glowcap shared libraries;
 - the iroh transport library;
-- the WebAssembly Host loaded by the browser;
-- `apps/rooms/web/ui/bundle/`, the browser entry and its async chunks.
+- `zig-out/rooms-web/current`, an atomic pointer to one immutable browser
+  generation containing its page, minified scripts, styles, fonts and Wasm Host;
+- `zig-out/rooms-deployment.version`, written last with the checkout revision
+  and the selected browser generation's source identity.
 
-Prebuilding the bundle keeps deployment startup independent of package-cache
-state and avoids bundling on boot. The server can bundle at runtime when its
-dependencies are already available, but the deployment does not rely on that
-fallback.
+`up.sh` requires a clean checkout and checks both identities before recreating
+either service. The native web front loads the selected generation as a whole;
+`--prepared` never invokes a compiler or inspects a source checkout. Readiness
+checks both the directory and browser assets through `rooms-web --check-ready`.
 
-The generated bundle is minified. That keeps it small, and it also selects the
-production build of the page's UI runtime: unminified, React ships a development
-build whose diagnostics belong in the console of whoever is editing the page
-rather than in a deployment. The bundle `serve.ts` builds on the fly while
-developing is the unminified one, for that reason. To rebuild the deployment
-artifact by hand:
+For a separate browser artifact, run `rooms-web --prepare=<output-directory>`
+from the repository root, then serve `<output-directory>/current` with
+`--prepared --assets=<output-directory>/current`. Preparation uses Deno only as
+the browser compiler. The source identity covers its configuration, source
+files, fonts and Wasm bytes. An unchanged graph reuses its validated generation;
+a failed build leaves the previous publication in place. Generated generations
+remain under the output directory until that build output is cleaned.
 
-```sh
-deno bundle --platform browser --quiet --minify --code-splitting \
-  --config apps/rooms/web/browser-bundle.json \
-  --outdir apps/rooms/web/ui/bundle apps/rooms/web/ui/main.tsx
-```
-
-The bundle directory is generated and gitignored.
+Both development refresh and deployment preparation use the same minified
+compiler contract. The UI revision identifies the actual source digest, while
+the separate deployment marker ties all mounted artifacts to the checkout.
 
 ## Network and transport reference
 
@@ -315,25 +318,30 @@ For a self-contained same-host setup, set `GLOWCAP_ROOMS_REACHABILITY=direct`. T
 TCP room instead, remove `--transport=iroh` and configure `GLOWCAP_ROOMS_BIND` and
 `GLOWCAP_ROOMS_ANNOUNCE_HOST`; TCP does not use iroh discovery.
 
+The Compose front also forwards the web relay's admission settings. General sessions and held registrations use
+`GLOWCAP_RELAY_MAX_SESSIONS`, `GLOWCAP_RELAY_MAX_REGISTRATIONS`, and
+`GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY`. Iroh relay legs additionally use
+`GLOWCAP_RELAY_MAX_IROH_SESSIONS` and `GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE`, because each one retains a native
+endpoint runtime. Leaving a value unset takes the defaults documented in [Operating Rooms](../../operating.md#web-relay-admission).
+
 See [devcontainer networking](../../../../.devcontainer/docs/networking.md) for
 the `rooms-net` side of the setup.
 
 ## Use it from a larger Compose project
 
 Copy the `rooms` service into the host's existing Compose file and replace the
-two repository-relative mounts with absolute paths:
+artifact mount with an absolute path:
 
 ```yaml
 volumes:
-  - /absolute/path/to/glowcap:/repo:ro
-  - /absolute/path/to/glowcap/zig-out/lib:/libs:ro
-  - rooms-deno-cache:/deno-dir
+  - /absolute/path/to/glowcap/zig-out:/runtime:ro
+  - rooms-state:/state
 ```
 
 Keep the command, environment, image build, network, and ignored override's
 loopback port mapping unchanged. To deploy without mounting a working checkout,
-copy the required source and shared libraries into stable read-only directories
-and mount those instead.
+copy the prepared `zig-out` artifacts into a stable read-only directory and
+mount it at `/runtime`. Keep the sibling `bin`, `lib` and `rooms-web` paths.
 
 ## Storage
 

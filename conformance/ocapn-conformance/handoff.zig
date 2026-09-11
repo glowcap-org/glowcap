@@ -142,7 +142,7 @@ pub fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
     };
 
     // The parsed argument is the authority for both the signed envelope span
-    // and exporter locator. Attacker-controlled byte strings elsewhere in the
+    // and exporter locator. Untrusted byte strings elsewhere in the
     // frame cannot impersonate either value.
     recordLocatorAddr(shared, give.exporter);
     const give_owned = try give.toOwned(allocator);

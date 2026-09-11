@@ -400,7 +400,7 @@ test "a second early withdraw past max_pending_withdraws refuses loud and projec
     const recipient_pub = recipient_secret.publicKey();
     const recipient_side = sideOf(recipient_pub);
 
-    // The park table is attacker-fed (a partner can flood `withdraw-gift`s whose
+    // The park table is peer-supplied (a partner can flood `withdraw-gift`s whose
     // deposits never arrive), so the cap must refuse, not silently drop.
     var exporter = peer_fixture.openPeer(allocator);
     defer exporter.deinit();

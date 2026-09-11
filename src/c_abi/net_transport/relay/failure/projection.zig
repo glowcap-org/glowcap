@@ -31,12 +31,7 @@ pub fn failDial(
 }
 
 pub fn dial(cause: anyerror) i32 {
-    return switch (cause) {
-        error.InvalidAddress => c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        error.TimedOut => c.GLOWCAP_ERR_TIMEOUT,
-        error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
-        else => c.GLOWCAP_ERR_IO,
-    };
+    return c.dialFailureCode(cause);
 }
 
 pub fn listen(cause: anyerror) i32 {

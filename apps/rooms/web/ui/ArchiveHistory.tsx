@@ -68,6 +68,7 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 	 * draws a failure the store reports; this is the one the reader's own press
 	 * came back with, which had nowhere to go. */
 	const [shareWhy, setShareWhy] = useState<Readonly<Record<string, string>>>({});
+	const [reading, setReading] = useState<ReadonlySet<string>>(() => new Set());
 	if (shares.length === 0) return null;
 	return (
 		<ul className="entries">
@@ -117,16 +118,17 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 								<Button
 									className="archive-share-drop"
 									variant="quiet"
-									disabled={offered.status === "reading"}
+									disabled={reading.has(offered.id)}
 									onClick={() => setDiscarding(offered.id)}
 								>
 									Discard…
 								</Button>
 								<Button
 									className="archive-share-read"
-									busy={offered.status === "reading"}
+									busy={reading.has(offered.id)}
 									onClick={() => {
 										setShareWhy((prior) => ({ ...prior, [offered.id]: "" }));
+										setReading((prior) => new Set([...prior, offered.id]));
 										void session.readArchiveShare(offered.id).then((refused) => {
 											// The wait was drawn and the refusal was dropped, so a
 											// read that could not happen looked exactly like one
@@ -134,10 +136,21 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 											if (refused !== "") {
 												setShareWhy((prior) => ({ ...prior, [offered.id]: refused }));
 											}
+										}).catch((error) => {
+											setShareWhy((prior) => ({
+												...prior,
+												[offered.id]: error instanceof Error ? error.message : String(error),
+											}));
+										}).finally(() => {
+											setReading((prior) => {
+												const next = new Set(prior);
+												next.delete(offered.id);
+												return next;
+											});
 										});
 									}}
 								>
-									{offered.status === "reading" ? "Reading…" : "Read shared history"}
+									{reading.has(offered.id) ? "Reading…" : "Read shared history"}
 								</Button>
 							</div>
 						)}

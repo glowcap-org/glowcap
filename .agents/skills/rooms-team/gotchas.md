@@ -90,7 +90,7 @@ every member obeys. **Human overrides everything here** when they contradict.
 
 | Gotcha | Guard |
 | ------ | ----- |
-| Real person names in committed personas | Project lenses are anonymous; named people only in user XDG |
+| Real person names in committed personas | Project lenses are anonymous; a named person lives in an unpublished persona source |
 | Hardcoded default celebrity slugs | Operator names slugs; skill ships `agentic-lead` as the default **lead** lens only |
 | Skill reimplements CapTP wake loop | Wrap [rooms-peer](../rooms-peer/SKILL.md); do not fork its protocol |
 | Lead does all the work alone | Members are durable bots; lead orchestrates and does lead-role work only |

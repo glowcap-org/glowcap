@@ -35,12 +35,13 @@ inproc = []
 # depends on a Tor daemon the deployment runs, so a consumer opts in.
 onion = []
 
-# Opt-in async I/O over tokio. The base binding stays dependency-free; the sync
-# `Peer` is sans-io and drives from any runtime, so async is purely additive.
-# `getrandom` supplies the per-connection session seed at the I/O boundary (the
-# sans-io core never generates entropy). It adds the tokio-driven `Session`
-# over native sockets and links no transport archive of its own.
-async = ["dep:tokio", "dep:getrandom"]
+# Shared asynchronous Host/Session custody and byte-stream I/O. Native targets
+# add Tokio sockets/timers; Wasm uses browser entropy and timers while the
+# embedder polls a Tokio LocalSet from its browser executor.
+async = ["dep:tokio", "dep:getrandom", "dep:web-time", "dep:gloo-timers"]
+# Browser-owned WebSocket chunks and reliable RTCDataChannel packets. This
+# links no native transport archive; CapTP still runs in the shared Host.
+browser = ["async", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys"]
 # Opt-in iroh transport. Links the iroh public C ABI companion library
 # (`libglowcap_net_transport_iroh`, built by `zig build iroh-abi`, needs cargo) *alongside*
 # the static core archive, it exports only `glowcap_iroh_*`, so core symbols still
@@ -60,8 +61,19 @@ webrtc = []
 relay = ["async"]
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "time"], optional = true }
+tokio = { version = "1", default-features = false, features = ["rt", "io-util", "macros", "sync"], optional = true }
 getrandom = { version = "0.4", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", default-features = false, features = ["net", "time"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"], optional = true }
+web-time = { version = "1.1", optional = true }
+gloo-timers = { version = "0.4", features = ["futures"], optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true, features = ["Url", "WebSocket", "BinaryType", "RtcDataChannel", "RtcDataChannelState", "RtcDataChannelType", "Event", "MessageEvent", "CloseEvent", "RtcPeerConnection", "RtcPeerConnectionState", "RtcConfiguration", "RtcPeerConnectionIceEvent", "RtcIceCandidate", "RtcIceCandidateInit", "RtcDataChannelEvent", "RtcSessionDescriptionInit", "RtcSdpType"] }
 
 # build.rs parses the package-shipped c-abi-resolve.json (ADR-0077).
 [build-dependencies]
@@ -72,7 +84,7 @@ serde_json = "1"
 # launch a Racket Goblins peer). Dev builds union this `process` feature onto
 # the lib's tokio, so examples and tests get it while the shipped library
 # stops carrying it.
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["process"] }
 
 # Live interop proof: a peer on the C ABI holds a keyed OCapN conversation with a
@@ -154,4 +166,11 @@ required-features = ["relay"]
 # fresh-port restart. Run via `zig build rust-keyed-tcp-restart`.
 [[example]]
 name = "keyed_tcp_restart"
+required-features = ["async", "tcp"]
+
+# Verb-spine behavior proof: promise, dial, listen, and GC walked against the
+# fixed peer `bindings/proofs/verb_spine/harness.ts` stands up. Run via
+# `zig build rust-verb-spine`.
+[[example]]
+name = "verb_spine"
 required-features = ["async", "tcp"]

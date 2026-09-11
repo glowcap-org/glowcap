@@ -51,7 +51,7 @@
     // devcontainer image installs the browser .devcontainer/pins.sh names, and
     // a range here would let the library drift off the browser on disk.
     // `zig build source-check` holds the two together.
-    "playwright": "npm:playwright@1.62.1"
+    "playwright": "npm:playwright@1.63.0"
   },
   "lock": {
     "path": "./deno.lock",

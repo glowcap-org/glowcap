@@ -1,0 +1,488 @@
+{
+  "forms": [
+    {
+      "name": "all fields",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": true,
+      "hasSecret": true
+    },
+    {
+      "name": "empty fields",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": true,
+      "hasSecret": false
+    },
+    {
+      "name": "title",
+      "raw": "{\"scope\":\"network\",\"title\":\"\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "scope",
+      "raw": "{\"scope\":\"\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "said",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "fields",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "actions",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "extra",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}],\"extra\":true}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "secret",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": true,
+      "hasSecret": true
+    },
+    {
+      "name": "prefixed",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true,\"prefix\":\"#\",\"hint\":\"Hint\",\"placeholder\":\"Example\",\"value\":\"start\"}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": true,
+      "hasSecret": false
+    },
+    {
+      "name": "empty prefix",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true,\"prefix\":\"\"}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "null hint",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true,\"hint\":null}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "prefilled secret",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true,\"value\":\"forbidden\"}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "secret prefix",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true,\"prefix\":\"#\"}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "nested toggle",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "many reveals",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "unknown field",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true,\"other\":true}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "uppercase id",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"Nick\",\"label\":\"Nick\",\"required\":true}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "leading digit",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"1nick\",\"label\":\"Nick\",\"required\":true}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "long id",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"label\":\"Nick\",\"required\":true}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "label max",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",\"required\":true}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": true,
+      "hasSecret": false
+    },
+    {
+      "name": "label over",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",\"required\":true}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "lone surrogate",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"\\ud800\",\"required\":true,\"value\":\"\\udfff\"}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": true,
+      "hasSecret": false
+    },
+    {
+      "name": "long hint",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true,\"hint\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "long value",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true,\"value\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "unknown tone",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"accent\",\"remembered\":true}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "null confirm",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true,\"confirm\":null}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "extra confirm",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true,\"confirm\":{\"say\":\"sure\",\"keep\":\"keep\",\"commit\":\"go\",\"extra\":1}}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "missing remembered",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"go\",\"label\":\"go\",\"busyLabel\":\"going\",\"tone\":\"primary\"}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "many actions",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true}]}",
+      "accepted": false,
+      "hasSecret": null
+    },
+    {
+      "name": "duplicate field secret",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"secret\",\"id\":\"nick\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "accepted": true,
+      "hasSecret": true
+    }
+  ],
+  "submissions": [
+    {
+      "name": "off",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "link",
+      "typed": "{\"nick\":\"alice\",\"account\":\"account\",\"password\":\"test-secret\",\"ignored\":\"not asked\"}",
+      "toggles": [],
+      "result": {
+        "answers": {
+          "nick": "alice",
+          "registered": ""
+        },
+        "secrets": {}
+      }
+    },
+    {
+      "name": "on",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "link",
+      "typed": "{\"nick\":\"alice\",\"account\":\"account\",\"password\":\"test-secret\",\"ignored\":\"not asked\"}",
+      "toggles": [
+        "registered"
+      ],
+      "result": {
+        "answers": {
+          "nick": "alice",
+          "registered": "on",
+          "account": "account"
+        },
+        "secrets": {
+          "password": "test-secret"
+        }
+      }
+    },
+    {
+      "name": "quiet",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "disconnect",
+      "typed": "{\"nick\":\"alice\",\"account\":\"account\",\"password\":\"test-secret\",\"ignored\":\"not asked\"}",
+      "toggles": [
+        "registered"
+      ],
+      "result": {
+        "answers": {},
+        "secrets": {}
+      }
+    },
+    {
+      "name": "danger",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "forget",
+      "typed": "{\"nick\":\"alice\",\"account\":\"account\",\"password\":\"test-secret\",\"ignored\":\"not asked\"}",
+      "toggles": [
+        "registered"
+      ],
+      "result": {
+        "answers": {},
+        "secrets": {}
+      }
+    },
+    {
+      "name": "missing",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "link",
+      "typed": "{\"nick\":\"alice\",\"account\":\"account\"}",
+      "toggles": [
+        "registered"
+      ],
+      "result": {
+        "why": "Password is required."
+      }
+    },
+    {
+      "name": "empty",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "link",
+      "typed": "{}",
+      "toggles": [],
+      "result": {
+        "why": "Nick is required."
+      }
+    },
+    {
+      "name": "hidden duplicate secret",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"secret\",\"id\":\"nick\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "link",
+      "typed": "{\"nick\":\"alice\"}",
+      "toggles": [],
+      "result": {
+        "answers": {
+          "registered": ""
+        },
+        "secrets": {
+          "nick": "alice"
+        }
+      }
+    },
+    {
+      "name": "optional",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":false}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "link",
+      "typed": "{}",
+      "toggles": [],
+      "result": {
+        "answers": {},
+        "secrets": {}
+      }
+    },
+    {
+      "name": "prefill not submitted",
+      "raw": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true,\"value\":\"prefill\"}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "action": "link",
+      "typed": "{}",
+      "toggles": [],
+      "result": {
+        "why": "Nick is required."
+      }
+    }
+  ],
+  "split": {
+    "answers": {
+      "nick": "alice",
+      "account": "account",
+      "ignored": "not asked"
+    },
+    "secrets": {
+      "password": "test-secret"
+    }
+  },
+  "splitTyped": "{\"nick\":\"alice\",\"account\":\"account\",\"password\":\"test-secret\",\"ignored\":\"not asked\"}",
+  "answers": [
+    {
+      "raw": "{}",
+      "result": "{}"
+    },
+    {
+      "raw": "{\"nick\":\"alice\"}",
+      "result": "{\"nick\":\"alice\"}"
+    },
+    {
+      "raw": "{\"a\":\"1\",\"b\":\"2\",\"a\":\"3\"}",
+      "result": "{\"a\":\"3\",\"b\":\"2\"}"
+    },
+    {
+      "raw": "{\"a\":42,\"a\":\"last\"}",
+      "result": "{\"a\":\"last\"}"
+    },
+    {
+      "raw": "{\"password\":\"\\ud800\"}",
+      "result": "{\"password\":\"\\ud800\"}"
+    },
+    {
+      "raw": "{\"Nick\":\"bad\"}",
+      "error": true
+    },
+    {
+      "raw": "{\"x\":null}",
+      "error": true
+    },
+    {
+      "raw": "[]",
+      "error": true
+    },
+    {
+      "raw": "null",
+      "error": true
+    },
+    {
+      "raw": "{",
+      "error": true
+    },
+    {
+      "raw": "{\"a0\":\"x\",\"a1\":\"x\",\"a2\":\"x\",\"a3\":\"x\",\"a4\":\"x\",\"a5\":\"x\",\"a6\":\"x\",\"a7\":\"x\",\"a8\":\"x\",\"a9\":\"x\",\"a10\":\"x\",\"a11\":\"x\",\"a12\":\"x\",\"a13\":\"x\",\"a14\":\"x\",\"a15\":\"x\",\"a16\":\"x\"}",
+      "error": true
+    },
+    {
+      "raw": "{\"x\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      "error": true
+    }
+  ],
+  "wire": [
+    {
+      "input": null,
+      "result": null
+    },
+    {
+      "input": "",
+      "result": null
+    },
+    {
+      "input": false,
+      "error": true
+    },
+    {
+      "input": [],
+      "error": true
+    },
+    {
+      "input": {
+        "capability": true
+      },
+      "error": true
+    },
+    {
+      "input": "null",
+      "error": true
+    },
+    {
+      "input": "{",
+      "error": true
+    },
+    {
+      "input": "{\"scope\":\"network\",\"title\":\"Identity\",\"said\":\"Rooms only\",\"fields\":[{\"kind\":\"text\",\"id\":\"nick\",\"label\":\"Nick\",\"required\":true},{\"kind\":\"toggle\",\"id\":\"registered\",\"label\":\"Log in\",\"on\":false,\"reveals\":[{\"kind\":\"text\",\"id\":\"account\",\"label\":\"Account\",\"required\":true},{\"kind\":\"secret\",\"id\":\"password\",\"label\":\"Password\",\"required\":true}]}],\"actions\":[{\"id\":\"link\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"primary\",\"remembered\":true},{\"id\":\"disconnect\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"quiet\",\"remembered\":true},{\"id\":\"forget\",\"label\":\"Link\",\"busyLabel\":\"Linking\",\"tone\":\"danger\",\"remembered\":true,\"confirm\":{\"say\":\"End this identity?\",\"keep\":\"Keep\",\"commit\":\"End\"}}]}",
+      "result": {
+        "scope": "network",
+        "title": "Identity",
+        "said": "Rooms only",
+        "fields": [
+          {
+            "kind": "text",
+            "id": "nick",
+            "label": "Nick",
+            "required": true
+          },
+          {
+            "kind": "toggle",
+            "id": "registered",
+            "label": "Log in",
+            "on": false,
+            "reveals": [
+              {
+                "kind": "text",
+                "id": "account",
+                "label": "Account",
+                "required": true
+              },
+              {
+                "kind": "secret",
+                "id": "password",
+                "label": "Password",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "id": "link",
+            "label": "Link",
+            "busyLabel": "Linking",
+            "tone": "primary",
+            "remembered": true
+          },
+          {
+            "id": "disconnect",
+            "label": "Link",
+            "busyLabel": "Linking",
+            "tone": "quiet",
+            "remembered": true
+          },
+          {
+            "id": "forget",
+            "label": "Link",
+            "busyLabel": "Linking",
+            "tone": "danger",
+            "remembered": true,
+            "confirm": {
+              "say": "End this identity?",
+              "keep": "Keep",
+              "commit": "End"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": "                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 ",
+      "error": true
+    }
+  ],
+  "calls": [
+    {
+      "verb": "submitBridgeForm",
+      "args": [
+        "link",
+        "{\"nick\":\"alice\",\"account\":\"account\",\"password\":\"test-secret\",\"ignored\":\"not asked\"}"
+      ]
+    },
+    {
+      "verb": "submitBridgeForm",
+      "args": [
+        "disconnect",
+        "{}"
+      ]
+    }
+  ],
+  "said": "Identity linked",
+  "defaultSaid": ""
+}

@@ -29,7 +29,7 @@ import { reapOwned, spawnOwned } from "../support/children.ts";
 import { freePort } from "../support/rooms_server.ts";
 import { awaitBubble, fail, openDmTo, reachDirectoryOnCard } from "../support/page.ts";
 
-const WEB = new URL("../../web/serve.ts", import.meta.url).pathname;
+import { WEB } from "../support/web_binary.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi ada, I am writing from a page that is not yours";
@@ -40,17 +40,10 @@ const REPLY_TEXT = "got it bo, replying from mine";
 // anywhere and cleartext TCP only where it is told, and the visitor's page is
 // the one that has to reach the room it is visiting.
 function serveRooms(httpPort: number, roomPort: number, reaches?: number): Deno.ChildProcess {
-	return spawnOwned("deno", {
+	return spawnOwned(WEB, {
 		env: reaches === undefined ? {} : { GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${reaches}` },
 		args: [
-			"run",
-			"--allow-ffi",
-			"--allow-read",
-			"--allow-write",
-			"--allow-net",
-			"--allow-env",
-			"--allow-run",
-			WEB,
+			"--transport=tcp",
 			String(httpPort),
 			String(roomPort),
 		],

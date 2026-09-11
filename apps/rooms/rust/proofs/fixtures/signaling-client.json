@@ -1,0 +1,186 @@
+{
+  "limits": {
+    "description": 16384,
+    "id": 128,
+    "candidate": 4096
+  },
+  "replies": [
+    {
+      "verb": "accepted",
+      "kind": "text",
+      "text": "exchange",
+      "extra": false,
+      "accepted": true
+    },
+    {
+      "verb": "answer",
+      "kind": "text",
+      "text": "answer",
+      "extra": false,
+      "accepted": true
+    },
+    {
+      "verb": "candidate",
+      "kind": "text",
+      "text": "ice",
+      "extra": false,
+      "accepted": true
+    },
+    {
+      "verb": "reject",
+      "kind": "text",
+      "text": "refused",
+      "extra": false,
+      "accepted": true
+    },
+    {
+      "verb": "accepted",
+      "kind": "text",
+      "text": "",
+      "extra": false,
+      "accepted": false
+    },
+    {
+      "verb": "accepted",
+      "kind": "repeat",
+      "text": "é",
+      "extra": false,
+      "accepted": false
+    },
+    {
+      "verb": "unknown",
+      "kind": "text",
+      "text": "value",
+      "extra": false,
+      "accepted": false
+    },
+    {
+      "verb": "answer",
+      "kind": "text",
+      "text": "answer",
+      "extra": true,
+      "accepted": false
+    },
+    {
+      "verb": "candidate",
+      "kind": "capability",
+      "text": "",
+      "extra": false,
+      "accepted": false
+    },
+    {
+      "verb": "candidate",
+      "kind": "text",
+      "text": "",
+      "extra": false,
+      "accepted": false
+    },
+    {
+      "verb": "answer",
+      "kind": "text",
+      "text": "",
+      "extra": false,
+      "accepted": false
+    }
+  ],
+  "bounds": [
+    {
+      "kind": "description",
+      "id": "id",
+      "payload": "x",
+      "count": 1,
+      "accepted": true
+    },
+    {
+      "kind": "description",
+      "id": "",
+      "payload": "x",
+      "count": 1,
+      "accepted": false
+    },
+    {
+      "kind": "description",
+      "id": "id",
+      "payload": "",
+      "count": 1,
+      "accepted": false
+    },
+    {
+      "kind": "description",
+      "id": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "payload": "x",
+      "count": 1,
+      "accepted": true
+    },
+    {
+      "kind": "description",
+      "id": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "payload": "x",
+      "count": 1,
+      "accepted": false
+    },
+    {
+      "kind": "description",
+      "id": "id",
+      "payload": "é",
+      "count": 8192,
+      "accepted": true
+    },
+    {
+      "kind": "description",
+      "id": "id",
+      "payload": "é",
+      "count": 8193,
+      "accepted": false
+    },
+    {
+      "kind": "candidate",
+      "id": "id",
+      "payload": "x",
+      "count": 1,
+      "accepted": true
+    },
+    {
+      "kind": "candidate",
+      "id": "",
+      "payload": "x",
+      "count": 1,
+      "accepted": false
+    },
+    {
+      "kind": "candidate",
+      "id": "id",
+      "payload": "",
+      "count": 1,
+      "accepted": false
+    },
+    {
+      "kind": "candidate",
+      "id": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "payload": "x",
+      "count": 1,
+      "accepted": true
+    },
+    {
+      "kind": "candidate",
+      "id": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "payload": "x",
+      "count": 1,
+      "accepted": false
+    },
+    {
+      "kind": "candidate",
+      "id": "id",
+      "payload": "é",
+      "count": 2048,
+      "accepted": true
+    },
+    {
+      "kind": "candidate",
+      "id": "id",
+      "payload": "é",
+      "count": 2049,
+      "accepted": false
+    }
+  ]
+}

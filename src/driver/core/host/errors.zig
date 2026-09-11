@@ -40,6 +40,10 @@ pub const HostError = error{
     /// A host vow id names no live row: never minted, or its session was
     /// released.
     NoSuchVow,
+    /// A resolver id this Host never minted. A minted resolver that was
+    /// consumed, by its settle or by its session's release, refuses
+    /// `AlreadySettled` instead.
+    NoSuchResolver,
     /// A session-scoped vow verb (a listener, a pipelined send or
     /// projection, `vowSession`) was called on a resolver vow, which belongs
     /// to no session (ADR-0102): its whole surface is the turn-scoped

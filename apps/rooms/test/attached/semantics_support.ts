@@ -87,6 +87,46 @@ export class FakeController {
 		return () => {};
 	}
 
+	onOperationsRead(_listener: (result: unknown) => void): () => void {
+		return () => {};
+	}
+
+	ignoredNickname(_conversationId: string): string | undefined {
+		return undefined;
+	}
+
+	readonly preferences = {
+		setIgnoredName: (name: string, ignored: boolean) => this.command("setIgnoredNames", [name, String(ignored)]),
+		setStanding: (standing: string) => this.command("setStanding", [standing]),
+		setDirectoryNick: (directory: string, nick: string) => this.command("setDirectoryNick", [directory, nick]),
+		setDirectoryStanding: (directory: string, standing: string) =>
+			this.command("setDirectoryStanding", [directory, standing]),
+		setRoomStanding: (conversation: string, standing: string) =>
+			this.command("setRoomStanding", [conversation, standing]),
+	};
+
+	chooseDirect(directory: string, who: string, select: boolean): Promise<RoomsSessionState["conversations"][number]> {
+		const existing = this.current.checkpoint.conversations.find((conversation) =>
+			conversation.kind === "direct" && conversation.directory === directory &&
+			conversation.peer.toLowerCase() === who.toLowerCase() && !conversation.closed
+		);
+		if (existing != null) {
+			if (select) void this.select(existing.id);
+			return Promise.resolve(existing);
+		}
+		const direct = {
+			kind: "direct" as const,
+			id: `direct-${this.directIds.length + 1}`,
+			directory,
+			peer: who,
+			peerRegistrationId: registrationId(this.directIds.length + 1),
+			closed: false,
+			draft: "",
+		};
+		this.directIds.push(direct.id);
+		return Promise.resolve(direct);
+	}
+
 	openDirect(direct: { id: string }): Promise<RoomsSessionSnapshot> {
 		this.directIds.push(direct.id);
 		return Promise.resolve(this.current);
@@ -108,6 +148,33 @@ export class FakeController {
 	): Promise<RoomsSessionSnapshot> {
 		this.joinedRooms.push({ room, directory });
 		return Promise.resolve(this.current);
+	}
+
+	joinDestination(
+		destination: { room: string; locator: string; hidden?: boolean },
+		nick: string,
+		defaultDirectory: string,
+	): Promise<RoomsSessionSnapshot> {
+		const linkMarker = destination.locator.lastIndexOf("/s/");
+		const linked = linkMarker >= 0;
+		const locator = linked
+			? decodeURIComponent(destination.locator.slice("ocapn://".length, linkMarker).replace(/\.tcp$/, ""))
+			: destination.locator || defaultDirectory;
+		const room = {
+			kind: "room" as const,
+			id: `room-${this.joinedRooms.length + 1}`,
+			directory: linked
+				? destination.locator.slice(0, linkMarker)
+				: locator === "127.0.0.1:1"
+				? "ocapn://127.0.0.1%3A1.tcp"
+				: locator,
+			name: destination.room,
+			held: destination.hidden === true || linked,
+			...(linked ? { link: destination.locator } : {}),
+			standing: null,
+			draft: "",
+		};
+		return this.joinRoom(room, { locator, nick });
 	}
 
 	select(id: string): Promise<RoomsSessionSnapshot> {
@@ -157,7 +224,30 @@ export class FakeController {
 	}
 
 	retireDraft(conversation: string): void {
+		this.cancelDraftSave(conversation);
 		this.stagedDrafts.delete(conversation);
+	}
+
+	readonly scheduledDrafts = new Map<
+		string,
+		{ timer: ReturnType<typeof setTimeout>; resolve(value: RoomsSessionSnapshot): void }
+	>();
+	cancelDraftSave(conversation: string): void {
+		const pending = this.scheduledDrafts.get(conversation);
+		if (pending == null) return;
+		this.scheduledDrafts.delete(conversation);
+		clearTimeout(pending.timer);
+		pending.resolve(this.current);
+	}
+	scheduleDraft(conversation: string, text: string): Promise<RoomsSessionSnapshot> {
+		this.cancelDraftSave(conversation);
+		return new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
+				this.scheduledDrafts.delete(conversation);
+				void this.setDraft(conversation, text).then(resolve, reject);
+			}, 150);
+			this.scheduledDrafts.set(conversation, { timer, resolve });
+		});
 	}
 
 	say(_conversation: string, _text: string): Promise<RoomsSessionSnapshot> {
@@ -214,12 +304,14 @@ export function addActiveDm(page: InstanceType<typeof RoomsPage>): void {
 export function sessionFor(
 	page: InstanceType<typeof RoomsPage>,
 	controller: FakeController,
+	recoverSends = false,
 ): ReturnType<typeof createAttachedRoomsSession> {
 	return createAttachedRoomsSession(
 		page,
 		{} as RoomsBrowserController,
 		controller as unknown as import("../../web/ui/session/attached.ts").AttachedRoomsController,
 		{} as import("../../web/ui/session/attached_files.ts").AttachedSessionFiles,
+		{ recoverSends },
 	);
 }
 

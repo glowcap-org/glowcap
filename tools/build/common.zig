@@ -126,6 +126,23 @@ pub fn linkRustSidecar(
     }
 }
 
+/// The runtime plumbing both Rust sidecars depend on by path
+/// (`transports/sidecar-common`): the private-runtime owner, the task barrier,
+/// and the readiness channel. A sidecar's `cargo test` builds the crate but
+/// never runs its tests, so the crate has its own step, a cargo-requiring
+/// sibling of `check` like `iroh-sidecar-test` and `webrtc-sidecar-test`.
+/// `--locked` makes its committed lockfile authoritative.
+pub fn registerSidecarCommon(b: *std.Build) void {
+    const test_run = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "cargo", "test", "--locked", "--release", "--manifest-path", "transports/sidecar-common/Cargo.toml",
+    });
+    const test_compile = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo", "test", "--locked", "--no-run", "--release", "--manifest-path", "transports/sidecar-common/Cargo.toml",
+    });
+    test_run.step.dependOn(&test_compile.step);
+    b.step("sidecar-common-test", "Run the Rust unit tests of the runtime plumbing both transport sidecars share: private-runtime calls from inside an ambient runtime and the task barrier (needs cargo)").dependOn(&test_run.step);
+}
+
 /// Compile one `site/examples/` Zig snippet as a checked claim. The snippet
 /// becomes a module rooted by `tools/check/site_example_root.zig`, whose
 /// header says why compiling the snippet file alone would read nothing.
@@ -232,12 +249,22 @@ pub fn installArchive(
         .version = version,
     });
     const dynamic_install = b.addInstallArtifact(shared_lib, .{});
+    checkArchiveTls(b, shared_lib, &dynamic_install.step);
     b.getInstallStep().dependOn(&dynamic_install.step);
     return .{
         .static = static_lib,
         .dynamic = shared_lib,
         .dynamic_install = dynamic_install,
     };
+}
+
+/// ELF TLS consumes storage on host-created pthread stacks. Keep each ABI
+/// artifact small enough to compose with its siblings in an ordinary worker.
+pub fn checkArchiveTls(b: *std.Build, artifact: *std.Build.Step.Compile, install: *std.Build.Step) void {
+    if (artifact.root_module.resolved_target.?.result.ofmt != .elf) return;
+    const check = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/abi_tls.py" });
+    check.addFileArg(artifact.getEmittedBin());
+    install.dependOn(&check.step);
 }
 
 /// The shared Zig interop-driver harness (`interop/_common/zig/harness.zig`),

@@ -46,8 +46,10 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	await connection.locator(".irc-channel-add input").fill("nowhere");
 	await connection.locator('.irc-channel-add button:has-text("Join")').click();
 	await connection.locator('.irc-channel-list li:has-text("#nowhere")').waitFor({ timeout: 10_000 });
-	await connection.locator('.said:has-text("Connection refused")').waitFor({ timeout: 10_000 })
-		.catch(() => fail("the connection card did not surface its IRC registration failure"));
+	await connection.locator(':scope > .said:has-text("Connection refused")').waitFor({ timeout: 10_000 })
+		.catch(async () =>
+			fail(`the connection card did not surface its IRC registration failure: ${await connection.textContent()}`)
+		);
 	// Entered through the ordinary rail field, the bridged room stands as a
 	// room with an IRC badge. Its second line remains directory context, the
 	// same as every other room on that directory.
@@ -88,9 +90,14 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	if (!about.includes("Bridged via 127.0.0.1:1")) {
 		fail(`the room About facts omitted its IRC endpoint: ${JSON.stringify(about)}`);
 	}
-	if (await tab.getAttribute("#convcardTabs", "data-count") !== "4") {
-		fail("the bridged room did not expose its four real detail choices");
-	}
+	await tab.waitForSelector('#convcardTabs[data-count="4"]', { timeout: 10_000 }).catch(async () => {
+		const tabs = await tab.locator("#convcardTabs .tab").allTextContents();
+		const members = (await tab.locator("#members").textContent()) ?? "";
+		fail(
+			`the bridged room did not reconcile its four real detail choices: tabs=${JSON.stringify(tabs)} ` +
+				`members=${JSON.stringify(members)}`,
+		);
+	});
 	await tab.click("#convcardCapabilitiesTab");
 	if (await tab.locator("#convcardManagerTake").count() !== 0) {
 		fail("the IRC bridge exposed a native room-manager form it cannot satisfy");
@@ -198,7 +205,18 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 		},
 		undefined,
 		{ timeout: 10_000 },
-	).catch(() => fail("a parted IRC bridge left its retired room composer writable"));
+	).catch(async () => {
+		const composer = await tab.locator("#line").evaluate((input: HTMLTextAreaElement) => ({
+			disabled: input.disabled,
+			value: input.value,
+		}));
+		const availability = (await tab.locator("#composerAvailability").textContent()) ?? "";
+		const row = await namedRoomRow(tab, "deadnet/#nowhere", true).getAttribute("class");
+		fail(
+			`a parted IRC bridge left its retired room composer writable: composer=${JSON.stringify(composer)} ` +
+				`availability=${JSON.stringify(availability)} row=${JSON.stringify(row)}`,
+		);
+	});
 	await tab.click("#convcardClose");
 	await tab.waitForSelector("#convcardTitle", { state: "detached" });
 	const reopenedRow = namedRoomRow(tab, "deadnet/#nowhere");

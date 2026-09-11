@@ -27,6 +27,20 @@ pub fn locatorAdapterErrorCode(err: locator_adapter.CloneViewError) i32 {
     };
 }
 
+/// Project a dial's failure onto the C result an embedder can act on. One
+/// table for every transport archive, so a retry policy written against
+/// `GLOWCAP_ERR_TIMEOUT` or `GLOWCAP_ERR_WOULD_BLOCK` holds over each of them
+/// alike; an archive names the concrete cause in its last-error text.
+pub fn dialFailureCode(err: anyerror) i32 {
+    return switch (err) {
+        error.InvalidAddress, error.InvalidOptions => GLOWCAP_ERR_INVALID_ARGUMENT,
+        error.TimedOut => GLOWCAP_ERR_TIMEOUT,
+        error.WouldBlock => GLOWCAP_ERR_WOULD_BLOCK,
+        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
+        else => GLOWCAP_ERR_IO,
+    };
+}
+
 /// The peer closed the stream gracefully on a frame boundary (clean EOF).
 pub const GLOWCAP_ERR_CLOSED: i32 = -7;
 /// An underlying socket read/write failed; the archive's last-error surface

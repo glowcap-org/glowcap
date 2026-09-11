@@ -80,7 +80,7 @@ The
 go deeper, and [Transports]($link.page('transports')) explains what a netlayer
 is. [Choosing a transport]($link.page('transports/choosing')) lists the ones a
 locator can name. A peer reachable over several transports can carry them
-under one key with the prototype
+under one key with the
 [multi-home locator]($link.page('multihome')).
 
 # Promise pipelining
@@ -147,7 +147,7 @@ floor, and when glowcap and Goblins disagree there, glowcap treats it as
 glowcap's bug. Two glowcap peers can negotiate up to `glowcap-next`, usually
 with Cap'n Proto. Application code cannot tell the difference.
 
-[A friendly goblin sizing up a stack of pancakes. glowcap tests its wire behavior against a real Goblins peer, so both sides have to understand the same conversation.]($image.siteAsset('glowcap-goblin-512.png'))
+[A friendly goblin sizing up the glowcap mark. glowcap tests its wire behavior against a real Goblins peer, so both sides have to understand the same conversation.]($image.siteAsset('glowcap-goblin-512.png'))
 
 # Distributed GC
 

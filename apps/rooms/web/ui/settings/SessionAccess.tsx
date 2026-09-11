@@ -7,7 +7,7 @@
 // row's.
 
 import { useState } from "react";
-import { MAX_SESSION_GRANT_LABEL } from "../../../lib/limits.ts";
+import { MAX_SESSION_GRANT_LABEL } from "../limits.ts";
 import type { RoomsSessionFacet } from "../../../lib/session/client.ts";
 import { Button } from "../Button.tsx";
 import { Checkbox } from "../Checkbox.tsx";
@@ -15,9 +15,9 @@ import { Confirm } from "../Confirm.tsx";
 import { CopyField } from "../Copy.tsx";
 import { Field } from "../Field.tsx";
 import { useRoomsState } from "../hooks.ts";
-import { useRoomsBrowser } from "../controller/browser.ts";
+import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { sharedRoomsSession } from "../../../lib/rooms_state.ts";
+import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
@@ -41,7 +41,7 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	// one press away from locking this browser out of the session it is
 	// reading the list on. Matched on the capability text, which is what the
 	// reader copied out of this very card, so a miss only costs the marker.
-	const controller = browser.roomsController();
+	const controller = useRoomsController();
 	const held = sharedRoomsSession(controller)?.sturdyref ?? null;
 	const [label, setLabel] = useState("");
 	const [rights, setRights] = useState<RoomsSessionFacet>("interact");

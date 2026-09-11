@@ -11,6 +11,7 @@ import { type Attachment, type AttachmentSource, fetchBlob, sendWithAttachments 
 import { type ArchiveRecord, archiveRecordRow, parseArchiveRecord } from "../archive/protocol.ts";
 import { askOperatorPage, askOperatorRetire, askOperatorSnapshot } from "./operator.ts";
 import { resolveRoomsSessionEffect, resumeRoomsSessionEffect } from "./effects.ts";
+import { type HistoryChange, parseHistoryChange } from "./history.ts";
 import { sessionRevision } from "./revision.ts";
 import { mintRoomsSessionFacet, type RoomsSessionGrantOf } from "./facet.ts";
 
@@ -26,6 +27,7 @@ export {
 	ROOMS_SESSION_FACET,
 	ROOMS_SESSION_FILES,
 	ROOMS_SESSION_HISTORY,
+	ROOMS_SESSION_HISTORY_CHANGED,
 	ROOMS_SESSION_OPERATIONS_CHANGED,
 	ROOMS_SESSION_OPERATIONS_SNAPSHOT,
 	ROOMS_SESSION_OPERATOR_PAGE,
@@ -48,6 +50,7 @@ import {
 	ROOMS_SESSION_EVENT,
 	ROOMS_SESSION_FILES,
 	ROOMS_SESSION_HISTORY,
+	ROOMS_SESSION_HISTORY_CHANGED,
 	ROOMS_SESSION_OPERATIONS_CHANGED,
 	ROOMS_SESSION_OPERATIONS_SNAPSHOT,
 	ROOMS_SESSION_REFILE,
@@ -130,6 +133,7 @@ export class RoomsSessionClient extends RoomsSessionCommandClient {
 		changed: (snapshot: RoomsSessionSnapshot) => void,
 		event: ((event: RoomsSessionLineEvent) => void) | null = null,
 		operationsChanged: (scope: string) => void = () => {},
+		historyChanged: (change: HistoryChange) => void = () => {},
 	): Promise<RoomsSessionSnapshot> {
 		const observer = this.session.spawn((verb, args) => {
 			if (verb !== ROOMS_SESSION_EVENT) {
@@ -145,6 +149,10 @@ export class RoomsSessionClient extends RoomsSessionCommandClient {
 			}
 			if (verb === ROOMS_SESSION_EVENT) {
 				deliverRoomsSessionLine(this.session, args, event);
+				return null;
+			}
+			if (verb === ROOMS_SESSION_HISTORY_CHANGED) {
+				historyChanged(parseHistoryChange(args));
 				return null;
 			}
 			if (verb === ROOMS_SESSION_OPERATIONS_CHANGED) {
@@ -355,8 +363,8 @@ export class RoomsSessionClient extends RoomsSessionCommandClient {
 		return this.command(operationId, baseRevision, "revokePeeredRoom", [id]);
 	}
 
-	/** See `session/effects.ts`: an external operation the session is
-	 * waiting on is settled or picked up again. */
+	/** An external operation the session is waiting on is settled or picked up
+	 * again through the Rust session state owner. */
 	resolveEffect(operationId: string, outcome: "committed" | "abandoned"): Promise<void> {
 		return resolveRoomsSessionEffect(this.session, this.capability, operationId, outcome);
 	}

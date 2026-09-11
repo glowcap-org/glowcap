@@ -4,7 +4,7 @@
 // unguessable name (`--admin-listeners`), and holding that name is the whole
 // of the authority. Taking it is the shared operations flow in
 // `operations.ts`; what it answers — the listener rows, `up`, and `down` — is
-// what this module owns. The server side lives in `server/listeners.ts`.
+// what this module owns. Rust's server side lives under `room_server/operations`.
 
 import type { Ref, Session } from "@glowcap/runtime";
 import {
@@ -22,7 +22,7 @@ import { DOWN, UP } from "./protocol_operator.ts";
 import { ask } from "./ask.ts";
 import { takeOperationsCap } from "./operations.ts";
 import { MAX_OPERATIONS_ROWS } from "./limits.ts";
-import { boundedText, nonemptyText, positiveSafeInteger } from "./schema.ts";
+import { boundedText, naturalWireNumber, nonemptyText, positiveSafeInteger } from "./schema.ts";
 
 export const LISTENER_TRANSPORTS = [
 	TRANSPORT_TCP,
@@ -114,7 +114,7 @@ const ListenerWireRowSchema = z.tuple([
 	listenerText,
 	listenerTakes,
 	listenerText,
-	z.int().check(z.gte(0)),
+	naturalWireNumber,
 	listenerText,
 	z.boolean(),
 ]).check(
@@ -176,7 +176,8 @@ export async function listenerUp(
 	transport: string,
 	options?: ListenerOptions,
 ): Promise<ListenerRow> {
-	const pairs = Object.entries(options ?? {});
+	const pairs = Object.entries(z.parse(ListenerOptionsSchema, options ?? {}))
+		.map(([name, value]) => [name, typeof value === "number" ? BigInt(value) : value]);
 	const args = pairs.length === 0 ? [transport] : [transport, pairs];
 	const raw = await ask(session, cap, UP, args, `the listeners capability did not bring up ${transport}`);
 	return parseListenerRow(raw);
@@ -185,5 +186,11 @@ export async function listenerUp(
 /** Take the listener numbered `id` down. It stops admitting connections;
  * sessions it already accepted stay live. */
 export async function listenerDown(session: Session, cap: Ref, id: number): Promise<void> {
-	await ask(session, cap, DOWN, [id], `the listeners capability did not take listener ${id} down`);
+	await ask(
+		session,
+		cap,
+		DOWN,
+		[BigInt(z.parse(positiveSafeInteger, id))],
+		`the listeners capability did not take listener ${id} down`,
+	);
 }

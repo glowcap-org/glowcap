@@ -151,7 +151,15 @@ export async function run(tab: Page): Promise<void> {
 	await tab.click("#convcardStewardClaim");
 	await tab.waitForFunction(() =>
 		document.querySelector('[aria-label="Room capabilities"]')?.textContent?.includes("Held by this tab") === true
-	).catch(() => fail("claiming moderation did not make possession visible in the room details"));
+	).catch(async () => {
+		const state = await tab.evaluate(() => ({
+			refusal: document.getElementById("convcardStewardSaid")?.textContent,
+			claim: document.getElementById("convcardStewardClaim")?.textContent,
+			retained: document.getElementById("convcardSteward") != null,
+			authority: document.querySelector('[aria-labelledby="convcardRoomAuthorityTitle"] dl')?.textContent,
+		}));
+		fail(`claiming moderation did not make possession visible in the room details: ${JSON.stringify(state)}`);
+	});
 	await tab.waitForSelector("#convcardSteward").catch(() =>
 		fail("claiming moderation did not expose its handover capability in the room details")
 	);

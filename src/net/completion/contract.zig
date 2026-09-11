@@ -112,6 +112,8 @@ pub fn AdapterNamespace(comptime Platform: type) type {
         @compileError("completion adapter namespace depth exhausted");
 
     return struct {
+        const Namespace = @This();
+
         pub const depth: u6 = child_depth + 1;
 
         const fd_prefix_bits: u6 = child_depth + 2;
@@ -170,6 +172,68 @@ pub fn AdapterNamespace(comptime Platform: type) type {
         pub fn borrowTokenPayload(token: u32) u32 {
             std.debug.assert(ownsBorrowToken(token));
             return token & ~borrow_token_bit;
+        }
+
+        /// How this adapter names one row on both channels it shares with the
+        /// backend it wraps. A synthetic handle carries the row id inside the
+        /// namespace's fd prefix, and an internal completion carries the row
+        /// id above the operation it retires. `Op` is the adapter's internal
+        /// operation enum; its values must fit the three low user-data bits.
+        ///
+        /// Row ids are reserved here too, wrapping through the namespace so a
+        /// long-lived backend never runs out, and skipping any id a live or
+        /// still-opening row holds. A backend that must never reuse an id
+        /// because the id doubles as a request token toward another owner
+        /// keeps its own monotonic counter instead.
+        pub fn RowIdentity(comptime Op: type) type {
+            comptime {
+                for (@typeInfo(Op).@"enum".field_values) |field_value| {
+                    if (field_value >= 8)
+                        @compileError(@typeName(Op) ++ " must encode every internal operation in three bits");
+                }
+            }
+            return struct {
+                pub const ConnId = u32;
+
+                pub fn fdFromId(row: ConnId) error{AdapterHandleExhausted}!i32 {
+                    return Namespace.fdFromId(row);
+                }
+
+                pub fn idFromFd(fd: i32) ?ConnId {
+                    if (!Namespace.ownsFd(fd)) return null;
+                    return @intCast(Namespace.fdId(fd));
+                }
+
+                pub fn userData(operation: Op, row: ConnId) u64 {
+                    return Namespace.userData((@as(u64, row) << 3) | @backingInt(operation));
+                }
+
+                pub fn owns(user_data: u64) bool {
+                    return Namespace.ownsUserData(user_data);
+                }
+
+                pub fn id(user_data: u64) ConnId {
+                    return @intCast(Namespace.userDataPayload(user_data) >> 3);
+                }
+
+                pub fn op(user_data: u64) Op {
+                    return @fromBackingInt(@intCast(@as(u3, @truncate(Namespace.userDataPayload(user_data)))));
+                }
+
+                /// Reserve one row id no live or still-opening row holds.
+                /// `occupied` answers `contains(id)` for every table that
+                /// keys a row by this id, so an id a losing dial still owns
+                /// cannot be handed to a fresh row.
+                pub fn reserveId(next_id: *ConnId, occupied: anytype) error{TooManyConnections}!ConnId {
+                    var remaining: u64 = Namespace.max_fd_id;
+                    while (remaining != 0) : (remaining -= 1) {
+                        const candidate = next_id.*;
+                        next_id.* = if (candidate == Namespace.max_fd_id) 1 else candidate + 1;
+                        if (!occupied.contains(candidate)) return candidate;
+                    }
+                    return error.TooManyConnections;
+                }
+            };
         }
     };
 }

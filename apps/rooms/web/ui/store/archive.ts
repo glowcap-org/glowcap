@@ -2,7 +2,7 @@
 // Live references and their sessions remain in net/archive_shares.ts.
 
 import type { ArchiveShareView } from "../archive_model.ts";
-import { type PageProjection } from "./core.ts";
+import type { PageProjection } from "./core.ts";
 
 export function addArchiveShare(projection: PageProjection, share: ArchiveShareView): void {
 	projection.set({ archiveShares: [...projection.get().archiveShares, share] });

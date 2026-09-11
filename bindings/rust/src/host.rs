@@ -12,7 +12,8 @@
 //! `pump.rs`; the dial executor lives in `dial.rs`. [`Session`] lives in
 //! `session.rs`.
 //!
-//! Threading model: everything runs on one tokio current-thread `LocalSet`.
+//! Threading model: everything runs on one Tokio `LocalSet`. Native callers
+//! drive it with a current-thread runtime; browser callers use their executor.
 //! Tasks yield only at `.await` and no `glowcap_host_*` call contains one, so
 //! a verb-plus-register-plus-kick sequence is naturally atomic with no lock
 //! and no progress semaphore. The one discipline rule that replaces a lock: no
@@ -21,12 +22,12 @@
 //! `glowcap_host_provide_gift_id`) — take, drop,
 //! call.
 
+use crate::execution::monotonic_ms;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::rc::{Rc, Weak};
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tokio::sync::{oneshot, Notify};
 use tokio::task::JoinHandle;
@@ -34,7 +35,7 @@ use tokio::task::JoinHandle;
 use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
 use crate::trampoline::{
-	ctx_free, current_turn_for, inside_turn, outcome_behavior, reclaim_refused_cell, trampoline, ActorCell,
+	ctx_free, current_turn_for, inside_turn, outcome_behavior, register_actor_cell, trampoline, ActorCell,
 	InternalBehavior,
 };
 use crate::uri::OwnedLocator;
@@ -42,7 +43,11 @@ use crate::PendingWork;
 use crate::Ref;
 use crate::{sys, Argument, Behavior, Codec, Context, ContextInner, Error, Locator, Result};
 
+mod application;
 mod lifecycle;
+#[cfg(all(target_arch = "wasm32", feature = "browser"))]
+pub(crate) use lifecycle::OwnedTaskRegistration;
+#[cfg(not(target_arch = "wasm32"))]
 mod loop_teardown;
 mod progress;
 mod public;
@@ -61,12 +66,6 @@ const HOST_FRAME_CAP: usize = sys::DEFAULT_FRAME_CAP;
 /// without bound; the oldest un-awaited outcome is evicted at the cap.
 const MAX_UNOBSERVED_OUTCOMES: usize = crate::abi_constants::BINDING_UNOBSERVED_OUTCOME_CAP;
 
-fn monotonic_ms() -> i64 {
-	static EPOCH: OnceLock<Instant> = OnceLock::new();
-	let elapsed = EPOCH.get_or_init(Instant::now).elapsed().as_millis();
-	i64::try_from(elapsed).unwrap_or(i64::MAX)
-}
-
 pub(crate) fn close_result(code: i32) -> Result<()> {
 	if code == sys::OK {
 		Ok(())
@@ -80,7 +79,7 @@ pub(crate) fn close_result(code: i32) -> Result<()> {
 	}
 }
 
-fn host_refusal(code: i32, operation: &str) -> Error {
+pub(crate) fn host_refusal(code: i32, operation: &str) -> Error {
 	match check_host(code) {
 		Err(error) => error,
 		Ok(()) => Error::with_detail(
@@ -124,6 +123,7 @@ where
 /// enforces the header's "release the host always after its CapTP sessions" (the
 /// host pointer cannot be released while any session wrapper lives).
 pub(crate) struct HostShared {
+	applications: application::States,
 	raw: Cell<*mut ffi::GlowcapHost>,
 	/// Binding-local close barrier coordination. Native Host lifecycle remains
 	/// authoritative; `Failed` retains the raw handle for diagnosis and a final
@@ -163,25 +163,18 @@ pub(crate) struct HostShared {
 	// Finalizer-reclaimed public Host-vow ids. Separate from capability ids:
 	// both are opaque u64 values in distinct native namespaces.
 	pub(crate) vow_gc_pending: RefCell<VecDeque<u64>>,
+	// Deferred replies abandoned by their sole Rust owner. Drained off-turn.
+	pub(crate) resolver_abandon_pending: RefCell<VecDeque<u64>>,
 	// The first failure from a detached Host-progress task. Such a task has no
 	// caller result; the next verb head takes this exact typed cause instead.
 	background_failure: RefCell<Option<Error>>,
-	// Opaque Host capability id -> hosted cell. Actors outlive the Port that
-	// first projected them, so every sibling Session resolves through this one
-	// Host-owned index. The core owns each cell and runs ctx_free at Host release.
-	pub(crate) hosted: RefCell<HashMap<u64, *const ActorCell>>,
+	// Session-local retirement failures belong to shutdown, not the next
+	// unrelated verb. The Host retains them through its owned-task barrier.
+	retirement_failure: RefCell<Option<Error>>,
 	/// The 32-byte Ed25519 identity seed this host was minted with — retained
 	/// so a keyed-tcp listener can derive its public designator without a
 	/// second identity (ADR-0075).
 	seed: [u8; 32],
-	// The hosted cell of each giftable, by published name, so
-	// `Session::published_ref` can bind it to the identity that session surfaced
-	// and a local send composes in process. The C tier owns the cells (it was
-	// given a `ctx_free`); this only points at them. Re-publishing a name replaces
-	// the entry, while the cell it displaced stays alive because existing
-	// capabilities and gifts still reach its Host-Vat actor. The C tier frees
-	// every cell at Host release.
-	pub(crate) giftables: RefCell<HashMap<String, *const ActorCell>>,
 	// A Host allocated in a caller Context borrows that native policy. Rc makes
 	// the order structural, including teardown parked from a callback.
 	context: Option<Rc<ContextInner>>,
@@ -192,6 +185,7 @@ pub(crate) struct HostShared {
 	// is the one action drain and the one release authority: kicks become loop
 	// steps, no `glowcap_host_pump_drain` runs here, and teardown routes
 	// through `LoopShared::close` (which releases the wrapped native Host).
+	#[cfg(not(target_arch = "wasm32"))]
 	driver_loop: RefCell<Option<Rc<crate::driver_loop::LoopShared>>>,
 	// Explicit byte-fed connectors, indexed by the transport symbols their
 	// owning package advertises. Native provider composition lives in the
@@ -270,6 +264,7 @@ impl HostShared {
 			diagnostic_id,
 		);
 		Ok(Rc::new(HostShared {
+			applications: Default::default(),
 			raw: Cell::new(raw),
 			close_barrier: Cell::new(CloseBarrierState::Idle),
 			close_failure: RefCell::new(None),
@@ -282,12 +277,13 @@ impl HostShared {
 			vows: VowTable::new(),
 			gc_pending: RefCell::new(VecDeque::new()),
 			vow_gc_pending: RefCell::new(VecDeque::new()),
+			resolver_abandon_pending: RefCell::new(VecDeque::new()),
 			background_failure: RefCell::new(None),
-			hosted: RefCell::new(HashMap::new()),
-			giftables: RefCell::new(HashMap::new()),
+			retirement_failure: RefCell::new(None),
 			seed,
 			context: Some(context),
 			diagnostic_id,
+			#[cfg(not(target_arch = "wasm32"))]
 			driver_loop: RefCell::new(None),
 			connectors: RefCell::new(HashMap::new()),
 		}))
@@ -298,6 +294,7 @@ impl HostShared {
 	/// while the loop stays the one action drain and the one release
 	/// authority. `seed` is the identity half of the loop's 64-byte seed, so
 	/// `Host::designator` answers the same as on a byte-fed Host.
+	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) fn adopt_loop(
 		raw: *mut ffi::GlowcapHost,
 		seed: [u8; 32],
@@ -319,6 +316,7 @@ impl HostShared {
 			);
 		}
 		Ok(Rc::new(HostShared {
+			applications: Default::default(),
 			raw: Cell::new(raw),
 			close_barrier: Cell::new(CloseBarrierState::Idle),
 			close_failure: RefCell::new(None),
@@ -331,9 +329,9 @@ impl HostShared {
 			vows: VowTable::new(),
 			gc_pending: RefCell::new(VecDeque::new()),
 			vow_gc_pending: RefCell::new(VecDeque::new()),
+			resolver_abandon_pending: RefCell::new(VecDeque::new()),
 			background_failure: RefCell::new(None),
-			hosted: RefCell::new(HashMap::new()),
-			giftables: RefCell::new(HashMap::new()),
+			retirement_failure: RefCell::new(None),
 			seed,
 			context,
 			diagnostic_id,
@@ -391,6 +389,7 @@ impl HostShared {
 	/// The native loop this Host is adopted over, or `None` for a byte-fed
 	/// Host. The dial and listen routers read it to stage on the owning loop
 	/// instead of opening a byte channel on a host the loop drains.
+	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) fn driver_loop(&self) -> Option<Rc<crate::driver_loop::LoopShared>> {
 		self.driver_loop.borrow().clone()
 	}
@@ -398,6 +397,7 @@ impl HostShared {
 	/// Establish this Host's one native runtime owner before its first network
 	/// operation. Existing loop-backed Hosts reuse their loop; a byte-fed Host
 	/// transfers transactionally through the C ABI.
+	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) fn ensure_driver_loop(
 		self: &Rc<Self>,
 		handshake_ms: u32,
@@ -418,14 +418,19 @@ impl HostShared {
 	/// for a byte-fed one. A loop already released frees its sessions itself,
 	/// so the loop arm is a no-op then.
 	pub(crate) fn release_native_session(&self, session: *mut ffi::GlowcapHostSession) -> Result<()> {
-		match self.driver_loop() {
-			Some(lp) => lp.native_session_release(session)?,
-			None => check_host(unsafe { ffi::glowcap_host_session_release(session) })?,
-		}
+		self.release_session_handle(session)?;
 		// A released session retires its pending close work, so a driver
 		// parked on host activity must re-check progress.
 		self.note_close_activity();
 		Ok(())
+	}
+
+	fn release_session_handle(&self, session: *mut ffi::GlowcapHostSession) -> Result<()> {
+		#[cfg(not(target_arch = "wasm32"))]
+		if let Some(lp) = self.driver_loop() {
+			return lp.native_session_release(session);
+		}
+		check_host(unsafe { ffi::glowcap_host_session_release(session) })
 	}
 
 	/// The raw `GlowcapHost` handle.
@@ -433,6 +438,7 @@ impl HostShared {
 		self.raw.get()
 	}
 
+	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) fn durable_seed(&self) -> [u8; 32] {
 		self.seed
 	}
@@ -452,6 +458,7 @@ impl HostShared {
 			behavior: RefCell::new(behavior),
 			context,
 			diagnostic_id: self.diagnostic_id(),
+			registration: Cell::new(core::ptr::null()),
 		})))
 	}
 
@@ -516,9 +523,14 @@ impl HostShared {
 		self.sessions.borrow().get(&(ptr as usize)).cloned()
 	}
 
-	/// The hosted cell behind a Host-scoped local capability.
-	pub(crate) fn hosted_cell(&self, ref_id: u64) -> Option<*const ActorCell> {
-		self.hosted.borrow().get(&ref_id).copied()
+	fn reference_exporter(&self, wire: &sys::GlowcapReference) -> Result<*mut ffi::GlowcapHostSession> {
+		#[cfg(not(target_arch = "wasm32"))]
+		if let Some(lp) = self.driver_loop() {
+			return Ok(lp.claim_reference_exporter(wire)?.unwrap_or(core::ptr::null_mut()));
+		}
+		let mut out = core::ptr::null_mut();
+		check_host(unsafe { ffi::glowcap_host_reference_exporter(self.raw.get(), wire, &mut out) })?;
+		Ok(out)
 	}
 
 	/// The live session homing a remote capability, or `None` for a local,
@@ -535,13 +547,7 @@ impl HostShared {
 	pub(crate) fn exporter_for(self: &Rc<Self>, capability: &Ref) -> Result<Option<Rc<SessionShared>>> {
 		self.guard_handle()?;
 		let wire = capability.to_sys()?;
-		let out = if let Some(lp) = self.driver_loop() {
-			lp.claim_reference_exporter(&wire)?.unwrap_or(core::ptr::null_mut())
-		} else {
-			let mut out: *mut ffi::GlowcapHostSession = core::ptr::null_mut();
-			check_host(unsafe { ffi::glowcap_host_reference_exporter(self.raw.get(), &wire, &mut out) })?;
-			out
-		};
+		let out = self.reference_exporter(&wire)?;
 		if out.is_null() {
 			return Ok(None);
 		}
@@ -552,8 +558,10 @@ impl HostShared {
 		// exporter session may be loop-internal with no shell yet: wrap it
 		// lazily as a loop-backed shell (registered, so a repeat resolves to
 		// the same one), the way the byte-fed drain's redeem registers its own.
+		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
 			let shared = SessionShared::new_loop(out, Rc::clone(self), lp);
+			shared.retain_by_host();
 			shared.spawn_serve();
 			return Ok(Some(shared));
 		}

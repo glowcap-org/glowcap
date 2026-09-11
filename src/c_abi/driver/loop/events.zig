@@ -142,9 +142,11 @@ fn eventNamesLiveSession(inst: *const Instance, event: OwnedEvent) bool {
 /// The completion sink installed on the poll face: settled/failed actions
 /// with no in-process claimer queue as COMPLETION events. The shared drain
 /// reserves the queue slot while the completion remains parked, so taking it
-/// here is allocation-free and infallible.
+/// here is allocation-free and infallible. A releasing loop refuses instead,
+/// and the drain releases the slot and frees the payload through the core.
 pub fn sinkTake(ctx: *anyopaque, action: driver_core.HostAction) bool {
     const inst: *Instance = @ptrCast(@alignCast(ctx));
+    if (inst.releasing) return false;
     enqueueReservedEvent(inst, .{ .completion = action });
     return true;
 }
@@ -162,13 +164,18 @@ pub fn releaseSinkEvent(ctx: *anyopaque) void {
 /// The close observer: a wire the pump closes queues a SESSION_CLOSED event.
 /// Clean EOF carries GLOWCAP_OK and no message; a fault carries the stable
 /// driver classification plus its concrete Zig error name. Wire adoption
-/// reserved this event before the session could become visible.
+/// reserved this event before the session could become visible; a releasing
+/// loop gives that seat back unpublished.
 pub fn observeClose(
     ctx: *anyopaque,
     hs: *driver_core.HostSession,
     failure: ?driver.OperationFailure,
 ) void {
     const inst: *Instance = @ptrCast(@alignCast(ctx));
+    if (inst.releasing) {
+        releaseEventReservation(inst);
+        return;
+    }
     enqueueReservedEvent(inst, .{ .session_closed = .{
         .session = .init(hs),
         .failure = if (failure) |f| .init(f) else null,

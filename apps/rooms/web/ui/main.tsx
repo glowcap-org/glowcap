@@ -1,11 +1,8 @@
-// The rooms browser client's entry module. Authored in TypeScript and JSX
-// against the DOM libs (see the ui/deno.json lib setting) and bundled to
-// /page.js by serve.ts at startup, so there is no committed build artifact.
+// The Rooms page entry, bundled to /page.js by native rooms-web. Rust Wasm
+// admits durable startup choices; this module mounts their React projection.
 //
-// Two things start here, and they are deliberately not the same thing. React
-// mounts a view of the store. `createLocalRoomsSession` selects the in-tab
-// session controller, whose CapTP connections outlive every render. A later
-// attached controller can stand behind the same view boundary.
+// Rust owns local and attached session execution. React renders their shared
+// presentation without opening a second Host or owning session state.
 //
 // One thing ends here. The screen page.html has been holding up since the first
 // parse is handed over by `boot.ts`, and that call comes last, because reaching
@@ -19,32 +16,27 @@ import {
 	handOffNow,
 	handOffWhenReady,
 	pageDidNotOpen,
-	type RoomsOpeningReadiness,
 	standAtFrontOfPrivilegedAddress,
+	startOpeningMark,
 } from "./boot.ts";
 import { noteBootDelay, noteBootPhase, startBootAsides } from "./boot_note.ts";
 import { refusePageScaling } from "./gestures.ts";
-import * as net from "./net.ts";
+import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
 import { bindTabVisibility, RoomsProjectionProvider } from "./hooks.ts";
 import * as prefs from "./prefs.ts";
-import { hydrateConversation, installHistoryRecorder } from "./net/history.ts";
-import { isSessionConv } from "./types.ts";
-import { restoreHistoryPreference } from "./history.ts";
-import { createLocalRoomsSession } from "./session/local.ts";
 import { installWorkspaceStatePersistence } from "./workspace_state.ts";
 import { restoreWorkspaceState } from "./workspace/bundle.ts";
-import { connectAttachedRoomsSession } from "./session/attached_connection.ts";
 import { AttachedSessionProjection } from "./session/projection.ts";
 import { createAttachedRoomsSession } from "./session/attached_session.ts";
 import { AttachedSessionFiles } from "./session/attached_files.ts";
-import { workspaceControllerSelection } from "./workspace_state.ts";
+import { setWorkspaceControllerSelection, workspaceControllerSelection } from "./workspace_state.ts";
+import * as application from "./application.ts";
 import { RoomsBrowserProvider } from "./controller/browser.ts";
 import { createRoomsBrowserController } from "./controller/create_browser.ts";
 import { attachedSessionFailureText } from "./session/attached_failure.ts";
 import { ModalProvider } from "./modal.ts";
 import { CapabilitySetEvents } from "./ops/capability_set_events.ts";
-import { ArchiveTargetController, openArchivePeer } from "./net/archive_target.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
 
 const page = new RoomsPage();
@@ -65,21 +57,6 @@ if (!mount) throw new Error("rooms: page.html is missing its #root element");
 const RUNTIME_RETRY_FLOOR_MS = 500;
 const RUNTIME_RETRY_CEILING_MS = 5_000;
 const RUNTIME_SLOW_AFTER_MS = 4_000;
-const RESTORE_DIRECTORY_CONCURRENCY = 4;
-
-async function restoreDirectories(locators: readonly string[]): Promise<void> {
-	let next = 0;
-	const worker = async () => {
-		while (next < locators.length) {
-			const locator = locators[next];
-			next += 1;
-			await net.openDirectory(page, locator, net.FIRST_BACKOFF_MS);
-		}
-	};
-	await Promise.all(
-		Array.from({ length: Math.min(RESTORE_DIRECTORY_CONCURRENCY, locators.length) }, worker),
-	);
-}
 
 const root = createRoot(mount, {
 	// React's own error reporting, rather than the console it would otherwise
@@ -118,21 +95,13 @@ async function showSessionSetup(initialCapability = "", initialError = ""): Prom
 	handOffNow();
 }
 
-// The opening screen is already up — page.html draws it on first parse — so
-// the wasm runtime boots behind it, and nothing renders until the FFI
-// adapter exists: locator parsing is native-backed, and a component that
-// rendered before the adapter took the whole interface down. The same
-// memoized attempt then carries `connect()`, so the screen's wait and the
-// dial's wait are one instantiation.
-async function start(): Promise<void> {
-	noteBootPhase("peer");
-	startBootAsides();
+async function awaitRuntime(boot: () => Promise<unknown>): Promise<void> {
 	const slowAt = Date.now() + RUNTIME_SLOW_AFTER_MS;
 	let backoff = RUNTIME_RETRY_FLOOR_MS;
 	let ready = false;
 	while (!ready) {
 		try {
-			await net.bootRuntime(page);
+			await boot();
 			ready = true;
 		} catch (err) {
 			console.error("rooms: the runtime did not come up, retrying:", err);
@@ -143,14 +112,26 @@ async function start(): Promise<void> {
 			backoff = Math.min(backoff * 2, RUNTIME_RETRY_CEILING_MS);
 		}
 	}
-	net.installOpsInvalidation(page);
-	const pageLocator = prefs.directoryLocator();
-	const restored = restoreWorkspaceState(
+}
+
+// Rust admits the workspace and selects the controller before a Host exists.
+// Both local and attached sessions run on the Rust application Host.
+async function start(): Promise<void> {
+	noteBootPhase("peer");
+	startBootAsides();
+	await awaitRuntime(async () => {
+		const path = document.documentElement.dataset.roomsWasm;
+		if (path == null) throw new Error("the Rooms page has no application module");
+		await application.loadApplication(fetch(path));
+	});
+	restoreWorkspaceState(
 		page,
-		net.directoryId,
+		application.directoryId,
 		location.pathname === "/",
+		application.readSavedWorkspace,
 	);
 	const controllerSelection = workspaceControllerSelection(page);
+	const pageLocator = prefs.directoryLocator();
 	if (controllerSelection.kind === "none") {
 		standAtFrontOfPrivilegedAddress();
 		await showSessionSetup();
@@ -164,61 +145,53 @@ async function start(): Promise<void> {
 	prefetch(() => establishedUi);
 	if (location.pathname.startsWith("/ops")) prefetch(loadOpsPage);
 	const capabilityEvents = new CapabilitySetEvents();
-	// Local capability memory is now authoritative and no session has opened yet,
-	// so a remembered visualizer observes the Runtime Host's first connection.
-	if (controllerSelection.kind === "local") await net.ensureVizPublisher(page);
-	let session: RoomsSessionController;
 	addEventListener("pagehide", () => {
 		capabilityEvents.close();
-		page.reachable.stopRendezvous();
 	}, { once: true });
-	let openingReadiness: RoomsOpeningReadiness;
-	let stopLocal: (() => Promise<void>) | null = null;
-	if (controllerSelection.kind === "attached") {
-		let attached: Awaited<ReturnType<typeof connectAttachedRoomsSession>>;
-		try {
-			attached = await connectAttachedRoomsSession(page, controllerSelection.sturdyref);
-		} catch (error) {
-			await showSessionSetup(controllerSelection.sturdyref, attachedSessionFailureText(error));
-			return;
+	const { connectAttachedRoomsSession, connectLocalRoomsSession } = await import("./session/attached_connection.ts");
+	let controller: Awaited<ReturnType<typeof connectAttachedRoomsSession>>;
+	try {
+		if (controllerSelection.kind === "attached") {
+			controller = await connectAttachedRoomsSession(page, controllerSelection.sturdyref);
+		} else {
+			const local = await connectLocalRoomsSession(page);
+			controller = local.controller;
+			page.hostedSession.bind(async () => {
+				try {
+					const sturdyref = await local.publish();
+					if (!setWorkspaceControllerSelection(page, { kind: "hosted", sturdyref })) {
+						return "This browser could not save the shared session selection.";
+					}
+					return "";
+				} catch (error) {
+					return attachedSessionFailureText(error);
+				}
+			});
 		}
-		// The page acts that need this exact session rather than a new one find
-		// it here; a Host keeps one session per peer, so there is no second one
-		// for them to open.
-		page.attachedSession.hold(attached);
-		const files = new AttachedSessionFiles(attached, page.projection);
-		const projection = new AttachedSessionProjection(page, files, capabilityEvents);
-		const stopProjection = projection.bind(attached);
-		session = createAttachedRoomsSession(page, browser, attached, files, {
-			defaultDirectoryLocator: await pageLocator,
-			capabilityEvents,
-		});
-		addEventListener("pagehide", () => {
-			page.attachedSession.release();
-			stopProjection();
-			files.close();
-			void attached.close();
-		}, { once: true });
-		openingReadiness = "controller-snapshot";
-	} else {
-		// A local controller owns this browser's archive writes. Attached views
-		// receive lines already recorded by the durable session owner.
-		const archives = new ArchiveTargetController(page, openArchivePeer(page));
-		session = createLocalRoomsSession(page, capabilityEvents, archives);
-		addEventListener("pagehide", () => void archives.close(), { once: true });
-		installHistoryRecorder(page);
-		await archives.restoreArchivePeer();
-		for (const conversation of page.projection.get().convs.values()) {
-			if (isSessionConv(conversation)) hydrateConversation(page, conversation);
-		}
-		openingReadiness = "directory-attempt";
-		stopLocal = async () => {
-			page.projection.setLineRecorder(null);
-			await archives.close();
-		};
+	} catch (error) {
+		await showSessionSetup(
+			controllerSelection.kind === "attached" ? controllerSelection.sturdyref : undefined,
+			attachedSessionFailureText(error),
+		);
+		return;
 	}
-	restoreHistoryPreference(page, page.projection.get().keepHistory);
-	if (location.pathname !== "/") net.reserveSelectionForAddress(page);
+	page.attachedSession.hold(controller);
+	const files = new AttachedSessionFiles(controller, page.projection);
+	const projection = new AttachedSessionProjection(page, files, capabilityEvents);
+	const stopProjection = projection.bind(controller);
+	const session: RoomsSessionController = createAttachedRoomsSession(page, browser, controller, files, {
+		defaultDirectoryLocator: await pageLocator,
+		capabilityEvents,
+		recoverSends: controllerSelection.kind === "local",
+	});
+	addEventListener("pagehide", () => {
+		page.workspace.persistenceControl?.flush();
+		page.attachedSession.release();
+		stopProjection();
+		files.close();
+		void controller.close();
+	}, { once: true });
+	if (location.pathname !== "/") reserveSelectionForAddress(page);
 	installWorkspaceStatePersistence(page);
 	const { EstablishedSession, bindEstablishedRouting } = await establishedUi;
 	bindEstablishedRouting(page);
@@ -233,32 +206,13 @@ async function start(): Promise<void> {
 			</StrictMode>,
 		);
 	};
-	if (stopLocal != null) {
-		const endLocal = stopLocal;
-		page.hostedSession.bind(async () => {
-			const { promoteLocalSessionToHosted } = await import("./session/promote.ts");
-			return await promoteLocalSessionToHosted({
-				page,
-				browser,
-				capabilityEvents,
-				stopLocal: endLocal,
-				remount: (next) => renderEstablished(next, "hosted-session"),
-			});
-		});
-	}
 	renderEstablished(session, "established-session");
 
-	if (controllerSelection.kind === "local") {
-		net.connect(page);
-		void restoreDirectories(restored.foreignLocators);
-		void pageLocator.then((current) => {
-			if (current === null || restored.savedHomeLocator === null) return;
-			if (net.directoryId(current) === net.directoryId(restored.savedHomeLocator)) return;
-			void net.openDirectory(page, restored.savedHomeLocator, net.FIRST_BACKOFF_MS);
-		});
-	}
+	// The opening screen's mark starts here rather than at import, because
+	// asking for a device is asynchronous and nothing may wait on it.
+	startOpeningMark();
 
-	handOffWhenReady(page.projection, openingReadiness);
+	handOffWhenReady(page.projection, "controller-snapshot");
 }
 
 void start().catch((error) => {

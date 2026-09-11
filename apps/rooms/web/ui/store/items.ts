@@ -4,10 +4,10 @@
 // Callers reach these through `store.ts`. History and unread are maps on the
 // page projection, not fields on the conversation: a line is not identity.
 
-import { MAX_SCROLLBACK } from "../../../lib/limits.ts";
+import { MAX_SCROLLBACK } from "../limits.ts";
 import { CAUGHT_UP, NO_HISTORY, silencedByIgnore } from "../types.ts";
 import type { AttachmentView, DirId, HistoryCoordinate, Item, SendState, SysAudience, Unread } from "../types.ts";
-import { type PageProjection, type State } from "./core.ts";
+import type { PageProjection, State } from "./core.ts";
 import { getConv } from "./convs.ts";
 
 export function historyOf(
@@ -51,6 +51,14 @@ function writeUnread(projection: PageProjection, key: string, unread: Unread): v
 	if (unread.kind === "caught-up") unreads.delete(key);
 	else unreads.set(key, unread);
 	projection.set({ unreads });
+}
+
+/** Keep an unread run attached to a row the reader can still reach. History
+ * can lose rows through live scrollback, prefix restoration, or chronological
+ * reconciliation; clearing the whole log clears a mark with nowhere to stand. */
+function repairUnreadAfterDrop(unread: Unread, history: readonly Item[], gone: readonly Item[]): Unread {
+	if (unread.kind === "caught-up" || !gone.some((item) => item.id === unread.from)) return unread;
+	return history.length === 0 ? CAUGHT_UP : { ...unread, from: history[0].id };
 }
 
 // ── Message items ─────────────────────────────────────────────────────────
@@ -114,7 +122,7 @@ export function updateAttachments(
 }
 
 /** Change one file. Terminal state changes use this focused form; progress
- * callbacks use `updateAttachments` through the frame coalescer in `net.ts`. */
+ * callbacks use `updateAttachments` through the frame coalescer in the session projection. */
 export function updateAttachment(projection: PageProjection, key: string, id: number, fields: AttachmentFields): void {
 	updateAttachments(projection, key, new Map([[id, fields]]));
 }
@@ -147,41 +155,31 @@ export function deliver(projection: PageProjection, key: string, item: Item): vo
 	// choice, and this window's log grew with it for as long as the tab was open.
 	const over = history.length - MAX_SCROLLBACK;
 	const gone = over > 0 ? history.splice(0, over) : [];
-	let unread = read || !counts ? unreadOf(projection, key, state) : count(unreadOf(projection, key, state), item.id);
+	const admittedUnread = read || !counts
+		? unreadOf(projection, key, state)
+		: count(unreadOf(projection, key, state), item.id);
 	// A run of unread lines that began before the far end still began: the rule
 	// hangs on the oldest line there is rather than on one nobody can scroll to.
-	if (unread.kind !== "caught-up") {
-		const anchor = unread.from;
-		if (gone.some((left) => left.id === anchor)) {
-			unread = { ...unread, from: history[0]?.id ?? item.id };
-		}
-	}
+	const unread = repairUnreadAfterDrop(admittedUnread, history, gone);
 	writeHistory(projection, key, history, unread);
 	projection.letLinesGo(key, gone);
 	if (item.kind !== "chat" || item.state == null) projection.recordLine(conv, item);
 }
 
-/** Stand remembered lines under a conversation's log, oldest first, then a
- * divider saying where they came from. Prepended and never counted as
- * unread, because these are lines the reader has already lived; bounded by
- * the same scrollback window as everything else. */
-export function prependHistory(
-	projection: PageProjection,
-	key: string,
-	lines: readonly {
-		from: string;
-		text: string;
-		mine: boolean;
-		at: number;
-		lineId?: number;
-		history?: HistoryCoordinate;
-		attachments?: readonly (Omit<AttachmentView, "id"> | AttachmentView)[];
-	}[],
-	divider: string,
-): void {
-	const conv = getConv(projection, key);
-	if (!conv || lines.length === 0) return;
-	const stood: Item[] = lines.map((line) => {
+interface HistoryLine {
+	from: string;
+	text: string;
+	mine: boolean;
+	at: number;
+	lineId?: number;
+	history?: HistoryCoordinate;
+	order?: number;
+	edited?: boolean;
+	attachments?: readonly (Omit<AttachmentView, "id"> | AttachmentView)[];
+}
+
+function historyItems(projection: PageProjection, lines: readonly HistoryLine[]): Item[] {
+	return lines.map((line) => {
 		const attachments = line.attachments?.map((attachment) =>
 			"id" in attachment ? attachment : attachmentView(projection, attachment)
 		);
@@ -194,14 +192,149 @@ export function prependHistory(
 			at: line.at,
 			...(line.lineId == null ? {} : { lineId: line.lineId }),
 			...(line.history == null ? {} : { history: line.history }),
+			...(line.order == null ? {} : { order: line.order }),
+			...(line.edited == null ? {} : { edited: line.edited }),
 			...(attachments == null || attachments.length === 0 ? {} : { attachments }),
 		};
 	});
+}
+
+export function historyCoordinateKey(coordinate: HistoryCoordinate): string {
+	return `${coordinate.source}\u0000${coordinate.generation}\u0000${coordinate.id}`;
+}
+
+function chronologicalOrder(left: Item, right: Item): number {
+	if (left.at !== right.at) return left.at - right.at;
+	const leftHistory = left.kind === "chat" ? left.history : undefined;
+	const rightHistory = right.kind === "chat" ? right.history : undefined;
+	const leftOrder = left.kind === "chat" ? left.order ?? 0 : 0;
+	const rightOrder = right.kind === "chat" ? right.order ?? 0 : 0;
+	if (
+		leftHistory && rightHistory && leftHistory.source === rightHistory.source &&
+		leftHistory.generation === rightHistory.generation && leftOrder && rightOrder
+	) {
+		return leftOrder - rightOrder;
+	}
+	if (!!leftHistory !== !!rightHistory) return leftHistory ? -1 : 1;
+	return 0;
+}
+
+/** Restore remembered lines and their attribution without counting them as
+ * unread. Independent history accounts are prefixes. */
+export function restoreHistory(
+	projection: PageProjection,
+	key: string,
+	lines: readonly HistoryLine[],
+	divider: string,
+): void {
+	if (getConv(projection, key) == null || lines.length === 0) return;
+	const stood = historyItems(projection, lines);
 	stood.push({ kind: "sys", id: projection.allocItemId(), text: divider, at: Date.now(), audience: "shared" });
 	const combined = [...stood, ...historyOf(projection, key)];
 	const over = combined.length - MAX_SCROLLBACK;
 	const gone = over > 0 ? combined.splice(0, over) : [];
-	writeHistory(projection, key, combined);
+	const unread = repairUnreadAfterDrop(unreadOf(projection, key), combined, gone);
+	writeHistory(projection, key, combined, unread);
+	projection.letLinesGo(key, gone);
+}
+
+/** Change one drawn line from an archive account's current truth, without
+ * naming it a line change. An archive re-read revising what it already showed
+ * is not the reader editing and must not reach the line recorder: recording
+ * it would write somebody's account back into an archive it was read from. */
+export function reviseItem(projection: PageProjection, key: string, id: number, fields: Partial<Item>): void {
+	const conv = getConv(projection, key);
+	if (!conv) return;
+	const current = historyOf(projection, key);
+	const at = current.findIndex((item) => item.id === id);
+	if (at < 0) return;
+	const history = current.slice();
+	history[at] = { ...history[at], ...fields } as Item;
+	writeHistory(projection, key, history);
+}
+
+/** Insert newly seen lines and reorder the account's existing section by its
+ * own chronology. Full recorder coordinates identify the divider independently
+ * of its display text; a standing-only account can have an empty section. */
+export function insertArchiveLines(
+	projection: PageProjection,
+	key: string,
+	lines: readonly HistoryLine[],
+	divider: string,
+	section: Pick<HistoryCoordinate, "source" | "generation">,
+): void {
+	if (getConv(projection, key) == null) return;
+	const current = historyOf(projection, key);
+	const stood: Item[] = historyItems(projection, lines);
+	const matches = (coordinate: Pick<HistoryCoordinate, "source" | "generation"> | undefined) =>
+		coordinate?.source === section.source && coordinate.generation === section.generation;
+	const dividerAt = current.findIndex((item) => item.kind === "sys" && matches(item.archiveSection));
+	const prior = current[dividerAt];
+	const dividerItem: Item = prior?.kind === "sys" ? (prior.text === divider ? prior : { ...prior, text: divider }) : {
+		kind: "sys",
+		id: projection.allocItemId(),
+		text: divider,
+		at: Date.now(),
+		audience: "shared",
+		archiveSection: { source: section.source, generation: section.generation },
+	};
+	let start = dividerAt;
+	while (start > 0) {
+		const item = current[start - 1];
+		if (item.kind !== "chat" || !matches(item.history)) break;
+		start -= 1;
+	}
+	const rows = dividerAt < 0 ? stood : [...current.slice(start, dividerAt), ...stood];
+	rows.sort(chronologicalOrder);
+	const combined: Item[] = dividerAt < 0
+		? [...rows, dividerItem, ...current]
+		: [...current.slice(0, start), ...rows, dividerItem, ...current.slice(dividerAt + 1)];
+	if (combined.length === current.length && combined.every((item, index) => item === current[index])) return;
+	const over = combined.length - MAX_SCROLLBACK;
+	const gone = over > 0 ? combined.splice(0, over) : [];
+	const unread = repairUnreadAfterDrop(unreadOf(projection, key), combined, gone);
+	writeHistory(projection, key, combined, unread);
+	projection.letLinesGo(key, gone);
+}
+
+/** Merge the attached session's own archive into its live log. Unlike a
+ * separately shared history prefix, these rows fill gaps on either side of
+ * live rows. The conversation's own order resolves equal timestamps; archive
+ * coordinates remain identity-only. */
+export function reconcileHistory(
+	projection: PageProjection,
+	key: string,
+	lines: readonly HistoryLine[],
+	divider: string,
+): void {
+	if (getConv(projection, key) == null) return;
+	const stood = historyItems(projection, lines).sort(chronologicalOrder);
+	const current = historyOf(projection, key);
+	const boundaryAt = current.findIndex((item) => item.kind === "sys" && item.historyBoundary === "session");
+	let base: readonly Item[] = current;
+	if (boundaryAt >= 0) {
+		const boundary = current[boundaryAt];
+		if (boundary.text !== divider) {
+			const updated = current.slice();
+			updated[boundaryAt] = { ...boundary, text: divider };
+			base = updated;
+		}
+	} else if (stood.length > 0) {
+		stood.push({
+			kind: "sys",
+			id: projection.allocItemId(),
+			text: divider,
+			at: stood[stood.length - 1].at,
+			audience: "shared",
+			historyBoundary: "session",
+		});
+	}
+	const combined = [...base, ...stood].sort(chronologicalOrder);
+	if (combined.length === current.length && combined.every((item, index) => item === current[index])) return;
+	const over = combined.length - MAX_SCROLLBACK;
+	const gone = over > 0 ? combined.splice(0, over) : [];
+	const unread = repairUnreadAfterDrop(unreadOf(projection, key), combined, gone);
+	writeHistory(projection, key, combined, unread);
 	projection.letLinesGo(key, gone);
 }
 
@@ -242,13 +375,30 @@ export function updateItem(projection: PageProjection, key: string, id: number, 
 	const changed = historyOf(projection, key).find((item) => item.id === id);
 	if (changed !== undefined && changed.kind === "chat") {
 		const change = fields as { withdrawn?: boolean; text?: string };
-		if (change.withdrawn === true) projection.recordLine(conv, changed, "withdrawn");
-		else if (typeof change.text === "string") projection.recordLine(conv, changed, "edited");
+		if (change.withdrawn === true) {
+			projection.recordLine(conv, changed, "withdrawn");
+			detachDraftFromLine(projection, key, id);
+		} else if (typeof change.text === "string") projection.recordLine(conv, changed, "edited");
 		else if (
 			Object.hasOwn(fields, "state") && previous?.kind === "chat" && previous.state != null &&
 			changed.state == null
 		) projection.recordLine(conv, changed);
 	}
+}
+
+/** Reconcile a draft aimed at authority the room has withdrawn. Empty input was
+ * the withdrawal intent and is complete. New words or files belong to the
+ * reader, so preserve them while removing the stale edit target; their next
+ * submission becomes a new line instead of retrying an impossible mutation. */
+function detachDraftFromLine(projection: PageProjection, key: string, id: number): boolean {
+	const draftsState = projection.get().drafts;
+	const draft = draftsState.get(key);
+	if (draft?.changing !== id) return false;
+	const drafts = new Map(draftsState);
+	if (draft.text === "" && draft.files.length === 0) drafts.delete(key);
+	else drafts.set(key, { ...draft, changing: undefined, keeping: undefined });
+	projection.set({ drafts });
+	return true;
 }
 
 /** The reader has caught up with this conversation. The unread count clears at
@@ -278,7 +428,7 @@ export function clearHistory(projection: PageProjection, key: string): void {
 	if (getConv(projection, key) === null) return;
 	const gone = historyOf(projection, key);
 	if (gone.length === 0) return;
-	writeHistory(projection, key, NO_HISTORY);
+	writeHistory(projection, key, NO_HISTORY, CAUGHT_UP);
 	// The third way lines leave the log, through the same door as the other
 	// two: the scrollback trim and a closing conversation both hand what their
 	// departing lines were holding — object URLs, blob capabilities, the
@@ -292,7 +442,11 @@ export function clearHistory(projection: PageProjection, key: string): void {
  * By the room's own id rather than ours, because that is the only name both
  * sides share. A line nobody has — one that arrived before this tab did, or was
  * already cleared from this window — is not an error: the room said something
- * about a line we do not hold, and the honest answer is to do nothing. */
+ * about a line we do not hold, and the honest answer is to do nothing. The
+ * change itself goes through `updateItem`, the one seam that keeps history
+ * honest: a room saying a line was edited or withdrawn must reach the archive
+ * recorder exactly as a reader's own edit does, or the kept copy outlives the
+ * takedown it claims to follow. */
 export function applyLineChange(
 	projection: PageProjection,
 	key: string,
@@ -300,12 +454,9 @@ export function applyLineChange(
 	change: { text?: string; edited?: boolean; withdrawn?: boolean },
 ): void {
 	if (getConv(projection, key) === null) return;
-	const current = historyOf(projection, key);
-	const at = current.findIndex((item) => item.kind === "chat" && item.lineId === lineId);
-	if (at < 0) return;
-	const history = current.slice();
-	history[at] = { ...history[at], ...change } as Item;
-	writeHistory(projection, key, history);
+	const item = historyOf(projection, key).find((row) => row.kind === "chat" && row.lineId === lineId);
+	if (item === undefined) return;
+	updateItem(projection, key, item.id, change);
 }
 
 /** Retire the mutation names granted by one room membership without erasing
@@ -348,9 +499,10 @@ export function dropHeldLines(projection: PageProjection, dir: DirId): string[] 
 		const dropped = new Set<number>();
 		for (let at = 0; at < current.length; at++) {
 			const item = current[at];
-			if (item.kind !== "chat" || item.held !== true) continue;
+			if (item.kind !== "chat" || (item.held !== true && item.lineId == null)) continue;
 			history ??= current.slice();
-			history[at] = { ...item, held: false };
+			const { lineId: _lineId, ...withoutLineName } = item;
+			history[at] = { ...withoutLineName, held: false };
 			dropped.add(item.id);
 		}
 		if (history !== null) writeHistory(projection, conv.key, history);
@@ -358,15 +510,11 @@ export function dropHeldLines(projection: PageProjection, dir: DirId): string[] 
 		// lines, and it can no longer land. The words stay, because they are still
 		// theirs to say; what goes is the aim, so pressing Enter says them as a new
 		// message instead of refusing over and over.
-		const draftsState = projection.get().drafts;
-		const draft = draftsState.get(conv.key);
-		if (draft?.changing !== undefined && dropped.has(draft.changing)) {
-			const drafts = new Map(draftsState);
-			if (draft.text === "" && draft.files.length === 0) drafts.delete(conv.key);
-			else drafts.set(conv.key, { ...draft, changing: undefined, keeping: undefined });
-			projection.set({ drafts });
-			stoppedChanging.push(conv.key);
-		}
+		const draft = projection.get().drafts.get(conv.key);
+		if (
+			draft?.changing !== undefined && dropped.has(draft.changing) &&
+			detachDraftFromLine(projection, conv.key, draft.changing)
+		) stoppedChanging.push(conv.key);
 	}
 	return stoppedChanging;
 }

@@ -54,8 +54,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         const ConnId = Types.ConnId;
         const InternalOp = Types.InternalOp;
+        const Identity = Types.Identity;
         const State = Types.State;
-        const PlatformCloseState = Types.PlatformCloseState;
         const RelayConn = Types.RelayConn;
         const PendingDial = Types.PendingDial;
         const DialOp = enum(u1) { connect, close };
@@ -148,7 +148,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
 
             pub fn isInternal(user_data: u64) bool {
-                return Types.isInternal(user_data);
+                return Identity.owns(user_data);
             }
 
             pub fn dispatchDial(backend: *Self, comp: completion.Completion) void {
@@ -193,6 +193,17 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         const ConnMap = Types.ConnMap;
         const PendingDialMap = Types.PendingDialMap;
+
+        /// A row id is held by the admitted table and by the still-opening
+        /// table alike; reservation must skip both.
+        const RowOccupancy = struct {
+            backend: *const Self,
+
+            pub fn contains(occupancy: RowOccupancy, id: ConnId) bool {
+                return occupancy.backend.conns.contains(id) or
+                    occupancy.backend.pending_dials.contains(id);
+            }
+        };
         const RecvRetryQueue = Types.RecvRetryQueue;
         const CloseRetryQueue = Types.CloseRetryQueue;
         const TlsMap = Types.TlsMap;
@@ -385,7 +396,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (idFromFd(fd)) |id| {
                 if (self.pending_dials.contains(id)) return error.ConnectionLost;
                 const c = self.conns.get(id) orelse return error.FileDescriptorNotASocket;
-                return self.platform.applyKeepalive(c.os_fd, keepalive);
+                return self.platform.applyKeepalive(c.inner_fd, keepalive);
             }
             return self.platform.applyKeepalive(fd, keepalive);
         }
@@ -517,9 +528,9 @@ pub fn CompletionBackend(comptime Platform: type) type {
                     return error.SecureCarrierUnavailable else return error.SecureCarrierUnavailable
             else
                 null;
-            const id = try DialIdentity.reserve(self);
+            const id = try Identity.reserveId(&self.next_id, RowOccupancy{ .backend = self });
             errdefer self.next_id = id;
-            const fd = try fdFromId(id);
+            const fd = try Identity.fdFromId(id);
             try self.conns.ensureUnusedCapacity(self.allocator, 1);
             try self.pending_dials.ensureUnusedCapacity(self.allocator, 1);
             try self.ready.ensureUnusedCapacity(self.allocator, 2);
@@ -527,7 +538,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             errdefer self.allocator.destroy(c);
             c.* = .{
                 .id = id,
-                .os_fd = undefined,
+                .inner_fd = undefined,
                 .external_connect_ud = user_data,
                 .expected_accept = undefined,
             };
@@ -571,7 +582,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         fn adoptDialWinner(self: *Self, pending: *PendingDial, winner_fd: Fd) void {
             const c = pending.conn;
-            c.os_fd = winner_fd;
+            c.inner_fd = winner_fd;
             self.conns.putAssumeCapacity(c.id, c);
             self.allocator.destroy(pending);
             Dispatch.connected(self, c) catch |err| {
@@ -588,37 +599,25 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         fn armPlatformRecv(self: *Self, c: *RelayConn) !void {
-            if (c.pending.recv or c.state == .closing) return;
-            try self.platform.submitRecv(internalUd(.recv, c.id), c.os_fd);
+            if (c.pending.get(.recv) or c.state == .closing) return;
+            try self.platform.submitRecv(internalUd(.recv, c.id), c.inner_fd);
             c.pending.arm(.recv);
         }
 
-        fn fdFromId(id: ConnId) error{AdapterHandleExhausted}!Fd {
-            return Types.fdFromId(id);
-        }
-
         fn idFromFd(fd: Fd) ?ConnId {
-            return Types.idFromFd(fd);
+            return Identity.idFromFd(fd);
         }
 
         fn internalUd(op: InternalOp, id: ConnId) u64 {
-            return Types.internalUd(op, id);
-        }
-
-        fn isInternal(ud: u64) bool {
-            return Types.isInternal(ud);
-        }
-
-        fn isDialInternal(ud: u64) bool {
-            return DialIdentity.owns(ud);
+            return Identity.userData(op, id);
         }
 
         fn internalId(ud: u64) ConnId {
-            return Types.internalId(ud);
+            return Identity.id(ud);
         }
 
         fn internalOp(ud: u64) InternalOp {
-            return Types.internalOp(ud);
+            return Identity.op(ud);
         }
     };
 }

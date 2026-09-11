@@ -158,7 +158,7 @@ pub fn encodeResolutionAsCallback(
     try peer.pushEncodedPairFromPending(
         wire,
         release,
-        .record_at_commit,
+        .session_release_at_commit,
     );
 }
 

@@ -24,7 +24,7 @@ echo 'ok' >"$FIX/good/$PREFIX/glowcap ocapn.so"
 (cd "$FIX/good" && tar -czf "$FIX/good.tar.gz" "$PREFIX")
 (cd "$FIX/good" && tar -cjf "$FIX/good.tar.bz2" "$PREFIX")
 
-# Zip-slip member: lib/../evil.txt (GNU tar --transform).
+# Path-escape member: lib/../evil.txt (GNU tar --transform).
 echo evil >"$FIX/slip_src/evil.txt"
 if tar --help 2>&1 | grep -q -- '--transform'; then
 	(cd "$FIX/slip_src" && tar -czf "$FIX/slip.tar.gz" --transform='s|^evil.txt|lib/../evil.txt|' evil.txt)
@@ -39,7 +39,7 @@ ln -s glowcap_ocapn.so "$FIX/link/$PREFIX/evil.link"
 (cd "$FIX/link" && tar -czf "$FIX/link.tar.gz" "$PREFIX")
 
 # An owner blob with spaces in it. The parsers discriminate GNU from BSD by
-# fixed field positions, and the owner/group column is attacker-chosen text: put
+# fixed field positions, and the owner/group column is peer-chosen text: put
 # whitespace in it and one field becomes several, so every later column shifts
 # and the member name is reconstructed starting three fields late. The name then
 # matches no prefix and the member is skipped before its kind is tested, while
@@ -126,7 +126,7 @@ fi
 # count and then listed two of them as skipped, in one line.
 validators=0
 extracts=0
-hostile_env=0
+injected_env=0
 fail=0
 pass() { printf 'PASS: %s\n' "$1"; }
 bad() { printf 'FAIL: %s\n' "$1" >&2; fail=1; }
@@ -177,7 +177,7 @@ for unsafe in $UNSAFE; do
 	fi
 done
 
-# A hostile `TAR_OPTIONS` in the environment can hide a member from the
+# An untrusted `TAR_OPTIONS` in the environment can hide a member from the
 # listing that the extract would still write. The validator must not see a
 # different archive than the extract does. Only the shell port both invokes
 # tar and owns its parser, so it is the one directly testable here; the other
@@ -185,7 +185,7 @@ done
 if TAR_OPTIONS='--exclude=lib/evil.link' archive_hygiene_check "$FIX/link.tar.gz" "$PREFIX"; then
 	bad "shell TAR_OPTIONS (a hidden member should still be refused)"
 else
-	hostile_env=$((hostile_env + 1))
+	injected_env=$((injected_env + 1))
 	pass "shell TAR_OPTIONS ignored"
 fi
 
@@ -246,7 +246,7 @@ else
 fi
 
 # Deno, the production loader itself: run `safeExtractPrefix` — its own listing
-# call, its own environment, its own extract — under a hostile TAR_OPTIONS that
+# call, its own environment, its own extract — under a injected TAR_OPTIONS that
 # would hide the symlink from a tar inheriting it.
 if command -v deno >/dev/null 2>&1; then
 	mkdir -p "$WORKDIR/loader-clean"
@@ -254,7 +254,7 @@ if command -v deno >/dev/null 2>&1; then
 import { safeExtractPrefix } from "./bindings/ts/runtime/internal/ffi/load.ts";
 const [unsafeTar, cleanTar, rootTar, stage] = Deno.args;
 
-// The listing side: a member the hostile options would hide must still be
+// The listing side: a member the untrusted options would hide must still be
 // seen and refused.
 try {
   safeExtractPrefix(unsafeTar, stage, "lib");
@@ -289,14 +289,14 @@ const extracted = Deno.readDirSync(`${stage}/lib`);
 for (const entry of extracted) {
   if (entry.name === "glowcap ocapn.so") Deno.exit(0);
 }
-console.error("extraction dropped a member under hostile TAR_OPTIONS");
+console.error("extraction dropped a member under injected TAR_OPTIONS");
 Deno.exit(3);
 ' "$FIX/link.tar.gz" "$FIX/good.tar.gz" "$FIX/rootlink.tar.gz" "$WORKDIR/loader-clean"; then
 		extracts=$((extracts + 1))
-		hostile_env=$((hostile_env + 1))
-		pass "deno loader refuses under hostile TAR_OPTIONS"
+		injected_env=$((injected_env + 1))
+		pass "deno loader refuses under injected TAR_OPTIONS"
 	else
-		bad "deno loader refuses under hostile TAR_OPTIONS"
+		bad "deno loader refuses under injected TAR_OPTIONS"
 	fi
 else
 	echo "SKIP: deno loader seam"
@@ -375,7 +375,7 @@ fi
 # validator only; two run a real extract. A line claiming "every port, every
 # fixture" would read as coverage the matrix does not have, which is the
 # failure this whole file exists to prevent.
-summary="$validators listing validators, $extracts extracts, $hostile_env hostile-TAR_OPTIONS arms"
+summary="$validators listing validators, $extracts extracts, $injected_env injected-TAR_OPTIONS arms"
 if [ -n "$skipped" ]; then
 	echo "c-abi-extract-matrix: ok ($summary), but NOT exercised here:$skipped"
 else

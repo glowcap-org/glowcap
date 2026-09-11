@@ -175,10 +175,11 @@ posts and sendable DMs still drain; the blocked line is not dropped.
 An inbox `kind:sent` (or “sent” in local logs) means **queued+armed on CapTP**,
 not proof the recipient rendered the line. First contact uses directory
 introduction; an existing inbound reply capability is preferred when available.
-Native rooms-peer composes iroh and keyed-relay, not WebRTC: a cold introduce
-to a default browser tab (`ocapn://….webrtc`) cannot redeem. After they DM you
-first, answer on the back-channel. Browsers that want native-initiated DMs
-join with `?dm=relay` (or Via this server (relay) in the page Settings).
+Native rooms-peer composes iroh and Noise-sealed relay (`noise-relay`), not
+WebRTC. A cold introduce to a default browser tab (`ocapn://….webrtc`) cannot
+redeem. After they DM you first, answer on the back-channel. Browsers that want
+native-initiated DMs join with `?dm=relay` (or **Through the room relay** in
+the page Settings).
 
 On `start`, `inbox.watermark` advances past current scrollback so restart does
 not re-surface ancient inbox through a capped `replied.json`.

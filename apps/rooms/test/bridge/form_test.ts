@@ -236,3 +236,25 @@ Deno.test("a form's fields read as one list, revealed ones included", () => {
 	assertEquals(bridgeFormHasSecret(declared), true, "a password behind a toggle is still a password");
 	assertEquals(bridgeFormHasSecret(z.parse(BridgeFormSchema, form())), false);
 });
+
+Deno.test("bridge refresh updates untouched defaults without revoking edits or retaining removed secrets", async () => {
+	const { refreshBridgeAnswers, refreshBridgeToggles } = await import("../../web/ui/bridge_form.ts");
+	const previous = form({
+		fields: [
+			{ kind: "text", id: "nick", label: "Nick", required: true, value: "before" },
+			{ kind: "secret", id: "password", label: "Password", required: false },
+			{ kind: "toggle", id: "account", label: "Account", on: true, reveals: [] },
+		],
+	}) as BridgeForm;
+	const next = form({
+		fields: [
+			{ kind: "text", id: "nick", label: "Nick", required: true, value: "after" },
+			{ kind: "toggle", id: "account", label: "Account", on: false, reveals: [] },
+		],
+	}) as BridgeForm;
+	assertEquals(refreshBridgeAnswers(previous, next, { nick: "before", password: "secret" }), { nick: "after" });
+	assertEquals(refreshBridgeAnswers(previous, next, { nick: "" }), { nick: "" });
+	assertEquals(refreshBridgeAnswers(previous, next, { nick: "my edit" }), { nick: "my edit" });
+	assertEquals([...refreshBridgeToggles(previous, next, new Set(["account"]))], []);
+	assertEquals([...refreshBridgeToggles(next, previous, new Set(["account"]))], ["account"]);
+});

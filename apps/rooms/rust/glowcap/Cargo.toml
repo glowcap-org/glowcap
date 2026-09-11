@@ -1,0 +1,10 @@
+[package]
+name = "rooms-glowcap"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+rooms-application = { path = "../application" }
+glowcap.workspace = true

@@ -89,7 +89,10 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 			});
 		};
 		void load(false);
-		const stop = session.watchOpsBundle(() => load(true));
+		// The explicit commit below owns its returned snapshot. Its own change
+		// notification can arrive before that outcome and must not publish a
+		// competing "saved bundle changed" notice over a partial refusal.
+		const stop = session.watchOpsBundle(() => committing.current ? undefined : load(true));
 		return () => {
 			current = false;
 			loadGeneration.current += 1;

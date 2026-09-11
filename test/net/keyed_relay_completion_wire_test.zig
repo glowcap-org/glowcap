@@ -55,7 +55,7 @@ test "keyed-relay completion echoes a valid peer close before reporting EOF" {
     try backend.submitRecv(44, fd);
     try std.testing.expect(conn.close.wire.hasReceived());
     try std.testing.expect(conn.close.wire.hasSent());
-    try std.testing.expect(conn.pending.send);
+    try std.testing.expect(conn.pending.get(.send));
     try std.testing.expectError(error.ConnectionLost, backend.submitSend(46, fd, "late"));
     try std.testing.expectEqual(@as(u8, 0x88), conn.ws_out.items[0]);
     try std.testing.expect(conn.ws_out.items[1] & 0x80 != 0);
@@ -330,7 +330,7 @@ test "keyed-relay app send during pong keeps the in-flight buffer stable" {
 
     try conn.raw_in.appendSlice(backend.allocator, &.{ 0x89, 0x00 });
     try backend.submitRecv(71, fd);
-    try std.testing.expect(conn.pending.send);
+    try std.testing.expect(conn.pending.get(.send));
     const in_flight_ptr = conn.ws_out.items.ptr;
     const in_flight_len = conn.ws_out.items.len;
 
@@ -344,7 +344,7 @@ test "keyed-relay app send during pong keeps the in-flight buffer stable" {
     // Pong completion frames and arms the deferred application send, but does
     // not report it complete before those bytes reach the platform.
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
-    try std.testing.expect(conn.pending.send);
+    try std.testing.expect(conn.pending.get(.send));
     try std.testing.expectEqual(@as(usize, 0), conn.external_send_remainder.len);
 
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
@@ -442,7 +442,7 @@ test "keyed-relay retries wrapped-platform recv-buffer starvation" {
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(usize, 2), backend.platform.recv_submits);
     try std.testing.expect(!backend.recv_retries.contains(conn));
-    try std.testing.expect(conn.pending.recv);
+    try std.testing.expect(conn.pending.get(.recv));
     try std.testing.expectEqual(@as(u32, 0), backend.recv_retries.head);
     try std.testing.expectEqual(@as(u32, 0), backend.recv_retries.tail);
 }
@@ -467,7 +467,7 @@ test "keyed-relay canceled receive is not rearmed after buffer starvation" {
     backend.recycleBorrowed(.{ .user_data = 0, .result = 0, .borrowed = .recv("x", 42) });
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(usize, 1), backend.platform.recv_submits);
-    try std.testing.expect(!conn.pending.recv);
+    try std.testing.expect(!conn.pending.get(.recv));
 }
 
 test "keyed-relay canceled receive preserves a late platform payload" {
@@ -516,7 +516,7 @@ test "keyed-relay cancellation removes an already queued receive retry" {
     backend.recycleBorrowed(.{ .user_data = 0, .result = 0, .borrowed = .recv("x", 42) });
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(usize, 1), backend.platform.recv_submits);
-    try std.testing.expect(!conn.pending.recv);
+    try std.testing.expect(!conn.pending.get(.recv));
 }
 
 test "keyed-relay recv starvation after wrapped close still completes close" {
@@ -535,14 +535,14 @@ test "keyed-relay recv starvation after wrapped close still completes close" {
     // in flight; the close frame then drains and submits the wrapped close.
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 72), completions[0].user_data);
-    try std.testing.expect(conn.pending.recv);
-    try std.testing.expectEqual(.in_flight, conn.close.platform);
+    try std.testing.expect(conn.pending.get(.recv));
+    try std.testing.expectEqual(.in_flight, conn.inner_close);
 
     // Adversarial order: descriptor close completes before the no-buffer CQE.
     // The latter retires the final operation and must take the common terminal
     // path rather than enqueue a read that a closing connection cannot use.
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
-    try std.testing.expectEqual(.closed, conn.close.platform);
+    try std.testing.expectEqual(.closed, conn.inner_close);
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 73), completions[0].user_data);
     try std.testing.expectEqual(@as(usize, 0), backend.conns.count());

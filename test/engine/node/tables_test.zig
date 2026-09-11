@@ -16,9 +16,10 @@ const Node = engine.Node;
 test "Node action extraction preserves the inline Node footprint" {
     // Stated under runtime safety, where each embedded `std.ArrayList` header
     // carries std's one-word `pointer_stability` lock: 24 of these bytes, and
-    // each hash map carries one more.
+    // each hash map carries one more. One further word counts the queue seats
+    // promised to actions the Host has parked off the queue (ADR-0145).
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 952), @sizeOf(Node));
+    try std.testing.expectEqual(@as(usize, 960), @sizeOf(Node));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));
 }
 

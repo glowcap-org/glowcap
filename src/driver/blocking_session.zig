@@ -22,6 +22,7 @@ const model = @import("model");
 const engine = @import("engine");
 const actors = @import("actors");
 const net = @import("net");
+const driver_core = @import("driver_core");
 
 const driver = @import("mod.zig");
 const Error = driver.Error;
@@ -430,9 +431,15 @@ pub fn connectVia(
     options: BlockingSession.Options,
 ) !BlockingSession {
     const nl = net.netlayer.resolve(netlayers, locator.transport) orelse return Error.UnknownTransport;
-    // Provider metadata, not the built-in symbol table, decides whether this
-    // tier would otherwise speak cleartext under a sealed transport name.
-    if (nl.transportProfile().sealed_channel) return Error.SealedChannelRequiresHost;
+    // The same admission the Host tiers make, from the provider's profile
+    // rather than the built-in symbol table: a route bundle has no single
+    // channel to open, and a sealed transport name must not be spoken in
+    // cleartext by a tier that cannot run the sealed channel.
+    const admission = driver_core.admitDial(nl.transportProfile(), locator.designator) catch |err| switch (err) {
+        error.UnknownTransport => return Error.UnknownTransport,
+        error.InvalidAddress => return error.InvalidAddress,
+    };
+    if (admission.sealed_channel) return Error.SealedChannelRequiresHost;
     if (!nl.supportsBlockingDial()) return Error.UnknownTransport;
     // The dial-side identity demand: on a key-designator transport the dialed
     // designator *is* the partner's durable identity, so record it before the
@@ -440,11 +447,7 @@ pub fn connectVia(
     // an address route is independent of this channel (ADR-0109). Whether a
     // lower layer proved the target is the resident's fact to bind during
     // `dial`.
-    if (nl.designatorScheme() == .key) {
-        const expected = crypto.PeerKey.fromDesignator(locator.designator) orelse
-            return error.InvalidAddress;
-        peer.demandPartnerDurableKey(expected);
-    }
+    if (admission.demanded_key) |expected| peer.demandPartnerDurableKey(expected);
     // The handed glowcap form of an onion address is partner knowledge on
     // this tier exactly as on the Host tiers (ADR-0118): recorded before the
     // hello below, so the stamp may state a configured preference.

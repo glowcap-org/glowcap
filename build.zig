@@ -20,7 +20,9 @@ const rooms_build = @import("tools/build/rooms.zig");
 const binding_families_build = @import("tools/build/binding_families.zig");
 const goblins_build = @import("tools/build/goblins.zig");
 const site_build = @import("tools/build/site.zig");
+const mark_build = @import("tools/build/mark.zig");
 const gates_build = @import("tools/build/gates.zig");
+const toolchain_build = @import("tools/build/toolchain.zig");
 const gen_build = @import("tools/build/gen.zig");
 const examples_build = @import("tools/build/examples.zig");
 const bench_build = @import("tools/build/bench.zig");
@@ -408,6 +410,8 @@ pub fn build(b: *std.Build) void {
     browser_preflight.setCwd(b.path("."));
     browser_preflight.has_side_effects = true;
 
+    mark_build.register(b, &browser_preflight.step);
+
     const site_reg = site_build.register(.{
         .b = b,
         .target = target,
@@ -465,6 +469,10 @@ pub fn build(b: *std.Build) void {
         .pin_port = pin_port,
     });
 
+    // The runtime plumbing both Rust sidecars share (transports/sidecar-common)
+    // is tested on its own; each sidecar's cargo build pulls it in by path.
+    build_common.registerSidecarCommon(b);
+
     // The iroh netlayer family (sidecar, resident, live drivers, the
     // ADR-0112 seam, the site snippets and locator suite, and the C ABI
     // companion) registers from tools/build/iroh.zig.
@@ -514,10 +522,6 @@ pub fn build(b: *std.Build) void {
         .wasm_driver_install = wasm_driver_install_step,
     });
     const webrtc_resident_mod = webrtc_reg.resident_mod;
-
-    // The cross-runtime relay matrix and the live Goblins relay/rooms proofs
-    // register from tools/build/relay_matrix.zig.
-    relay_matrix_build.register(b, pin_port, wasm_driver_install_step, &browser_preflight.step, iroh_abi_step);
 
     // Hermetic type-check of the public iroh C ABI: an object, so its externs
     // need no definition, `zig build check` catches rot in this module (and the
@@ -573,7 +577,7 @@ pub fn build(b: *std.Build) void {
     // rides `check`, the demos, the browser UI serves, the rooms-web proofs,
     // and deploy prep) registers as one subject from tools/build/rooms.zig.
     // The product CLI below stays here as its own subject.
-    rooms_build.register(.{
+    const rooms_native_install = rooms_build.register(.{
         .b = b,
         .target = target,
         .optimize = optimize,
@@ -584,6 +588,7 @@ pub fn build(b: *std.Build) void {
         .check_step = check_step,
         .browser_preflight = &browser_preflight.step,
         .wasm_driver_install = wasm_driver_install_step,
+        .wasm_archives = gates.wasm_archives,
         .iroh_abi_step = iroh_abi_step,
         .iroh_sidecar_archive = iroh_sidecar_archive,
         .ocapn_install = &ocapn_archive.dynamic_install.step,
@@ -599,6 +604,10 @@ pub fn build(b: *std.Build) void {
         .peering = rooms_peering,
         .viz = rooms_viz,
     });
+
+    // The cross-runtime relay matrix and the live Goblins relay/rooms proofs
+    // register from tools/build/relay_matrix.zig.
+    relay_matrix_build.register(b, pin_port, wasm_driver_install_step, &browser_preflight.step, iroh_abi_step, rooms_native_install);
 
     cli_build.add(b, .{
         .target = target,
@@ -622,11 +631,11 @@ pub fn build(b: *std.Build) void {
     bindings_steps_build.registerChecks(b, check_step, &onion_archive.dynamic_install.step, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
-    ocapnviz_steps_build.register(b, check_step, wasm_driver_install_step, &browser_preflight.step);
+    ocapnviz_steps_build.register(b, check_step, wasm_driver_install_step, &browser_preflight.step, rooms_native_install);
 
     // Finalize graph-level runtime policing after every registrar has had a
     // chance to add members to `check`.
-    gates_build.registerToolchainCheck(b, check_step);
+    toolchain_build.register(b, check_step, target, optimize);
 
     // Serena's SolidLSP ZLS adapter currently hard-codes build-on-save args to
     // `zig build build`; keep that editor-only alias pointed at the normal

@@ -59,7 +59,7 @@ Deno.test("bounded history insertion retires rows that never enter the visible l
 	const room = resetRoom(page, "bounded-history");
 	let dropped = 0;
 	const stop = page.projection.onLinesDropped((_key, lines) => dropped += lines.length);
-	store.prependHistory(
+	store.restoreHistory(
 		page.projection,
 		room.key,
 		Array.from({ length: MAX_SCROLLBACK + 1 }, (_, at) => ({ from: "bo", text: String(at), mine: false, at })),
@@ -69,4 +69,119 @@ Deno.test("bounded history insertion retires rows that never enter the visible l
 	assertEquals(dropped, 2);
 	store.forgetConv(page.projection, room.key);
 	stop();
+});
+
+Deno.test("independent prefix histories keep separate attribution dividers", () => {
+	const page = new RoomsPage();
+	const room = resetRoom(page, "attributed-history");
+	store.restoreHistory(page.projection, room.key, [{ from: "bo", text: "first", mine: false, at: 1 }], "Earlier");
+	store.restoreHistory(page.projection, room.key, [{ from: "cy", text: "second", mine: false, at: 2 }], "Earlier");
+	assertEquals(
+		store.historyOf(page.projection, room.key).filter((item) => item.kind === "sys" && item.text === "Earlier")
+			.length,
+		2,
+	);
+});
+
+Deno.test("chronological reconciliation orders its own rows before their boundary", () => {
+	const page = new RoomsPage();
+	const room = resetRoom(page, "ordered-history");
+	store.reconcileHistory(
+		page.projection,
+		room.key,
+		[{ from: "cy", text: "later", mine: false, at: 20 }, { from: "bo", text: "earlier", mine: false, at: 10 }],
+		"Earlier",
+	);
+	assertEquals(
+		store.historyOf(page.projection, room.key).map((item) => item.text),
+		["earlier", "later", "Earlier"],
+	);
+});
+
+Deno.test("history keeper reconciliation updates the existing semantic boundary without new rows", () => {
+	const page = new RoomsPage();
+	const room = resetRoom(page, "keeper-reconciliation");
+	store.reconcileHistory(
+		page.projection,
+		room.key,
+		[{ from: "cy", text: "kept", mine: false, at: 10 }],
+		"Earlier messages, kept on this device",
+	);
+	store.reconcileHistory(
+		page.projection,
+		room.key,
+		[],
+		"Earlier messages kept by the shared Rooms session archive peer and on this device",
+	);
+	assertEquals(store.historyOf(page.projection, room.key).map((item) => item.text), [
+		"kept",
+		"Earlier messages kept by the shared Rooms session archive peer and on this device",
+	]);
+});
+
+Deno.test("chronological reconciliation uses conversation order rather than opaque archive identity", () => {
+	const page = new RoomsPage();
+	const room = resetRoom(page, "equal-time-history");
+	store.deliver(page.projection, room.key, {
+		...store.chatItem(page.projection, "bo", "middle", false, undefined, undefined, 10),
+		history: { source: "archive", generation: "generation", id: "10" },
+		order: 2,
+	});
+	store.reconcileHistory(page.projection, room.key, [
+		{
+			from: "bo",
+			text: "last",
+			mine: false,
+			at: 10,
+			history: { source: "archive", generation: "generation", id: "2" },
+			order: 3,
+		},
+		{
+			from: "bo",
+			text: "first",
+			mine: false,
+			at: 10,
+			history: { source: "archive", generation: "generation", id: "20" },
+			order: 1,
+		},
+	], "Earlier");
+	assertEquals(store.historyOf(page.projection, room.key).map((item) => item.text), [
+		"first",
+		"middle",
+		"last",
+		"Earlier",
+	]);
+});
+
+Deno.test("history reconciliation keeps the unread rule on a retained row", () => {
+	const page = new RoomsPage();
+	const room = resetRoom(page, "reconciled-unread");
+	for (let at = 0; at < MAX_SCROLLBACK; at += 1) {
+		store.deliver(
+			page.projection,
+			room.key,
+			store.chatItem(page.projection, "bo", String(at), false, undefined, undefined, at),
+		);
+	}
+	store.reconcileHistory(page.projection, room.key, [
+		{
+			from: "cy",
+			text: "missed one",
+			mine: false,
+			at: MAX_SCROLLBACK + 1,
+			history: { source: "archive", generation: "generation", id: "missed-one" },
+		},
+		{
+			from: "cy",
+			text: "missed two",
+			mine: false,
+			at: MAX_SCROLLBACK + 2,
+			history: { source: "archive", generation: "generation", id: "missed-two" },
+		},
+	], "Earlier");
+	const history = store.historyOf(page.projection, room.key);
+	const unread = store.unreadOf(page.projection, room.key);
+	assertEquals(unread.kind === "unread" && history.some((item) => item.id === unread.from), true);
+	store.clearHistory(page.projection, room.key);
+	assertEquals(store.unreadOf(page.projection, room.key).kind, "caught-up");
 });

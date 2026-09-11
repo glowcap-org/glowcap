@@ -184,12 +184,12 @@ test "keyed-relay reports failed close only after receive retires" {
     var completions: [2]net.completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 53), completions[0].user_data);
-    try std.testing.expect(conn.pending.recv);
-    try std.testing.expectEqual(.in_flight, conn.close.platform);
+    try std.testing.expect(conn.pending.get(.recv));
+    try std.testing.expectEqual(.in_flight, conn.inner_close);
 
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(usize, 0), backend.platform.close_calls);
-    try std.testing.expectEqual(.failed, conn.close.platform);
+    try std.testing.expectEqual(.failed, conn.inner_close);
 
     backend.closeFd(fd);
     try std.testing.expectEqual(@as(usize, 0), backend.platform.close_calls);

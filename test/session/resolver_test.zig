@@ -1,8 +1,9 @@
 //! The V1.0 resolver links and the pipelining substrate: resolver-callback
-//! links record, query, and drop with gc-answers, queued calls and listeners
-//! are owned and capped loudly, third-party imports install atomically,
-//! exact-incarnation traversal breaks cycles, and shortening rewrites through
-//! chains but refuses a cycle.
+//! links record, query, and drop with gc-answers, a linked resolver's retain
+//! is the session's to release, queued calls and listeners are owned and
+//! capped loudly, and a resolver purpose replaces its collision in both
+//! directions. The imported-promise store and shortening live in
+//! `imported_promise_test.zig`.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -198,7 +199,7 @@ test "pipelining substrate owns queued calls, listeners, and stored resolution" 
     // export 1 (post-flip `.near`). Export 1 hosts the deliver target; import 1
     // backs the `.far` listener target installed below.
     try s.registerExport(.from(1));
-    try s.registerImport(.from(1));
+    try s.retainImportForSession(.from(1));
     try s.recordRecv(.{ .deliver = .{
         .target = .{ .near = .{ .export_position = .from(1) } },
         .args = &.{},
@@ -253,7 +254,7 @@ test "pipelining caps fail loud rather than silently dropping" {
     // Export 1 hosts the inbound deliver target (post-flip `.near`); import 1
     // backs the `.far` listener target.
     try s.registerExport(.from(1));
-    try s.registerImport(.from(1));
+    try s.retainImportForSession(.from(1));
     try s.recordRecv(.{ .deliver = .{
         .target = .{ .near = .{ .export_position = .from(1) } },
         .args = &.{},
@@ -274,112 +275,31 @@ test "pipelining caps fail loud rather than silently dropping" {
     ));
 }
 
-test "imported-promise substrate owns host, listeners, and relayed resolution" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-
-    // Root import 5 at a third-party host; idempotent for the same host.
-    try s.installThirdPartyImport(.from(5), "host-a");
-    try std.testing.expect(s.isThirdPartyImport(.from(5)));
-    try std.testing.expect(!s.isThirdPartyImport(.from(6)));
-    try s.installThirdPartyImport(.from(5), "host-a");
-
-    // Re-rooting at a different host is a loud error.
-    try std.testing.expectError(error.HostMismatch, s.installThirdPartyImport(.from(5), "host-b"));
-
-    // A listener (POD far listener cap) and a stored relayed resolution.
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
-    try std.testing.expect(try s.recordRelayedResolution(.from(5), s.importedPromiseRowId(.from(5)).?, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } }));
-    const peeked = s.importedPromiseResolution(.from(5)) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqualStrings("v", peeked.fulfill.bytes);
-
-    // A second relayed resolution is refused — a promise resolves once,
-    // mirroring the answer-side rule — the refused value is freed (no leak),
-    // and the stored value is untouched.
-    try std.testing.expectError(error.UnexpectedMessage, s.recordRelayedResolution(
-        .from(5),
-        s.importedPromiseRowId(.from(5)).?,
-        .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "w") } },
-    ));
-    try std.testing.expectEqualStrings("v", s.importedPromiseResolution(.from(5)).?.fulfill.bytes);
-
-    // Recording on an unknown import frees the resolution and errors.
-    try std.testing.expectError(error.InvalidReference, s.recordRelayedResolution(
-        .from(99),
-        0,
-        .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "z") } },
-    ));
-
-    // Drain empties the list (entries are POD; only the slice is owned); a
-    // second drain is empty.
-    const listeners = try s.takeImportedPromiseListeners(.from(5));
-    defer allocator.free(listeners);
-    try std.testing.expectEqual(@as(usize, 1), listeners.len);
-    try std.testing.expectEqual(@as(usize, 0), (try s.takeImportedPromiseListeners(.from(5))).len);
-}
-
-test "third-party import installation is atomic across allocation failure" {
-    var reached_success = false;
-    for (0..16) |fail_index| {
-        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{
-            .fail_index = fail_index,
-        });
-        var s = session.Session.init(failing.allocator());
-        defer {
-            failing.fail_index = std.math.maxInt(usize);
-            s.deinit();
-        }
-
-        s.installThirdPartyImport(.from(5), "home") catch |err| {
-            try std.testing.expectEqual(error.OutOfMemory, err);
-            try std.testing.expectEqual(@as(u64, 0), s.importRefcount(.from(5)));
-            try std.testing.expect(!s.isThirdPartyImport(.from(5)));
-            continue;
-        };
-        reached_success = true;
-        try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(5)));
-        try std.testing.expect(s.isThirdPartyImport(.from(5)));
-        break;
-    }
-    try std.testing.expect(reached_success);
-}
-
-test "imported-promise listener cap fails loud" {
+test "outbound gc-export cannot spend the retain a linked resolver keeps" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .limits = .{ .max_listeners_per_target = 1 },
+        .captp_version = .v1_0,
+        .features = model.FeatureSet.full(),
     });
     defer s.deinit();
+    try s.registerExport(.from(1));
+    const answer = model.AnswerName.fromWire(.from(99));
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(1) },
+        .args = &.{},
+        .answer = answer.wire,
+    } });
+    try s.installInboundResolver(answer, .from(3));
 
-    try s.installThirdPartyImport(.from(5), "h");
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
-    try std.testing.expectError(error.ListenerCapExceeded, s.installImportedPromiseListener(
-        .from(5),
-        .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only },
-    ));
-    // A listener on an unknown (non-third-party) import errors.
-    try std.testing.expectError(error.InvalidReference, s.installImportedPromiseListener(
-        .from(99),
-        .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only },
-    ));
-}
-
-test "outbound gc-export releasing a third-party import drops its imported-promise row" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-
-    try s.installThirdPartyImport(.from(5), "h");
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
-    try std.testing.expect(try s.recordRelayedResolution(.from(5), s.importedPromiseRowId(.from(5)).?, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } }));
-    try std.testing.expect(s.isThirdPartyImport(.from(5)));
-
-    // Outbound op:gc-exports releasing import 5 (count 1 → 0) evicts the row,
-    // freeing the host designator, the listener cap, and the stored resolution.
-    try s.recordSend(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
-    try std.testing.expect(!s.isThirdPartyImport(.from(5)));
-    try std.testing.expect(s.importedPromiseResolution(.from(5)) == null);
+    // The link's own retain is not a caller's to release: the settlement still
+    // has to address this row.
+    try std.testing.expectError(error.GcUnderflow, s.recordSend(.{ .gc_export = .{ .positions = &.{3}, .deltas = &.{1} } }));
+    // A caller's own retain on the same import is, and only that one.
+    try s.registerImport(.from(3));
+    try std.testing.expectError(error.GcUnderflow, s.recordSend(.{ .gc_export = .{ .positions = &.{3}, .deltas = &.{2} } }));
+    try s.recordSend(.{ .gc_export = .{ .positions = &.{3}, .deltas = &.{1} } });
+    try std.testing.expect(s.resolverForInboundAnswer(answer) != null);
+    try std.testing.expect(s.hasImport(.from(3)));
 }
 
 test "next session needs no v1.0 resolver translation" {
@@ -539,50 +459,6 @@ test "V1.0 accepts inbound untag but requires explicit peer support outbound" {
     s.features.untag = true;
     try s.recordSend(outbound);
     try std.testing.expect(s.outboundAnswer(.from(7)) != null);
-}
-
-test "promise shortening rewrites through chains and refuses a cycle" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerImport(.from(5));
-    try s.registerImport(.from(6));
-    try s.registerImport(.from(7));
-
-    const first = (try s.nominateShorteningResolver(.from(5))).?;
-    try s.validateShorteningCompletion(first.resolver_export, model.FarRef.promise(6));
-    s.completeShortening(first.resolver_export, model.FarRef.promise(6));
-
-    const second = (try s.nominateShorteningResolver(.from(6))).?;
-    try s.validateShorteningCompletion(second.resolver_export, model.FarRef.promise(7));
-    s.completeShortening(second.resolver_export, model.FarRef.promise(7));
-
-    var message: model.Message = .{ .deliver = .{
-        .target = .{ .far = model.FarRef.promise(5) },
-        .args = &.{},
-    } };
-    s.rewriteShortenedMessage(&message);
-    try std.testing.expectEqual(model.FarRef.promise(7), message.deliver.target.far);
-
-    const cycle = (try s.nominateShorteningResolver(.from(7))).?;
-    try std.testing.expectError(
-        session.Error.UnexpectedMessage,
-        s.validateShorteningCompletion(cycle.resolver_export, model.FarRef.promise(5)),
-    );
-
-    var release: model.GcExport = .{
-        .positions = try allocator.dupe(u64, &.{5}),
-        .deltas = try allocator.dupe(u64, &.{1}),
-    };
-    defer allocator.free(release.positions);
-    defer allocator.free(release.deltas);
-    try s.expandShorteningGcExportReleases(allocator, &release);
-    try std.testing.expectEqualSlices(u64, &.{ 5, 6, 7 }, release.positions);
-    try std.testing.expectEqualSlices(u64, &.{ 1, 1, 1 }, release.deltas);
-    try s.recordSend(.{ .gc_export = release });
-    try std.testing.expect(!s.holdsImport(.from(5)));
-    try std.testing.expect(!s.holdsImport(.from(6)));
-    try std.testing.expect(!s.holdsImport(.from(7)));
 }
 
 test "resolver purpose replacement evicts a colliding resolver in both directions" {

@@ -390,9 +390,16 @@ pub fn register(ctx: Context) Registered {
         // Keep the Rust sidecar and its runtime private to this artifact. The
         // public companion surface is the generated glowcap_webrtc_* family.
         webrtc_abi_shared.version_script = ctx.b.path("tools/build/exports/webrtc.map");
+        // The self-hosted backend accepts --version-script but does not honor
+        // it; see the sibling note in tools/build/iroh.zig. The boundary holds
+        // in every mode, so this archive always compiles and links through
+        // LLVM/lld.
+        webrtc_abi_shared.use_llvm = true;
+        webrtc_abi_shared.use_lld = true;
     }
     webrtc_abi_shared.step.dependOn(&webrtc_probe_build.step);
     const webrtc_abi_install = b.addInstallArtifact(webrtc_abi_shared, .{});
+    common.checkArchiveTls(ctx.b, webrtc_abi_shared, &webrtc_abi_install.step);
     const webrtc_abi_header_install = b.addInstallHeaderFile(b.path("include/glowcap_net_transport_webrtc.h"), "glowcap_net_transport_webrtc.h");
     const webrtc_abi_step = b.step("webrtc-abi", "Build libglowcap_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0089 phase 3; needs cargo)");
     webrtc_abi_step.dependOn(&webrtc_abi_install.step);

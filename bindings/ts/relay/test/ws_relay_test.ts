@@ -385,7 +385,7 @@ Deno.test("rendezvous accepts only canonical fixed-size key designators", () => 
 	}
 	const rendezvous = new Rendezvous();
 	assertEquals(
-		rendezvous.register("unbounded attacker key", new FakeWebSocket() as unknown as WebSocket),
+		rendezvous.register("unbounded map key", new FakeWebSocket() as unknown as WebSocket),
 		false,
 	);
 	assertEquals(rendezvous.heldCount(), 0);

@@ -337,7 +337,7 @@ function curlDownload(
  *
  * Exported so the C-ABI extract matrix can run this exact path — the listing
  * and the extract, with the environment this function builds — against
- * hostile archives. Counting the environment's spelling in the source cannot
+ * untrusted archives. Counting the environment's spelling in the source cannot
  * show that the environment reaching both subprocesses is the one intended. */
 export function safeExtractPrefix(
 	tarballPath: string,
@@ -352,7 +352,7 @@ export function safeExtractPrefix(
 	//
 	// `TAR_OPTIONS` is neutralized by name rather than by omission. Node
 	// replaces the environment when `env` is given, but Deno's compatibility
-	// layer merges it with the parent's, so a hostile `TAR_OPTIONS` survived
+	// layer merges it with the parent's, so an untrusted `TAR_OPTIONS` survived
 	// this object and hid members from the listing that the extract would
 	// still have written. An empty value overrides it either way.
 	const tarEnv = { LC_ALL: "C", PATH: envVar("PATH") ?? "", TAR_OPTIONS: "" };

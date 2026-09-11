@@ -18,7 +18,7 @@
 // per kind of answer rather than one per question, and `criterionShows` is the
 // only place a single question is decided.
 
-import { type DirId, type DirView, type DmConv, type Invitation, type RoomConv, type Unread } from "../types.ts";
+import type { DirId, DirView, DmConv, Invitation, RoomConv, Unread } from "../types.ts";
 import { directoryName } from "../text.ts";
 
 /** A row of the rail, reduced to the facts the questions ask about.

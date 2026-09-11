@@ -30,9 +30,11 @@ const Session = session.Session;
 
 /// A partner resolver link whose allocations and collision checks are complete
 /// but whose capability authority has not moved. The frame's shared
-/// introduced-import transaction owns the resolver retain; this value owns the
+/// introduced-import transaction takes the resolver retain; this value owns the
 /// answer/link half and commits it only after the queue or event destination is
-/// also secured.
+/// also secured, adopting that retain as the session's: the callback that
+/// settles the answer releases it beside itself, and no caller may spend it
+/// first.
 pub const PreparedInboundResolver = struct {
     answer: model.AnswerName,
     resolver_import: model.ImportPosition,
@@ -47,6 +49,7 @@ pub const PreparedInboundResolver = struct {
             self.answer,
             self.resolver_import,
         );
+        target.adoptImportRetain(self.resolver_import);
     }
 };
 

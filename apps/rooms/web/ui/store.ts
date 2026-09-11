@@ -8,8 +8,6 @@
 
 import type { BridgeFacts, DirId, Invitation, RoomConv } from "./types.ts";
 import { NO_MEMBERS, NO_TYPERS, type PageProjection, type State } from "./store/core.ts";
-import type { Presence } from "../../lib/room/presence.ts";
-import { applyRoomPresence } from "../../lib/room/presence.ts";
 import type { RoomMemberState } from "../../lib/room/presence.ts";
 import { getConv, put } from "./store/convs.ts";
 import { patchDir } from "./store/dirs.ts";
@@ -27,14 +25,6 @@ export * from "./store/reaching.ts";
 export * from "./store/trouble.ts";
 
 // ── Room membership and typing ────────────────────────────────────────────
-export function applyPresence(projection: PageProjection, key: string, event: Presence | null): void {
-	if (event == null || event.kind === "typing") return;
-	if (getConv(projection, key)?.type !== "room") return;
-	const current = membersOf(projection, key);
-	const next = applyRoomPresence(current, event);
-	if (next === current || rosterEquals(current, next)) return;
-	replaceMembers(projection, key, next);
-}
 
 /** What a room says it is about.
  *

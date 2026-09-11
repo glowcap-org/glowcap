@@ -33,7 +33,7 @@ from the same `persistentSwiss` machinery as the other operator capabilities,
 persisted as `GLOWCAP_ROOMS_STATE/viz` and printed as a `ROOMS-VIZ` token line. With
 the endpoint off, nothing is minted, persisted, or published.
 
-`startViz` (`apps/rooms/server/viz.ts`) takes that swiss and refuses every
+The native endpoint (`apps/rooms/rust/native/src/room_server/viz/`) takes that swiss and refuses every
 socket that does not present it as the `cap` query parameter, comparing in
 constant time and closing with code 4403 and a readable reason after the
 upgrade, so a WebSocket client sees why. A refused socket is never a producer

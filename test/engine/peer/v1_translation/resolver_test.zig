@@ -128,7 +128,7 @@ test "V1.0 resolver-only delivery retains a virtual answer without inventing a w
 
     const body = try event.view();
     try std.testing.expect(body.deliver.answer == null);
-    const answer = (try event.deliverAnswerName()).?;
+    const answer = event.deliverAnswerName().?;
     try std.testing.expect(answer == .virtual);
     try std.testing.expectEqual(
         @as(?model.ImportPosition, .from(99)),

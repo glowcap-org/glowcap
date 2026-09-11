@@ -10,6 +10,7 @@ pub fn register(
     check_step: *std.Build.Step,
     wasm_driver_install_step: *std.Build.Step,
     browser_preflight_step: *std.Build.Step,
+    rooms_native_install: *std.Build.Step,
 ) void {
     // ── ocapnviz (the live visualizer) ──────────────────────────────────────
     // ocapnviz is its own Deno scope: the root `deno.json` excludes it, so none
@@ -28,9 +29,12 @@ pub fn register(
     ocapnviz_build_check.setCwd(b.path("."));
     ocapnviz_build_check.has_side_effects = true;
     ocapnviz_build_check.step.dependOn(wasm_driver_install_step);
-    const ocapnviz_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/ocapnviz-test.sh" });
+    const ocapnviz_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
     ocapnviz_test.setCwd(b.path("."));
     ocapnviz_test.has_side_effects = true;
+    ocapnviz_test.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    ocapnviz_test.addArgs(&.{ "bash", "tools/check/ocapnviz-test.sh" });
+    ocapnviz_test.step.dependOn(rooms_native_install);
     ocapnviz_test.step.dependOn(&ocapnviz_build_check.step);
     const ocapnviz_test_step = b.step("ocapnviz-test", "Run the ocapnviz visualizer's own test suite, skipping when deno is absent; part of check");
     ocapnviz_test_step.dependOn(&ocapnviz_test.step);
@@ -47,9 +51,12 @@ pub fn register(
     // rather than part of `check`: it needs the devcontainer's pinned Chromium.
     // The app-owned task builds Vite's dist, serves only that output, and drives
     // its wasm OCapN peer against the native viz capability endpoint.
-    const ocapnviz_live_browser = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "task", "test:live-browser" });
+    const ocapnviz_live_browser = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
     ocapnviz_live_browser.setCwd(b.path("apps/ocapnviz"));
     ocapnviz_live_browser.has_side_effects = true;
+    ocapnviz_live_browser.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    ocapnviz_live_browser.addArgs(&.{ "deno", "task", "test:live-browser" });
+    ocapnviz_live_browser.step.dependOn(rooms_native_install);
     ocapnviz_live_browser.step.dependOn(wasm_driver_install_step);
     ocapnviz_live_browser.step.dependOn(browser_preflight_step);
     const ocapnviz_live_browser_step = b.step("ocapnviz-live-browser", "Build and prove production ocapnviz Live mode in Chromium (needs deno + Playwright Chromium)");

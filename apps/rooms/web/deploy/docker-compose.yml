@@ -25,37 +25,33 @@
 services:
   rooms:
     build:
-      # No local build context is needed — the image is the official Deno binary on
-      # a debian base (see rooms.Dockerfile). Source and .so arrive as runtime mounts.
+      # Native executables, libraries and browser assets arrive as runtime mounts.
       context: .
       dockerfile: rooms.Dockerfile
     image: glowcap-rooms:local
     container_name: glowcap-rooms
-    working_dir: /repo
-    # serve.ts serves the page and /relay WebSocket on 8000, spawns the iroh room
-    # server, and publishes GET /locator for CapTP peers. The browser peer dials
-    # through the relay; terminal peers dial iroh directly (or through relay).
+    working_dir: /runtime
+    # The native front serves the prepared page and owns its directory child.
     command:
-      - run
-      - -A
-      - --unstable-ffi
-      # The repo mounts read-only, so deno cannot write deno.lock (which is
-      # gitignored and drifts as the workspace gains deps); skip the lockfile
-      # entirely. The source is pinned by the read-only mount, and the one npm
-      # dep (zod) is version-pinned in the import map, so nothing here needs it.
-      - --no-lock
-      - apps/rooms/web/serve.ts
       - "8000"
       - --transport=iroh
+      - --prepared
+      - --assets=/runtime/rooms-web/current
     environment:
-      # Where the binding finds the prebuilt shared libraries (load.ts's first rung).
-      GLOWCAP_LIB_DIR: /libs
-      DENO_DIR: /deno-dir
+      GLOWCAP_LIB_DIR: /runtime/lib
       # One room authority across child and container restarts. This keeps the
       # iroh endpoint id and every issued durable room link stable.
       GLOWCAP_ROOMS_STATE: /state
       # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-peer / cross-container).
       GLOWCAP_ROOMS_REACHABILITY: discovery
+      # The web relay's deployment admission. Blank takes the in-process
+      # defaults; exporting one before compose starts overrides only the
+      # resource its name describes.
+      GLOWCAP_RELAY_MAX_SESSIONS: ${GLOWCAP_RELAY_MAX_SESSIONS:-}
+      GLOWCAP_RELAY_MAX_REGISTRATIONS: ${GLOWCAP_RELAY_MAX_REGISTRATIONS:-}
+      GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY: ${GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY:-}
+      GLOWCAP_RELAY_MAX_IROH_SESSIONS: ${GLOWCAP_RELAY_MAX_IROH_SESSIONS:-}
+      GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE: ${GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE:-}
       # Browser-to-browser WebRTC uses the application's public STUN default.
       # Empty means host candidates only; a comma-separated STUN list replaces it.
       # GLOWCAP_ROOMS_ICE_SERVERS: ""
@@ -68,8 +64,7 @@ services:
       # Every operator capability, on by default: each swiss number persists in
       # the state volume and prints in the logs; comment one out to withhold
       # that authority from this deployment. Read them any time with
-      #   ./compose.sh exec rooms deno run --allow-read --allow-env --no-lock \
-      #     /repo/apps/rooms/server/capabilities.ts
+      #   ./compose.sh exec rooms /runtime/bin/rooms-server --capabilities
       # Same as starting with --diagnostics: mint inspect.
       GLOWCAP_ROOMS_DIAGNOSTICS: "1"
       # Same as --admin-listeners: mint the listener-admin capability.
@@ -96,21 +91,11 @@ services:
       #   postgres://rooms:${STORAGE_DB_PASSWORD}@rooms-storage-db:5432/rooms
       GLOWCAP_ROOMS_STORAGE: ${GLOWCAP_ROOMS_STORAGE:-}
     volumes:
-      # The TypeScript source and the prebuilt .so, both read-only mounts — neither
-      # is baked into the image. Build the .so in the dev container first (above).
-      - ../../../..:/repo:ro
-      - ../../../../zig-out/lib:/libs:ro
-      # A writable module cache, since the source mount is read-only.
-      - rooms-deno-cache:/deno-dir
+      - ../../../../zig-out:/runtime:ro
       - rooms-state:/state
-    # Alive is not the same as serving. `/locator` answers only once the page is
-    # being served *and* the room server it supervises has announced itself, so
-    # it is the one probe that tells a working deployment from a container that
-    # is up and useless — the state an operator otherwise finds out about from
-    # somebody in the room. Deno is the only tool in this image, and needs
-    # nothing but loopback to ask.
+    # Readiness checks both the supervised directory and prepared browser assets.
     healthcheck:
-      test: ["CMD", "deno", "run", "--allow-net=127.0.0.1:8000", "--allow-env", "/repo/apps/rooms/web/deploy/healthcheck.ts"]
+      test: ["CMD", "/runtime/bin/rooms-web", "--check-ready"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -129,41 +114,25 @@ services:
   rooms-session:
     image: glowcap-rooms:local
     container_name: glowcap-rooms-session
-    working_dir: /repo
+    working_dir: /runtime
+    entrypoint: ["/runtime/bin/rooms-session"]
     command:
-      - run
-      # Deno's granular FFI allowlist names files, not directory trees. This
-      # session loads the core, Host, driver, and selected provider archives
-      # from the read-only /libs mount; `=/libs` grants none of them and makes
-      # startup report that --allow-ffi is missing. FFI is the one broad
-      # permission here, while reads, writes, environment, and custody remain
-      # explicitly scoped below.
-      - --allow-ffi
-      - --unstable-ffi
-      - --allow-read=/repo,/libs,/session-state,/run/rooms-session
-      - --allow-write=/session-state,/run/rooms-session
-      - --allow-net
-      - --allow-env=GLOWCAP_LIB_DIR,GLOWCAP_ROOMS_SESSION_STATE,GLOWCAP_ROOMS_SESSION_TRANSPORT,GLOWCAP_ROOMS_SESSION_REACHABILITY
-      - --no-lock
-      - apps/rooms/session/main.ts
+      - --state=/session-state
       - --readiness-file=/run/rooms-session/admin.sturdyref
     environment:
-      GLOWCAP_LIB_DIR: /libs
-      DENO_DIR: /deno-dir
+      GLOWCAP_LIB_DIR: /runtime/lib
       GLOWCAP_ROOMS_SESSION_STATE: /session-state
       GLOWCAP_ROOMS_SESSION_TRANSPORT: iroh
       GLOWCAP_ROOMS_SESSION_REACHABILITY: discovery
     volumes:
-      - ../../../..:/repo:ro
-      - ../../../../zig-out/lib:/libs:ro
-      - rooms-session-deno-cache:/deno-dir
+      - ../../../../zig-out:/runtime:ro
       - rooms-session-state:/session-state
     # Readiness is an incarnation fact, not user state. A tmpfs makes a crash,
     # container restart, or recreation begin without a stale ready marker.
     tmpfs:
       - /run/rooms-session:mode=0700
     healthcheck:
-      test: ["CMD", "deno", "run", "--allow-read=/run/rooms-session", "--no-lock", "/repo/apps/rooms/web/deploy/session_healthcheck.ts"]
+      test: ["CMD", "/runtime/bin/rooms-session", "--check-ready=/run/rooms-session/admin.sturdyref"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -200,8 +169,6 @@ networks:
     external: true
 
 volumes:
-  rooms-deno-cache:
   rooms-state:
-  rooms-session-deno-cache:
   rooms-session-state:
   rooms-storage-db:

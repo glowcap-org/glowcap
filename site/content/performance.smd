@@ -33,8 +33,9 @@ records the ordered steps toward release, including the exact limits.
 <p class="bench-stamp"><em>Measured 2026-08-24 on one machine: Linux 6.17.0-1029-nvidia aarch64, 20 logical CPUs, 122 GiB RAM, Racket v9.3 CS, Spritely Goblins v0.18.0-52-gdcc2b2c5, with the <code>glowcap</code> archives built by Zig 0.17.0-dev.1857+3c46da14d in ReleaseFast. The regeneration command is at the bottom of the page.</em></p>
 ```
 
-All charts use ReleaseFast. Core footprint excludes socket memory. Any
-half-million-session figure is an extrapolation, not a live-socket result.
+All charts use ReleaseFast. Core footprint excludes socket memory. The
+half-million column below is core-memory arithmetic, not RSS. A live loopback
+run of 500,000 signed sessions is on the ladder page linked above.
 
 # Codec throughput
 

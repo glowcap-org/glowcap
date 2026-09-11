@@ -225,7 +225,7 @@ test "libglowcap_host: a malformed frame classifies CODEC, session_last_abort na
     var partner_len: usize = 0;
     try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cd.glowcap_host_session_partner_abort(pair.a, &kind_name, &kind_name_len, &partner_msg, partner_msg.len, &partner_len));
 
-    // Attacker-shaped input: not a Syrup frame at all. The classified code
+    // Peer-supplied input: not a Syrup frame at all. The classified code
     // must be CODEC (the shared taxonomy), never a flattened SESSION.
     const garbage = "not a syrup frame";
     const borrowed: c.GlowcapFrame = .{ .bytes = @constCast(garbage.ptr), .len = garbage.len, .shape = c.GLOWCAP_FRAME_SHAPE_BYTE };
@@ -399,7 +399,21 @@ test "libglowcap_host: canonical sturdyrefs enliven across a glowcap-next sessio
     var enlivened = CapturedSettle{};
     watches.add(client, vow, &enlivened);
     try pump(&hosts, &.{pair}, &dials, &watches);
-    _ = try enlivened.requireRef();
+    const remote = try enlivened.requireRef();
+    var resolved: c.GlowcapReference = undefined;
+    var resolution_vow: u64 = 99;
+    try expectOk(cd.glowcap_host_session_resolve(pair.a, &remote, &resolved, &resolution_vow));
+    try std.testing.expectEqual(remote.id, resolved.id);
+    try std.testing.expectEqual(@as(u64, 0), resolution_vow);
+    var no_listen: c.GlowcapManagedFrame = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, takeOutbound(pair.a, &no_listen));
+    // Resolve returns its own retain; releasing it cannot consume the input.
+    try expectOk(cd.glowcap_host_ref_release(client, &resolved, 1));
+    try expectOk(cd.glowcap_host_session_resolve(pair.a, &remote, &resolved, &resolution_vow));
+    try expectOk(cd.glowcap_host_ref_release(client, &resolved, 1));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_SESSION, cd.glowcap_host_session_listen(pair.a, &remote, &resolution_vow));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_session_resolve(pair.a, &remote, null, &resolution_vow));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_session_resolve(pair.a, &remote, &resolved, null));
 }
 
 test "libglowcap_host: a projected reference releases after its home session closes" {

@@ -1,4 +1,4 @@
-//! Hostile-bytes fuzzing of locator and sturdyref parsing.
+//! Untrusted-bytes fuzzing of locator and sturdyref parsing.
 //!
 //! An `ocapn://` URI is not a local configuration string. A partner sends one
 //! in its `op:start-session`, and a gifter sends another naming a third party

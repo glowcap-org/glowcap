@@ -193,7 +193,7 @@ const ProviderDialAttempt = struct {
     const Result = union(enum) {
         pending,
         connection: net.tcp.RawConnection,
-        failure: anyerror,
+        failure: net.tcp.ConnectRawError,
     };
 
     fn run(self: *ProviderDialAttempt) std.Io.Cancelable!void {
@@ -337,7 +337,9 @@ fn providerFinishConnect(
     switch (result) {
         .failure => |err| {
             _ = attempt.owner.tasks.reap(&attempt.operation);
-            return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
+            // std names the connect timeout `Timeout`; the shared table keys on
+            // the netlayer's `TimedOut`, so classify first.
+            return c.transport_provider.failProvider(out_failure, c.dialFailureCode(net.tcp.classifyConnect(err)), err);
         },
         .pending => unreachable,
         .connection => |connection| {
@@ -401,13 +403,17 @@ fn providerListen(
         c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_IO, err);
         return c.failIo("tcp provider listen", err);
     };
-    errdefer listener.deinit();
+    // A C-calling-convention function returns a code, not an error union, so
+    // an `errdefer` here would never run: each refusal below releases what it
+    // owns by hand before it returns.
     const locator = listener.localLocator(profile.owner.allocator) catch |err| {
+        listener.deinit();
         c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
         return c.failInternal("tcp provider listener locator", err);
     };
-    errdefer model.freePeerLocator(profile.owner.allocator, locator);
     const raw = profile.owner.allocator.create(RawListener) catch |err| {
+        model.freePeerLocator(profile.owner.allocator, locator);
+        listener.deinit();
         c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
         return c.failInternal("tcp provider listener", err);
     };

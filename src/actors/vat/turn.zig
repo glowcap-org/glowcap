@@ -14,6 +14,7 @@ const model = @import("model");
 
 const boxed = @import("boxed.zig");
 const serve = @import("serve.zig");
+const forwarding = @import("forwarding.zig");
 const vat_mod = @import("mod.zig");
 
 const Message = vat_mod.Message;
@@ -58,11 +59,10 @@ pub const Turn = struct {
     /// default: every constructor states the provenance, and the old illegal
     /// combination (a near-call carrying a wire answer) is unrepresentable.
     origin: union(enum) {
-        /// A local, value-bearing frame: a synchronous near-call (`$`) or a
-        /// queued eventual-send turn. The handler's return value is consumed
-        /// directly — the near-caller's reply, or the vow's resolution — so
-        /// `forward` forwards synchronously and returns the target's value.
+        /// A synchronous near-call (`$`), whose caller consumes a value.
         local,
+        /// A queued eventual call, whose local answer can be deferred.
+        eventual: struct { answer: ?u64, outcome: *EventualOutcome },
         /// An inbound wire deliver, carrying the answer this turn must settle,
         /// or null for a no-answer deliver (a wire `tell`). `forward` defers
         /// the answer onto the forwarded send's vow.
@@ -190,14 +190,14 @@ pub const Turn = struct {
     ///
     /// What comes back depends on the turn's `origin`: a `.local` frame gets
     /// the target's real value (the vat consumes the return directly, so the
-    /// forward runs as a synchronous near-call); a `.served` turn gets a `void`
+    /// forward runs as a synchronous near-call); an eventual or served turn gets a `void`
     /// placeholder the vat ignores, with the real answer riding the forwarded
-    /// vow — or, for a no-answer wire `tell`, a fire-and-forget forward.
+    /// vow — or, for a no-answer `tell`, a fire-and-forget forward.
     /// Forwarding does not preserve promise pipelining *through* the proxy: a
     /// partner pipelining on the proxy's answer queues on this side until the
     /// forwarded send settles (ADR-0064).
     pub fn forward(self: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
-        return serve.forwardTurn(self.vat, self, target, msg);
+        return forwarding.forwardTurn(self.vat, self, target, msg);
     }
 
     /// Defer this turn's answer onto `vow` (ADR-0102): the answer settles
@@ -205,37 +205,38 @@ pub const Turn = struct {
     /// handler mints a resolver pair (`Vat.spawnVow`), forwards its answer
     /// here, hands the resolver to whatever completes the work, and returns
     /// normally; the eventual `Vat.fulfillVow` / `Vat.breakVow` settles the
-    /// wire answer as its own top-level event. Legal only on a served turn
-    /// (`NotLocal`); on a no-answer wire `tell` there is nothing to defer and
-    /// the turn is simply marked forwarded.
+    /// answer as its own top-level event. Eventual and served turns can defer;
+    /// synchronous near calls refuse (`NotLocal`). A no-answer tell has nothing
+    /// to defer and is simply marked forwarded.
     pub fn forwardVow(self: *Turn, vow: Vow) anyerror!void {
-        return serve.forwardTurnVow(self.vat, self, vow);
+        return forwarding.forwardTurnVow(self.vat, self, vow);
     }
 
     /// Reserve the fallible half of a vow deferral without publishing the vow.
     /// Host adapters use this to make resolver mint + turn deferral one atomic
     /// operation across their own row tables and the Vat.
-    pub fn reserveForwardVow(self: *Turn, location: vat_mod.VowLocation) anyerror!serve.ForwardReservation {
-        return serve.reserveForward(self.vat, self, location);
+    pub fn reserveForwardVow(self: *Turn, location: vat_mod.VowLocation) anyerror!forwarding.ForwardReservation {
+        return forwarding.reserveForward(self.vat, self, location);
     }
 
     /// Commit a fresh vow into a reservation returned by `reserveForwardVow`.
     /// No allocation or refusal remains after the reservation succeeds.
-    pub fn forwardReservedVow(self: *Turn, reservation: serve.ForwardReservation, vow: Vow) void {
-        serve.commitForward(self.vat, self, reservation, vow);
+    pub fn forwardReservedVow(self: *Turn, reservation: forwarding.ForwardReservation, vow: Vow) void {
+        forwarding.commitForward(self.vat, self, reservation, vow);
     }
 
-    /// Break this turn's own answer with `message` — the served-turn spelling
+    /// Break this turn's own answer with `message` — the eventual-turn spelling
     /// of a handler failure that must carry its diagnostic. A native handler
     /// breaks by returning an error, whose `@errorName` becomes the reason; a
     /// hosted behavior's return code carries no message at all, so this verb
     /// is how a caretaker's "Revoked" or an attenuator's "Attenuated" crosses
-    /// the boundary intact. The answer resolves broken now (a no-answer wire
-    /// `tell` breaks nothing) and the turn is marked forwarded so the handler's
+    /// the boundary intact. A wire answer breaks now; a queued local answer
+    /// breaks after the handler unwinds. A tell has no answer to break. The
+    /// turn is marked forwarded so the handler's
     /// eventual return value resolves nothing — the handler still returns
     /// normally after calling this. A second call in the same turn is a no-op:
-    /// the answer already settled. Legal only on a served turn; a `.local`
-    /// frame's caller consumes the return value directly, so a break has
+    /// answer already has its outcome. A synchronous `.local` frame's
+    /// caller consumes the return value directly, so a break has
     /// nowhere to land and the handler raises instead (`NotLocal`).
     pub fn breakWith(self: *Turn, message: []const u8) !void {
         switch (self.origin) {
@@ -244,10 +245,33 @@ pub const Turn = struct {
                 try serve.resolveBreak(self.port.?, answer, message);
                 self.forwarded = true;
             },
+            .eventual => |eventual| {
+                if (self.forwarded) return;
+                eventual.outcome.* = if (eventual.answer != null)
+                    .{ .broken = try self.arena.dupe(u8, message) }
+                else
+                    .discarded;
+                self.forwarded = true;
+            },
             .local => return Error.NotLocal,
         }
     }
 };
+
+/// Stack-owned completion of one queued call. A deferral transfers settlement
+/// to its listener; a diagnostic is owned by the turn arena until dispatch ends.
+const EventualOutcome = union(enum) { returned, deferred, discarded, broken: []const u8 };
+
+pub fn callQueued(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Message, answer: ?u64) ?vat_mod.Resolution {
+    var outcome: EventualOutcome = .returned;
+    const result = callWithOrigin(self, port, ingress, id, msg, .{ .eventual = .{ .answer = answer, .outcome = &outcome } });
+    return switch (outcome) {
+        .returned => if (result) |value| .{ .fulfilled = value } else |err| .{ .broken = @errorName(err) },
+        .deferred => null,
+        .discarded => .{ .fulfilled = .{ .void = {} } },
+        .broken => |reason| .{ .broken = reason },
+    };
+}
 
 /// Free every reply a handler moved to the vat and not yet reclaimed. Called
 /// when an outermost turn begins (mirroring the turn arena's reset) and at
@@ -354,12 +378,20 @@ pub fn closeTurnFrame(self: *Vat, id: u64) void {
 }
 
 pub fn callLocal(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Message) anyerror!model.Argument {
+    return callWithOrigin(self, port, ingress, id, msg, .local);
+}
+
+fn callWithOrigin(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Message, origin: @FieldType(Turn, "origin")) anyerror!model.Argument {
     const frame = try openTurnFrame(self, id);
     const box = frame.box;
     const arena = frame.arena;
     defer closeTurnFrame(self, id);
-    var turn = Turn{ .vat = self, .port = port, .self_ref = .{ .local = id }, .ingress = ingress, .arena = arena, .origin = .local };
+    var turn = Turn{ .vat = self, .port = port, .self_ref = .{ .local = id }, .ingress = ingress, .arena = arena, .origin = origin };
     if (box.handle(box.ptr, &turn, msg)) |value| {
+        if (turn.forwarded) {
+            if (turn.pending_become) |pending| boxed.promoteBecome(self, pending);
+            return .{ .void = {} };
+        }
         // A become installing at this frame's unwind makes the deferred
         // `finishCellRun` free this actor's old state box as the call
         // returns, but `value` may borrow that state — the module contract

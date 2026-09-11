@@ -44,10 +44,12 @@ mkdir -p \
     "${ZIG_CACHE_DIR}" \
     "${CACHE_ROOT}/zls" \
     "${CARGO_HOME_RUNTIME}"
-if [[ -n "${GLOWCAP_WORKTREE:-}" ]]; then
-    mkdir -p \
-        "${WORK_CACHE_DIR}/${GLOWCAP_WORKTREE}/zig-local" \
-        "${WORK_CACHE_DIR}/${GLOWCAP_WORKTREE}/zig-pkg"
+if [[ -n "${ZIG_LOCAL_CACHE_DIR:-}" && -n "${ZIG_LOCAL_PKG_DIR:-}" ]]; then
+    # This target is the dedicated Docker volume, never a host bind. Own it as
+    # the workspace user before probing it or starting the first build.
+    sudo chown vscode:vscode "${ZIG_WORK_CACHE_DIR}"
+    mkdir -p "${ZIG_LOCAL_CACHE_DIR}" "${ZIG_LOCAL_PKG_DIR}"
+    python3 "${dir}/test/zig-cache-filesystem.py" "${ZIG_LOCAL_CACHE_DIR}"
 fi
 
 for path in "${GLOWCAP_CACHE_DIR}" "${CACHE_ROOT}" "${CARGO_HOME_RUNTIME}"; do
@@ -55,16 +57,16 @@ for path in "${GLOWCAP_CACHE_DIR}" "${CACHE_ROOT}" "${CARGO_HOME_RUNTIME}"; do
     touch "${probe}"
     rm -f "${probe}"
 done
-if [[ -n "${GLOWCAP_WORKTREE:-}" ]]; then
-    probe="${WORK_CACHE_DIR}/${GLOWCAP_WORKTREE}/zig-local/.write-test-$$"
+if [[ -n "${ZIG_LOCAL_CACHE_DIR:-}" && -n "${ZIG_LOCAL_PKG_DIR:-}" ]]; then
+    probe="${ZIG_LOCAL_CACHE_DIR}/.write-test-$$"
     touch "${probe}"
     rm -f "${probe}"
-    probe="${WORK_CACHE_DIR}/${GLOWCAP_WORKTREE}/zig-pkg/.write-test-$$"
+    probe="${ZIG_LOCAL_PKG_DIR}/.write-test-$$"
     touch "${probe}"
     rm -f "${probe}"
 fi
 
-# Once Zig local cache and packages have a home on the host bind, leftover
+# Once Zig local cache and packages have a home on the Docker volume, leftover
 # checkout copies are unused. Remove them here, before a build, so the
 # worktree is not carrying two caches. Racket bytecode is the same shape: it
 # is gitignored generated state stamped with the compiler that wrote it, and

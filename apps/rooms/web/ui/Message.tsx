@@ -7,7 +7,7 @@
 
 import { memo, useState } from "react";
 import { type BridgeFacts, canRetry, type ChatItem, isUnsent, type SendControlPolicy } from "./types.ts";
-import { type Group } from "./log_blocks.ts";
+import type { Group } from "./log_blocks.ts";
 import { Avatar } from "./Avatar.tsx";
 import { foreignName } from "./member_identity.ts";
 import { fmtTime, mentionsYou } from "./text.ts";
@@ -48,8 +48,14 @@ function LineMenu(
 	const held = item.held === true && !item.withdrawn;
 
 	if (!words && !held && item.mine) return null;
+	// The exact minute this line landed rides the same reveal as the mark: the
+	// group's stamp under the stack says when the last of them arrived, and a
+	// reader who wants one line's own time points at that line. Decorative for
+	// a screen reader, which already has the group's stamp and the log's order.
+	const at = new Date(item.at);
 	return (
 		<div className="line-acts" ref={holder}>
+			<time className="line-at" dateTime={at.toISOString()} aria-hidden="true">{fmtTime(at)}</time>
 			<IconButton
 				ref={trigger}
 				icon="more"

@@ -37,10 +37,11 @@ then opens each directory, re-enters public rooms by name or publication, redeem
 links, and acquires fresh direct routes when a conversation is used. A handed room with no durable link remains visible
 as unrecoverable instead of being silently discarded.
 
-The page directory is restored first; the remaining directory order stays as the reader left it. A root-page open
-restores the saved active conversation. An explicit room, direct-message, join, directory, or operations address
-reserves selection for that route, so reconnecting rooms cannot replace it before the route acts. A reader's later
-room choice still takes the screen immediately.
+The page directory is restored first while the browser still holds it. Giving it back records that directory's identity,
+so a reload does not recreate it and moving a workspace bundle to another page does not suppress that page's directory.
+The remaining directory order stays as the reader left it. A root-page open restores the saved active conversation. An
+explicit room, direct-message, join, directory, or operations address reserves selection for that route, so reconnecting
+rooms cannot replace it before the route acts. A reader's later room choice still takes the screen immediately.
 
 The member archive records room and direct lines through the same ordered, bounded writer. Recovered room records are
 the member's observed account. A room's retained history remains the room's own account. Both accounts stay separately

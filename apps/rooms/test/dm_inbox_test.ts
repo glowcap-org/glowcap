@@ -5,8 +5,8 @@
 // so its ledger must survive them too: the same offerer instance,
 // asked to offer the same peer through a *different* directory connection,
 // re-offers the inbox it already minted rather than publishing a second one.
-// `web/ui/net.ts` keys offerers by directory but creates all of them from one
-// publisher for exactly this reason. The ceiling and retirement behavior are
+// This binding fixture shares one publisher across its directory offerers.
+// The ceiling and retirement behavior are
 // pinned beside it because aliases published by every child share one Host
 // ledger.
 

@@ -42,8 +42,11 @@ pub const websocket_send_high_water_bytes: usize = 1024 * 1024;
 /// Poll interval while waiting for a WebSocket send buffer to drain.
 pub const websocket_drain_poll_ms: usize = 4;
 
-/// Default WebSocket close barrier timeout.
-pub const websocket_close_timeout_ms: usize = relay_tcp_dial_timeout_ms;
+/// Deadline for observing retirement of an embedder-owned browser channel.
+pub const browser_channel_close_timeout_ms: usize = relay_tcp_dial_timeout_ms;
+
+/// WebSocket bindings use the same browser channel retirement policy.
+pub const websocket_close_timeout_ms: usize = browser_channel_close_timeout_ms;
 
 /// Default retained inbound WebSocket bytes before the shared adapter closes.
 pub const websocket_inbound_high_water_bytes: usize = 1024 * 1024;

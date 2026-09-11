@@ -46,6 +46,7 @@ pub const step_name = "gen-binding-ffi-layouts";
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/layouts_gen.rs", .generate = generateRust },
+    .{ .path = "bindings/rust/wasm-layouts.json", .generate = generateWasmManifest },
     .{ .path = "bindings/python/glowcap/_layouts_gen.py", .generate = generatePython },
     .{ .path = "bindings/racket/private/layouts-gen.rkt", .generate = generateRacket },
 };
@@ -279,4 +280,30 @@ fn writeConstName(
 ) !void {
     for (stem) |ch| try out.append(gpa, if (ch == '_') '-' else ch);
     try out.appendSlice(gpa, suffix);
+}
+
+/// The target-independent names needed to generate Rust expectations from the
+/// actual wasm32 descriptor. Types, stems and field order come from the same
+/// archive contracts as native layouts; no pointer-width arithmetic is copied.
+fn generateWasmManifest(gpa: std.mem.Allocator) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    try out.appendSlice(gpa, "[\n");
+    comptime var first = true;
+    inline for (cd.wasm_layout_manifest) |spec| {
+        inline for (contract_layouts) |entry| {
+            if (entry.binding_mirror and entry.Type == spec.T) {
+                if (!first) try out.appendSlice(gpa, ",\n");
+                first = false;
+                try out.print(gpa, "  {{\"prefix\":\"{s}\",\"stem\":\"{s}\",\"fields\":[", .{ spec.prefix, entry.stem });
+                inline for (@typeInfo(spec.T).@"struct".field_names, 0..) |field, index| {
+                    if (index != 0) try out.appendSlice(gpa, ",");
+                    try out.print(gpa, "\"{s}\"", .{comptime upperName(field)});
+                }
+                try out.appendSlice(gpa, "]}");
+            }
+        }
+    }
+    try out.appendSlice(gpa, "\n]\n");
+    return out.toOwnedSlice(gpa);
 }

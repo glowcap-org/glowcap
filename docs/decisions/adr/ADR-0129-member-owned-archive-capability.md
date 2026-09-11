@@ -22,7 +22,7 @@ leaves. Making the browser store shareable therefore decides an application
 protocol, an identity boundary, update semantics, and a resource bound at once.
 
 The decision engages the principles that session state is authoritative,
-capabilities carry authority, and attacker-controlled inputs are bounded at
+capabilities carry authority, and untrusted inputs are bounded at
 the receiving edge. [`docs/planning/rooms-persistence.md`](../../planning/rooms-persistence.md)
 names the product reads this contract serves; this record fixes the first
 shippable capability shape.

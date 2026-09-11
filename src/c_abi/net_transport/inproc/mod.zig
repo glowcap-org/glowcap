@@ -20,6 +20,8 @@
 //! archive. The transport carries its own per-thread last-error slot, read
 //! through `glowcap_inproc_last_error`.
 
+pub const std_options = @import("c_abi_shared").library_options;
+
 const std = @import("std");
 
 const net = @import("net");

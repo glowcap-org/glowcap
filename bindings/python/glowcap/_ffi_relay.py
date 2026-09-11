@@ -34,16 +34,7 @@ class _RelayConfig(ctypes.Structure):
     ]
 
 
-class _RelayTrustSummary(ctypes.Structure):
-    _fields_ = [
-        ("loaded", ctypes.c_size_t),
-        ("skipped_by_engine", ctypes.c_size_t),
-        ("first_skipped_engine_code", ctypes.c_int32),
-    ]
-
-
 pin_struct(_RelayConfig, "GLOWCAP_RELAY_CONFIG")
-pin_struct(_RelayTrustSummary, "GLOWCAP_RELAY_TRUST_SUMMARY")
 
 
 def _load():
@@ -57,7 +48,7 @@ def _load():
     _bind(
         facade,
         lib,
-        relay_sigs(_RelayConfig, _RelayTrustSummary, _TransportProvider),
+        relay_sigs(_RelayConfig, _TransportProvider),
     )
     return facade
 

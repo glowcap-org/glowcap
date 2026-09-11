@@ -61,7 +61,7 @@
   (define s (listen-keyed-tcp "127.0.0.1" 0 #:seed SEED-HAPPY))
   (define ready (make-semaphore 0))
   (define host (thread (lambda () (serve-once! s ready))))
-  (call-greeter! (server-uri s) ready
+  (call-greeter! (server-locator s) ready
                  (locator-designator (server-locator s)))
   (thread-wait host)
   (server-close! s)
@@ -92,7 +92,7 @@
   (define designator (locator-designator (server-locator first)))
   (define ready1 (make-semaphore 0))
   (define host1 (thread (lambda () (serve-once! first ready1))))
-  (call-greeter! (server-uri first) ready1 designator)
+  (call-greeter! (server-locator first) ready1 designator)
   (thread-wait host1)
   (server-close! first)
   (define second (listen-keyed-tcp "127.0.0.1" 0 #:seed SEED-RESTART))

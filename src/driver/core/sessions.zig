@@ -128,8 +128,9 @@ fn openDialedCommitted(
     demanded_partner_key: ?crypto.PeerKey,
 ) !*HostSession {
     const advertised = try requireAcceptableLocator(self);
-    const profile = try self.transportProfile(transport);
-    if (profile.dial_shape == .route_bundle) return HostError.UnknownTransport;
+    // The dial's own admission before anything is minted, so a refusal here
+    // has nothing to unwind; the blocking tier asks the same question.
+    const admission = try dial_plan.admitDial(try self.transportProfile(transport), partner_designator);
     try refuseDuplicateDialForDemand(self, transport, partner_designator, demanded_partner_key);
     // The designator is borrowed all the way to `mintShell`, which dupes it
     // into the shell. One owner from birth: `freeSessionShell` is the only
@@ -142,7 +143,7 @@ fn openDialedCommitted(
     // Before the hello: the stamp reads this when it assembles the signed
     // location (ADR-0118).
     if (partner_known_glowcap) session.served.port.peer.noteKnownGlowcapPartner();
-    if (profile.sealed_channel) {
+    if (admission.sealed_channel) {
         attachSealedChannel(self, session, .initiator) catch |err| {
             failOpen(self, session);
             return err;
@@ -167,15 +168,10 @@ fn openDialedCommitted(
         return err;
     };
     errdefer self.hellos.unregister(self.allocator, dial_target);
-    // The dial's own demand, before the hello; on failure unwind the mint. The
-    // shared open tail's `errdefer failOpen` covers hello failures.
-    if (try self.designatorScheme(transport) == .key) {
-        const expected = crypto.PeerKey.fromDesignator(partner_designator) orelse {
-            failOpen(self, session);
-            return error.InvalidAddress;
-        };
+    // The dial's own demand, before the hello. The shared open tail's
+    // `errdefer failOpen` covers hello failures.
+    if (admission.demanded_key) |expected|
         session.served.port.peer.demandPartnerDurableKey(expected);
-    }
     if (demanded_partner_key) |key|
         session.served.port.peer.demandPartnerDurableKey(key);
 
@@ -604,6 +600,7 @@ pub fn freeSessionShell(self: *Host, session: *HostSession) void {
     // reclaims it from the peer that held it, so the draw and the return
     // sit on the same side of the boundary.
     host_pump.removeDirtySession(self, session);
+    host_pump.requeueParkedNodeActions(self, session.peer_handle);
     session.served.deinit(&self.vat);
     session.feed_tail.deinit(self.allocator);
     if (session.sealed) |channel| {

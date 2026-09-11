@@ -181,7 +181,7 @@ The checked measurements are:
 - **Use only a turn-count cap.** Rejected: one deeply owned message can consume
   far more memory than many scalar turns.
 - **Admit incrementally and roll back on overflow.** Rejected: partial enqueue
-  makes refusal non-atomic and adds cleanup work on the attacker-controlled
+  makes refusal non-atomic and adds cleanup work on the untrusted
   path.
 - **Preempt handlers.** Rejected: it changes actor turn semantics and requires a
   runtime the sync no-I/O layer does not own.

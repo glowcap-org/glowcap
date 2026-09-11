@@ -101,10 +101,6 @@ pub const Payload = struct {
     pub fn transportProvider(self: *const Payload) c.GlowcapTransportProvider {
         return self.provider;
     }
-
-    pub fn trustSummary(self: *const Payload) contract.GlowcapRelayTrustSummary {
-        return runtime_lifecycle.projectTrustSummary(self.native.trustSummary());
-    }
 };
 
 const ConnState = connection_state.State;

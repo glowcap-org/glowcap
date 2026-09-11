@@ -64,7 +64,8 @@
   (set-box! (session-close-result c) error)
   (record-session-wire-failure! c error)
   (pending-writes-clear! (session-pending-writes c))
-  (close-session-transport! c))
+  (close-session-transport! c)
+  (host-bump-progress! (session-host c)))
 
 (define (guard-open who c)
   (when (or (session-closing? c) (session-released? c))

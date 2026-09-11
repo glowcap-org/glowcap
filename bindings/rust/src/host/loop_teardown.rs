@@ -61,7 +61,5 @@ impl HostShared {
 		self.vows.clear();
 		// The loop's release runs every ctx-free callback; these maps hold only
 		// non-owning pointers and must not serve stale lookups meanwhile.
-		self.hosted.borrow_mut().clear();
-		self.giftables.borrow_mut().clear();
 	}
 }

@@ -543,7 +543,7 @@ test "relayed gift-id failure spends no allocation after the home fire" {
     const rewritten = (try node.proxyForeignPromiseFulfill(recipient, route.routed.id)).?;
     const import_pos = rewritten.near.export_position.int();
     try std.testing.expectEqual(home, node.nextAction().?.flush);
-    try node.peer(recipient).?.session_state.registerImport(.from(12));
+    try node.peer(recipient).?.session_state.retainImportForSession(.from(12));
     try node.peer(recipient).?.session_state.installImportedPromiseListener(.from(import_pos), .{
         .listener = .{ .import_position = .from(12) },
         .mode = .settling_only,

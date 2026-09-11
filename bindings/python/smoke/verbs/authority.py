@@ -128,7 +128,8 @@ async def _forwarding_proxy_local_call() -> None:
                 return (args[0] if args and isinstance(args[0], int) else 0) * 2
             raise ValueError(f"no such method: {verb}")
 
-        care_local = session.caretaker(session.spawn(local_tool))
+        local = session.publish("local-double", local_tool)
+        care_local = session.caretaker(local)
         doubled = await session.send(care_local.proxy, "double", [21])
         assert doubled == 42, f"a local proxy answers a local call, got {doubled!r}"
 
@@ -148,6 +149,24 @@ async def _forwarding_proxy_local_call() -> None:
         except VowBroken as error:
             severed = error
         assert severed is not None and "Revoked" in str(severed), "revoke breaks a local call too"
+
+        retained = session.published_ref("local-double")
+        assert retained is not None and retained == local
+        released_forward = session.caretaker(local)
+        session.release(local)
+        for invoke in (
+            lambda: session.send(local, "double", [1]),
+            lambda: session.tell(local, "double", [1]),
+            lambda: session.send(released_forward.proxy, "double", [1]),
+        ):
+            try:
+                await invoke()
+            except (ValueError, VowBroken) as error:
+                assert "released" in str(error), error
+            else:
+                raise AssertionError("a released occurrence invoked a still-live local target")
+        assert await session.send(retained, "double", [21]) == 42
+        session.release(retained)
 
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)

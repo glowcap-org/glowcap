@@ -102,14 +102,6 @@ pub fn release(payload: anytype) ?foundation.FailureChain {
     return failure;
 }
 
-pub fn projectTrustSummary(summary: native_relay.TrustSummary) contract.GlowcapRelayTrustSummary {
-    return .{
-        .loaded = summary.loaded,
-        .skipped_by_engine = summary.skipped_by_engine,
-        .first_skipped_engine_code = summary.first_skipped_engine_code orelse 0,
-    };
-}
-
 fn relayTrust(cfg: *const Config) ?native_relay.Trust {
     return switch (cfg.trust) {
         contract.GLOWCAP_RELAY_TRUST_SYSTEM => if (cfg.trust_pem == null and cfg.trust_pem_len == 0)

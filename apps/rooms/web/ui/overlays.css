@@ -201,9 +201,6 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.row.mine .attach-audio .sub {
-	color: var(--on-accent);
-}
 .attach-file {
 	display: flex;
 	align-items: center;
@@ -213,20 +210,12 @@
 	border-radius: 10px;
 	background: var(--paper);
 }
-/* Our own bubble reverses fill and ink between themes. Its attachment chip
-   therefore uses the same context-aware wash as an action on that bubble:
-   darker under cream ink, lighter under cocoa ink. */
-.row.mine .attach-file {
-	background: var(--mine-action-hover);
-	border-color: color-mix(in srgb, var(--on-accent) 28%, transparent);
-	color: var(--on-accent);
-}
+/* The same chip on a line of yours: the tint behind it is the page's paper
+   warmed, so the chip keeps the paper ground and the page's ink it has on
+   anybody else's line, and the row's own neutral action sits on it. */
 .attach-file .glyph {
 	display: flex;
 	color: var(--ink-soft);
-}
-.row.mine .attach-file .glyph {
-	color: var(--on-accent);
 }
 .attach-file .meta {
 	display: flex;
@@ -255,9 +244,6 @@
 	overflow: visible;
 	text-overflow: unset;
 	max-width: 100%;
-}
-.row.mine .attach-file .sub {
-	color: var(--on-accent);
 }
 .drop-hint {
 	position: absolute;

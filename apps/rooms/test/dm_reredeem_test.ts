@@ -14,13 +14,13 @@
 // path keeps working on the reused connection.
 //
 // Run by `zig build check`, and alone as `zig build rooms-dm-reredeem`.
-//   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/test/dm_reredeem_test.ts
+//   deno run --allow-run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/test/dm_reredeem_test.ts
 
 import process from "node:process";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@glowcap/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
-import { RoomServer } from "../server/room_server.ts";
+import { startServer } from "./support/native_server.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room/client.ts";
@@ -42,10 +42,8 @@ async function main(): Promise<void> {
 	const bobInbox: string[] = [];
 	const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got: ${text}`);
 
-	const room = await roomsListen("127.0.0.1", 0);
-	const roomLocator = loopbackTcpDesignator(room.port);
-	const server = new RoomServer();
-	const roomServe = server.serve(room.host, room);
+	const room = await startServer();
+	const roomLocator = room.locator;
 
 	const bobHost = roomsHost();
 	const bob = await roomsListen("127.0.0.1", 0, bobHost);
@@ -63,7 +61,7 @@ async function main(): Promise<void> {
 	const bobRoomRef = await enterOrOpen(bobDir, ROOM);
 	await Room.subscribe(bobDir.session, bobRoomRef, "bob");
 	const bobOfferer = inboxPublisher(bobHost).offerer({ dir: () => bobDir, behaviorFor: dmFor });
-	await bobDir.register("bob", bobLocator, bobOfferer.offer);
+	await bobDir.register("bob", bobLocator, { onMintInboxFor: bobOfferer.offer });
 
 	// Carol never listens. She registers to claim a name, then redeems an
 	// introduction to Bob twice.
@@ -147,8 +145,6 @@ async function main(): Promise<void> {
 	await carolRuntime.close();
 	await bobRuntime.close();
 	await room.close();
-	await roomServe.catch(() => {});
-	await server.close();
 	process.exit(0);
 }
 

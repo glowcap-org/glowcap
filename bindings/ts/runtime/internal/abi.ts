@@ -280,12 +280,6 @@ export const RELAY_CONFIG_TRUST_OFF = 48;
 export const RELAY_CONFIG_TRUST_PEM_OFF = 56;
 export const RELAY_CONFIG_TRUST_PEM_LEN_OFF = 64;
 
-// GlowcapRelayTrustSummary (libglowcap_net_transport_relay, glowcap_relay_runtime_trust_summary)
-export const RELAY_TRUST_SUMMARY_SIZE = 24;
-export const RELAY_TRUST_SUMMARY_LOADED_OFF = 0;
-export const RELAY_TRUST_SUMMARY_SKIPPED_BY_ENGINE_OFF = 8;
-export const RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF = 16;
-
 // GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready)
 export const IROH_READY_EVENT_SIZE = 16;
 export const IROH_READY_EVENT_SUBJECT_OFF = 0;

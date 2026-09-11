@@ -1,11 +1,15 @@
 # Build context for .devcontainer/Dockerfile, the one build whose context is
 # the repository root (docker-compose.yml, context '..'). The image consumes
-# only .devcontainer/, so the context is allowlisted to exactly that: the
+# .devcontainer/ and the Rooms toolchain lock, so the context is allowlisted: the
 # upload stays small no matter what generated state (zig-out, Rust targets,
 # node_modules) accumulates in the tree, and a new cache directory never needs
 # a row here.
-*
+**
 !.devcontainer/
 !.devcontainer/**
+!apps/
+!apps/rooms/
+!apps/rooms/rust/
+!apps/rooms/rust/Cargo.lock
 # The per-host env file is compose input on the host, never image input.
 .devcontainer/.env

@@ -69,7 +69,7 @@ fn primitiveListCtx(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Arg
     // Its one caller is the position list, whose elements are words read at
     // `data_idx + index`, so the pointer must declare eight-byte elements;
     // reject any other size (the encoder always writes `.eight_bytes`). `data_idx`
-    // and `count` are attacker-controlled, so prove the run fits the segment up
+    // and `count` are untrusted, so prove the run fits the segment up
     // front — the same bound `ownedU64List` applies — so a consumer that trusts
     // the projected `len()` to size an allocation cannot be amplified past it.
     if (list.count != 0 and list.elem != .eight_bytes) return Error.InvalidPointer;
@@ -404,7 +404,7 @@ fn neutralStructEntry(reader: Reader, elem: StructLoc) Error!model.view.StructEn
 /// ascending keys — one comparison of each key against its predecessor, the
 /// same O(n) refusal the Syrup decoder applies (`sliceStructNeutral`). A
 /// duplicate is never strictly ascending, so this refuses it without the
-/// all-pairs scan an attacker could drive to n² over a frame-cap-many struct.
+/// all-pairs scan a peer could drive to n² over a frame-cap-many struct.
 /// Borrowed slices only, no allocation; width is bounded by the frame cap.
 fn neutralStructBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.StructEntries {
     const clist = (try compositeList(reader, loc, i)) orelse

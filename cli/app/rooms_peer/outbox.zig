@@ -195,7 +195,7 @@ fn evictDmBack(state: *st.PeerState, peer: []const u8) void {
 /// succeed. A failed post keeps that line and everything after it.
 pub fn drainOutbox(state: *st.PeerState) void {
     if (state.phase != .joined) return;
-    const room = state.phase.joined.room;
+    const seat = state.phase.joined.seat;
     const session = state.phase.joined.session;
     // best-effort: a drain that cannot take the lock or read the file leaves
     // the outbox intact; the next wake retries from the same offset.
@@ -211,18 +211,18 @@ pub fn drainOutbox(state: *st.PeerState) void {
     const Drain = struct {
         state: *st.PeerState,
         session: *HostSession,
-        room: model.Reference,
+        seat: model.Reference,
 
         fn decide(self: @This(), parsed: OutboxLine) OutboxLineFate {
             if (self.state.persistence_failed) return .stop;
             if (parsed.is_dm) return dmOutboxFate(self.state, self.session, parsed);
-            return roomOutboxFate(self.state, self.session, self.room, parsed);
+            return roomOutboxFate(self.state, self.session, self.seat, parsed);
         }
     };
     const kept = compactOutboxRemainder(
         state.gpa,
         remainder,
-        Drain{ .state = state, .session = session, .room = room },
+        Drain{ .state = state, .session = session, .seat = seat },
         Drain.decide,
     ) catch |err| {
         state.persistence_failed = true;
@@ -291,8 +291,8 @@ fn dmOutboxFate(state: *st.PeerState, session: *HostSession, parsed: OutboxLine)
     return .hold;
 }
 
-fn roomOutboxFate(state: *st.PeerState, session: *HostSession, room: model.Reference, parsed: OutboxLine) OutboxLineFate {
-    state.host.tell(session, room, .{ .verb = "post", .args = &.{.{ .string = parsed.text }} }) catch |err| {
+fn roomOutboxFate(state: *st.PeerState, session: *HostSession, seat: model.Reference, parsed: OutboxLine) OutboxLineFate {
+    state.host.tell(session, seat, .{ .verb = "post", .args = &.{.{ .string = parsed.text }} }) catch |err| {
         log.err(state.io, "post failed: {s}", .{@errorName(err)});
         return .stop;
     };

@@ -256,8 +256,40 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		// The controls appear on the message under the pointer, so reach it the way
 		// a reader does rather than by making them permanently visible for a test.
 		await older.hover();
-		await older.getByLabel("More for this message").click();
-		await tab.locator('.line-menu [role=menuitem]:has-text("Edit")').click();
+		await older.getByLabel("More for this message").click().catch(async () => {
+			const state = await tab.evaluate(() => ({
+				matches: [...document.querySelectorAll(".bubble")]
+					.filter((bubble) => (bubble.textContent ?? "").includes("older line"))
+					.map((bubble) => {
+						const mark = bubble.querySelector(".line-acts");
+						return {
+							classes: bubble.className,
+							hovered: bubble.matches(":hover"),
+							mark: mark == null ? null : getComputedStyle(mark).display,
+							box: bubble.getBoundingClientRect().toJSON(),
+						};
+					}),
+				pointer: [...document.querySelectorAll(":hover")].map((node) =>
+					`${node.nodeName.toLowerCase()}.${(node as HTMLElement).className ?? ""}`
+				),
+			}));
+			fail(`the older line's menu could not be opened after hover: ${JSON.stringify(state)}`);
+		});
+		await tab.locator('.line-menu [role=menuitem]:has-text("Edit")').click().catch(async () => {
+			const state = await tab.evaluate(() => ({
+				matches: [...document.querySelectorAll(".bubble")]
+					.filter((bubble) => (bubble.textContent ?? "").includes("older line"))
+					.map((bubble) => ({
+						classes: bubble.className,
+						row: bubble.closest(".row")?.className,
+						from: bubble.closest(".row")?.getAttribute("data-from"),
+						menuLabel: bubble.querySelector("[aria-haspopup=menu]")?.getAttribute("aria-label"),
+						text: bubble.textContent,
+					})),
+				menu: [...document.querySelectorAll(".line-menu [role=menuitem]")].map((item) => item.textContent),
+			}));
+			fail(`the older line never gained edit authority: ${JSON.stringify(state)}`);
+		});
 		if (await tab.inputValue("#line") !== "older line") {
 			fail("the pencil did not put that line's words in the composer");
 		}
@@ -299,9 +331,10 @@ export async function run(tab: Page, second: Page): Promise<void> {
 			fail(`the pencil changed the most recent line instead of the one it was on: ${JSON.stringify(newest)}`);
 		}
 		// And the composer is a composer again, with nothing held over.
-		if (await tab.locator("#changing").count() !== 0) {
-			fail("the composer still says it is changing a message after the change was sent");
-		}
+		// The other peer can observe the edit before this caller receives its
+		// acknowledgment. Wait for the sender's completion independently.
+		await tab.waitForSelector("#changing", { state: "detached", timeout: 10_000 })
+			.catch(() => fail("the composer still says it is changing a message after the change was sent"));
 
 		// The note that says it moved comes after the words it qualifies, with a
 		// gap: drawn before them it reads as a label on the message rather than a

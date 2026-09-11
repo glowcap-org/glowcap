@@ -361,7 +361,9 @@ async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
 			return;
 		}
 	};
-	let netlayer = match Netlayer::new(Config::new(Reachability::Direct)).await {
+	let mut config = Config::new(Reachability::Direct);
+	config.worker_threads = Some(1);
+	let netlayer = match Netlayer::new(config).await {
 		Ok(netlayer) => netlayer,
 		Err(e) => {
 			eprintln!("relay: iroh netlayer: {e}");
@@ -389,7 +391,7 @@ fn percent_decode(s: &str) -> String {
 	// Decode from the bytes throughout. Slicing `s` here would panic when a
 	// `%` sits before a multi-byte character, because `i + 1 .. i + 3` can
 	// land inside a UTF-8 sequence — and this string is an inbound query
-	// parameter, so that is attacker-reachable.
+	// parameter, so that is reachable from inbound bytes.
 	fn hex(b: u8) -> Option<u8> {
 		match b {
 			b'0'..=b'9' => Some(b - b'0'),
@@ -429,7 +431,7 @@ mod tests {
 
 	#[test]
 	fn percent_decode_survives_a_multibyte_char_after_a_percent() {
-		// The query value is attacker-supplied. Decoding by slicing `&str`
+		// The query value is peer-supplied. Decoding by slicing `&str`
 		// panics here, because `i + 1 .. i + 3` lands inside the euro sign's
 		// UTF-8 sequence.
 		assert_eq!(percent_decode("%\u{20AC}x"), "%\u{20AC}x");

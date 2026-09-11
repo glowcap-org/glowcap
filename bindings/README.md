@@ -34,6 +34,8 @@ same. Each binding README gives the concrete signature and how ownership is expr
 | `tell(ref, verb, args)` | Send without asking for an answer. |
 | `serve()` | Keep handling inbound calls until the session closes. |
 | `close()` | Close the session. |
+| `publishDurable(behavior, entropy?)` | Mint a durable swiss name for a behavior. Omit entropy to draw it locally; retain it to restore the same name on a Host reconstructed from the same seed. |
+| `closed()` | Observe session retirement without requesting close or starting inbound delivery. TypeScript spells this `onClose`; Racket spells it `session-wait-closed`. |
 
 Native bindings load the Host and the driver, then install the transport
 archives you need. [Using glowcap from C](../docs/consuming-from-c.md) owns
@@ -50,6 +52,18 @@ equality follows the opaque Host identity: Rust `==`, Python `==`, Racket
 `equal?`, and TypeScript `Ref.equals`. TypeScript `===` compares wrapper
 occurrences instead, which remain distinct because every occurrence owns its
 own release unit.
+
+Releasing a capability spends that occurrence, including its Rust clones.
+Local calls and ABI projection refuse it even when another occurrence keeps
+the same target alive. Releasing one occurrence does not revoke the others.
+Once native release succeeds, the wrapper stays spent; only a refusal before
+that commit is retryable. Racket retains a subsequent drain failure on the
+surviving Host and reports it at Runtime close, without refusing the completed
+release or spending another occurrence.
+
+A send that cannot be issued returns a failed promise handle. TypeScript keeps
+the original raised value through awaiting, projection, and dependent sends;
+it does not relabel a scheduler or callback failure as an invalid argument.
 
 Each Host can select the core-authored `native` or `interop` profile as one
 choice. The binding resolves that name through generated ABI constants, so an
@@ -106,6 +120,12 @@ barrier for the Host it adopts.
   for that write to flush.
 - Rust reports a session abort through the promises it breaks rather than an
   error returned by `serve()`.
+- Stopping a serve from outside follows each runtime's idiom. A Racket break
+  aimed at the serving thread escapes as the break and leaves the session
+  live, so a later `session-serve` resumes it. Dropping Rust's `serve` future
+  gives up observing the session while delivery continues. Cancelling a
+  Python `serve()` task ends that session: the loop closes the transport on
+  the way out, as it does for every other exit.
 - TypeScript, Python, and Rust keep at most 1024 settled outcomes that no
   caller has awaited yet, a cap the binding-policy generator writes into all
   three. Past it, the oldest result is dropped and a late await fails. Racket
@@ -118,6 +138,13 @@ barrier for the Host it adopts.
 
 A `send` or `tell` to an actor spawned by the same session stays in process in
 every binding.
+
+Deferred reply cleanup uses the Host's `resolver_abandon` operation: it breaks
+a live answer and succeeds if settlement or session shutdown already consumed
+it. An id the Host never minted still refuses. Rust uses it when a resolver is
+dropped; TypeScript and Python use it for automatic async completion cleanup;
+Racket exposes `resolver-abandon!`. Explicit resolver fulfillment and break
+retain their strict, single-settlement contract.
 
 ## Transports
 
@@ -163,6 +190,16 @@ Noise and CapTP. All four bindings also expose managed keyed and Noise relay
 listeners over the native provider: a listener registers one durable Host
 identity, publishes the relay-routed locator, and accepts sessions through
 the binding's ordinary server type.
+
+A failure with no caller left to return to is neither logged nor dropped. A
+finalizer that refuses, or a retirement that fails after the code that
+requested it moved on, becomes one typed record in the Host's bounded
+diagnostic journal, and the application drains that journal when it decides
+how to respond: `Host::take_failures` in Rust, `host.takeFailures()` in
+TypeScript, `host.take_failures()` in Python, and `host-take-failures!` in
+Racket. A full journal drops its oldest record and counts the loss, so a
+drained suffix never reads as a complete history. Failures a call can return,
+and failures a close barrier reports, never appear there twice.
 
 ## Building and checking
 

@@ -19,7 +19,8 @@ pub const rows: []const Ban = &.{
             "pub const websocket_message_cap_bytes: usize = 1024 * 1024;",
             "pub const websocket_send_high_water_bytes: usize = 1024 * 1024;",
             "pub const websocket_drain_poll_ms: usize = 4;",
-            "pub const websocket_close_timeout_ms: usize = relay_tcp_dial_timeout_ms;",
+            "pub const browser_channel_close_timeout_ms: usize = relay_tcp_dial_timeout_ms;",
+            "pub const websocket_close_timeout_ms: usize = browser_channel_close_timeout_ms;",
             "pub const websocket_inbound_high_water_bytes: usize = 1024 * 1024;",
         },
         .check = "relay-websocket-policy",
@@ -135,11 +136,11 @@ pub const rows: []const Ban = &.{
         .why = "Racket's WebSocket byte transport must consume the generated WebSocket message cap",
     },
     .{
-        .where = .{ .file = "apps/rooms/web/relay.ts" },
+        .where = .{ .file = "apps/rooms/rust/native/src/web/relay.rs" },
         .kind = .require,
         .needles = &.{
-            "maxBytesPerSession = BINDING_RELAY_MAX_BYTES_PER_SESSION",
-            "tcpDialTimeoutMs = BINDING_RELAY_TCP_DIAL_TIMEOUT_MS",
+            "glowcap::BINDING_RELAY_MAX_BYTES_PER_SESSION",
+            "glowcap::BINDING_RELAY_TCP_DIAL_TIMEOUT_MS",
         },
         .check = "relay-websocket-policy",
         .why = "the rooms relay reuses shared reference-relay resource defaults while retaining its own app-specific liveness policy",
@@ -155,7 +156,7 @@ pub const rows: []const Ban = &.{
             "bindings/ts/runtime/websocket.ts",
             "bindings/python/glowcap/_ws.py",
             "bindings/racket/private/ws-transport.rkt",
-            "apps/rooms/web/relay.ts",
+            "apps/rooms/rust/native/src/web/relay.rs",
         } },
         .kind = .forbid,
         .needles = &.{

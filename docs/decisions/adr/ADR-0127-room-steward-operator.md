@@ -73,8 +73,8 @@ The operator capability is powerful bearer authority and is off unless explicitl
 independently of every other server capability. Losing its swiss does not affect room operation, while disclosing it
 grants recovery and revocation over every server-owned room.
 
-`apps/rooms/test/server/operator_test.ts` proves recovery is idempotent, revocation stops a separately enlivened
-reference and the room client's live reference with typed `not-steward`, the replacement has a different sturdyref, and
-only the replacement survives restart. `server_links_test.ts` proves exact prerelease schema admission.
+`apps/rooms/rust/native/src/room_server/tests/operations/operator.rs` proves recovery is idempotent and revocation stops a separately enlivened
+reference with typed `not-steward`; the room-server restart scenarios prove only the replacement survives restart.
+`server_links_test.ts` proves exact prerelease schema admission.
 `zig build rooms-web-page` drives the visible take, give, copy, confirmation, revoke, and drop flow through the browser
 peer.

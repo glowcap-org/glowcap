@@ -107,14 +107,17 @@ pub fn pushEncodedFromPending(self: *Peer, message: model.Message) !void {
 
 pub const SecondMessageAccounting = enum {
     already_recorded,
-    record_at_commit,
+    /// The second message is the `op:gc-exports` releasing the session's own
+    /// retain on the first message's target: a fired listener's, a settled
+    /// V1.0 resolver's.
+    session_release_at_commit,
 };
 
 /// Encode and publish two adjacent frames as one pending-carrier transaction.
 /// Both encodes and both queue slots are acquired before either frame becomes
-/// visible. `record_at_commit` transfers the second message's Session
-/// accounting only after every fallible preparation succeeds. No waterline
-/// stands here (see `outbound/budget.zig`).
+/// visible. `session_release_at_commit` records the second message's release
+/// of the session's own import retains only after every fallible preparation
+/// succeeds. No waterline stands here (see `outbound/budget.zig`).
 pub fn pushEncodedPairFromPending(
     self: *Peer,
     first: model.Message,
@@ -127,8 +130,8 @@ pub fn pushEncodedPairFromPending(
     errdefer second_frame.deinit();
     try self.outbound.ensureUnusedCapacity(self.allocator, 2);
 
-    if (second_accounting == .record_at_commit)
-        self.session_state.recordPreparedSend(second);
+    if (second_accounting == .session_release_at_commit)
+        self.session_state.recordSessionImportRelease(second.gc_export);
 
     self.outbound.pushAssumeCapacity(first_frame);
     self.outbound.pushAssumeCapacity(second_frame);

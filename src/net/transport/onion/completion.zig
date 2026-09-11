@@ -12,11 +12,17 @@
 //!
 //! Only setup uses a synchronous wait: it is one bounded control conversation,
 //! not a connection worker. Every connection thereafter is driven by the same
-//! completion queue as the wrapped backend.
+//! completion queue as the wrapped backend. Seat refusal, inner close
+//! progression, and final removal are the shared leg lifecycle; owed inner
+//! submissions are the shared submission debt.
 
 const std = @import("std");
 
 const completion = @import("../../completion/loop.zig");
+const contract = @import("../../completion/contract.zig");
+const inner_leg = @import("../../completion/inner_leg.zig");
+const submission_debt = @import("../../completion/submission_debt.zig");
+const carrier_failure = @import("../../carrier_failure.zig");
 const model = @import("model");
 const completion_control = @import("completion/control.zig");
 const completion_state = @import("completion/state.zig");
@@ -24,6 +30,10 @@ const socks5 = @import("socks5.zig");
 
 pub const Config = completion_state.Config;
 pub const DialResolver = completion_state.DialResolver;
+
+/// Bound refused inner submissions attempted in one poll turn.
+const submission_retry_batch: usize = 256;
+const submission_retry_ms: i32 = 50;
 
 /// A completion backend that adds Tor SOCKS and onion-service publication to an
 /// existing platform backend.
@@ -42,10 +52,82 @@ pub fn InnerBackend(comptime Inner: type) type {
 
         const ConnId = Types.ConnId;
         const InternalOp = Types.InternalOp;
+        const Identity = Types.Identity;
         const Conn = Types.Conn;
+        const RetryState = submission_debt.State(Types);
         const ControlTransaction = completion_control.Transaction(Self, Inner, Namespace, Types, Self.dispatchInternal);
 
         pub const connection_state_bytes = @sizeOf(Conn);
+
+        /// What the onion leg adds to the shared leg lifecycle: a retained
+        /// receive is returned as the row enters `closing`, a refused send
+        /// carries no borrowed failure, and every retry membership lives in
+        /// the submission-debt state.
+        const LegAccess = struct {
+            pub fn closeUserData(id: ConnId) u64 {
+                return Identity.userData(.close, id);
+            }
+
+            pub fn onClosing(self: *Self, _: *Inner, c: *Conn, _: inner_leg.Closing) void {
+                self.retries.clearDataRetries(&self.conns, c);
+                if (!c.borrowed) self.releaseHeld(c);
+            }
+
+            pub fn prepareClose(_: *Self, _: *Inner, _: *Conn) !void {}
+
+            pub fn closeRefused(_: *Self, _: *Inner, _: *Conn) void {}
+
+            pub fn refuseExternalSend(self: *Self, c: *Conn, cause: ?anyerror, _: carrier_failure.Phase) void {
+                const ud = c.external_send_ud orelse return;
+                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1, .failure = cause });
+                c.external_send_ud = null;
+            }
+
+            pub fn startClose(self: *Self, inner: *Inner, c: *Conn) void {
+                Leg.beginInnerClose(self, inner, c);
+            }
+
+            pub fn owesClose(self: *Self, c: *Conn) bool {
+                return self.retries.owesSubmission(c, .close);
+            }
+
+            pub fn oweClose(self: *Self, c: *Conn) void {
+                self.retries.oweSubmission(&self.conns, c, .close);
+            }
+
+            pub fn clearOwedClose(self: *Self, c: *Conn) void {
+                self.retries.clearOwedRetries(&self.conns, c);
+            }
+
+            pub fn lendActive(c: *const Conn) bool {
+                return c.borrowed;
+            }
+
+            pub fn borrowFailure(_: *Self, _: *Conn) contract.Borrowed {
+                return .{};
+            }
+
+            pub fn prepareFinish(_: *Self, _: *Conn, _: bool) bool {
+                return false;
+            }
+
+            pub fn closeCause(_: *const Conn) ?anyerror {
+                return null;
+            }
+
+            pub fn hasBorrowedFailure(_: *const Self, _: *const Conn) bool {
+                return false;
+            }
+
+            pub fn retireRow(self: *Self, c: *Conn) void {
+                self.retries.clearOwedRetries(&self.conns, c);
+            }
+
+            pub fn deinitRow(_: *Self, inner: *Inner, c: *Conn) void {
+                c.deinit(inner);
+            }
+        };
+        const Leg = inner_leg.Lifecycle(Self, Inner, Types, LegAccess);
 
         const ConnMap = Types.ConnMap;
         allocator: std.mem.Allocator,
@@ -58,8 +140,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         listener_service_id: [socks5.service_id_len]u8 = undefined,
         listener_published: bool = false,
         control_fd: ?Inner.Fd = null,
-        retry_head: ?ConnId = null,
-        retry_tail: ?ConnId = null,
+        retries: RetryState = .{},
 
         pub fn init(
             allocator: std.mem.Allocator,
@@ -82,6 +163,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         pub fn deinit(self: *Self) void {
             std.debug.assert(self.conns.count() == 0);
             std.debug.assert(self.control_fd == null);
+            self.retries.assertEmpty();
             self.inner.deinit();
             self.conns.deinit(self.allocator);
             self.ready.deinit(self.allocator);
@@ -116,7 +198,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[32]u8 {
-            if (Types.idFromFd(fd)) |id| {
+            if (Identity.idFromFd(fd)) |id| {
                 _ = self.conns.get(id) orelse return null;
                 return null;
             }
@@ -143,33 +225,23 @@ pub fn InnerBackend(comptime Inner: type) type {
         fn startOnionDial(self: *Self, user_data: u64, target: Target) !Fd {
             const config = self.config orelse return error.OnionNotConfigured;
             try socks5.checkServiceId(&target.service_id);
-            const id = try self.reserveId();
+            const id = try Identity.reserveId(&self.next_id, self.conns);
             try self.conns.ensureUnusedCapacity(self.allocator, 1);
             const c = try self.allocator.create(Conn);
             errdefer self.allocator.destroy(c);
-            c.* = .{ .id = id, .inner_fd = undefined, .external_connect = user_data };
-            errdefer c.deinit(self);
+            c.* = .{ .id = id, .inner_fd = undefined, .external_connect_ud = user_data };
+            errdefer c.deinit(&self.inner);
             _ = socks5.writeConnectRequest(&c.request, &target.service_id) catch return error.InvalidAddress;
-            c.inner_fd = try self.inner.startDial(Types.internalUd(.connect, id), config.socks);
+            c.inner_fd = try self.inner.startDial(Identity.userData(.connect, id), config.socks);
             c.pending.arm(.connect);
             self.conns.putAssumeCapacity(id, c);
-            return Types.fdFromId(id);
-        }
-
-        fn reserveId(self: *Self) !ConnId {
-            var remaining: u64 = Namespace.max_fd_id;
-            while (remaining != 0) : (remaining -= 1) {
-                const id = self.next_id;
-                self.next_id = if (id == Namespace.max_fd_id) 1 else id + 1;
-                if (!self.conns.contains(id)) return id;
-            }
-            return error.TooManyConnections;
+            return Identity.fdFromId(id);
         }
 
         pub fn submitRecv(self: *Self, user_data: u64, fd: Fd) !void {
             const c = self.connection(fd) orelse return self.inner.submitRecv(user_data, fd);
-            if (c.state != .open or c.external_recv != null or c.borrowed)
-                return error.AlreadyReading;
+            if (c.state != .open) return error.ConnectionLost;
+            if (c.external_recv_ud != null or c.borrowed) return error.AlreadyReading;
             if (c.held_recv) |held| {
                 try self.ready.ensureUnusedCapacity(self.allocator, 1);
                 const bytes = held.borrowed.recvBytes().?[@as(usize, c.held_offset)..];
@@ -181,28 +253,43 @@ pub fn InnerBackend(comptime Inner: type) type {
                 });
                 return;
             }
-            c.external_recv = user_data;
-            errdefer c.external_recv = null;
+            c.external_recv_ud = user_data;
             self.armRecv(c);
         }
 
         pub fn submitSend(self: *Self, user_data: u64, fd: Fd, bytes: []const u8) !void {
             const c = self.connection(fd) orelse return self.inner.submitSend(user_data, fd, bytes);
-            if (c.state != .open or c.external_send != null) return error.AlreadyWriting;
-            c.external_send = user_data;
-            errdefer c.external_send = null;
-            try self.inner.submitSend(Types.internalUd(.send, c.id), c.inner_fd, bytes);
+            if (c.state != .open) return error.ConnectionLost;
+            if (c.external_send_ud != null) return error.AlreadyWriting;
+            c.external_send_ud = user_data;
+            errdefer c.external_send_ud = null;
+            try self.inner.submitSend(Identity.userData(.send, c.id), c.inner_fd, bytes);
             c.pending.arm(.send);
         }
 
+        /// Cancellation is answered here, as the relay and sealing legs answer
+        /// it: the caller's seat is released and the inner receive stays
+        /// armed. Bytes it later delivers are retained in `held_recv` for the
+        /// next seat, so nothing is asked of the inner backend and nothing is
+        /// lost.
         pub fn submitCancel(self: *Self, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
             const c = self.connection(fd) orelse return self.inner.submitCancel(cancel_user_data, target_user_data, fd);
-            if (c.external_recv != target_user_data or c.external_cancel != null)
-                return error.InvalidCancelTarget;
-            c.external_cancel = cancel_user_data;
-            errdefer c.external_cancel = null;
-            try self.inner.submitCancel(Types.internalUd(.cancel, c.id), Types.internalUd(.recv, c.id), c.inner_fd);
-            c.pending.arm(.cancel);
+            const target_pending = if (c.external_recv_ud) |ud| blk: {
+                if (ud != target_user_data) return error.InvalidCancelTarget;
+                break :blk true;
+            } else false;
+            try self.ready.ensureUnusedCapacity(
+                self.allocator,
+                1 + @as(usize, @intFromBool(target_pending)),
+            );
+            if (target_pending) {
+                c.external_recv_ud = null;
+                self.retries.clearRecvRetry(&self.conns, c);
+                self.ready.appendAssumeCapacity(.{ .user_data = target_user_data, .result = -1 });
+            }
+            // With no pending seat, the synchronous receive path already
+            // queued the target completion before cancellation was asked.
+            self.ready.appendAssumeCapacity(.{ .user_data = cancel_user_data, .result = 0 });
         }
 
         pub fn shutdownFd(self: *Self, fd: Fd) void {
@@ -219,27 +306,15 @@ pub fn InnerBackend(comptime Inner: type) type {
                 self.listener_fd = null;
                 return;
             }
-            const c = self.connection(fd) orelse return self.inner.submitClose(user_data, fd);
-            if (c.external_close != null) return error.AlreadyClosing;
-            try self.ready.ensureUnusedCapacity(self.allocator, c.externalSeats() + 1);
-            c.external_close = user_data;
-            c.state = .closing;
-            self.clearDataRetries(c);
-            if (c.external_connect) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_connect = null;
+            if (Identity.idFromFd(fd)) |id| {
+                const c = self.conns.get(id) orelse {
+                    try self.ready.ensureUnusedCapacity(self.allocator, 1);
+                    self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
+                    return;
+                };
+                return Leg.submitCloseRow(self, &self.inner, c, user_data);
             }
-            if (c.external_recv) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_recv = null;
-            }
-            if (c.external_send) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_send = null;
-            }
-            if (!c.borrowed) self.releaseHeld(c);
-            self.beginClose(c);
-            if (self.conns.get(c.id)) |live| self.maybeFinishClose(live);
+            try self.inner.submitClose(user_data, fd);
         }
 
         pub fn closeFd(self: *Self, fd: Fd) void {
@@ -250,23 +325,15 @@ pub fn InnerBackend(comptime Inner: type) type {
                 self.inner.closeFd(fd);
                 return;
             }
-            const c = self.connection(fd) orelse {
-                self.inner.closeFd(fd);
+            if (Identity.idFromFd(fd)) |id| {
+                // A synthetic handle whose row already retired names nothing
+                // the inner backend owns; forwarding it would hand the inner
+                // backend a negative descriptor.
+                const c = self.conns.get(id) orelse return;
+                Leg.closeRow(self, &self.inner, c);
                 return;
-            };
-            std.debug.assert(c.externalSeats() == 0);
-            c.state = .closing;
-            c.abandon = true;
-            self.clearDataRetries(c);
-            if (!c.borrowed) self.releaseHeld(c);
-            self.inner.shutdownFd(c.inner_fd);
-            if (c.inner_close == .open and c.pending.count() == 0) {
-                self.inner.closeFd(c.inner_fd);
-                c.inner_close = .closed;
-            } else if (c.inner_close == .open) {
-                self.beginClose(c);
             }
-            self.maybeFinishClose(c);
+            self.inner.closeFd(fd);
         }
 
         pub fn recycleBorrowed(self: *Self, comp: completion.Completion) void {
@@ -276,36 +343,50 @@ pub fn InnerBackend(comptime Inner: type) type {
                 std.debug.assert(c.borrowed);
                 c.borrowed = false;
                 self.releaseHeld(c);
-                self.maybeFinishClose(c);
+                Leg.maybeFinish(self, &self.inner, c);
                 return;
             }
             self.inner.recycleBorrowed(comp);
+            self.retries.noteRecvRecycle();
         }
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
-            self.retryOwed();
-            const ready = self.ready.len() != 0;
-            const retries_pending = self.retry_head != null;
+            // Pool starvation is an owed inner arm, but polling creates no
+            // capacity. Retry only after a wrapped buffer is recycled.
+            if (self.retries.takeRecvRecycleProgress()) self.retryRecvStarvation();
+            self.retrySubmissions();
+            const has_ready = self.ready.len() != 0;
             var tmp: [256]completion.Completion = undefined;
+            // One consumed inner completion can fail a pending connect, recv,
+            // and send together and publish the close beside them. Reserve
+            // that fan-out before asking the inner backend for any record.
             self.ready.ensureUnusedCapacity(self.allocator, tmp.len * 4) catch {
-                if (ready) return self.ready.drain(out);
+                if (has_ready) return self.ready.drain(out);
                 return error.OutOfMemory;
             };
-            const n = try self.inner.poll(&tmp, if (ready or retries_pending) 0 else timeout_ms);
+            const effective_timeout: i32 = if (has_ready)
+                0
+            else if (self.retries.submissionRetryCount() == 0)
+                timeout_ms
+            else if (timeout_ms < 0)
+                submission_retry_ms
+            else
+                @min(timeout_ms, submission_retry_ms);
+            const n = try self.inner.poll(&tmp, effective_timeout);
             for (tmp[0..n]) |comp| {
-                if (Namespace.ownsUserData(comp.user_data)) {
+                if (Identity.owns(comp.user_data)) {
                     self.dispatchInternal(comp) catch |err| {
-                        if (Types.internalId(comp.user_data) != 0) {
-                            if (self.conns.get(Types.internalId(comp.user_data))) |c| self.fail(c);
-                        } else return err;
+                        const id = Identity.id(comp.user_data);
+                        if (id == 0) return err;
+                        if (self.conns.get(id)) |c| self.fail(c);
                     };
-                } else try self.ready.append(self.allocator, comp);
+                } else self.ready.appendAssumeCapacity(comp);
             }
             return self.ready.drain(out);
         }
 
         fn dispatchInternal(self: *Self, comp: completion.Completion) !void {
-            const id = Types.internalId(comp.user_data);
+            const id = Identity.id(comp.user_data);
             if (id == 0) {
                 if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
                 return error.UnexpectedControlCompletion;
@@ -314,7 +395,7 @@ pub fn InnerBackend(comptime Inner: type) type {
                 if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
                 return;
             };
-            const op = Types.internalOp(comp.user_data);
+            const op = Identity.op(comp.user_data);
             if (op == .close) {
                 std.debug.assert(c.inner_close == .in_flight);
             } else c.pending.retire(op);
@@ -327,17 +408,9 @@ pub fn InnerBackend(comptime Inner: type) type {
                 },
                 .send => self.onSend(c, comp.result),
                 .recv => self.onRecv(c, comp),
-                .cancel => {
-                    if (c.external_cancel) |ud| {
-                        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = comp.result });
-                        c.external_cancel = null;
-                    }
-                },
-                .close => {
-                    c.inner_close = if (comp.result < 0) .failed else .closed;
-                },
+                .close => c.inner_close = if (comp.result < 0) .failed else .closed,
             }
-            if (self.conns.get(id)) |live| self.maybeFinishClose(live);
+            if (self.conns.get(id)) |live| Leg.maybeFinish(self, &self.inner, live);
         }
 
         fn onSend(self: *Self, c: *Conn, result: i32) void {
@@ -368,9 +441,9 @@ pub fn InnerBackend(comptime Inner: type) type {
                     self.armRecv(c);
                 },
                 .open => {
-                    if (c.external_send) |ud| {
+                    if (c.external_send_ud) |ud| {
                         self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = result });
-                        c.external_send = null;
+                        c.external_send_ud = null;
                     }
                 },
                 else => self.fail(c),
@@ -379,25 +452,17 @@ pub fn InnerBackend(comptime Inner: type) type {
 
         fn onRecv(self: *Self, c: *Conn, comp: completion.Completion) void {
             if (comp.recv_no_buffer) {
-                if (c.state != .closing) self.owe(c, .recv);
+                if (c.state != .closing) self.retries.oweRecvStarvation(&self.conns, c);
                 return;
             }
-            if (comp.result <= 0 or comp.borrowed.recvBytes() == null) {
+            if (comp.result < 0 or comp.borrowed.recvBytes() == null) {
                 if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
-                if (comp.result < 0 and c.state == .open and c.external_cancel != null) {
-                    if (c.external_recv) |ud| {
-                        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = comp.result });
-                        c.external_recv = null;
-                    }
-                    return;
-                }
-                if (c.state == .open) {
-                    if (c.external_recv) |ud| {
-                        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = comp.result });
-                        c.external_recv = null;
-                    }
-                }
                 self.fail(c);
+                return;
+            }
+            if (comp.result == 0) {
+                if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
+                self.end(c, if (c.state == .open) 0 else -1);
                 return;
             }
             const bytes = comp.borrowed.recvBytes().?;
@@ -431,8 +496,8 @@ pub fn InnerBackend(comptime Inner: type) type {
                 },
                 .reply_recv => self.consumeReply(c, comp),
                 .open => {
-                    if (c.external_recv) |ud| {
-                        c.external_recv = null;
+                    if (c.external_recv_ud) |ud| {
+                        c.external_recv_ud = null;
                         std.debug.assert(c.held_recv == null);
                         c.held_recv = comp;
                         c.held_offset = 0;
@@ -442,7 +507,13 @@ pub fn InnerBackend(comptime Inner: type) type {
                             .result = comp.result,
                             .borrowed = .recv(bytes, Namespace.borrowToken(c.id)),
                         });
-                    } else self.inner.recycleBorrowed(comp);
+                    } else {
+                        // A canceled caller seat does not cancel the inner
+                        // receive. Retain its bytes for the next seat.
+                        std.debug.assert(c.held_recv == null);
+                        c.held_recv = comp;
+                        c.held_offset = 0;
+                    }
                 },
                 .closing => self.inner.recycleBorrowed(comp),
                 else => {
@@ -452,104 +523,74 @@ pub fn InnerBackend(comptime Inner: type) type {
             }
         }
 
+        /// Apply one received chunk to the SOCKS reply this leg is waiting
+        /// on. The accumulation is the state module's; this owns only what
+        /// each verdict costs: the borrowed chunk, the leg's fate, and the
+        /// caller's connect seat.
         fn consumeReply(self: *Self, c: *Conn, comp: completion.Completion) void {
             const bytes = comp.borrowed.recvBytes().?;
-            var offset: usize = 0;
-            while (offset < bytes.len and c.reply_len < c.reply_expected) {
-                if (c.reply_len < c.reply_prefix.len)
-                    c.reply_prefix[c.reply_len] = bytes[offset];
-                c.reply_len += 1;
-                offset += 1;
-                if (c.reply_len == socks5.connect_reply_head_len) {
-                    const head: *const [socks5.connect_reply_head_len]u8 = c.reply_prefix[0..4];
-                    const bound = socks5.boundAddress(head) catch {
-                        self.inner.recycleBorrowed(comp);
-                        self.fail(c);
-                        return;
-                    };
-                    c.reply_expected = @intCast(switch (bound) {
-                        .fixed => |n| 4 + n,
-                        .domain => 5,
-                    });
-                } else if (c.reply_len == 5 and c.reply_prefix[3] == 0x03) {
-                    if (c.reply_prefix[4] == 0) {
-                        self.inner.recycleBorrowed(comp);
-                        self.fail(c);
-                        return;
+            switch (c.accumulateReply(bytes)) {
+                .refused => {
+                    self.inner.recycleBorrowed(comp);
+                    self.fail(c);
+                },
+                .need_more => {
+                    self.inner.recycleBorrowed(comp);
+                    self.armRecv(c);
+                },
+                .complete => |consumed| {
+                    // Anything past the reply is application data that arrived
+                    // coalesced behind it; retain the chunk so the first
+                    // receive seat lends it before another read is armed.
+                    if (consumed < bytes.len) {
+                        c.held_recv = comp;
+                        c.held_offset = @intCast(consumed);
+                    } else self.inner.recycleBorrowed(comp);
+                    c.state = .open;
+                    if (c.external_connect_ud) |ud| {
+                        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = 0 });
+                        c.external_connect_ud = null;
                     }
-                    c.reply_expected = 4 + 1 + @as(u16, c.reply_prefix[4]) + 2;
-                }
-            }
-            if (c.reply_len < c.reply_expected) {
-                self.inner.recycleBorrowed(comp);
-                self.armRecv(c);
-                return;
-            }
-            var head: [socks5.connect_reply_head_len]u8 = undefined;
-            @memcpy(&head, c.reply_prefix[0..4]);
-            socks5.checkConnectReply(&head) catch {
-                self.inner.recycleBorrowed(comp);
-                self.fail(c);
-                return;
-            };
-            if (offset < bytes.len) {
-                c.held_recv = comp;
-                c.held_offset = @intCast(offset);
-            } else self.inner.recycleBorrowed(comp);
-            c.state = .open;
-            if (c.external_connect) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = 0 });
-                c.external_connect = null;
+                },
             }
         }
 
         fn submitHandshake(self: *Self, c: *Conn) void {
             const whole: []const u8 = if (c.state == .greeting_send) &socks5.greeting else &c.request;
             const bytes = whole[c.handshake_send_offset..];
-            self.inner.submitSend(Types.internalUd(.send, c.id), c.inner_fd, bytes) catch {
-                self.owe(c, .send);
+            self.inner.submitSend(Identity.userData(.send, c.id), c.inner_fd, bytes) catch {
+                self.retries.oweSubmission(&self.conns, c, .send);
                 return;
             };
             c.pending.arm(.send);
         }
 
         fn armRecv(self: *Self, c: *Conn) void {
-            if (c.state == .closing or c.pending.recv) return;
-            self.inner.submitRecv(Types.internalUd(.recv, c.id), c.inner_fd) catch {
-                self.owe(c, .recv);
+            if (c.state == .closing or c.pending.get(.recv)) return;
+            self.inner.submitRecv(Identity.userData(.recv, c.id), c.inner_fd) catch {
+                self.retries.oweSubmission(&self.conns, c, .recv);
                 return;
             };
             c.pending.arm(.recv);
         }
 
-        fn beginClose(self: *Self, c: *Conn) void {
-            if (c.inner_close != .open or c.close_retry) return;
-            self.inner.submitClose(Types.internalUd(.close, c.id), c.inner_fd) catch {
-                self.inner.shutdownFd(c.inner_fd);
-                self.owe(c, .close);
-                return;
+        /// Whether an inner receive should be armed for `c` now: the SOCKS
+        /// reply states always read, and an open leg reads only into a seat
+        /// no retained receive can already satisfy.
+        fn needsRecv(c: *const Conn) bool {
+            return switch (c.state) {
+                .greeting_recv, .reply_recv => true,
+                .open => c.external_recv_ud != null and c.held_recv == null,
+                .connecting, .greeting_send, .request_send, .closing => false,
             };
-            c.inner_close = .in_flight;
         }
 
         fn fail(self: *Self, c: *Conn) void {
-            if (c.state == .closing) return;
-            c.state = .closing;
-            self.clearDataRetries(c);
-            if (!c.borrowed) self.releaseHeld(c);
-            if (c.external_connect) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_connect = null;
-            }
-            if (c.external_recv) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_recv = null;
-            }
-            if (c.external_send) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_send = null;
-            }
-            self.inner.shutdownFd(c.inner_fd);
+            Leg.fail(self, &self.inner, c);
+        }
+
+        fn end(self: *Self, c: *Conn, recv_result: i32) void {
+            Leg.end(self, &self.inner, c, recv_result);
         }
 
         fn releaseHeld(self: *Self, c: *Conn) void {
@@ -558,86 +599,32 @@ pub fn InnerBackend(comptime Inner: type) type {
             c.held_recv = null;
             c.held_offset = 0;
             self.inner.recycleBorrowed(held);
+            self.retries.noteRecvRecycle();
         }
 
-        fn clearDataRetries(self: *Self, c: *Conn) void {
-            _ = self;
-            c.recv_retry = false;
-            c.send_retry = false;
-        }
-
-        fn owe(self: *Self, c: *Conn, op: InternalOp) void {
-            if (op == .close and c.close_retry) return;
-            if (op == .recv and c.recv_retry) return;
-            if (op == .send and c.send_retry) return;
-            if (op == .close) c.close_retry = true else if (op == .recv) c.recv_retry = true else if (op == .send) c.send_retry = true;
-            if (c.retry_queued) return;
-            c.retry_queued = true;
-            if (self.retry_tail) |tail_id| {
-                const tail = self.conns.get(tail_id) orelse unreachable;
-                std.debug.assert(tail.retry_next == null);
-                tail.retry_next = c.id;
-            } else {
-                self.retry_head = c.id;
-            }
-            self.retry_tail = c.id;
-        }
-
-        fn retryOwed(self: *Self) void {
-            var id = self.retry_head;
-            self.retry_head = null;
-            self.retry_tail = null;
-            while (id) |current_id| {
-                const c = self.conns.get(current_id) orelse unreachable;
-                id = c.retry_next;
-                c.retry_next = null;
-                c.retry_queued = false;
-                if (c.recv_retry and c.state != .closing) {
-                    c.recv_retry = false;
-                    self.armRecv(c);
-                }
-                if (c.send_retry and c.state != .closing) {
-                    c.send_retry = false;
-                    if (c.state == .greeting_send or c.state == .request_send) self.submitHandshake(c);
-                }
-                if (c.close_retry) {
-                    c.close_retry = false;
-                    self.beginClose(c);
-                }
-                if (self.conns.get(current_id)) |live| self.maybeFinishClose(live);
+        fn retryRecvStarvation(self: *Self) void {
+            const attempts = self.retries.recvStarvationCount();
+            for (0..attempts) |_| {
+                const c = self.retries.popRecvStarvation(&self.conns) orelse unreachable;
+                if (needsRecv(c)) self.armRecv(c);
             }
         }
 
-        fn maybeFinishClose(self: *Self, c: *Conn) void {
-            if (c.state != .closing) return;
-            if (c.retry_queued) return;
-            if (c.inner_close == .open or c.inner_close == .in_flight or c.close_retry) return;
-            if (c.pending.count() != 0 or c.borrowed) return;
-            if (c.inner_close == .failed) {
-                self.inner.closeFd(c.inner_fd);
-                c.inner_close = .closed;
+        fn retrySubmissions(self: *Self) void {
+            const attempts = @min(self.retries.submissionRetryCount(), submission_retry_batch);
+            for (0..attempts) |_| {
+                const owed = self.retries.popSubmissionRetry(&self.conns) orelse unreachable;
+                const c = owed.conn;
+                if (owed.includes(.recv) and needsRecv(c)) self.armRecv(c);
+                if (owed.includes(.send) and (c.state == .greeting_send or c.state == .request_send))
+                    self.submitHandshake(c);
+                if (owed.includes(.close)) Leg.beginInnerClose(self, &self.inner, c);
+                if (self.conns.get(c.id)) |live| Leg.maybeFinish(self, &self.inner, live);
             }
-            if (c.external_close) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = 0 });
-                c.external_close = null;
-                self.destroyConn(c.id);
-            } else if (c.abandon) {
-                self.destroyConn(c.id);
-            }
-        }
-
-        fn destroyConn(self: *Self, id: ConnId) void {
-            const kv = self.conns.fetchRemove(id) orelse unreachable;
-            const c = kv.value;
-            std.debug.assert(!c.retry_queued);
-            self.clearDataRetries(c);
-            c.close_retry = false;
-            c.deinit(self);
-            self.allocator.destroy(c);
         }
 
         fn connection(self: *Self, fd: Fd) ?*Conn {
-            return self.conns.get(Types.idFromFd(fd) orelse return null);
+            return self.conns.get(Identity.idFromFd(fd) orelse return null);
         }
     };
 }

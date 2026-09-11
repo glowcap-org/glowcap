@@ -91,7 +91,13 @@ export const WorkspaceRoomBridgeIntentSchema = z.strictObject({
 	 * that holds nothing asks the reader again, and a durable runtime looks in
 	 * its own custody first. */
 	secretsGiven: z.boolean(),
-});
+	/** Opaque command identity for matching separately held credentials. It is
+	 * public but contains no credential-derived material. */
+	credentialRevision: z.optional(nonemptyText(128)),
+}).check(z.refine(
+	(intent) => intent.credentialRevision === undefined || intent.secretsGiven,
+	"a bridge credential revision requires separately held credentials",
+));
 
 export const WorkspaceRoomConversationSchema = z.strictObject({
 	kind: z.literal("room"),
@@ -218,6 +224,9 @@ export const RoomsViewStateSchema = z.strictObject({
 
 const RoomsWorkspaceStateShapeSchema = z.strictObject({
 	version: z.literal(WORKSPACE_STATE_VERSION),
+	/** The page directory a local browser explicitly gave back. Missing keeps
+	 * the pre-field behavior of opening the directory that serves this page. */
+	leftPageDirectory: z.optional(nonemptyText()),
 	controller: RoomsControllerSelectionSchema,
 	session: RoomsSessionStateSchema,
 	view: RoomsViewStateSchema,
@@ -375,12 +384,7 @@ export type RoomsWorkspaceState = z.infer<typeof RoomsWorkspaceStateSchema>;
 export type RoomsSessionState = z.infer<typeof RoomsSessionStateSchema>;
 export type RoomsViewState = z.infer<typeof RoomsViewStateSchema>;
 
-/** The shared session this controller names, or null when the workspace is local. */
-export function sharedRoomsSession(
-	controller: RoomsControllerSelection,
-): SharedRoomsControllerSelection | null {
-	return controller.kind === "attached" || controller.kind === "hosted" ? controller : null;
-}
+export { sharedRoomsSession } from "./workspace_view.ts";
 
 export function parseWorkspaceOperationCredentials(raw: unknown): WorkspaceOperationCredential[] | null {
 	const parsed = z.safeParse(WorkspaceOperationCredentialsSchema, raw);
@@ -388,7 +392,11 @@ export function parseWorkspaceOperationCredentials(raw: unknown): WorkspaceOpera
 }
 
 export const DEFAULT_ROOMS_VIEW_STATE: RoomsViewState = {
-	theme: "light",
+	/* Syrup, the same face a reader who has never touched the switch opens on.
+	   A workspace that carries no view section is answering the same question
+	   a first visit asks, so it has to give the same answer: light here would
+	   mean importing an old document quietly turned the page over. */
+	theme: "dark",
 	notifyOn: false,
 	railOpen: true,
 	rosterOpen: true,
@@ -446,7 +454,6 @@ export function redactRoomsSessionCapabilities(session: RoomsSessionState): Room
 		...session,
 		conversations: session.conversations.map((conversation) => {
 			if (conversation.kind === "direct") return conversation;
-			if (conversation.bridgeIntent == null) return conversation;
 			const { link: _link, manager: _manager, steward: _steward, bridgeIntent: _bridgeIntent, ...redacted } =
 				conversation;
 			return redacted;

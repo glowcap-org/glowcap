@@ -22,8 +22,20 @@ name = "glowcap_iroh_sidecar"
 crate-type = ["staticlib"]
 
 [dependencies]
-iroh = "=1.0.3"
+# The runtime owner, task barrier, and readiness channel both sidecars share
+# (transports/sidecar-common). A path dependency still names its version so the
+# exact-pin check reads it like every other row.
+glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0" }
+# 1.1.0 is the first release whose relay shutdown drains cancelled tasks
+# without `JoinSet::join_all` panicking (n0-computer/iroh#4460). glowcap drops
+# one private runtime per endpoint, so that shutdown path is part of our
+# ordinary endpoint lifecycle rather than an upstream implementation detail.
+iroh = "=1.1.0"
 tokio = { version = "=1.53.1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+# The same crate with its test helpers switched on for this crate's own tests.
+glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0", features = ["test-support"] }
 
 [profile.release]
 # The staticlib links into Zig-built gate executables; thin LTO keeps the

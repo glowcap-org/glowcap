@@ -1,0 +1,222 @@
+[
+  {
+    "kind": "direct",
+    "trace": [
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "capability"
+      }
+    ],
+    "result": "capability",
+    "attempts": 1
+  },
+  {
+    "kind": "early",
+    "trace": [
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "notify",
+        "id": "11111111-1111-4111-8111-111111111111"
+      },
+      {
+        "kind": "pending"
+      },
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "capability"
+      }
+    ],
+    "result": "capability",
+    "attempts": 2
+  },
+  {
+    "kind": "stale",
+    "trace": [
+      {
+        "kind": "notify",
+        "id": "11111111-1111-4111-8111-111111111111"
+      },
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "pending"
+      },
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "pending"
+      },
+      {
+        "kind": "notify",
+        "id": "11111111-1111-4111-8111-111111111111"
+      },
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "capability"
+      }
+    ],
+    "result": "capability",
+    "attempts": 3
+  },
+  {
+    "kind": "fresh",
+    "trace": [
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "pending"
+      },
+      {
+        "kind": "notify",
+        "id": "11111111-1111-4111-8111-111111111111"
+      },
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "capability"
+      }
+    ],
+    "result": "capability",
+    "attempts": 2
+  },
+  {
+    "kind": "exhausted",
+    "trace": [
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "pending"
+      },
+      {
+        "kind": "notify",
+        "id": "11111111-1111-4111-8111-111111111111"
+      },
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "pending"
+      },
+      {
+        "kind": "notify",
+        "id": "11111111-1111-4111-8111-111111111111"
+      },
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "pending"
+      },
+      {
+        "kind": "notify",
+        "id": "11111111-1111-4111-8111-111111111111"
+      }
+    ],
+    "result": "introduction-pending",
+    "attempts": 3
+  },
+  {
+    "kind": "offline",
+    "trace": [
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "offline"
+      }
+    ],
+    "result": "peer-offline",
+    "attempts": 1
+  },
+  {
+    "kind": "malformed",
+    "trace": [
+      {
+        "kind": "call",
+        "verb": "introduce",
+        "args": [
+          "bob",
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      {
+        "kind": "malformed"
+      }
+    ],
+    "result": "malformed",
+    "attempts": 1
+  }
+]

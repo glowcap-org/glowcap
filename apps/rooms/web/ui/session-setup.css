@@ -18,16 +18,13 @@
 	display: grid;
 	gap: var(--gap-section);
 }
-/* The lockup as the opening screen draws it — the mark over the logotype,
-   centred, the same lift — because this page is what that screen fades into
-   and the mark should not appear to jump. The logotype is taken at its own
-   size: its metrics are a drawing (mark.css), and a larger font-size here
-   once left the caps standing small against a bigger "glowcap". */
+/* The lockup as the opening screen draws it, because this page is what that
+   screen fades into and the mark should not appear to jump. The column and the
+   fit between the mark and the word are `.brand-lockup` in page.css, which both
+   screens take; the logotype is taken at its own size, since its metrics are a
+   drawing (mark.css) and a larger font-size here once left the caps standing
+   small against a bigger "glowcap". This rule adds only the page's own colour. */
 .session-setup-brand {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: var(--gap-group);
 	color: var(--accent);
 }
 .session-setup-heading {

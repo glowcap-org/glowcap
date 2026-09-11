@@ -187,6 +187,21 @@ impl NetlayerRaw {
 		self.release.start(self.raw as usize, release_native);
 		self.release.wait().await
 	}
+
+	/// Drop this construction reference without closing the endpoint. Valid
+	/// only once another owner holds its own native reference — the driver's
+	/// provider lease, retained when the package was registered — because the
+	/// endpoint keeps running on that reference alone. The one native release
+	/// still runs exactly once, and the `Drop` fallback afterwards sees a
+	/// finished release and sends no close.
+	pub(super) async fn relinquish(self: &Arc<NetlayerRaw>) -> Result<()> {
+		let _close_guard = self.release.close_lock.lock().await;
+		if self.release.phase.load(Ordering::Acquire) == RELEASE_DONE {
+			return self.release.wait().await;
+		}
+		self.release.start(self.raw as usize, release_native);
+		self.release.wait().await
+	}
 }
 
 impl Drop for NetlayerRaw {
@@ -249,6 +264,16 @@ mod tests {
 		assert!(lock_iroh(&queued.task, "iroh-release-task-lock-poison").is_none());
 		queued.wait().await.unwrap();
 		assert_eq!(RELEASE_COUNT.load(Ordering::SeqCst), 3);
+		assert_eq!(CLOSE_COUNT.load(Ordering::SeqCst), 2);
+
+		// A relinquished reference releases once without a close, and the drop
+		// fallback that follows finds the release finished and sends no close
+		// either: the endpoint the driver's lease keeps running is never shut.
+		let handed = Arc::new(NetlayerRelease::new());
+		handed.start(0, count_release);
+		handed.wait().await.unwrap();
+		handed.fallback(0, count_close, count_release);
+		assert_eq!(RELEASE_COUNT.load(Ordering::SeqCst), 4);
 		assert_eq!(CLOSE_COUNT.load(Ordering::SeqCst), 2);
 
 		let panicked = Arc::new(NetlayerRelease::new());

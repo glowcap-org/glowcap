@@ -4,14 +4,19 @@
 //! table, synthetic handle namespace, sealing identity, retry queues, ready
 //! projection, and every sealed transition. `Inner` is borrowed per operation;
 //! there is no reverse dependency on the public adapter and no second box.
+//! Seat refusal, inner close progression, and final removal are the shared
+//! leg lifecycle; this file supplies only what sealing adds to them.
 
 const std = @import("std");
 
 const foundation = @import("foundation");
 const completion = @import("../../completion/loop.zig");
+const contract = @import("../../completion/contract.zig");
+const inner_leg = @import("../../completion/inner_leg.zig");
+const submission_debt = @import("../../completion/submission_debt.zig");
+const carrier_failure = @import("../../carrier_failure.zig");
 const authority = @import("authority.zig");
 const connection = @import("connection.zig");
-const retry = @import("retry.zig");
 
 const crypto = foundation.crypto;
 const sealed = foundation.sealed;
@@ -23,11 +28,12 @@ pub fn Reactor(comptime Inner: type) type {
     return struct {
         const Self = @This();
         const Namespace = completion.AdapterNamespace(Inner);
-        const Types = connection.Types(Inner);
+        const Types = connection.Types(Inner, Namespace);
         const ConnId = Types.ConnId;
         const InternalOp = Types.InternalOp;
+        const Identity = Types.Identity;
         const NoiseConn = Types.NoiseConn;
-        const RetryState = retry.State(Types);
+        const RetryState = submission_debt.State(Types);
 
         pub const Fd = Inner.Fd;
         pub const adapter_depth = Namespace.depth;
@@ -39,6 +45,85 @@ pub fn Reactor(comptime Inner: type) type {
         };
 
         pub const Sealing = authority.Authority;
+
+        /// What sealing adds to the shared leg lifecycle: the channel is
+        /// failed and the inner receive loan returned as the row enters
+        /// `closing`, a refused send carries no borrowed failure, and every
+        /// retry membership lives in the submission-debt state.
+        const LegAccess = struct {
+            pub fn closeUserData(id: ConnId) u64 {
+                return Identity.userData(.close, id);
+            }
+
+            pub fn onClosing(self: *Self, inner: *Inner, c: *NoiseConn, how: inner_leg.Closing) void {
+                self.retries.clearDataRetries(&self.conns, c);
+                if (how == .ended) c.channel.fail();
+                self.releaseInnerRecv(inner, c);
+            }
+
+            pub fn prepareClose(_: *Self, _: *Inner, _: *NoiseConn) !void {}
+
+            pub fn closeRefused(_: *Self, _: *Inner, _: *NoiseConn) void {}
+
+            pub fn refuseExternalSend(
+                self: *Self,
+                c: *NoiseConn,
+                cause: ?anyerror,
+                _: carrier_failure.Phase,
+            ) void {
+                const ud = c.external_send_ud orelse return;
+                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1, .failure = cause });
+                c.external_send_ud = null;
+                c.external_send_len = 0;
+                c.external_send_bytes = &.{};
+                c.external_send_off = 0;
+            }
+
+            pub fn startClose(self: *Self, inner: *Inner, c: *NoiseConn) void {
+                Leg.beginInnerClose(self, inner, c);
+            }
+
+            pub fn owesClose(self: *Self, c: *NoiseConn) bool {
+                return self.retries.owesSubmission(c, .close);
+            }
+
+            pub fn oweClose(self: *Self, c: *NoiseConn) void {
+                self.retries.oweSubmission(&self.conns, c, .close);
+            }
+
+            pub fn clearOwedClose(self: *Self, c: *NoiseConn) void {
+                self.retries.clearOwedRetries(&self.conns, c);
+            }
+
+            pub fn lendActive(c: *const NoiseConn) bool {
+                return c.lend_active;
+            }
+
+            pub fn borrowFailure(_: *Self, _: *NoiseConn) contract.Borrowed {
+                return .{};
+            }
+
+            pub fn prepareFinish(_: *Self, _: *NoiseConn, _: bool) bool {
+                return false;
+            }
+
+            pub fn closeCause(_: *const NoiseConn) ?anyerror {
+                return null;
+            }
+
+            pub fn hasBorrowedFailure(_: *const Self, _: *const NoiseConn) bool {
+                return false;
+            }
+
+            pub fn retireRow(self: *Self, c: *NoiseConn) void {
+                self.retries.clearOwedRetries(&self.conns, c);
+            }
+
+            pub fn deinitRow(self: *Self, _: *Inner, c: *NoiseConn) void {
+                c.deinit(self.allocator);
+            }
+        };
+        const Leg = inner_leg.Lifecycle(Self, Inner, Types, LegAccess);
 
         allocator: std.mem.Allocator,
         ready: completion.ReadyQueue = .{},
@@ -82,7 +167,7 @@ pub fn Reactor(comptime Inner: type) type {
             target: SealedTarget,
         ) !Fd {
             const sealing = if (self.sealing) |*s| s else return error.NoSealingIdentity;
-            const id = try self.reserveId();
+            const id = try Identity.reserveId(&self.next_id, self.conns);
             errdefer self.next_id = id;
             try self.conns.ensureUnusedCapacity(self.allocator, 1);
             var ephemeral_seed: [crypto.SEED_BYTES]u8 = undefined;
@@ -106,17 +191,7 @@ pub fn Reactor(comptime Inner: type) type {
             errdefer inner.closeFd(c.inner_fd);
             c.pending.arm(.connect);
             self.conns.putAssumeCapacity(id, c);
-            return fdFromId(id);
-        }
-
-        fn reserveId(self: *Self) !ConnId {
-            var remaining: u64 = Namespace.max_fd_id;
-            while (remaining != 0) : (remaining -= 1) {
-                const id = self.next_id;
-                self.next_id = if (id == Namespace.max_fd_id) 1 else id + 1;
-                if (!self.conns.contains(id)) return id;
-            }
-            return error.TooManyConnections;
+            return Identity.fdFromId(id);
         }
 
         pub fn submitRecv(self: *Self, inner: *Inner, id: ConnId, user_data: u64) !void {
@@ -125,7 +200,7 @@ pub fn Reactor(comptime Inner: type) type {
             if (c.external_recv_ud != null or c.lend_active) return error.AlreadyReading;
             // A staged channel fault can complete every external seat. Reserve
             // their projection before installing the caller's seat.
-            try self.ready.ensureUnusedCapacity(self.allocator, c.externalSeatCount() + 1);
+            try self.ready.ensureUnusedCapacity(self.allocator, Leg.externalSeatCount(c) + 1);
             c.external_recv_ud = user_data;
             errdefer c.external_recv_ud = null;
             try self.emitOrArm(inner, c);
@@ -192,52 +267,12 @@ pub fn Reactor(comptime Inner: type) type {
                 self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
                 return;
             };
-            if (c.external_close_ud != null) return error.AlreadyClosing;
-            try self.ready.ensureUnusedCapacity(self.allocator, c.externalSeatCount());
-            c.state = .closing;
-            c.external_close_ud = user_data;
-            self.retries.clearDataRetries(&self.conns, c);
-            self.releaseInnerRecv(inner, c);
-            if (c.external_connect_ud) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_connect_ud = null;
-            }
-            if (c.external_recv_ud) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_recv_ud = null;
-            }
-            if (c.external_send_ud) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_send_ud = null;
-                c.external_send_len = 0;
-                c.external_send_bytes = &.{};
-                c.external_send_off = 0;
-            }
-            self.beginInnerClose(inner, c);
-            if (self.conns.get(id)) |live| self.maybeFinishClose(inner, live);
+            try Leg.submitCloseRow(self, inner, c, user_data);
         }
 
         pub fn closeFd(self: *Self, inner: *Inner, id: ConnId) void {
             const c = self.conns.get(id) orelse return;
-            std.debug.assert(c.externalSeatCount() == 0);
-            c.state = .closing;
-            self.retries.clearDataRetries(&self.conns, c);
-            self.releaseInnerRecv(inner, c);
-            if (c.inner_close != .closed) {
-                inner.shutdownFd(c.inner_fd);
-                if (c.inner_close == .open and c.pending.count() == 0) {
-                    self.retries.clearOwedRetries(&self.conns, c);
-                    inner.closeFd(c.inner_fd);
-                    c.inner_close = .closed;
-                } else if (c.inner_close == .open) {
-                    self.beginInnerClose(inner, c);
-                }
-            }
-            if (c.inner_close == .failed and c.pending.count() == 0) {
-                inner.closeFd(c.inner_fd);
-                c.inner_close = .closed;
-            }
-            self.maybeFinishClose(inner, c);
+            Leg.closeRow(self, inner, c);
         }
 
         pub fn recycleBorrowed(
@@ -288,9 +323,9 @@ pub fn Reactor(comptime Inner: type) type {
                 @min(timeout_ms, submission_retry_ms);
             const n = try inner.poll(&tmp, effective_timeout);
             for (tmp[0..n]) |comp| {
-                if (isInternal(comp.user_data)) {
+                if (Identity.owns(comp.user_data)) {
                     self.dispatchInternal(inner, comp) catch {
-                        const id = internalId(comp.user_data);
+                        const id = Identity.id(comp.user_data);
                         if (self.conns.get(id)) |c| self.failNoise(inner, c);
                     };
                 } else {
@@ -301,12 +336,12 @@ pub fn Reactor(comptime Inner: type) type {
         }
 
         fn dispatchInternal(self: *Self, inner: *Inner, comp: completion.Completion) !void {
-            const id = internalId(comp.user_data);
+            const id = Identity.id(comp.user_data);
             const c = self.conns.get(id) orelse {
                 if (comp.borrowed.active()) inner.recycleBorrowed(comp);
                 return;
             };
-            const op = internalOp(comp.user_data);
+            const op = Identity.op(comp.user_data);
             if (op == .close)
                 std.debug.assert(c.inner_close == .in_flight)
             else
@@ -444,13 +479,13 @@ pub fn Reactor(comptime Inner: type) type {
 
         fn armInnerRecv(_: *Self, inner: *Inner, c: *NoiseConn) !void {
             std.debug.assert(c.inner_recv_bytes.len == 0);
-            if (c.pending.recv or c.state == .closing) return;
+            if (c.pending.get(.recv) or c.state == .closing) return;
             try inner.submitRecv(internalUd(.recv, c.id), c.inner_fd);
             c.pending.arm(.recv);
         }
 
         fn driveInnerSend(self: *Self, inner: *Inner, c: *NoiseConn) !void {
-            if (c.state == .closing or c.pending.send) return;
+            if (c.state == .closing or c.pending.get(.send)) return;
             if (c.ct_front_off == c.ct_front.items.len) {
                 c.clearCiphertextFront(self.allocator);
                 if (c.ct_back.items.len == 0) return;
@@ -473,7 +508,7 @@ pub fn Reactor(comptime Inner: type) type {
                 self.retries.oweSubmission(&self.conns, c, .send);
                 return;
             };
-            if (c.pendingCiphertext() != 0 or c.pending.send) return;
+            if (c.pendingCiphertext() != 0 or c.pending.get(.send)) return;
             if (c.external_send_ud) |ud| {
                 if (c.external_send_off < c.external_send_bytes.len) {
                     const remaining = c.external_send_bytes[c.external_send_off..];
@@ -519,98 +554,27 @@ pub fn Reactor(comptime Inner: type) type {
         }
 
         fn beginInnerClose(self: *Self, inner: *Inner, c: *NoiseConn) void {
-            if (c.inner_close != .open or self.retries.owesSubmission(c, .close)) return;
-            inner.submitClose(internalUd(.close, c.id), c.inner_fd) catch {
-                inner.shutdownFd(c.inner_fd);
-                self.retries.oweSubmission(&self.conns, c, .close);
-                return;
-            };
-            c.inner_close = .in_flight;
+            Leg.beginInnerClose(self, inner, c);
         }
 
         fn failNoise(self: *Self, inner: *Inner, c: *NoiseConn) void {
-            self.endNoise(inner, c, -1);
+            Leg.fail(self, inner, c);
         }
 
         fn endNoise(self: *Self, inner: *Inner, c: *NoiseConn, recv_result: i32) void {
-            std.debug.assert(recv_result == 0 or recv_result == -1);
-            if (c.state == .closing) return;
-            c.state = .closing;
-            self.retries.clearDataRetries(&self.conns, c);
-            c.channel.fail();
-            self.releaseInnerRecv(inner, c);
-            if (c.external_connect_ud) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_connect_ud = null;
-            }
-            if (c.external_recv_ud) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = recv_result });
-                c.external_recv_ud = null;
-            }
-            if (c.external_send_ud) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                c.external_send_ud = null;
-                c.external_send_len = 0;
-                c.external_send_bytes = &.{};
-                c.external_send_off = 0;
-            }
-            if (c.external_close_ud == null) inner.shutdownFd(c.inner_fd);
+            Leg.end(self, inner, c, recv_result);
         }
 
         fn maybeFinishClose(self: *Self, inner: *Inner, c: *NoiseConn) void {
-            if (c.state != .closing) return;
-            if (c.inner_close == .open or c.inner_close == .in_flight or self.retries.owesSubmission(c, .close))
-                return;
-            if (c.pending.count() != 0 or c.lend_active) return;
-            if (c.inner_close == .failed) {
-                inner.closeFd(c.inner_fd);
-                c.inner_close = .closed;
-            }
-            self.finishClosedWithoutInner(c);
-        }
-
-        fn finishClosedWithoutInner(self: *Self, c: *NoiseConn) void {
-            if (c.state != .closing or c.inner_close != .closed or c.pending.count() != 0 or c.lend_active)
-                return;
-            if (c.external_close_ud) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = 0 });
-                c.external_close_ud = null;
-            }
-            self.destroyConn(c.id);
-        }
-
-        fn destroyConn(self: *Self, id: ConnId) void {
-            const c = self.conns.get(id) orelse unreachable;
-            self.retries.clearOwedRetries(&self.conns, c);
-            const kv = self.conns.fetchRemove(id) orelse unreachable;
-            std.debug.assert(kv.value == c);
-            c.deinit(self.allocator);
-            self.allocator.destroy(c);
+            Leg.maybeFinish(self, inner, c);
         }
 
         pub fn idFromFd(_: *Self, fd: Fd) ?ConnId {
-            if (!Namespace.ownsFd(fd)) return null;
-            return @intCast(Namespace.fdId(fd));
-        }
-
-        fn fdFromId(id: ConnId) error{AdapterHandleExhausted}!Fd {
-            return Namespace.fdFromId(id);
+            return Identity.idFromFd(fd);
         }
 
         fn internalUd(op: InternalOp, id: ConnId) u64 {
-            return Namespace.userData((@as(u64, id) << 3) | @backingInt(op));
-        }
-
-        fn isInternal(ud: u64) bool {
-            return Namespace.ownsUserData(ud);
-        }
-
-        fn internalId(ud: u64) ConnId {
-            return @intCast(Namespace.userDataPayload(ud) >> 3);
-        }
-
-        fn internalOp(ud: u64) InternalOp {
-            return @fromBackingInt(@intCast(@as(u3, @truncate(ud))));
+            return Identity.userData(op, id);
         }
     };
 }

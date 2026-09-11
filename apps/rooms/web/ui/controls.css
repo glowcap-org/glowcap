@@ -5,6 +5,14 @@
 	display: block;
 	flex: none;
 }
+/* The glowcap mark's box (Mark.tsx). The mark is a shader mushroom drawn on
+   a canvas that hangs around this box, so the light has room; the box is
+   only where the mushroom stands, and whatever holds it leaves overflow
+   visible. */
+.mark-live {
+	position: relative;
+	overflow: visible;
+}
 
 /* One baseline for controls whose meaning is carried by an interface glyph.
    Data attributes are the component's closed variant vocabulary: layout may

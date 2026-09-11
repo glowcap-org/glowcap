@@ -169,8 +169,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
 /// leaving it unread would turn accidental busy-spinning into liveness.
 pub fn stepAfterTerminalFailure(self: *HostRuntime, timeout_ms: i32, goal: StepGoal, failure: OperationFailure) !?net.Progress {
     if (!terminalCleanupPending(self)) return failure.cause;
-    if (self.ready_set) |*ready_set| ready_set.drainWake() catch |err|
-        self.noteTerminalFailure(err);
+    drainReadinessWake(self);
 
     try Internal.applySettleMailboxWith(self, .cleanup_only);
     try Internal.progressSessionCloses(self);
@@ -178,12 +177,18 @@ pub fn stepAfterTerminalFailure(self: *HostRuntime, timeout_ms: i32, goal: StepG
     if (goal.reached(self) or !terminalCleanupPending(self)) return null;
 
     try waitForTerminalSignal(self, timeout_ms);
-    if (self.ready_set) |*ready_set| ready_set.drainWake() catch |err|
-        self.noteTerminalFailure(err);
+    drainReadinessWake(self);
     try Internal.applySettleMailboxWith(self, .cleanup_only);
     try Internal.progressSessionCloses(self);
     try Internal.progressClose(self, .cleanup_only);
     return null;
+}
+
+fn drainReadinessWake(self: *HostRuntime) void {
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| stepped.ready_set.drainWake() catch |err| self.noteTerminalFailure(err),
+    }
 }
 
 /// Park only on sources that remain legal after provider fail-stop. Wire,
@@ -195,8 +200,10 @@ pub fn waitForTerminalSignal(self: *HostRuntime, timeout_ms: i32) !void {
     self.extra_fd_scratch.clearRetainingCapacity();
     if (self.mailbox) |mailbox|
         try self.extra_fd_scratch.append(self.allocator, mailbox.wakeFd());
-    if (self.ready_set) |*ready_set|
-        try self.extra_fd_scratch.append(self.allocator, ready_set.wakeFd());
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| try self.extra_fd_scratch.append(self.allocator, stepped.ready_set.wakeFd()),
+    }
 
     if (self.extra_fd_scratch.items.len == 0) {
         const sleep_ms = if (timeout < 0) std.math.maxInt(i32) else timeout;
@@ -221,8 +228,13 @@ pub fn terminalCleanupPending(self: *HostRuntime) bool {
 }
 
 /// Preserve readiness when work already left the kernel's observable buffers.
+/// Only a parked embedder can be stranded by such work; the blocking face
+/// re-derives its wait set on every entry.
 pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
-    const rs = if (self.ready_set) |*r| r else return;
+    const rs = switch (self.drive) {
+        .blocking => return,
+        .stepped => |*stepped| &stepped.ready_set,
+    };
     var release = self.deferred_session_releases;
     while (release) |request| : (release = request.next) {
         const wire = self.wires.get(request.session.peer_handle);
@@ -272,18 +284,7 @@ pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 
             std.math.sub(i64, deadline, now_ms) catch std.math.maxInt(i64);
         if (nearest_wait == null or wait < nearest_wait.?) nearest_wait = wait;
     }
-    var wires = self.wires.valueIterator();
-    while (wires.next()) |wire| {
-        const deadline = wire.*.carrier_close_deadline_ms orelse continue;
-        const wait = if (deadline <= now_ms)
-            0
-        else
-            std.math.sub(i64, deadline, now_ms) catch std.math.maxInt(i64);
-        if (nearest_wait == null or wait < nearest_wait.?) nearest_wait = wait;
-    }
-    var retiring = self.retiring_wires;
-    while (retiring) |wire| : (retiring = wire.retiring_next) {
-        const deadline = wire.carrier_close_deadline_ms orelse continue;
+    if (self.nearest_carrier_close_ms) |deadline| {
         const wait = if (deadline <= now_ms)
             0
         else

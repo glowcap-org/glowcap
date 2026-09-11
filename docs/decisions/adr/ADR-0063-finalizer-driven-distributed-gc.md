@@ -104,10 +104,14 @@ finalizer idiom; the contract above is the same in all four.
   Zig consumer calls `sendGcExport` explicitly).
 - It does not promise prompt collection. A binding inherits its language's
   finalization timing; only Rust's `Drop` is deterministic.
-- An `enliven` result is not tracked. The ADR-0012 dedup cache deliberately
-  retains the import so a repeat enliven of the same swiss-number short-circuits;
-  a finalizer that released it on handle drop would invalidate the very cache
-  entry the next enliven expects to hit. The cache owns that import's lifetime.
+- Fresh and cached session `enliven` results are tracked when the session opts
+  in. Each projected occurrence owns an application retain; a cache hit can
+  issue another retain without another wire fetch. Releasing one occurrence
+  preserves the others. The final release retires the Host identity and the
+  matching cache/import state; another enliven fetches a fresh occurrence.
+  Host-level calls have no GC-enabled arrival session and require explicit
+  application release. `bindings/rust/src/session_tests/enliven_gc.rs` exercises
+  cached sharing, final release and fresh enlivenment over the real Host.
 - Locally created handles (`spawn`, `publish`, and `published_ref`) are not
   enrolled merely because a session has opted in. Their explicit actor and
   publication roots own them. A local capability returned through a tracked far

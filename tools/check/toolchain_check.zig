@@ -12,16 +12,25 @@
 //! silently three times, so the rule's claim died without anyone deciding to
 //! kill it, and a contributor with only Zig found the gate would not run at all.
 //!
-//! So the set is declared in `check_runtimes` in tools/build/gates.zig and held here: a
+//! So the set is declared in `check_runtimes` in tools/build/toolchain.zig and held here: a
 //! member of `check` that invokes a program outside it fails this step, and an
 //! interpreter may only run the scripts its row names. Requiring a fourth
 //! runtime becomes a one-line, reviewed edit to that table.
 //!
-//! **What this cannot see.** The graph carries `argv[0]` only, so a program a
+//! **What this cannot see.** The graph identifies the command after plain
+//! `env NAME=value` assignments, but a program a
 //! declared script reaches *inside* itself is invisible here. The extract matrix
 //! requires `tar`; its Python and Deno validators and the visualizer's Deno suite
 //! are optional coverage that reports an explicit skip. The Bash row records
 //! that contract because the graph can only see Bash.
+//!
+//! **The other direction.** Declaring a runtime is a claim that the machine
+//! running `check` has it, and that claim goes stale on its own: a commit adds
+//! an image layer, and every container built before it keeps working until some
+//! member deep in the graph reports `FileNotFound` for a program the reader has
+//! never heard of. So the same walk that finds what `check` runs also resolves
+//! each declared program on `PATH` and names the missing one against its
+//! reason, before the gate spends a compile on the step that needs it.
 //!
 //! Wired as the `zig build toolchain-check` step and into `zig build check`.
 
@@ -32,7 +41,7 @@ const Step = Build.Step;
 /// One program `check` may invoke, and why a step needing it belongs in the main
 /// gate instead of a sibling.
 pub const Runtime = struct {
-    /// `argv[0]` exactly as build.zig writes it.
+    /// The command name as written, after any plain environment assignments.
     program: []const u8,
     /// For an interpreter, the scripts it may run under `check`. Arguments are
     /// unconstrained only when both this and `modules` are empty.
@@ -45,19 +54,59 @@ pub const Runtime = struct {
     why: []const u8,
 };
 
-/// Create the `toolchain-check` step over the graph rooted at `root`.
+/// What `check`'s graph says about the runtimes it declares.
+pub const Verdict = struct {
+    /// The declaration verdict as a step: a failing step naming every member
+    /// that reaches for an undeclared program, or a satisfied marker.
+    declaration: *Step,
+    /// Rows in `runtimes` this graph will actually run. The caller hands these
+    /// to the presence checker, so a row nobody reaches asks nothing of anyone.
+    reached: []const usize,
+};
+
+/// Read the graph rooted at `root` against `runtimes`.
 ///
 /// `root` is `check` itself. Zig 0.17 removed make-time custom build steps, so
 /// callers create this after wiring the full gate; the walk then sees exactly
 /// what `check` would run. Reaching itself is harmless: a top-level step runs
 /// no program.
-pub fn create(b: *Build, root: *Step, runtimes: []const Runtime) *Step {
-    const report = checkGraph(b.allocator, root, runtimes, b.graph.zig_exe, b.root.toString(b.allocator) catch @panic("OOM")) catch @panic("OOM");
-    if (report) |text| return &b.addFail(text).step;
+pub fn create(b: *Build, root: *Step, runtimes: []const Runtime) Verdict {
+    const gpa = b.allocator;
+    const findings = checkGraph(gpa, root, runtimes, b.graph.zig_exe, b.root.toString(gpa) catch @panic("OOM")) catch @panic("OOM");
+    if (findings.undeclared) |text|
+        return .{ .declaration = &b.addFail(text).step, .reached = findings.reached };
 
     const ok = b.addWriteFiles();
     _ = ok.add("toolchain-check.ok", "");
-    return &ok.step;
+    return .{ .declaration = &ok.step, .reached = findings.reached };
+}
+
+/// Peel only `env NAME=value ... command`, including build-resolved paths.
+/// Unsupported options stay visible as `env` and require their own declaration;
+/// an assignment wrapper never grants permission to run its command.
+fn commandArgs(args: []const Step.Run.Arg) []const Step.Run.Arg {
+    if (args.len == 0) return args;
+    switch (args[0]) {
+        .bytes => |bytes| if (!std.mem.eql(u8, bytes, "env")) return args,
+        else => return args,
+    }
+    for (args[1..], 1..) |arg, index| {
+        const prefix = switch (arg) {
+            .bytes => |bytes| bytes,
+            .lazy_path, .decorated_directory => |path| path.prefix,
+            else => return args[index..],
+        };
+        const equals = std.mem.indexOfScalar(u8, prefix, '=') orelse {
+            if (std.mem.startsWith(u8, prefix, "-")) return args;
+            return args[index..];
+        };
+        if (equals == 0) return args;
+        for (prefix[0..equals], 0..) |char, position| {
+            if (char != '_' and !std.ascii.isAlphabetic(char) and
+                !(position > 0 and std.ascii.isDigit(char))) return args;
+        }
+    }
+    return args; // No command was supplied.
 }
 
 /// The program a step invokes, or null when it runs a Zig-built artifact, the
@@ -69,8 +118,9 @@ pub fn create(b: *Build, root: *Step, runtimes: []const Runtime) *Step {
 /// when that name is the running compiler, which is on PATH by construction.
 fn programOf(step: *Step, zig_exe: []const u8) ?[]const u8 {
     const run = step.cast(Step.Run) orelse return null;
-    if (run.argv.items.len == 0) return null;
-    const program = switch (run.argv.items[0]) {
+    const args = commandArgs(run.argv.items);
+    if (args.len == 0) return null;
+    const program = switch (args[0]) {
         .bytes => |bytes| bytes,
         else => return null,
     };
@@ -83,8 +133,9 @@ fn programOf(step: *Step, zig_exe: []const u8) ?[]const u8 {
 /// reported rather than accepted.
 fn scriptOf(step: *Step) ?[]const u8 {
     const run = step.cast(Step.Run) orelse return null;
-    if (run.argv.items.len < 2) return null;
-    return switch (run.argv.items[1]) {
+    const args = commandArgs(run.argv.items);
+    if (args.len < 2) return null;
+    return switch (args[1]) {
         .bytes => |bytes| bytes,
         else => null,
     };
@@ -92,13 +143,14 @@ fn scriptOf(step: *Step) ?[]const u8 {
 
 fn moduleOf(step: *Step) ?[]const u8 {
     const run = step.cast(Step.Run) orelse return null;
-    if (run.argv.items.len < 3) return null;
-    const marker = switch (run.argv.items[1]) {
+    const args = commandArgs(run.argv.items);
+    if (args.len < 3) return null;
+    const marker = switch (args[1]) {
         .bytes => |bytes| bytes,
         else => return null,
     };
     if (!std.mem.eql(u8, marker, "-m")) return null;
-    return switch (run.argv.items[2]) {
+    return switch (args[2]) {
         .bytes => |bytes| bytes,
         else => null,
     };
@@ -118,18 +170,29 @@ fn repoRelative(root: []const u8, script: []const u8) []const u8 {
     return if (rest.len > 0 and rest[0] == std.fs.path.sep) rest[1..] else rest;
 }
 
+/// The row declaring `program`, or null when `check` declares no such runtime.
+fn declaredIndex(runtimes: []const Runtime, program: []const u8) ?usize {
+    for (runtimes, 0..) |runtime, index| {
+        if (std.mem.eql(u8, runtime.program, program)) return index;
+    }
+    return null;
+}
+
+/// How `step` breaks its declaration, or null when the invocation is permitted.
+/// `declared` is the row `declaredIndex` found, so the walk resolves the row
+/// once and both the declaration report and the presence report read the same
+/// answer.
 fn violation(
     gpa: std.mem.Allocator,
-    runtimes: []const Runtime,
+    declared: ?Runtime,
     step: *Step,
     program: []const u8,
     root_path: []const u8,
 ) !?[]const u8 {
-    for (runtimes) |runtime| {
-        if (!std.mem.eql(u8, runtime.program, program)) continue;
+    if (declared) |runtime| {
         if (moduleOf(step)) |module| {
-            for (runtime.modules) |declared| {
-                if (std.mem.eql(u8, declared, module)) return null;
+            for (runtime.modules) |allowed| {
+                if (std.mem.eql(u8, allowed, module)) return null;
             }
             return try std.fmt.allocPrint(
                 gpa,
@@ -144,8 +207,8 @@ fn violation(
             .{ step.name, program, program },
         );
         const script = repoRelative(root_path, written);
-        for (runtime.scripts) |declared| {
-            if (std.mem.eql(u8, declared, script)) return null;
+        for (runtime.scripts) |allowed| {
+            if (std.mem.eql(u8, allowed, script)) return null;
         }
         return try std.fmt.allocPrint(
             gpa,
@@ -160,13 +223,24 @@ fn violation(
     );
 }
 
+/// What one walk of the `check` graph found.
+const Findings = struct {
+    /// Steps invoking a program `check_runtimes` does not permit, or null when
+    /// every invocation is declared.
+    undeclared: ?[]const u8,
+    /// Rows in `runtimes` this graph will actually run, deduplicated. The
+    /// presence report reads only these, so a row nobody reaches cannot ask a
+    /// contributor to install anything.
+    reached: []const usize,
+};
+
 fn checkGraph(
     gpa: std.mem.Allocator,
     root: *Step,
     runtimes: []const Runtime,
     zig_exe: []const u8,
     root_path: []const u8,
-) !?[]const u8 {
+) !Findings {
     var seen: std.AutoHashMapUnmanaged(*Step, void) = .empty;
     defer seen.deinit(gpa);
     var pending: std.ArrayList(*Step) = .empty;
@@ -176,18 +250,30 @@ fn checkGraph(
         for (offenders.items) |line| gpa.free(line);
         offenders.deinit(gpa);
     }
+    // Declaration order, not walk order, so the report reads like the table.
+    var reached: std.ArrayList(usize) = .empty;
+    errdefer reached.deinit(gpa);
 
     try pending.append(gpa, root);
     while (pending.pop()) |current| {
         if ((try seen.getOrPut(gpa, current)).found_existing) continue;
         if (programOf(current, zig_exe)) |program| {
-            if (try violation(gpa, runtimes, current, program, root_path)) |line|
+            const index = declaredIndex(runtimes, program);
+            if (index) |found| {
+                if (std.mem.indexOfScalar(usize, reached.items, found) == null)
+                    try reached.append(gpa, found);
+            }
+            if (try violation(gpa, if (index) |found| runtimes[found] else null, current, program, root_path)) |line|
                 try offenders.append(gpa, line);
         }
         for (current.dependencies.items) |dependency| try pending.append(gpa, dependency);
     }
 
-    if (offenders.items.len == 0) return null;
+    std.mem.sort(usize, reached.items, {}, std.sort.asc(usize));
+    const reached_rows = try reached.toOwnedSlice(gpa);
+    errdefer gpa.free(reached_rows);
+
+    if (offenders.items.len == 0) return .{ .undeclared = null, .reached = reached_rows };
 
     var report: std.ArrayList(u8) = .empty;
     try report.appendSlice(gpa, "`zig build check` may only invoke the runtimes it declares, but:\n");
@@ -200,11 +286,48 @@ fn checkGraph(
         gpa,
         \\
         \\Either give the step its own `zig build` step and sequence it from
-        \\`ci/gates.sh`, or add a row to `check_runtimes` in tools/build/gates.zig saying
+        \\`ci/gates.sh`, or add a row to `check_runtimes` in tools/build/toolchain.zig saying
         \\which member needs the program and why it belongs in the gate everyone
         \\runs. A new row raises what a contributor must install, so the cli rule
         \\names the set too.
         ,
     );
-    return try report.toOwnedSlice(gpa);
+    return .{ .undeclared = try report.toOwnedSlice(gpa), .reached = reached_rows };
+}
+
+test "environment assignments preserve the wrapped program and interpreter arguments" {
+    const args = [_]Step.Run.Arg{
+        .{ .bytes = "env" },
+        .{ .bytes = "MODE=check" },
+        .{ .decorated_directory = .{ .prefix = "GLOWCAP_LIB_DIR=", .suffix = "", .make_absolute = true, .lazy_path = .{ .relative = .{ .base = .install_lib } } } },
+        .{ .bytes = "python3" },
+        .{ .bytes = "-m" },
+        .{ .bytes = "py_compile" },
+    };
+    const command = commandArgs(&args);
+    try std.testing.expectEqual(@as(usize, 3), command.len);
+    try std.testing.expectEqualStrings("python3", command[0].bytes);
+    try std.testing.expectEqualStrings("-m", command[1].bytes);
+    try std.testing.expectEqualStrings("py_compile", command[2].bytes);
+    const undeclared = [_]Step.Run.Arg{ .{ .bytes = "env" }, .{ .bytes = "VALUE=yes" }, .{ .bytes = "undeclared-runtime" } };
+    try std.testing.expectEqualStrings("undeclared-runtime", commandArgs(&undeclared)[0].bytes);
+}
+
+test "unsupported env options and missing commands are not transparent" {
+    for ([_][]const u8{ "-S", "--split-string=sh", "=value", "1BAD=value" }) |option| {
+        const args = [_]Step.Run.Arg{ .{ .bytes = "env" }, .{ .bytes = option }, .{ .bytes = "cargo" } };
+        try std.testing.expectEqualStrings("env", commandArgs(&args)[0].bytes);
+    }
+    const missing = [_]Step.Run.Arg{ .{ .bytes = "env" }, .{ .bytes = "MODE=check" } };
+    try std.testing.expectEqualStrings("env", commandArgs(&missing)[0].bytes);
+}
+
+test "the reached set is the declared rows the graph will actually run" {
+    const runtimes = [_]Runtime{
+        .{ .program = "cargo", .why = "first" },
+        .{ .program = "raco", .why = "second" },
+    };
+    try std.testing.expectEqual(@as(?usize, 0), declaredIndex(&runtimes, "cargo"));
+    try std.testing.expectEqual(@as(?usize, 1), declaredIndex(&runtimes, "raco"));
+    try std.testing.expectEqual(@as(?usize, null), declaredIndex(&runtimes, "deno"));
 }

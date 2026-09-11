@@ -270,7 +270,10 @@ pub fn stageDial(
                 const fd = attempt.readinessFd();
                 if (fd < 0) return Error.TransportNotPollable;
                 if (Internal.descriptorInUse(self, fd)) return error.ReadinessDescriptorConflict;
-                if (self.ready_set) |*rs| try rs.add(fd);
+                switch (self.drive) {
+                    .blocking => {},
+                    .stepped => |*stepped| try stepped.ready_set.add(fd),
+                }
                 errdefer Internal.removeReadyFd(self, fd);
                 row.* = .{
                     .admission = admission,

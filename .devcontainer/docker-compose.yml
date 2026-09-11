@@ -24,6 +24,9 @@ services:
     working_dir: /workspaces/glowcap
     environment:
       GLOWCAP_WORKTREE: ${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}
+      # Submodule repositories use this same-path checkout alias for core.worktree;
+      # /workspaces/glowcap remains the editor and shell workspace.
+      GLOWCAP_CHECKOUT_DIR: ${GLOWCAP_CHECKOUT_DIR:?Run bash .devcontainer/bin/configure.sh}
       # The ocapnviz Vite dev server keeps loopback as its bare-host default;
       # inside the container it must bind wide or the published port above
       # reaches nothing. The config reads this variable and opens Vite's
@@ -32,22 +35,34 @@ services:
       # Zine's docs-serve is the same shape: loopback on a laptop, wide in
       # the container so the published 1990 mapping reaches the process.
       DOCS_SERVE_HOST: 0.0.0.0
-      # Compose interpolates the worktree into the path. The host bind is
-      # ~/.cache/glowcap, so these are work/<name>/zig-local and zig-pkg on
-      # both sides.
-      ZIG_LOCAL_CACHE_DIR: /home/vscode/.cache/glowcap/work/${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}/zig-local
-      ZIG_LOCAL_PKG_DIR: /home/vscode/.cache/glowcap/work/${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}/zig-pkg
+      # The named volume below gives Zig daemon-native filesystem semantics on
+      # native Linux Docker and Docker Desktop. The volume name carries the
+      # worktree identity, so local build state stays isolated.
+      ZIG_LOCAL_CACHE_DIR: /home/vscode/.cache/glowcap-zig-work/zig-local
+      ZIG_LOCAL_PKG_DIR: /home/vscode/.cache/glowcap-zig-work/zig-pkg
     volumes:
       # Workspace bind — required when using dockerComposeFile.
       - ..:/workspaces/glowcap:cached
+      # Git records one worktree path in each submodule repository. Mount the
+      # checkout at its host path too, so that absolute path resolves on both
+      # sides of the container boundary.
+      - type: bind
+        source: ${GLOWCAP_CHECKOUT_DIR:?Set GLOWCAP_CHECKOUT_DIR in .devcontainer/.env}
+        target: ${GLOWCAP_CHECKOUT_DIR:?Set GLOWCAP_CHECKOUT_DIR in .devcontainer/.env}
       # A linked worktree's .git file points at the primary checkout's common
       # Git directory. Mount it at the identical absolute path so that pointer
       # remains valid inside the container as well as on the host.
       - type: bind
         source: ${GLOWCAP_GIT_COMMON_DIR:?Set GLOWCAP_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
         target: ${GLOWCAP_GIT_COMMON_DIR:?Set GLOWCAP_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
-      # User-level agent, authentication, and glowcap caches come from the
-      # scoped host binds in devcontainer.json, shared by every worktree.
+      - type: volume
+        source: glowcap-zig-work
+        target: /home/vscode/.cache/glowcap-zig-work
+      # User-level agent, authentication, and shared download caches come from
+      # the scoped host binds in devcontainer.json.
+    # Preview servers and integration tests have process trees. Docker's tiny
+    # init reaps a grandchild if its direct owner exits during teardown.
+    init: true
     command: sleep infinity
     # `.env` gives each worktree its own host ports while services retain their
     # canonical container ports. Published on host loopback so a tailnet
@@ -79,3 +94,7 @@ networks:
   egress-net:
     name: ${EGRESS_NET:?Set EGRESS_NET in .devcontainer/.env (see .env.example)}
     external: true
+
+volumes:
+  glowcap-zig-work:
+    name: glowcap-${GLOWCAP_WORKTREE:?Run bash .devcontainer/bin/configure.sh}-zig-work

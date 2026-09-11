@@ -126,11 +126,6 @@
    [trust _uint32]
    [trust_pem _pointer] [trust_pem_len _size])
   #:malloc-mode 'atomic-interior)
-(define-cstruct _GlowcapRelayTrustSummary
-  ([loaded _size]
-   [skipped_by_engine _size]
-   [first_skipped_engine_code _int32])
-  #:malloc-mode 'atomic-interior)
 (define-cstruct _GlowcapArgument
   ([kind _uint32] [boolean _uint32] [integer _int64] [float64 _double]
    [bytes _pointer] [bytes-len _size] [reference _GlowcapReference]
@@ -243,8 +238,6 @@
              GLOWCAP-DRIVER-FAILURE-SIZE GLOWCAP-DRIVER-FAILURE-LAYOUT)
 (pin-layout! '_GlowcapRelayConfig _GlowcapRelayConfig
              GLOWCAP-RELAY-CONFIG-SIZE GLOWCAP-RELAY-CONFIG-LAYOUT)
-(pin-layout! '_GlowcapRelayTrustSummary _GlowcapRelayTrustSummary
-             GLOWCAP-RELAY-TRUST-SUMMARY-SIZE GLOWCAP-RELAY-TRUST-SUMMARY-LAYOUT)
 (pin-layout! '_GlowcapOnionConfig _GlowcapOnionConfig
              GLOWCAP-ONION-CONFIG-SIZE GLOWCAP-ONION-CONFIG-LAYOUT)
 

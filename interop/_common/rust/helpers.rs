@@ -3,6 +3,9 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "iroh")]
+use std::rc::Rc;
+
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStdout};
 
@@ -16,6 +19,21 @@ pub fn ignore_port_args() -> Result<(), Fail> {
 		}
 	}
 	Ok(())
+}
+
+/// Serve every iroh session a proof server accepts for the life of its local
+/// task set. The owning session handle stays in the serve task; retaining an
+/// accepted handle without serving it leaves published objects reachable in
+/// name but unable to answer.
+#[cfg(feature = "iroh")]
+pub fn serve_iroh_sessions(server: Rc<glowcap_rust_dogfood::iroh::Server>) {
+	tokio::task::spawn_local(async move {
+		while let Ok(session) = server.accept().await {
+			tokio::task::spawn_local(async move {
+				let _ = session.serve().await;
+			});
+		}
+	});
 }
 
 pub fn parse_port(default: u16, max_port: u16) -> Result<u16, Fail> {

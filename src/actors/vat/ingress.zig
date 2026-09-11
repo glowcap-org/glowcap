@@ -41,6 +41,7 @@ const Queued = struct {
     msg: Message,
     vow: u64,
     charged_bytes: u32,
+    answered: bool,
     /// Port whose authority caused this turn, or null for pure-local work.
     port: ?*Port,
 };
@@ -71,7 +72,11 @@ pub const IngressState = struct {
     pending_turns: u32 = 0,
     pending_bytes: u32 = 0,
     active_turns: u32 = 0,
+    /// Intrusive runnable ring, doubly linked so a budgeted drive can unlink
+    /// one exact ingress in O(1) instead of walking from the head; with one
+    /// shared Vat per Host the ring is every session with pending local work.
     runnable_next: ?*IngressState = null,
+    runnable_prev: ?*IngressState = null,
     runnable: bool = false,
 };
 
@@ -123,34 +128,30 @@ fn makeRunnable(self: *Vat, state: *IngressState) void {
     if (state.runnable or state.pending_turns == 0) return;
     state.runnable = true;
     state.runnable_next = null;
+    state.runnable_prev = self.runnable_tail;
     if (self.runnable_tail) |tail| tail.runnable_next = state else self.runnable_head = state;
     self.runnable_tail = state;
 }
 
+/// Unlink one runnable ingress wherever it sits in the ring.
+fn unlinkRunnable(self: *Vat, state: *IngressState) void {
+    if (state.runnable_prev) |prev| prev.runnable_next = state.runnable_next else self.runnable_head = state.runnable_next;
+    if (state.runnable_next) |next| next.runnable_prev = state.runnable_prev else self.runnable_tail = state.runnable_prev;
+    state.runnable_next = null;
+    state.runnable_prev = null;
+    state.runnable = false;
+}
+
 fn takeRunnable(self: *Vat) ?*IngressState {
     const state = self.runnable_head orelse return null;
-    self.runnable_head = state.runnable_next;
-    if (self.runnable_head == null) self.runnable_tail = null;
-    state.runnable_next = null;
-    state.runnable = false;
+    unlinkRunnable(self, state);
     return state;
 }
 
 fn takeSpecificRunnable(self: *Vat, wanted: *IngressState) bool {
     if (!wanted.runnable) return false;
-    var previous: ?*IngressState = null;
-    var current = self.runnable_head;
-    while (current) |state| : (current = state.runnable_next) {
-        if (state == wanted) {
-            if (previous) |prev| prev.runnable_next = state.runnable_next else self.runnable_head = state.runnable_next;
-            if (self.runnable_tail == state) self.runnable_tail = previous;
-            state.runnable_next = null;
-            state.runnable = false;
-            return true;
-        }
-        previous = state;
-    }
-    unreachable;
+    unlinkRunnable(self, wanted);
+    return true;
 }
 
 fn finishQueueTurn(self: *Vat, chunk: *QueueChunk) void {
@@ -237,7 +238,7 @@ pub fn send(self: *Vat, target: Ref, msg: Message) Error!Vow {
 pub fn sendFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!Vow {
     _ = try ingressState(self, ingress);
     switch (target) {
-        .local => |id| return .{ .local = try enqueueLocal(self, ingress, null, id, msg) },
+        .local => |id| return .{ .local = try enqueueLocal(self, ingress, null, id, msg, true) },
         .far => return Error.NotConnected,
     }
 }
@@ -257,7 +258,7 @@ pub fn tellFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message
     switch (target) {
         // Queue a turn like `send`, but discard the vow id: it keeps the
         // queue entry uniform and `drive` settles it into no listener.
-        .local => |id| _ = try enqueueLocal(self, ingress, null, id, msg),
+        .local => |id| _ = try enqueueLocal(self, ingress, null, id, msg, false),
         .far => return Error.NotConnected,
     }
 }
@@ -265,7 +266,7 @@ pub fn tellFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message
 /// The one local-enqueue spine `send` and `tell` share. Admission computes
 /// the whole logical ownership charge before cloning; every mutation after
 /// a successful clone is infallible, so refusal never partially enqueues.
-pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Message) Error!u64 {
+pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Message, answered: bool) Error!u64 {
     const state = try ingressState(self, ingress);
     try vat_mod.ensureFreshId(self.next_vow);
     const args_bytes = model.measureArgumentSliceOwnedBytes(msg.args) catch return Error.MalformedView;
@@ -296,7 +297,7 @@ pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: 
         if (state.last) |last| last.next = chunk else state.first = chunk;
         state.last = chunk;
     }
-    chunk.?.items[chunk.?.len] = .{ .target = id, .msg = owned, .vow = vow, .charged_bytes = charge32, .port = port };
+    chunk.?.items[chunk.?.len] = .{ .target = id, .msg = owned, .vow = vow, .charged_bytes = charge32, .answered = answered, .port = port };
     chunk.?.len += 1;
     chunk.?.owned_bytes += charge32;
     state.pending_turns += 1;
@@ -401,15 +402,13 @@ fn runQueuedTurn(self: *Vat, state: *IngressState) Error!void {
     makeRunnable(self, state);
     state.active_turns += 1;
     chunk.active_turns += 1;
-    const resolution: Resolution = if (turn_mod.callLocal(self, queued.port, state.id, queued.target, queued.msg)) |value|
-        .{ .fulfilled = value }
-    else |err|
-        .{ .broken = @errorName(err) };
-    vows_mod.settleLocal(self, queued.vow, resolution) catch |err| {
-        state.active_turns -= 1;
-        finishQueueTurn(self, chunk);
-        return err;
-    };
+    if (turn_mod.callQueued(self, queued.port, state.id, queued.target, queued.msg, if (queued.answered) queued.vow else null)) |resolution| {
+        vows_mod.settleLocal(self, queued.vow, resolution) catch |err| {
+            state.active_turns -= 1;
+            finishQueueTurn(self, chunk);
+            return err;
+        };
+    }
     state.active_turns -= 1;
     finishQueueTurn(self, chunk);
 }

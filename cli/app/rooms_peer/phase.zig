@@ -13,9 +13,9 @@ const HostSession = common.HostSession;
 
 /// Where the room session is in its life. Exactly one arm is live at a time;
 /// the DM tables (`dm_caps` / `pending_introduces` / `failed_introduces`) stay
-/// orthogonal `PeerState` fields, cleared on wire teardown. `directory` and
-/// `room` are POD far refs (stored without `cloneReference`, dropped without
-/// `freeReference`), so payload-by-value is safe.
+/// orthogonal `PeerState` fields, cleared on wire teardown. `directory`,
+/// `room`, and `seat` are POD far refs (stored without `cloneReference`,
+/// dropped without `freeReference`), so payload-by-value is safe.
 pub const Phase = union(enum) {
     /// No wire. `cooldown` counts maintain wakes down to the next dial.
     down: struct { cooldown: u32 },
@@ -43,7 +43,9 @@ pub const Phase = union(enum) {
     pub const Joined = struct {
         session: *HostSession,
         directory: model.Reference,
-        room: model.Reference,
+        /// The membership seat the room answered `subscribe` with. Posts go
+        /// here; the room reference itself is not needed once joined.
+        seat: model.Reference,
         reg: Reg,
     };
 
@@ -212,19 +214,20 @@ pub fn isJoiningSession(phase: *const Phase, session: *HostSession) bool {
     return phase.* == .joining and phase.joining.session == session;
 }
 
-/// A room `subscribe` fulfilled: promote the fully prepared join to `.joined`
-/// and start directory-registration pacing. A callback with incomplete or
-/// stale state changes nothing, so its caller can route a live `.joining`
-/// through `requestAbandon` instead of manufacturing a second recovery path.
-pub fn noteSubscribed(phase: *Phase, registration_wait: u32) bool {
+/// A room `subscribe` fulfilled with the membership `seat`: promote the fully
+/// prepared join to `.joined` and start directory-registration pacing. A
+/// callback with incomplete or stale state changes nothing, so its caller can
+/// route a live `.joining` through `requestAbandon` instead of manufacturing a
+/// second recovery path.
+pub fn noteSubscribed(phase: *Phase, seat: model.Reference, registration_wait: u32) bool {
     switch (phase.*) {
         .joining => |j| {
             const directory = j.directory orelse return false;
-            const room = j.room orelse return false;
+            if (j.room == null) return false;
             phase.* = .{ .joined = .{
                 .session = j.session,
                 .directory = directory,
-                .room = room,
+                .seat = seat,
                 .reg = .{ .pending = registration_wait },
             } };
             return true;

@@ -115,10 +115,10 @@ pub fn Machine(
             while (steps < max_drive_steps) : (steps += 1) {
                 const transform = secure.activeTransform();
                 if (transform.pendingCiphertext().len != 0) {
-                    if (!c.pending.send) {
+                    if (!c.pending.get(.send)) {
                         backend.platform.submitSend(
                             Access.sendUserData(c.id),
-                            c.os_fd,
+                            c.inner_fd,
                             transform.pendingCiphertext(),
                         ) catch {
                             if (!backend.tls_send_retries.contains(secure))
@@ -129,7 +129,7 @@ pub fn Machine(
                     }
                     return;
                 }
-                if (c.pending.send) return;
+                if (c.pending.get(.send)) return;
 
                 if (secure.shutting_down) {
                     if (secure.shutdown_complete) {
@@ -358,7 +358,7 @@ pub fn Machine(
             c: *RelayConn,
             interest: engine.Interest,
         ) anyerror!void {
-            if (interest.read and !c.pending.recv) try Access.armPlatformRecv(backend, c);
+            if (interest.read and !c.pending.get(.recv)) try Access.armPlatformRecv(backend, c);
         }
 
         fn currentPhase(c: *const RelayConn, secure: *const TlsState) engine.Phase {

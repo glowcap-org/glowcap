@@ -6,12 +6,12 @@ fn lock_failure(slot: &Mutex<Option<Error>>) -> std::sync::MutexGuard<'_, Option
 	slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-impl<'ctx> Netlayer<'ctx> {
+impl Netlayer {
 	/// Build a netlayer from `config`, on the library-owned allocator.
 	///
 	/// The configuration text is copied in, so `config`'s borrows need not
 	/// outlive this call.
-	pub fn new(config: &Config<'_>) -> Result<Netlayer<'ctx>> {
+	pub fn new(config: &Config<'_>) -> Result<Netlayer> {
 		require_archive()?;
 		let c = config.to_c();
 		let mut raw: *mut ffi::GlowcapOnionNetlayer = core::ptr::null_mut();
@@ -19,21 +19,6 @@ impl<'ctx> Netlayer<'ctx> {
 		Ok(Netlayer {
 			raw,
 			listener_close_failure: Arc::new(Mutex::new(None)),
-			_ctx: PhantomData,
-		})
-	}
-
-	/// As [`Netlayer::new`], allocating through `context`. The context must
-	/// outlive the netlayer, which `'ctx` enforces.
-	pub fn new_in(context: &'ctx Context, config: &Config<'_>) -> Result<Netlayer<'ctx>> {
-		require_archive()?;
-		let c = config.to_c();
-		let mut raw: *mut ffi::GlowcapOnionNetlayer = core::ptr::null_mut();
-		check_onion(unsafe { ffi::glowcap_onion_netlayer_new_in(context.raw(), &c, &mut raw) })?;
-		Ok(Netlayer {
-			raw,
-			listener_close_failure: Arc::new(Mutex::new(None)),
-			_ctx: PhantomData,
 		})
 	}
 
@@ -133,7 +118,7 @@ impl<'ctx> Netlayer<'ctx> {
 	}
 }
 
-impl Drop for Netlayer<'_> {
+impl Drop for Netlayer {
 	fn drop(&mut self) {
 		if !self.raw.is_null() {
 			if let Err(error) = check_onion(unsafe {
@@ -164,7 +149,7 @@ impl Listener<'_> {
 
 	/// The key that restores this exact service, or empty when the service was
 	/// restored rather than minted. Store these bytes and pass them back as
-	/// [`Config::with_service_key`] for an onion address that survives a restart.
+	/// [`Config::service_key`] for an onion address that survives a restart.
 	pub fn service_key(&self) -> &[u8] {
 		&self.key[..self.key_len]
 	}

@@ -2,17 +2,16 @@
 // session this tab answers to.
 
 import * as store from "../store.ts";
-import * as net from "../net.ts";
+import * as net from "../page_navigation.ts";
 import {
-	forgetForkedDirectoryNames,
+	installWorkspaceStatePersistence,
 	setWorkspaceControllerSelection,
 	workspaceControllerSelection,
-	workspaceStateOf,
 } from "../workspace_state.ts";
 import { clearWorkspaceState } from "../workspace/bundle.ts";
-import { sharedRoomsSession } from "../../../lib/rooms_state.ts";
-import { connectAttachedRoomsSession } from "../session/attached_connection.ts";
-import { attachRoomsController } from "../session/controller_transition.ts";
+import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
+import { homeLocator } from "../page_bootstrap.ts";
+import { attachedSessionFailureText } from "../session/attached_failure.ts";
 import type { RoomsPageContext } from "../page.ts";
 import type { RoomsBrowserController } from "./browser.ts";
 import { deleteRoomsBrowserData } from "./browser_data.ts";
@@ -24,9 +23,7 @@ function leaveAttachedSession(
 	refusal: string,
 ): string {
 	coverForReload();
-	const restore = workspaceControllerSelection(page).kind === "attached" ? forgetForkedDirectoryNames(page) : null;
 	if (!setWorkspaceControllerSelection(page, controller)) {
-		restore?.();
 		uncoverReload();
 		return refusal;
 	}
@@ -88,20 +85,13 @@ export function createRoomsBrowserController(
 		editJoin: (patch) => store.editJoin(projection, patch),
 		attachRoomsSession: async (sturdyref) => {
 			const before = workspaceControllerSelection(page);
-			const why = await attachRoomsController(sturdyref, {
-				current: () => workspaceControllerSelection(page),
-				localCheckpoint: () => workspaceStateOf(page, page.projection.get()).session,
-				connect: (sturdyref) => connectAttachedRoomsSession(page, sturdyref),
-				verifyOverAttached: (sturdyref) => page.attachedSession.current?.verifySibling(sturdyref) ?? null,
-				select: (controller) => setWorkspaceControllerSelection(page, controller),
-				reportCleanupFailure: (error) => {
-					store.noteTrouble(
-						page.projection,
-						"shared session attachment cleanup",
-						error instanceof Error ? error.message : String(error),
-					);
-				},
-			});
+			let why = "";
+			try {
+				if (page.workspace.persistenceControl == null) installWorkspaceStatePersistence(page);
+				await page.workspace.persistenceControl!.attach(sturdyref, await homeLocator(page));
+			} catch (error) {
+				why = attachedSessionFailureText(error);
+			}
 			if (why === "") {
 				const after = workspaceControllerSelection(page);
 				const beforeShared = sharedRoomsSession(before);
@@ -120,7 +110,7 @@ export function createRoomsBrowserController(
 			leaveAttachedSession(page, { kind: "local" }, "This browser refused to save local Rooms reconstruction."),
 		leaveRoomsSession: () =>
 			leaveAttachedSession(page, { kind: "none" }, "This browser refused to leave the current Rooms session."),
-		roomsController: () => workspaceControllerSelection(page),
+		controllerSelection: page.workspace.controllerSelection,
 		resetBrowserWorkspace: () => {
 			coverForReload();
 			if (!clearWorkspaceState(page)) {

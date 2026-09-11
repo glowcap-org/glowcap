@@ -274,7 +274,7 @@ async fn the_live_trace_produces_the_timeline_schema() {
 			assert_eq!(reply, Argument::String("hello trace-me".into()));
 			// The annotation channel: named for the same session row the
 			// tap names.
-			crate::annotate_session(&session, "greeter-server");
+			crate::annotate_session(&session, Some("greeter-server"));
 			session.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
 			uninstall();
@@ -362,7 +362,7 @@ async fn the_live_trace_produces_the_timeline_schema() {
 				.find(|ev| ev.kind == crate::TraceKind::SessionMeta)
 				.expect("the annotation reached the sink");
 			assert_eq!(
-				meta.meta.as_ref().map(|m| m.label.as_str()),
+				meta.meta.as_ref().and_then(|m| m.label.as_deref()),
 				Some("greeter-server"),
 				"the annotation carries its label",
 			);

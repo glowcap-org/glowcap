@@ -351,7 +351,7 @@ test "core host cancel settles a parked select-or-dial without realizing its tic
     try std.testing.expect(failed == .failed);
     try std.testing.expectEqual(vow_id, failed.failed.vow_id);
     try std.testing.expectEqual(driver.core.VowFailure.closed, failed.failed.failure);
-    try std.testing.expectEqualStrings("host closing", failed.failed.message);
+    try std.testing.expectEqualStrings("host closing", failed.failed.message.bytes());
     try std.testing.expect((try host.nextAction()) == null);
     try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
 }

@@ -11,7 +11,7 @@ test "keepalive apply configures a connected stream" {
     const io = threaded.io();
 
     const addr = try std.Io.net.IpAddress.parse("127.0.0.1", 0);
-    var listener = try net.tcp.plain.Listener.bind(io, addr);
+    var listener = try net.tcp.Listener.bind(io, addr);
     defer listener.deinit();
     const bound = listener.localAddress();
 
@@ -30,7 +30,7 @@ test "invalid keepalive rolls SO_KEEPALIVE back off and reports refusal" {
     const io = threaded.io();
 
     const addr = try std.Io.net.IpAddress.parse("127.0.0.1", 0);
-    var listener = try net.tcp.plain.Listener.bind(io, addr);
+    var listener = try net.tcp.Listener.bind(io, addr);
     defer listener.deinit();
     const client_stream = try std.Io.net.IpAddress.connect(&listener.localAddress(), io, .{ .mode = .stream });
     defer client_stream.close(io);
@@ -55,7 +55,7 @@ test "invalid keepalive rolls SO_KEEPALIVE back off and reports refusal" {
 }
 
 test "StreamOptions default leaves keepalive null" {
-    const opts: net.tcp.plain.StreamOptions = .{};
+    const opts: net.tcp.StreamOptions = .{};
     try std.testing.expect(opts.keepalive == null);
 }
 

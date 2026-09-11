@@ -27,6 +27,7 @@
 import type { Locator, Page } from "playwright";
 import { fail, openDirectoryCardFromCaption, ROOT } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
+import { SERVER } from "../support/server_binary.ts";
 import { spawnOwned } from "../support/children.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
@@ -242,7 +243,7 @@ export async function run(
 	// cleared it for every directory, so a directory coming back erased an outage
 	// that was still true.
 	const killed = await new Deno.Command("pkill", {
-		args: ["-f", `server/main.ts ${homeRoomPort}`],
+		args: ["-f", `${SERVER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} .*--port=${homeRoomPort}( |$)`],
 	}).output();
 	if (!killed.success) fail("could not find this page's own room server to take down");
 	await tab.waitForFunction(
@@ -478,35 +479,25 @@ export async function run(
 			fail("a retry that could not go left the message looking sent");
 		}
 
-		// The file that was posted before the server went. The room may well still
-		// hold its bytes; what ended was the connection they were offered over, and
-		// no later press can get them back. So the press says that, once, and the
-		// row then stops offering. A control that cannot succeed invites a reader
-		// to keep pressing for as long as they are willing to believe it might.
+		// The file that was posted before the server went was also retained by this
+		// session's archive. Its live occurrence died with the connection, but the
+		// digest reconciles the same drawn attachment onto durable byte custody. The
+		// original press therefore still completes, and the downloaded object stays
+		// available for another press independently of the dead transport.
 		const fileRow = '.row.mine .attach-file:has-text("before.txt")';
 		if (await tab.locator(`${fileRow} .icon-button`).count() !== 1) {
 			fail("the file posted before the server went lost its control before it was ever pressed");
 		}
+		const downloaded = tab.waitForEvent("download", { timeout: 30_000 });
 		await tab.click(`${fileRow} .icon-button`);
-		const saidOfFile = () =>
-			tab.evaluate(() => {
-				const row = [...document.querySelectorAll(".attach-file")]
-					.find((candidate) => (candidate.textContent ?? "").includes("before.txt"));
-				return row === undefined ? "(no row)" : row.querySelector(".sub")?.textContent ?? "(no reason)";
-			});
-		await tab.waitForFunction(
-			() => {
-				const row = [...document.querySelectorAll(".attach-file")]
-					.find((candidate) => (candidate.textContent ?? "").includes("before.txt"));
-				return (row?.querySelector(".sub")?.textContent ?? "").includes("earlier connection");
-			},
-			undefined,
-			{ timeout: 15_000 },
-		).catch(async () => {
-			fail(`asking for a file whose connection had ended said ${JSON.stringify(await saidOfFile())}`);
-		});
-		if (await tab.locator(`${fileRow} .icon-button`).count() !== 0) {
-			fail("a file that can never be fetched again still offers a control that fetches it");
+		const file = await downloaded.catch(() =>
+			fail("durable file custody did not answer after the live connection ended")
+		);
+		if (file.suggestedFilename() !== "before.txt") {
+			fail(`the recovered download was named ${JSON.stringify(file.suggestedFilename())}`);
+		}
+		if (await tab.locator(`${fileRow} .icon-button`).count() !== 1) {
+			fail("a downloaded durable file stopped offering its now-local bytes");
 		}
 
 		// And the line that was posted while the server was up. Changing or
@@ -536,16 +527,8 @@ export async function run(
 		// Stand the server back up and press it. Pressing is the point: a control
 		// that draws and cannot be reached is the failure this page has had before,
 		// and only a press tells the two apart.
-		spawnOwned("deno", {
-			args: [
-				"run",
-				"--allow-ffi",
-				"--allow-read",
-				"--allow-net",
-				"--allow-env",
-				`${ROOT}apps/rooms/server/main.ts`,
-				String(foreignRoomPort),
-			],
+		spawnOwned(SERVER, {
+			args: ["--transport=tcp", `--port=${foreignRoomPort}`],
 			cwd: ROOT,
 			stdout: "null",
 			stderr: "inherit",

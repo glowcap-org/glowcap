@@ -83,11 +83,15 @@ const PendingFold = struct {
 /// `table` is whichever wire-delta refcount table the message releases: the
 /// inbound `op:gc-exports` releases our exports, the outbound one releases our
 /// imports, so this is generic over `ExportTable` / `ImportTable` — it reads
-/// only `wireHeld` and never the cap. Validating against `wireHeld` rather
-/// than `count` is load-bearing on the export side: an export row carries a
-/// local baseline the wire never granted, so a hostile partner releasing one
-/// more than it was ever sent must be refused loudly instead of deleting the
-/// row (and with it our own live capability).
+/// only `releasable` and never the cap. Validating against `releasable` rather
+/// than `count` is load-bearing on both sides. An export row carries a local
+/// baseline the wire never granted, so an untrusted peer releasing one more
+/// than it was ever sent must be refused loudly instead of deleting the row
+/// (and with it our own live capability). An import row may carry retains the
+/// session keeps for a release of its own — a linked V1.0 resolver's, a
+/// pending listener's, a stable shortening edge's — and a caller releasing
+/// past that remainder is the same defect refused the same way, so a pending
+/// settlement can never address a row the partner was told is gone.
 pub fn checkGcExportDecrement(
     allocator: std.mem.Allocator,
     table: anytype,
@@ -113,7 +117,7 @@ pub fn checkGcExportDecrement(
         // death of the bootstrap export.
         if (pos == BOOTSTRAP_POSITION) continue;
         const total = try pending.add(allocator, pos, delta);
-        if (total > table.wireHeld(Id.from(pos))) return Error.GcUnderflow;
+        if (total > table.releasable(Id.from(pos))) return Error.GcUnderflow;
     }
 }
 

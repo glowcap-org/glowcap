@@ -17,8 +17,8 @@
 //! correct under a threaded `std.Io` (the handshake's two halves run on two
 //! fibers); it is not built for high-fan-out production, where the completion loop
 //! and a real transport carry the load. Pipe buffers are unbounded by design here
-//! — a mock has a cooperative partner — so this is not an attack surface to bound
-//! like a real netlayer's read path.
+//! — a mock has a cooperative partner — so it does not need the inbound
+//! read bounds a real netlayer holds.
 //!
 //! Blocking uses `std.Io.Mutex` / `std.Io.Condition`, the io-aware primitives, so
 //! one handshake half parks until the other produces bytes under whatever `std.Io`
@@ -41,7 +41,6 @@ const Io = std.Io;
 
 const Connection = connection.Connection;
 const Netlayer = netlayer.Netlayer;
-const Listener = netlayer.Listener;
 const Buffers = netlayer.Buffers;
 // Aliased so the `Network` struct's `netlayer()` method does not shadow the
 // `netlayer` module import when these error sets are named inside its body.
@@ -233,7 +232,7 @@ fn networkIo(ctx: *anyopaque) ?std.Io {
 const netlayer_vtable = Netlayer.VTable{
     .profile = known_transport.metadata(),
     .dial = .{ .blocking = netlayer.adaptBlockingDial(dial) },
-    .listen = listen,
+    .listen = netlayer.adaptListen(listen),
     .io = networkIo,
 };
 
@@ -254,32 +253,26 @@ fn listen(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     config: netlayer.ListenConfig,
-) netlayer.ListenStartOutcome {
-    return .{ .admitted = listenFallible(ctx, allocator, config) catch |err|
-        return .{ .failed = .init(err) } };
-}
-
-fn listenFallible(
-    ctx: *anyopaque,
-    allocator: std.mem.Allocator,
-    config: netlayer.ListenConfig,
 ) netlayer.ListenError!netlayer.ListenResult {
     try config.options.requireInherited();
     const self: *Network = @ptrCast(@alignCast(ctx));
     const ml = try self.createListener(allocator, config.designator);
-    return .{ .ready = .{ .ctx = ml, .vtable = &listener_vtable } };
+    return .{ .ready = ListenerShell.listener(ml) };
 }
 
-const listener_vtable = Listener.VTable{
-    .transport_name = transport_name,
-    .designator_scheme = known_transport.metadata().designator_scheme,
-    .sealed_channel = known_transport.metadata().sealed_channel,
-    .accept = netlayer.adaptAccept(listenerAccept),
-    .wait_acceptable = netlayer.adaptAcceptReadiness(listenerWaitAcceptable),
-    .local_locator = netlayer.adaptListenerLocator(listenerLocalLocator),
-    .canonicalize_locator = netlayer.adaptListenerCanonicalize(listenerCanonicalizeLocator),
-    .close = listenerClose,
-};
+/// The contract listener over an `InprocListener`, which owns its own storage
+/// and frees it in `close`. Readiness stays behind `waitAcceptable`; the
+/// synthetic wake descriptor is not published as the contract's `readiness_fd`.
+const ListenerShell = netlayer.ListenerShell(struct {
+    pub const State = InprocListener;
+    pub const metadata = known_transport.metadata();
+
+    pub const accept = listenerAccept;
+    pub const waitAcceptable = listenerWaitAcceptable;
+    pub const localLocator = listenerLocalLocator;
+    pub const canonicalizeLocator = listenerCanonicalizeLocator;
+    pub const close = listenerClose;
+});
 
 /// A bound in-process listener: a queue of dialed-but-not-yet-accepted duplexes,
 /// drained by `accept`.
@@ -481,8 +474,7 @@ fn acceptEndpoint(allocator: std.mem.Allocator, duplex: *Duplex, bufs: Buffers) 
     };
 }
 
-fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError!bool {
-    const self: *InprocListener = @ptrCast(@alignCast(ctx));
+fn listenerWaitAcceptable(self: *InprocListener, timeout_ms: i32) netlayer.AcceptError!bool {
     const io = self.network.io;
     self.mutex.lockUncancelable(io);
     self.operations += 1;
@@ -510,8 +502,7 @@ fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError
     return ready != 0 and self.pending.items.len != 0;
 }
 
-fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
-    const self: *InprocListener = @ptrCast(@alignCast(ctx));
+fn listenerAccept(self: *InprocListener, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
     const accepted = try self.waitForDuplex();
     // `self` may already be freed by a concurrent `listenerClose`; use only the
     // fields snapshotted under the mutex.
@@ -529,8 +520,7 @@ fn dialsPinned(self: *InprocListener) bool {
     return self.dialing > 0;
 }
 
-fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {
-    const self: *InprocListener = @ptrCast(@alignCast(ctx));
+fn listenerLocalLocator(self: *InprocListener, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {
     return model.clonePeerLocator(allocator, .{
         .transport = transport_name,
         .designator = self.designator,
@@ -538,16 +528,14 @@ fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) netlayer.
 }
 
 fn listenerCanonicalizeLocator(
-    ctx: *anyopaque,
+    self: *InprocListener,
     allocator: std.mem.Allocator,
     candidate: model.PeerLocator,
 ) netlayer.ListenError!model.PeerLocator {
-    const self: *InprocListener = @ptrCast(@alignCast(ctx));
     return netlayer.canonicalizeFixedLocator(allocator, candidate, transport_name, self.designator);
 }
 
-fn listenerClose(ctx: *anyopaque) ?netlayer.ListenerCloseFailure {
-    const self: *InprocListener = @ptrCast(@alignCast(ctx));
+fn listenerClose(self: *InprocListener) ?netlayer.ListenerCloseFailure {
     listenerShutdown(self);
     const io = self.network.io;
     self.mutex.lockUncancelable(io);

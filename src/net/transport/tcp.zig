@@ -15,33 +15,32 @@ const std = @import("std");
 const model = @import("model");
 const netlayer = @import("../netlayer.zig");
 const addressing = @import("tcp/addressing.zig");
-pub const plain = @import("tcp/plain.zig");
-const key_profile = @import("tcp/key_addressed.zig");
-pub const keyed = key_profile.Profile(.keyed_tcp);
-pub const noise = key_profile.Profile(.noise_tcp);
+const profile = @import("tcp/profile.zig");
+const stream = @import("tcp/stream.zig");
+pub const plain = profile.Profile(.tcp);
+pub const keyed = profile.Profile(.keyed_tcp);
+pub const noise = profile.Profile(.noise_tcp);
 
-// Plain TCP is the namespace's default profile. Keep its stream primitives at
-// `tcp.*` for the common case while the explicit `tcp.plain` spelling remains
-// available beside `tcp.keyed`, `tcp.noise`, and `tcp.Provider`.
-pub const Keepalive = plain.Keepalive;
-pub const StreamOptions = plain.StreamOptions;
-pub const RawConnection = plain.RawConnection;
-pub const connectRaw = plain.connectRaw;
+// Plain TCP is the namespace's default profile. Its byte-stream primitives and
+// typed listener sit at `tcp.*` for the common case, while `tcp.plain` names
+// its resident beside `tcp.keyed`, `tcp.noise`, and `tcp.Provider`.
+pub const Keepalive = stream.Keepalive;
+pub const StreamOptions = stream.StreamOptions;
+pub const RawConnection = stream.RawConnection;
+pub const ConnectRawError = stream.ConnectRawError;
+pub const connectRaw = stream.connectRaw;
 pub const ProfileListener = @import("tcp/listener.zig").Listener;
-pub const connectionOver = plain.connectionOver;
 pub const transport_name = model.transport.tcp;
 pub const Error = addressing.Error;
-pub const connectAddress = plain.connectAddress;
-pub const designator_buf_len = plain.designator_buf_len;
-pub const locator = plain.locator;
-pub const locatorFromAddress = plain.locatorFromAddress;
-pub const connect = plain.connect;
-pub const connectFrameStream = plain.connectFrameStream;
-pub const Listener = plain.Listener;
+pub const connectAddress = stream.connectAddress;
+pub const designator_buf_len = stream.designator_buf_len;
+pub const locator = stream.locator;
+pub const locatorFromAddress = stream.locatorFromAddress;
+pub const connect = stream.connect;
+pub const connectFrameStream = stream.connectFrameStream;
+pub const Listener = stream.Listener;
 pub const Resident = plain.Resident;
-pub const classifyConnect = plain.classifyConnect;
-pub const acceptOnListener = plain.acceptOnListener;
-pub const waitAcceptableOnListener = plain.waitAcceptableOnListener;
+pub const classifyConnect = stream.classifyConnect;
 pub const parseHostPort = addressing.parseHostPort;
 pub const parseDesignator = addressing.parseDesignator;
 pub const DialResolver = addressing.DialResolver;
@@ -64,7 +63,7 @@ pub const Config = struct {
 /// settings for that operation; omitting it inherits `Provider` configuration.
 /// An explicit `.stream = .{}` disables keepalive even when the provider
 /// default enables it.
-pub const OperationOptions = plain.OperationOptions;
+pub const OperationOptions = stream.OperationOptions;
 
 /// One heap-pinned native realization of every TCP channel profile. The
 /// netlayer vtables borrow its resident fields, so `create` makes moving the

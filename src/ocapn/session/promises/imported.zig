@@ -85,8 +85,11 @@ pub fn isThirdPartyImport(self: *Session, import_position: model.ImportPosition)
 
 /// Register `listener` (a POD entry) as wanting the relayed resolution of
 /// third-party import `import_position`. The import must be
-/// third-party-hosted.
+/// third-party-hosted. The entry owns one session-held retain on its listener
+/// import (`Session.retainImportForSession`), spent by the fire or discard
+/// that consumes it.
 pub fn installImportedPromiseListener(self: *Session, import_position: model.ImportPosition, listener: ListenerEntry) !void {
+    std.debug.assert(self.listenerRetainHeld(listener.listener));
     const entry = findImportedPromise(self, import_position) orelse return Error.InvalidReference;
     try cell_ops.installListener(&entry.cell, self.allocator, self.limits.max_listeners_per_target, listener);
 }

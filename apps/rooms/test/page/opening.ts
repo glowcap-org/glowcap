@@ -11,6 +11,8 @@ import { namedRoomRow } from "../support/conversation_row.ts";
 import { provePhoneSettingsTabs, proveSelectedTabContrast } from "./settings_tabs.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import * as linked from "./linked.ts";
+import { proveLockupSurvivesHandoff, proveOpeningWithoutGpu, withoutOpeningGpu } from "./opening_mark.ts";
+import { proveOpeningWithoutMotion } from "./opening_motion.ts";
 import { establishTestSession } from "./session_establishment.ts";
 import * as settingsForms from "./settings_forms.ts";
 
@@ -36,20 +38,12 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		};
 		requestAnimationFrame(sample);
 	});
+	await withoutOpeningGpu(tab);
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
-	// The mark is its four animated pieces; each paints currentColor, so the
-	// brand check reads a piece's fill rather than the container's.
-	const bootMark = await tab.locator(".boot-mark .mark-piece").first().evaluate((piece) => {
-		const probe = document.createElement("span");
-		probe.style.color = "var(--accent)";
-		document.body.append(probe);
-		const brand = getComputedStyle(probe).color;
-		probe.remove();
-		return { painted: getComputedStyle(piece).backgroundColor, brand };
-	});
-	if (bootMark.painted !== bootMark.brand) {
-		fail(`the opening mark is ${bootMark.painted} where the brand is ${bootMark.brand}`);
-	}
+	// Taken here because this is the only moment the opening lockup exists, and
+	// spent on the next screen, which draws the same one.
+	const openingLockup = await proveOpeningWithoutGpu(tab);
+	await proveLockupSurvivesHandoff(tab, openingLockup);
 	await establishTestSession(tab);
 
 	const identifierKeys = await tab.evaluate(() => {
@@ -91,36 +85,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		fail("nothing was on screen while the page was opening; the reader waits on a blank");
 	}
 
-	// A reader who has asked for less motion gets a mark that sits still and
-	// still gets the page. Both halves are worth holding: the mark's animation
-	// yields to the sheet's own reduced-motion rule, and the screen is taken out
-	// of the document when its fade ends — a fade that same rule shortens to
-	// nothing. Were that end never reported, the screen would stay in the
-	// document for good, and only this reader would ever find out.
-	{
-		const still = await browser.newContext({ reducedMotion: "reduce" });
-		const calm = await still.newPage();
-		await calm.addInitScript(() => {
-			const held = { motion: "" };
-			(globalThis as unknown as { markMotion: typeof held }).markMotion = held;
-			const sample = () => {
-				const mark = document.querySelector(".boot-mark");
-				if (mark !== null) held.motion = getComputedStyle(mark).animationDuration;
-				if (held.motion === "") requestAnimationFrame(sample);
-			};
-			requestAnimationFrame(sample);
-		});
-		await calm.goto(`http://127.0.0.1:${httpPort}/`);
-		await calm.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
-			.catch(() => fail("with less motion asked for, the opening screen never left the document"));
-		const motion = await calm.evaluate(() =>
-			(globalThis as unknown as { markMotion: { motion: string } }).markMotion.motion
-		);
-		if (parseFloat(motion) > 0.01) {
-			fail(`the opening screen's mark still animates for ${motion} under reduced motion`);
-		}
-		await still.close();
-	}
+	await proveOpeningWithoutMotion(browser, httpPort);
 
 	// The other two: a browser with scripting off is told why there is nothing
 	// here, and so is one whose bundle never arrived — the case nobody sees until
@@ -181,19 +146,23 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	// that asset down past the slow-start mark: the opening screen must carry
 	// the newest real failure, keep the half-built interface covered, and then
 	// recover by itself when the same URL starts serving the module. This also
-	// proves that a rejected @glowcap/web attempt is not cached forever.
+	// proves that a rejected Rust application load is not cached forever.
 	{
 		const delayed = await browser.newContext();
 		const recovering = await delayed.newPage();
 		let rebuilding = true;
 		let attempts = 0;
-		await recovering.route("**/glowcap_host.wasm", async (route) => {
+		let hostRequests = 0;
+		recovering.on("request", (request) => {
+			if (new URL(request.url()).pathname === "/glowcap_host.wasm") hostRequests++;
+		});
+		await recovering.route(/\/rooms-[a-f0-9]{64}\.wasm$/, async (route) => {
 			attempts++;
 			if (rebuilding) {
 				await route.fulfill({
 					status: 503,
 					contentType: "text/plain",
-					body: "rooms: glowcap_host.wasm is still building\n",
+					body: "rooms: application Wasm is still building\n",
 				});
 				return;
 			}
@@ -213,6 +182,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 			.catch(() => fail("the page did not recover after its Wasm runtime became available"));
 		await recovering.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
 			.catch(() => fail("the recovered runtime left the opening screen over the page"));
+		if (hostRequests !== 0) fail("session setup opened a TS Host before selecting a live controller");
 		await establishLocalSession(recovering);
 		await recovering.waitForSelector("#joinBtn", { timeout: 20_000 });
 		if (attempts < 2) fail("the page never retried the unavailable Wasm runtime");
@@ -392,6 +362,17 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	}
 	if (await tab.locator("#helpTab").count() !== 0) {
 		fail("Help grew a tab after opening");
+	}
+	const buildField = 'dialog[aria-labelledby="helpTitle"] .copy-field';
+	const buildShown = (await tab.textContent(`${buildField} .copy-field-text`))?.trim() ?? "";
+	const buildServed = await tab.evaluate(async () => (await (await fetch("/ui-version")).text()).trim());
+	if (buildShown === "" || buildShown !== buildServed) {
+		fail(`Help showed build ${JSON.stringify(buildShown)}, not served build ${JSON.stringify(buildServed)}`);
+	}
+	await tab.click(buildField);
+	const buildCopied = await tab.evaluate(() => navigator.clipboard.readText());
+	if (buildCopied.trim() !== buildShown) {
+		fail(`the build field copied ${JSON.stringify(buildCopied)}, not ${JSON.stringify(buildShown)}`);
 	}
 	// The word "secret" in the glossary is the quiet door into the parts
 	// catalog. The glossary stays the surface; this is Help aimed at the

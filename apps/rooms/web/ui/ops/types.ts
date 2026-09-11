@@ -31,8 +31,8 @@ export type { ListenerRow } from "../../../lib/room/client.ts";
 /** The operations capabilities the page knows how to hold. Holdings keeps one
  * toggle per capability; the Operations page draws one pane per held one.
  * The order here is the tab order when more than one is held. */
-export { OPERATIONS_CAPABILITIES as OPS_CAPS, type OperationsCapability as OpsCap } from "../../../lib/boot_caps.ts";
-import { OPERATIONS_CAPABILITIES as OPS_CAPS } from "../../../lib/boot_caps.ts";
+export { OPERATIONS_CAPABILITIES as OPS_CAPS, type OperationsCapability as OpsCap } from "../application_data.ts";
+import { OPERATIONS_CAPABILITIES as OPS_CAPS } from "../application_data.ts";
 
 /** One durable room this tab published into this directory while it holds the
  * peering capability. The lease behind the row lives in the data layer; what

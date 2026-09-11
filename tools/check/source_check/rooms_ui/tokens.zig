@@ -128,9 +128,15 @@ pub fn checkRoomsGapSteps(
         const rest = code[at..];
         const end = std.mem.indexOfScalar(u8, rest, ';') orelse continue;
         const value = std.mem.trim(u8, rest[0..end], " \t\r\n");
+        // A gap set through a step is the state this check exists to reach, so
+        // it counts as watched: with only pixel gaps counted, the day the last
+        // pixel gap became a step or an em the guard below fired on success.
+        if (std.mem.indexOf(u8, value, "var(--gap-") != null) {
+            named += 1;
+            continue;
+        }
         if (std.mem.indexOf(u8, value, "px") == null) continue;
         named += 1;
-        if (std.mem.indexOf(u8, value, "var(--gap-") != null) continue;
         // A fraction is type fitting rather than layout, and says so at its site.
         if (std.mem.indexOfScalar(u8, value, '.') != null) continue;
         try appendViolation(
@@ -144,7 +150,7 @@ pub fn checkRoomsGapSteps(
         try appendViolation(
             gpa,
             violations,
-            "{s}: no gap sets a length; whatever spacing is written as now, this check is watching nothing",
+            "{s}: no gap is set in pixels or through a `--gap-*` step; whatever spacing is written as now, this check is watching nothing",
             .{ui_dir},
         );
     }
