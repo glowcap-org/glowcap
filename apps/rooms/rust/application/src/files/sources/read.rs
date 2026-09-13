@@ -1,3 +1,4 @@
+//! Source readers enforce file length and chunk-order contracts.
 use super::*;
 /// One active read pins its original source, even if another message expires
 /// the blob. Finish or drop before its file's budget can be reused.
@@ -12,7 +13,7 @@ impl<S> Blob<S> {
 		let [offset, length] = args else {
 			return Err(Error::Arguments);
 		};
-		if verb != "read" {
+		if verb != crate::protocol_data::READ {
 			return Err(Error::Arguments);
 		}
 		self.read(

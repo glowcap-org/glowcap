@@ -1,6 +1,7 @@
+//! Archive filters select records by source, conversation, and digest.
 use super::{
-	records::{self, Body},
 	ConversationKind, Error, Kind, Record, ShareKind,
+	records::{self, Body},
 };
 use crate::text::DocumentText;
 use alloc::string::String;

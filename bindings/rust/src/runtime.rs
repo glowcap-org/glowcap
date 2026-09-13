@@ -9,12 +9,12 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::rc::Rc;
 
-use crate::dial::{dial_with_connector, ConnectOptions};
+use crate::dial::{ConnectOptions, dial_with_connector};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::driver_loop::{LoopShared, Provider};
 use crate::host::Host;
 use crate::session::Session;
-use crate::{sys, Connector, Error, Locator, PendingWork, Result};
+use crate::{Connector, Error, Locator, PendingWork, Result, sys};
 
 enum Mode {
 	#[cfg(not(target_arch = "wasm32"))]

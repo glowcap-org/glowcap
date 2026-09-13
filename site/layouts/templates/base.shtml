@@ -7,10 +7,9 @@
 		<meta name="format-detection" content="telephone=no">
 		<title :text="$page.title.suffix(' · glowcap')"></title>
 		<meta name="description" content="$page.description">
-		<!-- Link unfurls in chat and social clients read these; without them a
-		     shared page renders as a bare URL. The image and canonical URL are
-		     deliberately absent: they must be absolute, and the template does
-		     not know its deployed origin. -->
+		<!-- Link unfurls in chat and social clients read these. The renderer
+		     does not know the deployed origin, so tools/gen/site_normalize.py
+		     injects the absolute canonical URL, og:url, and og:image afterward. -->
 		<meta property="og:type" content="website">
 		<meta property="og:site_name" content="glowcap">
 		<meta property="og:title" content="$page.title">
@@ -69,6 +68,7 @@
 				<span class="wordmark"><span>glowcap</span></span>
 			</a>
 			<nav class="top-nav" aria-label="Site">
+				<a href="$site.page('rooms').link()">Rooms</a>
 				<a href="$site.page('reference').link()">API reference</a>
 				<a href="https://github.com/jimisaacs/glowcap">Source</a>
 				<button type="button" id="themeToggle" class="theme-toggle" title="Switch between light and syrup" aria-label="Switch between the light and syrup themes">
@@ -88,6 +88,13 @@
 					<span class="nav-heading">Understand</span>
 					<a class="$site.page('why').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('why').link()">Why OCapN</a>
 					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
+					<span class="nav-heading">Rooms</span>
+					<a class="$site.page('rooms').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms').link()">Overview</a>
+					<a class="$site.page('rooms/start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/start').link()">Run Rooms</a>
+					<a class="$site.page('rooms/architecture').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/architecture').link()">How it works</a>
+					<a class="$site.page('rooms/protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/protocol').link()">The protocol</a>
+					<a class="$site.page('rooms/operations').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/operations').link()">Operate Rooms</a>
+					<a class="$site.page('rooms/irc').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/irc').link()">IRC</a>
 					<span class="nav-heading">Build</span>
 					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
 					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Choose an API</a>
@@ -100,10 +107,7 @@
 						<a class="$site.page('bindings/racket').isCurrent().then('is-current', '')" href="$site.page('bindings/racket').link()">Racket</a>
 						<a class="$site.page('bindings/browser').isCurrent().then('is-current', '')" href="$site.page('bindings/browser').link()">In the browser</a>
 					</div>
-				<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Rooms &amp; examples</a>
-					<div class="nav-sub">
-						<a class="$site.page('examples/irc').isCurrent().then('is-current', '')" href="$site.page('examples/irc').link()">IRC on Rooms</a>
-					</div>
+					<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Examples</a>
 					<span class="nav-heading">Explore</span>
 					<a class="$site.page('modules').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('modules').link()">The modules</a>
 					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
@@ -156,7 +160,7 @@
 				</nav>
 				<nav aria-label="Build">
 					<h2>Build</h2>
-					<a href="$site.page('examples').link()">Rooms</a>
+					<a href="$site.page('rooms').link()">Rooms</a>
 					<a href="$site.page('start').link()">Start building</a>
 					<a href="$site.page('bindings').link()">Bindings</a>
 					<a href="$site.page('reference').link()">API reference</a>

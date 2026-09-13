@@ -820,11 +820,15 @@
           "capability": true
         },
         "participant",
-        null
+        null,
+        {
+          "capability": true
+        }
       ],
       "result": {
         "kind": "participant",
-        "topic": false
+        "topic": false,
+        "files": true
       }
     },
     {
@@ -835,11 +839,13 @@
         "observer",
         {
           "capability": true
-        }
+        },
+        null
       ],
       "result": {
         "kind": "observer",
-        "topic": true
+        "topic": true,
+        "files": false
       }
     },
     {
@@ -848,6 +854,7 @@
           "capability": true
         },
         "other",
+        null,
         null
       ],
       "result": null
@@ -856,6 +863,7 @@
       "answer": [
         null,
         "participant",
+        null,
         null
       ],
       "result": null
@@ -866,6 +874,18 @@
           "capability": true
         },
         "participant",
+        4,
+        null
+      ],
+      "result": null
+    },
+    {
+      "answer": [
+        {
+          "capability": true
+        },
+        "participant",
+        null,
         4
       ],
       "result": null
@@ -876,7 +896,20 @@
           "capability": true
         },
         "participant",
+        null
+      ],
+      "result": null
+    },
+    {
+      "answer": [
+        {
+          "capability": true
+        },
+        "participant",
         null,
+        {
+          "capability": true
+        },
         {
           "capability": true
         }
@@ -887,6 +920,7 @@
       "answer": [
         "bad",
         "observer",
+        null,
         null
       ],
       "result": null

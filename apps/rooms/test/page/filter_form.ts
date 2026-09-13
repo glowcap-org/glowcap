@@ -48,8 +48,8 @@ export async function run(
 		const box = head.getBoundingClientRect(), words = title.getBoundingClientRect();
 		return {
 			expanded: head.getAttribute("aria-expanded") ?? "",
-			// The words are inside the target rather than beside it, which is what
-			// makes the heading the press rather than a mark that shares its line.
+			// The words are inside the target rather than beside it, making the
+			// heading the press rather than a mark that shares its line.
 			holdsItsWords: box.left <= words.left + 0.5 && box.right + 0.5 >= words.right,
 			// Direct messages keeps an ordinary heading. The questions are about
 			// every row in the rail, so a second control asking them would be two
@@ -187,8 +187,8 @@ export async function run(
 					// And every row starting on the same edge, so the list reads as a
 					// column rather than as an indent nobody chose.
 					raggedBy: Math.max(...lefts) - Math.min(...lefts),
-					// The well around all of them, which is what says the set is
-					// closed. Rows loose on the panel stand on nothing and turn no
+					// The well around all of them says the set is closed. Rows loose
+					// on the panel stand on nothing and turn no
 					// corner of their own.
 					wellGround: style.backgroundColor,
 					wellCorner: parseFloat(style.borderTopLeftRadius),

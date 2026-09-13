@@ -1,6 +1,6 @@
 //! Retained archive metadata can contain lossless document text. Live file
 //! capabilities keep their existing UTF-8 description; both share admission.
-use super::{records::digest, Error};
+use super::{Error, records::digest};
 use crate::{files, text::DocumentText};
 use alloc::string::String;
 #[derive(Clone, Debug, PartialEq, Eq)]

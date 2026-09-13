@@ -1,16 +1,16 @@
 //! Reader authority and file admission execute unchanged in native and Wasm.
 use crate::{
 	archive::Passables,
-	arguments::{text, Arg},
+	arguments::{Arg, text},
 };
 use rooms_application::{
 	archive::{
-		self,
-		blobs::{self, admission, Reader},
+		self, Access, Attachment, Body, ConversationKind, Coordinates, Facet, Filter, LineState, Record,
+		blobs::{self, Reader, admission},
 		index::Index,
-		output, Access, Attachment, Body, ConversationKind, Coordinates, Facet, Filter, LineState, Record,
+		output,
 	},
-	files::{FileDescription, CHUNK_BYTES},
+	files::{CHUNK_BYTES, FileDescription},
 };
 use std::{cell::Cell, rc::Rc};
 fn line(directory: &str, name: &str, digest: &str) -> Record {
@@ -30,6 +30,7 @@ fn line(directory: &str, name: &str, digest: &str) -> Record {
 			at: 1,
 			order: 1,
 			state: LineState::Present,
+			previews: Default::default(),
 			attachments: vec![Attachment::new(name.into(), "text/plain".into(), 7, 0, 0, Some(digest.into())).unwrap()],
 		},
 	)
@@ -91,15 +92,17 @@ pub fn run() {
 		.restrict(scoped.scope(), &b)
 		.unwrap();
 	assert_eq!(matching.resolve(&index).unwrap().blob(), Some(b.as_str()));
-	assert!(matching
-		.restrict(
-			&Filter {
-				directory: Some("first".into()),
-				..Default::default()
-			},
-			&b
-		)
-		.is_err());
+	assert!(
+		matching
+			.restrict(
+				&Filter {
+					directory: Some("first".into()),
+					..Default::default()
+				},
+				&b
+			)
+			.is_err()
+	);
 	index.apply(4, line("first", "renamed", &b)).unwrap();
 	assert!(reader.resolve(&index).is_err());
 	index.clear();

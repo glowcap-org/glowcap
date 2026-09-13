@@ -20,11 +20,14 @@
 @import url("forms.css");
 @import url("entries.css");
 @import url("settings.css");
+@import url("help.css");
 @import url("copy-field.css");
 @import url("session-setup.css");
 @import url("operations.css");
 @import url("operations-irc.css");
 @import url("bubbles.css");
+@import url("markdown.css");
+@import url("link-preview.css");
 @import url("irc.css");
 @import url("stream.css");
 @import url("boot.css");
@@ -32,6 +35,27 @@
 @import url("viewer.css");
 @import url("toasts.css");
 @import url("kitchen.css");
+
+/* Focusing a control must never scale the application viewport. Under 16px,
+   iOS zooms a focused text control and can leave the reader stranded in a
+   scaled app whose rails and composer no longer fit. This is a page invariant,
+   not a field style: it comes after every component sheet and is important so
+   a deliberately dense surface cannot silently opt back into viewport zoom.
+
+   The floor follows touch capability rather than width. A phone in landscape
+   can be wide, and a tablet with a trackpad still has glass a reader can touch.
+   `max()` preserves type already larger than the platform's threshold. Selects
+   are included because their focus behavior is engine-dependent; controls that
+   do not accept text have no rendered text for this declaration to resize. */
+@media (any-pointer: coarse) {
+	input:is([type="text"], [type="search"], [type="url"], [type="email"], [type="password"], [type="tel"], [type="number"], :not([type])),
+	textarea,
+	select,
+	[contenteditable]:not([contenteditable="false"]) {
+		/* A browser behavior threshold, not chrome type or a new ramp step. */
+		font-size: max(16px, 1em) !important;
+	}
+}
 
 /* Rooms wears glowcap's own colours — cream paper, cocoa ink, an amber accent,
    a teal flourish — so it looks like part of the project rather than like any
@@ -211,6 +235,16 @@ code {
 	   chip instead of leaving the second line bare. */
 	-webkit-box-decoration-break: clone;
 	box-decoration-break: clone;
+}
+/* Inside a block, the block is the surface and the code is the whole of it:
+   the chip would break wrapped source into a pill per line and an empty pill
+   per blank one. Size follows the block, which sets its own. */
+pre > code {
+	display: block;
+	padding: 0;
+	border-radius: 0;
+	background: transparent;
+	font-size: inherit;
 }
 :root {
 	/* One height for interactive controls, so buttons and single-line inputs line

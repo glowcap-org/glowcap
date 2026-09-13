@@ -1,5 +1,6 @@
-use super::{fields::Presence, model::*, Refusal, Routes};
-use crate::text::{js_whitespace, DocumentText};
+//! Checkpoint validation rejects inconsistent authority relationships.
+use super::{Refusal, Routes, fields::Presence, model::*};
+use crate::text::{DocumentText, js_whitespace};
 use alloc::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn nick(text: &DocumentText, empty: bool) -> bool {
@@ -43,7 +44,7 @@ pub(super) fn state(s: &mut State, routes: &impl Routes) -> Result<(), Refusal> 
 	if s.version != 1 {
 		return Err(Refusal::Schema);
 	}
-	if s.viz_override.0.utf16().next().is_some() && !websocket(&s.viz_override.0, false) {
+	if s.trace_override.0.utf16().next().is_some() && !websocket(&s.trace_override.0, false) {
 		return Err(Refusal::Visualizer);
 	}
 	let mut directories = BTreeMap::new();
@@ -71,7 +72,8 @@ pub(super) fn state(s: &mut State, routes: &impl Routes) -> Result<(), Refusal> 
 		}
 		match c {
 			Conversation::Direct(c) => {
-				if !nick(&c.peer.0, false)
+				if c.id.0.as_str().is_none()
+					|| !nick(&c.peer.0, false)
 					|| !crate::session::fields::registration_id(&c.peer_registration_id.0)
 					|| c.peer.0.lowercase() == d.nick.0.lowercase()
 					|| (!c.closed && !direct.insert((&c.directory.0, &c.peer_registration_id.0)))
@@ -131,7 +133,7 @@ pub(super) fn state(s: &mut State, routes: &impl Routes) -> Result<(), Refusal> 
 		if !credentials.insert((c.capability, &c.scope.0)) {
 			return Err(Refusal::Relation);
 		}
-		if c.capability == Operation::Viz {
+		if c.capability == Operation::Trace {
 			visualizers += 1;
 			if visualizers > 1 || !websocket(&c.scope.0, true) {
 				return Err(Refusal::Visualizer);

@@ -1,7 +1,7 @@
 //! Typed session actions at the browser boundary. Parsing and effects stay in
 //! the shared application and client; JavaScript receives presentation data.
 use super::endpoint::Endpoint;
-use super::{rejected, safe_integer, scalar, view, Result, RoomsBrowserSession};
+use super::{Result, RoomsBrowserSession, rejected, safe_integer, scalar, view};
 use rooms_application::{grants::Rights, session::checkpoint::Checkpoint};
 use rooms_glowcap::client::session::controller::Observation;
 use rooms_glowcap::{client::session::GrantPatch, routes::CheckpointRoutes};

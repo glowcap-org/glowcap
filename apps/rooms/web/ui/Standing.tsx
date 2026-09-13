@@ -14,12 +14,20 @@
 import { type ReactNode, useState } from "react";
 import { MAX_AWAY, PLAIN_AWAY } from "./limits.ts";
 import { MenuLayer, MenuList, MenuRow, useMenu } from "./Menu.tsx";
+import { standingLabel, standingWhyLabel } from "../../lib/text/conversation.ts";
+import {
+	standingAway,
+	standingFollow,
+	standingHere,
+	standingReasonPlaceholder,
+	standingSay,
+} from "../../lib/text/controls.ts";
 
 /** What to call a standing on the control itself: the word somebody wrote, or a
  * plain name for each of the two ordinary answers. */
 function standingSaid(standing: string): string {
-	if (standing === "") return "Here";
-	return standing === PLAIN_AWAY ? "Away" : standing;
+	if (standing === "") return standingHere;
+	return standing === PLAIN_AWAY ? standingAway : standing;
 }
 
 export function StandingMenu(
@@ -74,7 +82,7 @@ export function StandingMenu(
 				aria-haspopup="menu"
 				aria-expanded={open}
 				disabled={disabled}
-				aria-label={label ?? `Where you are${about === "you" ? "" : " in " + about}: ${said.toLowerCase()}`}
+				aria-label={label ?? standingLabel(about, said.toLowerCase())}
 				onClick={() => {
 					if (!disabled) setOpen((was) => !was);
 				}}
@@ -96,7 +104,7 @@ export function StandingMenu(
 								first
 								onPick={() => pick(null)}
 							>
-								Follow {follows}
+								{standingFollow(follows)}
 							</MenuRow>
 						)}
 						<MenuRow
@@ -106,7 +114,7 @@ export function StandingMenu(
 							onPick={() =>
 								pick("")}
 						>
-							Here
+							{standingHere}
 						</MenuRow>
 						<MenuRow
 							className="line-menu-row"
@@ -114,7 +122,7 @@ export function StandingMenu(
 							onPick={() =>
 								pick(PLAIN_AWAY)}
 						>
-							Away
+							{standingAway}
 						</MenuRow>
 						{
 							/* A reason is still away, so it is written where away is chosen
@@ -133,14 +141,14 @@ export function StandingMenu(
 								type="text"
 								value={reason}
 								maxLength={MAX_AWAY}
-								placeholder="back in ten"
+								placeholder={standingReasonPlaceholder}
 								enterKeyHint="done"
 								autoCapitalize="sentences"
-								aria-label={`Why you stepped away${about === "you" ? "" : ", in " + about}`}
+								aria-label={standingWhyLabel(about)}
 								onChange={(event) =>
 									setReason(event.target.value)}
 							/>
-							<button type="submit" className="standing-say">Say it</button>
+							<button type="submit" className="standing-say">{standingSay}</button>
 						</form>
 						{actions.length > 0 && (
 							<div className="standing-actions" role="none">

@@ -461,8 +461,7 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		await tab.press("#line", "Enter");
 		await second.waitForSelector('.sys.notice:has-text("-web-alice- ")', { timeout: 30_000 })
 			.catch(() => fail("a notice did not arrive drawn as one"));
-		// Drawn as a notice rather than as an ordinary line, which is what says it
-		// went quietly.
+		// Drawing this as a notice rather than an ordinary line says it went quietly.
 		if (await second.locator('.bubble:has-text("the build is green again")').count() > 0) {
 			fail("a notice was drawn as an ordinary message");
 		}
@@ -481,6 +480,19 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		undefined,
 		{ timeout: 30_000 },
 	).catch(() => fail("the second peer did not render the fenced source as an exact code block"));
+
+	// Structured Markdown crosses the real room as authored source. The receiving
+	// peer derives the same safe document locally and draws nested GFM structure,
+	// rather than trusting HTML supplied by the sender or the room.
+	const structured = "## Release\n\n- [x] **core**\n\n| path | state |\n| :--- | ---: |\n| room | ready |";
+	await tab.fill("#line", structured);
+	await tab.press("#line", "Enter");
+	await second.waitForSelector('.bubble .markdown-heading.h2:has-text("Release")', { timeout: 30_000 })
+		.catch(() => fail("the second peer did not render the Markdown heading"));
+	await second.waitForSelector('.bubble .markdown-task input:checked + p:has-text("core")', { timeout: 30_000 })
+		.catch(() => fail("the second peer did not render the read-only task state"));
+	await second.waitForSelector('.bubble table th.markdown-align-left:has-text("path")', { timeout: 30_000 })
+		.catch(() => fail("the second peer did not render the aligned GFM table"));
 
 	// Admission happens before Send consumes the composer. A file the shared
 	// attachment contract refuses leaves both its chip and caption in place so

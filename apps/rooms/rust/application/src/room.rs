@@ -2,6 +2,7 @@
 //! These are application actors above CapTP, not another transport or codec.
 pub mod attachment;
 pub mod authority;
+pub mod carries;
 pub mod handoff;
 pub mod history;
 pub mod inbox;

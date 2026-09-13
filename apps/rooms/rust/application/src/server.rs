@@ -4,11 +4,16 @@
 //! capabilities, tells the observers, and keeps the document on disk.
 pub mod directory;
 pub mod document;
+pub mod effects;
 pub mod history;
 pub mod invitation;
 pub mod irc;
 pub mod links;
 pub mod operations;
 pub mod peering;
+mod refusal;
 pub mod rooms;
-pub mod viz;
+pub mod trace;
+
+pub use effects::Release;
+pub use refusal::Refusal;

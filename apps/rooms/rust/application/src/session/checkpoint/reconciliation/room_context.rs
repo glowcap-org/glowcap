@@ -1,9 +1,9 @@
 //! The committed membership inputs observed by a room fact. Unrelated draft
 //! and presentation edits do not invalidate an observation.
 use super::super::{
+	RoomIntent, RoomReconnect,
 	fields::{Bearer, Field, Id, Text},
 	model::{Reconnect, Room},
-	RoomIntent, RoomReconnect,
 };
 
 #[derive(Clone)]

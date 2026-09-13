@@ -15,7 +15,7 @@ pub trait Output {
 	fn list(values: Vec<Self::Value>) -> Self::Value;
 }
 pub fn record<O: Output>(record: &Record) -> Vec<O::Value> {
-	let mut row = Vec::with_capacity(if record.kind() == Kind::Standing { 8 } else { 14 });
+	let mut row = Vec::with_capacity(if record.kind() == Kind::Standing { 8 } else { 15 });
 	append::<O>(record, &mut row);
 	row
 }
@@ -47,6 +47,7 @@ fn append<O: Output>(record: &Record, row: &mut Vec<O::Value>) {
 			at,
 			order,
 			state,
+			previews,
 			attachments,
 		} => {
 			row.extend([
@@ -81,6 +82,7 @@ fn append<O: Output>(record: &Record, row: &mut Vec<O::Value>) {
 					})
 					.collect(),
 			));
+			row.push(O::list(previews.urls().iter().map(|url| O::text(url)).collect()));
 		}
 	}
 }
@@ -116,7 +118,7 @@ pub fn page<O: Output>(page: &index::Page, filter: &Filter, after: u64, limit: u
 			page.records
 				.iter()
 				.map(|entry| {
-					let mut row = Vec::with_capacity(15);
+					let mut row = Vec::with_capacity(16);
 					row.push(O::integer(entry.revision));
 					append::<O>(&entry.record, &mut row);
 					O::list(row)

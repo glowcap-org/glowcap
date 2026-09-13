@@ -21,7 +21,7 @@ use super::host::{GlowcapCloseOptions, GlowcapHost, GlowcapHostSession};
 use super::ocapn::GlowcapLocatorView;
 use crate::sys::{GlowcapReference, GlowcapTransportProvider};
 
-extern "C" {
+unsafe extern "C" {
 	pub fn glowcap_driver_archive_fingerprint() -> u64;
 	pub fn glowcap_driver_take_host(
 		host: *mut GlowcapHost,

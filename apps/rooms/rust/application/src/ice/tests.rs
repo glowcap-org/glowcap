@@ -72,15 +72,16 @@ fn issued_rows_cannot_replace_stun_or_overflow_the_combined_budget() {
 	let stun = Servers::stun(Some("stun:chosen"), LIMITS).unwrap();
 	let issue = |value| Servers::parse(&value, LIMITS).unwrap();
 	assert!(stun.with_turn(issue(json!([{"urls":"stun:issuer"}])), LIMITS).is_err());
-	assert!(stun
-		.with_turn(
+	assert!(
+		stun.with_turn(
 			issue(json!([
 				{"urls":"turn:a","username":"u","credential":"p"},
 				{"urls":"turn:b","username":"u","credential":"p"}
 			])),
 			LIMITS
 		)
-		.is_err());
+		.is_err()
+	);
 	let merged = stun
 		.with_turn(
 			issue(json!([

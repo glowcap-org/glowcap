@@ -62,11 +62,11 @@ pub const BOOT_CAPABILITIES: [BootCapability; 6] = [
 		token: "ROOMS-PEERING",
 	},
 	BootCapability {
-		id: "viz",
-		flag: "--viz",
-		env: "GLOWCAP_ROOMS_VIZ",
-		file: "viz",
-		token: "ROOMS-VIZ",
+		id: "trace",
+		flag: "--trace",
+		env: "GLOWCAP_ROOMS_TRACE",
+		file: "trace",
+		token: "ROOMS-TRACE",
 	},
 ];
 

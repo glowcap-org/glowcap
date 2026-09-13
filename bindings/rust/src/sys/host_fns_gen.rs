@@ -21,7 +21,7 @@ use super::host::{
 use super::ocapn::{GlowcapLocatorHintView, GlowcapLocatorView};
 use crate::sys::{GlowcapArgument, GlowcapContext, GlowcapLastAbort, GlowcapManagedFrame, GlowcapReference};
 
-extern "C" {
+unsafe extern "C" {
 	pub fn glowcap_host_archive_fingerprint() -> u64;
 	pub fn glowcap_host_new(
 		seed: *const c_uchar,
@@ -64,7 +64,7 @@ extern "C" {
 		transport_len: usize,
 	) -> c_int;
 	pub fn glowcap_host_set_session_limits(host: *mut GlowcapHost, options: *const GlowcapSessionLimitOptions)
-		-> c_int;
+	-> c_int;
 	pub fn glowcap_host_session_open_dialed_locator(
 		host: *mut GlowcapHost,
 		locator: *const GlowcapLocatorView,

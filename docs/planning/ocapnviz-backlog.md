@@ -1,20 +1,21 @@
 # ocapnviz backlog
 
-Status: active plan. Edge upload batch has landed; the open remainder is a
-real-GPU re-measure and a frame-budget ratchet. Timeline click-below-fold and
-fit half-row defects from the earlier list are done; other landed work lives
-in git history.
+Status: active plan. The remaining action is a real-GPU re-measure on the
+reporting machine. Static timeline caching, shared wire strokes, retained
+curve records, and playback/bulk-edit work budgets have landed. The
+[roadmap](../roadmap.md#visualizer-measurements) indexes the remaining measurement.
 
 ## Performance: playback and editing cost too much
 
-The visualizer should carry ordinary documents without the user waiting on the
-tool. It does not yet. Cost shows up in two places that share the same budget.
+The original report found editing stalls and playback jumps. The changes below
+address the measured work; the reporting machine must still confirm their
+combined effect on visible playback.
 
 **Editing.** On
 `apps/ocapnviz/test-data/the-kids-masterpiece.json` (31 peers, 90 sessions, 52
 messages; see
 [`apps/ocapnviz/test-data/README.md`](../../apps/ocapnviz/test-data/README.md)),
-these cheap wins have landed:
+these changes have landed:
 
 - Multi-select drag: one `repositionNodes` / placement pass
 - All-pinned topologies skip the force anneal; placement checks equilibrium
@@ -80,7 +81,18 @@ session wires skip Bezier stroke/upload; Inspector shells subscribe to
 `docVersion` + clock so mid-drag no longer re-reconciles Connections and the
 Details chrome (field panels that track live pins still follow `version`).
 
+**Automated regression evidence.** `zig build ocapnviz-test` plays the complete
+committed corpus through Engine ticks and the Stage renderer at 60 logical
+frames per second. It permits at most one shared wire rebuild per frame and
+none for a repeated unchanged picture. The bulk-edit check permits one
+placement pass for a multi-node move and one full recompute for Unpin all.
+Both checks were validated by restoring the redundant work and observing the
+assertion fail. These are hardware-independent work budgets, not GPU timings.
+The wire batch also retains its curve records and skips rebuilding the
+membership Set on an unchanged frame.
+
 **Done when** kids masterpiece (and smaller compositions) can be edited with
 multi-node moves and Unpin all without the tool fighting the user, playback on
-the reporting machine has no visible playhead jump, and a test holds the frame
-budget so the gain cannot quietly rot.
+the reporting machine has no visible playhead jump, and the work-budget tests
+above remain green. The existing Playwright frame-cost probes record timings
+for that hardware pass; CPU rasterization cannot close it.

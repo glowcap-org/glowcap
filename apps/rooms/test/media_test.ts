@@ -49,7 +49,7 @@ Deno.test("a file a room will not take is refused in words that name it", () => 
 	assertEquals(big !== null && big.includes("holiday.mov"), true, `the refusal did not name the file: ${big}`);
 	assertEquals(big !== null && big.includes("MB"), true, `the refusal spoke in bytes: ${big}`);
 
-	// A size that is not a size at all, which is what a peer can put on the wire.
+	// A peer can put a value on the wire that is not a size at all.
 	assertEquals(attachmentRefusal("x.bin", "application/octet-stream", -1) !== null, true);
 	assertEquals(attachmentRefusal("x.bin", "application/octet-stream", Number.NaN) !== null, true);
 

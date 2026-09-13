@@ -26,6 +26,7 @@ import { MenuList, MenuRow } from "./Menu.tsx";
 import { directoryName } from "./text.ts";
 import { type DirectoryDestinationContext, thisDirectoryLocator } from "./joining.ts";
 import type { DirId, DirView } from "./types.ts";
+import { anotherAddress } from "../../lib/text/page.ts";
 
 export function DirectoryPicks(
 	{ className, locator, dirs, context, onPick, onElsewhere }: {
@@ -62,7 +63,7 @@ export function DirectoryPicks(
 					{directoryName(dir.id, homeDir)}
 				</MenuRow>
 			))}
-			<MenuRow className="line-menu-row" onPick={onElsewhere}>Another address…</MenuRow>
+			<MenuRow className="line-menu-row" onPick={onElsewhere}>{anotherAddress}</MenuRow>
 		</MenuList>
 	);
 }
@@ -71,8 +72,8 @@ export function DirectoryPicks(
  * the join card's locator field, with what is there selected so the next thing
  * typed replaces it.
  *
- * Every way in ends here, which is what makes them one offer, and they differ
- * only in what it takes to make that card the surface. From the card's own
+ * Every way in ends here as one offer. They differ only in what it takes to
+ * make that card the surface. From the card's own
  * menu, nothing. From the rail with the card already up, a screen change,
  * which is only visible on a phone. From the rail with a room open there is no
  * card at all, so the press files the act that puts one there. `arrive` is

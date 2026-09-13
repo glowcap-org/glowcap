@@ -280,7 +280,9 @@ const Graph = struct {
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                if (!isSkippedDir(entry.basename)) try walker.enter(io, entry);
+                if (!std.mem.eql(u8, entry.basename, "dist")) {
+                    try util.enterSourceDirectory(io, self.arena, &walker, path, entry);
+                }
                 continue;
             }
             if (entry.kind != .file) continue;
@@ -380,13 +382,6 @@ const Graph = struct {
         return if (it.next()) |name| name.* else "?";
     }
 };
-
-fn isSkippedDir(basename: []const u8) bool {
-    for ([_][]const u8{ "node_modules", "target", "compiled", "__pycache__", ".zig-cache", "zig-out", "dist" }) |name| {
-        if (std.mem.eql(u8, basename, name)) return true;
-    }
-    return false;
-}
 
 fn isFfiTier(binding: Binding, basename: []const u8) bool {
     for (binding.ffi_tier) |name| {

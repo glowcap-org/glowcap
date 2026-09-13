@@ -1,3 +1,4 @@
+//! Session-controller intents bind commands to the authority they observed.
 use super::{Authority, Error};
 use crate::{
 	session::{checkpoint::commands::results::Command, command, fields::Id},

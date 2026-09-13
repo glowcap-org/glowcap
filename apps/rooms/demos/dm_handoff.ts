@@ -38,7 +38,7 @@ import type { Behavior, Host, Session } from "@glowcap/runtime";
 import type { ServerEndpoint } from "../test/support/native_server.ts";
 import { dial } from "../lib/locator.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "../lib/protocol.ts";
-import { INTRODUCTION_PENDING, roomErrorOf } from "../lib/errors.ts";
+import { INTRODUCTION_PENDING, roomsErrorOf } from "../lib/errors.ts";
 import { inboxPublisher } from "../lib/dm_inbox.ts";
 import { Directory } from "../lib/room/client.ts";
 import type { RoomsRuntime } from "../lib/locator.ts";
@@ -80,6 +80,33 @@ export interface DmTransport {
 	startRoom(): ServerEndpoint | Promise<ServerEndpoint>;
 }
 
+/** Own every detached CapTP service loop a demo starts. Failures are observed
+ * immediately and raised by the next scenario wait or by final settlement. */
+export class DemoSessions {
+	readonly #pending = new Set<Promise<void>>();
+	#failure: unknown = null;
+
+	serve(session: Session): void {
+		const observed = session.serve().then(
+			() => {},
+			(error) => {
+				this.#failure ??= error;
+			},
+		);
+		this.#pending.add(observed);
+		void observed.then(() => this.#pending.delete(observed));
+	}
+
+	check(): void {
+		if (this.#failure !== null) throw this.#failure;
+	}
+
+	async settle(): Promise<void> {
+		await Promise.all(this.#pending);
+		this.check();
+	}
+}
+
 /** Poll `ready` until true, throwing `what` past `timeoutMs` so a stuck endpoint
  * fails loud instead of hanging. Exported for a transport that must wait for its
  * own endpoint to become dialable (iroh's direct addresses). */
@@ -87,12 +114,15 @@ export async function waitUntil(
 	ready: () => boolean,
 	timeoutMs: number,
 	what: string,
+	healthy: () => void = () => {},
 ): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (!ready()) {
+		healthy();
 		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
 		await new Promise((r) => setTimeout(r, 10));
 	}
+	healthy();
 }
 
 /** Drive the whole three-party handoff over `t`'s transport and assert the three
@@ -105,7 +135,9 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		console.error(`${t.label} demo FAILED: ${message}`);
 		process.exit(1);
 	}
-	const until = (ready: () => boolean, what: string) => waitUntil(ready, t.timeoutMs, what);
+	const services = new DemoSessions();
+	const untilHealthy = (ready: () => boolean, what: string) =>
+		waitUntil(ready, t.timeoutMs, what, () => services.check());
 
 	// Every DM Bob received, with the peer whose inbox it arrived on. The name is
 	// never read off the message: `dmFor` closes over the peer the inbox was minted
@@ -131,13 +163,13 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		const bobAccept = (async () => {
 			for await (const session of bob.sessions) {
 				bobInbound += 1;
-				session.serve().catch(() => {});
+				services.serve(session);
 			}
 		})();
 		const carolAccept = (async () => {
 			for await (const session of carol.sessions) {
 				carolInbound += 1;
-				session.serve().catch(() => {});
+				services.serve(session);
 			}
 		})();
 
@@ -174,7 +206,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		// for, and it is the name the directory reads off her connection rather than
 		// anything she says in a message.
 		const carolToRoom = await dial(room.locator, carol.runtime);
-		carolToRoom.serve().catch(() => {});
+		services.serve(carolToRoom);
 		const carolDir = await carolToRoom.fetch(DIRECTORY);
 		let carolRegistered = false;
 		let introducible = false;
@@ -185,7 +217,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 			return null;
 		});
 		await carolToRoom.send(carolDir, REGISTER, ["carol", carol.locator, carolReg]);
-		await until(() => carolRegistered, "the room to register Carol");
+		await untilHealthy(() => carolRegistered, "the room to register Carol");
 
 		// First contact: Bob has offered no inbox for Carol, so the directory asks
 		// him for one and refuses this ask. One extra round trip, once per pair.
@@ -193,11 +225,11 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		try {
 			await carolToRoom.send(carolDir, INTRODUCE, ["bob", bobRegistrationId]);
 		} catch (err) {
-			pending = roomErrorOf(err)?.code === INTRODUCTION_PENDING;
+			pending = roomsErrorOf(err)?.code === INTRODUCTION_PENDING;
 			if (!pending) throw err;
 		}
 		if (!pending) fail("expected the first introduce to be refused introduction-pending");
-		await until(() => introducible, "Bob to offer the room an inbox for Carol");
+		await untilHealthy(() => introducible, "Bob to offer the room an inbox for Carol");
 		if (asked !== "carol") {
 			fail(`expected Bob to be asked for an inbox for carol, got ${asked}`);
 		}
@@ -207,7 +239,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		const direct = await carolToRoom.send(carolDir, INTRODUCE, ["bob", bobRegistrationId]);
 		if (!(direct instanceof Ref)) fail("introduce did not return a capability");
 
-		await until(() => bobInboundCount() >= 1, "Carol's direct connection to Bob");
+		await untilHealthy(() => bobInboundCount() >= 1, "Carol's direct connection to Bob");
 		if (bobInboundCount() !== 1) {
 			fail(
 				`expected Carol's redeem to add exactly one direct connection, Bob saw ${bobInboundCount()}`,
@@ -215,7 +247,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		}
 
 		await carolToRoom.send(direct, DM, [t.dmText]);
-		await until(() => received("carol", t.dmText), "Bob to receive Carol's direct DM");
+		await untilHealthy(() => received("carol", t.dmText), "Bob to receive Carol's direct DM");
 		if (carolInboundCount() !== 0) {
 			fail(`expected nobody to dial Carol, she saw ${carolInboundCount()}`);
 		}
@@ -229,6 +261,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		await bob.close();
 		await carol.close();
 		await Promise.allSettled([bobAccept, carolAccept]);
+		await services.settle();
 		process.exit(0);
 	} catch (err) {
 		fail(err instanceof Error ? (err.stack ?? err.message) : String(err));

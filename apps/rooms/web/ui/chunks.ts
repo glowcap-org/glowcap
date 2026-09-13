@@ -8,8 +8,8 @@ export function prefetch(load: () => Promise<unknown>): void {
 	void load().then(() => {}, () => {});
 }
 
-export function loadSessionSetup(): Promise<typeof import("./SessionSetup.tsx")> {
-	return import("./SessionSetup.tsx");
+export function loadSessionSetup(): Promise<typeof import("./panes/SessionSetup.tsx")> {
+	return import("./panes/SessionSetup.tsx");
 }
 
 export function loadEstablished(): Promise<typeof import("./established.tsx")> {
@@ -36,8 +36,8 @@ export function loadPeeringPane() {
 	return import("./ops/Peering.tsx").then((m) => ({ default: m.PeeringPane }));
 }
 
-export function loadVizPane() {
-	return import("./ops/Viz.tsx").then((m) => ({ default: m.VizPane }));
+export function loadTracePane() {
+	return import("./ops/Trace.tsx").then((m) => ({ default: m.TracePane }));
 }
 
 export function loadOperatorPane() {
@@ -57,8 +57,8 @@ export function loadOpsPane(id: string): Promise<unknown> {
 			return loadIrcPane();
 		case "peering":
 			return loadPeeringPane();
-		case "viz":
-			return loadVizPane();
+		case "trace":
+			return loadTracePane();
 		case "operator":
 			return loadOperatorPane();
 		case "diagnostics":

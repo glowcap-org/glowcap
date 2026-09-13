@@ -32,6 +32,7 @@ pub const Context = struct {
 
 pub const Registered = struct {
     check_step: *std.Build.Step,
+    runtime_gate: *execution.SerialGate,
     test_filter: ?[]const u8,
     /// The wasm module's install step; every serve path and browser proof
     /// reads the on-disk artifact it writes.
@@ -41,7 +42,7 @@ pub const Registered = struct {
 
 /// The full `src/root.zig` module graph for an arbitrary target, used by the
 /// cross-compile gate to type-check the platform backends (notably the
-/// Darwin `kqueue` path, which the host io_uring build never compiles)
+/// Darwin `kqueue` path, which a Linux host build never compiles)
 /// without running, so a regression there fails `zig build check` instead of
 /// waiting for a Mac.
 fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
@@ -171,19 +172,22 @@ pub fn register(ctx: Context) Registered {
     //
     // The core correctness gate is hermetic from outside authority: arch gate,
     // source gate, tests, oracle checks, the header staleness check, the Zig + C
-    // examples, the cross-compile gate, the accountability application
-    // (loopback TCP) with its three-party attribution test, and the benchmark
-    // checks (peer-scaling in smoke mode). The cross-language C ABI dogfood
+    // examples, the cross-compile gate, and the benchmark checks (peer-scaling
+    // in its in-process smoke mode). The cross-language C ABI dogfood
     // (`zig build rust-dogfood`, and the wider `zig build bindings`) needs
     // cargo/deno/python/racket on PATH, so it is a sibling step run alongside
     // `check`, not a dependency of it. `check` itself requires the small host
-    // tool set `check_runtimes` declares in toolchain.zig; the container has it.
+    // tool set `in_tree_runtimes` declares in toolchain.zig. The container has it.
     // CI: the checks workflow (.github/workflows/)
     // runs `check` and the sibling gates inside the committed devcontainer
     // image via ci/gates.sh.
     // Each section below wires its gated runs into `check` where the artifacts
     // are built.
-    const check_step = b.step("check", "Run the complete in-tree correctness gate");
+    const check_step = b.step("check", "Run in-process Zig, static, generated, performance, and compile-time checks");
+    const runtime_gate = b.allocator.create(execution.SerialGate) catch @panic("OOM");
+    runtime_gate.* = .{
+        .step = b.step("runtime-check", "Run deterministic process, application, and language-workspace checks in contention-safe order"),
+    };
 
     // ── Tests ────────────────────────────────────────────────────────────────
     const tests_mod = b.createModule(.{
@@ -235,7 +239,7 @@ pub fn register(ctx: Context) Registered {
         .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
     });
 
-    const run_tests = execution.addZigTest(b, tests, .{ .deterministic = 30 });
+    const run_tests = execution.addZigTest(b, tests, .unit_test);
     const completion_deadlines_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/net/completion_loop_deadlines_test.zig"),
         .target = target,
@@ -248,7 +252,7 @@ pub fn register(ctx: Context) Registered {
     });
     completion_deadlines_tests_mod.addImport("completion_deadlines", completion_deadlines_mod);
     const completion_deadlines_tests = b.addTest(.{ .root_module = completion_deadlines_tests_mod });
-    const run_completion_deadlines_tests = execution.addZigTest(b, completion_deadlines_tests, .{ .deterministic = 3 });
+    const run_completion_deadlines_tests = execution.addZigTest(b, completion_deadlines_tests, .unit_test);
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
     // Deliberately outside `check`: a search with no natural end does not
     // belong in a gate that has to finish. What `check` does carry is the
@@ -312,7 +316,7 @@ pub fn register(ctx: Context) Registered {
     onion_loop_tests_mod.addImport("glowcap", lib_mod);
     const onion_loop_tests = b.addTest(.{ .root_module = onion_loop_tests_mod });
     const onion_loop_step = b.step("onion-loop", "Run the focused native OnionLoop completion tests");
-    onion_loop_step.dependOn(&execution.addZigTest(b, onion_loop_tests, .{ .deterministic = 3 }).step);
+    onion_loop_step.dependOn(&execution.addZigTest(b, onion_loop_tests, .unit_test).step);
 
     const oracle_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/oracle_check.zig"),
@@ -326,7 +330,7 @@ pub fn register(ctx: Context) Registered {
     const oracle_tests = b.addTest(.{
         .root_module = oracle_tests_mod,
     });
-    const run_oracle_tests = execution.addZigTest(b, oracle_tests, .{ .deterministic = 3 });
+    const run_oracle_tests = execution.addZigTest(b, oracle_tests, .unit_test);
     const oracle_check_step = b.step("oracle-check", "Run the protocol oracle: message-arm coverage, Syrup corpus parity, and whole-conversation scenario traces (test/oracle_check.zig)");
     oracle_check_step.dependOn(&run_oracle_tests.step);
     check_step.dependOn(&run_oracle_tests.step);
@@ -348,7 +352,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     const source_check_tests = b.addTest(.{ .root_module = source_check_tests_mod });
-    const run_source_check_tests = execution.addZigTest(b, source_check_tests, .{ .deterministic = 3 });
+    const run_source_check_tests = execution.addZigTest(b, source_check_tests, .unit_test);
 
     const source_check_step = b.step("source-check", "Enforce cross-file source, generated, documentation, and scaffolding contracts");
     source_check_step.dependOn(source_check_step_inner);
@@ -356,33 +360,36 @@ pub fn register(ctx: Context) Registered {
     const devcontainer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/env-sync.sh" });
     devcontainer_contracts.has_side_effects = true;
     source_check_step.dependOn(&devcontainer_contracts.step);
-    // The devcontainer's own behaviour tests: name grammars, checkout lookup,
-    // launcher refusals, and the tmux pane runtime. They build their fixtures
-    // in a temporary directory and need no container, so the directory that
-    // every contributor builds in answers to the gate like any other surface.
+    // Static path and pin parity belong in source-check. Executable container
+    // and worktree behavior has its own gate so a focused source edit does not
+    // clone repositories or rewrite temporary Git histories.
+    const infrastructure_check_step = b.step("infrastructure-check", "Run devcontainer and worktree workflow behavior checks (needs bash, git, and python3)");
+    const build_front_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/build-front.sh" });
+    build_front_behaviour.has_side_effects = true;
     const devcontainer_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/host-invariants.sh" });
     devcontainer_behaviour.has_side_effects = true;
-    source_check_step.dependOn(&devcontainer_behaviour.step);
+    devcontainer_behaviour.step.dependOn(&build_front_behaviour.step);
+    infrastructure_check_step.dependOn(&devcontainer_behaviour.step);
     const worktree_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/worktree-integration-test.sh" });
     worktree_integration_contracts.has_side_effects = true;
-    source_check_step.dependOn(&worktree_integration_contracts.step);
+    worktree_integration_contracts.step.dependOn(&devcontainer_behaviour.step);
+    infrastructure_check_step.dependOn(&worktree_integration_contracts.step);
     check_step.dependOn(source_check_step);
 
     // The deadline wrapper every CI gate runs under, held by its behaviour
     // rather than by its source text: a check that greps the file for
     // `return 124` proves the string is present, not that a timed-out child
-    // reports 124. Not a member of `check`. It needs `python3`, which `check`
-    // does not, and it spends seconds on real deadline waits — and `ci/gates.sh`
-    // already runs it first, which is the right place: the wrapper has to be
-    // proven before the sequence that runs under it.
+    // reports 124. Not a member of `check`. It spends seconds on real deadline
+    // waits, and `ci/gates.sh` already runs it first because the wrapper has to
+    // be proven before the sequence that runs under it.
     const timeout_runner_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/run-with-timeout-test.sh" });
     timeout_runner_test.has_side_effects = true;
     const timeout_runner_step = b.step("timeout-runner-test", "Black-box the CI deadline wrapper: exit codes, relayed signal, no survivors");
     timeout_runner_step.dependOn(&timeout_runner_test.step);
 
     // Cross-compile gate: type-check the whole library for macOS (and a 64-bit
-    // Darwin) so the kqueue completion backend — which the host io_uring build never
-    // compiles — cannot regress unnoticed. Compile-only: depending on the object's
+    // Darwin) so the kqueue completion backend, which a Linux host build never
+    // compiles, cannot regress unnoticed. Compile-only: depending on the object's
     // step builds it without running a foreign binary. `aarch64-macos` exercises
     // kqueue; `x86_64-linux` is the host and would be redundant, so the second
     // target is a different ABI to widen coverage cheaply.
@@ -434,7 +441,7 @@ pub fn register(ctx: Context) Registered {
     cross_fast_mod.addImport("glowcap", crossLibModule(b, target, .ReleaseFast));
     cross_fast_mod.link_libc = true;
     const cross_fast = b.addTest(.{ .name = "glowcap-cross-fast", .root_module = cross_fast_mod });
-    const run_cross_fast = execution.addZigTest(b, cross_fast, .{ .deterministic = 30 });
+    const run_cross_fast = execution.addZigTest(b, cross_fast, .unit_test);
 
     const cross_check_step = b.step("cross-check", "Type-check non-host targets — macOS/kqueue (full) and wasm32 (sans-io core), compile-only — and analyze the native tree in ReleaseFast");
     cross_check_step.dependOn(&cross_macos.step);
@@ -528,6 +535,7 @@ pub fn register(ctx: Context) Registered {
 
     return .{
         .check_step = check_step,
+        .runtime_gate = runtime_gate,
         .test_filter = test_filter,
         .wasm_install = &wasm_driver_install.step,
         .wasm_archives = wasm_archives_step,

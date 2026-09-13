@@ -4,6 +4,27 @@ import { applicationModule } from "../application.ts";
 import type { Conv } from "../types.ts";
 import type { CommandOutcome, CommandPowers, CommandResult, HeldDirectory } from "./types.ts";
 import { held, hereOf } from "./catalog.ts";
+import { helpCommandFormatting } from "../../../lib/text/writing.ts";
+import { directoryReportLine, helpYouCanUse, roomListLine, whoisLine } from "../../../lib/text/log.ts";
+import {
+	advertisingNoRooms,
+	directoryNamesMoreThanOne,
+	ignoringNobody,
+	ignoringNow,
+	ignoringThese,
+	ignoringYourOwnName,
+	nobodyCalled,
+	noDirectoryCalled,
+	noDirectoryHeld,
+	noLongerIgnoring,
+	noTopic,
+	thisDirectory,
+	topicIs,
+	wereNotIgnoring,
+	whoisAway,
+	whoisHereNow,
+	whoisNotHere,
+} from "../../../lib/text/commands.ts";
 
 export type Effect = { kind: "effect"; op: string; text: string; extra?: string; refusal?: string };
 export function runCommand(name: string, rest: string, powers: CommandPowers, conv: Conv | null): CommandOutcome {
@@ -36,11 +57,11 @@ export function applyCommandPlan(
 	switch (plan.op) {
 		case "help":
 			say(
-				`You can use:\n${
+				`${helpYouCanUse}\n${
 					held(powers.granted(), hereOf(conv)).map((command) => `/${command.name}: ${command.summary}`).join(
 						"\n",
 					)
-				}`,
+				}\n\n${helpCommandFormatting}`,
 			);
 			break;
 		case "joinRoom":
@@ -63,7 +84,7 @@ export function applyCommandPlan(
 		case "ignored": {
 			const already = powers.ignored();
 			say(
-				already.length === 0 ? "You are not ignoring anybody." : `You are ignoring ${already.join(", ")}.`,
+				already.length === 0 ? ignoringNobody : ignoringThese(already.join(", ")),
 			);
 			break;
 		}
@@ -72,8 +93,7 @@ export function applyCommandPlan(
 			const yours = powers.directories().some((directory) => directory.nick.toLowerCase() === text.toLowerCase());
 			const report = () => {
 				say(
-					`Ignoring ${text} in this window. Their lines still reach the room.` +
-						(yours ? " That is also your own name here, so your own messages stay shown." : ""),
+					ignoringNow(text) + (yours ? ignoringYourOwnName : ""),
 				);
 			};
 			if (result instanceof Promise) return { kind: "done", completion: result.then(report) };
@@ -83,14 +103,14 @@ export function applyCommandPlan(
 		case "unignore": {
 			const result = powers.unignore(text);
 			const report = (changed: boolean) => {
-				say(changed ? `No longer ignoring ${text}.` : `You were not ignoring ${text}.`);
+				say(changed ? noLongerIgnoring(text) : wereNotIgnoring(text));
 			};
 			if (result instanceof Promise) return { kind: "done", completion: result.then(report) };
 			report(result);
 			break;
 		}
 		case "list": {
-			if (text === "") return sayRooms(powers, "This directory", powers.liveRooms());
+			if (text === "") return sayRooms(powers, thisDirectory, powers.liveRooms());
 			const found = pickDirectory(powers, text);
 			return typeof found === "string"
 				? { kind: "refused", why: found }
@@ -98,29 +118,27 @@ export function applyCommandPlan(
 		}
 		case "directories": {
 			const directories = powers.directories();
-			if (directories.length === 0) return { kind: "refused", why: "This tab holds no directory." };
+			if (directories.length === 0) return { kind: "refused", why: noDirectoryHeld };
 			say(
-				directories.map((dir) => {
-					const count = dir.rooms.size;
-					const you = dir.nick === "" ? "no name yet" : `you: ${dir.nick}`;
-					const where = dir.standing === "" ? "here" : `away: ${dir.standing}`;
-					const joined = dir.joined.length === 0 ? "in none of them" : "in " + dir.joined.join(" ");
-					return `${dir.name}${dir.connected ? "" : " (not connected)"}: ${you}, ${where}, ${count} ${
-						count === 1 ? "room" : "rooms"
-					} advertised, ${joined}\n  ${dir.locator}`;
-				}).join("\n"),
+				directories.map((dir) =>
+					directoryReportLine(
+						dir.name,
+						dir.connected,
+						dir.nick,
+						dir.standing,
+						dir.rooms.size,
+						dir.joined,
+						dir.locator,
+					)
+				).join("\n"),
 			);
 			break;
 		}
 		case "whois": {
 			const found = powers.roster().find((member) => member.name.toLowerCase() === text.toLowerCase());
-			if (found === undefined) return { kind: "refused", why: `Nobody here is called ${text}.` };
-			const here = found.away !== "" ? `away: ${found.away}` : found.online ? "here now" : "not here just now";
-			say(
-				`${found.name}: ${here}, ${
-					found.reachable ? "reachable for a direct message" : "not reachable directly"
-				}`,
-			);
+			if (found === undefined) return { kind: "refused", why: nobodyCalled(text) };
+			const here = found.away !== "" ? whoisAway(found.away) : found.online ? whoisHereNow : whoisNotHere;
+			say(whoisLine(found.name, here, found.reachable));
 			break;
 		}
 		case "details":
@@ -135,7 +153,7 @@ export function applyCommandPlan(
 		case "delete":
 			return granted(powers.withdrawLast());
 		case "showTopic":
-			say(conv?.type === "room" && conv.topic ? `The topic is: ${conv.topic}` : "This room has no topic.");
+			say(conv?.type === "room" && conv.topic ? topicIs(conv.topic) : noTopic);
 			break;
 		case "setTopic":
 			return granted(powers.setTopic(text));
@@ -169,11 +187,9 @@ function committed(why: CommandResult<string | null>, retires?: "conversation" |
 	return retires == null ? { kind: "done" } : { kind: "done", retires };
 }
 function sayRooms(powers: CommandPowers, whose: string, rooms: ReadonlyMap<string, number | null>): CommandOutcome {
-	if (rooms.size === 0) return { kind: "refused", why: `${whose} is advertising no rooms.` };
+	if (rooms.size === 0) return { kind: "refused", why: advertisingNoRooms(whose) };
 	powers.say(
-		[...rooms].sort(([a], [b]) => a.localeCompare(b)).map(([name, count]) =>
-			count === null ? `#${name}: occupancy unknown` : `#${name}: ${count} ${count === 1 ? "person" : "people"}`
-		).join("\n"),
+		[...rooms].sort(([a], [b]) => a.localeCompare(b)).map(([name, count]) => roomListLine(name, count)).join("\n"),
 	);
 	return { kind: "done" };
 }
@@ -186,10 +202,8 @@ function pickDirectory(powers: CommandPowers, asked: string): HeldDirectory | st
 	if (hit.length === 1) return hit[0];
 	if (hit.length === 0) {
 		return held.length === 0
-			? "This tab holds no directory."
-			: `No directory here is called "${asked}". This tab holds ${
-				held.map((directory) => directory.name).join(", ")
-			}.`;
+			? noDirectoryHeld
+			: noDirectoryCalled(asked, held.map((directory) => directory.name).join(", "));
 	}
-	return `"${asked}" names more than one: ${hit.map((directory) => directory.name).join(", ")}.`;
+	return directoryNamesMoreThanOne(asked, hit.map((directory) => directory.name).join(", "));
 }

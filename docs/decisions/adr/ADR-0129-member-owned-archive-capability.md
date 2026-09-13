@@ -23,8 +23,8 @@ protocol, an identity boundary, update semantics, and a resource bound at once.
 
 The decision engages the principles that session state is authoritative,
 capabilities carry authority, and untrusted inputs are bounded at
-the receiving edge. [`docs/planning/rooms-persistence.md`](../../planning/rooms-persistence.md)
-names the product reads this contract serves; this record fixes the first
+the receiving edge. The [Rooms operating guide](../../../apps/rooms/operating.md#history)
+describes the product reads this contract serves; this record fixes the first
 shippable capability shape.
 
 ## Decision
@@ -97,8 +97,11 @@ archive contract requires; none receives invented provenance.
 
 ## Consequences
 
-`apps/rooms/lib/archive/protocol.ts` owns the application record vocabulary, bounds,
-parsing, behavior, and client. The tab's IndexedDB adapter owns durable source
+`apps/rooms/lib/archive/record.ts` owns the application record vocabulary, its
+bounds, and the one validator every form of a record reads through; the wire row
+lives there too, and `record_document.ts` reads and writes the JSON document the
+Rust runtime keeps. `apps/rooms/lib/archive/protocol.ts` owns the archive
+verbs, behavior, and client. The tab's IndexedDB adapter owns durable source
 and revision allocation. The direct-message recorder owns conversation
 generation and record IDs; the presentation layer may read older contextual
 rows, but it must label their source and attribution limits.
@@ -116,7 +119,7 @@ backend contract. `apps/rooms/test/archive/wire_test.ts` fetches and uses the
 same object over the Goblins-compatible v1/Syrup floor. `zig build
 rooms-web-dm-tabs` proves the IndexedDB-backed tab
 continues to record, edit, withdraw, and hydrate direct lines. `zig build
-rooms-server-test`, `zig build source-check`, and `zig build check` gate the
+rooms-server-test`, `zig build source-check`, and `zig build runtime-check` gate the
 application contract and repository integration.
 
 ## Notes

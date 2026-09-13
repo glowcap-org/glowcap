@@ -4,11 +4,18 @@
 // directory is two: inspecting what it holds and changing what it holds are
 // separately minted authorities over the same subject, and a reader who takes
 // the second is not visiting somewhere else. So the pane opens when either is
-// held and draws as much as this tab can reach, which is what makes the
-// operator capability read as a step up rather than a second page listing the
+// held and draws as much as this tab can reach. The operator capability then
+// reads as a step up rather than a second page listing the
 // same rooms.
 
 import { OPS_CAPS, type OpsCap, type OpsHeld } from "../types.ts";
+import {
+	opsPaneDirectory,
+	opsPaneIrc,
+	opsPaneListeners,
+	opsPanePeering,
+	opsPaneVisualizer,
+} from "../../../lib/text/ops.ts";
 
 export interface OpsPaneFace {
 	/** The pane's own word: its DOM ids, and the capability the store
@@ -23,11 +30,11 @@ export interface OpsPaneFace {
 }
 
 export const OPS_PANES: readonly OpsPaneFace[] = [
-	{ id: "listeners", path: "admin-listeners", label: "Listeners", caps: ["listeners"] },
-	{ id: "directory", path: "directory", label: "Directory", caps: ["diagnostics", "operator"] },
-	{ id: "irc", path: "irc", label: "IRC", caps: ["irc"] },
-	{ id: "peering", path: "peering", label: "Peering", caps: ["peering"] },
-	{ id: "viz", path: "viz", label: "Visualizer", caps: ["viz"] },
+	{ id: "listeners", path: "admin-listeners", label: opsPaneListeners, caps: ["listeners"] },
+	{ id: "directory", path: "directory", label: opsPaneDirectory, caps: ["diagnostics", "operator"] },
+	{ id: "irc", path: "irc", label: opsPaneIrc, caps: ["irc"] },
+	{ id: "peering", path: "peering", label: opsPanePeering, caps: ["peering"] },
+	{ id: "trace", path: "trace", label: opsPaneVisualizer, caps: ["trace"] },
 ];
 
 /** The address a capability's own word resolves to. `/ops/diagnostics` and
@@ -40,6 +47,18 @@ export function paneOf(segment: string): OpsPaneFace | null {
 		for (const pane of OPS_PANES) if (pane.caps.includes(cap)) return pane;
 	}
 	return null;
+}
+
+/** The address a pane stands at.
+ *
+ * One builder, because four places were composing this by hand and a fifth was
+ * about to: prose that points a reader at a pane and the navigation that takes
+ * them there have to name the same path, and a segment renamed in the table
+ * above should not leave a sentence pointing at nothing. Nobody holding a pane's
+ * capability is required. An address arrived at cold draws the card that asks
+ * for it, so the link remains useful to a reader who does not hold it yet. */
+export function opsAddress(pane: OpsPaneFace): string {
+	return `/ops/${pane.path}`;
 }
 
 /** The pane that draws a capability, for a landing that remembers one. */

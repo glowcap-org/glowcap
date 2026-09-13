@@ -1,10 +1,10 @@
 //! A registered tab answers cold WebRTC connections on its existing Host.
 //! Directory loss stops new offers; accepted connections keep serving until
 //! their own transport closes or the application retires the Host.
-use super::{driver::Driver, Result};
+use super::{Result, driver::Driver};
 use crate::{ice, platform::Platform, signaling::Listener};
 use glowcap::PendingWork;
-use rooms_glowcap::client::directory::{registration::Registration, Directory};
+use rooms_glowcap::client::directory::{Directory, registration::Registration};
 use std::{cell::RefCell, future::poll_fn, rc::Rc};
 use tokio::{sync::watch, task::JoinSet};
 

@@ -114,7 +114,7 @@
 	background: linear-gradient(to bottom, transparent 0, var(--page-foot) var(--log-fade-h));
 	pointer-events: none;
 }
-/* The welcome card, which is what everyone here calls it. It sits at the top of
+/* The welcome card sits at the top of
    the log and opens a conversation, carrying the room's own name and one plain
    sentence about what this conversation is. Bounded to the same width as the
    system pills so the column reads as one measure, and left-aligned because it
@@ -365,14 +365,13 @@
 	box-shadow: var(--glow-soft);
 }
 /* Our own optimistic sends. A line dims while "sending", waiting on the wire to
-   confirm it, and both ways of not sending tint the bubble.
+   confirm it, and both ways of not confirming tint the bubble.
 
-   "Failed" and "refused" are one fact to a reader — this reached nobody — and
-   differ only in whether anything can be done about it, which the retry beside
-   the caption already says. Only "failed" was tinted, so a line that can never
-   send now drew as an ordinary message with a small note under it, while the
-   recoverable one turned the whole bubble. That is the louder mark on the
-   lesser problem.
+   "Failed" reached nobody and carries a retry. "Unconfirmed" may have reached
+   them, so the caption says so and offers no retry, because sending again
+   could land the line twice. Both wear the same tint: to a reader each is a
+   line the conversation does not yet hold, and the caption beside it says
+   which, and what can be done.
 
    The caption carries its own action, or none, without turning message content
    or attachment controls into one outer control. */
@@ -380,7 +379,7 @@
 	opacity: .55;
 }
 .row.mine .bubble.failed,
-.row.mine .bubble.refused {
+.row.mine .bubble.unconfirmed {
 	background: linear-gradient(135deg, var(--danger) 0%,
 		color-mix(in srgb, var(--danger) 78%, #000) 100%);
 	/* Filled, unlike an ordinary line of yours: a line that reached nobody is

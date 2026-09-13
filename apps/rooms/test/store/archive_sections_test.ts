@@ -37,6 +37,7 @@ function shared(id: string, order: number, text: string, over: Partial<ArchiveLi
 		at: order,
 		order,
 		state: "present",
+		previewUrls: [],
 		attachments: [],
 		...over,
 	};

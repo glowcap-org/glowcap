@@ -1,3 +1,4 @@
+// Conversation traffic updates its own store slice without replacing the application shell projection.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {

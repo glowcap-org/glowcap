@@ -1,5 +1,5 @@
 use crate::abi_constants::{WEBRTC_MAX_ICE_CANDIDATE_BYTES, WEBRTC_MAX_SIGNAL_BYTES};
-use js_sys::{Array, JsString, Reflect, JSON};
+use js_sys::{Array, JSON, JsString, Reflect};
 use std::io;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{RtcIceCandidate, RtcIceCandidateInit};
@@ -27,11 +27,7 @@ fn platform_text(value: &JsValue, limit: usize) -> io::Result<String> {
 		return Err(invalid());
 	}
 	let text = value.as_string().ok_or_else(invalid)?;
-	if text.len() > limit {
-		Err(invalid())
-	} else {
-		Ok(text)
-	}
+	if text.len() > limit { Err(invalid()) } else { Ok(text) }
 }
 pub(super) fn description_value(value: &JsValue) -> io::Result<String> {
 	let value = Reflect::get(value, &"sdp".into()).map_err(super::super::socket::js_error)?;

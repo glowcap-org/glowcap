@@ -1,0 +1,187 @@
+/* A link preview is a quotation of another page, not a widget of this one. It
+   nests in the bubble or the composer the way a file chip does: the page's
+   paper, a hairline, the chip radius, and nothing else to say "card" with. No
+   accent stripe, no shadow, no rule between the words and the picture. The
+   words carry the hierarchy on their own, the way a teaser in a paper does:
+   where it is from, quietly; what it is called; a line of what it says; and
+   the picture set on the far edge. */
+.link-preview-list {
+	display: grid;
+	gap: var(--gap-tight);
+	margin: 0 0.65rem 0.5rem;
+}
+
+.link-preview-card {
+	position: relative;
+	min-width: 0;
+	overflow: hidden;
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	background: var(--paper);
+}
+
+.link-preview-card > a {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	min-height: 3.25rem;
+	border-radius: inherit;
+	color: inherit;
+	text-decoration: none;
+}
+
+.link-preview-card > a:has(img) {
+	grid-template-columns: minmax(0, 1fr) clamp(6rem, 27%, 8rem);
+	min-height: 5.5rem;
+}
+
+/* The whole card is the link, and the title is where that shows: the one
+   underline this surface draws, and only under the pointer. */
+.link-preview-card > a:hover .link-preview-copy strong {
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
+}
+
+.link-preview-card > a:focus-visible {
+	outline: 2px solid var(--accent-ink);
+	outline-offset: -2px;
+}
+
+.link-preview-card img {
+	grid-column: 2;
+	grid-row: 1;
+	width: 100%;
+	height: 100%;
+	min-height: 5.5rem;
+	max-height: 7.5rem;
+	object-fit: cover;
+	background: color-mix(in srgb, var(--paper) 82%, var(--ink-soft));
+}
+
+.link-preview-copy,
+.link-preview-failure {
+	display: grid;
+	gap: var(--gap-hair);
+	align-content: center;
+	min-width: 0;
+	padding: 0.6rem 0.8rem;
+}
+
+.draft-link-previews .link-preview-copy,
+.draft-link-previews .link-preview-failure {
+	padding-right: 2.75rem;
+}
+
+/* Where it is from, said once and small. The site is the least of the three
+   facts, so it takes the caption size and the soft ink, with no weight and no
+   tracking to make a label of it. */
+.link-preview-copy small {
+	overflow: hidden;
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+	line-height: 1.3;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.link-preview-copy strong,
+.link-preview-copy span,
+.link-preview-failure strong,
+.link-preview-failure span {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	text-wrap: pretty;
+}
+
+.link-preview-copy strong,
+.link-preview-failure strong {
+	-webkit-line-clamp: 2;
+	font-size: var(--type-body);
+	font-weight: 600;
+	line-height: 1.3;
+}
+
+.link-preview-copy span,
+.link-preview-failure span {
+	color: var(--ink-soft);
+	-webkit-line-clamp: 2;
+	font-size: var(--type-ui);
+	line-height: 1.4;
+}
+
+.link-preview-remove {
+	position: absolute;
+	z-index: 1;
+	top: var(--gap-tight);
+	right: var(--gap-tight);
+}
+
+/* Waiting, in the same words and the same ring every busy control wears. */
+.link-preview-card.loading {
+	display: flex;
+	align-items: center;
+	gap: var(--gap-tight);
+	min-height: 3.25rem;
+	padding: 0 2.75rem 0 0.8rem;
+	color: var(--ink-soft);
+	font-size: var(--type-ui);
+}
+
+.link-preview-card.loading::before {
+	box-sizing: border-box;
+	flex: none;
+	width: 0.9em;
+	height: 0.9em;
+	border: 2px solid currentColor;
+	border-right-color: transparent;
+	border-radius: 50%;
+	content: "";
+	animation: control-busy-turn 0.75s linear infinite;
+}
+
+/* A preview that could not be fetched is not an emergency: the link the reader
+   typed still works as written, and the card says so in the page's own ink,
+   with the one act that can change the answer beside it. Nothing here is red. */
+.link-preview-card.failed {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--gap-tight);
+	min-height: 3.75rem;
+	padding-right: 2.75rem;
+}
+
+.link-preview-card.failed .link-preview-retry {
+	align-self: center;
+}
+
+.message-link-previews {
+	margin: 0.5rem 0 0;
+}
+
+/* A delivered link is already its own fallback. When every optional reader
+   effect is refused, keep the inert wrapper from reserving a blank line in
+   the bubble. */
+.message-link-previews:not(:has(.link-preview-card)) {
+	display: none;
+	margin: 0;
+}
+
+.message-link-previews .link-preview-card.loading {
+	padding-right: 0.8rem;
+}
+
+@media (max-width: 34rem) {
+	.link-preview-card > a:has(img) {
+		grid-template-columns: minmax(0, 1fr) 6rem;
+	}
+	.link-preview-card.failed {
+		grid-template-columns: minmax(0, 1fr);
+		padding: 0 2.75rem 0.6rem 0;
+	}
+	.link-preview-card.failed .link-preview-retry {
+		justify-self: start;
+		margin-left: 0.8rem;
+	}
+}

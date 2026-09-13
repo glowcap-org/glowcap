@@ -1,13 +1,13 @@
 //! Bounded page-lifetime fallback, selected only when storage cannot open.
 //! Record authority and revision ordering use the same index as durable stores.
 use super::{
-	blobs::{self, Staged},
 	Error,
+	blobs::{self, Staged},
 };
 use rooms_application::archive::{
-	blobs::{Address, Reader, MAX_BLOB_BYTES},
+	Facet, Filter, MAX_RECORDS, Record,
+	blobs::{Address, MAX_BLOB_BYTES, Reader},
 	index::{Index, Page},
-	Facet, Filter, Record, MAX_RECORDS,
 };
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use web_sys::Blob;

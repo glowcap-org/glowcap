@@ -9,6 +9,12 @@ human-only codebase; the first commit is from June 2026.
 the disclosure, but they are not the disclosure: different tools emit different
 trailers, and some emit none.
 
+The illustration in `site/assets/glowcap-goblin-512.png` was generated with an
+AI image tool for this project and refined by the maintainer in Pixelmator
+Pro, which its embedded metadata records as the editing tool. It was later
+revised in the same tool to replace the former project mark with the current
+glowcap mark.
+
 ## Upstream policies
 
 [Codeberg](https://codeberg.org/) amended its Terms of Use in July 2026 after a

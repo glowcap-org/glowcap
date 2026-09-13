@@ -164,7 +164,7 @@ export async function run(
 	}
 
 	// ── Asking about the places this tab holds ───────────────────────────
-	// Two directories are open by now, which is what makes these worth asking:
+	// Two directories are open by now, making these questions meaningful:
 	// one lists the rooms on whichever directory is named, and the other says
 	// what this tab is holding at all — including the locator, which the page
 	// had nowhere a reader could read.

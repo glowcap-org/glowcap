@@ -121,10 +121,10 @@ pub(crate) fn enqueue_outbound(out: &mut Outbound, src: &[u8]) -> isize {
 /// Get or lazily create this endpoint's readiness channel. Returns `None` only
 /// if the self-pipe could not be created.
 pub(crate) fn endpoint_readiness(ep: &GlowcapIrohEndpoint) -> Option<&Arc<Readiness>> {
-	if ep.readiness.get().is_none() {
-		if let Some(r) = Readiness::new() {
-			let _ = ep.readiness.set(r);
-		}
+	if ep.readiness.get().is_none()
+		&& let Some(r) = Readiness::new()
+	{
+		let _ = ep.readiness.set(r);
 	}
 	ep.readiness.get()
 }
@@ -303,8 +303,14 @@ async fn nb_acceptor(
 /// Returns -1 if the readiness channel could not be created. Borrows the handle;
 /// the fd is owned by the endpoint and is valid until
 /// `glowcap_iroh_sidecar_endpoint_free`.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_readiness_fd(ep: *const GlowcapIrohEndpoint) -> i32 {
+///
+/// # Safety
+/// `ep` must be null or a live endpoint handle. Null is refused.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_readiness_fd(ep: *const GlowcapIrohEndpoint) -> i32 {
+	if ep.is_null() {
+		return -1;
+	}
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		match endpoint_readiness(ep) {
@@ -320,23 +326,38 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_readiness_fd(ep: *const GlowcapI
 /// returns the count (>= 0), or -1 on error. No allocation per call. If more
 /// records remain queued than fit, the endpoint re-nudges its readiness fd so the
 /// loop wakes again to drain the rest. Borrows the handle.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_drain_ready(
+///
+/// # Safety
+/// `ep` must be null or a live endpoint handle. When non-null, `out` must address
+/// `out_cap` writable events. Invalid pointers or capacities are refused.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_drain_ready(
 	ep: *const GlowcapIrohEndpoint,
 	out: *mut GlowcapIrohReadyEvent,
 	out_cap: usize,
 ) -> isize {
+	if ep.is_null() {
+		return -1;
+	}
+	if out.is_null() || out_cap == 0 {
+		return 0;
+	}
+	if out_cap
+		.checked_mul(std::mem::size_of::<GlowcapIrohReadyEvent>())
+		.and_then(|bytes| isize::try_from(bytes).ok())
+		.is_none()
+	{
+		return -1;
+	}
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		let r = match ep.readiness.get() {
 			Some(r) => r,
 			None => return 0,
 		};
-		if out.is_null() || out_cap == 0 {
-			return 0;
-		}
+		// SAFETY: upheld by the caller after the pointer and capacity checks.
 		let dest = unsafe { std::slice::from_raw_parts_mut(out, out_cap) };
-		r.drain(dest) as isize
+		isize::try_from(r.drain(dest)).unwrap_or(-1)
 	}));
 	result.unwrap_or(-1)
 }
@@ -345,8 +366,14 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_drain_ready(
 /// pulled off the wire and surfaced through `endpoint_try_accept` instead of the
 /// blocking `accept`. Idempotent. Returns 0 on success, -1 if the readiness
 /// channel could not be created. Borrows the handle.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *mut GlowcapIrohEndpoint) -> i32 {
+///
+/// # Safety
+/// `ep` must be null or a live endpoint handle. Null is refused.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *mut GlowcapIrohEndpoint) -> i32 {
+	if ep.is_null() {
+		return -1;
+	}
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		if ep.accept.get().is_some() {
@@ -375,8 +402,16 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *mut 
 /// is a fresh blocking connection; the loop calls `conn_set_nonblocking` on it
 /// to bind it to the readiness surface. Returns an owned handle or null. The
 /// endpoint must outlive the connection.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_try_accept(ep: *mut GlowcapIrohEndpoint) -> *mut GlowcapIrohConn {
+///
+/// # Safety
+/// `ep` must be null or a live endpoint handle. Null is refused.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_try_accept(
+	ep: *mut GlowcapIrohEndpoint,
+) -> *mut GlowcapIrohConn {
+	if ep.is_null() {
+		return std::ptr::null_mut();
+	}
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		let acc = ep.accept.get()?;
@@ -395,11 +430,18 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_try_accept(ep: *mut GlowcapIrohE
 /// success, -1 if the endpoint's readiness channel is unavailable or the streams
 /// were already taken. `ep` must be the endpoint that minted `conn`. Borrows
 /// both handles.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_conn_set_nonblocking(
+///
+/// # Safety
+/// `ep` and `conn` must each be null or live handles; when both are live, `ep`
+/// must have minted `conn`. Null pointers are refused.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_set_nonblocking(
 	ep: *mut GlowcapIrohEndpoint,
 	conn: *mut GlowcapIrohConn,
 ) -> i32 {
+	if ep.is_null() || conn.is_null() {
+		return -1;
+	}
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		let conn_ref = unsafe { &*conn };
@@ -447,8 +489,11 @@ pub extern "C" fn glowcap_iroh_sidecar_conn_set_nonblocking(
 
 /// Stable readiness identity for a connection. It is unique for the endpoint's
 /// lifetime and never derived from the allocation address.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_conn_id(conn: *const GlowcapIrohConn) -> usize {
+///
+/// # Safety
+/// `conn` must be null or a live connection handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_id(conn: *const GlowcapIrohConn) -> usize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		if conn.is_null() {
 			return 0;
@@ -463,8 +508,25 @@ pub extern "C" fn glowcap_iroh_sidecar_conn_id(conn: *const GlowcapIrohConn) -> 
 /// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no bytes are buffered yet. Draining the
 /// buffer frees room for the reader task to resume. The connection must have been
 /// moved to the readiness surface with `conn_set_nonblocking`. Borrows the handle.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_conn_try_read(conn: *mut GlowcapIrohConn, buf: *mut u8, len: usize) -> isize {
+///
+/// # Safety
+/// `conn` must be null or a live connection handle. For nonzero `len`, `buf` must
+/// address `len` writable bytes. Null pointers are refused defensively.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_read(
+	conn: *mut GlowcapIrohConn,
+	buf: *mut u8,
+	len: usize,
+) -> isize {
+	if conn.is_null() {
+		return -1;
+	}
+	if len == 0 {
+		return 0;
+	}
+	if buf.is_null() {
+		return -1;
+	}
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let nb = match conn.nb.get() {
@@ -505,7 +567,7 @@ pub extern "C" fn glowcap_iroh_sidecar_conn_try_read(conn: *mut GlowcapIrohConn,
 			}
 			drop(inb);
 			nb.read_room.notify_one();
-			return n as isize;
+			return isize::try_from(n).unwrap_or(-1);
 		}
 		if inb.eof {
 			return 0;
@@ -523,17 +585,33 @@ pub extern "C" fn glowcap_iroh_sidecar_conn_try_read(conn: *mut GlowcapIrohConn,
 /// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no outbound room remains, and -1 on
 /// error. The connection must have been moved to the readiness surface with
 /// `conn_set_nonblocking`. Borrows the handle.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_conn_try_write(conn: *mut GlowcapIrohConn, buf: *const u8, len: usize) -> isize {
+///
+/// # Safety
+/// `conn` must be null or a live connection handle. For nonzero `len`, `buf` must
+/// address `len` readable bytes. Null pointers and unrepresentable lengths are
+/// refused defensively.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_write(
+	conn: *mut GlowcapIrohConn,
+	buf: *const u8,
+	len: usize,
+) -> isize {
+	if conn.is_null() {
+		return -1;
+	}
+	if len == 0 {
+		return 0;
+	}
+	if buf.is_null() || isize::try_from(len).is_err() {
+		return -1;
+	}
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let nb = match conn.nb.get() {
 			Some(nb) => nb,
 			None => return -1,
 		};
-		if len == 0 {
-			return 0;
-		}
+		// SAFETY: upheld by the caller after the pointer and length checks.
 		let src = unsafe { std::slice::from_raw_parts(buf, len) };
 		let accepted = {
 			let mut out = nb.outbound.lock().unwrap();

@@ -496,8 +496,8 @@ export async function run(
 			const badge = await lobby.locator(".rcount").textContent().catch(() => "?");
 			fail(`the badge still reads ${JSON.stringify(badge)} after a member left, while the pane says ${said}`);
 		});
-		// And the pane still knows they were here, which is what makes the badge's
-		// number a different question rather than the same one counted twice.
+		// The pane still knows they were here. Its answer makes the badge's number
+		// a different question rather than the same one counted twice.
 		const summary = (await tab.textContent("#presenceSummary")) ?? "";
 		if (!summary.includes("1 of 2 here")) {
 			fail(`the members pane lost the distinction the badge depends on: ${JSON.stringify(summary)}`);

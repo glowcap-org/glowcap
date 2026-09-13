@@ -1,16 +1,13 @@
-//! The Rooms wire grammar, declared once for every terminal client.
+//! The Rooms wire grammar, declared once for the application and every client.
 //!
-//! `apps/rooms/lib/protocol.ts` is the human specification and the server's
-//! own vocabulary. This table is the machine-shaped subset the five clients
-//! under `apps/rooms/clients/` read: the directory's publication record, the
-//! watch notifications, the room's notify tails, the subscribe answer, the
-//! verbs and whether each answers, the registration-id form, and the one-shot
-//! session deadline. `zig build gen-rooms-protocol` emits it into each client
-//! directory in that language's idiom, and `apps/rooms/test/protocol_gen_test.ts`
-//! holds the Deno module to the server's own readers, so the server and every
-//! client read one grammar. Each client keeps its language-native validation
-//! and switches on these tags, arities, and types, so a new kind or field is
-//! one edit here.
+//! This table owns the core method and notification spellings plus the
+//! machine-shaped grammar the clients read: the directory's publication
+//! record, watch notifications, room notify tails, subscribe answer, verbs
+//! and whether each answers, registration-id form, and one-shot session
+//! deadline. `apps/rooms/lib/protocol.ts` explains the vocabulary to people
+//! and re-exports its generated TypeScript projection. The Rust application
+//! and five terminal clients consume their generated projections too, so a
+//! new spelling, kind, or field is one edit here.
 
 const std = @import("std");
 
@@ -25,6 +22,8 @@ pub const human_spec = "apps/rooms/lib/protocol.ts";
 pub const source = "tools/gen/rooms_protocol.zig";
 
 pub const outputs = [_]Output{
+    .{ .path = "apps/rooms/lib/protocol_data.ts", .generate = @import("rooms_protocol/data_ts.zig").generate },
+    .{ .path = "apps/rooms/rust/application/src/protocol_data.rs", .generate = @import("rooms_protocol/data_rust.zig").generate },
     .{ .path = "apps/rooms/clients/deno/protocol_gen.ts", .generate = @import("rooms_protocol/ts.zig").generate },
     .{ .path = "apps/rooms/clients/python/_protocol_gen.py", .generate = @import("rooms_protocol/python.zig").generate },
     .{ .path = "apps/rooms/clients/racket/protocol-gen.rkt", .generate = @import("rooms_protocol/racket.zig").generate },
@@ -98,6 +97,183 @@ pub const Field = struct {
     values: ?Enumeration = null,
 };
 
+/// Every core Rooms method or notification word shared by TypeScript and
+/// Rust. Enum names are the generated constant names in snake case; this
+/// switch is the sole authority for their wire spellings.
+pub const Token = enum {
+    directory,
+    room_sender,
+    snapshot,
+    open,
+    open_managed,
+    room_authorities,
+    open_private_link,
+    enter,
+    enter_publication,
+    list,
+    list_publications,
+    watch,
+    watch_publications,
+    advertised_location,
+    publish_durable_room,
+    publication_ready,
+    revoke,
+    link,
+    subscribe,
+    post,
+    edit,
+    withdraw,
+    refile,
+    line,
+    history,
+    edited,
+    withdrawn,
+    refiled,
+    typing,
+    leave,
+    topic,
+    line_bytes,
+    carries,
+    listed,
+    unlisted,
+    away,
+    kick,
+    governs,
+    managed_room_identity,
+    called,
+    private,
+    room_policy,
+    room_policy_changed,
+    membership_kind,
+    mint_invitation,
+    claim_invitation,
+    set_topic,
+    register,
+    voucher,
+    introduce,
+    offer_inbox,
+    offer_signaling,
+    signal_offer,
+    signal_answer,
+    signal_candidate,
+    signal_done,
+    sig_offer,
+    sig_accepted,
+    sig_answer,
+    sig_candidate,
+    sig_reject,
+    attach,
+    post_files,
+    write,
+    discard,
+    read,
+    dm,
+    direct_ready,
+    direct_requested,
+    request_direct,
+    member_registration,
+    notify,
+    membership_ended,
+    room_authority_changed,
+    opened,
+    closed,
+    count,
+    registered,
+    unregistered,
+    truncated,
+    roster,
+    join,
+    seat,
+
+    pub fn wire(self: Token) []const u8 {
+        return switch (self) {
+            .directory => "directory",
+            .room_sender => "room",
+            .snapshot => "snapshot",
+            .open => "open",
+            .open_managed => "openManaged",
+            .room_authorities => "roomAuthorities",
+            .open_private_link => "openPrivateLink",
+            .enter => "enter",
+            .enter_publication => "enterPublication",
+            .list => "list",
+            .list_publications => "listPublications",
+            .watch => "watch",
+            .watch_publications => "watchPublications",
+            .advertised_location => "advertisedLocation",
+            .publish_durable_room => "publishDurableRoom",
+            .publication_ready => "ready",
+            .revoke => "revoke",
+            .link => "link",
+            .subscribe => "subscribe",
+            .post => "post",
+            .edit => "edit",
+            .withdraw => "withdraw",
+            .refile => "refile",
+            .line => "line",
+            .history => "history",
+            .edited => "edited",
+            .withdrawn => "withdrawn",
+            .refiled => "refiled",
+            .typing => "typing",
+            .leave => "leave",
+            .topic => "topic",
+            .line_bytes => "line-bytes",
+            .carries => "carries",
+            .listed => "listed",
+            .unlisted => "unlisted",
+            .away => "away",
+            .kick => "kick",
+            .governs => "governs",
+            .managed_room_identity => "managedRoomIdentity",
+            .called => "called",
+            .private => "private",
+            .room_policy => "roomPolicy",
+            .room_policy_changed => "roomPolicyChanged",
+            .membership_kind => "membershipKind",
+            .mint_invitation => "mintInvitation",
+            .claim_invitation => "claimInvitation",
+            .set_topic => "setTopic",
+            .register => "register",
+            .voucher => "voucher",
+            .introduce => "introduce",
+            .offer_inbox => "offerInbox",
+            .offer_signaling => "offerSignaling",
+            .signal_offer => "signalOffer",
+            .signal_answer => "signalAnswer",
+            .signal_candidate => "signalCandidate",
+            .signal_done => "signalDone",
+            .sig_offer => "offer",
+            .sig_accepted => "accepted",
+            .sig_answer => "answer",
+            .sig_candidate => "candidate",
+            .sig_reject => "reject",
+            .attach => "attach",
+            .post_files => "postFiles",
+            .write => "write",
+            .discard => "discard",
+            .read => "read",
+            .dm => "dm",
+            .direct_ready => "directReady",
+            .direct_requested => "directRequested",
+            .request_direct => "requestDirect",
+            .member_registration => "memberRegistration",
+            .notify => "notify",
+            .membership_ended => "membershipEnded",
+            .room_authority_changed => "roomAuthorityChanged",
+            .opened => "opened",
+            .closed => "closed",
+            .count => "count",
+            .registered => "registered",
+            .unregistered => "unregistered",
+            .truncated => "truncated",
+            .roster => "roster",
+            .join => "join",
+            .seat => "seat",
+        };
+    }
+};
+
 /// A method a client sends, and whether the partner answers it. A verb that
 /// answers is sent and awaited; one that does not is told.
 pub const Verb = struct {
@@ -109,33 +285,33 @@ pub const Verb = struct {
 };
 
 /// The name the server publishes the directory under.
-pub const directory_name = "directory";
+pub const directory_name = Token.directory.wire();
 
 /// The sender of every line the room itself says.
-pub const room_sender = "room";
+pub const room_sender = Token.room_sender.wire();
 
 /// How long a one-shot client waits for its whole roster, in milliseconds.
 pub const session_deadline_ms: u32 = 15_000;
 
 pub const verbs = [_]Verb{
-    .{ .name = "open", .replies = true, .on = .directory },
-    .{ .name = "enter", .replies = true, .on = .directory },
-    .{ .name = "listPublications", .replies = true, .on = .directory },
-    .{ .name = "watchPublications", .replies = true, .on = .directory },
-    .{ .name = "register", .replies = true, .on = .directory },
-    .{ .name = "introduce", .replies = true, .on = .directory },
-    .{ .name = "memberRegistration", .replies = true, .on = .directory },
-    .{ .name = "subscribe", .replies = true, .on = .room },
-    .{ .name = "post", .replies = true, .on = .membership },
-    .{ .name = "leave", .replies = true, .on = .membership },
-    .{ .name = "typing", .replies = false, .on = .membership },
-    .{ .name = "away", .replies = true, .on = .membership },
-    .{ .name = "notify", .replies = false, .on = .inbox },
-    .{ .name = "dm", .replies = true, .on = .inbox },
+    .{ .name = Token.open.wire(), .replies = true, .on = .directory },
+    .{ .name = Token.enter.wire(), .replies = true, .on = .directory },
+    .{ .name = Token.list_publications.wire(), .replies = true, .on = .directory },
+    .{ .name = Token.watch_publications.wire(), .replies = true, .on = .directory },
+    .{ .name = Token.register.wire(), .replies = true, .on = .directory },
+    .{ .name = Token.introduce.wire(), .replies = true, .on = .directory },
+    .{ .name = Token.member_registration.wire(), .replies = true, .on = .directory },
+    .{ .name = Token.subscribe.wire(), .replies = true, .on = .room },
+    .{ .name = Token.post.wire(), .replies = true, .on = .membership },
+    .{ .name = Token.leave.wire(), .replies = true, .on = .membership },
+    .{ .name = Token.typing.wire(), .replies = false, .on = .membership },
+    .{ .name = Token.away.wire(), .replies = true, .on = .membership },
+    .{ .name = Token.notify.wire(), .replies = false, .on = .inbox },
+    .{ .name = Token.dm.wire(), .replies = true, .on = .inbox },
 };
 
 /// The tag on the room's last word to an inbox: the text is the reason.
-pub const membership_ended = "membershipEnded";
+pub const membership_ended = Token.membership_ended.wire();
 
 const name_field = Field{ .name = "name", .ty = .text };
 
@@ -172,6 +348,7 @@ const subscribe_answer_fields = [_]Field{
     .{ .name = "seat", .ty = .reference },
     .{ .name = "kind", .ty = .text, .values = .membership_kinds },
     .{ .name = "topic", .ty = .reference, .nullable = true },
+    .{ .name = "files", .ty = .reference, .nullable = true },
 };
 
 const line_trailing = [_]Field{.{ .name = "id", .ty = .natural }};
@@ -264,12 +441,12 @@ pub const WatchKind = struct {
 };
 
 pub const watch_kinds = [_]WatchKind{
-    .{ .tag = "opened", .args = .publication },
-    .{ .tag = "closed", .args = .publication },
-    .{ .tag = "count", .args = .publication },
-    .{ .tag = "registered", .args = .registration_event },
-    .{ .tag = "unregistered", .args = .registration_event },
-    .{ .tag = "truncated", .args = .truncated },
+    .{ .tag = Token.opened.wire(), .args = .publication },
+    .{ .tag = Token.closed.wire(), .args = .publication },
+    .{ .tag = Token.count.wire(), .args = .publication },
+    .{ .tag = Token.registered.wire(), .args = .registration_event },
+    .{ .tag = Token.unregistered.wire(), .args = .registration_event },
+    .{ .tag = Token.truncated.wire(), .args = .truncated },
 };
 
 /// What a presence tail does to the member it names.
@@ -298,13 +475,13 @@ pub const RoomTail = struct {
 /// `apps/rooms/lib/protocol_irc.ts`; every other tail is
 /// `apps/rooms/lib/protocol.ts`'s.
 pub const room_tails = [_]RoomTail{
-    .{ .tag = "line", .trailing = .line_trailing, .rest = .any, .sender = .either, .text = .any },
-    .{ .tag = "roster", .rest = .text, .sender = .room, .text = .any, .effect = .arrive },
-    .{ .tag = "join", .trailing = .named_trailing, .sender = .room, .text = .any, .effect = .arrive },
-    .{ .tag = "leave", .trailing = .named_trailing, .sender = .room, .text = .any, .effect = .depart },
-    .{ .tag = "typing", .trailing = .typing_trailing, .sender = .room, .text = .empty, .effect = .stay },
-    .{ .tag = "away", .trailing = .away_trailing, .sender = .room, .text = .any, .effect = .stay },
-    .{ .tag = "seat", .trailing = .seat_trailing, .sender = .room, .text = .any, .effect = .stay },
+    .{ .tag = Token.line.wire(), .trailing = .line_trailing, .rest = .any, .sender = .either, .text = .any },
+    .{ .tag = Token.roster.wire(), .rest = .text, .sender = .room, .text = .any, .effect = .arrive },
+    .{ .tag = Token.join.wire(), .trailing = .named_trailing, .sender = .room, .text = .any, .effect = .arrive },
+    .{ .tag = Token.leave.wire(), .trailing = .named_trailing, .sender = .room, .text = .any, .effect = .depart },
+    .{ .tag = Token.typing.wire(), .trailing = .typing_trailing, .sender = .room, .text = .empty, .effect = .stay },
+    .{ .tag = Token.away.wire(), .trailing = .away_trailing, .sender = .room, .text = .any, .effect = .stay },
+    .{ .tag = Token.seat.wire(), .trailing = .seat_trailing, .sender = .room, .text = .any, .effect = .stay },
     .{ .tag = membership_ended, .sender = .room, .text = .nonempty },
 };
 
@@ -358,7 +535,7 @@ pub fn writeHeader(out: *std.ArrayList(u8), gpa: std.mem.Allocator, comment: []c
     try out.print(gpa, "{s} GENERATED by `zig build {s}` from {s}.\n", .{ comment, step_name, source });
     try out.print(gpa, "{s} Do not edit. `zig build {s}-check` keeps this fresh.\n", .{ comment, step_name });
     try out.print(gpa, "{s}\n", .{comment});
-    try out.print(gpa, "{s} The Rooms wire grammar the terminal clients read. The human specification\n", .{comment});
+    try out.print(gpa, "{s} The Rooms wire grammar the application and terminal clients read. The human specification\n", .{comment});
     try out.print(gpa, "{s} is {s}.\n", .{ comment, human_spec });
 }
 

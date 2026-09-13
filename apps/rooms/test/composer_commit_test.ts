@@ -1,3 +1,4 @@
+// Composer commits preserve the exact draft intent across sends, edits, failures, and conversation switches.
 /// <reference lib="dom" />
 import "./support/browser_application.ts";
 // The Rust-owned attached controller finishes composer submissions through the shared commit path.
@@ -97,6 +98,9 @@ Deno.test("a refused file send restores its complete draft after switching rooms
 	const room = store.ensureRoom(page.projection, directory, "first", { persistId: "first" });
 	const other = store.ensureRoom(page.projection, directory, "second", { persistId: "second" });
 	store.switchTo(page.projection, room.key);
+	// A file send is admitted only where this membership holds the files
+	// facet; without it the composer refuses before the controller is asked.
+	store.setGrants(page.projection, room.key, new Set(["files"]));
 	store.setDraft(page.projection, "caption");
 	const file = new File(["payload"], "example.txt", { type: "text/plain" });
 	store.addDraftFiles(page.projection, [file]);
@@ -123,6 +127,37 @@ Deno.test("a refused file send restores its complete draft after switching rooms
 	const restored = store.draftFor(page.projection, room.key);
 	assert(restored.text === "caption" && restored.files[0] === file, "refused submission lost text or file custody");
 	assert(store.activeDraft(page.projection).text === "sibling", "refusal changed sibling intent");
+});
+
+Deno.test("a file send is refused in the log where this membership holds no files facet", () => {
+	const page = new RoomsPage();
+	const directory = dirId("no-files-dir");
+	store.openDir(page.projection, directory, "no-files-dir");
+	const room = store.ensureRoom(page.projection, directory, "bridged", { persistId: "bridged" });
+	store.switchTo(page.projection, room.key);
+	store.setDraft(page.projection, "caption");
+	const file = new File(["payload"], "example.txt", { type: "text/plain" });
+	store.addDraftFiles(page.projection, [file]);
+	// The attach control is absent on such a room, so a file gets here only by
+	// paste or drop; the one admission every controller submits through
+	// refuses it before any controller is asked, and says why in the log.
+	const controller = {
+		cancelDraftSave: () => {},
+		stageDraft: () => {},
+		scheduleDraft: () => Promise.resolve(),
+		sendFiles: () => {
+			throw new Error("a file send reached the controller without the files facet");
+		},
+	};
+	const powers = attachedCommandPowers(page.projection, controller as never, {} as never);
+	const actions = attachedComposerActions(page.projection, controller as never, powers, (error) => {
+		throw error;
+	});
+	actions.send();
+	const last = store.historyOf(page.projection, room.key).at(-1);
+	assert(last?.kind === "sys" && last.text === "This room does not carry files.", "the refusal was not said");
+	const kept = store.draftFor(page.projection, room.key);
+	assert(kept.text === "caption" && kept.files[0] === file, "a refused file send lost its draft");
 });
 
 for (const succeeds of [false, true]) {

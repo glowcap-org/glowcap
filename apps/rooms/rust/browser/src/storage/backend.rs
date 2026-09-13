@@ -1,9 +1,9 @@
 //! Startup selects one archive for this page lifetime. A durable error never
 //! redirects a write to memory. The recorder source is independent of the Host.
-use super::{blobs, memory::Memory, Archive, Database, Error};
+use super::{Archive, Database, Error, blobs, memory::Memory};
 use crate::platform::Platform;
 use rooms_application::{
-	archive::{blobs::Reader, index::Page, Facet, Filter, Record},
+	archive::{Facet, Filter, Record, blobs::Reader, index::Page},
 	text::DocumentText,
 };
 use rooms_runtime::archive::{Backend, BlobAccess, Source};
@@ -74,11 +74,7 @@ impl PageArchive {
 		}
 	}
 	fn require_retained(&self) -> Result<(), Error> {
-		if self.erased.get() {
-			Err(Error::Closed)
-		} else {
-			Ok(())
-		}
+		if self.erased.get() { Err(Error::Closed) } else { Ok(()) }
 	}
 	pub fn source(&self) -> &DocumentText {
 		&self.source
@@ -123,10 +119,10 @@ impl PageArchive {
 }
 pub struct ReadAccess(Reads);
 impl BlobAccess for ReadAccess {
-	async fn read(&self, reader: Reader, offset: u64, maximum: usize) -> Result<Vec<u8>, String> {
+	async fn read(&self, reader: Reader, offset: u64, maximum: usize) -> Result<Vec<u8>, rooms_runtime::Error> {
 		match &self.0 {
 			Reads::Durable(access) => access.read(reader, offset, maximum).await,
-			Reads::Volatile(memory) => memory.bytes(reader, offset, maximum).await.map_err(|e| e.to_string()),
+			Reads::Volatile(memory) => memory.bytes(reader, offset, maximum).await.map_err(Into::into),
 		}
 	}
 }
@@ -140,43 +136,41 @@ impl Backend for PageArchive {
 	fn retains_blobs(&self) -> bool {
 		true
 	}
-	async fn put(&mut self, record: Record) -> Result<u64, String> {
+	async fn put(&mut self, record: Record) -> Result<u64, rooms_runtime::Error> {
 		let serial = self.serial.clone();
 		let _serial = serial.lock().await;
-		self.require_retained().map_err(|e| e.to_string())?;
+		self.require_retained()?;
 		// Metadata updates preserve only digests already owned by this backend.
 		match &mut self.storage {
-			Storage::Durable { archive, epoch } => archive
-				.put_retained(record, epoch.clone())
-				.await
-				.map_err(|e| e.to_string())?
-				.ok_or_else(|| "history recording was invalidated by erasure in another tab".into()),
-			Storage::Volatile(memory) => memory.put(record, Vec::new()).map_err(|e| e.to_string()),
+			Storage::Durable { archive, epoch } => {
+				Ok(archive
+					.put_retained(record, epoch.clone())
+					.await?
+					.ok_or(Error::Invalid(
+						"history recording was invalidated by erasure in another tab",
+					))?)
+			}
+			Storage::Volatile(memory) => Ok(memory.put(record, Vec::new())?),
 		}
 	}
-	async fn put_files<S: Source>(&mut self, record: Record, sources: &[S]) -> Result<u64, String> {
-		self.commit(record, sources).await.map_err(|e| e.to_string())
+	async fn put_files<S: Source>(&mut self, record: Record, sources: &[S]) -> Result<u64, rooms_runtime::Error> {
+		Ok(self.commit(record, sources).await?)
 	}
-	async fn read(&mut self, filter: &Filter, after: u64, limit: usize) -> Result<Page, String> {
-		match &mut self.storage {
+	async fn read(&mut self, filter: &Filter, after: u64, limit: usize) -> Result<Page, rooms_runtime::Error> {
+		Ok(match &mut self.storage {
 			Storage::Durable { archive, .. } => archive.read(filter, after, limit).await,
 			Storage::Volatile(memory) => memory.read(filter, after, limit),
-		}
-		.map_err(|e| e.to_string())
+		}?)
 	}
-	async fn clear(&mut self) -> Result<(), String> {
+	async fn clear(&mut self) -> Result<(), rooms_runtime::Error> {
 		let serial = self.serial.clone();
 		let _serial = serial.lock().await;
-		self.require_retained().map_err(|e| e.to_string())?;
+		self.require_retained()?;
 		match &mut self.storage {
 			Storage::Durable { archive, epoch } => {
-				archive.settle().await.map_err(|e| e.to_string())?;
-				let next = super::metadata::fresh(&mut self.platform).map_err(|e| e.to_string())?;
-				archive
-					.database
-					.set_retention_epoch(next.clone(), true)
-					.await
-					.map_err(|e| e.to_string())?;
+				archive.settle().await?;
+				let next = super::metadata::fresh(&mut self.platform)?;
+				archive.database.set_retention_epoch(next.clone(), true).await?;
 				*epoch = next;
 				archive.cache.clear();
 			}
@@ -184,14 +178,18 @@ impl Backend for PageArchive {
 		}
 		Ok(())
 	}
-	async fn blob_reader(&mut self, facet: Facet, digest: String) -> Result<Reader, String> {
-		match &mut self.storage {
+	async fn blob_reader(&mut self, facet: Facet, digest: String) -> Result<Reader, rooms_runtime::Error> {
+		Ok(match &mut self.storage {
 			Storage::Durable { archive, .. } => archive.blob_reader(facet, digest).await,
 			Storage::Volatile(memory) => memory.reader(facet, &digest),
-		}
-		.map_err(|e| e.to_string())
+		}?)
 	}
-	async fn read_blob(&mut self, reader: Reader, offset: u64, maximum: usize) -> Result<Vec<u8>, String> {
+	async fn read_blob(
+		&mut self,
+		reader: Reader,
+		offset: u64,
+		maximum: usize,
+	) -> Result<Vec<u8>, rooms_runtime::Error> {
 		self.blob_access().read(reader, offset, maximum).await
 	}
 }

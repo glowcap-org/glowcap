@@ -1,12 +1,12 @@
 //! Sustained relay reachability for the page's existing Host. Idle seats and
 //! handshakes stay bounded; established peers transfer to the Host owner.
-use super::{retain, Result};
+use super::{Result, retain};
 use crate::platform::Platform;
-use glowcap::{browser::relay::Registration, Host, Locator, PendingWork, Session};
+use glowcap::{Host, Locator, PendingWork, Session, browser::relay::Registration};
 use rooms_glowcap::client::Deadline;
 use std::sync::Arc;
 use tokio::{
-	sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore},
+	sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch},
 	task::JoinSet,
 };
 
@@ -105,7 +105,7 @@ impl Relay {
 	}
 	pub async fn close(&self) -> Result<()> {
 		self.stop.send_replace(true);
-		super::connections::terminal(&mut self.ended.clone()).await
+		super::connections::settled(&mut self.ended.clone()).await
 	}
 }
 impl Drop for Relay {

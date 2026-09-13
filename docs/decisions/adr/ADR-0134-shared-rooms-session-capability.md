@@ -176,9 +176,12 @@ The first real message or an explicit local open owns presentation state. Reques
 removed with that registration, and bounded again by the target's direct-route ceiling. The directory never carries a
 direct message or adopts the reply capability.
 
-One route owner arbitrates outbound and reciprocal establishment. A route already live wins; a concurrent loser is
-released or closed, and a route generation is captured when its line id is allocated so replacement cannot file an old
-line under a new archive generation. Incoming attachment custody records the exact CapTP session that delivered each
+One route owner arbitrates outbound and reciprocal establishment. A concurrent outbound opening keeps the route
+already established. A fresh reciprocal capability is the peer's current reply route, including when reopening has
+moved it to another connection. The owner retains closure responsibility for superseded exporter connections until
+no route uses them. Local opening confirms an inbox advertisement for the current accepted conversation before
+reporting readiness, so the directory cannot retain a revoked inbox after that local reopen completes.
+A route generation is captured when its line id is allocated so replacement cannot file an old line under a new archive generation. Incoming attachment custody records the exact CapTP session that delivered each
 occurrence rather than fetching through whichever outbound route is current later.
 Normal dialing and reciprocal waiting are one bounded opening per conversation, so commands from several attached views
 join the same attempt. A topology change or directory teardown rejects that owner and waits for its dial cleanup.

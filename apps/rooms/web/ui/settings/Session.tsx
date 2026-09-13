@@ -13,6 +13,7 @@ import { useState } from "react";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { Button } from "../Button.tsx";
 import { useRoomsController } from "../controller/browser.ts";
+import { CopyField } from "../Copy.tsx";
 import { useRoomsState, useSessionPaused } from "../hooks.ts";
 import { Icon } from "../icons.tsx";
 import { useOpenModal } from "../modal.ts";
@@ -21,6 +22,25 @@ import { SessionDataModal } from "./SessionData.tsx";
 import { SessionMoves } from "./SessionMoves.tsx";
 import { effectiveRoomsSessionAccess } from "../controller/access.ts";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
+import { sessionShareLinkCopy } from "../../../lib/text/settings.ts";
+import {
+	currentSessionAdmin,
+	currentSessionAttached,
+	currentSessionAttachedHint,
+	currentSessionAttachedTag,
+	currentSessionExport,
+	currentSessionExportOrReset,
+	currentSessionHosted,
+	currentSessionHostedHint,
+	currentSessionHostedTag,
+	currentSessionInteract,
+	currentSessionLocal,
+	currentSessionLocalHint,
+	currentSessionLocalTag,
+	currentSessionObserve,
+	currentSessionPaused,
+	currentSessionTitle,
+} from "../../../lib/text/session_settings.ts";
 
 export function SessionSettings(
 	{ keepHistory, archiveTarget }: { keepHistory: boolean; archiveTarget: ArchiveTargetView },
@@ -30,22 +50,23 @@ export function SessionSettings(
 	const paused = useSessionPaused();
 	const controller = useRoomsController();
 	const hosting = controller.kind === "hosted";
-	const sharedSession = sharedRoomsSession(controller) != null;
+	const shared = sharedRoomsSession(controller);
+	const sharedSession = shared != null;
 	const canAdminister = effectiveRoomsSessionAccess(controller, sessionAccess) === "admin";
 	const [dataOpen, setDataOpen] = useState(false);
 	// Read only is what the last arm here means, so a capability carrying nothing
-	// has to be answered before it: paused, this said the link was read only,
-	// which is what it will be again and is not what it is.
+	// has to be answered before it. While paused, this said the link was read
+	// only, its future state rather than its present one.
 	const accessSaid = paused
-		? "This capability is paused."
+		? currentSessionPaused
 		: sessionAccess === "admin"
-		? "This capability can administer it."
+		? currentSessionAdmin
 		: sessionAccess === "interact"
-		? "This capability can interact with it."
-		: "This capability is read only.";
+		? currentSessionInteract
+		: currentSessionObserve;
 	return (
 		<>
-			<h3 className="well-title overline" id="currentSessionLegend">Rooms and settings</h3>
+			<h3 className="well-title overline" id="currentSessionLegend">{currentSessionTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="currentSessionLegend">
 				<div className="launch">
 					<span className="launch-mark" aria-hidden="true">
@@ -54,25 +75,41 @@ export function SessionSettings(
 					<div className="launch-copy">
 						<p className="launch-title">
 							<span>
-								{hosting ? "Hosted session" : sharedSession ? "Attached session" : "Local session"}
+								{hosting
+									? currentSessionHosted
+									: sharedSession
+									? currentSessionAttached
+									: currentSessionLocal}
 							</span>
 							<span className="tag">
 								{hosting
-									? "This browser is hosting"
+									? currentSessionHostedTag
 									: sharedSession
-									? "Session capability"
-									: "This browser"}
+									? currentSessionAttachedTag
+									: currentSessionLocalTag}
 							</span>
 						</p>
 						<p className="hint">
 							{hosting
-								? "This browser is hosting this session. Other browsers attach with a capability copied from Holdings. Closing or reloading this tab ends sharing."
+								? currentSessionHostedHint
 								: sharedSession
-								? `A durable session peer keeps this workspace, so every browser attached to it sees the same rooms and settings. ${accessSaid}`
-								: "This browser keeps this workspace. Its rooms and settings stay on this device."}
+								? currentSessionAttachedHint(accessSaid)
+								: currentSessionLocalHint}
 						</p>
 					</div>
 				</div>
+				{
+					/* The link is the point of sharing, so it belongs here where the
+					   share was made, not only under Holdings with the rest of what
+					   this session holds. */
+				}
+				{hosting && shared != null && (
+					<CopyField
+						id="hostedSessionLink"
+						text={shared.sturdyref}
+						label={sessionShareLinkCopy}
+					/>
+				)}
 				<div className="actions" data-stack-narrow>
 					<Button
 						id="sessionDataOpen"
@@ -80,7 +117,7 @@ export function SessionSettings(
 						variant="quiet"
 						onClick={(event) => openModalFrom(event.currentTarget, () => setDataOpen(true))}
 					>
-						{canAdminister ? "Export or reset…" : "Export a copy…"}
+						{canAdminister ? currentSessionExportOrReset : currentSessionExport}
 					</Button>
 				</div>
 			</div>

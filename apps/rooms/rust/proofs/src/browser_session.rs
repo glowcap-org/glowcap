@@ -14,8 +14,10 @@ use rooms_browser::platform::Platform;
 use rooms_runtime::{
 	clock::Clock,
 	documents::VolatileDocuments,
-	session_commands::{FactScope, SessionCommands, SessionEvents},
-	session_state::{DurableSession, LoadStatus, SessionView},
+	session::{
+		commands::{FactScope, SessionCommands, SessionEvents},
+		state::{DurableSession, LoadStatus, SessionView},
+	},
 };
 use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
@@ -44,11 +46,13 @@ fn text<const N: usize, const REQUIRED: bool>(value: &str) -> rooms_application:
 	rooms_application::fields::Text::new(value.into()).unwrap()
 }
 fn room(directory: &str, conversation: &str) -> Vec<DocumentText> {
-	vec![serde_json::json!({"locator":directory,"nick":"browser","conversation":{
+	vec![
+		serde_json::json!({"locator":directory,"nick":"browser","conversation":{
 		"kind":"room","id":conversation,"directory":directory,"name":conversation,
 		"held":false,"standing":null,"draft":""}})
-	.to_string()
-	.into()]
+		.to_string()
+		.into(),
+	]
 }
 
 #[wasm_bindgen]
@@ -127,14 +131,16 @@ pub async fn rooms_browser_session_contract() {
 					peer: text("peer"),
 					registration: text("bad"),
 				};
-				assert!(commands
-					.prepare_scoped_fact(bad, &scope)
-					.unwrap()
-					.send()
-					.unwrap()
-					.wait()
-					.await
-					.is_err());
+				assert!(
+					commands
+						.prepare_scoped_fact(bad, &scope)
+						.unwrap()
+						.send()
+						.unwrap()
+						.wait()
+						.await
+						.is_err()
+				);
 				assert_eq!(issues.recv().await, Some(true));
 				assert_eq!(issues.recv().await, Some(true));
 				assert!(platform.now() >= before + std::time::Duration::from_secs(1));

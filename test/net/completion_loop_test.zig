@@ -6,7 +6,7 @@
 //! multiplexing (many connections, one loop, one thread) is exercised, not
 //! just the single-connection path; churn and mid-handshake drops recycle the
 //! slot pool for real. The loop logic under test is OS-neutral; only the
-//! backend beneath it is io_uring or kqueue. The scripted-backend suites live
+//! backend beneath it is selected for the host. The scripted-backend suites live
 //! beside this file in `completion_loop_{backpressure,stream,reclaim}_test.zig`.
 
 const std = @import("std");
@@ -473,7 +473,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
     // Heavy reuse on purpose: more lifecycles than slots, in waves, so each
     // slot is torn down and re-accepted many times. This is the real stress of
     // the deferred-teardown + slot-reuse machinery the unit path only grazes,
-    // if teardown ever stranded a slot (the io_uring/kqueue close-while-recv-armed
+    // if teardown ever stranded a slot (the backend close-while-recv-armed
     // bug class), the pool would fill, later accepts would be refused, and the
     // clients in a later wave would fail to fetch.
     const per_wave = 40;
@@ -491,7 +491,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
         // io_uring backend's submission-queue self-healing, without the
         // mid-batch flush in `getSqe`, a full queue would close healthy
         // connections (or kill the accept re-arm, and with it the loop) long
-        // before the waves complete. kqueue ignores the hint.
+        // before the waves complete. Readiness backends ignore the hint.
     });
     defer loop.deinit();
     const port = loop.port().?;
@@ -528,7 +528,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
 /// One abrupt client: connect a real socket and drop it immediately, without
 /// handshaking. The server accepts, arms a recv, and has its opening
 /// `op:start-session` send pending, so the close lands while ops are in flight.
-/// This is the exact teardown path the io_uring/kqueue close-while-recv-armed
+/// This is the exact teardown path the completion-backend close-while-recv-armed
 /// bugs lived in; under churn it must drain both ops and reclaim the slot, never
 /// strand or crash.
 fn slamOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {

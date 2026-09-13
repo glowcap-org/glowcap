@@ -1,7 +1,7 @@
 // A member replies to a non-listening sender across a redeemed introduction —
 // the bidirectional completion of the three-party handoff, over loopback TCP.
 //
-// This is the native, headless-Chromium-free sibling of `web/dm_test.ts`: it
+// This is the Chromium-free sibling of `test/proofs/dm_proof.ts`: it
 // drives the same `lib/room/client.ts` `DirectMessage` the browser page uses, so it
 // proves the sender half (`Session.sendRedeeming` surfacing the direct exporter
 // session, ADR-0088) without a browser. Carol never listens, exactly like a
@@ -27,7 +27,7 @@ import { startServer } from "../test/support/native_server.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room/client.ts";
-import { waitUntil } from "./dm_handoff.ts";
+import { DemoSessions, waitUntil } from "./dm_handoff.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 
 const ROOM = "lobby";
@@ -40,6 +40,8 @@ function fail(message: string): never {
 }
 
 async function main(): Promise<void> {
+	const services = new DemoSessions();
+	const until = (ready: () => boolean, what: string) => waitUntil(ready, 10_000, what, () => services.check());
 	// Bob's giftable answers over the session the DM arrived on, to the reply
 	// capability the sender handed it. `recordingReplyDm` carries the
 	// eventual-send that answer rides (the reply lands on the next turn).
@@ -60,7 +62,7 @@ async function main(): Promise<void> {
 	(async () => {
 		for await (const session of bob) {
 			bobAccepts += 1;
-			session.serve().catch(() => {});
+			services.serve(session);
 		}
 	})();
 
@@ -91,10 +93,9 @@ async function main(): Promise<void> {
 	});
 	await line.say(DM_TEXT);
 
-	await waitUntil(() => bobInbox.includes(DM_TEXT), 10_000, "Bob to receive Carol's DM");
-	await waitUntil(
+	await until(() => bobInbox.includes(DM_TEXT), "Bob to receive Carol's DM");
+	await until(
 		() => carolReplies.includes(`bob: ${REPLY_TEXT}`),
-		10_000,
 		"Bob's reply to reach the non-listening sender over the redeemed session",
 	);
 
@@ -117,6 +118,7 @@ async function main(): Promise<void> {
 	await carolRuntime.close();
 	await bobRuntime.close();
 	await room.close();
+	await services.settle();
 	process.exit(0);
 }
 

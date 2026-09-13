@@ -16,7 +16,8 @@ pub struct ConversationEvent {
 	pub history_source: Option<String>,
 	pub history_generation: Option<String>,
 	pub history_id: Option<String>,
-	pub files: Vec<crate::media_files::FileView>,
+	pub files: Vec<crate::files::media_files::FileView>,
+	pub previews: rooms_application::open_graph::Selection,
 }
 
 pub fn from_message(
@@ -49,6 +50,7 @@ pub fn from_message(
 		history_generation: None,
 		history_id: None,
 		files: Vec::new(),
+		previews: message.previews.clone(),
 	}
 }
 
@@ -72,6 +74,7 @@ pub fn typing(conversation_id: String, peer: &str, on: bool, at: u64) -> Convers
 		history_generation: None,
 		history_id: None,
 		files: Vec::new(),
+		previews: Default::default(),
 	}
 }
 
@@ -82,15 +85,16 @@ impl ConversationEvent {
 		&self,
 		source: &str,
 		sequence: u64,
-	) -> Result<rooms_application::session::event::Event<crate::media_files::FileView>, String> {
+	) -> Result<rooms_application::session::event::Event<crate::files::media_files::FileView>, crate::Error> {
+		use crate::Error;
 		use rooms_application::{archive::Coordinates, room::attachment::Attachment, session::event::Event};
 		let history = match (&self.history_source, &self.history_generation, &self.history_id) {
 			(None, None, None) => None,
 			(Some(source), Some(generation), Some(id)) => Some(
 				Coordinates::new(source.as_str().into(), generation.as_str().into(), id.as_str().into())
-					.map_err(|e| e.to_string())?,
+					.map_err(Error::invalid_by)?,
 			),
-			_ => return Err("Rooms event has incomplete archive coordinates".into()),
+			_ => return Err(Error::invalid("Rooms event has incomplete archive coordinates")),
 		};
 		Ok(Event {
 			source: source.into(),
@@ -109,13 +113,14 @@ impl ConversationEvent {
 				.as_deref()
 				.map(serde_json::from_str)
 				.transpose()
-				.map_err(|e| e.to_string())?,
+				.map_err(Error::invalid_by)?,
 			facts: self
 				.facts
 				.as_deref()
 				.map(rooms_application::session::event::Facts::decode)
 				.transpose()
-				.map_err(|e| e.to_string())?,
+				.map_err(Error::invalid_by)?,
+			previews: self.previews.clone(),
 			attachments: self
 				.files
 				.iter()

@@ -3,50 +3,56 @@
 //! exists and otherwise opened, managed when the directory publishes room
 //! managers so the session keeps the authority it just created.
 use super::{EntropySource, Platform};
+use crate::Error;
 use rooms_application::room::{authority::Refusal, stewardship::Kind};
 use rooms_application::session::checkpoint::commands::CommandRoutes;
-use rooms_glowcap::client::{directory::Directory, Error};
+use rooms_glowcap::client::{Error as ClientError, directory::Directory};
 
 /// A missing exact publication is a checkpoint observation, not a dial retry.
 pub enum Failure {
-	Unavailable(String),
+	Unavailable(Error),
 	Retired { kind: Kind, token: String },
 }
 impl core::fmt::Display for Failure {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
-			Self::Unavailable(reason) => f.write_str(reason),
+			Self::Unavailable(reason) => reason.fmt(f),
 			Self::Retired { kind, .. } => write!(f, "the saved {:?} authority was retired", kind),
 		}
 	}
 }
-impl From<String> for Failure {
-	fn from(reason: String) -> Self {
-		Self::Unavailable(reason)
+impl From<Error> for Failure {
+	fn from(cause: Error) -> Self {
+		Self::Unavailable(cause)
 	}
 }
-impl From<&str> for Failure {
-	fn from(reason: &str) -> Self {
-		Self::Unavailable(reason.into())
+impl From<Failure> for Error {
+	/// A retired authority is a fact about the checkpoint, so it reads as
+	/// stale; an unavailable room keeps the class of whatever made it so.
+	fn from(failure: Failure) -> Self {
+		match failure {
+			Failure::Unavailable(cause) => cause,
+			retired @ Failure::Retired { .. } => Error::stale(retired.to_string()),
+		}
 	}
 }
 impl Failure {
-	pub fn authority(kind: Kind, link: &str, error: Error) -> Self {
-		let retired = matches!(&error, Error::Binding(error) if error.is_publication_not_found())
-			|| matches!((&kind, &error), (Kind::Manager, Error::Reply(Refusal::ManagerMismatch)))
+	pub fn authority(kind: Kind, link: &str, error: ClientError) -> Self {
+		let retired = matches!(&error, ClientError::Binding(error) if error.is_publication_not_found())
 			|| matches!(
 				(&kind, &error),
-				(
-					Kind::Steward,
-					Error::Custody(rooms_application::room::stewardship::Error::StewardRetired)
-				)
-			);
-		if retired {
-			if let Some(token) = rooms_glowcap::routes::CheckpointRoutes.authority_token(link) {
-				return Self::Retired { kind, token };
-			}
+				(Kind::Manager, ClientError::Reply(Refusal::ManagerMismatch))
+			) || matches!(
+			(&kind, &error),
+			(
+				Kind::Steward,
+				ClientError::Custody(rooms_application::room::stewardship::Error::StewardRetired)
+			)
+		);
+		if retired && let Some(token) = rooms_glowcap::routes::CheckpointRoutes.authority_token(link) {
+			return Self::Retired { kind, token };
 		}
-		Self::Unavailable(error.to_string())
+		Self::Unavailable(Error::peer(error))
 	}
 }
 
@@ -71,10 +77,7 @@ pub async fn room_reference<P: Platform>(
 		});
 	}
 	if let Some(publication) = publication.filter(|id| !id.is_empty()) {
-		let reference = directory
-			.enter_publication(publication)
-			.await
-			.map_err(|e| e.to_string())?;
+		let reference = directory.enter_publication(publication).await.map_err(Error::peer)?;
 		return Ok(Reached {
 			reference,
 			acquired: None,
@@ -85,11 +88,13 @@ pub async fn room_reference<P: Platform>(
 		.map_err(Failure::from)
 }
 
+/// The directory client reports an enter-or-open that did not reach a room
+/// in its own words; the room stays unreached until the directory changes.
 async fn enter_or_open<P: Platform>(
 	entropy_source: EntropySource,
 	directory: &Directory<P>,
 	name: &str,
-) -> Result<Reached, String> {
+) -> Result<Reached, Error> {
 	rooms_glowcap::client::directory::entry::enter_or_open(
 		|bytes| {
 			entropy_source
@@ -101,4 +106,5 @@ async fn enter_or_open<P: Platform>(
 		name,
 	)
 	.await
+	.map_err(Error::closed)
 }

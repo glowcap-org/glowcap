@@ -1,3 +1,4 @@
+// Attached archive shares reconcile attributed history and cleanup into the exact conversation they name.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {
@@ -37,6 +38,7 @@ Deno.test("reading an attached archive share prepends attributed history to its 
 		at: 2,
 		order: 1,
 		state: "present",
+		previewUrls: [],
 		attachments: [{ name: "shared.txt", mime: "text/plain", size: 12, width: 0, height: 0, blob: null }],
 	};
 	let released = false;
@@ -108,7 +110,7 @@ Deno.test("archive share cleanup failure preserves the reconciled outcome and na
 	const actions = attachedArchiveShareActions(page.projection, page, controller, () => {});
 	assertEquals(
 		await actions.readArchiveShare("share"),
-		"History was added, but the shared-history offer could not be dismissed: session storage unavailable",
+		"History was added, but the shared-history offer could not be dismissed: Rooms couldn't complete that action. Check the diagnostic before trying again. (session storage unavailable)",
 	);
 	assertEquals(
 		store.historyOf(page.projection, conversation.key).some((item) =>

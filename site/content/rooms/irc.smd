@@ -1,0 +1,112 @@
+---
+.title = "IRC and Rooms",
+.description = "Follow an IRC channel from Rooms as if it were a room, or join Rooms from an ordinary IRC client.",
+.date = .date("2026-09-12T00:00:00"),
+.layout = "page.shtml",
+.draft = false,
+---
+
+Rooms and [IRC](https://en.wikipedia.org/wiki/IRC), the chat protocol that
+has run open-source communities since 1988, connect both ways. A bridge
+follows an IRC channel and shows
+it in Rooms as a room. A gateway lets an ordinary IRC client join rooms on a
+Rooms server. Either way, the translation happens at the IRC connection and
+nowhere else. Inside Rooms, someone on IRC is a member like anyone else,
+with the same rooms, the same lines, and the same direct messages.
+
+# Follow an IRC channel as a room
+
+```sh
+zig build rooms-irc-bridge
+```
+
+By default this follows Libera's `#ocapn` over TLS and offers it as a room
+called `libera/#ocapn` on your machine. The command prints the port and the
+room name, and any Rooms client can join. People on the IRC side appear as
+`irc/<nick>`, so you can always see where a line came from.
+
+The bridge only reads until a registered nick opts in to two-way mode with
+a SASL password. Two-way mode needs TLS, sends at a measured pace, and keeps
+only a short backlog across reconnects. A line that may or may not have
+reached IRC is refused rather than sent again, so nothing lands on the
+channel twice.
+
+You set the bridge up from a form on the server's admin page. A password
+goes to the connection that uses it and is kept only so the bridge can log
+in again after a restart. It never enters exports, admin screens, or the
+trouble journal, and it is forgotten when you remove the bridge.
+
+# Join Rooms from an IRC client
+
+```sh
+zig build rooms-irc-front -- --directory=127.0.0.1:9099
+```
+
+Point your IRC client at `127.0.0.1:6667`, pick a nickname, and join a
+channel named after a room. Channel messages, private messages, `NAMES`,
+`LIST`, `PART`, `PING`, `TOPIC`, and `WHOIS` all work. `JOIN` enters a room
+that exists on the server, and if there is none, you see the server's
+refusal.
+
+Here is the whole exchange for one IRC client entering the team room from
+the [Rooms]($link.page('rooms')) page: connecting, joining, saying one line,
+and hearing the reply. Lines marked `>` came from the client, and lines
+marked `<` came back:
+
+```
+> NICK ada
+> USER ada 0 * :Ada, from an IRC client
+< :rooms.local 001 ada :Welcome to Rooms, ada
+< :rooms.local 002 ada :Your server is rooms.local
+< :rooms.local 005 ada CASEMAPPING=rfc1459 CHANTYPES=# NICKLEN=28 TOPICLEN=300 :are supported
+< :rooms.local 376 ada :End of MOTD
+> JOIN #team-guide-20260912
+< :ada!rooms@rooms.local JOIN #team-guide-20260912
+< :rooms.local 353 ada = #team-guide-20260912 :ada agentic-lead first-impression fresh-eyes mira wire-clarity
+< :rooms.local 366 ada #team-guide-20260912 :End of NAMES list
+> PRIVMSG #team-guide-20260912 :Reading along from an IRC client. Same room, no browser.
+< :mira!rooms@rooms.local PRIVMSG #team-guide-20260912 :@ada welcome. The front holds your seat; the room sees an ordinary member.
+> QUIT :done
+```
+
+[The same room seen from a browser. The IRC client joined as an ordinary member named ada, its line arrived like any other, and the member list gives it a message button.]($image.siteAsset('rooms-irc-dark.webp'))
+
+[The same room seen from a browser. The IRC client joined as an ordinary member named ada, its line arrived like any other, and the member list gives it a message button.]($image.siteAsset('rooms-irc-light.webp'))
+
+Each IRC connection gets its own references: to the server, to the rooms it
+joined, and to the direct conversations it was introduced into. So a private
+message from IRC is a real Rooms direct conversation, opened by the same
+introduction anyone else gets. The gateway is where that conversation ends,
+because an IRC client has no way to hold a reference itself, and the gateway
+makes no claim about who is at the keyboard.
+
+Anything IRC cannot show arrives as a notice instead of half a message:
+files, lines too long for IRC, and the buttons that only exist in Rooms.
+
+# One nickname across rooms
+
+One connection to an IRC network owns one nickname. Every channel you follow
+on that network sees that nickname, and every change to it. Joining or
+leaving a channel changes who is in the channel, not who you are on the
+network. The network stays set up when its last channel is removed, and
+removing the network takes its channels and its saved settings with it.
+
+Names in Rooms are still just names on one server. The bridge can pair an
+IRC nickname with a Rooms member without turning either into an account. A
+direct conversation is tied to the registration it was opened with, so
+someone who later takes the same nickname does not inherit it.
+
+# What keeps it steady
+
+The gateway allows a limited number of clients, rooms, direct conversations,
+and queued lines. The bridge limits how many channels it follows, how much
+it buffers, how long it waits to register, how fast it sends, and how it
+reconnects. Shutting down waits for work in progress and keeps both the
+original problem and anything that went wrong while cleaning up.
+
+The tests open real IRC and glowcap connections, and they run both
+directions against a real [Spritely Goblins](https://spritely.institute/)
+program, including a direct message it answers. The
+[IRC README](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/irc/README.md)
+lists every flag, the ways to deploy it, how IRC maps onto Rooms, and the
+limits.

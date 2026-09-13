@@ -3,7 +3,7 @@
 //! work, and told apart from the channel's other traffic by the feed's own
 //! nick. A reconnect installs a fresh generation; the join a stale
 //! generation confirms is ignored.
-use super::protocol::{encode, fold, nick_from_prefix, Message};
+use super::protocol::{Message, encode, fold, nick_from_prefix};
 use alloc::{
 	string::{String, ToString},
 	vec::Vec,

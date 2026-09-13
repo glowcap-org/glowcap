@@ -1,6 +1,6 @@
 //! Bounded attachment facts across all memberships. Sparse edits preserve the
 //! authoritative selection even when preview admission previously refused it.
-use crate::media_files::PreviousFile;
+use crate::{Error, files::media_files::PreviousFile};
 use glowcap::Ref;
 use rooms_application::room::{attachment::Attachment, inbox::Message, message::ChangeKind};
 use std::collections::BTreeMap;
@@ -16,10 +16,12 @@ struct Line {
 	captures: Vec<PreviousFile>,
 }
 impl History {
-	pub fn fold(&mut self, key: Key, message: &mut Message<String, Ref>) -> Result<&mut Vec<PreviousFile>, String> {
+	pub fn fold(&mut self, key: Key, message: &mut Message<String, Ref>) -> Result<&mut Vec<PreviousFile>, Error> {
 		let edited = message.marker.is_some_and(|marker| marker.kind == ChangeKind::Edited);
 		if edited && !self.0.contains_key(&key) {
-			return Err("the edited line's attachment history is no longer retained".into());
+			return Err(Error::stale(
+				"the edited line's attachment history is no longer retained",
+			));
 		}
 		if !self.0.contains_key(&key) && self.0.len() == MAX_LINES {
 			self.0.pop_first();

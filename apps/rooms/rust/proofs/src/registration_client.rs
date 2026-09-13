@@ -1,6 +1,6 @@
 use super::arguments::from_fixture;
 use rooms_application::directory::registration::{self, Custody, Error, Id, Kind, Notice};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 pub fn run() {
 	let fixture: Value = serde_json::from_str(include_str!("../fixtures/registration-client.json")).unwrap();
 	for row in fixture["ids"].as_array().unwrap() {
@@ -12,9 +12,12 @@ pub fn run() {
 	for row in fixture["notices"].as_array().unwrap() {
 		let args: Vec<_> = row["args"].as_array().unwrap().iter().map(from_fixture).collect();
 		let result = registration::notice(row["verb"].as_str().unwrap(), |i| args.get(i));
-		assert_eq!(result.is_err(), row["error"] == true);
+		assert_eq!(result.is_err(), row["error"] == true, "{row}");
 		match result {
-			Ok(Some(Notice::Registered(id))) => assert_eq!(id.as_str(), row["ack"].as_str().unwrap()),
+			Ok(Some(Notice::Registered { nick, id })) => {
+				assert_eq!(nick.text().as_str(), row["args"][1].as_str());
+				assert_eq!(id.as_str(), row["ack"].as_str().unwrap());
+			}
 			Ok(Some(Notice::Event(event))) => {
 				let kind = match event.kind {
 					Kind::MintInboxFor => "mintInboxFor",

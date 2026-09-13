@@ -1,5 +1,6 @@
 {
 	"name": "@glowcap/runtime",
+	"license": "Apache-2.0",
 	"compilerOptions": {
 		"lib": ["deno.window", "esnext"]
 	},

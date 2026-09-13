@@ -18,6 +18,18 @@ import { useRoomsSession } from "../controller/session.ts";
 import type { DiagnosticRow } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
 import { SectionTitle } from "./Section.tsx";
+import {
+	inspectBootstrap,
+	inspectLead,
+	inspectLinks,
+	inspectModerators,
+	inspectOccupants,
+	inspectRegistrations,
+	inspectRooms,
+	inspectSessions,
+	inspectTrouble,
+	type OpsInspectSection,
+} from "../../../lib/text/ops.ts";
 
 /** One inventory: the kind its rows carry, what the section is called, what
  * holding that kind of thing means, and what an empty one says. The order is
@@ -26,56 +38,15 @@ import { SectionTitle } from "./Section.tsx";
  * Every inventory draws whether or not it holds anything, for the same reason
  * the operator's does: a section missing from the page reads the same as an
  * inventory this page does not report, and those are different answers. */
-const INVENTORIES: readonly { kind: string; title: string; lead: string; empty: string }[] = [
-	{
-		kind: "link",
-		title: "Room access",
-		lead: "Durable room entry links this directory publishes. Inspect sees that a link stands, never the link.",
-		empty: "This directory publishes no durable room entry link.",
-	},
-	{
-		kind: "registration",
-		title: "Names and reachability",
-		lead: "A registered nickname holds direct-message inboxes and signaling routes on one exact session.",
-		empty: "No nickname is registered here.",
-	},
-	{
-		kind: "session",
-		title: "Connections and live references",
-		lead: "The peer sessions this directory is holding open, by what carries each one.",
-		empty: "No other peer sessions are active.",
-	},
-	{
-		kind: "room",
-		title: "Rooms",
-		lead: "Every room this directory holds, listed or private.",
-		empty: "This directory holds no rooms.",
-	},
-	{
-		kind: "occupant",
-		title: "Who is in a room",
-		lead: "Each membership a room is holding right now.",
-		empty: "Nobody is in a room right now.",
-	},
-	{
-		kind: "moderator",
-		title: "Room moderator authority",
-		lead:
-			"Rooms this server can grant moderation over. Inspect sees whether a capability is out, never the capability.",
-		empty: "This server owns no rooms right now.",
-	},
-	{
-		kind: "directory",
-		title: "Published bootstrap",
-		lead: "What this directory answers to on the wire.",
-		empty: "This directory publishes no bootstrap.",
-	},
-	{
-		kind: "trouble",
-		title: "Directory trouble",
-		lead: "The same bounded process journal the server writes as it runs.",
-		empty: "The directory has reported no trouble.",
-	},
+const INVENTORIES: readonly ({ kind: string } & OpsInspectSection)[] = [
+	{ kind: "link", ...inspectLinks },
+	{ kind: "registration", ...inspectRegistrations },
+	{ kind: "session", ...inspectSessions },
+	{ kind: "room", ...inspectRooms },
+	{ kind: "occupant", ...inspectOccupants },
+	{ kind: "moderator", ...inspectModerators },
+	{ kind: "directory", ...inspectBootstrap },
+	{ kind: "trouble", ...inspectTrouble },
 ];
 
 export function DiagnosticsPane({ rows }: { rows: readonly DiagnosticRow[] }) {
@@ -94,8 +65,7 @@ export function DiagnosticsPane({ rows }: { rows: readonly DiagnosticRow[] }) {
 	return (
 		<div className="ops-pane">
 			<OpsHead refresh={() => session.refreshOpsCap("diagnostics")}>
-				What this directory holds, as the inspect capability sees it. Nothing on this page can be changed from
-				here.
+				{inspectLead}
 			</OpsHead>
 			{[
 				...INVENTORIES,

@@ -188,6 +188,181 @@ p, li {
   border-radius: var(--radius-card);
 }
 
+/* Product captures are interface evidence, not spot illustrations. Let the
+   whole window remain readable and give it the same framed surface as a
+   diagram. The `rooms-` prefix scopes this to the reproducible captures
+   `site/scripts/capture-rooms.ts` writes rather than changing every image on
+   the site. The frame stays a hairline: a shadow under a window read as a
+   hole. */
+.prose figure:has(img[src*="/rooms-"][src$=".webp"]) {
+  max-width: none;
+  padding: 0.45rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+}
+
+.prose figure:has(img[src*="/rooms-"][src$=".webp"]) img {
+  width: 100%;
+  max-width: none;
+  border-radius: calc(var(--radius-card) - 0.45rem);
+}
+
+/* Each capture comes as a pair, the app's dark face and its light one, and
+   a page carries both figures because the generator installs an asset only
+   where a page names it. The page's theme is the `data-theme` stamp, never
+   the desktop's preference (see tokens.css), so a `picture` element keyed on
+   `prefers-color-scheme` would show the wrong face; the theme picks the
+   figure here, in CSS alone, so the right face is there at first paint and
+   the hidden one leaves the accessibility tree. Both images are lazy with
+   their dimensions set, so a hidden figure is never fetched and the shown one
+   reserves its space. Syrup is the default face, so the dark capture shows
+   until the root is stamped light. */
+.prose figure:has(img[src*="/rooms-"][src$="-light.webp"]) {
+  display: none;
+}
+
+:root[data-theme="light"] .prose figure:has(img[src*="/rooms-"][src$="-dark.webp"]) {
+  display: none;
+}
+
+:root[data-theme="light"] .prose figure:has(img[src*="/rooms-"][src$="-light.webp"]) {
+  display: block;
+}
+
+/* The join card and the session choice are cropped to the control, so at
+   full column width their type would set larger than the page's own. Hold
+   them near their captured size instead. */
+.prose figure:has(img[src*="/rooms-join-"][src$=".webp"]),
+.prose figure:has(img[src*="/rooms-session-dark"][src$=".webp"]),
+.prose figure:has(img[src*="/rooms-session-light"][src$=".webp"]) {
+  max-width: 36rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* The attached session is a phone, and a phone is a portrait: hold it at a
+   phone's width so it reads as one rather than as a tall wall. Both
+   selectors here carry the same two attribute tests as the frame rule
+   above, so they match its specificity and win by coming later. */
+.prose figure:has(img[src*="/rooms-session-attached-"][src$=".webp"]) {
+  max-width: 24rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Two short lists read against each other, the member's Rooms beside the
+   host's. A table gave the longer cells' column the width and squeezed the
+   other to a third; equal columns let both read at body measure, and they
+   stack on a phone. Authored as an HTML block in SuperMD. */
+.prose .columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 2rem;
+  margin: 1.25rem 0;
+}
+
+.prose .columns h3 {
+  margin-top: 0;
+}
+
+@media (max-width: 40rem) {
+  .prose .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The protocol page's object catalog: tiers of cards, one card per object,
+   each saying how you come to hold it, the calls it answers as a row of
+   chips, and what it hands back. A four-column table set the same facts as
+   a wall of wrapped chips. The tiers read top to bottom as the chain from
+   the one published name down to a single line, and the tint says who
+   holds the object, in the modules stack's own palette: cool lives on the
+   server, warm is handed to you, neutral is the one you make. Authored as
+   an HTML block. */
+.prose .objects {
+  margin: 1.25rem 0 1.75rem;
+}
+
+/* A tier's label is a small caption, not a heading, so the page outline
+   stays the page's and the catalog keeps its own rhythm. */
+.prose .objects-tier {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.prose .objects-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.85rem;
+}
+
+.prose .object {
+  padding: 0.9rem 1.05rem 1rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-card);
+}
+
+.prose .object[data-tone="cool"] {
+  background: color-mix(in srgb, var(--teal) 8%, var(--paper-raised));
+}
+
+.prose .object[data-tone="warm"] {
+  background: color-mix(in srgb, var(--accent) 8%, var(--paper-raised));
+}
+
+.prose .object[data-tone="own"] {
+  background: color-mix(in srgb, var(--ink-soft) 7%, var(--paper-raised));
+}
+
+.prose .object p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* The object's name is a noun in the prose, not something a reader types,
+   so it stays in the sans; only the calls below it are mono. */
+.prose .object-name {
+  margin: 0 0 0.3rem;
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.prose .object[data-tone="cool"] .object-name {
+  color: var(--teal-ink);
+}
+
+.prose .object[data-tone="warm"] .object-name {
+  color: var(--accent-ink);
+}
+
+.prose .object-from {
+  color: var(--ink-soft);
+}
+
+/* The chips are the calls, and the row is the object's whole vocabulary. */
+.prose .object-calls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.35rem;
+  margin: 0.6rem 0 !important;
+}
+
+.prose .object-back {
+  color: var(--ink-soft);
+}
+
+.prose .object-back b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 code {
   font-family: var(--font-mono);
   font-size: 0.9em;

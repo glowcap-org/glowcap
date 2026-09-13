@@ -22,10 +22,12 @@ pub(super) enum Finished<P: Platform> {
 }
 
 impl Wanted {
-	pub(super) fn blocked(&self) -> Result<(), String> {
+	pub(super) fn blocked(&self) -> Result<(), Error> {
 		match self.intent.reconnect {
-			Some(RoomReconnect::Manual) => Err("needs an explicit rejoin or a current room link".into()),
-			_ if self.intent.held && self.intent.link.is_none() => Err("needs a new room link or handoff".into()),
+			Some(RoomReconnect::Manual) => Err(Error::refused("needs an explicit rejoin or a current room link")),
+			_ if self.intent.held && self.intent.link.is_none() => {
+				Err(Error::refused("needs a new room link or handoff"))
+			}
 			_ => Ok(()),
 		}
 	}
@@ -33,7 +35,7 @@ impl Wanted {
 
 pub(super) async fn join<P: Platform>(
 	entropy: EntropySource,
-	directories: crate::directory_runtime::DirectoryRuntime<P>,
+	directories: crate::directories::runtime::DirectoryRuntime<P>,
 	events: mpsc::Sender<ConversationEvent>,
 	notices: mpsc::Sender<Notice>,
 	shared: Rc<RefCell<LiveRooms<P>>>,
@@ -50,7 +52,7 @@ pub(super) async fn join<P: Platform>(
 
 async fn realize<P: Platform>(
 	entropy: EntropySource,
-	directories: crate::directory_runtime::DirectoryRuntime<P>,
+	directories: crate::directories::runtime::DirectoryRuntime<P>,
 	events: mpsc::Sender<ConversationEvent>,
 	notices: mpsc::Sender<Notice>,
 	shared: Rc<RefCell<LiveRooms<P>>>,
@@ -58,9 +60,9 @@ async fn realize<P: Platform>(
 ) -> Result<Joined<P>, join::Failure> {
 	let (directory, nick) = directories
 		.connected(&wanted.intent.directory)
-		.ok_or_else(|| "that directory is not connected in this Rooms session".to_owned())?;
+		.ok_or_else(|| Error::closed("that directory is not connected in this Rooms session"))?;
 	if nick.is_empty() {
-		return Err("this session has no directory nick for that room".into());
+		return Err(Error::stale("this session has no directory nick for that room").into());
 	}
 	let reached = join::room_reference(
 		entropy,
@@ -159,21 +161,20 @@ pub(in crate::rooms) async fn subscribe<P: Platform>(
 					// The stream end carries the reason to the worker.
 					Event::Ended(_) => return,
 				};
-				if notices.try_send(notice).is_err() {
-					if let Some(live) = shared
+				if notices.try_send(notice).is_err()
+					&& let Some(live) = shared
 						.borrow_mut()
 						.rooms
 						.get_mut(&conversation)
 						.filter(|live| live.epoch == epoch)
-					{
-						live.resync = true;
-					}
+				{
+					live.resync = true;
 				}
 			}),
 		},
 	)
 	.await
-	.map_err(|e| e.to_string())?;
+	.map_err(Error::peer)?;
 	let prepared = async {
 		// A newly created room already handed this join its manager. Install
 		// that authority before publishing the live membership and its facts.
@@ -196,10 +197,10 @@ pub(in crate::rooms) async fn subscribe<P: Platform>(
 		}
 		// A room whose policy cannot be read is not joined as open: the policy
 		// decides what the view may do, so failing here fails closed.
-		let policy = room.policy().await.map_err(|e| e.to_string())?;
-		let kind = room.kind().map_err(|e| e.to_string())?;
+		let policy = room.policy().await.map_err(Error::peer)?;
+		let kind = room.kind().map_err(Error::peer)?;
 		let conversation_id = Id::new(wanted.intent.id.clone().into())
-			.ok_or_else(|| "room conversation id exceeds its field".to_owned())?;
+			.ok_or_else(|| Error::invalid("room conversation id exceeds its field"))?;
 		Ok::<_, join::Failure>(RoomView {
 			conversation_id,
 			membership_kind: kind,
@@ -209,7 +210,9 @@ pub(in crate::rooms) async fn subscribe<P: Platform>(
 			topic: Nullable::Null,
 			line_bytes: Nullable::Null,
 			bridge: Presence::Missing,
+			carries: None,
 			can_set_topic: Some(false),
+			can_post_files: Some(false),
 			can_moderate: Some(false),
 		})
 	}
@@ -217,9 +220,14 @@ pub(in crate::rooms) async fn subscribe<P: Platform>(
 	let view = match prepared {
 		Ok(view) => view,
 		Err(error) => {
-			return Err(match room.leave().await {
-				Ok(()) => error,
-				Err(cleanup) => join::Failure::Unavailable(format!("{error}; room leave failed: {cleanup}")),
+			// A leave that also fails is retained behind the failure it followed;
+			// a retired authority keeps its own verdict.
+			return Err(match (error, room.leave().await) {
+				(error, Ok(())) => error,
+				(join::Failure::Unavailable(cause), Err(cleanup)) => {
+					join::Failure::Unavailable(cause.retain(Error::peer(cleanup)))
+				}
+				(retired @ join::Failure::Retired { .. }, Err(_)) => retired,
 			});
 		}
 	};

@@ -35,12 +35,11 @@ enum DialEntry {
 }
 
 /// The bounded text of one failed dial: iroh's own account of the fault,
-/// kept beside the code that classifies it. Fixed storage rather than a
-/// `String`, so a failed dial allocates nothing to say why. Text past the
-/// bound is dropped at the last whole UTF-8 sequence that fits, and a caller's
-/// copy into a smaller buffer truncates the same way, so a consumer may treat
-/// the bytes as a string on either side. Empty when the code is the whole
-/// fact, as for a canceled dial or a sidecar panic.
+/// kept beside the code that classifies it. A descriptive failure allocates
+/// one fixed-size block rather than growing a `String`; code-only failures
+/// allocate nothing. Text past the bound is dropped at the last whole UTF-8
+/// sequence that fits, and a caller's copy into a smaller buffer truncates the
+/// same way, so a consumer may treat the bytes as a string on either side.
 pub(crate) struct DialText {
 	len: usize,
 	bytes: [u8; DIAL_TEXT_BYTES],
@@ -112,21 +111,21 @@ impl std::fmt::Write for DialText {
 /// blocking dial never stores one, handing the text straight to its caller.
 pub(crate) struct DialFailure {
 	code: i32,
-	text: DialText,
+	// Most classifications need no prose. Keep the comparatively large bounded
+	// diagnostic off the async state machine and allocate it only for failures
+	// that actually have transport detail to retain.
+	text: Option<Box<DialText>>,
 }
 
 impl DialFailure {
 	fn code_only(code: i32) -> DialFailure {
-		DialFailure {
-			code,
-			text: DialText::EMPTY,
-		}
+		DialFailure { code, text: None }
 	}
 
 	fn described(code: i32, args: std::fmt::Arguments<'_>) -> DialFailure {
 		DialFailure {
 			code,
-			text: DialText::describe(args),
+			text: Some(Box::new(DialText::describe(args))),
 		}
 	}
 }
@@ -141,14 +140,11 @@ impl From<i32> for DialFailure {
 /// copied byte count lands in `out_text_len`: zero on success, for a pending
 /// request, or when the caller passed no buffer.
 fn report_text(failure: Option<&DialFailure>, out_text: *mut u8, out_text_cap: usize, out_text_len: *mut usize) {
-	match failure {
-		Some(failure) => failure.text.copy_to(out_text, out_text_cap, out_text_len),
-		None => {
-			if !out_text_len.is_null() {
-				// Safety: the contract requires a writable `usize` when non-null.
-				unsafe { *out_text_len = 0 };
-			}
-		}
+	if let Some(text) = failure.and_then(|failure| failure.text.as_deref()) {
+		text.copy_to(out_text, out_text_cap, out_text_len);
+	} else if !out_text_len.is_null() {
+		// Safety: the contract requires a writable `usize` when non-null.
+		unsafe { *out_text_len = 0 };
 	}
 }
 
@@ -219,13 +215,21 @@ impl DialState {
 }
 
 /// Parse the borrowed public target representation into an owned iroh address.
-pub(crate) fn parse_target(
+///
+/// # Safety
+/// `node_id` must address `node_id_len` readable bytes. When non-null,
+/// `addr_hints` must address `addr_hints_len` readable bytes.
+pub(crate) unsafe fn parse_target(
 	node_id: *const u8,
 	node_id_len: usize,
 	addr_hints: *const u8,
 	addr_hints_len: usize,
 ) -> Result<EndpointAddr, i32> {
-	if node_id.is_null() || (addr_hints.is_null() && addr_hints_len != 0) {
+	if node_id.is_null()
+		|| (addr_hints.is_null() && addr_hints_len != 0)
+		|| isize::try_from(node_id_len).is_err()
+		|| isize::try_from(addr_hints_len).is_err()
+	{
 		return Err(DIAL_INVALID);
 	}
 	let id_str =
@@ -297,13 +301,13 @@ async fn dial_raw(
 			return Err(DialFailure::described(
 				connect_failure_code(&error),
 				format_args!("{error:#}"),
-			))
+			));
 		}
 		Err(_) => {
 			return Err(DialFailure::described(
 				DIAL_TIMEOUT,
 				format_args!("no QUIC connection within {ms} ms"),
-			))
+			));
 		}
 	};
 	let (send, recv) = match tokio::time::timeout(connect_timeout, conn.open_bi()).await {
@@ -312,13 +316,13 @@ async fn dial_raw(
 			return Err(DialFailure::described(
 				DIAL_LOST,
 				format_args!("connected, then the stream open failed: {error}"),
-			))
+			));
 		}
 		Err(_) => {
 			return Err(DialFailure::described(
 				DIAL_TIMEOUT,
 				format_args!("connected, but no bidirectional stream within {ms} ms"),
-			))
+			));
 		}
 	};
 	Ok(AcceptedRaw { conn, send, recv })
@@ -356,8 +360,12 @@ pub(crate) fn endpoint_dials(ep: &GlowcapIrohEndpoint) -> Option<&Arc<DialState>
 /// Deliberately blocking convenience for the explicit blocking resident. The
 /// evented backend and public ABI use start/finish/cancel below. The failure
 /// text is handed to the caller's buffer directly; nothing is retained.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_connect_blocking(
+///
+/// # Safety
+/// `ep` must be a live endpoint handle. Target pointers must address their
+/// declared readable lengths, and non-null output pointers must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 	ep: *mut GlowcapIrohEndpoint,
 	node_id: *const u8,
 	node_id_len: usize,
@@ -373,7 +381,7 @@ pub extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 			return Err(DIAL_INVALID.into());
 		}
 		let ep = unsafe { &*ep };
-		let addr = parse_target(node_id, node_id_len, addr_hints, addr_hints_len)?;
+		let addr = unsafe { parse_target(node_id, node_id_len, addr_hints, addr_hints_len) }?;
 		let raw = ep.rt.block_on(dial_raw(ep.ep.clone(), addr, ep.connect_timeout))?;
 		make_conn(ep, raw).ok_or(DialFailure::code_only(DIAL_LOST))
 	}));
@@ -392,8 +400,12 @@ pub extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 /// Admit one outbound dial without blocking. Borrowed target bytes are parsed
 /// before return; the endpoint owns the Tokio task and terminal result. The
 /// bounded request table returns `DIAL_BUSY` without minting an event when full.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
+///
+/// # Safety
+/// `ep` must be a live endpoint handle. Target pointers must address their
+/// declared readable lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 	ep: *mut GlowcapIrohEndpoint,
 	request_id: usize,
 	node_id: *const u8,
@@ -406,7 +418,7 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 			return Err(DIAL_INVALID);
 		}
 		let ep = unsafe { &*ep };
-		let addr = parse_target(node_id, node_id_len, addr_hints, addr_hints_len)?;
+		let addr = unsafe { parse_target(node_id, node_id_len, addr_hints, addr_hints_len) }?;
 		let dials = endpoint_dials(ep).ok_or(DIAL_LOST)?.clone();
 		{
 			let mut entries = dials.entries.lock().unwrap();
@@ -452,8 +464,12 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 /// Consume one terminal dial result. Returns the dial classification and writes
 /// the owned connection on success, or the retained failure text into the
 /// caller's buffer. A pending request returns DIAL_PENDING and leaves its row.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
+///
+/// # Safety
+/// `ep` must be a live endpoint handle, `out_conn` must be writable, and
+/// non-null text outputs must address their declared capacities.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 	ep: *mut GlowcapIrohEndpoint,
 	request_id: usize,
 	out_conn: *mut *mut GlowcapIrohConn,
@@ -496,8 +512,14 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 
 /// Cancel one admitted dial. The pending-to-canceled winner emits the request's
 /// sole terminal event; canceling an already-terminal request is idempotent.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_cancel_connect(ep: *mut GlowcapIrohEndpoint, request_id: usize) -> i32 {
+///
+/// # Safety
+/// `ep` must be null or a live endpoint handle. Null is refused.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_cancel_connect(
+	ep: *mut GlowcapIrohEndpoint,
+	request_id: usize,
+) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		if ep.is_null() || request_id == 0 {
 			return DIAL_INVALID;
@@ -537,8 +559,12 @@ async fn accept_one(ep: &GlowcapIrohEndpoint) -> Option<AcceptedRaw> {
 /// former. A negative timeout is invalid. This is the resident listener's
 /// private bounded primitive; it never arms or drains the endpoint readiness
 /// queue.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_accept_timeout(
+///
+/// # Safety
+/// `ep` must be a live endpoint handle and `out_code` must be writable. Null
+/// pointers are refused defensively.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_accept_timeout(
 	ep: *mut GlowcapIrohEndpoint,
 	timeout_ms: i32,
 	out_code: *mut i32,
@@ -552,7 +578,12 @@ pub extern "C" fn glowcap_iroh_sidecar_accept_timeout(
 		}
 		let ep = unsafe { &*ep };
 		ep.rt.block_on(async {
-			match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms as u64), accept_one(ep)).await {
+			match tokio::time::timeout(
+				std::time::Duration::from_millis(u64::try_from(timeout_ms).map_err(|_| DIAL_INVALID)?),
+				accept_one(ep),
+			)
+			.await
+			{
 				Err(_) => Err(DIAL_TIMEOUT),
 				Ok(None) => Err(DIAL_LOST),
 				Ok(Some(raw)) => make_conn(ep, raw).map(|handle| handle as usize).ok_or(DIAL_LOST),

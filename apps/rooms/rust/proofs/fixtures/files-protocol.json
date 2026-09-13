@@ -28,15 +28,15 @@
           "integer": "0"
         }
       ],
-      "prefix": [
-        {
-          "name": "one.bin",
-          "mime": "",
-          "size": 0,
-          "width": 0,
-          "height": 0
-        }
-      ],
+		"prefix": [
+			{
+				"name": "one.bin",
+				"mime": "",
+				"size": 0,
+				"width": 0,
+				"height": 0
+			}
+		],
       "exact": true
     },
     {
@@ -51,15 +51,7 @@
           "capability": true
         }
       ],
-      "prefix": [
-        {
-          "name": "one.bin",
-          "mime": "",
-          "size": 0,
-          "width": 0,
-          "height": 0
-        }
-      ],
+      "prefix": [],
       "exact": false
     },
     {
@@ -331,16 +323,8 @@
         },
         1
       ],
-      "prefix": [
-        {
-          "name": "name",
-          "mime": "",
-          "size": 0,
-          "width": 0,
-          "height": 0
-        }
-      ],
-      "exact": true
+      "prefix": [],
+      "exact": false
     },
     {
       "args": [

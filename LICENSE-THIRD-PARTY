@@ -56,6 +56,13 @@ The licence travels with the files as `ui/fonts/OFL.txt`, in full: the licence
 requires each copy of the Font Software to carry it, and a summary would not
 satisfy that.
 
+## `apps/ocapnviz/public/fonts/`
+
+Departure Mono is the typeface used by the OCapN visualizer. The vendored
+`DepartureMono-Regular.woff2` is Copyright 2022-2024 Helena Zhang and is
+licensed under the SIL Open Font License, Version 1.1. The complete license
+travels beside the font as `DepartureMono-OFL.txt`.
+
 ## Optional native secure-relay build
 
 `zig build native-tls-build` downloads the official Mbed TLS 4.2.0 release
@@ -75,8 +82,24 @@ Its vendored `zigimg` dependency lives under
 `third_party/libvaxis/third_party/zigimg`; its MIT notice is in that
 directory's `LICENSE`.
 Its vendored `uucode` dependency lives under
-`third_party/libvaxis/third_party/uucode`; its MIT notice is in that
-directory's `LICENSE.md`.
+`third_party/libvaxis/third_party/uucode`. Its own code is MIT licensed under
+that directory's `LICENSE.md`. The data files under `uucode/ucd/` are covered
+by the Unicode License Version 3, and its UTF-8 decoder is covered by Bjoern
+Hoehrmann's MIT-style notice. Both complete notices travel under
+`uucode/licenses/`, where `uucode/LICENSE.md` points.
+
+## `conformance/goblins-peer/racket/seven-caps-peer.rkt`
+
+This peer is adapted from Spritely Goblins'
+`misc/ocapn-test-suite.scm`, Copyright 2024 Jessica Tallon and licensed under
+Apache-2.0. Its header names the adaptation and source path. The complete
+Apache-2.0 terms are available in `LICENSE-APACHE`.
+
+## Referenced conformance repositories
+
+The four Git submodules under `conformance/*/upstream` are Apache-2.0
+repositories referenced at pinned commits. Their contents are not
+redistributed as part of glowcap's source archive.
 
 ## `third_party/site-build/`
 

@@ -19,7 +19,7 @@
 //! Needs `racket` plus the `goblins` collection on PATH; run via
 //! `zig build rust-goblins-handoff`.
 
-use glowcap_rust_dogfood::{tcp, Argument, ConnectOptions, Ref, Runtime, RuntimeConfig};
+use glowcap_rust_dogfood::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, tcp};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]

@@ -6,9 +6,90 @@
 
 import { MAX_SCROLLBACK } from "../limits.ts";
 import { CAUGHT_UP, NO_HISTORY, silencedByIgnore } from "../types.ts";
-import type { AttachmentView, DirId, HistoryCoordinate, Item, SendState, SysAudience, Unread } from "../types.ts";
+import type {
+	AttachmentView,
+	ChatItem,
+	DirId,
+	HistoryCoordinate,
+	Item,
+	SendState,
+	SysAudience,
+	Unread,
+} from "../types.ts";
 import type { PageProjection, State } from "./core.ts";
 import { getConv } from "./convs.ts";
+import { lineCarried } from "../commands.ts";
+
+/** Where each line stands in one history, by the three names a line is looked
+ * up by: this tab's own id, the room's line id, and the archive coordinate.
+ *
+ * Built once per history array and kept beside it, keyed on the array itself,
+ * so it dies with the array it describes and a write can never leave a stale
+ * index behind. Every history write already copies the array, so building
+ * the index costs the same order as the write; every lookup after it is a map
+ * read instead of a scan over up to `MAX_SCROLLBACK` lines. */
+interface LineIndex {
+	readonly byId: ReadonlyMap<number, number>;
+	readonly byLineId: ReadonlyMap<number, number>;
+	readonly byCoordinate: ReadonlyMap<string, number>;
+}
+
+const indexes = new WeakMap<readonly Item[], LineIndex>();
+
+function lineIndexOf(history: readonly Item[]): LineIndex {
+	const known = indexes.get(history);
+	if (known !== undefined) return known;
+	const byId = new Map<number, number>();
+	const byLineId = new Map<number, number>();
+	const byCoordinate = new Map<string, number>();
+	for (let at = 0; at < history.length; at++) {
+		const item = history[at];
+		byId.set(item.id, at);
+		if (item.kind !== "chat") continue;
+		if (item.lineId != null) byLineId.set(item.lineId, at);
+		if (item.history != null) byCoordinate.set(historyCoordinateKey(item.history), at);
+	}
+	const built = { byId, byLineId, byCoordinate };
+	indexes.set(history, built);
+	return built;
+}
+
+/** The position of the line this tab calls `id`, or -1. */
+export function linePosition(history: readonly Item[], id: number): number {
+	return lineIndexOf(history).byId.get(id) ?? -1;
+}
+
+/** The line the room calls `lineId`, or undefined when this tab does not hold
+ * it. */
+export function lineByLineId(history: readonly Item[], lineId: number): ChatItem | undefined {
+	const at = lineIndexOf(history).byLineId.get(lineId);
+	return at === undefined ? undefined : history[at] as ChatItem;
+}
+
+/** The line an archive names by coordinate, or undefined. */
+export function lineByCoordinate(history: readonly Item[], coordinate: HistoryCoordinate): ChatItem | undefined {
+	const at = lineIndexOf(history).byCoordinate.get(historyCoordinateKey(coordinate));
+	return at === undefined ? undefined : history[at] as ChatItem;
+}
+
+/** A chat line with what its text carries stamped on it, so the log reads a
+ * field where it used to parse. Stamped where the text is set: on making the
+ * line and on any change to its words. */
+function stamped(item: ChatItem): ChatItem {
+	const carried = lineCarried(item.text);
+	if (carried === undefined) {
+		if (item.carried === undefined) return item;
+		const { carried: _carried, ...plain } = item;
+		return plain;
+	}
+	return { ...item, carried };
+}
+
+/** One line with `fields` applied, restamped when the words changed. */
+function changed(item: Item, fields: Partial<Item>): Item {
+	const next = { ...item, ...fields } as Item;
+	return next.kind === "chat" && typeof fields.text === "string" ? stamped(next) : next;
+}
 
 export function historyOf(
 	projection: PageProjection,
@@ -70,8 +151,9 @@ export function chatItem(
 	sendState?: SendState,
 	attachments?: readonly AttachmentView[],
 	at = Date.now(),
-): Extract<Item, { kind: "chat" }> {
-	return {
+	previewUrls?: readonly string[],
+): ChatItem {
+	return stamped({
 		kind: "chat",
 		id: projection.allocItemId(),
 		from,
@@ -80,7 +162,8 @@ export function chatItem(
 		at,
 		state: sendState,
 		attachments,
-	};
+		previewUrls,
+	});
 }
 
 /** Give a file its own UI identity. Message ids locate bubbles; attachment ids
@@ -176,6 +259,7 @@ interface HistoryLine {
 	order?: number;
 	edited?: boolean;
 	attachments?: readonly (Omit<AttachmentView, "id"> | AttachmentView)[];
+	previewUrls?: readonly string[];
 }
 
 function historyItems(projection: PageProjection, lines: readonly HistoryLine[]): Item[] {
@@ -183,7 +267,7 @@ function historyItems(projection: PageProjection, lines: readonly HistoryLine[])
 		const attachments = line.attachments?.map((attachment) =>
 			"id" in attachment ? attachment : attachmentView(projection, attachment)
 		);
-		return {
+		return stamped({
 			kind: "chat",
 			id: projection.allocItemId(),
 			from: line.from,
@@ -195,7 +279,8 @@ function historyItems(projection: PageProjection, lines: readonly HistoryLine[])
 			...(line.order == null ? {} : { order: line.order }),
 			...(line.edited == null ? {} : { edited: line.edited }),
 			...(attachments == null || attachments.length === 0 ? {} : { attachments }),
-		};
+			...(line.previewUrls == null || line.previewUrls.length === 0 ? {} : { previewUrls: line.previewUrls }),
+		});
 	});
 }
 
@@ -238,19 +323,35 @@ export function restoreHistory(
 	projection.letLinesGo(key, gone);
 }
 
-/** Change one drawn line from an archive account's current truth, without
- * naming it a line change. An archive re-read revising what it already showed
- * is not the reader editing and must not reach the line recorder: recording
- * it would write somebody's account back into an archive it was read from. */
-export function reviseItem(projection: PageProjection, key: string, id: number, fields: Partial<Item>): void {
-	const conv = getConv(projection, key);
-	if (!conv) return;
+/** Change any number of drawn lines from an archive account's current truth,
+ * without naming them line changes. An archive re-read revising what it
+ * already showed is not the reader editing and must not reach the line
+ * recorder: recording it would write somebody's account back into an archive
+ * it was read from.
+ *
+ * One history copy and one store notification however many lines moved, the
+ * same contract `updateAttachments` keeps, because a re-read revises lines in
+ * a batch and the log must not be laid out once per line. */
+export function reviseItems(
+	projection: PageProjection,
+	key: string,
+	updates: ReadonlyMap<number, Partial<Item>>,
+): void {
+	if (updates.size === 0 || getConv(projection, key) == null) return;
 	const current = historyOf(projection, key);
-	const at = current.findIndex((item) => item.id === id);
-	if (at < 0) return;
-	const history = current.slice();
-	history[at] = { ...history[at], ...fields } as Item;
-	writeHistory(projection, key, history);
+	let history: Item[] | null = null;
+	for (const [id, fields] of updates) {
+		const at = linePosition(current, id);
+		if (at < 0) continue;
+		history ??= current.slice();
+		history[at] = changed(history[at], fields);
+	}
+	if (history !== null) writeHistory(projection, key, history);
+}
+
+/** Change one drawn line from an archive account. See `reviseItems`. */
+export function reviseItem(projection: PageProjection, key: string, id: number, fields: Partial<Item>): void {
+	reviseItems(projection, key, new Map([[id, fields]]));
 }
 
 /** Insert newly seen lines and reorder the account's existing section by its
@@ -364,25 +465,25 @@ export function updateItem(projection: PageProjection, key: string, id: number, 
 	const conv = getConv(projection, key);
 	if (!conv) return;
 	const current = historyOf(projection, key);
-	const at = current.findIndex((item) => item.id === id);
+	const at = linePosition(current, id);
 	if (at < 0) return;
 	const previous = current[at];
 	const history = current.slice();
-	history[at] = { ...history[at], ...fields } as Item;
+	const next = changed(previous, fields);
+	history[at] = next;
 	writeHistory(projection, key, history);
 	// Kept history follows a line's life: a withdrawal or an edit on a chat
 	// line reaches the recorder, so a kept copy cannot outlive a takedown.
-	const changed = historyOf(projection, key).find((item) => item.id === id);
-	if (changed !== undefined && changed.kind === "chat") {
+	if (next.kind === "chat") {
 		const change = fields as { withdrawn?: boolean; text?: string };
 		if (change.withdrawn === true) {
-			projection.recordLine(conv, changed, "withdrawn");
+			projection.recordLine(conv, next, "withdrawn");
 			detachDraftFromLine(projection, key, id);
-		} else if (typeof change.text === "string") projection.recordLine(conv, changed, "edited");
+		} else if (typeof change.text === "string") projection.recordLine(conv, next, "edited");
 		else if (
-			Object.hasOwn(fields, "state") && previous?.kind === "chat" && previous.state != null &&
-			changed.state == null
-		) projection.recordLine(conv, changed);
+			Object.hasOwn(fields, "state") && previous.kind === "chat" && previous.state != null &&
+			next.state == null
+		) projection.recordLine(conv, next);
 	}
 }
 
@@ -454,7 +555,7 @@ export function applyLineChange(
 	change: { text?: string; edited?: boolean; withdrawn?: boolean },
 ): void {
 	if (getConv(projection, key) === null) return;
-	const item = historyOf(projection, key).find((row) => row.kind === "chat" && row.lineId === lineId);
+	const item = lineByLineId(historyOf(projection, key), lineId);
 	if (item === undefined) return;
 	updateItem(projection, key, item.id, change);
 }
@@ -480,8 +581,8 @@ export function nameLine(projection: PageProjection, key: string, id: number, li
 	updateItem(projection, key, id, { lineId } as Partial<Item>);
 }
 
-/** Record that this tab holds the reference governing one of its own lines,
- * which is what the pencil and the close beside that message act on. */
+/** Record that this tab holds the reference governing one of its own lines.
+ * The pencil and close controls beside that message act on this reference. */
 export function holdLine(projection: PageProjection, key: string, id: number): void {
 	updateItem(projection, key, id, { held: true } as Partial<Item>);
 }

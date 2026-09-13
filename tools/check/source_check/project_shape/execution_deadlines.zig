@@ -153,8 +153,13 @@ fn validateExecutionPosture(
     defer compact.deinit(gpa);
     for (text) |byte| if (!std.ascii.isWhitespace(byte)) try compact.append(gpa, byte);
     const value = compact.items;
+    if (zig_test and std.mem.eql(u8, value, ".unit_test")) return;
     const prefix = ".{.deterministic=";
     if (std.mem.startsWith(u8, value, prefix) and std.mem.endsWith(u8, value, "}")) {
+        if (zig_test) {
+            try appendViolation(gpa, violations, "{s}: Zig test posture must be `.unit_test`; process deadlines bound an aggregate rather than each active test", .{path});
+            return;
+        }
         const number = value[prefix.len .. value.len - 1];
         const seconds = std.fmt.parseInt(u16, number, 10) catch {
             try appendViolation(gpa, violations, "{s}: deterministic execution deadline must be a literal integer from 1 through 30", .{path});
@@ -180,6 +185,7 @@ fn validateExecutionPosture(
     if (std.mem.eql(u8, value, ".search")) return;
     if (!zig_test and (std.mem.eql(u8, value, ".benchmark") or
         std.mem.eql(u8, value, ".build_tool") or
+        std.mem.eql(u8, value, ".child_bounded") or
         std.mem.eql(u8, value, ".real_internet") or
         std.mem.eql(u8, value, ".service"))) return;
     if (!zig_test and std.mem.endsWith(u8, value, ".posture")) {
@@ -189,7 +195,7 @@ fn validateExecutionPosture(
         }
     }
     if (std.mem.eql(u8, path, "tools/build/common.zig") and std.mem.eql(u8, value, "posture")) return;
-    try appendViolation(gpa, violations, "{s}: unknown or invalid execution posture `{s}`; deterministic test/proof subprocesses use a literal 1..30s budget and every unbounded process names its exact posture", .{ path, std.mem.trim(u8, text, " \t\r\n") });
+    try appendViolation(gpa, violations, "{s}: unknown or invalid execution posture `{s}`; Zig tests use `.unit_test`, deterministic subprocesses use a literal 1..30s budget, and every unbounded process names its exact posture", .{ path, std.mem.trim(u8, text, " \t\r\n") });
 }
 
 fn expectBuildClean(source: []const u8) !void {
@@ -219,9 +225,10 @@ fn expectBuildViolation(source: []const u8, needle: []const u8) !void {
 
 test "global execution census accepts explicit and typed-row postures" {
     try expectBuildClean(
-        \\const test_run = execution.addZigTest(b, tests, .{ .deterministic = 7 });
+        \\const test_run = execution.addZigTest(b, tests, .unit_test);
         \\const proof = execution.addArtifact(b, .{ .deterministic = 19 }, exe);
         \\const cache = execution.addSystemCommand(b, .build_tool, argv);
+        \\const orchestrator = execution.addSystemCommand(b, .child_bounded, argv);
         \\const bench = execution.addArtifact(b, .benchmark, exe);
         \\const search = execution.addArtifact(b, .search, exe);
         \\const internet = execution.addSystemCommand(b, .real_internet, argv);
@@ -257,6 +264,7 @@ test "browser-proof deadlines are bounded and cannot masquerade as short or unbo
 
 test "Zig test execution cannot use a non-test escape posture" {
     try expectBuildViolation("const run = execution.addZigTest(b, tests, .build_tool);", "unknown or invalid execution posture");
+    try expectBuildViolation("const run = execution.addZigTest(b, tests, .{ .deterministic = 7 });", "aggregate rather than each active test");
 }
 
 test "Zig test artifact cannot bypass the standard runner through addArtifact" {

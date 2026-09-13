@@ -19,7 +19,7 @@ impl<D: Deadline> PostedLine<D> {
 		self.client
 			.ask(
 				&self.reference,
-				"edit",
+				rooms_application::protocol_data::EDIT,
 				&[text],
 				"the room did not answer changing that line",
 			)
@@ -35,7 +35,7 @@ impl<D: Deadline> PostedLine<D> {
 			args.extend(keep.iter().map(|&index| Argument::Integer(index.into())));
 			self.client.call(
 				&self.reference,
-				"refile",
+				rooms_application::protocol_data::REFILE,
 				&args,
 				"the line's host did not answer changing its files",
 			)
@@ -48,7 +48,7 @@ impl<D: Deadline> PostedLine<D> {
 		self.client
 			.call(
 				&self.reference,
-				"withdraw",
+				rooms_application::protocol_data::WITHDRAW,
 				&[],
 				"the room did not answer taking that line back",
 			)
@@ -78,7 +78,13 @@ impl<D: Deadline + super::Tasks + Clone + 'static> PostedLine<D> {
 		leading.push(Argument::String(caption.into()));
 		leading.extend(keep.iter().map(|&index| Argument::Integer(index.into())));
 		owner
-			.send(&self.client, &self.reference, "refile", leading, files)
+			.send(
+				&self.client,
+				&self.reference,
+				rooms_application::protocol_data::REFILE,
+				leading,
+				files,
+			)
 			.await?;
 		Ok(())
 	}

@@ -11,7 +11,7 @@ use core::task::{Context, Poll};
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::{sys, Error, Host, Locator, Result, Session};
+use crate::{Error, Host, Locator, Result, Session, sys};
 
 /// Borrowed, transport-authored policy for one connection operation.
 ///
@@ -23,7 +23,7 @@ pub trait TransportOperationOptions: core::fmt::Debug {
 	fn as_bytes(&self) -> &[u8];
 
 	fn supports(&self, transport: &str) -> bool {
-		self.transports().iter().any(|candidate| *candidate == transport)
+		self.transports().contains(&transport)
 	}
 }
 
@@ -100,7 +100,7 @@ impl Connector {
 	}
 
 	pub(crate) fn supports(&self, transport: &str) -> bool {
-		self.transports.iter().any(|candidate| *candidate == transport)
+		self.transports.contains(&transport)
 	}
 
 	pub(crate) fn same_instance(&self, other: &Self) -> bool {

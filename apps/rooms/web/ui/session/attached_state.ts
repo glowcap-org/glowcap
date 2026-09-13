@@ -13,6 +13,8 @@ import type { RoomsSessionController } from "../controller/session.ts";
 import type { RoomsPageContext } from "../page.ts";
 import type { AttachedRoomsController } from "./attached.ts";
 import { coverForReload, finishCoveredReload, uncoverReload } from "../boot.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { bundleIncomplete, noLongerInSharedSession, sessionChangedBut } from "../../../lib/text/attached.ts";
 
 export function reloadWouldEndHostedSession(page: RoomsPageContext): boolean {
 	return workspaceControllerSelection(page).kind === "hosted";
@@ -43,10 +45,10 @@ export function attachedStateActions(
 	const replaceAttachedState = async (
 		document: ReturnType<typeof parseWorkspaceState>,
 	): Promise<string> => {
-		if (document == null) return "That file is not a complete Rooms state bundle.";
+		if (document == null) return bundleIncomplete;
 		const attached = workspaceControllerSelection(page);
 		if (attached.kind !== "local" && sharedRoomsSession(attached) == null) {
-			return "This browser is no longer in a shared Rooms session.";
+			return noLongerInSharedSession;
 		}
 		const hosting = reloadWouldEndHostedSession(page);
 		if (!hosting) coverForReload();
@@ -56,14 +58,14 @@ export function attachedStateActions(
 			const why = importWorkspaceState(page, installed, attached);
 			if (why !== "") {
 				if (!hosting) uncoverReload();
-				return `The shared session changed, but ${why[0].toLowerCase()}${why.slice(1)}`;
+				return sessionChangedBut(why);
 			}
 			if (hosting) installWorkspaceStatePersistence(page);
 			else finishCoveredReload();
 			return "";
 		} catch (error) {
 			if (!hosting) uncoverReload();
-			return error instanceof Error ? error.message : String(error);
+			return refusalText(error);
 		}
 	};
 	return {

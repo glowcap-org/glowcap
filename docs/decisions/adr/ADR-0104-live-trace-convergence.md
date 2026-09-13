@@ -16,8 +16,8 @@ amended_by: [ADR-0106, ADR-0120]
 
 Accepted and implemented. The wire name is `driver_core.trace.wireName`, the
 drained seam is `glowcap_host_set_trace_queue` plus `glowcap_host_next_trace`,
-and the endpoint is `apps/rooms/rust/native/src/room_server/viz/` with its
-TypeScript producer adapter in `apps/rooms/lib/viz_publish.ts`.
+and the endpoint is `apps/rooms/rust/services/src/server/operations/trace.rs` with its
+TypeScript producer adapter in `apps/rooms/lib/trace_publish.ts`.
 
 ## Context
 
@@ -240,8 +240,8 @@ never connect.
 
 A direct message between two browser tabs appears on the same timeline as the
 room's own sessions, with the room off its path;
-`apps/rooms/test/web/dm_viz_test.ts` drives that end to end and reads the
-endpoint as a viewer would. `apps/rooms/test/web/viz_lifecycle_test.ts` drives
+`apps/rooms/test/proofs/dm_trace_proof.ts` drives that end to end and reads the
+endpoint as a viewer would. `apps/rooms/test/proofs/trace_lifecycle_proof.ts` drives
 a member's whole life in a room — join, direct message, leave, close, reopen,
 go away — and after every step counts the peers and sessions through ocapnviz's
 own converter, so the picture rather than the feed is what is held.

@@ -251,8 +251,8 @@
    there. At full strength it wears the row's ink on the row's ground, which is
    what the name beside it is, and that name is measured. Turned down on an
    ordinary row it wears the page's ink on the rail's fill, because neither list
-   paints a row at rest, which is what the rooms list's own caption is, and that
-   is measured too. Same ink, same ground, and contrast does not know what size
+   paints a row at rest. The rooms list's caption is such a row, and that is
+   measured too. Same ink, same ground, and contrast does not know what size
    the text is. */
 #roomList li.here .rwhere-said,
 #dmList li.here .rwhere-said {

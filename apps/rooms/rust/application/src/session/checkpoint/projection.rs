@@ -1,7 +1,8 @@
-use super::{fields::*, model::*, Refusal};
+//! Checkpoint projection derives the bounded browser-visible session view.
+use super::{Refusal, fields::*, model::*};
 use crate::grants::Access;
 use alloc::string::String;
-use serde::{ser::SerializeSeq, Serialize, Serializer};
+use serde::{Serialize, Serializer, ser::SerializeSeq};
 
 impl super::Checkpoint {
 	pub fn ignored_nickname(&self, conversation: &str) -> Option<&crate::text::DocumentText> {
@@ -40,7 +41,7 @@ struct View<'a> {
 	keep_history: bool,
 	join: &'a Join,
 	dm_mode: DmMode,
-	viz_override: &'a Field,
+	trace_override: &'a Field,
 	capabilities: Capabilities,
 	peering: &'a [Peering],
 }
@@ -105,7 +106,7 @@ pub(super) fn redacted(s: &State) -> impl Serialize + '_ {
 		keep_history: s.keep_history,
 		join: &s.join,
 		dm_mode: s.dm_mode,
-		viz_override: &s.viz_override,
+		trace_override: &s.trace_override,
 		capabilities: Capabilities {
 			operations: List(alloc::vec::Vec::new()),
 			archive_peer: Nullable::Null,

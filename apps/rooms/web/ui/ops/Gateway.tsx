@@ -10,7 +10,7 @@ import { useNavigate } from "react-router";
 import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Said } from "../Said.tsx";
-import { BridgeFormView } from "../BridgeFormView.tsx";
+import { BridgeFormView } from "../cards/BridgeFormView.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsState } from "../hooks.ts";
 import { roomAddress } from "../route_address.ts";
@@ -18,6 +18,21 @@ import type { BridgeForm } from "../../../lib/bridge/form.ts";
 import type { BridgeGateway, GatewayConnection, GatewayLease, GatewayStatus } from "../../../lib/bridge/gateway.ts";
 import { OpsHead } from "./Head.tsx";
 import { SectionTitle } from "./Section.tsx";
+import { actionRefusal } from "../error_text.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import {
+	gatewayClose,
+	gatewayCloseLabel,
+	gatewayDeleteSavedSay,
+	gatewayDeleteWithLeasesSay,
+	gatewayKeep,
+	gatewayNoLeases,
+	gatewayNoneYet,
+	gatewayOpenOneBelow,
+	gatewayOpenRoom,
+	gatewayPrimaryOnly,
+	gatewayRemoveLeaseSay,
+} from "../../../lib/text/ops.ts";
 
 /** Map a bridge's link tone onto the status styles the pane already ships. */
 function toneClass(status: GatewayStatus): string {
@@ -44,7 +59,7 @@ function capitalize(word: string): string {
 function primaryOnly(form: BridgeForm, action: string, send: () => Promise<string>): Promise<string> {
 	const primary = form.actions.find((candidate) => candidate.tone === "primary");
 	if (primary == null || action !== primary.id) {
-		return Promise.resolve("Only this form's primary act is wired to the gateway yet.");
+		return Promise.resolve(gatewayPrimaryOnly);
 	}
 	return send();
 }
@@ -59,6 +74,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 	const [closing, setClosing] = useState<ReadonlySet<string>>(() => new Set());
 	const [removeWhy, setRemoveWhy] = useState<Readonly<Record<string, string | undefined>>>({});
 	const [closeWhy, setCloseWhy] = useState<Readonly<Record<string, string | undefined>>>({});
+	const [refreshWhy, setRefreshWhy] = useState("");
 	const watching = state?.connections.some((row) => row.status.tone === "pending") ?? false;
 
 	useEffect(() => {
@@ -66,8 +82,14 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 		let stopped = false;
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		const refresh = async () => {
-			await session.refreshOpsCap("irc");
-			if (!stopped) timer = setTimeout(refresh, 3_000);
+			try {
+				await session.refreshOpsCap("irc");
+				if (!stopped) setRefreshWhy("");
+			} catch (error) {
+				if (!stopped) setRefreshWhy(refusalText(error));
+			} finally {
+				if (!stopped) timer = setTimeout(refresh, 3_000);
+			}
 		};
 		timer = setTimeout(refresh, 750);
 		return () => {
@@ -82,7 +104,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 		const key = `${connection.id}\n${lease.id}`;
 		setRemoving((prior) => new Set(prior).add(key));
 		setRemoveWhy((prior) => ({ ...prior, [key]: undefined }));
-		void session.removeBridgeLease(connection.id, lease.id).then((why) => {
+		void actionRefusal(() => session.removeBridgeLease(connection.id, lease.id)).then((why) => {
 			if (why !== "") setRemoveWhy((prior) => ({ ...prior, [key]: why }));
 			else setConfirmingRemove(null);
 		}).finally(() => {
@@ -97,7 +119,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 	const close = (connection: GatewayConnection) => {
 		setClosing((prior) => new Set(prior).add(connection.id));
 		setCloseWhy((prior) => ({ ...prior, [connection.id]: undefined }));
-		void session.closeBridgeConnection(connection.id).then((why) => {
+		void actionRefusal(() => session.closeBridgeConnection(connection.id)).then((why) => {
 			if (why !== "") setCloseWhy((prior) => ({ ...prior, [connection.id]: why }));
 			else setConfirmingClose(null);
 		}).finally(() => {
@@ -118,6 +140,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 	return (
 		<div className="ops-pane irc-operations">
 			<OpsHead refresh={() => session.refreshOpsCap("irc")}>{state.description}</OpsHead>
+			{refreshWhy !== "" && <Said kind="failure">{refreshWhy}</Said>}
 
 			<section className="ops-section" aria-labelledby="gatewayConnectionsTitle">
 				<SectionTitle id="gatewayConnectionsTitle" count={state.connections.length}>
@@ -126,8 +149,8 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 				{state.connections.length === 0
 					? (
 						<div className="irc-connections-empty well">
-							<p>No {state.connectionNounPlural} yet.</p>
-							<p className="hint">Open one below. A {state.leaseNoun} is not required.</p>
+							<p>{gatewayNoneYet(state.connectionNounPlural)}</p>
+							<p className="hint">{gatewayOpenOneBelow(state.leaseNoun)}</p>
 						</div>
 					)
 					: (
@@ -173,8 +196,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 											{connection.leases.length === 0
 												? (
 													<p className="irc-no-channels">
-														No {state.leaseNounPlural}. This {state.connectionNoun}{" "}
-														is retained without a live transport.
+														{gatewayNoLeases(state.leaseNounPlural, state.connectionNoun)}
 													</p>
 												)
 												: (
@@ -193,7 +215,12 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 																		? (
 																			<Confirm
 																				label={`${state.leaseRemoval.label} ${lease.title}`}
-																				say={`${state.leaseRemoval.label} ${lease.title} from ${connection.title}? ${state.leaseRemoval.say}`}
+																				say={gatewayRemoveLeaseSay(
+																					state.leaseRemoval.label,
+																					lease.title,
+																					connection.title,
+																					state.leaseRemoval.say,
+																				)}
 																				keep={state.leaseRemoval.keep}
 																				commit={state.leaseRemoval.commit}
 																				busy={removing.has(rowKey)}
@@ -210,7 +237,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 																						variant="quiet"
 																						onClick={() => openRoom(lease)}
 																					>
-																						Open room
+																						{gatewayOpenRoom}
 																					</Button>
 																				)}
 																				<Button
@@ -254,16 +281,18 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 										{confirmingClose === connection.id
 											? (
 												<Confirm
-													label={`Close ${connection.title}`}
+													label={gatewayCloseLabel(connection.title)}
 													say={connection.leases.length === 0
-														? `Delete the saved ${connection.title} ${state.connectionNoun}?`
-														: `Delete this ${state.connectionNoun} and its ${connection.leases.length} bridged ${
+														? gatewayDeleteSavedSay(connection.title, state.connectionNoun)
+														: gatewayDeleteWithLeasesSay(
+															state.connectionNoun,
+															connection.leases.length,
 															connection.leases.length === 1
 																? state.leaseNoun
-																: state.leaseNounPlural
-														}?`}
-													keep={`Keep ${state.connectionNoun}`}
-													commit={`Close ${state.connectionNoun}`}
+																: state.leaseNounPlural,
+														)}
+													keep={gatewayKeep(state.connectionNoun)}
+													commit={gatewayClose(state.connectionNoun)}
 													busy={closingNow}
 													onKeep={() => setConfirmingClose(null)}
 													onCommit={() => close(connection)}

@@ -6,6 +6,7 @@
 // out longhand showed one.
 
 import type { ReactNode } from "react";
+import { sectionCountMore } from "../../../lib/text/ops.ts";
 
 /** A section's name over its well, with how many rows are under it. The count
  * is the first thing an operator wants from a page of inventories, and it
@@ -25,7 +26,7 @@ export function SectionTitle(
 		<h3 className="well-title overline" id={id}>
 			{children}
 			{count != null && count > 0 && (
-				<span className="ops-section-count" title={more ? `${count} read so far, and more remain` : undefined}>
+				<span className="ops-section-count" title={more ? sectionCountMore(count) : undefined}>
 					{count}
 					{more ? "+" : ""}
 				</span>

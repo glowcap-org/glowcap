@@ -4,7 +4,7 @@
 //! whoever enters. Nothing here persists: a publication lives exactly as
 //! long as the session that made it, or until its lease revokes it.
 use crate::{
-	directory::{registration::Id, Event, OriginProof, PublicationKind, RoomChange, RoomInfo},
+	directory::{Event, OriginProof, PublicationKind, RoomChange, RoomInfo, registration::Id},
 	failure::FailureCode,
 	fields::{Nullable, Text},
 	room::policy::MembershipKind,
@@ -19,25 +19,7 @@ pub const MAX_ROOM: usize = super::document::MAX_ROOM;
 /// How long a handed room may take to resolve.
 pub const READY_TIMEOUT_MS: u64 = 15_000;
 
-/// A refusal the publisher hears as a break.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-	pub code: Option<FailureCode>,
-	pub detail: String,
-}
-impl Refusal {
-	pub fn reason(&self) -> String {
-		match self.code {
-			Some(code) => format!("{}: {}", code.wire(), self.detail),
-			None => self.detail.clone(),
-		}
-	}
-}
-impl From<Refusal> for String {
-	fn from(refusal: Refusal) -> Self {
-		refusal.reason()
-	}
-}
+pub use super::Refusal;
 
 /// Who published a room and how well the directory knows them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,7 +60,7 @@ impl<C, R> Entry<C, R> {
 }
 
 fn key(name: &str) -> String {
-	super::rooms::public_key(name)
+	String::from(super::rooms::RoomKey::public(name).as_str())
 }
 
 /// The foreign rooms, reserved and live, by key.

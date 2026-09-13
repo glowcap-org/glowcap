@@ -1,7 +1,15 @@
 //! Tolerant display metadata. Unknown or malformed facts leave display text intact.
-use super::super::{message::LineId, ArgumentView};
+use super::super::{
+	ArgumentView,
+	carries::{self, Carries},
+	message::LineId,
+};
 use alloc::{boxed::Box, vec::Vec};
 use serde::Serialize;
+
+pub const MAX_SEAT_PREFIX: usize = 12;
+pub const MAX_SEAT_BADGE: usize = 12;
+pub const MAX_SEAT_SAID: usize = 120;
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -40,6 +48,9 @@ pub struct Facts<T> {
 	pub listed: Option<bool>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub bridge: Option<Box<Bridge<T>>>,
+	/// See `crate::room::carries`. What a membership here can use.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub carries: Option<Carries>,
 }
 pub(super) fn bounded(text: &str, max: usize) -> bool {
 	text.encode_utf16().take(max + 1).count() <= max
@@ -52,23 +63,23 @@ fn text<A: ArgumentView>(args: &[A], at: usize, max: usize, nonempty: bool) -> O
 pub fn presence<A: ArgumentView>(args: &[A]) -> Option<Presence<&str>> {
 	let tag = args.get(2)?.text()?;
 	Some(match tag {
-		"roster" => Presence::Roster {
+		crate::protocol_data::ROSTER => Presence::Roster {
 			names: args[3..]
 				.iter()
 				.filter_map(|a| a.text().filter(|s| bounded(s, 32)))
 				.collect(),
 		},
-		"join" => Presence::Join {
+		crate::protocol_data::JOIN => Presence::Join {
 			name: text(args, 3, 32, false)?,
 		},
-		"leave" => Presence::Leave {
+		crate::protocol_data::LEAVE => Presence::Leave {
 			name: text(args, 3, 32, false)?,
 		},
-		"away" => Presence::Away {
+		crate::protocol_data::AWAY => Presence::Away {
 			name: args.get(3)?.text()?,
 			reason: args.get(4).and_then(ArgumentView::text).unwrap_or(""),
 		},
-		"seat" => {
+		crate::protocol_data::SEAT => {
 			let state = args.get(4)?.text()?;
 			if !matches!(state, "rooms" | "connecting" | "linked" | "failed") {
 				return None;
@@ -78,8 +89,8 @@ pub fn presence<A: ArgumentView>(args: &[A]) -> Option<Presence<&str>> {
 				state,
 				nick: text(args, 5, 32, false)?,
 				network: text(args, 6, 32, false)?,
-				badge: text(args, 7, 12, true)?,
-				said: text(args, 8, 120, true)?,
+				badge: text(args, 7, MAX_SEAT_BADGE, true)?,
+				said: text(args, 8, MAX_SEAT_SAID, true)?,
 			}))
 		}
 		_ => return None,
@@ -92,17 +103,19 @@ pub fn facts<A: ArgumentView>(args: &[A]) -> Option<Facts<&str>> {
 		line_bytes: None,
 		listed: None,
 		bridge: None,
+		carries: None,
 	};
 	match tag {
-		"topic" => facts.topic = Some(text(args, 3, 300, false)?),
-		"line-bytes" => facts.line_bytes = Some(LineId::read(args.get(3)?)?.get()),
-		"listed" => facts.listed = Some(true),
-		"unlisted" => facts.listed = Some(false),
+		carries::TAG => facts.carries = Some(Carries::read(args[3..].iter().map(ArgumentView::text))?),
+		crate::protocol_data::TOPIC => facts.topic = Some(text(args, 3, 300, false)?),
+		crate::protocol_data::LINE_BYTES => facts.line_bytes = Some(LineId::read(args.get(3)?)?.get()),
+		crate::protocol_data::LISTED => facts.listed = Some(true),
+		crate::protocol_data::UNLISTED => facts.listed = Some(false),
 		"bridge" => {
 			facts.bridge = Some(Box::new(Bridge {
-				prefix: text(args, 3, 12, true)?,
-				badge: text(args, 4, 12, true)?,
-				said: text(args, 5, 120, true)?,
+				prefix: text(args, 3, MAX_SEAT_PREFIX, true)?,
+				badge: text(args, 4, MAX_SEAT_BADGE, true)?,
+				said: text(args, 5, MAX_SEAT_SAID, true)?,
 				scope: text(args, 6, 64, true)?,
 			}))
 		}
@@ -172,6 +185,7 @@ impl<T> Facts<T> {
 					scope: f(b.scope),
 				})
 			}),
+			carries: self.carries,
 		}
 	}
 	pub fn visit(&self, mut f: impl FnMut(&T)) {

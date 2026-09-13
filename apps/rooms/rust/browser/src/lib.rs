@@ -1,42 +1,23 @@
 //! Browser platform execution for the shared Rooms application. Application
 //! policy and capability clients remain in rooms-application and rooms-glowcap.
-#![forbid(unsafe_code)]
+//! Everything here targets the browser, so the whole crate compiles to an empty
+//! library on other targets and a workspace-wide `cargo` command still succeeds.
+#![cfg(target_arch = "wasm32")]
 
-#[cfg(target_arch = "wasm32")]
 mod abort;
-#[cfg(target_arch = "wasm32")]
 mod attached;
-#[cfg(target_arch = "wasm32")]
-mod commands;
-#[cfg(target_arch = "wasm32")]
 mod entry;
-#[cfg(target_arch = "wasm32")]
+mod forms;
+mod js_text;
+mod nickname;
+mod operations_bundle;
+mod slash;
+mod text;
+mod trace;
 mod workspace_persistence;
 
-#[cfg(target_arch = "wasm32")]
 pub mod ice;
-#[cfg(target_arch = "wasm32")]
 pub mod platform;
-#[cfg(target_arch = "wasm32")]
 pub mod signaling;
-
-#[cfg(target_arch = "wasm32")]
 pub mod storage;
-
-#[cfg(target_arch = "wasm32")]
 pub mod transport;
-
-#[cfg(target_arch = "wasm32")]
-mod viz;
-
-#[cfg(target_arch = "wasm32")]
-mod operations_bundle;
-
-#[cfg(target_arch = "wasm32")]
-mod slash;
-
-#[cfg(target_arch = "wasm32")]
-mod forms;
-
-#[cfg(target_arch = "wasm32")]
-mod text;

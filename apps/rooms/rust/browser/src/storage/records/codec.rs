@@ -1,12 +1,12 @@
-//! Existing rooms-history v1 envelopes and keys. Keys remain JSON strings;
+//! IndexedDB record envelopes and keys. Keys remain JSON strings;
 //! record payloads reuse the shared tuple grammar, including BigInt fields.
 use super::super::{
-	value::{self, Stored, Values},
 	Error,
+	value::{self, Stored, Values},
 };
-use rooms_application::archive::{self, blobs::Address, index::Entry, output::Output, ConversationKind, Kind, Record};
+use rooms_application::archive::{self, ConversationKind, Kind, Record, blobs::Address, index::Entry, output::Output};
 use std::sync::Arc;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 const MAX_SAFE: u64 = (1 << 53) - 1;
 fn kind(record: &Record) -> &'static str {
 	if record.kind() == Kind::Line {
@@ -87,11 +87,12 @@ pub(super) fn encode(record: &Record, revision: u64) -> Result<JsValue, Error> {
 		("key", key(record)),
 		("coordinates", coordinates(record)),
 		("revision", (revision as f64).into()),
+		("digests", digests(record).into()),
 		("row", Values::list(archive::output::record::<Values>(record))),
 	])
 }
 pub(in crate::storage) fn decode(row: JsValue) -> Result<Entry, Error> {
-	value::shape(&row, &["key", "coordinates", "revision", "row"])?;
+	value::shape(&row, &["key", "coordinates", "revision", "digests", "row"])?;
 	let revision = value::natural(&value::get(&row, "revision")?, MAX_SAFE)?;
 	if revision == 0 {
 		return Err(Error::Invalid("invalid archive storage revision"));
@@ -100,10 +101,35 @@ pub(in crate::storage) fn decode(row: JsValue) -> Result<Entry, Error> {
 	if value::get(&row, "key")? != key(&record) || value::get(&row, "coordinates")? != coordinates(&record) {
 		return Err(Error::Invalid("archive record does not match its storage key"));
 	}
+	if !digests_match(&value::get(&row, "digests")?, &record) {
+		return Err(Error::Invalid("archive record does not match its digest index"));
+	}
 	Ok(Entry {
 		revision,
 		record: Arc::new(record),
 	})
+}
+fn digests(record: &Record) -> js_sys::Array {
+	archive::blobs::files(record)
+		.unwrap_or(&[])
+		.iter()
+		.filter_map(|attachment| attachment.blob())
+		.map(JsValue::from_str)
+		.collect()
+}
+fn digests_match(stored: &JsValue, record: &Record) -> bool {
+	if !js_sys::Array::is_array(stored) {
+		return false;
+	}
+	let stored = stored.unchecked_ref::<js_sys::Array>();
+	let expected = archive::blobs::files(record)
+		.unwrap_or(&[])
+		.iter()
+		.filter_map(|attachment| attachment.blob());
+	stored.length() as usize == expected.clone().count()
+		&& expected
+			.enumerate()
+			.all(|(index, digest)| stored.get(index as u32).as_string().as_deref() == Some(digest))
 }
 pub(in crate::storage) fn meta(row: JsValue, key: &str, maximum: u64) -> Result<u64, Error> {
 	if row.is_undefined() {

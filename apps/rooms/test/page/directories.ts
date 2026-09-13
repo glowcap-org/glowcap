@@ -51,8 +51,8 @@ export async function run(
 	// them, so the second server adds rows to the list a reader already has
 	// instead of rearranging it into something else.
 	//
-	// The order is the order the rooms were entered, which is what the rail has
-	// always promised: nobody else's activity can move a row, and joining
+	// The order is the order the rooms were entered, as the rail promises:
+	// nobody else's activity can move a row, and joining
 	// appends rather than inserting into the middle, so the lobby entered first
 	// is still first.
 	const rail = await tab.evaluate(() => ({

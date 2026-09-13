@@ -18,7 +18,17 @@ const parseJsonFile = util.parseJsonFile;
 const sectionBody = util.sectionBody;
 const collectBulletSpans = util.collectBulletSpans;
 
-const expected_hook_command = "bash .agents/hooks/format-edited-file.sh";
+// Cursor and Claude Code do not share a cwd guarantee for a hook command:
+// Cursor runs `afterFileEdit` from the workspace root, but a Claude Code
+// session's cwd tracks wherever the session last moved (a worktree switch, a
+// `cd` inside a tool call), so a plain relative path resolves against the
+// wrong directory and the hook fails with "no such file or directory" the
+// moment the session is elsewhere. `${CLAUDE_PROJECT_DIR}` is the project's
+// own env var precisely for this, so only the Claude-side commands use it;
+// forcing both hosts to the identical string would check the wrong invariant.
+const expected_cursor_format_hook_command = "bash .agents/hooks/format-edited-file.sh";
+const expected_claude_format_hook_command = "bash \"${CLAUDE_PROJECT_DIR}/.agents/hooks/format-edited-file.sh\"";
+const expected_claude_before_commit_hook_command = "bash \"${CLAUDE_PROJECT_DIR}/.agents/hooks/before-commit.sh\"";
 
 pub fn expectSymlink(
     io: std.Io,
@@ -257,8 +267,8 @@ fn expectCursorHook(
         try appendViolation(gpa, violations, ".cursor/hooks.json: missing `hooks.afterFileEdit` array", .{});
         return;
     };
-    if (!arrayHasCommand(after_file_edit, expected_hook_command)) {
-        try appendViolation(gpa, violations, ".cursor/hooks.json: `hooks.afterFileEdit` must invoke `{s}`", .{expected_hook_command});
+    if (!arrayHasCommand(after_file_edit, expected_cursor_format_hook_command)) {
+        try appendViolation(gpa, violations, ".cursor/hooks.json: `hooks.afterFileEdit` must invoke `{s}`", .{expected_cursor_format_hook_command});
     }
 }
 
@@ -275,21 +285,32 @@ fn expectClaudeHook(
         try appendViolation(gpa, violations, ".claude/settings.json: missing `hooks` object", .{});
         return;
     };
-    const post_tool_use = getField(hooks, "PostToolUse") orelse {
-        try appendViolation(gpa, violations, ".claude/settings.json: missing `hooks.PostToolUse` array", .{});
+    try expectClaudeHookEntry(gpa, violations, hooks, "PostToolUse", expected_claude_format_hook_command);
+    try expectClaudeHookEntry(gpa, violations, hooks, "PreToolUse", expected_claude_before_commit_hook_command);
+}
+
+fn expectClaudeHookEntry(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    hooks: std.json.Value,
+    event: []const u8,
+    expected_command: []const u8,
+) !void {
+    const entries_field = getField(hooks, event) orelse {
+        try appendViolation(gpa, violations, ".claude/settings.json: missing `hooks.{s}` array", .{event});
         return;
     };
-    switch (post_tool_use) {
+    switch (entries_field) {
         .array => |entries| {
             for (entries.items) |entry| {
                 if (getField(entry, "hooks")) |nested_hooks| {
-                    if (arrayHasCommand(nested_hooks, expected_hook_command)) return;
+                    if (arrayHasCommand(nested_hooks, expected_command)) return;
                 }
             }
         },
         else => {},
     }
-    try appendViolation(gpa, violations, ".claude/settings.json: `hooks.PostToolUse[*].hooks` must invoke `{s}`", .{expected_hook_command});
+    try appendViolation(gpa, violations, ".claude/settings.json: `hooks.{s}[*].hooks` must invoke `{s}`", .{ event, expected_command });
 }
 
 fn expectMcpServer(

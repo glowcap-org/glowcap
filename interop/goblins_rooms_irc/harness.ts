@@ -149,7 +149,11 @@ async function bridgePhase(): Promise<void> {
 			const lines = readIrcLines(conn.readable)[Symbol.asyncIterator]();
 			await nextMatching(lines, (line) => line.command === "CAP", "bridge CAP LS");
 			await nextMatching(lines, (line) => line.command === "NICK", "bridge NICK");
-			await nextMatching(lines, (line) => line.command === "USER", "bridge USER");
+			const user = await nextMatching(lines, (line) => line.command === "USER", "bridge USER");
+			assert(
+				user.params[3] === "glowcap bridge bot; admin: fixture-admin",
+				`bridge sent the wrong public identity: ${JSON.stringify(user.params)}`,
+			);
 			await writeAll(conn, new TextEncoder().encode(":fixture CAP bridgebot LS :sasl=PLAIN\r\n"));
 			await nextMatching(lines, (line) => line.command === "CAP" && line.params[0] === "REQ", "bridge CAP REQ");
 			await writeAll(conn, new TextEncoder().encode(":fixture CAP bridgebot ACK :sasl\r\n"));
@@ -162,6 +166,12 @@ async function bridgePhase(): Promise<void> {
 			await nextMatching(lines, (line) => line.command === "AUTHENTICATE", "SASL credentials");
 			await writeAll(conn, new TextEncoder().encode(":fixture 903 bridgebot :SASL ok\r\n"));
 			await nextMatching(lines, (line) => line.command === "CAP" && line.params[0] === "END", "CAP END");
+			await writeAll(conn, new TextEncoder().encode(":fixture 005 bridgebot BOT=b :supported\r\n"));
+			await nextMatching(
+				lines,
+				(line) => line.command === "MODE" && line.params[0] === "bridgebot" && line.params[1] === "+b",
+				"advertised bot mode",
+			);
 			await writeAll(conn, new TextEncoder().encode(":fixture 001 bridgebot :welcome\r\n"));
 			await nextMatching(lines, (line) => line.command === "JOIN", "bridge JOIN");
 			await writeAll(conn, new TextEncoder().encode(":bridgebot!u@fixture JOIN :#ocapn\r\n"));
@@ -180,6 +190,10 @@ async function bridgePhase(): Promise<void> {
 			conn.close();
 		}
 	})();
+	// The Goblins process starts before the fixture is awaited. Attach the
+	// observer now so an early socket failure remains scenario evidence instead
+	// of becoming an unhandled-rejection process abort.
+	void fixture.catch(() => {});
 
 	const bridge = new LiveChild(
 		Deno.env.get("GLOWCAP_ROOMS_IRC_BRIDGE_BIN") || `${ROOT}/zig-out/bin/rooms-irc-bridge`,
@@ -189,6 +203,7 @@ async function bridgePhase(): Promise<void> {
 			"--irc-host=localhost",
 			`--irc-port=${(listener.addr as Deno.NetAddr).port}`,
 			"--irc-nick=bridgebot",
+			"--irc-realname=glowcap bridge bot; admin: fixture-admin",
 			"--mode=two-way",
 			"--sasl-account=bridge-account",
 			"--tls=true",
@@ -214,7 +229,11 @@ async function bridgePhase(): Promise<void> {
 			"hello IRC from Goblins",
 			"irc/alice",
 		], ROOT);
-		await fixture;
+		try {
+			await fixture;
+		} catch (error) {
+			fail(`fixture IRC failed: ${error}\n${bridge.log()}`);
+		}
 		assert(goblins.code === 0 && goblins.out.includes("ROOMS OK"), `Goblins bridge member failed\n${goblins.out}`);
 		assert(
 			goblins.out.includes("hello Goblins from IRC"),

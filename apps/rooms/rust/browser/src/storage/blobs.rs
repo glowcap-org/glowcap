@@ -1,15 +1,16 @@
 //! Blob construction hashes bounded source chunks once. Reads recheck committed
 //! record authority in one transaction, then verify immutable bytes outside it.
 use super::{
-	records::{self, codec, BLOBS, RECORDS},
-	value, Archive, Database, Error, Operation,
+	Archive, Database, Error, Operation,
+	records::{self, BLOBS, RECORDS, codec},
+	value,
 };
-use js_sys::{futures::JsFuture, Array, Uint8Array};
+use js_sys::{Array, Uint8Array, futures::JsFuture};
 use rooms_application::{
 	archive::{
-		blobs::{self, Reader, MAX_STAGED_BYTES},
-		index::Page,
 		Facet, Filter, Record,
+		blobs::{self, MAX_STAGED_BYTES, Reader},
+		index::Page,
 	},
 	files::CHUNK_BYTES,
 	text::DocumentText,
@@ -66,7 +67,12 @@ pub(super) async fn stage<S: Source>(record: &Record, sources: &[S]) -> Result<V
 		let mut offset = 0;
 		while offset < size {
 			let length = CHUNK_BYTES.min(size - offset);
-			let chunk = source.read(offset as u64, length).await.map_err(Error::Platform)?;
+			// The source is the caller's, so its refusal is reported as given
+			// rather than recorded as this page's storage failing.
+			let chunk = source
+				.read(offset as u64, length)
+				.await
+				.map_err(|error| Error::Platform(error.into_refusal()))?;
 			if chunk.as_ref().len() != length {
 				return Err(Error::Invalid(
 					"archive source did not return exactly the requested bytes",
@@ -79,7 +85,7 @@ pub(super) async fn stage<S: Source>(record: &Record, sources: &[S]) -> Result<V
 			offset += length;
 		}
 		staged.push(Staged {
-			digest: format!("{:x}", hash.finalize()),
+		digest: rooms_application::fields::lower_hex(&hash.finalize()),
 			blob: Blob::new_with_u8_array_sequence(&chunks)?,
 		});
 	}
@@ -147,7 +153,7 @@ impl ReadAccess {
 				hash.update(&chunk);
 				at += chunk.len();
 			}
-			if format!("{:x}", hash.finalize()) != digest {
+			if rooms_application::fields::lower_hex(&hash.finalize()) != digest {
 				return Err(Error::Invalid("archive blob digest does not match its bytes"));
 			}
 			self.cache.retain(digest, blob.clone());
@@ -204,8 +210,8 @@ impl Archive {
 	}
 }
 impl BlobAccess for ReadAccess {
-	async fn read(&self, reader: Reader, offset: u64, maximum: usize) -> Result<Vec<u8>, String> {
-		self.bytes(reader, offset, maximum).await.map_err(|e| e.to_string())
+	async fn read(&self, reader: Reader, offset: u64, maximum: usize) -> Result<Vec<u8>, rooms_runtime::Error> {
+		Ok(self.bytes(reader, offset, maximum).await?)
 	}
 }
 impl Backend for Archive {
@@ -215,23 +221,28 @@ impl Backend for Archive {
 	fn retains_blobs(&self) -> bool {
 		true
 	}
-	async fn put(&mut self, record: Record) -> Result<u64, String> {
-		self.put(record).await.map_err(|e| e.to_string())
+	async fn put(&mut self, record: Record) -> Result<u64, rooms_runtime::Error> {
+		Ok(self.put(record).await?)
 	}
-	async fn read(&mut self, filter: &Filter, after: u64, limit: usize) -> Result<Page, String> {
-		self.read(filter, after, limit).await.map_err(|e| e.to_string())
+	async fn read(&mut self, filter: &Filter, after: u64, limit: usize) -> Result<Page, rooms_runtime::Error> {
+		Ok(self.read(filter, after, limit).await?)
 	}
-	async fn clear(&mut self) -> Result<(), String> {
-		self.clear().await.map_err(|e| e.to_string())
+	async fn clear(&mut self) -> Result<(), rooms_runtime::Error> {
+		Ok(self.clear().await?)
 	}
-	async fn put_files<S: Source>(&mut self, record: Record, sources: &[S]) -> Result<u64, String> {
-		self.put_files(record, sources).await.map_err(|e| e.to_string())
+	async fn put_files<S: Source>(&mut self, record: Record, sources: &[S]) -> Result<u64, rooms_runtime::Error> {
+		Ok(self.put_files(record, sources).await?)
 	}
-	async fn blob_reader(&mut self, facet: Facet, digest: String) -> Result<Reader, String> {
-		self.blob_reader(facet, digest).await.map_err(|e| e.to_string())
+	async fn blob_reader(&mut self, facet: Facet, digest: String) -> Result<Reader, rooms_runtime::Error> {
+		Ok(self.blob_reader(facet, digest).await?)
 	}
-	async fn read_blob(&mut self, reader: Reader, offset: u64, maximum: usize) -> Result<Vec<u8>, String> {
-		self.settle().await.map_err(|e| e.to_string())?;
+	async fn read_blob(
+		&mut self,
+		reader: Reader,
+		offset: u64,
+		maximum: usize,
+	) -> Result<Vec<u8>, rooms_runtime::Error> {
+		self.settle().await?;
 		self.blob_access().read(reader, offset, maximum).await
 	}
 }

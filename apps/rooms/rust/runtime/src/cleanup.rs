@@ -1,7 +1,12 @@
-//! Folding a cleanup's failure onto the failure it followed, once, for every
-//! owner that still speaks `String`. The first cause stays first; a cleanup
-//! that also failed is named after it rather than replacing it, so the
-//! operator reads what went wrong before what could not be undone.
+//! Folding a cleanup's failure onto the failure it followed, once, for an
+//! owner whose reader is a person at a terminal rather than another caller.
+//! The first cause stays first; a cleanup that also failed is named after it
+//! rather than replacing it, so the operator reads what went wrong before what
+//! could not be undone.
+//!
+//! [`crate::Error::fold`] is the same shape for a classed failure. The two stay
+//! apart because their readers do: a classed caller matches on the class, and a
+//! process main prints one line.
 
 /// The outcome of `primary` followed by `cleanup`.
 pub fn combine(primary: Result<(), String>, cleanup: Result<(), String>) -> Result<(), String> {

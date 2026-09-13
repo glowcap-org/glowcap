@@ -35,12 +35,14 @@ async fn released_local_targets_are_refused_without_spending_another_occurrence(
 				session.tell(&stale, "bump", &[]).unwrap_err().kind(),
 				ErrorKind::InvalidArgument
 			);
-			assert!(session
-				.send(&caretaker.proxy, "bump", &[])
-				.await
-				.unwrap_err()
-				.to_string()
-				.contains("released"));
+			assert!(
+				session
+					.send(&caretaker.proxy, "bump", &[])
+					.await
+					.unwrap_err()
+					.to_string()
+					.contains("released")
+			);
 			assert_eq!(calls.get(), 1);
 			assert_eq!(
 				session.send(&retained, "bump", &[]).await.unwrap(),

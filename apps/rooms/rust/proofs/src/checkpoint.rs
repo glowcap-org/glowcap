@@ -1,6 +1,6 @@
 use rooms_application::{
 	grants::Access,
-	session::checkpoint::{Checkpoint, Routes, MAX_CHECKPOINT_UNITS},
+	session::checkpoint::{Checkpoint, MAX_CHECKPOINT_UNITS, Routes},
 };
 
 struct CapturedRoutes<'a>(&'a serde_json::Value);

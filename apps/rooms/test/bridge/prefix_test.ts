@@ -1,10 +1,10 @@
 // The namespace one room server hands out to its bridges.
 //
-// The reservation carries the whole weight here, which is what these are about:
+// The reservation carries the whole weight in these scenarios:
 // `nickRefusal` admits `irc/bo` as an ordinary Rooms name, so nothing about a
 // name's shape says whether it belongs to a bridge. Only a claim does.
 
-import { BridgePrefixes } from "../../lib/bridge/prefix.ts";
+import { BridgePrefixes } from "../support/bridge/prefix.ts";
 import { MAX_SEAT_PREFIX, nickRefusal } from "../../lib/limits.ts";
 import { assertEquals } from "../assert.ts";
 

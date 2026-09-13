@@ -1,6 +1,6 @@
 //! Browser readers supply bounded byte spans. Rust owns source custody and
 //! the file-transfer protocol on the application's one source pool.
-use super::{actions::text, js_error, rejected, safe_integer, Result, RoomsBrowserSession};
+use super::{Result, RoomsBrowserSession, actions::text, js_error, rejected, safe_integer};
 use rooms_application::files::FileDescription;
 use rooms_glowcap::client::session::controller::Observation;
 use rooms_glowcap::client::{
@@ -71,9 +71,18 @@ impl RoomsBrowserSession {
 		base: Option<f64>,
 		conversation: js_sys::JsString,
 		caption: js_sys::JsString,
+		preview_urls: js_sys::JsString,
 		files: Vec<RoomsBrowserSource>,
 	) -> js_sys::Promise {
-		self.upload(operation, base, conversation, caption, files, None)
+		let caption_text = caption.as_string().unwrap_or_default();
+		let previews = match rooms_application::open_graph::Selection::decode(
+			&caption_text,
+			&preview_urls.as_string().unwrap_or_default(),
+		) {
+			Ok(previews) => previews,
+			Err(error) => return rejected(error.to_string()),
+		};
+		self.upload(operation, base, conversation, caption, previews, files, None)
 	}
 	#[wasm_bindgen(js_name = refileLine)]
 	#[allow(clippy::too_many_arguments)]
@@ -91,7 +100,15 @@ impl RoomsBrowserSession {
 			Ok(line) => line,
 			Err(error) => return rejected(error),
 		};
-		self.upload(operation, base, conversation, caption, files, Some((line, keep)))
+		self.upload(
+			operation,
+			base,
+			conversation,
+			caption,
+			Default::default(),
+			files,
+			Some((line, keep)),
+		)
 	}
 }
 impl RoomsBrowserSession {
@@ -101,6 +118,7 @@ impl RoomsBrowserSession {
 		base: Option<f64>,
 		conversation: js_sys::JsString,
 		caption: js_sys::JsString,
+		previews: rooms_application::open_graph::Selection,
 		files: Vec<RoomsBrowserSource>,
 		refile: Option<(u64, Vec<u32>)>,
 	) -> js_sys::Promise {
@@ -119,16 +137,18 @@ impl RoomsBrowserSession {
 				text(conversation)?,
 				text(caption)?,
 			);
-			let bytes =
-				operation.len()
-					+ conversation.len()
-					+ caption.len() + sources
+			let bytes = operation.len()
+				+ conversation.len()
+				+ caption.len()
+				+ previews.retained_bytes()
+				+ sources
 					.iter()
 					.map(|source| source.description().retained_bytes())
-					.sum::<usize>() + refile.as_ref().map_or(0, |(_, keep)| keep.len() * 4);
-			Ok((operation, base, conversation, caption, sources, bytes))
+					.sum::<usize>()
+				+ refile.as_ref().map_or(0, |(_, keep)| keep.len() * 4);
+			Ok((operation, base, conversation, caption, previews, sources, bytes))
 		})();
-		let (operation, base, conversation, caption, sources, bytes) = match input {
+		let (operation, base, conversation, caption, previews, sources, bytes) = match input {
 			Ok(input) => input,
 			Err(error) => return rejected(error),
 		};
@@ -149,6 +169,7 @@ impl RoomsBrowserSession {
 						base: base.map_or_else(|| owner.current().map(|snapshot| snapshot.revision.get()), Ok)?,
 						conversation: &conversation,
 						caption: &caption,
+						previews,
 					};
 					let revision = match refile {
 						Some((line, keep)) => {

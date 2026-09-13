@@ -3,7 +3,7 @@ id: ADR-0084
 status: accepted
 date: 2026-07-16
 tags: [cli, driver, mcp, packaging, operability]
-decision: "The installable glowcap product is a Zig binary under cli/ that consumes driver/net. One CapTP command registry drives CLI, REPL, and curated MCP. zig build remains the sole developer gate and packages the binary via installArtifact/release-pack. A2A-on-CapTP, timeline viz, and OTEL are deferred own passes, not CapTP roots."
+decision: "The installable glowcap product is a Zig binary under cli/ that consumes driver/net. One CapTP command registry drives CLI, REPL, and curated MCP. zig build remains the sole developer gate and packages the binary via installArtifact/release-pack. A2A-on-CapTP, timeline trace, and OTEL are deferred own passes, not CapTP roots."
 supersedes: []
 superseded_by: []
 ---
@@ -45,7 +45,7 @@ layer.
    [`glowcap-a2a-on-captp-design.md`](../../planning/glowcap-a2a-on-captp-design.md);
    the griddle sim runtime and ocapnviz have shipped, and what remains of the
    observability family is recorded in [`docs/roadmap.md`](../../roadmap.md)
-   and [ADR-0106](ADR-0106-viz-observation-capability.md).
+   and [ADR-0106](ADR-0106-trace-observation-capability.md).
    **Brand:** `glowcap griddle` is a subtree of this CLI (`run`, `status`,
    `help`). argv[0] remains `glowcap`; CapTP ops stay under `ocapn` / `repl`.
    An optional `griddle` → `glowcap griddle` shim may land later.

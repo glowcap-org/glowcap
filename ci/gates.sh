@@ -2,23 +2,18 @@
 # The CI gate sequence, forge-neutral: the same commands a contributor runs.
 # The checks workflow (.github/workflows/check.yml) runs this inside the
 # committed devcontainer image. The sequence itself names no forge.
-# The project gate itself stays `zig build check`; this script sequences it
-# with cross-language sibling gates that need the non-Zig runtimes the image
-# carries (the wider sibling list in .agents/rules/cli.md stays excluded
-# until its CI minutes are weighed).
+# The script runs the isolated, runtime, infrastructure, and outside-authority
+# gates in order. The wider sibling inventory in .agents/rules/cli.md stays
+# excluded until its CI cost earns recurring execution.
 
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# A gate that binds a real loopback port has no per-test deadline: a stale peer
-# on a fixed interop port, an orphaned Zig test process, or a
-# silent partner parks the gate in a socket wait forever, and nothing here would
-# ever return. Wrap each gate in the portable deadline runner so a true hang
-# fails loud — naming the gate and the remediation — instead of wedging the run
-# until a human kills it. The ceiling sits far above any healthy gate's
-# wall-clock, so it only ever trips on a genuine wedge; override it with
-# GATE_TIMEOUT for a slow runner.
+# Each unit or process proof owns its focused deadline. This wider deadline
+# contains a build-graph, setup, or cleanup wedge that falls outside those
+# boundaries. It names the gate and leaves no child behind. Override it with
+# GATE_TIMEOUT when measuring a slower runner.
 GATE_TIMEOUT="${GATE_TIMEOUT:-20m}"
 
 # Whether an exit code means "the deadline killed it" rather than "it failed".
@@ -32,18 +27,31 @@ wedged_rc() {
 
 gate() {
   local rc=0
-  python3 tools/run-with-timeout.py --kill-after 30s "$GATE_TIMEOUT" "$@" || rc=$?
+  local -a command=("$@")
+  if [ "${1:-}" = zig ] && [ "${2:-}" = build ]; then
+    local has_test_timeout=false arg
+    for arg in "${@:3}"; do
+      [ "$arg" = -- ] && break
+      if [ "$arg" = --test-timeout ]; then
+        has_test_timeout=true
+        break
+      fi
+    done
+    if [ "$has_test_timeout" = false ]; then
+      command=(zig build --test-timeout 30s "${@:3}")
+    fi
+  fi
+  python3 tools/run-with-timeout.py --kill-after 30s "$GATE_TIMEOUT" "${command[@]}" || rc=$?
   if [ "$rc" -ne 0 ]; then
     # Name the gate on every failure, not only on a wedge. A gate's own output
     # is the tool's, and a tool that fails for an environment reason says
     # nothing about which of two dozen gates was running — so the sequence
     # says it, or the reader is left grepping a log for a command they cannot
     # identify.
-    echo "ci/gates.sh: gate failed (exit $rc): $*" >&2
+    echo "ci/gates.sh: gate failed (exit $rc): ${command[*]}" >&2
     if wedged_rc "$rc"; then
-      echo "  It exceeded $GATE_TIMEOUT and was killed — likely a wedged socket wait" >&2
-      echo "  (a stale peer on a fixed interop port, or an orphaned test process from a dead run)." >&2
-      echo "  Sweep for orphans (pkill -f 'zig-cache/o/.*/test|zig-local/o/.*/test'), confirm no concurrent gate is running, and retry." >&2
+      echo "  It exceeded $GATE_TIMEOUT and was killed." >&2
+      echo "  Inspect the named gate's last output and any process still holding its port before retrying." >&2
     elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
       echo "  The command could not be run at all (not found, or not executable)." >&2
     else
@@ -62,7 +70,9 @@ gate bash .devcontainer/hooks/post-create.sh
 # it: exit codes, the signal a child actually receives, and no survivors.
 gate bash tools/run-with-timeout-test.sh
 
+gate zig build infrastructure-check
 gate zig build check
+gate zig build runtime-check
 # The optional native secure-relay composition is deliberately absent from the
 # base library graph, so `check` cannot prove it. Fetch the pinned Mbed TLS
 # release by checksum and run both pollable and completion carriers through the
@@ -122,6 +132,9 @@ gate zig build wasm-import-check
 # installed native CLI cold-dials, fetches and calls it, while the relay audits
 # that the CapTP canary never appeared outside the Noise channel.
 gate zig build web-peer-test
+# The production Rooms page is a peer, and every supported browser journey is
+# release evidence rather than an opt-in demo.
+gate zig build rooms-web-proofs
 gate zig build goblins-interop
 # The smallest outside-authority Rooms proof: a real Goblins vat and a native
 # glowcap member exchange room traffic while the server records the Goblins
@@ -147,6 +160,9 @@ gate zig build bindings-goblins-interop
 gate zig build bindings-goblins-handoff
 gate zig build bindings-goblins-gift
 gate zig build goblins-handoff
+# The encrypted counterpart also changes the exporter's advertised routing
+# advice between the gifter and recipient sessions.
+gate zig build goblins-handoff-iroh
 # The gifter direction: glowcap mints the signed desc:handoff-give and a live
 # Goblins recipient must parse and redeem it. This is the only automated step
 # that catches a glowcap-side change to the signed give bytes (goblins-handoff
@@ -168,8 +184,8 @@ gate zig build goblins-listen-recipient
 # a *glowcap* gift registry, so glowcap answering both verbs is proved against
 # somebody else's implementation rather than only the upstream suite.
 gate zig build goblins-exporter
-# Live inbound op:gc-exports from Goblins after echo drops a near export — the
-# one automated distributed-GC proof against somebody else's implementation.
+# Live GC in both directions: Goblins releases a glowcap export, then its
+# weak reference observes reclamation after the owning Zig Session releases.
 gate zig build goblins-gc
 # The listener direction for every native binding: each Host publishes an actor
 # and a live Goblins vat dials, enlivens, and calls it. This is the reciprocal

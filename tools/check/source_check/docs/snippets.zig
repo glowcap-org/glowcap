@@ -8,7 +8,7 @@ const util = @import("../util.zig");
 const appendViolation = util.appendViolation;
 
 /// The README quotes the compiled noise-tcp quick-start verbatim. The front page
-/// abridges the iroh first-call example. Start building's tabs are held by
+/// abridges the Noise TCP first-call example. Start building's tabs are held by
 /// gen-site-examples-check.
 pub fn checkQuickStartSnippet(
     io: std.Io,
@@ -42,16 +42,16 @@ pub fn checkQuickStartSnippet(
 
     try compareQuickStartDoc(io, gpa, root, violations, "README.md", expected.items, false);
 
-    const iroh_path = "site/examples/dial/iroh.zig";
-    const iroh_src = root.readFileAlloc(io, iroh_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ iroh_path, @errorName(err) });
+    const noise_path = "site/examples/dial/noise-tcp.zig";
+    const noise_src = root.readFileAlloc(io, noise_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ noise_path, @errorName(err) });
         return;
     };
-    defer gpa.free(iroh_src);
-    var iroh_expected: std.ArrayList([]const u8) = .empty;
-    defer iroh_expected.deinit(gpa);
-    if (!try extractIndentedBody(gpa, violations, iroh_path, iroh_src, "pub fn example(", &iroh_expected)) return;
-    try compareAbridgedQuickStart(io, gpa, root, violations, "site/content/index.smd", iroh_expected.items);
+    defer gpa.free(noise_src);
+    var noise_expected: std.ArrayList([]const u8) = .empty;
+    defer noise_expected.deinit(gpa);
+    if (!try extractIndentedBody(gpa, violations, noise_path, noise_src, "pub fn example(", &noise_expected)) return;
+    try compareAbridgedQuickStart(io, gpa, root, violations, "site/content/index.smd", noise_expected.items);
 }
 
 /// Relay first-calls speak `wss://` with platform trust. A loopback `ws://`
@@ -139,7 +139,7 @@ fn extractIndentedBody(
     return true;
 }
 
-/// The front page abridges the iroh first-call example: it drops lines the
+/// The front page abridges the Noise TCP first-call example: it drops lines the
 /// teaser does not need, so it cannot be held identical the way the README and
 /// its compiled client are. Every line it keeps must be a line the example
 /// carries, in the example's own order. Dropping a line stays legal and
@@ -177,7 +177,7 @@ fn compareAbridgedQuickStart(
         try fence.append(gpa, line);
     }
     if (!found) {
-        try appendViolation(gpa, violations, "{s}: no ```zig fence to hold against site/examples/dial/iroh.zig", .{path});
+        try appendViolation(gpa, violations, "{s}: no ```zig fence to hold against site/examples/dial/noise-tcp.zig", .{path});
         return;
     }
 
@@ -193,7 +193,7 @@ fn compareAbridgedQuickStart(
             }
         }
         if (!matched) {
-            try appendViolation(gpa, violations, "{s}: abridged first-call line `{s}` is not one site/examples/dial/iroh.zig carries from here on; the front page may drop lines but never reword them", .{ path, got });
+            try appendViolation(gpa, violations, "{s}: abridged first-call line `{s}` is not one site/examples/dial/noise-tcp.zig carries from here on; the front page may drop lines but never reword them", .{ path, got });
             return;
         }
     }
@@ -397,9 +397,13 @@ pub fn checkExampleFenceIndent(
         };
         defer dir.close(io);
 
-        var walker = try dir.walk(gpa);
+        var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
         walk: while (try walker.next(io)) |entry| {
+            if (entry.kind == .directory) {
+                try util.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
+                continue;
+            }
             if (entry.kind != .file) continue;
             const is_doc = std.mem.endsWith(u8, entry.path, ".md") or std.mem.endsWith(u8, entry.path, ".smd");
             if (!is_doc) continue;

@@ -1,18 +1,21 @@
 # Interaction architecture
 
-The interaction system below is what is wired today. The section numbers are load-bearing: modules under
-`src/interactions/` cite them. Cursor precedence has its own authority in [`cursor.md`](cursor.md).
+Use this page to trace an input from pointer or keyboard event to its state
+change. It documents the interaction system wired today. Modules under
+`src/interactions/` cite the section numbers, so keep them stable. Cursor
+precedence is documented separately in [`cursor.md`](cursor.md).
 
 The visualizer has one semantic vocabulary and one resolver, not one physical event loop. The Stage's empty canvas uses
 the pure pointer machine. Stage sprites use Pixi listeners because they already own exact display-object hit geometry.
 The Timeline's Overview and Scrubber use DOM adapters because their drags mutate different view and document structures.
 All three paths share:
 
-- `Hit`, `DefaultVerb`, and `ResolvedGesture`;
-- `resolveGesture`'s precedence;
-- `SelectMode` and `selectionActionFor`;
-- the process-wide gesture lease in `gesture-router.ts`; and
-- `cursorFor`, so the offered cursor and the next pointer-down read the same decision.
+- `Hit`, `DefaultVerb`, and `ResolvedGesture`
+- `resolveGesture`'s precedence
+- `SelectMode` and `selectionActionFor`
+- the process-wide gesture lease in `gesture-router.ts`
+- `cursorFor`, so the offered cursor and the next pointer-down use the same
+  decision
 
 `ScrubInput` is a native DOM control. Its click-to-type and drag-to-adjust behavior is deliberately outside the canvas
 gesture vocabulary.
@@ -27,7 +30,7 @@ surfaces listed in § 4.4. On the Timeline, those tools narrow to Select because
 
 **Selection has one modifier grammar.** Plain replaces, Shift adds, and Shift+Option removes. Stage sprites, Stage
 marquee, Timeline pills, and Timeline marquee all commit through that grammar. Cmd/Ctrl is reserved for keyboard
-commands; it has no separate pointer-selection meaning.
+commands. It has no separate pointer-selection meaning.
 
 **Document, view, tool, and selection are separate state spaces.** Document edits change the authored timeline. View
 edits change camera, zoom, playhead, row expansion, or the visible time window. Tool changes choose an interpreter.
@@ -57,8 +60,9 @@ Play, or Build. `toolsForMode` decides which tools the current product state off
 
 ### 2.1 Selection
 
-The selection holds entities, not observations. A Timeline pill selects the entity it depicts; a marquee selects the
-entities whose painted spans or glyphs it crosses. A command that shifts selected entities then plans the observation
+The selection holds entities, not observations. A Timeline pill selects the
+entity it depicts. A marquee selects the entities whose painted spans or glyphs
+it crosses. A command that shifts selected entities then plans the observation
 moves needed for each entity.
 
 `anchor` is the Inspector-follow target. It is always a member of `selection`, and is null exactly when the selection is
@@ -67,8 +71,9 @@ empty. It is re-seated when removal takes the current anchor away.
 ### 2.3 Surfaces
 
 `Hit` describes canvas-backed interaction geometry. Inspector and toolbar controls are DOM controls and are not
-variants. Timeline span edges use the generic `timeline-lane-event-edge` name because either the start or end may be
-grabbed; the `DragPlan` carries which edge it is.
+variants. Timeline span edges use the generic `timeline-lane-event-edge` name
+because either the start or end may be grabbed. The `DragPlan` identifies the
+edge.
 
 ## 3. Modules
 
@@ -115,7 +120,7 @@ can veto a Stage authoring verb.
 3. On an empty Timeline lane, Option without Shift: the local `pan-view` verb. Shift+Option remains the global
    remove-selection marquee.
 4. With no modifier held, ask a Stage authoring tool for an override. A two-click tool that addresses nodes but refuses
-   this node returns `tool-refuses`; it does not fall through to selection.
+   this node returns `tool-refuses` instead of falling through to selection.
 5. Take the surface default from § 4.5.
 
 `navigationOverride` exposes the first two rungs for host padding that has no more specific `Hit`. `timeline-gesture.ts`
@@ -156,7 +161,8 @@ action path.
 | timeline-gutter-label    | `reorder-row`             | reorder the row             |
 
 The empty Stage and an empty Timeline lane share a marquee verb. The adapter's hit geometry decides what the rectangle
-covers; the selection interpreter decides how those hits combine with the existing set.
+covers. The selection interpreter decides how those hits combine with the
+existing set.
 
 ### 4.6 Selection and drag modifiers
 
@@ -176,7 +182,7 @@ constrains a Stage node move to an axis. Their feedback is the snap line or axis
 
 A resolved semantic verb reaches the adapter that owns the affected state. Stage authoring effects advance the builder
 tools. Timeline view verbs update the time window, playhead, expansion, or gutter. Selection gestures emit only a hit
-set plus `SelectMode`; `selectionActionFor` is the one interpreter that turns that pair into `set-selection`,
+set plus `SelectMode`. `selectionActionFor` is the one interpreter that turns that pair into `set-selection`,
 `add-to-selection`, `remove-from-selection`, or `clear-on-empty-click`.
 
 ## 5. Pointer state machine
@@ -214,7 +220,7 @@ depend on receiving another move before release.
 ### 5.4 Effects
 
 Effects are `click`, the drag lifecycle, and `pan-step`. An adapter executes only effects its surface owns. A click
-carries its pointer-up hit; no second hit test is needed.
+carries its pointer-up hit, so no second hit test is needed.
 
 ## 6. Selection store
 
@@ -257,24 +263,28 @@ messages obscure them.
 `useSurfacePointer` feeds one machine instance. `makeHit` returning null skips pointer-down, which keeps Stage sprite
 gestures in their Pixi owners. The hook takes pointer capture and a gesture lease for the interaction.
 
-Space has one keyboard authority. `useKeyboardInput` updates the App's held state; `useSurfacePointer` observes that
+Space has one keyboard authority. `useKeyboardInput` updates the App's held
+state, and `useSurfacePointer` observes that
 state and sends `space-down` or `space-up` to its current machine. It does not attach a second global keyboard listener.
 
 Timeline adapters ask `resolveTimelineGesture` before mutating. Space or Hand therefore starts pan even over a span
-edge, visibility eye, or dead gutter pad. The Scrubber supplies one cached row layout and one `EventHitIndex`; ordinary
+edge, visibility eye, or dead gutter pad. The Scrubber supplies one cached row
+layout and one `EventHitIndex`. Ordinary
 pointermove neither rebuilds rows nor scans the observation list. Effective times remain live reads so an in-flight
 authoring transaction still moves its hit geometry immediately.
 
 ### 8.2 Wheel
 
 Wheel is a sibling pipeline. Listeners are non-passive because navigation must prevent page scroll. Stage vertical wheel
-zooms around the pointer. Timeline horizontal wheel or Shift-wheel pans time; plain vertical wheel zooms. Wheel over the
+zooms around the pointer. Timeline horizontal wheel or Shift-wheel pans time.
+Plain vertical wheel zooms. Wheel over the
 Scrubber gutter scrolls the row stack.
 
 ### 8.3 Keyboard
 
 `useKeyboardInput` is the only global keyboard listener. Held gestures are latched until keyup or window blur. One-shot
-commands are rows in `SHORTCUTS`; they refuse auto-repeat and text-input targets.
+commands are rows in `SHORTCUTS`. They refuse auto-repeat and text-input
+targets.
 
 Escape unwinds focus before selection. Cmd/Ctrl-A selects every declared entity. Delete, clipboard, history, and
 authoring tool shortcuts exist only where their owning mode allows them. Arrow keys nudge a Build selection when a nudge
@@ -295,8 +305,9 @@ them.
 
 ## 9. Tools
 
-Tools are peers in the toolbar. Display facts live in `TOOL_FACTS`; shortcut keys live in `SHORTCUTS`; Stage claims live
-in `toolOverride`; cursor drawing lives in `cursor.ts`; per-tool draft configuration lives in `ToolOptionsBar.tsx`.
+Tools are peers in the toolbar. Display facts live in `TOOL_FACTS`, shortcut
+keys in `SHORTCUTS`, Stage claims in `toolOverride`, cursor drawing in
+`cursor.ts`, and per-tool draft configuration in `ToolOptionsBar.tsx`.
 `toolsForMode` is the authority on availability.
 
 ## 11. Space pressed mid-drag
@@ -338,5 +349,6 @@ that lifecycle is actually shared. Timeline drags retain typed local state becau
 observation transaction, reordering a row, and sweeping a marquee have different commit and teardown requirements.
 `timeline-gesture.ts` is the shared controller that prevents those adapters from inventing precedence.
 
-Native DOM inputs remain native. Double-click means fit on the Timeline and reset on numeric scrub inputs; it is not a
+Native DOM inputs remain native. Double-click means fit on the Timeline and
+reset on numeric scrub inputs. It is not a
 hidden entity drill-in gesture.

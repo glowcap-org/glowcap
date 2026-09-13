@@ -52,11 +52,11 @@ pub(super) async fn wait<T>(
 			Err(error) => return Poll::Ready(Err(error)),
 			Ok(None) => {}
 		}
-		if let Some(ticket) = held.ticket {
-			if let Some((_, wake)) = s.waiters.iter_mut().find(|(key, _)| *key == ticket) {
-				*wake = cx.waker().clone();
-				return Poll::Pending;
-			}
+		if let Some(ticket) = held.ticket
+			&& let Some((_, wake)) = s.waiters.iter_mut().find(|(key, _)| *key == ticket)
+		{
+			*wake = cx.waker().clone();
+			return Poll::Pending;
 		}
 		if s.waiters.len() == policy::MAX_EVENTS {
 			return Poll::Ready(Err(policy::Error::Full.into()));

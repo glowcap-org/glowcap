@@ -6,6 +6,8 @@ tags: [net, completion-loop, dialer, scaling, driver]
 decision: "The completion loop supports outbound TCP dialing through a backend `submitConnect` operation and one shared connection lifecycle for accepted and dialed sockets. The driver exposes the client fan-out surface above the loop; the core protocol layers and the runtime netlayer contract do not change."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0152]
 ---
 
 # ADR-0051 Completion-loop dialer

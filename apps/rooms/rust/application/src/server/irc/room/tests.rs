@@ -1,5 +1,5 @@
 use super::*;
-use crate::server::irc::protocol::parse_line;
+use crate::{room::carries::Carries, server::irc::protocol::parse_line};
 
 fn line(text: &str) -> Message {
 	parse_line(text).unwrap()
@@ -37,9 +37,11 @@ fn replacing_a_reader_preserves_feed_demand_and_releases_its_old_inbox() {
 	assert_eq!(effects.releases, [(1, "old")]);
 	assert_eq!(effects.presence, [1]);
 	assert_eq!(room.membership_kind(1).unwrap(), MembershipKind::Observer);
-	assert!(tells(&effects, 1)
-		.iter()
-		.any(|notice| matches!(notice, Notice::Leave { nick, .. } if nick == "reader")));
+	assert!(
+		tells(&effects, 1)
+			.iter()
+			.any(|notice| matches!(notice, Notice::Leave { nick, .. } if nick == "reader"))
+	);
 	assert!(room.prepare_post(1, "read only").is_err());
 }
 
@@ -52,6 +54,16 @@ fn the_room_is_built_on_ircs_terms() {
 	assert_eq!(room.name(), "fixture/#news");
 	assert_eq!(room.info().kind, PublicationKind::Bridge);
 	assert!(room.line_bytes() > 300);
+}
+
+#[test]
+fn exhausted_line_identity_refuses_before_a_post_is_admitted() {
+	let mut room = room();
+	room.subscribe(1, "reader", "inbox", MembershipKind::Participant, "", 400, &no_view)
+		.unwrap();
+	room.next_line = 1_u64 << 53;
+	let refused = room.prepare_post(1, "never admitted").unwrap_err();
+	assert_eq!(refused.reason(), "IRC bridge line identifiers exhausted");
 }
 
 #[test]
@@ -74,9 +86,12 @@ fn a_reader_is_seated_told_the_room_and_hears_the_channel() {
 		.unwrap();
 	let heard = tells(&effects, 1);
 	assert!(matches!(heard[0], Notice::Join { .. }));
-	assert!(matches!(heard[1], Notice::LineBytes { bytes: 400, .. }));
-	assert!(matches!(heard[2], Notice::Bridge { .. }));
-	assert!(matches!(heard[3], Notice::Roster { .. }));
+	// IRC keeps no link previews and relays no typing, and a client returns
+	// from joining on the roster, so this arrives before it.
+	assert_eq!(heard[1], &Notice::Carries(Carries::NOTHING));
+	assert!(matches!(heard[2], Notice::LineBytes { bytes: 400, .. }));
+	assert!(matches!(heard[3], Notice::Bridge { .. }));
+	assert!(matches!(heard[4], Notice::Roster { .. }));
 	assert!(effects.count_changed);
 	// The feed joins, and the channel's names arrive as irc/ members.
 	room.relay().connected();
@@ -103,7 +118,7 @@ fn a_reader_is_seated_told_the_room_and_hears_the_channel() {
 		)
 		.unwrap();
 	assert!(
-		matches!(&tells(&effects, 1)[0], Notice::Line { from, text } if from == "irc/alice" && text == "/me dances")
+		matches!(&tells(&effects, 1)[0], Notice::Line { from, text, line: id } if from == "irc/alice" && text == "/me dances" && id.get() == 1)
 	);
 	let effects = room
 		.observe(&line(":alice!u@h TOPIC #news :ship day"), &no_seat, &no_view)
@@ -124,6 +139,10 @@ fn a_reader_is_seated_told_the_room_and_hears_the_channel() {
 	assert!(matches!(&tells(&effects, 1)[0], Notice::Leave { nick, .. } if nick == "irc/al"));
 	let post = room.prepare_post(1, "hello").unwrap();
 	assert_eq!(post.from, "reader");
+	let effects = room.commit_post(&post);
+	assert!(
+		matches!(&tells(&effects, 1)[0], Notice::Line { from, text, line: id } if from == "reader" && text == "hello" && id.get() == 2)
+	);
 	assert!(room.prepare_post(2, "x").is_err());
 	let effects = room.away(1, "lunch").unwrap();
 	assert!(matches!(&tells(&effects, 1)[0], Notice::Away { why, .. } if why == "lunch"));

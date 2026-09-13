@@ -242,10 +242,13 @@ export function bareLocator(transport: string, designator: string): Locator {
 	return { transport, designator, hints: new Map(), hintWireForm: "boolean-false" };
 }
 
-export function withOwnedLocator<T>(locator: Locator, use: (owned: OwnedLocator) => T): T {
+/** `run` rather than `use`, because React 19 named a hook `use()` and the lint
+ * that enforces hook ordering matches on the name. This is a resource bracket
+ * in a binding that renders nothing, and the rule cannot know that. */
+export function withOwnedLocator<T>(locator: Locator, run: (owned: OwnedLocator) => T): T {
 	const owned = OwnedLocator.create(locator);
 	try {
-		return use(owned);
+		return run(owned);
 	} finally {
 		owned.release();
 	}

@@ -1,9 +1,10 @@
+//! Durable session state records commands, outcomes, and operation identities.
 use super::{Error, OperationId, ResultKind, ResultText};
 use crate::{
 	documents::SessionDocument,
 	session::{
 		checkpoint::{Checkpoint, Routes},
-		fields::{version, List, Nullable, SafeInteger, Text},
+		fields::{List, Nullable, SafeInteger, Text, version},
 		snapshot::views::Adoption,
 	},
 	text::DocumentText,

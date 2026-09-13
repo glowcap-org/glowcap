@@ -251,6 +251,14 @@ const registered = [_]Table{
         .epoch = "NOT CLOSED by the key. The OS reuses a descriptor as soon as it closes, so a row outliving its socket would be read for the next socket to land on that number. What holds it is the submit/complete discipline: the row is inserted when the completion is submitted and removed when it fires or the fd closes, and the fd cannot be reused while the backend still holds it open.",
     },
     .{
+        .file = "net/completion/epoll.zig",
+        .name = "pending",
+        .owner = "File descriptors this backend opened or accepted, in one process's descriptor table. No peer names one.",
+        .epoch = "NOT CLOSED by the key. Linux can reuse a descriptor as soon as it closes. " ++
+            "The row enters only after epoll registration accepts an operation and normally leaves when its directions complete, cancel, or close while the backend still owns the descriptor. " ++
+            "A failed post-completion control call retains the row and old kernel mask until a later successful control or close, so userspace does not assume the kernel registration vanished.",
+    },
+    .{
         .file = "net/transport/iroh/backend.zig",
         .name = "conns",
         .owner = "Synthetic descriptors this backend mints from its own `next_fd` counter to stand in for sidecar connections. They are not OS descriptors and nothing outside this backend chooses one.",

@@ -30,7 +30,7 @@ network.
 
 ## CapTP carries references between programs
 
-[CapTP](http://erights.org/elib/distrib/captp/) is the Capability Transport
+[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/) is the Capability Transport
 Protocol. Two programs open a session, export local objects, and pass references
 to each other.
 

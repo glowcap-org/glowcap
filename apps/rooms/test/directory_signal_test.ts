@@ -1,3 +1,4 @@
+// The signaling reply capability admits only its bounded vocabulary and returns unexpected capabilities.
 import { type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { DirectorySignaling } from "../lib/directory_signal.ts";
 import { SIG_ACCEPTED } from "../lib/protocol.ts";

@@ -288,9 +288,9 @@ pub fn register(ctx: Context) void {
         // server's own readers.
         .{
             .check_step_name = "gen-rooms-protocol-check",
-            .check_desc = "Verify the Rooms protocol tables under apps/rooms/clients/*/ match tools/gen/rooms_protocol.zig (fails if stale)",
+            .check_desc = "Verify the Rooms application and client protocol tables match tools/gen/rooms_protocol.zig (fails if stale)",
             .write_step_name = "gen-rooms-protocol",
-            .write_desc = "Regenerate the Rooms protocol tables under apps/rooms/clients/*/ from tools/gen/rooms_protocol.zig",
+            .write_desc = "Regenerate the Rooms application and client protocol tables from tools/gen/rooms_protocol.zig",
             .generator = "tools/gen/rooms_protocol.zig",
         },
     };

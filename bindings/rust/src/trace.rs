@@ -17,7 +17,7 @@
 use crate::execution::Instant;
 use std::cell::RefCell;
 use std::ffi::c_void;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
 use crate::abi_constants_gen::{
@@ -143,7 +143,9 @@ pub struct SessionMeta {
 
 pub type TraceSink = Box<dyn Fn(&TraceEvent)>;
 
-fn emit_record(context: &crate::ContextInner, diagnostic_id: u64, sink: Rc<dyn Fn(&TraceEvent)>, record: TraceEvent) {
+type TraceCallback = Rc<dyn Fn(&TraceEvent)>;
+
+fn emit_record(context: &crate::ContextInner, diagnostic_id: u64, sink: TraceCallback, record: TraceEvent) {
 	// Trace observation must not become protocol control flow. In particular,
 	// Host-driving re-entry is refused by the C ABI, and a panic must never
 	// cross the C callback.
@@ -236,7 +238,7 @@ struct TracedHost {
 }
 
 struct TraceState {
-	sink: Option<Rc<dyn Fn(&TraceEvent)>>,
+	sink: Option<TraceCallback>,
 	/// Identity of the current installation. Pointer identity lets an older
 	/// uninstall closure recognize a replacement without an exhaustible counter.
 	installation: Option<Rc<()>>,
@@ -258,10 +260,9 @@ thread_local! {
 	});
 }
 
-fn project_native_event(
-	cookie: usize,
-	ev: &ffi::GlowcapTraceEvent,
-) -> crate::Result<Option<(Rc<crate::ContextInner>, u64, Rc<dyn Fn(&TraceEvent)>, TraceEvent)>> {
+type ProjectedTrace = (Rc<crate::ContextInner>, u64, TraceCallback, TraceEvent);
+
+fn project_native_event(cookie: usize, ev: &ffi::GlowcapTraceEvent) -> crate::Result<Option<ProjectedTrace>> {
 	STATE.with(|state| {
 		let state = state.try_borrow().map_err(|_| {
 			crate::Error::with_detail(
@@ -466,8 +467,7 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 		state.sink = Some(Rc::from(sink));
 		state.self_label = self_label.map(str::to_string);
 		state.t0 = Instant::now();
-		let hosts = state.hosts.iter().map(|h| (h.raw, h.cookie)).collect::<Vec<_>>();
-		hosts
+		state.hosts.iter().map(|h| (h.raw, h.cookie)).collect::<Vec<_>>()
 	});
 	for (raw, cookie) in hosts {
 		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };

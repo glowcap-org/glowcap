@@ -16,6 +16,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { coveringReload, handOffNow } from "./boot.ts";
 import { Button } from "./Button.tsx";
 import { Said } from "./Said.tsx";
+import { crashPartTitle, partSessionKept, partTryAgain, partWentWrong } from "../../lib/text/page.ts";
 
 interface Props {
 	/** What this boundary protects, in words a reader would use. */
@@ -33,10 +34,10 @@ export function CrashCard(
 ) {
 	return (
 		<div className="crash" role="alert">
-			<h2>The {part} ran into a problem</h2>
+			<h2>{crashPartTitle(part)}</h2>
 			<Said kind="failure">{message}</Said>
-			<p>Your session is still open, so nothing has been lost.</p>
-			<Button variant="quiet" onClick={onRetry}>Try again</Button>
+			<p>{partSessionKept}</p>
+			<Button variant="quiet" onClick={onRetry}>{partTryAgain}</Button>
 		</div>
 	);
 }
@@ -69,7 +70,7 @@ export class ErrorBoundary extends Component<Props, Boundary> {
 		return (
 			<CrashCard
 				part={this.props.part}
-				message={failed.message || "Something in this part of the page went wrong."}
+				message={failed.message || partWentWrong}
 				onRetry={() => this.setState({ failed: null })}
 			/>
 		);

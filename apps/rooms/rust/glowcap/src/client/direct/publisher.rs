@@ -1,6 +1,6 @@
 //! Host-scoped direct inbox publication. Directory owners share a pure ledger;
 //! native alias effects run outside delivering turns and expose actual failures.
-use crate::client::{directory::Directory, Deadline, Error};
+use crate::client::{Deadline, Error, directory::Directory};
 use glowcap::{Behavior, Host, Ref, Session};
 use rooms_application::failure::{Failure, FailureCode};
 use rooms_application::{direct::publication as policy, directory::registration::Id};

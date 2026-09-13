@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use core::ffi::{c_int, c_uchar};
 
-use crate::{check, sys, CaptpVersion, Error, Result};
+use crate::{CaptpVersion, Error, Result, check, sys};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HintValue {
@@ -198,11 +198,14 @@ impl OwnedLocator {
 					"OCapN returned a null locator view".to_string(),
 				));
 			}
-			Ok(core::slice::from_raw_parts(ptr, len))
+			// SAFETY: the accessor that produced this view keeps it live for the
+			// call, and the empty and null arms above have already run.
+			Ok(unsafe { core::slice::from_raw_parts(ptr, len) })
 		}
 
 		unsafe fn text(ptr: *const u8, len: usize) -> Result<String> {
-			String::from_utf8(bytes(ptr, len)?.to_vec()).map_err(|_| {
+			// SAFETY: same view, same call window; `bytes` copies before returning.
+			String::from_utf8(unsafe { bytes(ptr, len) }?.to_vec()).map_err(|_| {
 				Error::with_detail(
 					sys::ERR_INVALID_ARGUMENT,
 					"OCapN returned non-UTF-8 locator text".to_string(),
@@ -216,8 +219,11 @@ impl OwnedLocator {
 		) -> Result<String> {
 			let mut ptr = core::ptr::null();
 			let mut len = 0;
-			check(accessor(raw, &mut ptr, &mut len))?;
-			text(ptr, len)
+			// SAFETY: `raw` is this `OwnedLocator`'s live handle, and the view
+			// the accessor writes out borrows from it until the next mutation,
+			// which `text` copies out of before returning.
+			check(unsafe { accessor(raw, &mut ptr, &mut len) })?;
+			unsafe { text(ptr, len) }
 		}
 
 		let mut count = 0;
@@ -236,7 +242,7 @@ impl OwnedLocator {
 					return Err(Error::with_detail(
 						sys::ERR_INVALID_ARGUMENT,
 						"OCapN returned an invalid locator hint".to_string(),
-					))
+					));
 				}
 			};
 			hints.insert(name, value);
@@ -251,7 +257,7 @@ impl OwnedLocator {
 				return Err(Error::with_detail(
 					sys::ERR_INVALID_ARGUMENT,
 					"OCapN returned an invalid locator hint wire form".to_string(),
-				))
+				));
 			}
 		};
 
@@ -320,7 +326,9 @@ unsafe fn view_to_string(ptr: *const c_uchar, len: usize) -> String {
 	if len == 0 || ptr.is_null() {
 		return String::new();
 	}
-	String::from_utf8_lossy(core::slice::from_raw_parts(ptr, len)).into_owned()
+	// SAFETY: the caller declares the view live, and the guard above has taken
+	// the empty and null cases `from_raw_parts` refuses.
+	String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
 }
 
 /// Format a peer locator as an `ocapn://<designator>.<transport>[?hints]` URI
@@ -543,7 +551,7 @@ mod tests {
 
 	#[cfg(feature = "tcp")]
 	use super::format_sturdyref;
-	use super::{parse_sturdyref, HintValue, HintWireForm, Locator};
+	use super::{HintValue, HintWireForm, Locator, parse_sturdyref};
 	use crate::CaptpVersion;
 
 	#[test]

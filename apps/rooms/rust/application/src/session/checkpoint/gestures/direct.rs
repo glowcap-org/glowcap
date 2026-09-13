@@ -89,7 +89,7 @@ impl DirectGesture {
 				name,
 				arguments,
 				directory: directory.id.clone(),
-				expected: Some((directory.locator.clone(), directory.nick.clone())),
+				expected: Some(super::expected(directory)),
 			},
 			id,
 			peer: member.name.clone(),

@@ -4,10 +4,10 @@ use rooms_application::room::{
 	message::{ChangeKind, LineId, LineMarker},
 	policy::RoomPolicy,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{cell::Cell, rc::Rc};
 
-use crate::arguments::{from_fixture, text, Arg};
+use crate::arguments::{Arg, from_fixture, text};
 
 pub fn run() {
 	current_owner_fixtures();

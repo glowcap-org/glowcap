@@ -52,15 +52,21 @@ import { enterOrOpen } from "../../apps/rooms/lib/enter_room.ts";
 import { openRoomsRuntime } from "../../apps/rooms/lib/runtime.ts";
 import { DM } from "../../apps/rooms/lib/protocol.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../apps/rooms/lib/locator.ts";
-import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz/viewer.ts";
+import {
+	connectTraceViewer,
+	scrapeTraceSturdyref,
+	traceMemorySeed,
+	traceUrlOf,
+} from "../../apps/rooms/test/trace/viewer.ts";
 import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
-import { confirmTitleLeave, until as untilWithin } from "../../apps/rooms/test/support/page.ts";
+import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
+import { until as untilWithin } from "../../apps/rooms/test/support/wait.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 
 const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-dm-iroh" : "goblins-rooms-dm";
 const ROOT = new URL("../../", import.meta.url).pathname;
-import { WEB } from "../../apps/rooms/test/support/web_binary.ts";
+import { WEB } from "../../apps/rooms/test/support/paths.ts";
 const VAT = new URL("../../conformance/goblins-peer/racket/rooms-dm-member.rkt", import.meta.url)
 	.pathname;
 const RACKET_DIR = new URL("../../conformance/goblins-peer/racket/", import.meta.url).pathname;
@@ -178,13 +184,13 @@ async function startNativeMember() {
 /** A viewer on the live timeline endpoint, exactly as ocapnviz connects.
  *
  * Records arrive through a capability the endpoint hands this viewer's inbox,
- * after enlivening the sturdyref the server announced. `viz_viewer.ts` is the
+ * after enlivening the sturdyref the server announced. `trace_viewer.ts` is the
  * one place that connection is made, so this harness and the browser proofs
  * read the endpoint through the same shape. */
 type Rec = Record<string, unknown>;
 async function watchTimeline(sturdyref: string): Promise<{ seen: Rec[]; close: () => Promise<void> }> {
 	const seen: Rec[] = [];
-	const viewer = await connectVizViewer(sturdyref, (record) => {
+	const viewer = await connectTraceViewer(sturdyref, (record) => {
 		seen.push(record);
 	});
 	return { seen, close: () => viewer.close() };
@@ -192,7 +198,7 @@ async function watchTimeline(sturdyref: string): Promise<{ seen: Rec[]; close: (
 
 const httpPort = freePort();
 const roomPort = freePort();
-const vizPort = freePort();
+const tracePort = freePort();
 const vatPort = freePort();
 
 let browser: Browser | null = null;
@@ -208,7 +214,7 @@ try {
 	// and the room server as its child. The TCP arm names the vat's address as a
 	// cleartext peer the relay may dial; the iroh arm names nothing, because an
 	// iroh destination has to be a peer holding a key.
-	const env: Record<string, string> = { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) };
+	const env: Record<string, string> = { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) };
 	if (!IROH) env.GLOWCAP_RELAY_TCP_PEERS = loopbackTcpDesignator(vatPort);
 	web = new Deno.Command(WEB, {
 		args: [
@@ -223,15 +229,15 @@ try {
 		// HTTP, so nothing here reads this stream, and a pipe nobody drains is a
 		// process that eventually blocks on its own output. Its stderr is read
 		// rather than inherited, because the trace capability is announced there
-		// and a viewer needs it; `scrapeVizSturdyref` tees the stream onward, so
+		// and a viewer needs it; `scrapeTraceSturdyref` tees the stream onward, so
 		// nothing the server says is lost by reading it here.
 		stdout: "null",
 		stderr: "piped",
 	}).spawn();
 
-	const vizRef = await scrapeVizSturdyref(web.stderr);
+	const traceRef = await scrapeTraceSturdyref(web.stderr);
 	const roomLocator = await waitForLocator(httpPort);
-	const viewer = await watchTimeline(vizRef);
+	const viewer = await watchTimeline(traceRef);
 	closeViewer = viewer.close;
 	const timeline = viewer.seen;
 
@@ -257,7 +263,7 @@ try {
 			VAT_NICK,
 		],
 		cwd: RACKET_DIR,
-		env: { GLOWCAP_ROOMS_VIZ_URL: vizUrlOf(vizRef) },
+		env: { GLOWCAP_ROOMS_TRACE_URL: traceUrlOf(traceRef) },
 		stdout: "piped",
 		stderr: "piped",
 	}).spawn();
@@ -335,7 +341,7 @@ try {
 	const context = await browser.newContext();
 	await context.addInitScript(
 		({ key, value }) => localStorage.setItem(key, value),
-		vizMemorySeed(httpPort, vizRef),
+		traceMemorySeed(httpPort, traceRef),
 	);
 	const tab: Page = await context.newPage();
 	tab.on("console", (message) => {

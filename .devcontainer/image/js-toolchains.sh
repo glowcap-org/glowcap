@@ -29,6 +29,7 @@ tar -xJf "${tmp}/${node_tarball}" --strip-components=1 -C /opt/node
 ln -sf /opt/node/bin/node /usr/local/bin/node
 ln -sf /opt/node/bin/npm /usr/local/bin/npm
 ln -sf /opt/node/bin/npx /usr/local/bin/npx
+npm install -g --no-fund --no-audit "npm@${NPM_VERSION}"
 
 bun_zip="bun-linux-${bun_arch}.zip"
 bun_url="https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${bun_zip}"

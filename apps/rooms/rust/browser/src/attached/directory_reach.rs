@@ -19,8 +19,11 @@ impl RoomsBrowserSession {
 			let locator = super::scalar(locator, 16384)?;
 			let default = super::scalar(default_directory, 16384)?;
 			let locator = if locator.is_empty() { default } else { locator };
-			let nick = super::scalar(nick, 32)?;
-			if let Some(reason) = rooms_application::room::inbox::nick_refusal(&nick) {
+			let nick_intent: rooms_application::directory::registration::NicknameIntent =
+				serde_json::from_str(&super::scalar(nick, 256)?).map_err(|_| "Invalid nickname intent")?;
+			let nick = nick_intent.requested();
+			let nick_allocation = nick_intent.allocation();
+			if let Some(reason) = rooms_application::room::inbox::nick_refusal(nick) {
 				return Err(reason);
 			}
 			let address = rooms_glowcap::routes::Address::directory(&locator)
@@ -32,7 +35,7 @@ impl RoomsBrowserSession {
 			}
 			let reach = snapshot
 				.checkpoint
-				.reach_directory(&address.authority, &locator, &nick)
+				.reach_directory_with_allocation(&address.authority, &locator, nick, nick_allocation)
 				.map_err(str::to_owned)?;
 			let abort = crate::abort::Abort::new(signal.clone())?;
 			Ok::<_, String>((reach, abort, self.owner.operation_id()?, self.owner.operation_id()?))

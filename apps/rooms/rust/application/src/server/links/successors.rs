@@ -63,16 +63,16 @@ impl Authority {
 			next.revoked.remove(&key);
 		}
 		next.linked.insert(key.clone(), name.into());
-		if let Some(topic) = topic {
-			if !next.topics.contains_key(&key) {
-				if next.topics.len() == document::MAX_ROOM_LINKS {
-					return Err(Refusal::plain(format!(
-						"this server remembers topics for at most {} rooms",
-						document::MAX_ROOM_LINKS
-					)));
-				}
-				next.topics.insert(key.clone(), (name.into(), topic.into()));
+		if let Some(topic) = topic
+			&& !next.topics.contains_key(&key)
+		{
+			if next.topics.len() == document::MAX_ROOM_LINKS {
+				return Err(Refusal::plain(format!(
+					"this server remembers topics for at most {} rooms",
+					document::MAX_ROOM_LINKS
+				)));
 			}
+			next.topics.insert(key.clone(), (name.into(), topic.into()));
 		}
 		if steward && !next.has_steward(name) {
 			let generation = next.stewards.get(&key).map_or(1, |row| row.generation + 1);

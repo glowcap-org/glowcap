@@ -59,10 +59,10 @@ impl<S> Scanning<S> {
 	fn scan(needle: &[u8], seen: Option<&Rc<WireSignal>>, tail: &mut Vec<u8>, fresh: &[u8]) {
 		tail.extend_from_slice(fresh);
 		let matches = tail.windows(needle.len()).filter(|window| *window == needle).count();
-		if matches != 0 {
-			if let Some(seen) = seen {
-				seen.observe(matches);
-			}
+		if matches != 0
+			&& let Some(seen) = seen
+		{
+			seen.observe(matches);
 		}
 		// Keep only enough tail to catch a needle across chunk boundaries.
 		let keep = needle.len().saturating_sub(1);
@@ -367,7 +367,9 @@ async fn drives_a_host_in_a_context_with_a_custom_allocator() {
 		unsafe fn free(&self, ptr: *mut u8, size: usize, alignment: usize) {
 			self.frees.fetch_add(1, Ordering::Relaxed);
 			let layout = std::alloc::Layout::from_size_align(size, alignment).unwrap();
-			std::alloc::dealloc(ptr, layout);
+			// SAFETY: the trait's contract — `ptr` came from this allocator's
+			// `alloc` under the same size and alignment.
+			unsafe { std::alloc::dealloc(ptr, layout) };
 		}
 	}
 

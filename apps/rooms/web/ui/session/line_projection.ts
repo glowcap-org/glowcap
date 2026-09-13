@@ -43,12 +43,19 @@ export class AttachedLineProjection {
 		}
 		const mine = event.from === store.dirNick(this.#page.projection, conversation.dir);
 		if (conversation.type === "dm") store.setDmLine(this.#page.projection, key, "live");
+		// What the room states about itself folds in whatever else the line
+		// carries, before any line is judged to be state alone and spared the
+		// log: a statement with no words is exactly the line that is.
+		if (event.facts?.topic != null) store.setTopic(this.#page.projection, key, event.facts.topic);
+		if (event.facts?.lineBytes != null) store.setLineBytes(this.#page.projection, key, event.facts.lineBytes);
+		if (event.facts?.bridge != null) store.setBridgeFacts(this.#page.projection, key, event.facts.bridge);
+		if (event.facts?.carries != null) store.setCarries(this.#page.projection, key, event.facts.carries);
 		if (event.presence?.kind === "typing") {
 			applyTyping(this.#page, key, event.presence.name, event.presence.on);
 			this.#releaseIncoming(event);
 			return;
 		}
-		if (isStateOnlyRoomEvent(event.text, event.presence, event.attachments)) {
+		if (isStateOnlyRoomEvent(event.text, event.presence, event.attachments, event.change)) {
 			this.#releaseIncoming(event);
 			return;
 		}
@@ -74,7 +81,11 @@ export class AttachedLineProjection {
 				: undefined);
 		if (event.change === "edited" && event.lineId != null) {
 			if (named?.kind === "chat") {
-				store.updateItem(this.#page.projection, key, named.id, { text: event.text, edited: true });
+				store.updateItem(this.#page.projection, key, named.id, {
+					text: event.text,
+					edited: true,
+					previewUrls: event.previewUrls.length === 0 ? undefined : event.previewUrls,
+				});
 			}
 			this.#releaseIncoming(event);
 			return;
@@ -84,7 +95,7 @@ export class AttachedLineProjection {
 			if (named?.kind === "chat") {
 				// The event is the room's authoritative outcome. Updating the item also
 				// retires a matching composer intent while preserving any newer input.
-				store.updateItem(this.#page.projection, key, named.id, { withdrawn: true });
+				store.updateItem(this.#page.projection, key, named.id, { withdrawn: true, previewUrls: undefined });
 			}
 			this.#releaseIncoming(event);
 			return;
@@ -98,14 +109,12 @@ export class AttachedLineProjection {
 			const attachments = this.#holdIncoming(event, conversation.dir);
 			store.updateItem(this.#page.projection, key, named.id, {
 				text: event.text,
+				previewUrls: event.previewUrls.length === 0 ? undefined : event.previewUrls,
 				attachments: attachments.length === 0 ? undefined : attachments,
 			});
 			this.#openArrivingImages(key, event, mine, attachments);
 			return;
 		}
-		if (event.facts?.topic != null) store.setTopic(this.#page.projection, key, event.facts.topic);
-		if (event.facts?.lineBytes != null) store.setLineBytes(this.#page.projection, key, event.facts.lineBytes);
-		if (event.facts?.bridge != null) store.setBridgeFacts(this.#page.projection, key, event.facts.bridge);
 		if (event.system) {
 			store.deliver(
 				this.#page.projection,
@@ -128,6 +137,7 @@ export class AttachedLineProjection {
 				...(event.history == null ? {} : { history: event.history }),
 				...(event.lineId == null ? {} : { order: event.lineId, lineId: event.lineId }),
 				...(event.editable ? { held: true } : {}),
+				previewUrls: event.previewUrls,
 			});
 			this.#releaseIncoming(event);
 			return;
@@ -142,6 +152,7 @@ export class AttachedLineProjection {
 				...(event.lineId == null ? {} : { lineId: event.lineId }),
 				...(event.editable ? { held: true } : {}),
 				...(attachments.length === 0 ? {} : { attachments }),
+				previewUrls: event.previewUrls,
 			});
 			this.#openArrivingImages(key, event, mine, attachments);
 			return;
@@ -162,6 +173,7 @@ export class AttachedLineProjection {
 			...(attachments.length === 0 ? {} : { attachments }),
 			...(event.lineId == null ? {} : { lineId: event.lineId }),
 			...(event.editable ? { held: true } : {}),
+			...(event.previewUrls.length === 0 ? {} : { previewUrls: event.previewUrls }),
 		});
 		this.#openArrivingImages(key, event, mine, attachments);
 		if (

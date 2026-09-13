@@ -9,7 +9,7 @@ mod demo_run;
 #[path = "../../_demo/rust/tools_check.rs"]
 mod tools_check;
 
-use glowcap::{tcp, Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig};
+use glowcap::{Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, tcp};
 
 fn cap(arg: &Argument) -> Result<Ref, String> {
 	Ref::try_from(arg).map_err(|_| "grant did not return a capability".to_string())

@@ -1,0 +1,209 @@
+---
+.title = "Operate Rooms",
+.description = "Host Rooms yourself: how people reach it, where history and sessions live, admin links, and what happens when something fails.",
+.date = .date("2026-09-12T00:00:00"),
+.layout = "page.shtml",
+.draft = false,
+---
+
+Hosting Rooms means securing three separate things: the web address people
+open, the room server their sessions join, and the routes two peers use to
+talk directly. Decide each one on its own. Putting the page behind HTTPS
+does not make every peer route reachable, and changing how direct messages
+travel does not change how sessions are shared.
+
+# Choose the shape
+
+For local development, `zig build rooms-web` serves the page on your machine
+and runs the room server over encrypted iroh in a temporary data directory
+with nothing minted. `zig build rooms-dev` is the same page with every admin
+capability minted and the data kept under `.local/.state/rooms`, so identity,
+room links, and the admin secrets survive a restart and the admin pages have
+something to show. A server that should keep its identity and settings names
+its own directory:
+
+```sh
+GLOWCAP_ROOMS_STATE=/var/lib/glowcap/rooms \
+  zig build rooms-web
+```
+
+To host it, the repository ships a Compose stack: the page, an iroh room
+server, one durable session service, and a PostgreSQL database for kept room
+lines. The three services are native programs that mount the build output
+read-only and need no compiler. The database is the pinned official image,
+reached only over the stack's private network. Its one password is minted
+into an ignored file on first start and handed to both containers as a
+Docker secret. Build the artifacts where the toolchain is, then bring it up
+where Docker is:
+
+```sh
+zig build rooms-deploy-prep
+cd apps/rooms/web/deploy
+./ops up
+```
+
+The first `up` creates the shared network, copies the example override,
+mints the database password, recreates the containers, waits for each to
+serve, and prints the room address and every admin secret. The same front
+has `status`, `logs`, `down`, `redeploy`, and a `reset` that asks before it
+destroys one volume. The tracked Compose file publishes no
+port at all; the ignored override says how this machine reaches the page,
+and the example publishes it on this host's loopback only. Put an HTTPS
+reverse proxy or a private network in front of that, so the page, `/relay`
+with its rendezvous mode, `/register`, `/ice` for TURN credentials, and
+`/trace` all come from one address people can trust.
+
+On a tailnet, Tailscale Serve can terminate HTTPS and forward the local
+Rooms port. For a public server, use the container guide and an ordinary
+TLS proxy. The
+[deployment README](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md)
+lists every environment variable and health check.
+
+# Choose how people reach it
+
+The room server's transport decides how sessions reach it:
+
+| Transport | Use it when |
+| --- | --- |
+| iroh | The default. Encrypted, the peer proves who it is, and it finds a path through most NATs. |
+| onion | You want a Tor onion service. The service key lives in the data directory, so the address survives a restart. |
+| TCP | You are developing on your own machine. It is unencrypted and proves nothing about who answered. |
+
+The server prints an address you can paste only after it has opened its
+listener and loaded its saved identity. If that identity cannot be used, or
+another process already owns the data directory, the server stops instead
+of quietly minting a new one.
+
+# Make sessions reachable
+
+The web server carries bytes between a session on the page and the room
+server over a WebSocket on the same address as the page. A rendezvous route
+lets another peer call that session through the relay. The encrypted connection is still
+between the two peers: the relay forwards bytes and holds nothing of theirs.
+
+Direct messages over WebRTC need ICE servers. STUN helps two peers find a
+direct route, and TURN carries the traffic when a network will not allow
+one. Rooms can read a fixed ICE configuration, or ask a TLS service for
+short-lived TURN credentials without ever giving the page that service's
+secret.
+
+If two peers exchange an offer but no route can be found, switching direct
+messages to the relay usually brings the conversation back. It does not
+change **Share session** or **Attach session**. A shared session advertises
+its own routes, so trouble there is reported on its own.
+
+# Run the session service
+
+On its own, a session lives on one device. To open the same session, with
+the same identity, from anywhere, run the session service:
+
+```sh
+zig build rooms-session -- --state=.local/.state/rooms
+```
+
+The command prints one admin link. Open it from the Session tab in Settings.
+The first session to attach hands over its whole workspace once, and from
+then on, wherever you open it, you are looking at the service's copy. The
+service keeps the servers and rooms you joined, your names, your direct
+conversations, drafts, room links, moderation rights, history settings, and
+the admin links you have taken. Reloading, or opening it on another device,
+shows the same workspace without redoing any of that.
+
+From the admin link you can make more links. **Observe** can only read.
+**Interact** can use rooms and the workspace without seeing or replacing the
+admin links. **Admin** can manage those links, import or reset the saved
+state, and make or revoke other links. Whether a link may also read what was
+said before it existed is decided when you make it.
+
+What a link may do is checked in the session every time it is used, never
+written into the link itself. So you can narrow a link, give it the earlier
+messages or take them away, and pause it while someone is holding it, and
+the link never changes. Someone holding a paused link is told that it is
+paused and why. Revoking a link cuts off every open connection using it,
+and it stays revoked after the service restarts.
+
+# Keep the data directory together
+
+Only one process may use a Rooms data directory at a time. Copy or restore
+it as a whole. It holds the server's saved state, the record of unfinished
+work, its identity, the randomness it publishes with, bridge settings, and
+the credentials meant to persist. A partial copy would pair old settings
+with a new identity, and the server cannot repair that, so never copy a
+piece of it.
+
+The session and archive services have data directories of their own, with
+the same rule: one process, copied as a whole, and stop the service before
+you move it.
+
+# Decide who keeps history
+
+Three places can keep history:
+
+- The server can keep the last lines of each room for people who arrive
+  later.
+- A session can keep room and direct-message history on the device it lives
+  on.
+- An archive service can keep messages and files beyond any device or
+  server.
+
+History on the server follows the limits you set. History in a session or
+an archive follows what each member chose. A shared archive link can be
+read without letting the reader write to it or administer it.
+
+Whether history lives in files or in PostgreSQL, the same limits per room
+and per line apply. A write is acknowledged before Rooms treats it as saved.
+A last record that was cut short is repaired when the journal shows what
+came before it, and damage that cannot be put in order safely stops
+recovery rather than guessing.
+
+# Hand out admin links
+
+Diagnostics, listener administration, peering, moderation, IRC settings, and
+the live wire view are each a separate thing you can hold. Starting the
+server with one of those features enabled mints a secret for it, and knowing
+the web address alone gives you none of them. Paste a secret into the
+Holdings tab in Settings and the matching page appears under `/ops`.
+
+[The server page under /ops, opened with the admin secret. It lists what the admin can change: room links, registered names, live connections, and the references each one holds, with a remove or disconnect button beside every row.]($image.siteAsset('rooms-operations-dark.webp'))
+
+[The server page under /ops, opened with the admin secret. It lists what the admin can change: room links, registered names, live connections, and the references each one holds, with a remove or disconnect button beside every row.]($image.siteAsset('rooms-operations-light.webp'))
+
+The live wire view sends what happens on the wire to ocapnviz. A server can
+show full room traffic. A person's direct messages show only who talked to
+whom, when, which call it was, and how many bytes, never the bytes
+themselves, because the other person never agreed to let a viewer read
+their messages.
+
+The full
+[operating guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/operating.md)
+covers each flag, the saved files, the PostgreSQL schema, the IRC forms, and
+how to set up the live view.
+
+# Read failures as they are
+
+The supervisor tells apart a server that refused to start, one that stopped
+after it was ready, a connection that was lost, and a cleanup that also
+failed. Restarts are rate limited: a run that stays up resets the limit, and
+a server that keeps failing eventually stays down with its reason on
+screen.
+
+Your session follows the same rule. A request still in progress
+stays marked in progress, a known refusal offers the next step for that
+code, and a request nobody can confirm is never shown as cleanly undone. If
+building the page's assets fails for a moment, the same source is retried
+after the refresh interval instead of serving a broken build.
+
+# Check a deployment
+
+The focused test suite for the services is:
+
+```sh
+zig build rooms-peers-test
+```
+
+The browser tests drive Chromium through joining, connecting, reconnecting,
+direct messages, files, WebRTC, shared sessions, archives, and the admin
+pages. The
+[development guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/developing.md)
+lists each scenario and what it needs installed. Start with
+`zig build rooms-web-page`, which runs one whole conversation in a browser.

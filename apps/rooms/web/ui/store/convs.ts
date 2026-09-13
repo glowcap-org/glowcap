@@ -9,6 +9,7 @@ import { openRoomPolicy, privateRoomPolicy, roomPoliciesEqual, type RoomPolicy, 
 import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
 import type { PageProjection, State } from "./core.ts";
 import { isSelf } from "./dirs.ts";
+import { roomAuthorityToken as authorityToken } from "../application.ts";
 
 // ── Conversations ─────────────────────────────────────────────────────────
 /** A room's key is its directory and its name together, because a room name only
@@ -126,8 +127,8 @@ export function actingDir(
 	return directoryHere(s.activeKey === null ? null : s.convs.get(s.activeKey) ?? null, s.dirs);
 }
 
-/** Whether any directory has answered at all, which is what the opening screen
- * waits for: it covers the wait, not one directory's health. */
+/** Whether any directory has answered at all. The opening screen covers this
+ * wait, not one directory's health. */
 export function anyDirSettled(
 	projection: PageProjection,
 	s: Readonly<Pick<State, "dirs">> = projection.get(),
@@ -170,6 +171,10 @@ interface RoomIdentity {
 	persistId?: string;
 	publicationId?: string;
 	held?: boolean;
+	/** The room entry link, manager, and moderator this session holds for the
+	 * room, as the Rust checkpoint carries them. These are bearer strings on
+	 * the way in and tokens once stored (`RoomConv.linkToken` and siblings):
+	 * the verb keeps the identity and lets the string go. */
 	link?: string;
 	manager?: string;
 	steward?: string;
@@ -232,9 +237,9 @@ function makeConv(
 			held: roomIdentity?.held === true,
 			...(roomIdentity?.reconnect == null ? {} : { reconnect: roomIdentity.reconnect }),
 			...(roomIdentity?.publicationId != null ? { publicationId: roomIdentity.publicationId } : {}),
-			...(roomIdentity?.link == null ? {} : { link: roomIdentity.link }),
-			...(roomIdentity?.manager == null ? {} : { manager: roomIdentity.manager }),
-			...(roomIdentity?.steward == null ? {} : { steward: roomIdentity.steward }),
+			...(roomIdentity?.link == null ? {} : { linkToken: authorityToken(roomIdentity.link) }),
+			...(roomIdentity?.manager == null ? {} : { managerToken: authorityToken(roomIdentity.manager) }),
+			...(roomIdentity?.steward == null ? {} : { stewardToken: authorityToken(roomIdentity.steward) }),
 			...(roomIdentity != null && Object.hasOwn(roomIdentity, "bridgeIntent")
 				? { bridgeIntent: roomIdentity.bridgeIntent }
 				: {}),
@@ -306,9 +311,12 @@ export function ensureRoom(projection: PageProjection, dir: DirId, name: string,
 	const existing = getConv(projection, key) ??
 		(identity?.key == null ? adoptableRoomConv(projection, dir, name, identity) : null);
 	if (existing && existing.type === "room") {
-		const linkChanged = identity?.link !== undefined && existing.link !== identity.link;
-		const stewardChanged = identity?.steward != null && existing.steward !== identity.steward;
-		const managerChanged = identity?.manager != null && existing.manager !== identity.manager;
+		const linkToken = identity?.link == null ? undefined : authorityToken(identity.link);
+		const managerToken = identity?.manager == null ? undefined : authorityToken(identity.manager);
+		const stewardToken = identity?.steward == null ? undefined : authorityToken(identity.steward);
+		const linkChanged = identity?.link !== undefined && existing.linkToken !== linkToken;
+		const stewardChanged = stewardToken != null && existing.stewardToken !== stewardToken;
+		const managerChanged = managerToken != null && existing.managerToken !== managerToken;
 		const reconnectChanged = identity?.reconnect !== undefined && existing.reconnect !== identity.reconnect;
 		const membershipKindChanged = identity?.membershipKind != null &&
 			existing.membershipKind !== identity.membershipKind;
@@ -323,11 +331,13 @@ export function ensureRoom(projection: PageProjection, dir: DirId, name: string,
 			policyChanged || publicationChanged ||
 			intentChanged
 		) {
+			// Authorities are only ever added or replaced here; dropping one is a
+			// retirement with a verb of its own in `rooms.ts`.
 			const next = {
 				...existing,
-				...(identity?.link === undefined ? {} : { link: identity.link }),
-				...(identity?.manager == null ? {} : { manager: identity.manager }),
-				...(identity?.steward == null ? {} : { steward: identity.steward }),
+				...(linkToken == null ? {} : { linkToken }),
+				...(managerToken == null ? {} : { managerToken }),
+				...(stewardToken == null ? {} : { stewardToken }),
 				...(identity?.reconnect === undefined ? {} : { reconnect: identity.reconnect }),
 				...(identity?.membershipKind == null ? {} : { membershipKind: identity.membershipKind }),
 				...(identity?.policy == null ? {} : { policy: identity.policy }),
@@ -359,8 +369,8 @@ export function ensureDirectory(projection: PageProjection, dir: DirId): Directo
  * directory or on one of them.
  *
  * A `Map` preserves insertion order, so this needs no timestamp on a
- * conversation to answer "the room I joined first" — which is what a reconnect
- * replays and what the foot names when there is only one. */
+ * conversation to answer "the room I joined first." A reconnect replays that
+ * room, and the foot names it when there is only one. */
 export function joinedRooms(projection: PageProjection, dir?: DirId): RoomConv[] {
 	return [...projection.get().convs.values()].filter((conv): conv is RoomConv =>
 		conv.type === "room" && (dir === undefined || conv.dir === dir)
@@ -389,8 +399,8 @@ export function emptyDirs(
 	return [...s.dirs.values()].filter((dir) => dir.id !== s.homeDir && !busy.has(dir.id));
 }
 
-/** Every conversation of either kind on one directory, which is what that
- * directory's teardown has to account for. */
+/** Every conversation of either kind that the named directory's teardown has
+ * to account for. */
 export function convsOn(projection: PageProjection, dir: DirId): Conv[] {
 	return [...projection.get().convs.values()].filter((conv) => conv.dir === dir);
 }
@@ -515,16 +525,18 @@ export function forgetConv(projection: PageProjection, key: string): void {
 	} else projection.set(gone);
 }
 
-/** Mark every direct conversation as no longer live, which is what a dropped
- * directory session means for all of them at once. */
+/** Mark every direct conversation as no longer live after their shared
+ * directory session drops. */
 export function unreadyDms(projection: PageProjection): void {
 	const convs = new Map(projection.get().convs);
+	let changed = false;
 	for (const conv of convs.values()) {
 		if (conv.type === "dm" && conv.line === "live") {
 			convs.set(conv.key, { ...conv, line: "introducing" });
+			changed = true;
 		}
 	}
-	projection.set({ convs });
+	if (changed) projection.set({ convs });
 }
 
 /** Move a direct line between introducing and live. A closed one stays closed:

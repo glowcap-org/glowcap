@@ -1,3 +1,4 @@
+//! Durable grant documents encode policy without carrying live authority.
 use crate::text::DocumentText;
 use alloc::string::String;
 use core::fmt;
@@ -93,11 +94,7 @@ pub(crate) fn validate_label(units: impl Iterator<Item = u16>) -> Result<(), Err
 		}
 		whitespace &= char::from_u32(u32::from(unit)).is_some_and(crate::text::js_whitespace);
 	}
-	if whitespace {
-		Err(Error::InvalidGrant)
-	} else {
-		Ok(())
-	}
+	if whitespace { Err(Error::InvalidGrant) } else { Ok(()) }
 }
 pub(super) fn validate_note(mut units: impl Iterator<Item = u16>) -> Result<(), Error> {
 	if units.by_ref().take(MAX_GRANT_NOTE_UNITS + 1).count() > MAX_GRANT_NOTE_UNITS {

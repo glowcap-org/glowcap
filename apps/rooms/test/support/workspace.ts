@@ -68,7 +68,7 @@ export function workspaceFixture(): RoomsWorkspaceState {
 			keepHistory: true,
 			join: { room: "general", locator: "", nick: "ada" },
 			dmMode: "webrtc",
-			vizOverride: "",
+			traceOverride: "",
 			capabilities: {
 				operations: [
 					{ capability: "listeners", scope: "ocapn://directory.id", swiss: "listeners-swiss" },
@@ -76,7 +76,7 @@ export function workspaceFixture(): RoomsWorkspaceState {
 					{ capability: "irc", scope: "ocapn://directory.id", swiss: "irc-swiss" },
 					{ capability: "operator", scope: "ocapn://directory.id", swiss: "operator-swiss" },
 					{ capability: "peering", scope: "ocapn://directory.id", swiss: "peering-swiss" },
-					{ capability: "viz", scope: "ws://rooms.test/viz", swiss: "viz-swiss" },
+					{ capability: "trace", scope: "ws://rooms.test/trace", swiss: "trace-swiss" },
 				],
 				archivePeer: fixtureSturdyref("ocapn://archive.iroh", "archive"),
 			},

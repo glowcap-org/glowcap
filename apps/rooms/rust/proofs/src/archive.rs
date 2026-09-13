@@ -1,11 +1,13 @@
 //! Existing TypeScript wire captures plus index/authority invariants, executed
-//! unchanged in the native and browser Wasm migration contract.
-use crate::arguments::{from_fixture, Arg};
+//! unchanged in the native and browser Wasm contract.
+use crate::arguments::{Arg, from_fixture};
 use rooms_application::archive::{
+	Access, Body, ConversationKind, Coordinates, Facet, Filter, Kind, LineState, Record, ShareKind,
 	index::{Entry, Index, Page, Scan},
 	output::{self, Output},
-	protocol, Access, Body, ConversationKind, Coordinates, Facet, Filter, Kind, LineState, Record, ShareKind,
+	protocol,
 };
+use rooms_application::open_graph::Selection;
 use std::{cell::Cell, rc::Rc, sync::Arc};
 pub(super) struct Passables;
 impl Output for Passables {
@@ -27,7 +29,7 @@ impl Output for Passables {
 	}
 }
 fn json(arg: &Arg) -> serde_json::Value {
-	use serde_json::{json, Value};
+	use serde_json::{Value, json};
 	match arg {
 		Arg::Text(v) => json!(v),
 		Arg::Integer(v) => json!({"integer":v.to_string()}),
@@ -54,6 +56,7 @@ fn line(directory: &str, conversation: &str, text: &str, at: u64) -> Record {
 			at,
 			order: at,
 			state: LineState::Present,
+			previews: Default::default(),
 			attachments: vec![],
 		},
 	)
@@ -61,6 +64,7 @@ fn line(directory: &str, conversation: &str, text: &str, at: u64) -> Record {
 }
 pub fn run() {
 	wire_projection();
+	wire_previews();
 	let fixture: serde_json::Value = serde_json::from_str(include_str!("../fixtures/archive.json")).unwrap();
 	for case in fixture["records"].as_array().unwrap() {
 		let arg = from_fixture(&case["input"]);
@@ -90,7 +94,7 @@ pub fn run() {
 			assert_eq!(json(&output::filter::<Passables>(&filter).unwrap()), case["output"]);
 		}
 	}
-	for at in 0..14 {
+	for at in 0..15 {
 		let drops = Rc::new(Cell::new(0));
 		let mut row = output::record::<Passables>(&line("dir", "garden", "hello", 1));
 		row[at] = Arg::Capability(drops.clone());
@@ -110,6 +114,38 @@ pub fn run() {
 	scopes();
 	scan();
 	identities();
+}
+
+fn wire_previews() {
+	let text = "read https://example.com/article";
+	let mut body = line("dir", "garden", text, 1).body().clone();
+	let Body::Line { previews, .. } = &mut body else {
+		unreachable!("line helper always builds a line")
+	};
+	*previews = Selection::new(text, ["https://example.com/article"]).unwrap();
+	let selected = Record::new(
+		Coordinates {
+			source: "source".into(),
+			generation: "generation".into(),
+			id: "same-id".into(),
+		},
+		"dir".into(),
+		body,
+	)
+	.unwrap();
+	let row = output::record::<Passables>(&selected);
+	assert_eq!(json(&row[14]), serde_json::json!(["https://example.com/article"]));
+	assert_eq!(protocol::record(&&Arg::List(row)).unwrap(), selected);
+
+	let mut unrelated = output::record::<Passables>(&selected);
+	unrelated[14] = Arg::List(vec![Arg::Text("https://other.example/".into())]);
+	assert!(protocol::record(&&Arg::List(unrelated)).is_err());
+
+	let mut prior_shape = output::record::<Passables>(&selected);
+	prior_shape.pop();
+	let prior_shape = Arg::List(prior_shape);
+	let restored = protocol::record(&&prior_shape).unwrap();
+	assert!(matches!(restored.body(), Body::Line { previews, .. } if previews.is_empty()));
 }
 fn index() {
 	let all = Filter::default();
@@ -168,17 +204,19 @@ fn index() {
 	restored.restore(5, saved).unwrap();
 	assert_eq!(restored.len(), 3);
 	for revisions in [[1, 2], [2, 1], [1, 6]] {
-		assert!(restored
-			.restore(
-				5,
-				revisions
-					.map(|revision| Entry {
-						revision,
-						record: Arc::new(garden.clone())
-					})
-					.into()
-			)
-			.is_err());
+		assert!(
+			restored
+				.restore(
+					5,
+					revisions
+						.map(|revision| Entry {
+							revision,
+							record: Arc::new(garden.clone())
+						})
+						.into()
+				)
+				.is_err()
+		);
 		assert_eq!(restored.revision(), 5);
 		assert_eq!(restored.len(), 3);
 	}
@@ -252,13 +290,14 @@ fn scan() {
 	assert_eq!(scan.after(), 4992); // Refusal preserves the accepted prefix.
 	scan.push(page(4992, 8, false, latest)).unwrap();
 	assert!(scan.is_complete());
-	assert!(scan
-		.push(Page {
+	assert!(
+		scan.push(Page {
 			next: 5000,
 			more: false,
 			records: vec![]
 		})
-		.is_err());
+		.is_err()
+	);
 	let result = scan.finish().unwrap();
 	assert_eq!(result.len(), 1);
 	assert_eq!(result[0].revision, 5000);

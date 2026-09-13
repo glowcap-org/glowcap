@@ -1,3 +1,4 @@
+//! Directory discovery projects bounded room and member snapshots.
 use super::*;
 use crate::{
 	fields::{Nullable, SafeInteger, Text},
@@ -133,9 +134,9 @@ pub enum RoomChange {
 impl RoomChange {
 	pub const fn wire(self) -> &'static str {
 		match self {
-			Self::Opened => "opened",
-			Self::Closed => "closed",
-			Self::Count => "count",
+			Self::Opened => crate::protocol_data::OPENED,
+			Self::Closed => crate::protocol_data::CLOSED,
+			Self::Count => crate::protocol_data::COUNT,
 		}
 	}
 }
@@ -148,8 +149,8 @@ pub enum MemberChange {
 impl MemberChange {
 	pub const fn wire(self) -> &'static str {
 		match self {
-			Self::Registered => "registered",
-			Self::Unregistered => "unregistered",
+			Self::Registered => crate::protocol_data::REGISTERED,
+			Self::Unregistered => crate::protocol_data::UNREGISTERED,
 		}
 	}
 }
@@ -172,15 +173,15 @@ pub fn event<A: Argument>(args: &A) -> Option<Event> {
 pub fn event_fields<A: Argument>(len: usize, at: impl Fn(usize) -> Option<A>) -> Option<Event> {
 	let kind = at(0)?;
 	match kind.text()? {
-		"truncated" if len == 2 => Some(Event::Truncated(natural(&at(1)?)?.get())),
-		"registered" | "unregistered" if len == 4 => {
+		crate::protocol_data::TRUNCATED if len == 2 => Some(Event::Truncated(natural(&at(1)?)?.get())),
+		crate::protocol_data::REGISTERED | crate::protocol_data::UNREGISTERED if len == 4 => {
 			let name = text(at(1)?)?;
 			let id: Text<36, true> = text(at(3)?)?;
 			if !registration_id(id.text()) {
 				return None;
 			}
 			Some(Event::Member {
-				kind: if kind.text()? == "registered" {
+				kind: if kind.text()? == crate::protocol_data::REGISTERED {
 					MemberChange::Registered
 				} else {
 					MemberChange::Unregistered
@@ -192,10 +193,10 @@ pub fn event_fields<A: Argument>(len: usize, at: impl Fn(usize) -> Option<A>) ->
 				count: natural(&at(2)?)?.get(),
 			})
 		}
-		"opened" | "closed" | "count" => {
+		crate::protocol_data::OPENED | crate::protocol_data::CLOSED | crate::protocol_data::COUNT => {
 			let change = match kind.text()? {
-				"opened" => RoomChange::Opened,
-				"closed" => RoomChange::Closed,
+				crate::protocol_data::OPENED => RoomChange::Opened,
+				crate::protocol_data::CLOSED => RoomChange::Closed,
 				_ => RoomChange::Count,
 			};
 			Some(Event::Room {

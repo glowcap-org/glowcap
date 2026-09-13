@@ -12,6 +12,9 @@ import type { RoomsPageContext } from "../page.ts";
 import type { AttachedSessionFiles } from "./attached_files.ts";
 import { workspaceControllerSelection } from "../workspace_state.ts";
 
+const samePreviews = (current: readonly string[] | undefined, next: readonly string[]) =>
+	(current?.length ?? 0) === next.length && next.every((url, index) => current?.[index] === url);
+
 /** Apply the archive's current rows and report whether any remain visible. */
 export function reconcileAttachedHistory(
 	page: RoomsPageContext,
@@ -33,6 +36,7 @@ export function reconcileAttachedHistory(
 		history: { source: record.source, generation: record.generation, id: record.id },
 		order: record.order,
 		edited: record.state === "edited",
+		previewUrls: record.previewUrls,
 		attachments: files == null
 			? archivedAttachmentViews(record.attachments).map((attachment) =>
 				store.attachmentView(page.projection, attachment)
@@ -49,6 +53,7 @@ export function reconcileAttachedHistory(
 		}
 	};
 	const lines: ReturnType<typeof materialize>[] = [];
+	const revisions = new Map<number, Partial<Item>>();
 	let retained = false;
 	for (const record of records) {
 		if (record.kind !== "line") continue;
@@ -56,14 +61,15 @@ export function reconcileAttachedHistory(
 		if (record.state === "withdrawn") {
 			if (current != null && current.withdrawn !== true) {
 				files?.release(current.attachments ?? []);
-				store.reviseItem(page.projection, key, current.id, {
+				revisions.set(current.id, {
 					at: record.at,
 					text: "",
 					withdrawn: true,
+					previewUrls: undefined,
 					attachments: undefined,
 				});
 			} else if (current != null && current.at !== record.at) {
-				store.reviseItem(page.projection, key, current.id, { at: record.at });
+				revisions.set(current.id, { at: record.at });
 			}
 			continue;
 		}
@@ -84,11 +90,12 @@ export function reconcileAttachedHistory(
 		if (
 			!attachmentsChanged && current.from === record.from && current.mine === record.mine &&
 			current.at === record.at && current.order === record.order && current.text === record.text &&
+			samePreviews(current.previewUrls, record.previewUrls) &&
 			(current.edited === true) === (record.state === "edited") && current.withdrawn !== true
 		) continue;
 		const line = attachmentsChanged ? materialize(record) : null;
 		if (attachmentsChanged) files?.release(current.attachments ?? []);
-		store.reviseItem(page.projection, key, current.id, {
+		revisions.set(current.id, {
 			from: record.from,
 			mine: record.mine,
 			at: record.at,
@@ -96,29 +103,36 @@ export function reconcileAttachedHistory(
 			text: record.text,
 			edited: record.state === "edited",
 			withdrawn: false,
+			previewUrls: record.previewUrls.length === 0 ? undefined : record.previewUrls,
 			...(line == null ? {} : { attachments: line.attachments.length === 0 ? undefined : line.attachments }),
 		});
 		if (line !== null) openLine(line);
 	}
+	store.reviseItems(page.projection, key, revisions);
 	const device = workspaceControllerSelection(page).kind !== "attached";
 	const archivePeer = page.attachedSession.current?.current?.checkpoint.capabilities.archivePeer ?? null;
 	const local = custody?.local ?? true;
 	const peer = custody?.peer ?? archivePeer != null;
 	const keeper = peer && local
-		? device
-			? "Earlier messages kept by the shared Rooms session archive peer and on this device"
-			: "Earlier messages kept by the shared Rooms session archive peer and the shared Rooms session archive"
+		? device ? keeperPeerAndDevice : keeperPeerAndSession
 		: peer
-		? "Earlier messages kept by the shared Rooms session archive peer"
+		? keeperPeer
 		: device
-		? "Earlier messages, kept on this device"
-		: "Earlier messages kept by the shared Rooms session archive";
+		? keeperDevice
+		: keeperSession;
 	store.reconcileHistory(page.projection, key, lines, keeper);
 	for (const line of lines) openLine(line);
 	return retained;
 }
 
 import type { AttachedHistoryRead } from "./remote.ts";
+import {
+	keeperDevice,
+	keeperPeer,
+	keeperPeerAndDevice,
+	keeperPeerAndSession,
+	keeperSession,
+} from "../../../lib/text/attached.ts";
 
 /** Render Rust-owned history read progress; scheduling and freshness stay there. */
 export function projectAttachedHistoryRead(

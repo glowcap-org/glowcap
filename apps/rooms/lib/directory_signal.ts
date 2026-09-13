@@ -98,6 +98,9 @@ export class DirectorySignaling {
 				reject: settle(reject),
 			};
 		});
+		// tolerant: the caller awaits `answer` and receives its refusal; this
+		// handler only keeps a refusal that lands before the await from
+		// surfacing as an unhandled rejection.
 		void answer.catch(() => {});
 		try {
 			await ask(
@@ -182,6 +185,10 @@ export class DirectorySignaling {
 				resolveOfferReady = resolve;
 				rejectOfferReady = reject;
 			});
+			// tolerant: an offerer or answerer that needs this exchange's id awaits
+			// `offerReady` and receives its rejection there. A row nobody ever
+			// waits on has nobody to tell, and its loss is an exchange nobody
+			// used; this handler only covers the window before a waiter arrives.
 			void offerReady.catch(() => {});
 			const fresh: SignalRow = {
 				reply: null as unknown as Ref,

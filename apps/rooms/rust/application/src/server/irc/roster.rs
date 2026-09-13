@@ -8,7 +8,7 @@
 //! outlives it. Every change answers with what happened and the room says
 //! it, because a line about somebody joining is the room's voice.
 use super::{protocol::fold, seat::PREFIX};
-use crate::room::inbox::{nick_refusal, MAX_NICK};
+use crate::room::inbox::{MAX_NICK, nick_refusal};
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
 /// How many IRC names one bridged room will carry. A larger channel is not

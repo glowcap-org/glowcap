@@ -4,13 +4,10 @@ This is the review brief for OCapN and Spritely Goblins maintainers. It states
 the interop target, the evidence that runs, and the known differences from the
 draft text or a live peer.
 
-glowcap pins the OCapN suite and Goblins source and checks both in
-[`ci/gates.sh`](../ci/gates.sh) for main and dev pushes and pull requests. The
-repository is still private, and its current GitHub Actions runs stop before a
-job starts because of the account's payment/spending state; restoring public,
-green evidence for the exact release commit is an explicit
-[release item](roadmap.md#release). It has not asked to be listed as an OCapN
-implementation. Because the work is AI-assisted, it
+glowcap pins the OCapN suite and Goblins source and checks both through
+[`ci/gates.sh`](../ci/gates.sh) on main and dev pushes. Pull requests run the
+Zig test suite and formatting check in a short lane. glowcap has not asked to
+be listed as an OCapN implementation. Because the work is AI-assisted, it
 sends no unsolicited patches, issues, or comments to projects whose policies
 forbid them. The policy is in
 [`PROVENANCE.md`](../PROVENANCE.md).
@@ -68,8 +65,11 @@ correctly never receives that private vocabulary.
   original. `goblins-rooms-dm-iroh` puts all three protocol roles in one live
   iroh topology: the glowcap room gifts, a Goblins vat exports, and a browser
   redeems; the vat also acts as recipient when it starts a direct message to a
-  native glowcap exporter. It does not make Goblins the gifter or exercise a
-  recipient after the exporter's `direct-addresses` change. Separately, the
+  native glowcap exporter. `goblins-handoff-iroh` adds Goblins as gifter and
+  exporter, with glowcap redeeming on a separate QUIC-authenticated session
+  after the exporter changes its advertised `direct-addresses`. It changes
+  routing advice while retaining the original reachable address; this proves
+  session snapshot handling, not network migration. Separately, the
   upstream suite exercises glowcap in all three handoff roles over onion on
   demand with `ocapn-conformance-onion`. These are distinct outside
   authorities, not one general non-TCP proof.
@@ -118,11 +118,10 @@ and Goblins questions live in [upstream-watch](upstream-watch.md). The
 
 ## Evidence
 
-A **yes** in the CI column means the step appears in `ci/gates.sh` and is wired
-into the [checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml).
-It describes the workflow contract, not a claim that the currently private,
-account-blocked runs executed. `zig build source-check` derives this column from
-that script, so a removed step cannot remain marked as recurring evidence.
+A **yes** in the CI column means the step appears in `ci/gates.sh` and runs in
+the full lane after a push to main or dev. Pull requests run `zig build test`
+and `zig build fmt-check` instead. `zig build source-check` derives this column
+from the script, so a removed step cannot remain marked as recurring evidence.
 
 | Evidence | CI | Proves | Does not prove |
 | -------- | -- | ------ | -------------- |
@@ -142,9 +141,10 @@ that script, so a removed step cannot remain marked as recurring evidence.
 | `zig build goblins-exporter` | yes | A Goblins pair deposits into and withdraws from glowcap's gift registry, and the withdrawn object is the exact actor the gifter mutated, across an alias replacement. | Alias removal mid-flight, or handoff over a non-TCP transport. |
 | `zig build goblins-relayed-give` | yes | A Goblins recipient reads a signed give from a listener notification, dials the exporter, and calls the withdrawn capability. | glowcap receiving that live introduction through `listenTo`. |
 | `zig build goblins-listen-recipient` | yes | Goblins delivers an unresolved promise to the owning native Session; one `listenTo` is ordered before one later Goblins settlement, whose nested capability glowcap lifts, calls, releases, and closes cleanly. | A three-party give in that fulfillment; `goblins-relayed-give` covers the reciprocal gifter topology. |
-| `zig build goblins-gc` | yes | Live inbound `op:gc-exports` after Goblins drops a near export. | Outbound GC, `op:gc-answers`, or binding finalizers. |
-| `zig build goblins-rooms-dm` / `-iroh` | no | Three peers across two implementations take the three handoff roles: a glowcap room gifts, a real Goblins vat exports, and a glowcap browser peer redeems and reaches the vat off-room, over cleartext TCP and over iroh. The vat answers on the arriving connection, then acts as recipient when it starts a direct message to a native glowcap exporter over the same selected transport. | Recurring evidence: this heavyweight browser/Goblins topology is absent from `ci/gates.sh` and remains on demand. The iroh row does not make Goblins the gifter or cover a recipient dialing after the exporter's `direct-addresses` update. |
-| Binding `*-goblins-interop` steps | yes | Deno, Python, Rust, and Racket dial Goblins through the C ABI, enliven a sturdyref, and call it. | Bun or the reciprocal listener direction, which the sibling listener matrix owns. | <!-- ci-gate: bindings-goblins-interop -->
+| `zig build goblins-gc` | yes | Live inbound `op:gc-exports` after Goblins drops a near export. In the reciprocal check, a Goblins weak reference proves that release of both capability occurrences and their answer permits collection while the owning Zig Session stays open; the first release leaves the second occurrence callable. | Automatic capability finalizers in host languages. |
+| `zig build goblins-handoff-iroh` | yes | Goblins gifts and exports; glowcap redeems on a separate QUIC-authenticated exporter session after its advertised direct-address advice changes. | The original bound address stays reachable. This is a locator-snapshot proof, not NAT or endpoint migration. |
+| `zig build goblins-rooms-dm` / `-iroh` | no | Three peers across two implementations take the three handoff roles: a glowcap room gifts, a real Goblins vat exports, and a glowcap browser peer redeems and reaches the vat off-room, over cleartext TCP and over iroh. The vat answers on the arriving connection, then acts as recipient when it starts a direct message to a native glowcap exporter over the same selected transport. | Recurring evidence: this heavyweight browser/Goblins topology is absent from `ci/gates.sh` and remains on demand. The smaller recurring `goblins-handoff-iroh` check covers Goblins as gifter and an advertised-address update. |
+| Binding `*-goblins-interop` steps | yes | Deno, Python, Rust, and Racket dial Goblins, enliven a sturdyref, and call it. Each also releases two occurrences of a Goblins object, proves the retained occurrence survives, and observes remote collection after capability release and answer-wrapper finalization, before session close. | Bun, automatic capability finalizers, or the reciprocal listener direction, which the sibling listener matrix owns. | <!-- ci-gate: bindings-goblins-interop -->
 | Binding `*-goblins-listen` steps | yes | Goblins dials Deno, Python, Rust, and Racket binding Hosts, enlivens one published actor, calls it, and reads its exact reply. | Bun, whose synchronous FFI cannot host the native loop. | <!-- ci-gate: bindings-goblins-listen -->
 | Binding `*-goblins-handoff` / `*-goblins-gift` | yes | Deno, Python, Rust, and Racket act as recipient and gifter against Goblins; each gifter lifts a delegated capability from an ordinary vendor reply, returns it twice in one nested value, and Goblins redeems and calls both gives directly. | Bun or live recursive Tagged/user-record interop, which pinned Goblins does not implement. | <!-- ci-gate: bindings-goblins-handoff, bindings-goblins-gift -->
 | Introducing-session promise proxy | yes | In-tree Node and Host coverage projects complete nested object/promise settlements through Host identity under both codecs, with independent recipient pressure and one signed give per object occurrence. The separate live recipient check covers glowcap's `listenTo` path against Goblins. | A second outside implementation beyond Goblins. | <!-- ci-gate: check -->

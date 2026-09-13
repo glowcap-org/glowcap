@@ -1,8 +1,9 @@
-//! Captured TypeScript recording policy, replayed unchanged on native and Wasm.
+//! The recording policy replayed from `fixtures/archive-recording.json` on
+//! native and Wasm: which messages become records, and their standings.
 use rooms_application::{
 	archive::{
-		recording::{self, Message, Standings},
 		Body, ConversationKind, Record,
+		recording::{self, Message, Standings},
 	},
 	files::FileDescription,
 	room::message::{ChangeKind, LineId},
@@ -44,6 +45,7 @@ fn message(input: &Value) -> Result<Option<Record>, rooms_application::archive::
 			nick: input["nick"].as_str().unwrap(),
 			from: input["from"].as_str().unwrap(),
 			text: input["text"].as_str().unwrap(),
+			previews: &Default::default(),
 			system: input["system"].as_bool().unwrap(),
 			line: input["line"].as_u64().and_then(LineId::new),
 			change: match input["change"].as_str().unwrap() {

@@ -47,7 +47,7 @@ pub fn snapshot<C: Copy + Ord, R: Clone>(
 			format!("{place}, {} here", room.members.len()),
 		);
 		for member in &room.members {
-			row("occupant", member.nick.clone(), format!("in {}", room.name));
+			row("occupant", String::from(member.nick), format!("in {}", room.name));
 		}
 	}
 	for bridge in view.irc {

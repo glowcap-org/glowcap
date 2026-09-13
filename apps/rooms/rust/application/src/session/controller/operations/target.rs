@@ -22,7 +22,7 @@ pub(super) fn selected(snapshot: &Snapshot, kind: Kind) -> Option<OperationCrede
 		.operations()
 		.find(|credential| {
 			credential.capability == kind.name()
-				&& (matches!(kind.name(), "viz" | "peering") || Some(credential.scope) == home)
+				&& (matches!(kind.name(), "trace" | "peering") || Some(credential.scope) == home)
 		})
 		.filter(|_| snapshot.access != Access::None)
 }

@@ -110,10 +110,24 @@ impl<D: Deadline> Direct<D> {
 	where
 		D: Clone,
 	{
+		self.say_with_previews(text, &Default::default()).await
+	}
+	pub async fn say_with_previews(
+		&self,
+		text: &str,
+		previews: &rooms_application::open_graph::Selection,
+	) -> Result<Option<PostedLine<D>>, Error>
+	where
+		D: Clone,
+	{
 		let pending = {
 			let mut args = vec![text.into()];
 			if let Some(reply) = &self.reply {
 				args.push(reply.clone().into());
+			}
+			if !previews.is_empty() {
+				args.push(rooms_application::open_graph::WIRE_TAG.into());
+				args.push(previews.encode().into());
 			}
 			self.client.call(
 				self.target()?,
@@ -238,12 +252,27 @@ impl<D: Deadline + Tasks + Clone + 'static> Direct<D> {
 		owner: &super::sources::Sources<D>,
 		files: Vec<super::sources::Source>,
 	) -> Result<Option<PostedLine<D>>, Error> {
+		self.send_files_with_previews(text, &Default::default(), owner, files)
+			.await
+	}
+	pub async fn send_files_with_previews(
+		&self,
+		text: &str,
+		previews: &rooms_application::open_graph::Selection,
+		owner: &super::sources::Sources<D>,
+		files: Vec<super::sources::Source>,
+	) -> Result<Option<PostedLine<D>>, Error> {
 		let mut leading = vec![text.into()];
 		if let Some(reply) = &self.reply {
 			leading.push(reply.clone().into());
 		}
+		let suffix = if previews.is_empty() {
+			Vec::new()
+		} else {
+			vec![rooms_application::open_graph::WIRE_TAG.into(), previews.encode().into()]
+		};
 		let reply = owner
-			.send(&self.client, self.target()?, policy::DM, leading, files)
+			.send_appended(&self.client, self.target()?, policy::DM, leading, files, suffix)
 			.await?;
 		Ok(PostedLine::from_reply(self.client.clone(), Reply(reply)))
 	}

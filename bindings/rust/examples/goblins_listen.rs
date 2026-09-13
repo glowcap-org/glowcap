@@ -1,6 +1,6 @@
 //! Rust row of the live Goblins-listener matrix.
 
-use glowcap_rust_dogfood::{tcp, Argument, PendingWork};
+use glowcap_rust_dogfood::{Argument, PendingWork, tcp};
 
 const ACTOR_SWISS: &str = "glowcapActorSwissnumABCDEFGH1234";
 
@@ -11,7 +11,7 @@ fn greeter(_verb: &str, args: &[Argument]) -> Result<Argument, String> {
 		Some(value) => format!("{value:?}"),
 		None => "stranger".into(),
 	};
-	Ok(Argument::String(format!("Hello from a binding host: {who}").into()))
+	Ok(Argument::String(format!("Hello from a binding host: {who}")))
 }
 
 async fn scene() -> Result<(), String> {

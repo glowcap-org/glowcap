@@ -16,6 +16,7 @@ pub struct Line<R> {
 	pub line: LineId,
 	pub text: String,
 	pub kind: ChangeKind,
+	pub previews: crate::open_graph::Selection,
 	/// Said/refiled carry current files; edited preserves the receiver's files
 	/// and withdrawn removes them. Bytes remain with their capability owner.
 	pub files: Vec<Attachment<R>>,

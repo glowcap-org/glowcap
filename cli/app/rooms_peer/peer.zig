@@ -408,6 +408,17 @@ fn runStack(
     loop_options.on_close = wire.onClose;
     loop = try RoomsLoop.initWithBackend(gpa, backend, RoomsBridge.makePeer, @ptrCast(&bridge), loop_options);
     defer loop.deinit();
+    if (comptime builtin.os.tag == .linux) {
+        const backend_status = net.tcpBackendStatus(&loop);
+        if (backend_status.fallback_reason) |reason| {
+            log.info(io, "Linux platform completion backend: {s} ({s})", .{
+                @tagName(backend_status.implementation),
+                reason.message(),
+            });
+        } else {
+            log.info(io, "Linux platform completion backend: {s}", .{@tagName(backend_status.implementation)});
+        }
+    }
 
     // Advertise the same locator hellos will claim. After ADR-0109, introduce
     // gifts embed the exporter's signed hello location — not the directory

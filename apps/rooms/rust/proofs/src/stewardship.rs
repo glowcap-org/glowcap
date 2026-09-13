@@ -1,5 +1,5 @@
 use rooms_application::room::stewardship::{Acquisition, Error, Kind, Publication, Stewardship};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{cell::Cell, rc::Rc};
 
 pub fn run() {

@@ -12,10 +12,10 @@ import {
 	SUBSCRIBE,
 	WATCH_PUBLICATIONS,
 } from "../../lib/protocol.ts";
-import { NO_SUCH_ROOM, ROOM_EXISTS, type RoomErrorCode, roomErrorOf } from "../../lib/errors.ts";
+import { NO_SUCH_ROOM, ROOM_EXISTS, type RoomsErrorCode, roomsErrorOf } from "../../lib/errors.ts";
 import { type Message, Room } from "../../lib/room/client.ts";
 import { loopbackTcpDesignator } from "../../lib/locator.ts";
-import { assert, delay, dial } from "./rooms_server.ts";
+import { assert, delay, dial, serving } from "./rooms_server.ts";
 
 export async function subscribeMembership(
 	session: Session,
@@ -36,12 +36,12 @@ export async function enterOrOpen(session: Session, room: string): Promise<Ref> 
 	try {
 		return await session.send(directory, ENTER, [room]) as Ref;
 	} catch (err) {
-		if (roomErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
+		if (roomsErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
 	}
 	try {
 		return await session.send(directory, OPEN, [room]) as Ref;
 	} catch (err) {
-		if (roomErrorOf(err)?.code !== ROOM_EXISTS) throw err;
+		if (roomsErrorOf(err)?.code !== ROOM_EXISTS) throw err;
 		return await session.send(directory, ENTER, [room]) as Ref;
 	}
 }
@@ -54,7 +54,7 @@ export async function subscribeOnceConn(
 	room: string,
 	nick: string,
 ): Promise<readonly string[]> {
-	session.serve().catch(() => {});
+	serving(session);
 	const roomRef = await enterOrOpen(session, room);
 	// The roster arrives as a `notify`, not as the subscribe return. Listed-ness
 	// may precede it; this helper waits for the roster tag specifically.
@@ -73,8 +73,7 @@ export async function subscribeOnceConn(
 	});
 	await subscribeMembership(session, roomRef, nick, inbox);
 	const names = await welcome;
-	session.close();
-	await session.serve().catch(() => {});
+	await session.close();
 	return names;
 }
 
@@ -100,28 +99,24 @@ export async function subscribeOnceIroh(
 
 export async function trySubscribe(port: number, room: string, nick: string): Promise<{
 	ok: boolean;
-	code?: RoomErrorCode | null;
+	code?: RoomsErrorCode | null;
 	leave: () => Promise<void>;
 }> {
 	const session = await dial(loopbackTcpDesignator(port));
-	session.serve().catch(() => {});
+	serving(session);
 	try {
 		const roomRef = await enterOrOpen(session, room);
 		const inbox = session.spawn(() => null);
 		await subscribeMembership(session, roomRef, nick, inbox);
 		return {
 			ok: true,
-			leave: async () => {
-				session.close();
-				await session.serve().catch(() => {});
-			},
+			leave: () => session.close(),
 		};
 	} catch (err) {
-		session.close();
-		await session.serve().catch(() => {});
+		await session.close();
 		return {
 			ok: false,
-			code: roomErrorOf(err)?.code ?? null,
+			code: roomsErrorOf(err)?.code ?? null,
 			leave: async () => {},
 		};
 	}
@@ -132,29 +127,25 @@ export async function subscribeTwiceAndClose(
 	room: string,
 ): Promise<void> {
 	const session = await dial(loopbackTcpDesignator(port));
-	session.serve().catch(() => {});
+	serving(session);
 	const roomRef = await enterOrOpen(session, room);
 	const inbox = session.spawn(() => null);
 	await subscribeMembership(session, roomRef, "first-a", inbox);
 	await subscribeMembership(session, roomRef, "first-b", inbox);
-	session.close();
-	await session.serve().catch(() => {});
+	await session.close();
 }
 
 export async function resubscribeAndHold(port: number, room: string): Promise<{
 	leave: () => Promise<void>;
 }> {
 	const session = await dial(loopbackTcpDesignator(port));
-	session.serve().catch(() => {});
+	serving(session);
 	const roomRef = await enterOrOpen(session, room);
 	const inbox = session.spawn(() => null);
 	await subscribeMembership(session, roomRef, "first-a", inbox);
 	await subscribeMembership(session, roomRef, "first-b", inbox);
 	return {
-		leave: async () => {
-			session.close();
-			await session.serve().catch(() => {});
-		},
+		leave: () => session.close(),
 	};
 }
 
@@ -213,7 +204,7 @@ export async function watchRoomConn(
 	lines: string[];
 	leave: () => Promise<void>;
 }> {
-	session.serve().catch(() => {});
+	serving(session);
 	const lines: string[] = [];
 	const roomRef = await enterOrOpen(session, room);
 	const inbox = session.spawn((_verb, args) => {
@@ -225,10 +216,7 @@ export async function watchRoomConn(
 	await subscribeMembership(session, roomRef, nick, inbox);
 	return {
 		lines,
-		leave: async () => {
-			session.close();
-			await session.serve().catch(() => {});
-		},
+		leave: () => session.close(),
 	};
 }
 
@@ -272,18 +260,6 @@ export function roomLines(room: Room): string[] {
 		}
 	})();
 	return lines;
-}
-
-export async function until(
-	condition: () => boolean,
-	message: string,
-	timeoutMs = 3_000,
-): Promise<void> {
-	const deadline = Date.now() + timeoutMs;
-	while (!condition()) {
-		if (Date.now() >= deadline) throw new Error(message);
-		await delay(10);
-	}
 }
 
 /** Pull messages from a room's stream until one matches, reading past the
@@ -393,7 +369,7 @@ export async function watchDirectory(session: Session): Promise<{
 	events: DirectoryWatchEvent[];
 	snapshot: DirectoryRoomRecord[];
 }> {
-	session.serve().catch(() => {});
+	serving(session);
 	const directory = await session.fetch(DIRECTORY);
 	const events: DirectoryWatchEvent[] = [];
 	const observer = session.spawn((_verb, args) => {
@@ -454,6 +430,6 @@ export async function refusalCode(send: () => Promise<unknown>): Promise<string 
 		await send();
 		return null;
 	} catch (err) {
-		return roomErrorOf(err)?.code ?? "untyped";
+		return roomsErrorOf(err)?.code ?? "untyped";
 	}
 }

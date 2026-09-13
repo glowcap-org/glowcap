@@ -3,9 +3,10 @@
 mod access;
 mod display;
 use super::{
+	Result,
 	driver::{Driver, Retained},
 	observation::Scope,
-	rejected, safe_integer, Result,
+	rejected, safe_integer,
 };
 use crate::platform::Platform;
 pub(crate) use access::Access;

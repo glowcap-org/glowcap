@@ -1,5 +1,5 @@
 //! Existing Rooms grant commands and JSON views, independent of CapTP values.
-use super::{model, Access, Command, Error, Grant, PolicyPatch, Rights};
+use super::{Access, Command, Error, Grant, PolicyPatch, Rights, model};
 use crate::{room::ArgumentView, text::DocumentText};
 use alloc::string::String;
 use core::fmt;

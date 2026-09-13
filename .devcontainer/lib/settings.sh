@@ -20,34 +20,22 @@ glowcap_devcontainer_validate_pins() {
         echo "pins.sh: DEBIAN_BASE_DIGEST must be sha256:<64 hex>, got '${DEBIAN_BASE_DIGEST:-}'" >&2
         return 1
     fi
-    case "${ZLS_ENABLED:-true}" in
-        true)
-            if [[ "${ZIG_VERSION%%.*}" != "${ZLS_VERSION%%.*}" ]]; then
-                echo "pins.sh: ZIG_VERSION (${ZIG_VERSION}) and ZLS_VERSION (${ZLS_VERSION}) must target the same Zig generation" >&2
-                return 1
-            fi
-            if [[ -z "${ZLS_SOURCE_REVISION:-}" || -z "${ZLS_SOURCE_SHA256:-}" ]]; then
-                echo "pins.sh: ZLS source revision and SHA-256 must be pinned" >&2
-                return 1
-            fi
-            ;;
-        false) ;;
-        *)
-            echo "pins.sh: ZLS_ENABLED must be true or false, got '${ZLS_ENABLED}'" >&2
-            return 1
-            ;;
-    esac
-}
-
-glowcap_devcontainer_zls_enabled() {
-    case "${ZLS_ENABLED:-true}" in
-        true) return 0 ;;
-        false) return 1 ;;
-        *)
-            echo "pins.sh: ZLS_ENABLED must be true or false, got '${ZLS_ENABLED}'" >&2
-            return 2
-            ;;
-    esac
+    if ! [[ "${POSTGRES_IMAGE_PIN:-}" =~ ^[0-9]+\.[0-9]+-alpine@sha256:[0-9a-f]{64}$ ]]; then
+        echo "pins.sh: POSTGRES_IMAGE_PIN must be <major>.<minor>-alpine@sha256:<64 hex>, got '${POSTGRES_IMAGE_PIN:-}'" >&2
+        return 1
+    fi
+    if ! [[ "${PYTHON_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "pins.sh: PYTHON_VERSION must be a stable version triple, got '${PYTHON_VERSION:-}'" >&2
+        return 1
+    fi
+    if [[ "${ZIG_VERSION%%.*}" != "${ZLS_VERSION%%.*}" ]]; then
+        echo "pins.sh: ZIG_VERSION (${ZIG_VERSION}) and ZLS_VERSION (${ZLS_VERSION}) must target the same Zig generation" >&2
+        return 1
+    fi
+    if [[ -z "${ZLS_SOURCE_REVISION:-}" || -z "${ZLS_SOURCE_SHA256:-}" ]]; then
+        echo "pins.sh: ZLS source revision and SHA-256 must be pinned" >&2
+        return 1
+    fi
 }
 
 glowcap_devcontainer_default_egress_network() {

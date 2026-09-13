@@ -54,14 +54,20 @@ What decides "correct" is what a red test means:
 Benchmarks keep performance budgets visible; they do not prove correctness, and
 a benchmark is never an authority for behavior.
 
-Every deterministic test or proof process emitted by the build has an
-owner-calibrated process-group deadline of at most 30 seconds. Zig bounds each
-runner-launched subprocess, not its aggregate suite; local protocol deadlines
-remain diagnostic. A proof that drives a real browser names the bounded
+Every deterministic non-Zig test or proof process emitted by the build has an
+owner-calibrated process-group deadline of at most 30 seconds. Zig's build
+runner applies `--test-timeout 30s` to each active test, not to the aggregate
+suite. Local protocol deadlines remain diagnostic. A finite orchestrator whose
+inventory can grow uses `child_bounded` only when every child wait has its own
+deadline. A proof that drives a real browser names the bounded
 `browser_proof` posture instead: its wrapper is the scenario's own deadline
 plus headroom, never a shorter number the scenario contradicts. Benchmark,
 search, real-internet, service, and build work name their posture explicitly —
 none is a silent exemption.
+
+Bounded process checks keep successful output quiet and replay the combined
+stream on failure. Diagnostics retain the exact child report without making a
+green run spend terminal and agent context on test chatter.
 
 ## Protocol Claims Need Scenarios
 

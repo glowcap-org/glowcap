@@ -1,5 +1,5 @@
 //! Presentation supplies a verb and form values; Rust selects its authority.
-use super::{view, RoomsBrowserSession};
+use super::{RoomsBrowserSession, view};
 use rooms_application::session::{
 	controller::operations::{Kind, Target},
 	state::OperationId,

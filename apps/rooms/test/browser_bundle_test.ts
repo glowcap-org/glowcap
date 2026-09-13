@@ -12,9 +12,8 @@
 // that path until the control that opens them. Gzip is summed per chunk, so a
 // split graph compresses a little less than the same bytes in one file.
 
-import { WEB } from "./support/web_binary.ts";
+import { ROOT, WEB } from "./support/paths.ts";
 
-const ROOT = new URL("../../../", import.meta.url).pathname;
 const WEB_ROOT = `${ROOT}apps/rooms/web/`;
 
 const NAMED_CHUNKS = [
@@ -26,7 +25,7 @@ const NAMED_CHUNKS = [
 	"Listeners-",
 	"Gateway-",
 	"Peering-",
-	"Viz-",
+	"Trace-",
 	"Operator-",
 	"Diagnostics-",
 ] as const;

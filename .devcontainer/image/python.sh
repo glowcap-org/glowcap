@@ -11,5 +11,5 @@ export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR}"
 
 mkdir -p "${UV_PYTHON_INSTALL_DIR}"
 bash "${dir}/image/uv.sh"
-uv python install "${OCAPN_CONFORMANCE_PYTHON}" "${SERENA_PYTHON}"
+uv python install "${PYTHON_VERSION}"
 chmod -R a+rX /usr/local/uv

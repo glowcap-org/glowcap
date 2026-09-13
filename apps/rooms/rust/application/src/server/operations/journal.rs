@@ -26,11 +26,12 @@ impl Journal {
 	pub fn note(&mut self, source: &str, reason: &str) -> bool {
 		let source = bounded(source, MAX_SOURCE_BYTES);
 		let reason = bounded(reason, MAX_REASON_BYTES);
-		if let Some(newest) = self.entries.front_mut() {
-			if newest.source == source && newest.reason == reason {
-				newest.count += 1;
-				return true;
-			}
+		if let Some(newest) = self.entries.front_mut()
+			&& newest.source == source
+			&& newest.reason == reason
+		{
+			newest.count += 1;
+			return true;
 		}
 		self.entries.push_front(Entry {
 			source,

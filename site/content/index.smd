@@ -21,18 +21,23 @@ bearer tokens and login tables you already run.
 
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
-The [rooms chat]($link.page('examples')) is that conversation between people:
+The [rooms chat]($link.page('rooms')) is that conversation between people:
 open a room, pick a member, and press Message. Native peers meet over
 [iroh]($link.page('transports/iroh')), encrypted QUIC with the node id as the
 identity.
 
-The same fetch-and-call over iroh:
+A native Zig fetch-and-call over sealed TCP:
 
 ```zig
-var iroh_resident = try iroh.Resident.init(io, null, .{ .reachability = .discovery });
-const netlayers = [_]glowcap.net.netlayer.Netlayer{iroh_resident.netlayer()};
-const node_id = "<64 lowercase hex characters from the server>";
-const partner = iroh.locator(node_id);
+var noise_resident = glowcap.net.tcp.noise.Resident{ .io = io };
+const netlayers = [_]glowcap.net.netlayer.Netlayer{noise_resident.netlayer()};
+var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
+const peer_key = "<64 lowercase hex characters from the server>";
+const partner = glowcap.net.tcp.noise.locator(
+    peer_key,
+    "127.0.0.1:9099",
+    &hint_storage,
+);
 const session = try glowcap.driver.connect(
     allocator,
     &netlayers,

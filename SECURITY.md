@@ -23,8 +23,8 @@ A deployment still has to:
 ## Reporting a vulnerability
 
 **Do not open a public issue for a security report.** Contact the maintainer
-privately through a GitHub security advisory or the contact details on the
-[@jimisaacs](https://github.com/jimisaacs) profile. Include:
+privately through a GitHub security advisory or email
+[security@glowcap.org](mailto:security@glowcap.org). Include:
 
 - the module, codec, netlayer, or wire shape at risk;
 - the invariant you believe is broken;
@@ -48,9 +48,9 @@ to trigger:
   answer, or release tables, by reading a codec's internal state or through a
   side channel.
 - **A codec must preserve which session row a reference names.** Re-encoding a
-  reference under the other codec changes its validated descriptor — its
-  variant, table position, kind, or pipeline path — so one table row is read as
-  two references, or two rows as one.
+  reference under the other codec must not change its validated descriptor,
+  including its variant, table position, kind, or pipeline path. Otherwise one
+  table row could be read as two references, or two rows as one.
 - **Inbound frames are untrusted.** A frame escapes the resource caps
   (frame size, table count and retained-byte bounds, nesting depth, validation
   comparison work) to exhaust memory or CPU, or to overflow the stack, instead

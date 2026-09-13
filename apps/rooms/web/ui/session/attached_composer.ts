@@ -10,7 +10,10 @@ import { pickedSource } from "../file_source.ts";
 import { draftWithMention, recalledDraft } from "../composer/draft.ts";
 import type { PageProjection } from "../store/core.ts";
 import type { CommandPowers } from "../commands.ts";
-import { isSessionConv, type SessionConv } from "../types.ts";
+import { isSessionConv, type SendState, type SessionConv } from "../types.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { lineAuthorityLost, notInRoomNow } from "../../../lib/text/attached.ts";
+import { DELIVERY_UNCERTAIN, roomsErrorInMessage } from "../../../lib/error_codes.ts";
 
 export function attachedComposerActions(
 	projection: PageProjection,
@@ -57,10 +60,10 @@ export function attachedComposerActions(
 			onFailure(error);
 		});
 	};
-	const markPending = (key: string, id: number, state: "sending" | "failed"): boolean => {
+	const markPending = (key: string, id: number, state: SendState): boolean => {
 		const item = store.historyOf(projection, key).find((candidate) => candidate.id === id);
 		if (item?.kind !== "chat") return false;
-		if (state === "failed" && item.state !== "sending") return false;
+		if (state !== "sending" && item.state !== "sending") return false;
 		store.updateItem(projection, key, id, { state });
 		return true;
 	};
@@ -73,7 +76,7 @@ export function attachedComposerActions(
 			key,
 			store.sysItem(
 				projection,
-				"Not in this room at the moment. It is re-entered when the connection returns. Otherwise, open the room controls and restore access.",
+				notInRoomNow,
 			),
 		);
 		return true;
@@ -82,7 +85,7 @@ export function attachedComposerActions(
 		if (notInRoom(conversation.key, id)) return;
 		const item = store.historyOf(projection, conversation.key).find((candidate) => candidate.id === id);
 		if (item?.kind !== "chat") return;
-		void controller.say(conversation.persistId, item.text).catch((error) => {
+		void controller.say(conversation.persistId, item.text, item.previewUrls ?? []).catch((error) => {
 			if (controller.closed || !markPending(conversation.key, id, "failed")) return;
 			reportFailure(error);
 		});
@@ -139,7 +142,7 @@ export function attachedComposerActions(
 						store.toast(
 							projection,
 							"failure",
-							"This shared session no longer holds authority over that line.",
+							lineAuthorityLost,
 						);
 						return;
 					}
@@ -199,7 +202,7 @@ export function attachedComposerActions(
 								store.deliver(
 									projection,
 									conversation.key,
-									store.sysItem(projection, error instanceof Error ? error.message : String(error)),
+									store.sysItem(projection, refusalText(error)),
 								);
 							} else onFailure(error);
 						}).catch(onFailure);
@@ -215,6 +218,9 @@ export function attachedComposerActions(
 						prepared.text,
 						true,
 						"sending",
+						undefined,
+						undefined,
+						prepared.previewUrls,
 					)
 					: null;
 				if (optimistic != null) store.deliver(projection, conversation.key, optimistic);
@@ -222,11 +228,12 @@ export function attachedComposerActions(
 				const clearedDraft = store.draftFor(projection, conversation.key);
 				controller.stageDraft(conversation.persistId, "");
 				const sent = prepared.files.length === 0
-					? controller.say(conversation.persistId, prepared.text)
+					? controller.say(conversation.persistId, prepared.text, prepared.previewUrls)
 					: Promise.all(prepared.files.map(pickedSource)).then((files) =>
 						controller.sendFiles(
 							conversation.persistId,
 							prepared.text,
+							prepared.previewUrls,
 							files,
 						)
 					);
@@ -234,9 +241,17 @@ export function attachedComposerActions(
 					() => controller.closed ? undefined : controller.clearSentDraft(conversation.persistId),
 					(error) => {
 						if (controller.closed) return;
-						if (optimistic != null) markPending(conversation.key, optimistic.id, "failed");
+						// An unconfirmed send may already have reached the other
+						// side. The line drawn for it stays, marked unconfirmed, with
+						// no draft put back to send it twice from. A send with files
+						// draws no line, so there the text comes back rather than
+						// being lost, and the failure's own words say why.
+						const unconfirmed = roomsErrorInMessage(error)?.code === DELIVERY_UNCERTAIN;
+						if (optimistic != null) {
+							markPending(conversation.key, optimistic.id, unconfirmed ? "unconfirmed" : "failed");
+						}
 						if (
-							!(optimistic != null && recoverSends) &&
+							!(optimistic != null && (recoverSends || unconfirmed)) &&
 							store.replaceDraft(projection, conversation.key, clearedDraft, draft)
 						) {
 							controller.stageDraft(conversation.persistId, draft.text);

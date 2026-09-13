@@ -375,6 +375,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (self.relay) |*relay| relay.deinit(self.allocator);
         }
 
+        /// Delegate the wrapped Linux TCP backend selection.
+        pub fn tcpBackendStatus(self: *const Self) @TypeOf(self.platform.tcpBackendStatus()) {
+            return self.platform.tcpBackendStatus();
+        }
+
         pub fn openListener(self: *Self, port: u16) !Fd {
             return self.platform.openListener(port);
         }

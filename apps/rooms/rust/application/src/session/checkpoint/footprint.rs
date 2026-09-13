@@ -33,7 +33,8 @@ scalar!(
 	InvitationKind,
 	RoomKind,
 	DirectKind,
-	Operation
+	Operation,
+	crate::directory::registration::NicknameAllocation
 );
 // Exhaustive destructuring makes a newly added field require an accounting decision.
 macro_rules! graph {
@@ -57,7 +58,7 @@ graph!(State {
 	keep_history,
 	join,
 	dm_mode,
-	viz_override,
+	trace_override,
 	capabilities,
 	peering
 });
@@ -67,6 +68,7 @@ graph!(Directory {
 	home,
 	reached,
 	nick,
+	nick_allocation,
 	standing
 });
 graph!(Room {

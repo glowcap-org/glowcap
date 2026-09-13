@@ -2,15 +2,16 @@
 //! reached through a durable link, or claimed through an invitation. An
 //! entrance is what the adapter's room actor holds; subscribing through it
 //! seats a member.
-use super::{notice::Notice, Effects, InvitationKey, MembershipKey, RoomKey};
+use super::{Effects, InvitationKey, MembershipKey, RoomKey, notice::Notice};
 use super::{
-	state::{public_key, Member, Room},
-	Refusal, Refused, Rooms, MAX_ROOM, MAX_ROOMS_PER_CREATOR,
+	MAX_ROOM, MAX_ROOMS_PER_CREATOR, Refusal, Refused, Rooms,
+	state::{Member, Room, folded},
 };
 use crate::{
-	directory::{creation::RecoveryKey, registration::Id, Event, RoomChange},
+	directory::{Event, RoomChange, creation::RecoveryKey, registration::Id},
 	failure::FailureCode,
 	room::{
+		carries::Carries,
 		inbox::nick_refusal,
 		policy::{MembershipKind, RoomPolicy},
 	},
@@ -39,8 +40,9 @@ pub enum Gate {
 	Invitation(InvitationKey),
 }
 
-/// A room reference's standing: which room, under which name when the room
-/// is not yet live, what membership it offers, and what keeps it open.
+/// A room entrance reference's standing: which stable room it names, the
+/// durable name needed to reconstitute the live room, the membership it offers,
+/// and what keeps the entrance open.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entrance {
 	pub room: RoomKey,
@@ -105,7 +107,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			Gate::Invitation(key) => self
 				.invitations
 				.get(key)
-				.is_some_and(|invitation| invitation.active && invitation.admission.is_open()),
+				.is_some_and(|invitation| invitation.admission.is_open()),
 		};
 		open || (seated && !matches!(entrance.gate, Gate::Invitation(_)))
 	}
@@ -119,7 +121,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			));
 		}
 		let listed = room.policy.is_listed();
-		let public = public_key(&room.name);
+		let public = folded(&room.name);
 		if listed && self.public_name_taken(&room.name) {
 			return Err(Refusal::coded(
 				FailureCode::RoomExists,
@@ -144,7 +146,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		entry_id: Id,
 		topic: String,
 	) -> Result<Room<C, R>, Refusal> {
-		let files = self.files.room().map_err(|e| Refusal::plain(e.to_string_lossy()))?;
+		let files = self.files.room().map_err(Refusal::plain)?;
 		Ok(Room {
 			entry_id,
 			name: name.into(),
@@ -152,6 +154,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			policy,
 			members: Vec::new(),
 			invitations: BTreeSet::new(),
+			lines: BTreeSet::new(),
 			lifetime_owner: owner,
 			next_line: 1,
 			topic,
@@ -183,10 +186,10 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				format!("a room name may be at most {MAX_ROOM} characters"),
 			));
 		}
-		if let Some(recovery) = recovery {
-			if !RecoveryKey::accepts(recovery) {
-				return Err(Refusal::plain("a private room recovery key is invalid"));
-			}
+		if let Some(recovery) = recovery
+			&& !RecoveryKey::accepts(recovery)
+		{
+			return Err(Refusal::plain("a private room recovery key is invalid"));
 		}
 		if policy.is_listed() && (self.public_name_taken(name) || authority.public_name_taken(name)) {
 			return Err(Refusal::coded(
@@ -196,35 +199,35 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		}
 		let bootstrap = |key: &RoomKey| {
 			managed.then(|| Bootstrap {
-				name: key.clone(),
+				name: key.as_str().into(),
 				managed: Some((name.into(), policy)),
 			})
 		};
-		if let Some(recovery) = recovery {
-			if let Some(recovered) = self.rooms.get(recovery) {
-				if recovered.name != name || recovered.policy != policy {
-					return Err(Refusal::plain(
-						"that room id already belongs to a different managed room state",
-					));
-				}
-				return Ok(Opening {
-					entrance: Entrance {
-						room: recovered.key.clone(),
-						durable: None,
-						kind: MembershipKind::Participant,
-						gate: Gate::Always,
-					},
-					bootstrap: bootstrap(&recovered.key),
-				});
+		if let Some(recovery) = recovery
+			&& let Some(recovered) = self.rooms.get(&RoomKey::managed(recovery))
+		{
+			if recovered.name != name || recovered.policy != policy {
+				return Err(Refusal::plain(
+					"that room id already belongs to a different managed room state",
+				));
 			}
+			return Ok(Opening {
+				entrance: Entrance {
+					room: recovered.key.clone(),
+					durable: None,
+					kind: MembershipKind::Participant,
+					gate: Gate::Always,
+				},
+				bootstrap: bootstrap(&recovered.key),
+			});
 		}
-		let key: RoomKey = match recovery {
-			Some(recovery) => recovery.into(),
-			None if policy.is_listed() => public_key(name),
-			None => fresh.private_key.as_str().into(),
+		let key = match recovery {
+			Some(recovery) => RoomKey::managed(recovery),
+			None if policy.is_listed() => RoomKey::public(name),
+			None => RoomKey::managed(fresh.private_key.as_str()),
 		};
 		// A private room's topic follows its recovery key; a public room's, its name.
-		let durable = if key.starts_with('#') { name } else { key.as_str() };
+		let durable = if key.is_public() { name } else { key.as_str() };
 		let topic = authority.topic(durable).unwrap_or("").into();
 		let room = self.make_room(name, key.clone(), policy, connection, fresh.entry_id, topic)?;
 		self.register_room(room)?;
@@ -251,7 +254,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				format!("room \"{shown}\" is invite-only; use an invitation or room link"),
 			)
 		};
-		if let Some(key) = self.public.get(&public_key(name)) {
+		if let Some(key) = self.public.get(&folded(name)) {
 			let room = &self.rooms[key];
 			if room.policy.public_membership().is_none() {
 				return Err(invite_only(name));
@@ -269,7 +272,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				return Err(invite_only(name));
 			}
 			return Ok(Entrance {
-				room: id.into(),
+				room: RoomKey::managed(id),
 				durable: Some(id.into()),
 				kind: Self::public_kind(managed.policy),
 				gate: Gate::Managed {
@@ -312,9 +315,9 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	/// only when its first subscriber arrives.
 	pub fn durable_entrance(&self, durable: &str, kind: MembershipKind, authority: &Authority) -> Entrance {
 		let key = if RecoveryKey::accepts(durable) {
-			durable.into()
+			RoomKey::managed(durable)
 		} else {
-			public_key(durable)
+			RoomKey::public(durable)
 		};
 		Entrance {
 			room: key,
@@ -464,13 +467,15 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			*entitlement.get_or_insert_with(|| voucher.is_some_and(|voucher| directory.redeem_voucher(nick, &voucher)))
 		};
 		let previous = room.member_named(nick).map(|member| (member.key, member.connection));
-		if let Some((_, holder)) = previous {
-			if holder != connection && !same_claimant(holder, connection) && !entitled(directory) {
-				return Err(refuse(Refusal::coded(
-					FailureCode::NickTaken,
-					format!("name \"{nick}\" is already claimed"),
-				)));
-			}
+		if let Some((_, holder)) = previous
+			&& holder != connection
+			&& !same_claimant(holder, connection)
+			&& !entitled(directory)
+		{
+			return Err(refuse(Refusal::coded(
+				FailureCode::NickTaken,
+				format!("name \"{nick}\" is already claimed"),
+			)));
 		}
 		// The room is not the only holder of a name: someone who left this
 		// room but stayed connected still answers to theirs for direct
@@ -509,12 +514,14 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		let room = self.rooms.get_mut(&entrance.room).expect("a live room");
 		let files = match self.files.member(&room.files) {
 			Ok(files) => files,
-			Err(error) => return Err(refuse(Refusal::plain(error.to_string_lossy()))),
+			Err(error) => return Err(refuse(Refusal::plain(error))),
 		};
 		if let Gate::Invitation(key) = &entrance.gate {
+			// The gate was open a moment ago, so the row is live; a gate that
+			// found no row refused before the seat was reserved.
 			self.invitations
 				.get_mut(key)
-				.expect("admitted invitation")
+				.expect("an open invitation gate has its row")
 				.admission
 				.admit()
 				.map_err(|reason| refuse(Refusal::plain(reason)))?;
@@ -531,6 +538,10 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		effects.presence.push(connection);
 		let count = room.members.len();
 		let listed = room.policy.is_listed();
+		// What the room carries goes first, ahead of the occupancy that marks
+		// arrival: a client returns from joining on that mark, and shapes its
+		// surface from this before anybody can type into it.
+		effects.tell(connection, inbox.clone(), Notice::Carries(Carries::EVERYTHING));
 		effects.tell(connection, inbox.clone(), Notice::Listed(listed));
 		if let Some((_, old_nick)) = already.filter(|(_, old)| old.to_lowercase() != nick.to_lowercase()) {
 			self.broadcast(
@@ -608,13 +619,4 @@ pub(super) enum Departure {
 	/// Another connection of the same peer took the name; the old seat goes
 	/// quietly with everything its connection held.
 	Replaced,
-}
-
-pub(super) trait LossyString {
-	fn to_string_lossy(&self) -> String;
-}
-impl<E: core::fmt::Display> LossyString for E {
-	fn to_string_lossy(&self) -> String {
-		alloc::format!("{self}")
-	}
 }

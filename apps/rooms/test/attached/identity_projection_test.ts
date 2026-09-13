@@ -1,3 +1,4 @@
+// Direct-message projection follows exact registration identity while preserving the selected conversation.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {

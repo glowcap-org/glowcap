@@ -12,7 +12,7 @@ pub fn read_slash_command(text: js_sys::JsString) -> Result<Option<String>, JsVa
 	if text.char_code_at(0) != f64::from(b'/') {
 		return Ok(None);
 	}
-	let text = crate::commands::read_text(text, 65_536).map_err(|error| js_sys::Error::new(&error.to_string()))?;
+	let text = crate::js_text::document(&text, 65_536).map_err(|error| js_sys::Error::new(&error.to_string()))?;
 	rooms_application::slash::read(&text)
 		.map(|read| serde_json::to_string(&read).map_err(|error| js_sys::Error::new(&error.to_string()).into()))
 		.transpose()
@@ -28,7 +28,7 @@ pub fn interpret_slash_command(
 ) -> Result<String, JsValue> {
 	use rooms_application::slash::{
 		catalog::Name,
-		interpret::{interpret, Context, Place},
+		interpret::{Context, Place, interpret},
 	};
 	let name = Name::parse(name).ok_or_else(|| js_sys::Error::new("Unknown Rooms command"))?;
 	let place = match place {
@@ -65,17 +65,13 @@ pub fn addresses_everyone(who: js_sys::JsString) -> Result<bool, JsValue> {
 }
 
 fn input(text: js_sys::JsString) -> Result<rooms_application::text::DocumentText, JsValue> {
-	crate::commands::read_text(text, 65_536).map_err(|error| js_sys::Error::new(&error.to_string()).into())
+	crate::js_text::document(&text, 65_536).map_err(|error| js_sys::Error::new(&error.to_string()).into())
 }
 
 #[wasm_bindgen(js_name = prepareComposer)]
 pub fn prepare_composer(raw: js_sys::JsString) -> Result<String, JsValue> {
-	if raw.length() as usize > rooms_application::session::checkpoint::MAX_CHECKPOINT_UNITS {
-		return Err(js_sys::Error::new("Rooms composer input exceeds its document bound").into());
-	}
-	let raw = raw
-		.as_string()
-		.ok_or_else(|| js_sys::Error::new("Rooms composer input is not text"))?;
+	let raw = crate::js_text::scalar(&raw, rooms_application::session::checkpoint::MAX_CHECKPOINT_UNITS)
+		.map_err(|error| js_sys::Error::new(&error.to_string()))?;
 	let submission: rooms_application::slash::composer::Submission =
 		serde_json::from_str(&raw).map_err(|error| js_sys::Error::new(&error.to_string()))?;
 	serde_json::to_string(&rooms_application::slash::composer::prepare(&submission))

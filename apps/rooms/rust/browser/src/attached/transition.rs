@@ -1,7 +1,7 @@
 //! Workspace attachment runs on the page Host. A provisional view is retired
 //! before completion; sibling capabilities use the already-held connection.
 use super::{
-	connections, driver::Driver, owner::Owner, Environment, Result, RoomsBrowserApplication, RoomsBrowserSession,
+	Environment, Result, RoomsBrowserApplication, RoomsBrowserSession, connections, driver::Driver, owner::Owner,
 };
 use crate::workspace_persistence::{Inner as Persistence, RoomsWorkspacePersistence};
 use rooms_application::{
@@ -9,11 +9,10 @@ use rooms_application::{
 	workspace::transition::Attachment,
 };
 use rooms_glowcap::client::session::controller::Observation;
-use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Default)]
 struct Outcome {
 	workspace: Option<String>,
 	cleanup: Option<String>,
@@ -31,10 +30,32 @@ fn finish(result: Result<Outcome>, cleanup: Result<()>) -> Result<Outcome> {
 		(result, _) => result,
 	}
 }
-fn encode(result: Result<Outcome>) -> Result<JsValue> {
-	serde_json::to_string(&result?)
-		.map(JsValue::from)
-		.map_err(|e| e.to_string())
+fn project(result: Result<Outcome>) -> Result<JsValue> {
+	let outcome = result?;
+	let value: JsValue = js_sys::Object::new().into();
+	super::view::set(&value, "workspace", outcome.workspace.map_or(JsValue::NULL, Into::into))?;
+	super::view::set(&value, "cleanup", outcome.cleanup.map_or(JsValue::NULL, Into::into))?;
+	Ok(value)
+}
+fn outcome(value: JsValue) -> Result<Outcome> {
+	let field = |name: &str| {
+		js_sys::Reflect::get(&value, &name.into())
+			.map_err(|_| "Rooms attachment returned an invalid outcome".to_owned())
+			.and_then(|value| {
+				if value.is_null() {
+					Ok(None)
+				} else {
+					value
+						.as_string()
+						.map(Some)
+						.ok_or_else(|| "Rooms attachment returned an invalid outcome".to_owned())
+				}
+			})
+	};
+	Ok(Outcome {
+		workspace: field("workspace")?,
+		cleanup: field("cleanup")?,
+	})
 }
 
 #[wasm_bindgen]
@@ -45,6 +66,7 @@ impl RoomsBrowserApplication {
 		persistence: &RoomsWorkspacePersistence,
 		link: js_sys::JsString,
 		home: js_sys::JsString,
+		report_trouble: js_sys::Function,
 	) -> js_sys::Promise {
 		let persistence = persistence.handle();
 		let (plan, home) = match prepare(&persistence, link, home) {
@@ -52,23 +74,20 @@ impl RoomsBrowserApplication {
 			Err(error) => return super::rejected(error),
 		};
 		if plan.unchanged {
-			return js_sys::Promise::resolve(&encode(Ok(Outcome::default())).expect("empty outcome"));
+			return js_sys::Promise::resolve(&project(Ok(Outcome::default())).expect("empty outcome"));
 		}
-		let driver = Driver::start();
+		let driver = Driver::start(report_trouble);
 		let pending = submit(&driver, None, persistence, plan, home);
 		wasm_bindgen_futures::future_to_promise(async move {
 			let result = wasm_bindgen_futures::JsFuture::from(pending)
 				.await
 				.map_err(reason)
-				.and_then(|value| {
-					serde_json::from_str::<Outcome>(&value.as_string().ok_or("Rooms attachment returned no outcome")?)
-						.map_err(|e| e.to_string())
-				});
+				.and_then(outcome);
 			let cleanup = wasm_bindgen_futures::JsFuture::from(driver.close())
 				.await
 				.map(|_| ())
 				.map_err(reason);
-			encode(finish(result, cleanup)).map_err(|e| super::js_error(&e))
+			project(finish(result, cleanup)).map_err(|e| super::js_error(&e))
 		})
 	}
 }
@@ -117,7 +136,7 @@ fn submit(
 				.transition
 				.try_lock()
 				.map_err(|_| "A Rooms controller change is already running")?;
-			encode(attach(environment, driver_copy, current, &persistence, plan, home).await)
+			project(attach(environment, driver_copy, current, &persistence, plan, home).await)
 		},
 	)
 }
@@ -183,7 +202,7 @@ async fn attach(
 		Ok(Outcome { workspace: Some(workspace), cleanup: None })
 	}.await;
 	provisional.stop();
-	let cleanup = connections::terminal(&mut provisional.ended.clone()).await;
+	let cleanup = connections::settled(&mut provisional.ended.clone()).await;
 	finish(result, cleanup)
 }
 fn reason(error: JsValue) -> String {

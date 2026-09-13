@@ -12,10 +12,10 @@
 use glowcap::Argument;
 
 use crate::protocol_gen::{
-	Effect, Field, RoomTail, Sender, TextRule, Ty, MEMBERSHIP_ENDED, PUBLICATION_FIELDS, REGISTRATION_ID_DASHES,
-	REGISTRATION_ID_LENGTH, REGISTRATION_ID_VARIANTS, REGISTRATION_ID_VARIANT_AT, REGISTRATION_ID_VERSIONS,
-	REGISTRATION_ID_VERSION_AT, REGISTRATION_ROW_FIELDS, ROOM_SENDER, ROOM_TAILS, SUBSCRIBE_ANSWER_FIELDS, WATCH_KINDS,
-	WATCH_SNAPSHOT_FIELDS,
+	Effect, Field, MEMBERSHIP_ENDED, PUBLICATION_FIELDS, REGISTRATION_ID_DASHES, REGISTRATION_ID_LENGTH,
+	REGISTRATION_ID_VARIANT_AT, REGISTRATION_ID_VARIANTS, REGISTRATION_ID_VERSION_AT, REGISTRATION_ID_VERSIONS,
+	REGISTRATION_ROW_FIELDS, ROOM_SENDER, ROOM_TAILS, RoomTail, SUBSCRIBE_ANSWER_FIELDS, Sender, TextRule, Ty,
+	WATCH_KINDS, WATCH_SNAPSHOT_FIELDS,
 };
 
 /// One exact directory publication. Foreign occupancy is unknown, not zero.
@@ -65,9 +65,7 @@ fn admits(field: &Field, value: &Argument) -> bool {
 		return field.nullable;
 	}
 	if !field.values.is_empty() {
-		let named = value
-			.as_str()
-			.is_some_and(|text| field.values.iter().any(|admitted| *admitted == text));
+		let named = value.as_str().is_some_and(|text| field.values.contains(&text));
 		if !named {
 			return false;
 		}
@@ -332,13 +330,17 @@ mod tests {
 			Argument::from(1_i64),
 			Argument::from("not-a-registration-id"),
 		];
-		assert!(parse_watch_event(&forged)
-			.expect_err("a forged registration id")
-			.contains("malformed registered watch"));
+		assert!(
+			parse_watch_event(&forged)
+				.expect_err("a forged registration id")
+				.contains("malformed registered watch")
+		);
 		let unknown = [Argument::from("renamed"), Argument::from("lobby")];
-		assert!(parse_watch_event(&unknown)
-			.expect_err("an unknown kind")
-			.contains("unknown watch event"));
+		assert!(
+			parse_watch_event(&unknown)
+				.expect_err("an unknown kind")
+				.contains("unknown watch event")
+		);
 	}
 
 	#[test]
@@ -387,13 +389,17 @@ mod tests {
 		// omission count is a natural.
 		let forged = Argument::from(vec![Argument::from("ada"), Argument::from("not-a-registration-id")]);
 		let bad_rows = Argument::from(vec![rooms.clone(), Argument::from(vec![forged]), Argument::from(0_i64)]);
-		assert!(parse_watch_rooms(&bad_rows)
-			.expect_err("a forged registration row")
-			.contains("malformed registration rows"));
+		assert!(
+			parse_watch_rooms(&bad_rows)
+				.expect_err("a forged registration row")
+				.contains("malformed registration rows")
+		);
 		let bad_count = Argument::from(vec![rooms, Argument::List(Vec::new()), Argument::from(-1_i64)]);
-		assert!(parse_watch_rooms(&bad_count)
-			.expect_err("a negative omission count")
-			.contains("malformed watch snapshot"));
+		assert!(
+			parse_watch_rooms(&bad_count)
+				.expect_err("a negative omission count")
+				.contains("malformed watch snapshot")
+		);
 	}
 
 	#[test]

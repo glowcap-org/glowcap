@@ -97,11 +97,11 @@ impl LoopShared {
 						continue;
 					};
 					self.listeners.borrow_mut().insert(listener);
-					if waiter.send(Ok(())).is_err() {
-						if let Err(error) = self.begin_listener_close(listener) {
-							self.fail_background(error);
-							return;
-						}
+					if waiter.send(Ok(())).is_err()
+						&& let Err(error) = self.begin_listener_close(listener)
+					{
+						self.fail_background(error);
+						return;
 					}
 				}
 				LoopEvent::ListenerFailed { listener, failure } => {

@@ -51,8 +51,8 @@ layoutTest("pinning a claim moves the claim and nothing else", () => {
 });
 
 layoutTest("the claim sits on the arc its own edge is drawn along", () => {
-	// The pair Jim's screenshot showed apart: the claim bulged onto a curve of
-	// its own because the edge was built between the far end and the CLAIM's
+	// The regression pair put the claim on a visibly separate arc: the claim
+	// bulged because the edge was built between the far end and the CLAIM's
 	// position, which is a different chord and so a different arc. Both are
 	// built from one curve now — the one a full session to the claimed peer
 	// would take — so the drawn line ends exactly where the claim stands.

@@ -1,19 +1,17 @@
 // The log's layout pass: history in, the list of things to draw out.
 //
-// The log used to be painted by appending: each arriving line decided for itself
-// whether it needed a day heading above it, whether it could join the row before
-// it, and where the unread rule had got to, by reading the element it had just
-// appended. Three pieces of module state carried that reasoning between calls,
-// and switching conversation reset all three and repainted from scratch.
-//
-// Here the same reasoning is one pass over the history, and it is a pure
-// function: `blocksOf` turns a list of lines into the list of things to draw.
-// Nothing carries between renders, so nothing can be left over from the
-// conversation before.
+// One pass over the history, and a pure function: `blocksOf` turns a list of
+// lines into the list of things to draw. Each line decides whether it needs a
+// day heading above it, whether it joins the row before it, and where the
+// unread rule falls, from the list alone. Nothing carries between renders, so
+// nothing can be left over from the conversation before, and nothing here
+// parses: what a line carries besides words was read once when it entered
+// the store and rides on the line as a field.
 
 import { type ChatItem, type Item, silencedByIgnore } from "./types.ts";
 import { dayKey, dayLabel, fmtTime, GROUP_WINDOW_MS } from "./text.ts";
-import { actionIn, noticeIn } from "./commands.ts";
+import { onlyYou } from "../../lib/text/conversation.ts";
+import { logActionLine, logNoticeLine } from "../../lib/text/log.ts";
 
 /** A run of lines from one speaker, as the log groups them. */
 export interface Group {
@@ -46,7 +44,7 @@ export type Block =
 /** The short mark on a line that never left this tab. Shared banners carry
  * none: they already sit in the room's centre, which is the default. One mark
  * names a whole run, so a packed stretch of local answers is still one aside. */
-export const ONLY_YOU = "Only you";
+export const ONLY_YOU = onlyYou;
 
 type Span = Extract<Block, { kind: "span" }>;
 
@@ -106,7 +104,7 @@ export function blocksOf(history: readonly Item[], rule: number | null, ignored:
 				kind: "banner",
 				key: "b-" + item.id,
 				className: "sys action",
-				text: "✻ " + item.from + " " + text,
+				text: logActionLine(item.from, text),
 			});
 			breakRow();
 		};
@@ -115,23 +113,22 @@ export function blocksOf(history: readonly Item[], rule: number | null, ignored:
 			continue;
 		}
 		// The command rides as text, so any client can send it without the room
-		// knowing. Parsing is shared with the composer rather than reimplemented.
-		const carried = actionIn(item.text);
-		if (carried !== null) {
-			action(carried);
+		// knowing. The store read it once, with the same reader the composer
+		// uses, and stamped the line; here it is a field.
+		if (item.carried?.kind === "action") {
+			action(item.carried.text);
 			continue;
 		}
 		// A notice keeps its author, because it is somebody speaking rather than
 		// something happening. It is drawn the way every IRC client has drawn one
-		// since before this app existed, which is also what tells a reader why it
-		// arrived without lighting anything up.
-		const quiet = noticeIn(item.text);
-		if (quiet !== null) {
+		// since before this app existed, and that is also what tells a reader why
+		// it arrived without lighting anything up.
+		if (item.carried?.kind === "notice") {
 			blocks.push({
 				kind: "banner",
 				key: "n-" + item.id,
 				className: "sys notice",
-				text: "-" + item.from + "- " + quiet,
+				text: logNoticeLine(item.from, item.carried.text),
 			});
 			breakRow();
 			continue;

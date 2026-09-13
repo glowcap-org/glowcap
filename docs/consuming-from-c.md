@@ -224,11 +224,12 @@ Read that slot on the same thread that made the failing call. Blocking transport
 operations also end with the optional `out_error`, `error_cap`, and
 `out_error_len` arguments. A synchronous caller may omit all three with
 `NULL, 0, NULL`. A foreign runtime that dispatches the call to a worker supplies
-`out_error_len` and optional caller-owned storage; the function copies that
-worker's diagnostic before returning. A partial request—buffer or nonzero
-capacity without a length slot—is rejected before the operation begins. This is
-one call contract, including `glowcap_iroh_netlayer_new` and its allocator-aware
-`_in` form, rather than a second diagnostic API to select correctly.
+`out_error_len` and optional caller-owned storage. The function copies that
+worker's diagnostic before returning. A partial request, meaning a buffer or
+nonzero capacity without a length slot, is rejected before the operation
+begins. This is one call contract, including `glowcap_iroh_netlayer_new` and its
+allocator-aware `_in` form, rather than a second diagnostic API to select
+correctly.
 
 A failure with no call left to return it, such as a finalizer refusing or a
 retirement failing after the request that started it has returned, goes to the

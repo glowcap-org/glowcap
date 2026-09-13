@@ -2,7 +2,7 @@ use crate::arguments::Arg;
 use rooms_application::{
 	grants::Access,
 	session::{
-		checkpoint::{commands, Checkpoint, Routes},
+		checkpoint::{Checkpoint, Routes, commands},
 		command::{Refusal, Request, Route},
 	},
 	text::DocumentText,

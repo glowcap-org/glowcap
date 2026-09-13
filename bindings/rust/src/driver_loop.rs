@@ -29,16 +29,16 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::{Rc, Weak};
 
-use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
-use tokio::sync::{oneshot, Notify};
+use tokio::io::unix::AsyncFd;
+use tokio::sync::{Notify, oneshot};
 
 use crate::driver_event::failure_error as driver_event_failure;
 pub use crate::driver_event::{DriverEventFailure, LoopEvent};
-use crate::host::{try_spawn_local, try_spawn_local_handle, HostShared};
+use crate::host::{HostShared, try_spawn_local, try_spawn_local_handle};
 use crate::host_action_gen::HostAction;
 use crate::session::Session;
-use crate::session_shared::{io_err, SessionShared};
+use crate::session_shared::{SessionShared, io_err};
 use crate::sys::{self, host as ffi_host};
 use crate::trampoline::DeliverGuard;
 use crate::{ContextInner, Error, Locator, PendingWork, Result};

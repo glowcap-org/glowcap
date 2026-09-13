@@ -1,3 +1,4 @@
+// Operator tuple adapters enforce bounded schemas and preserve complete pages through their wire round trip.
 import { parseDiagnosticRows } from "../../lib/diagnostics.ts";
 import { parseListenerRows } from "../../lib/listeners.ts";
 import { type OperatorPage, operatorPageAnswer, parseOperatorPageAnswer } from "../../lib/operator.ts";
@@ -71,14 +72,14 @@ Deno.test("an operator page survives the answer-and-parse round trip", () => {
 });
 
 Deno.test("listener tuple adapters enforce exact and consistent rows", () => {
-	const row = ["tcp", "TCP", "", "", [], "", 0, "", false];
+	const row = ["tcp", "TCP", "", "", [], "", 0n, "", false];
 	assertEquals(parseListenerRows([row])[0]?.id, null);
 	assertEquals(refused(() => parseListenerRows([[...row, "surplus"]])), true);
 	assertEquals(
 		refused(() =>
-			parseListenerRows([["tcp", "TCP", "", "", [["bind", "host", "hint", "surplus"]], "", 0, "", false]])
+			parseListenerRows([["tcp", "TCP", "", "", [["bind", "host", "hint", "surplus"]], "", 0n, "", false]])
 		),
 		true,
 	);
-	assertEquals(refused(() => parseListenerRows([["tcp", "TCP", "", "", [], "", 0, "tcp://live", false]])), true);
+	assertEquals(refused(() => parseListenerRows([["tcp", "TCP", "", "", [], "", 0n, "tcp://live", false]])), true);
 });

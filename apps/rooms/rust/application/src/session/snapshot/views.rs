@@ -3,7 +3,11 @@
 use super::{Field, Id, List, Nullable, Presence, SafeInteger, Text};
 use crate::session::fields::present;
 use crate::{
-	room::policy::{MembershipKind, RoomPolicy},
+	room::{
+		carries::Carries,
+		inbox::metadata::{MAX_SEAT_BADGE, MAX_SEAT_PREFIX, MAX_SEAT_SAID},
+		policy::{MembershipKind, RoomPolicy},
+	},
 	text::DocumentText,
 };
 use serde::{Deserialize, Serialize};
@@ -24,8 +28,8 @@ pub struct Seat {
 	pub network: Text<32, true>,
 	pub state: SeatPhase,
 	pub nick: Text<32, true>,
-	pub badge: Text<12, true>,
-	pub said: Text<120, true>,
+	pub badge: Text<MAX_SEAT_BADGE, true>,
+	pub said: Text<MAX_SEAT_SAID, true>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,9 +42,9 @@ pub struct Member {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Bridge {
-	pub prefix: Text<12, true>,
-	pub badge: Text<12, true>,
-	pub said: Text<120, true>,
+	pub prefix: Text<MAX_SEAT_PREFIX, true>,
+	pub badge: Text<MAX_SEAT_BADGE, true>,
+	pub said: Text<MAX_SEAT_SAID, true>,
 	pub scope: Text<64, true>,
 }
 #[derive(Clone, Debug, Deserialize)]
@@ -56,8 +60,19 @@ pub struct RoomView {
 	pub line_bytes: Nullable<SafeInteger<true>>,
 	#[serde(default, skip_serializing_if = "Presence::missing")]
 	pub bridge: Presence<Bridge>,
+	/// See `crate::room::carries`. Absent until the room states it, and a
+	/// surface keeps every control while it is: a room that has said nothing
+	/// has not said it lacks anything.
+	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+	pub carries: Option<Carries>,
 	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
 	pub can_set_topic: Option<bool>,
+	/// Whether this membership holds the files facet `subscribe` hands a
+	/// participant where the room can hold bytes. A composer draws its attach
+	/// control from this, the way it draws the topic control from the field
+	/// above: from what the member holds, never from a word about the room.
+	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+	pub can_post_files: Option<bool>,
 	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
 	pub can_moderate: Option<bool>,
 }
@@ -160,11 +175,14 @@ impl Serialize for VisibleRoom<'_> {
 		use serde::ser::SerializeStruct;
 		let r = self.0;
 		let can_set_topic = if self.1 { r.can_set_topic } else { Some(false) };
+		let can_post_files = if self.1 { r.can_post_files } else { Some(false) };
 		let can_moderate = if self.1 { r.can_moderate } else { Some(false) };
 		let fields = 6
 			+ usize::from(r.members_more.is_some())
 			+ usize::from(!r.bridge.missing())
+			+ usize::from(r.carries.is_some())
 			+ usize::from(can_set_topic.is_some())
+			+ usize::from(can_post_files.is_some())
 			+ usize::from(can_moderate.is_some());
 		let mut value = s.serialize_struct("RoomView", fields)?;
 		value.serialize_field("conversationId", &r.conversation_id)?;
@@ -179,8 +197,14 @@ impl Serialize for VisibleRoom<'_> {
 		if !r.bridge.missing() {
 			value.serialize_field("bridge", &r.bridge)?;
 		}
+		if let Some(carries) = &r.carries {
+			value.serialize_field("carries", carries)?;
+		}
 		if let Some(v) = can_set_topic {
 			value.serialize_field("canSetTopic", &v)?;
+		}
+		if let Some(v) = can_post_files {
+			value.serialize_field("canPostFiles", &v)?;
 		}
 		if let Some(v) = can_moderate {
 			value.serialize_field("canModerate", &v)?;

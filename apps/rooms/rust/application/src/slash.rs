@@ -4,7 +4,7 @@ pub mod catalog;
 pub mod composer;
 pub mod input;
 pub mod interpret;
-use crate::text::{js_whitespace, DocumentText};
+use crate::text::{DocumentText, js_whitespace};
 use catalog::Name;
 use serde::Serialize;
 

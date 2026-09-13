@@ -2,6 +2,8 @@
 
 glowcap implements CapTP for OCapN in Zig. New to those names?
 [Capabilities and CapTP](docs/capabilities.md) starts from first principles.
+Participation in project spaces is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 Before changing code, read [the vision](docs/vision.md) and the section of
 [the architecture](docs/architecture.md) you will touch. [AGENTS.md](AGENTS.md)
@@ -55,6 +57,7 @@ the container then verifies its toolchains automatically. Run:
 
 ```sh
 zig build check
+zig build runtime-check
 ```
 
 Toolchain versions live in
@@ -62,6 +65,23 @@ Toolchain versions live in
 [devcontainer README](.devcontainer/README.md) covers maintenance and host
 integration, including the one explicit port-offset choice required for a
 linked worktree.
+
+### Without the devcontainer
+
+The repository also builds directly on Linux and macOS. Install the Zig
+version declared as `ZIG_VERSION` in `.devcontainer/pins.sh`. The repository's
+installer reads that pin and verifies the downloaded archive:
+
+```sh
+ZIG_INSTALL_DIR="$PWD/.local/zig" bash .devcontainer/image/zig.sh
+export PATH="$PWD/.local/zig:$PATH"
+conformance/bootstrap-submodules.sh
+zig build test
+```
+
+The in-tree gates also use Deno, Racket, Cargo, and small host tools. Their
+tested versions are listed in `.devcontainer/pins.sh`; the devcontainer remains
+the ready-made path when you do not already have that toolchain.
 
 ## The checkout uses symlinks
 
@@ -75,13 +95,19 @@ target as a small text file, often without an obvious error.
 
 ## Verifying changes
 
-```sh
-zig build check
-```
+Choose the evidence that covers the changed boundary. Product source normally
+runs `zig build check`. Add `zig build runtime-check` for application behavior,
+child-process lifecycles, language workspaces, or live loopback paths. Run
+`zig build source-check` for a plan-only or prose-only edit. Protocol claims
+also need their focused oracle or external-authority step.
 
-Run the full check by itself. It binds loopback ports and times a ReleaseFast
-build; another build running beside it can stall both. It must pass before a
-change is complete.
+Agent sessions should invoke these through
+`.agents/skills/work/bin/glowcap-dev`. From the host it enters this worktree's
+running devcontainer. Inside that image it runs locally from the repository
+root. Both paths apply the per-test deadline and per-worktree build lease. A
+concurrent session reports the owner and exits instead of racing caches or
+ports. `runtime-check` also serializes process families inside one build. A
+host with the complete declared toolchain can still run `zig build` directly.
 
 Focused steps while iterating:
 
@@ -89,6 +115,8 @@ Focused steps while iterating:
 zig build test                         # unit and integration tests
 zig build test -Dtest-filter=session   # tests with "session" in the name
 zig build source-check                 # cross-file source, docs, and repository contracts
+zig build runtime-check                # process, application, and language-workspace checks
+zig build infrastructure-check         # devcontainer and worktree integration behavior
 zig build oracle-check                 # protocol scenarios and Syrup fixtures
 zig build arch-check                   # dependency layers and core I/O ban
 zig build examples                     # public examples
@@ -105,8 +133,11 @@ GitHub has separate workflows for
 [checks](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml),
 [the documentation site](https://github.com/jimisaacs/glowcap/actions/workflows/pages.yml),
 and [tagged releases](https://github.com/jimisaacs/glowcap/actions/workflows/release.yml).
-Check the current commit's results before relying on them. CI installs the same
-versions declared in [`.devcontainer/pins.sh`](.devcontainer/pins.sh).
+Pull requests run `zig build test` and `zig build fmt-check` in a 15-minute
+Zig-only lane. Pushes to `main` and `dev` run the complete devcontainer check
+and the macOS Zig test suite. Check the current commit's results before relying
+on them. CI installs the versions declared in
+[`.devcontainer/pins.sh`](.devcontainer/pins.sh).
 
 ## License
 

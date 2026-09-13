@@ -536,12 +536,14 @@ pub fn checkBindingMagicErrorCodes(
         return;
     };
     defer dir.close(io);
-    var walker = try dir.walk(gpa);
+    var walker = try dir.walkSelectively(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
+        if (entry.kind == .directory) {
+            try util.enterSourceDirectory(io, gpa, &walker, "bindings", entry);
+            continue;
+        }
         if (entry.kind != .file) continue;
-        if (std.mem.indexOf(u8, entry.path, "target/") != null) continue;
-        if (std.mem.indexOf(u8, entry.path, "__pycache__/") != null) continue;
         const is_source = std.mem.endsWith(u8, entry.path, ".rs") or
             std.mem.endsWith(u8, entry.path, ".py") or
             std.mem.endsWith(u8, entry.path, ".ts") or

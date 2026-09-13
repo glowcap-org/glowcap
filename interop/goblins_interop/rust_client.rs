@@ -10,7 +10,7 @@
 //! positional call, then a repeat `enliven` of the same swiss-num. Needs
 //! `racket` plus `goblins` on PATH; `zig build rust-goblins-interop`.
 
-use glowcap_rust_dogfood::{format_locator_uri, tcp, Argument, ConnectOptions, Runtime, RuntimeConfig};
+use glowcap_rust_dogfood::{Argument, ConnectOptions, Runtime, RuntimeConfig, format_locator_uri, tcp};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -96,6 +96,31 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 		.await?;
 	assert_echoed(&reply_again, b"glowcap-ping-again")?;
 	println!("rust-goblins-interop: repeat enliven same Host identity (dedup), second call resolved");
+
+	let probe = session.fetch("glowcapGcProbeSwissnumABCDEF1234").await?;
+	let made = session.send(&probe, "make", &[]).await?;
+	let Argument::List(handles) = made else {
+		return Err("GC probe did not return a list".into());
+	};
+	let [Argument::Reference(first), Argument::Reference(second)] =
+		<[Argument; 2]>::try_from(handles).map_err(|_| "GC probe did not return two capabilities")?
+	else {
+		return Err("GC probe did not return capabilities".into());
+	};
+	session.release(first)?;
+	if !matches!(session.send(&second, "read", &[]).await?, Argument::String(text) if text == "still held")
+		|| !matches!(session.send(&probe, "collected?", &[]).await?, Argument::Boolean(false))
+	{
+		return Err("releasing one occurrence lost the held capability".into());
+	}
+	session.release(second)?;
+	tokio::time::timeout(std::time::Duration::from_secs(5), async {
+		while !matches!(session.send(&probe, "collected?", &[]).await?, Argument::Boolean(true)) {}
+		Ok::<(), Fail>(())
+	})
+	.await??;
+	session.release(probe)?;
+	println!("rust-goblins-interop: Goblins reclaimed the released object with the session open");
 
 	println!("rust-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins");
 	session.close(glowcap_rust_dogfood::PendingWork::Cancel).await?;

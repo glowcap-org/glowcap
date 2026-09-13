@@ -1,0 +1,67 @@
+{
+  "authority": "apps/rooms/rust/application/src/archive/serde_record.rs",
+  "readers": ["apps/rooms/lib/archive/record_document.ts"],
+  "documents": [
+    {
+      "kind": "line",
+      "source": "1f0d3f2c-8d7a-4b7e-9d0c-3a7d5c1e2b4f",
+      "generation": "6c1a9d2e0b4f4a8c9e7d3b5a1c2f4e6d",
+      "id": "7",
+      "directory": "ocapn://127.0.0.1%3A40165.tcp",
+      "conversationKind": "room",
+      "conversation": "2c4789bd2ac7ea0f2dccfa45a332a8be",
+      "from": "alice",
+      "text": "read this https://example.com/story before the call",
+      "mine": true,
+      "at": 1789218769045,
+      "order": 7,
+      "state": "edited",
+      "previewUrls": ["https://example.com/story"],
+      "attachments": [
+        {
+          "name": "agenda.pdf",
+          "mime": "application/pdf",
+          "size": 48213,
+          "width": 0,
+          "height": 0,
+          "blob": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        },
+        {
+          "name": "whiteboard.png",
+          "mime": "image/png",
+          "size": 120044,
+          "width": 1280,
+          "height": 720,
+          "blob": null
+        }
+      ]
+    },
+    {
+      "kind": "line",
+      "source": "1f0d3f2c-8d7a-4b7e-9d0c-3a7d5c1e2b4f",
+      "generation": "6c1a9d2e0b4f4a8c9e7d3b5a1c2f4e6d",
+      "id": "8",
+      "directory": "ocapn://127.0.0.1%3A40165.tcp",
+      "conversationKind": "direct",
+      "conversation": "bob",
+      "from": "bob",
+      "text": "",
+      "mine": false,
+      "at": 1789218769087,
+      "order": 8,
+      "state": "withdrawn",
+      "previewUrls": [],
+      "attachments": []
+    },
+    {
+      "kind": "standing",
+      "source": "1f0d3f2c-8d7a-4b7e-9d0c-3a7d5c1e2b4f",
+      "generation": "6c1a9d2e0b4f4a8c9e7d3b5a1c2f4e6d",
+      "id": "standing",
+      "directory": "ocapn://127.0.0.1%3A40165.tcp",
+      "room": "lobby",
+      "nick": "alice",
+      "at": 1789218769000
+    }
+  ]
+}

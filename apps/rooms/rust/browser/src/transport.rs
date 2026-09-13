@@ -2,9 +2,9 @@
 //! forwarding authority; locator-authored relay routes stay with the relay
 //! transport, and the directory owner selects WebRTC signaling.
 use crate::{ice, signaling};
-use glowcap::{browser, Connector, DialOrigin, Host, Locator, Runtime, RuntimeConfig, Session};
+use glowcap::{Connector, DialOrigin, Host, Locator, Runtime, RuntimeConfig, Session, browser};
 use rooms_application::web_relay;
-use rooms_glowcap::client::{directory::Directory, Deadline, Tasks};
+use rooms_glowcap::client::{Deadline, Tasks, directory::Directory};
 use std::{io, time::Duration};
 use web_sys::Url;
 

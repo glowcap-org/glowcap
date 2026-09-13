@@ -8,13 +8,14 @@ import { AttachedRoomsController } from "./attached.ts";
 import { rustRemote } from "./rust_remote.ts";
 import type { RoomsBrowserApplication, RoomsBrowserSession } from "../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { LS } from "../storage.ts";
+import * as store from "../store.ts";
 
 export async function connectAttachedRoomsSession(
 	page: RoomsPageContext,
 	sturdyref: string,
 ): Promise<AttachedRoomsController> {
 	const home = await homeLocator(page);
-	const application = new (applicationModule().RoomsBrowserApplication)();
+	const application = new (applicationModule().RoomsBrowserApplication)(troubleReporter(page));
 	return await connect(application, () => application.attach(sturdyref, home));
 }
 
@@ -29,9 +30,14 @@ export async function connectLocalRoomsSession(page: RoomsPageContext): Promise<
 	const application = applicationModule().RoomsBrowserApplication.localWorkspace(
 		LS.get(workspaceStorageKey()) ?? undefined,
 		home,
+		troubleReporter(page),
 	);
 	const controller = await connect(application, () => application.localSession());
 	return { controller, publish: () => application.publishLocal() };
+}
+
+function troubleReporter(page: RoomsPageContext): (source: string, reason: string) => void {
+	return (source, reason) => store.noteTrouble(page.projection, source, reason);
 }
 
 async function connect(

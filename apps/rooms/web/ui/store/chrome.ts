@@ -15,13 +15,14 @@ import type {
 	PeeringState,
 	RoomsOperatorState,
 	ToastKind,
+	TracePublishState,
 	ViewerDirection,
-	VizPublishState,
 } from "../types.ts";
-import type { IrcGatewayState, MemberRef } from "../types.ts";
+import { conversationCarries, type IrcGatewayState, type MemberRef } from "../types.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { kindOf } from "../media.ts";
-import { type Draft, NO_DRAFT, type PageProjection, type State } from "./core.ts";
+import { type DraftPreview, reconcileDraftPreviews } from "../link_preview.ts";
+import { type Draft, type HelpTab, NO_DRAFT, type PageProjection, type State } from "./core.ts";
 import { actingDir, forgetConv, getConv, nextStandingKey } from "./convs.ts";
 import { markRead } from "./items.ts";
 import { patchDir, setDirStatus } from "./dirs.ts";
@@ -108,13 +109,98 @@ export function setDraft(
 	key: string | null = projection.get().activeKey,
 ): void {
 	if (key == null) return;
-	setDraftOn(projection, key, { ...draftFor(projection, key), text });
+	const draft = draftFor(projection, key);
+	// Previews are discovered only where the room keeps them. A room that
+	// does not would drop the selection on send, and a chip a reader watched
+	// load and then lost is worse than no chip at all.
+	setDraftOn(projection, key, {
+		...draft,
+		text,
+		previews: draft.changing == null && conversationCarries(getConv(projection, key), "previews")
+			? reconcileDraftPreviews(draft.previews, text, () => projection.allocItemId())
+			: [],
+	});
+}
+
+export function startDraftPreview(projection: PageProjection, key: string, id: number): DraftPreview | null {
+	const draft = draftFor(projection, key);
+	const preview = draft.previews.find((candidate) => candidate.id === id);
+	if (preview?.state !== "offered") return null;
+	const fetching: DraftPreview = { ...preview, state: "fetching" };
+	setDraftOn(projection, key, {
+		...draft,
+		previews: draft.previews.map((candidate) => candidate.id === id ? fetching : candidate),
+	});
+	return fetching;
+}
+
+export function settleDraftPreview(
+	projection: PageProjection,
+	key: string,
+	id: number,
+	attempt: number,
+	outcome:
+		| { readonly state: "ready"; readonly metadata: import("../link_preview.ts").OpenGraphMetadata }
+		| { readonly state: "failed"; readonly failure: import("../link_preview.ts").PreviewFailure },
+): void {
+	const draft = draftFor(projection, key);
+	const preview = draft.previews.find((candidate) => candidate.id === id);
+	if (preview?.state !== "fetching" || preview.attempt !== attempt) return;
+	setDraftOn(projection, key, {
+		...draft,
+		previews: draft.previews.map((candidate) =>
+			candidate.id === id ? { ...preview, ...outcome } as DraftPreview : candidate
+		),
+	});
+}
+
+export function cancelDraftPreview(projection: PageProjection, key: string, id: number, attempt: number): void {
+	const draft = draftFor(projection, key);
+	const preview = draft.previews.find((candidate) => candidate.id === id);
+	if (preview?.state !== "fetching" || preview.attempt !== attempt) return;
+	setDraftOn(projection, key, {
+		...draft,
+		previews: draft.previews.map((candidate) =>
+			candidate.id === id ? { id, url: preview.url, state: "offered", attempt } : candidate
+		),
+	});
+}
+
+export function removeDraftPreview(projection: PageProjection, key: string, id: number): void {
+	const draft = draftFor(projection, key);
+	const preview = draft.previews.find((candidate) => candidate.id === id);
+	if (preview == null || preview.state === "removed") return;
+	setDraftOn(projection, key, {
+		...draft,
+		previews: draft.previews.map((candidate) =>
+			candidate.id === id ? { id, url: preview.url, state: "removed", attempt: preview.attempt } : candidate
+		),
+	});
+}
+
+export function retryDraftPreview(projection: PageProjection, key: string, id: number): void {
+	const draft = draftFor(projection, key);
+	const preview = draft.previews.find((candidate) => candidate.id === id);
+	if (preview?.state !== "failed") return;
+	setDraftOn(projection, key, {
+		...draft,
+		previews: draft.previews.map((candidate) =>
+			candidate.id === id ? { id, url: preview.url, state: "offered", attempt: preview.attempt + 1 } : candidate
+		),
+	});
 }
 
 /** Begin changing a line already posted: its words go into the composer, and
  * the composer remembers which line they belong to. */
 export function startChange(projection: PageProjection, id: number, text: string): void {
-	setActiveDraft(projection, { ...activeDraft(projection), text, changing: id, keeping: undefined, files: [] });
+	setActiveDraft(projection, {
+		...activeDraft(projection),
+		text,
+		previews: [],
+		changing: id,
+		keeping: undefined,
+		files: [],
+	});
 }
 
 /** Begin changing a file line's files: its caption goes into the composer and
@@ -125,7 +211,14 @@ export function startRefile(
 	caption: string,
 	keeping: readonly AttachmentView[],
 ): void {
-	setActiveDraft(projection, { ...activeDraft(projection), text: caption, changing: id, keeping, files: [] });
+	setActiveDraft(projection, {
+		...activeDraft(projection),
+		text: caption,
+		previews: [],
+		changing: id,
+		keeping,
+		files: [],
+	});
 }
 
 /** Drop one of the kept files from a file-line change, by its position among
@@ -145,6 +238,7 @@ export function cancelChange(
 	setDraftOn(projection, key, {
 		...draftFor(projection, key),
 		text: "",
+		previews: [],
 		changing: undefined,
 		keeping: undefined,
 		files: [],
@@ -321,13 +415,22 @@ export function closeSettings(projection: PageProjection): void {
 /** Close Settings beneath the glossary so only one native modal is open. The
  * Settings session stays open so the Settings control stays pressed, and Help's own
  * copy of that title row keeps the Help control on screen, pressed. */
-export function openHelp(projection: PageProjection): void {
-	projection.set({ helpOpen: true });
+export function openHelp(projection: PageProjection, tab?: HelpTab): void {
+	projection.set(tab === undefined ? { helpOpen: true } : { helpOpen: true, helpTab: tab });
 }
 
-/** Put Settings back after Help. */
+/** Which Help tab the reader stood on last, so Help reopens where they were. */
+export function setHelpTab(projection: PageProjection, helpTab: HelpTab): void {
+	projection.set({ helpTab });
+}
+
+/** Close Help and nothing else. Settings was never closed beneath it, only
+ * held back while Help was the top layer, so a reader who came from Settings
+ * is back in Settings and a reader who came from the composer is back in the
+ * room. Opening Settings here instead put a reader in a screen they had never
+ * asked for. */
 export function closeHelp(projection: PageProjection): void {
-	projection.set({ helpOpen: false, settingsOpen: true });
+	projection.set({ helpOpen: false });
 }
 
 /** Which operations pane the reader stood on last, remembered on this
@@ -337,8 +440,8 @@ export function setOpsPane(projection: PageProjection, opsPane: OpsCap): void {
 }
 
 /** Flip whether the selected archive keeps message history. The store field
- * is what the switch draws; `ui/history.ts` owns the bytes and does the
- * wiping, so the caller hands it the same choice. */
+ * is what the switch draws; the Rust archive behind the session, reached
+ * through `session.setKeepHistory`, owns the bytes and does the wiping. */
 export function setKeepHistory(projection: PageProjection, keep: boolean): void {
 	projection.set({ keepHistory: keep });
 }
@@ -349,25 +452,19 @@ export function setArchiveTarget(projection: PageProjection, archiveTarget: Arch
 	projection.set({ archiveTarget });
 }
 
-/** What the row fields say when a capability arrives or goes.
- *
- * Possession is derived from these rows, so this is also where its
- * consequences live: rows landing select that pane. A reconnect's drops flow through here
- * too, which is what makes the Holdings toggles fall back off with the
- * capabilities they mirror. */
+/** Replace the possession rows. Possession is derived from these rows, so a
+ * reconnect's drops flow through here too and the Holdings toggles fall back
+ * off with the capabilities they mirror. The pane selection is the reader's
+ * and does not move. */
 function patchOpsRows(projection: PageProjection, patch: {
 	diagnostics?: readonly DiagnosticRow[] | null;
 	listeners?: readonly ListenerRow[] | null;
 	irc?: IrcGatewayState | null;
 	operator?: RoomsOperatorState | null;
 	peering?: PeeringState | null;
-	viz?: VizPublishState | null;
+	trace?: TracePublishState | null;
 }): void {
-	// Arrival does not move the selection: the modal opens on the pane the
-	// reader last chose (or the first held one), however the capabilities
-	// came in.
-	const grew: Partial<State> = { ...patch };
-	projection.set(grew);
+	projection.set(patch);
 }
 
 export function setDiagnostics(projection: PageProjection, diagnostics: readonly DiagnosticRow[] | null): void {
@@ -394,11 +491,11 @@ export function setPeering(projection: PageProjection, peering: PeeringState | n
 	patchOpsRows(projection, { peering });
 }
 
-/** What the viz possession row says when the capability arrives, redials, or
+/** What the trace possession row says when the capability arrives, redials, or
  * goes. A connectivity flip on an already-held capability rides the same
  * path and moves no tab. */
-export function setVizPublish(projection: PageProjection, viz: VizPublishState | null): void {
-	patchOpsRows(projection, { viz });
+export function setTracePublish(projection: PageProjection, trace: TracePublishState | null): void {
+	patchOpsRows(projection, { trace });
 }
 
 /** Open one posted file full-screen, over everything. */
@@ -492,8 +589,8 @@ export function closeRosterSheet(projection: PageProjection): void {
  * Which conversation is open and whether the rail is open are two facts, and
  * only this one belongs to where a reader is standing: an address, a shared
  * link, or the browser's back button decides the conversation and must leave
- * the chrome exactly as the reader left it. A *press* means more than that,
- * which is what `switchTo` adds. */
+ * the chrome exactly as the reader left it. A *press* means more than that;
+ * `switchTo` adds those effects. */
 export function showConv(projection: PageProjection, key: string): void {
 	if (!projection.get().convs.has(key)) return;
 	projection.set({ activeKey: key });

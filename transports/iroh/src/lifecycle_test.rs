@@ -1,11 +1,19 @@
 //! Endpoint-barrier scenarios that cross the private runtime and the C seam.
 
-use crate::tests::direct_endpoint;
-use crate::{glowcap_iroh_sidecar_endpoint_free, teardown_status, GlowcapIrohEndpoint};
+use crate::tests::{direct_endpoint, free_endpoint};
+use crate::{GlowcapIrohEndpoint, teardown_status};
+
+fn set_nonblocking(endpoint: *mut GlowcapIrohEndpoint, conn: *mut crate::GlowcapIrohConn) -> i32 {
+	unsafe { crate::glowcap_iroh_sidecar_conn_set_nonblocking(endpoint, conn) }
+}
+
+fn try_write(conn: *mut crate::GlowcapIrohConn, bytes: &[u8]) -> isize {
+	unsafe { crate::glowcap_iroh_sidecar_conn_try_write(conn, bytes.as_ptr(), bytes.len()) }
+}
 
 #[test]
 fn teardown_panics_become_failures() {
-	assert_eq!(teardown_status(|| Ok(())), 0);
+	assert_eq!(teardown_status(|| Ok::<(), ()>(())), 0);
 	assert_eq!(
 		teardown_status(|| -> Result<(), ()> { panic!("forced teardown panic") }),
 		-1
@@ -22,15 +30,14 @@ fn endpoint_release_is_safe_inside_an_ambient_tokio_runtime() {
 		.build()
 		.unwrap();
 	ambient.block_on(async move {
-		assert_eq!(glowcap_iroh_sidecar_endpoint_free(raw as *mut GlowcapIrohEndpoint), 0);
+		assert_eq!(free_endpoint(raw as *mut GlowcapIrohEndpoint), 0);
 	});
 }
 
 #[test]
 fn peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release() {
 	use crate::conn::glowcap_iroh_sidecar_conn_free;
-	use crate::nonblocking::{glowcap_iroh_sidecar_conn_set_nonblocking, glowcap_iroh_sidecar_conn_try_write};
-	use crate::{make_conn, AcceptedRaw, ALPN};
+	use crate::{ALPN, AcceptedRaw, make_conn};
 
 	let client = direct_endpoint(5_000);
 	let server = direct_endpoint(5_000);
@@ -57,15 +64,15 @@ fn peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release(
 		}
 	});
 	let conn = make_conn(client_ref, raw).unwrap();
-	assert_eq!(glowcap_iroh_sidecar_conn_set_nonblocking(client, conn), 0);
+	assert_eq!(set_nonblocking(client, conn), 0);
 	// The application has not closed its handle yet. This write observes the
 	// remote close first, exactly the ordering a runtime/session race permits.
-	assert_eq!(glowcap_iroh_sidecar_conn_try_write(conn, b"late".as_ptr(), 4), 4);
+	assert_eq!(try_write(conn, b"late"), 4);
 	let writer_result = client_ref.writers.wait();
-	assert_eq!(glowcap_iroh_sidecar_conn_try_write(conn, b"x".as_ptr(), 1), -1);
-	glowcap_iroh_sidecar_conn_free(conn);
-	let client_result = glowcap_iroh_sidecar_endpoint_free(client);
-	let server_result = glowcap_iroh_sidecar_endpoint_free(server);
+	assert_eq!(try_write(conn, b"x"), -1);
+	unsafe { glowcap_iroh_sidecar_conn_free(conn) };
+	let client_result = free_endpoint(client);
+	let server_result = free_endpoint(server);
 	assert_eq!(writer_result, Ok(()));
 	assert_eq!(client_result, 0);
 	assert_eq!(server_result, 0);
@@ -74,8 +81,7 @@ fn peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release(
 #[test]
 fn nonblocking_release_delivers_the_complete_admitted_tail() {
 	use crate::conn::glowcap_iroh_sidecar_conn_free;
-	use crate::nonblocking::{glowcap_iroh_sidecar_conn_set_nonblocking, glowcap_iroh_sidecar_conn_try_write};
-	use crate::{make_conn, AcceptedRaw, ALPN};
+	use crate::{ALPN, AcceptedRaw, make_conn};
 	let client = direct_endpoint(5_000);
 	let server = direct_endpoint(5_000);
 	assert!(!client.is_null() && !server.is_null());
@@ -96,13 +102,10 @@ fn nonblocking_release_delivers_the_complete_admitted_tail() {
 			(AcceptedRaw { conn, send, recv }, accepted, receive)
 		});
 		let handle = make_conn(client_ref, raw).unwrap();
-		assert_eq!(glowcap_iroh_sidecar_conn_set_nonblocking(client, handle), 0);
+		assert_eq!(set_nonblocking(client, handle), 0);
 		let tail = vec![0x5a; 64 * 1024];
-		assert_eq!(
-			glowcap_iroh_sidecar_conn_try_write(handle, tail.as_ptr(), tail.len()),
-			tail.len() as isize
-		);
-		glowcap_iroh_sidecar_conn_free(handle);
+		assert_eq!(try_write(handle, &tail), isize::try_from(tail.len()).unwrap());
+		unsafe { glowcap_iroh_sidecar_conn_free(handle) };
 		let received = server_ref.rt.block_on(async {
 			tokio::time::timeout(std::time::Duration::from_secs(5), receive.read_to_end(tail.len()))
 				.await
@@ -111,6 +114,6 @@ fn nonblocking_release_delivers_the_complete_admitted_tail() {
 		assert_eq!(received.unwrap(), tail, "release discarded admitted bytes");
 		drop(remote);
 	}
-	assert_eq!(glowcap_iroh_sidecar_endpoint_free(client), 0);
-	assert_eq!(glowcap_iroh_sidecar_endpoint_free(server), 0);
+	assert_eq!(free_endpoint(client), 0);
+	assert_eq!(free_endpoint(server), 0);
 }

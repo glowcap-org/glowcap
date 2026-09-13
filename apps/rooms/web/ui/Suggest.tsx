@@ -115,7 +115,7 @@ export function useSuggest(
 		keyDown: (event) => {
 			if (!listing) return false;
 			// The arrows walk the names and wrap, so the last is one press from the
-			// first, which is what the composer's list does with the same keys.
+			// first. The composer's list uses the same keys and behavior.
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 				event.preventDefault();
 				const step = event.key === "ArrowDown" ? 1 : -1;

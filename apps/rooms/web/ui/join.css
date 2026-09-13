@@ -43,12 +43,11 @@
 }
 /* The cap, drawn once for both cards.
    It sits against the padding box, so it starts inside the card's own border,
-   and both cards clip to the radius that border leaves, which is what carves
-   its ends. It paints over the rows
-   rather than beside them: the rows really do pass behind it, which is what a
-   card that scrolls under a cap should look like, and there is no band they are
-   fenced out of to arrange it. Nothing is pressable in five pixels of paint, so
-   a press there belongs to whatever is under it. */
+   and both cards clip to the radius that border leaves to carve its ends. It
+   paints over the rows rather than beside them: the rows really do pass behind
+   it, giving the card the appearance of scrolling under a cap. There is no band
+   they are fenced out of to arrange it. Nothing is pressable in five pixels of
+   paint, so a press there belongs to whatever is under it. */
 .join::before,
 .modal-card::before {
 	content: "";
@@ -124,6 +123,17 @@
 	font-weight: 700;
 	color: var(--ink-soft);
 	margin-bottom: calc(var(--field-tuck) * -1);
+}
+/* A field's aside belongs to its label, not to the column: dropped in as a
+   sibling it becomes a fourth evenly spaced line and the reader sees six
+   things where there are three. It takes the same tuck the label takes, on
+   both sides, so the label, the aside and the box read as one question. */
+.join-fields > .hint {
+	margin-block: calc(var(--field-tuck) * -1);
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+	line-height: 1.4;
+	text-wrap: pretty;
 }
 .join label .optional {
 	font-weight: 500;

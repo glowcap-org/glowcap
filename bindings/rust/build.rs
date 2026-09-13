@@ -165,18 +165,18 @@ fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
 		return cache_lib;
 	}
 
-	if let Some(ref zig) = zig_out {
-		if zig.join(&contract.marker_static).is_file() {
-			// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists,
-			// including when releases_published is false.
-			if env_truthy("GLOWCAP_DOWNLOAD") {
-				let _ = fetch_into_cache(&contract, &version, &target, &cache_lib);
-				if cache_lib.join(&contract.marker_static).is_file() {
-					return cache_lib;
-				}
+	if let Some(ref zig) = zig_out
+		&& zig.join(&contract.marker_static).is_file()
+	{
+		// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists,
+		// including when releases_published is false.
+		if env_truthy("GLOWCAP_DOWNLOAD") {
+			let _ = fetch_into_cache(&contract, &version, &target, &cache_lib);
+			if cache_lib.join(&contract.marker_static).is_file() {
+				return cache_lib;
 			}
-			return zig.clone();
 		}
+		return zig.clone();
 	}
 
 	if want_release_fetch(&contract) {
@@ -386,11 +386,11 @@ fn fetch_into_cache(contract: &Contract, version: &str, target: &str, cache_lib:
 	let mut expect: Option<String> = None;
 	for line in sums_text.lines() {
 		let mut parts = line.split_whitespace();
-		if let (Some(hash), Some(name)) = (parts.next(), parts.next()) {
-			if name.trim_start_matches('*') == tarball {
-				expect = Some(hash.to_ascii_lowercase());
-				break;
-			}
+		if let (Some(hash), Some(name)) = (parts.next(), parts.next())
+			&& name.trim_start_matches('*') == tarball
+		{
+			expect = Some(hash.to_ascii_lowercase());
+			break;
 		}
 	}
 	let Some(want) = expect else {

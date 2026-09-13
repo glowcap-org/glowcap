@@ -1,5 +1,5 @@
 //! Bounded unread messages. One consumer polls; dropping it closes this queue.
-use super::{metadata::Presence, Message};
+use super::{Message, metadata::Presence};
 use alloc::{collections::VecDeque, string::String};
 
 pub const MAX_MESSAGES: usize = 256;
@@ -90,6 +90,7 @@ fn retained_bytes<C>(message: &Message<&str, C>) -> usize {
 			bytes = bytes.saturating_add(core::mem::size_of::<super::metadata::Bridge<String>>());
 		}
 	}
+	bytes = bytes.saturating_add(message.previews.retained_bytes());
 	bytes = bytes.saturating_add(
 		message
 			.attachments

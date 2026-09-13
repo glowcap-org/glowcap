@@ -1,6 +1,6 @@
-use super::arguments::{from_fixture, text, Arg};
+use super::arguments::{Arg, from_fixture, text};
 use rooms_application::direct::{self, Notice};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{cell::Cell, rc::Rc};
 
 pub fn run() {
@@ -26,6 +26,7 @@ pub fn run() {
 				text,
 				reply,
 				attachments,
+				previews: _,
 			} => json!({"kind":"message","bytes":text.len(),"reply":reply.is_some(),"files":attachments.len()}),
 			Notice::Ready(_) => json!({"kind":"ready"}),
 			Notice::Typing(on) => json!({"kind":"typing","on":on}),

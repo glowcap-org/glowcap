@@ -112,7 +112,7 @@ impl crate::TransportOperationOptions for OperationOptions {
 #[cfg(all(test, feature = "async"))]
 mod operation_options_tests {
 	use super::*;
-	use crate::{tcp::locator, HintWireForm, Locator};
+	use crate::{HintWireForm, Locator, tcp::locator};
 
 	#[test]
 	fn options_are_typed_and_borrowed_for_the_dial() {

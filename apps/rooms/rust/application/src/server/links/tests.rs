@@ -1,12 +1,13 @@
-//! The authority read from the TypeScript owner's document, its derivations
-//! pinned to vectors captured from that owner, and every change as a value.
+//! The authority read from a kept server document, its derivations pinned
+//! to fixed vectors so a secret never re-derives to a different name, and
+//! every change as a value.
 use super::*;
 use crate::server::document::Document;
 use alloc::vec::Vec;
 
-/// The document the TypeScript owner writes for a server with one linked
-/// room, a steward, a manager, and a managed room under it; the derivation
-/// vectors below were captured from the historical TypeScript owner over this document.
+/// A kept document for a server with one linked room, a steward, a
+/// manager, and a managed room under it; the derivation vectors below are
+/// fixed over this document.
 const KEPT: &str = r#"{"version":1,"identitySeed":"0101010101010101010101010101010101010101010101010101010101010101","roomLinkSecret":"0202020202020202020202020202020202020202020202020202020202020202","linkedRooms":["Garden","~00000000000000000000000000000001"],"revokedRooms":["old"],"roomLinkGenerations":[{"name":"garden","generation":3}],"stewards":[{"name":"garden","generation":1,"issued":true}],"managers":[{"name":"~00000000000000000000000000000001","generation":2,"issued":false},{"name":"old","generation":1,"issued":true}],"managedRooms":[{"id":"~00000000000000000000000000000001","name":"Garden","generation":2,"policy":{"visibility":"listed","entry":"open","speaking":"moderated"}}],"topics":[{"name":"garden","topic":"seedlings"},{"name":"~00000000000000000000000000000001","topic":"kept"}]}"#;
 const MANAGED: &str = "~00000000000000000000000000000001";
 
@@ -15,7 +16,7 @@ fn kept() -> Authority {
 }
 
 fn hex(bytes: &[u8]) -> String {
-	super::hex(bytes)
+	crate::fields::lower_hex(bytes)
 }
 
 #[test]
@@ -118,9 +119,11 @@ fn stewards_and_managers_issue_by_generation_and_revoke_to_the_next() {
 	let (revoked, generation) = authority.with_steward_revoked("Garden").unwrap();
 	assert_eq!(generation, 2);
 	assert!(!revoked.has_steward("garden"));
-	assert!(revoked
-		.stewardship("garden")
-		.is_some_and(|row| row.generation == 2 && !row.issued));
+	assert!(
+		revoked
+			.stewardship("garden")
+			.is_some_and(|row| row.generation == 2 && !row.issued)
+	);
 	assert_eq!(
 		revoked.with_steward_revoked("Garden").unwrap_err().code,
 		Some(FailureCode::NotSteward)
@@ -225,7 +228,7 @@ fn topics_follow_durable_names_and_a_link_revocation() {
 	let long = "x".repeat(document::MAX_TOPIC + 1);
 	assert!(public.with_topic("Garden", &long).is_err());
 	// A managed room still filed under its manager cannot lose its link: the
-	// document's relations refuse it, as the TypeScript owner's write does.
+	// document's relations refuse it before the change is written.
 	let refused = authority.with_room_link_revoked(MANAGED).unwrap_err();
 	assert!(
 		refused.reason().starts_with("rooms state change is invalid"),
@@ -271,8 +274,10 @@ fn the_link_registry_is_bounded() {
 	assert_eq!(refused.code, Some(FailureCode::RoomLinksFull));
 	assert!(authority.remembered("r1", false, false, None, None).unwrap().is_none());
 	// A revoked name comes back without spending a row.
-	assert!(authority
-		.remembered("gone", false, false, None, None)
-		.unwrap()
-		.is_some());
+	assert!(
+		authority
+			.remembered("gone", false, false, None, None)
+			.unwrap()
+			.is_some()
+	);
 }

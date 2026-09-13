@@ -1,3 +1,4 @@
+//! Invitation commands prepare retry-safe checkpoint transitions.
 use super::*;
 use alloc::boxed::Box;
 
@@ -46,6 +47,7 @@ pub(super) fn accept(state: &mut State, args: &[DocumentText], routes: &impl Rou
 			return Err(Error::Conflict);
 		}
 		directory.nick = invite.nick.clone();
+		directory.nick_allocation = crate::directory::registration::NicknameAllocation::Exact;
 	} else {
 		push(
 			&mut state.directories,
@@ -55,6 +57,7 @@ pub(super) fn accept(state: &mut State, args: &[DocumentText], routes: &impl Rou
 				home: false,
 				reached: None,
 				nick: invite.nick.clone(),
+				nick_allocation: crate::directory::registration::NicknameAllocation::Exact,
 				standing: Nullable::Null,
 			},
 		)?;

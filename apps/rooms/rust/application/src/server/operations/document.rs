@@ -5,9 +5,9 @@
 //! document that fails its relations is refused rather than rewritten into
 //! shape. It may hold a shared feed credential, so it stays under the
 //! server's protected state directory and never enters snapshots.
-use super::listeners::{Transport, MAX_OPTION_VALUE};
+use super::listeners::{MAX_OPTION_VALUE, Transport};
 use crate::server::irc::model::{
-	channel_key, entropy_hex, network_key, BridgeAuthority, BridgeIntent, NetworkChoice, ENTROPY_BYTES,
+	BridgeAuthority, BridgeIntent, ENTROPY_BYTES, NetworkChoice, channel_key, entropy_hex, network_key,
 };
 use alloc::{
 	collections::{BTreeMap, BTreeSet},
@@ -132,10 +132,10 @@ impl Document {
 						intent.transport.name()
 					)));
 				}
-				if let OptionValue::Text(text) = value {
-					if text.len() > MAX_OPTION_VALUE {
-						return Err(Error::Invalid("a listener option value is under 64 KiB".into()));
-					}
+				if let OptionValue::Text(text) = value
+					&& text.len() > MAX_OPTION_VALUE
+				{
+					return Err(Error::Invalid("a listener option value is under 64 KiB".into()));
 				}
 			}
 		}
@@ -240,12 +240,9 @@ impl Document {
 		intent: BridgeIntent,
 		mut draw: impl FnMut() -> [u8; ENTROPY_BYTES],
 	) -> Result<bool, Error> {
+		intent.validate().map_err(Error::Invalid)?;
 		let key = intent.key();
-		if self
-			.irc_bridges
-			.iter()
-			.any(|held| held.key() == key && held.publication_id == intent.publication_id)
-		{
+		if self.irc_bridges.iter().any(|held| held == &intent) {
 			return Ok(false);
 		}
 		let mut next = self.clone();
@@ -355,19 +352,23 @@ mod tests {
 		let mut document = Document::default();
 		let mut options = BTreeMap::new();
 		options.insert("port".to_string(), OptionValue::Number(1));
-		assert!(document
-			.remember_listener(ListenerIntent {
-				transport: Transport::Tcp,
-				options: options.clone(),
-			})
-			.unwrap());
+		assert!(
+			document
+				.remember_listener(ListenerIntent {
+					transport: Transport::Tcp,
+					options: options.clone(),
+				})
+				.unwrap()
+		);
 		options.insert("port".to_string(), OptionValue::Number(2));
-		assert!(document
-			.remember_listener(ListenerIntent {
-				transport: Transport::Tcp,
-				options,
-			})
-			.unwrap());
+		assert!(
+			document
+				.remember_listener(ListenerIntent {
+					transport: Transport::Tcp,
+					options,
+				})
+				.unwrap()
+		);
 		assert_eq!(document.listeners.len(), 1);
 		let text = document.encode().unwrap();
 		assert_eq!(Document::decode(&text).unwrap(), document);
@@ -391,6 +392,7 @@ mod tests {
 			port: 6697,
 			tls: true,
 			nick: "feed".into(),
+			realname: "bridge bot; admin: alice".into(),
 			sasl: None,
 		}
 	}
@@ -412,6 +414,7 @@ mod tests {
 			network: "Libera".into(),
 			channel: "#room".into(),
 			publication_id: "p1".into(),
+			operator_permission: true,
 		};
 		assert!(document.remember_irc_bridge(intent.clone(), &mut draw).unwrap());
 		assert!(!document.remember_irc_bridge(intent.clone(), &mut draw).unwrap());
@@ -444,22 +447,23 @@ mod tests {
 
 	#[test]
 	fn broken_irc_relations_are_refused_whole() {
-		let network = r#"{"network":"n","host":"h","port":6697,"tls":true,"nick":"f"}"#;
+		let network =
+			r#"{"network":"n","host":"h","port":6697,"tls":true,"nick":"f","realname":"bridge bot; admin: alice"}"#;
 		let orphan = alloc::format!(
-			r##"{{"version":1,"listeners":[],"ircNetworks":[{network}],"ircBridges":[{{"network":"other","channel":"#c","publicationId":"p"}}],"ircBridgeAuthorities":[]}}"##
+			r##"{{"version":1,"listeners":[],"ircNetworks":[{network}],"ircBridges":[{{"network":"other","channel":"#c","publicationId":"p","operatorPermission":true}}],"ircBridgeAuthorities":[]}}"##
 		);
 		assert!(matches!(Document::decode(&orphan), Err(Error::Invalid(_))));
 		let unowned = alloc::format!(
-			r##"{{"version":1,"listeners":[],"ircNetworks":[{network}],"ircBridges":[{{"network":"n","channel":"#c","publicationId":"p"}}],"ircBridgeAuthorities":[]}}"##
+			r##"{{"version":1,"listeners":[],"ircNetworks":[{network}],"ircBridges":[{{"network":"n","channel":"#c","publicationId":"p","operatorPermission":true}}],"ircBridgeAuthorities":[]}}"##
 		);
 		assert!(matches!(Document::decode(&unowned), Err(Error::Invalid(_))));
 		let entropy = "0".repeat(32);
 		let shared = alloc::format!(
-			r##"{{"version":1,"listeners":[],"ircNetworks":[{network}],"ircBridges":[{{"network":"n","channel":"#c","publicationId":"p"}}],"ircBridgeAuthorities":[{{"publicationId":"p","roomEntropy":"{entropy}","stewardEntropy":"{entropy}","generation":0,"issued":false}}]}}"##
+			r##"{{"version":1,"listeners":[],"ircNetworks":[{network}],"ircBridges":[{{"network":"n","channel":"#c","publicationId":"p","operatorPermission":true}}],"ircBridgeAuthorities":[{{"publicationId":"p","roomEntropy":"{entropy}","stewardEntropy":"{entropy}","generation":0,"issued":false}}]}}"##
 		);
 		assert!(matches!(Document::decode(&shared), Err(Error::Invalid(_))));
 		let whole = alloc::format!(
-			r##"{{"version":1,"listeners":[],"ircNetworks":[{network}],"ircBridges":[{{"network":"n","channel":"#c","publicationId":"p"}}],"ircBridgeAuthorities":[{{"publicationId":"p","roomEntropy":"{entropy}","stewardEntropy":"{}","generation":0,"issued":false}}]}}"##,
+			r##"{{"version":1,"listeners":[],"ircNetworks":[{network}],"ircBridges":[{{"network":"n","channel":"#c","publicationId":"p","operatorPermission":true}}],"ircBridgeAuthorities":[{{"publicationId":"p","roomEntropy":"{entropy}","stewardEntropy":"{}","generation":0,"issued":false}}]}}"##,
 			"1".repeat(32)
 		);
 		assert!(Document::decode(&whole).is_ok());

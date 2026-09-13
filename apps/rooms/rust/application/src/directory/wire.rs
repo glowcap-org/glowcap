@@ -86,7 +86,7 @@ pub fn event<B: BuildArguments>(event: &Event, shape: Shape) -> Vec<B::Value> {
 			B::integer(*count),
 			B::text(owned(&peer.registration_id)),
 		],
-		Event::Truncated(count) => vec![B::text("truncated".into()), B::integer(*count)],
+		Event::Truncated(count) => vec![B::text(crate::protocol_data::TRUNCATED.into()), B::integer(*count)],
 	}
 }
 
@@ -96,7 +96,7 @@ mod tests {
 	use crate::{
 		directory::{MemberChange, OriginProof, PublicationKind, RoomChange},
 		fields::{Nullable, SafeInteger, Text},
-		room::{policy::MembershipKind, ArgumentView, ListArgument},
+		room::{ArgumentView, ListArgument, policy::MembershipKind},
 	};
 
 	/// A value the way a binding would decode it.

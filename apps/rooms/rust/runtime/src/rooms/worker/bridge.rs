@@ -8,13 +8,13 @@ pub(super) enum Finished {
 	Scope {
 		id: String,
 		epoch: u64,
-		result: Result<Option<DocumentText>, String>,
+		result: Result<Option<DocumentText>, Error>,
 	},
 	Submission {
 		targets: Vec<(String, u64)>,
 		directory: DocumentText,
 		application: intent::Bridge,
-		result: Result<(), String>,
+		result: Result<(), Error>,
 	},
 }
 struct Target<P: Platform> {
@@ -25,28 +25,24 @@ struct Target<P: Platform> {
 struct Group<P: Platform> {
 	directory: DocumentText,
 	application: intent::Bridge,
-	answers: Result<Answers, String>,
+	answers: Result<Answers, Error>,
 	targets: Vec<Target<P>>,
 }
 
 impl<P: Platform> RoomWorker<P> {
-	fn wanted_bridges(&self) -> Result<HashMap<String, (DocumentText, Option<intent::Bridge>)>, String> {
-		self.commands
-			.view()
-			.read(|state| {
-				Ok(state
-					.checkpoint()
-					.map_err(|error| error.to_string())?
-					.rooms()
-					.filter_map(|room| {
-						Some((
-							room.id.text().as_str()?.to_owned(),
-							(room.directory.text().clone(), intent::Bridge::read(room)),
-						))
-					})
-					.collect())
-			})
-			.map_err(|error| error.to_string())?
+	fn wanted_bridges(&self) -> Result<HashMap<String, (DocumentText, Option<intent::Bridge>)>, Error> {
+		self.commands.view().read(|state| {
+			Ok(state
+				.checkpoint()?
+				.rooms()
+				.filter_map(|room| {
+					Some((
+						room.id.text().as_str()?.to_owned(),
+						(room.directory.text().clone(), intent::Bridge::read(room)),
+					))
+				})
+				.collect())
+		})?
 	}
 
 	/// Discovery and submissions run in owned tasks. This worker only prepares
@@ -56,7 +52,10 @@ impl<P: Platform> RoomWorker<P> {
 		let wanted = match self.wanted_bridges() {
 			Ok(wanted) => wanted,
 			Err(error) => {
-				self.shared.borrow_mut().issues.insert("room-bridge".into(), error);
+				self.shared
+					.borrow_mut()
+					.issues
+					.insert("room-bridge".into(), error.to_string());
 				self.schedule_retry();
 				return;
 			}
@@ -87,7 +86,7 @@ impl<P: Platform> RoomWorker<P> {
 					.bridge_form()
 					.await
 					.map(|form| form.map(|form| form.scope.text().clone()))
-					.map_err(|error| error.to_string());
+					.map_err(Error::peer);
 				Finished::Scope { id, epoch, result }
 			});
 		}
@@ -153,7 +152,7 @@ impl<P: Platform> RoomWorker<P> {
 		&self,
 		directory: &DocumentText,
 		desired: intent::Bridge,
-	) -> (intent::Bridge, Result<Answers, String>) {
+	) -> (intent::Bridge, Result<Answers, Error>) {
 		let mut answers = desired.answers.clone();
 		let error = if desired.secrets_given {
 			match self.bridge_secrets.answers(directory, &desired.scope).await {
@@ -161,9 +160,11 @@ impl<P: Platform> RoomWorker<P> {
 					.iter()
 					.try_for_each(|(key, value)| answers.insert(key.to_owned(), value.clone()))
 					.err()
-					.map(|error| error.to_string()),
-				Some(_) => Some("saved bridge credentials do not match the committed revision".into()),
-				None => Some("answer this bridge again to restore its saved identity".into()),
+					.map(Error::invalid_by),
+				Some(_) => Some(Error::stale(
+					"saved bridge credentials do not match the committed revision",
+				)),
+				None => Some(Error::refused("answer this bridge again to restore its saved identity")),
 			}
 		} else {
 			None
@@ -220,7 +221,7 @@ impl<P: Platform> RoomWorker<P> {
 				)
 			});
 			let result = match (current, group.answers) {
-				(None, _) => Err("bridge intent was superseded before dispatch".into()),
+				(None, _) => Err(Error::stale("bridge intent was superseded before dispatch")),
 				(Some(_), Err(error)) => Err(error),
 				(Some(target), Ok(answers)) => match group.application.action.as_str() {
 					Some(action) => target
@@ -228,8 +229,8 @@ impl<P: Platform> RoomWorker<P> {
 						.submit_bridge_form(action, &answers)
 						.await
 						.map(|_| ())
-						.map_err(|error| error.to_string()),
-					None => Err("bridge action is not scalar text".into()),
+						.map_err(Error::peer),
+					None => Err(Error::invalid("bridge action is not scalar text")),
 				},
 			};
 			Finished::Submission {
@@ -245,17 +246,19 @@ impl<P: Platform> RoomWorker<P> {
 		});
 	}
 
-	pub(super) async fn shutdown_bridges(&mut self) -> Result<(), String> {
+	pub(super) async fn shutdown_bridges(&mut self) -> Result<(), Error> {
 		self.bridges.abort_all();
 		let mut result = Ok(());
 		while let Some(ended) = self.bridges.join_next().await {
-			if let Err(error) = ended {
-				if !error.is_cancelled() {
-					result = combine(
-						result,
-						Err(format!("a room bridge operation ended during shutdown: {error}")),
-					);
-				}
+			if let Err(error) = ended
+				&& !error.is_cancelled()
+			{
+				result = Error::fold(
+					result,
+					Err(Error::closed(format!(
+						"a room bridge operation ended during shutdown: {error}"
+					))),
+				);
 			}
 		}
 		result
@@ -277,7 +280,7 @@ impl<P: Platform> RoomWorker<P> {
 						state.issues.remove(&subject);
 					}
 					Err(error) => {
-						state.issues.insert(subject, error);
+						state.issues.insert(subject, error.to_string());
 						drop(state);
 						self.schedule_retry();
 					}
@@ -306,9 +309,11 @@ impl<P: Platform> RoomWorker<P> {
 							live.applied_bridge = Some(application.clone());
 							state.issues.remove(&subject);
 						}
-						Err(error) if error == "bridge intent was superseded before dispatch" => {}
+						// A superseded intent is not this room's failure: the
+						// checkpoint moved, and the next reconcile follows it.
+						Err(Error::Stale(_)) => {}
 						Err(error) => {
-							state.issues.insert(subject, error.clone());
+							state.issues.insert(subject, error.to_string());
 							failed = true;
 						}
 					}

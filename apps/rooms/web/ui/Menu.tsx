@@ -8,7 +8,7 @@
 //
 // The roles are a promise about all of that: software that announces a menu
 // tells its reader it is one, and a reader who is told so reaches for the
-// arrows. Tab still leaves, which is what a reader who was not told will try.
+// arrows. Tab still leaves, as a reader who was not told will try.
 
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";

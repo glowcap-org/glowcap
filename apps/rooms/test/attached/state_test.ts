@@ -1,3 +1,4 @@
+// Attached state export, import, and clearing preserve the remote checkpoint and archive ownership boundaries.
 /// <reference lib="dom" />
 
 import { assertEquals } from "../assert.ts";
@@ -259,7 +260,7 @@ Deno.test("a hosted connection choice does not reload this tab", async () => {
 	const page = new RoomsPage();
 	const sturdyref = fixtureSturdyref("ocapn://session.example", "hosted-dm");
 	assertEquals(importWorkspaceState(page, JSON.stringify(hostedEnvelope(sturdyref))), "");
-	let chosen: { dm: string; viz: string } | null = null;
+	let chosen: { dm: string; trace: string } | null = null;
 	const checkpoint = emptyRoomsSessionState();
 	const controller = {
 		current: {
@@ -281,11 +282,11 @@ Deno.test("a hosted connection choice does not reload this tab", async () => {
 		onOperationsRead() {
 			return () => {};
 		},
-		chooseConnection: (dm: string, viz: string) => {
-			chosen = { dm, viz };
+		chooseConnection: (dm: string, trace: string) => {
+			chosen = { dm, trace };
 			return Promise.resolve({
 				revision: 1,
-				checkpoint: { ...checkpoint, dmMode: dm, vizOverride: viz },
+				checkpoint: { ...checkpoint, dmMode: dm, traceOverride: trace },
 				pendingEffects: [],
 				pendingEffectDetails: [],
 				issues: [],
@@ -305,5 +306,5 @@ Deno.test("a hosted connection choice does not reload this tab", async () => {
 		assertEquals(await session.applySettings({ dm: "relay" }), true);
 	});
 	assertEquals(reloads, 0);
-	assertEquals(chosen, { dm: "relay", viz: checkpoint.vizOverride });
+	assertEquals(chosen, { dm: "relay", trace: checkpoint.traceOverride });
 });

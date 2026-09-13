@@ -1,3 +1,4 @@
+// Mixed direct-message projection restores liveness without crossing lines between conversation identities.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {
@@ -57,6 +58,7 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		editable: true,
 		system: false,
 		history: { source: "archive", generation: "direct-generation", id: "1" },
+		previewUrls: [],
 		attachments: [],
 	});
 	projection.line({
@@ -71,6 +73,7 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		editable: true,
 		system: false,
 		history: { source: "archive", generation: "direct-generation", id: "2" },
+		previewUrls: [],
 		attachments: [],
 	});
 	assertEquals(lineState(), "live");
@@ -103,6 +106,7 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		editable: true,
 		system: false,
 		history: { source: "archive", generation: "direct-generation", id: "1" },
+		previewUrls: [],
 		attachments: [],
 	});
 	projection.line({
@@ -117,6 +121,7 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		editable: false,
 		system: false,
 		history: { source: "archive", generation: "direct-generation", id: "2" },
+		previewUrls: [],
 		attachments: [],
 	});
 	const lines = store.historyOf(page.projection, direct.key).filter((item) => item.kind === "chat");
@@ -137,6 +142,7 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		system: true,
 		presence: { kind: "typing", name: "bob", on: true },
 		history: null,
+		previewUrls: [],
 		attachments: [],
 	});
 	assertEquals([...(store.typersOf(page.projection, direct.key))], ["bob"]);
@@ -154,6 +160,7 @@ Deno.test("mixed DM projection recovers liveness without crossing lines", () => 
 		system: true,
 		presence: { kind: "typing", name: "bob", on: false },
 		history: null,
+		previewUrls: [],
 		attachments: [],
 	});
 	assertEquals([...(store.typersOf(page.projection, direct.key))], []);

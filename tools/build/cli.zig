@@ -81,7 +81,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .name = "cli-registry-test",
         .filters = filters(b, in.test_filter),
     });
-    const run_registry = execution.addZigTest(b, registry_tests, .{ .deterministic = 30 });
+    const run_registry = execution.addZigTest(b, registry_tests, .unit_test);
     in.check.dependOn(&run_registry.step);
 
     // Dependency tests are not collected, so root the CLI sources separately.
@@ -90,7 +90,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .name = "cli-src-test",
         .filters = filters(b, in.test_filter),
     });
-    const run_source = execution.addZigTest(b, source_tests, .{ .deterministic = 30 });
+    const run_source = execution.addZigTest(b, source_tests, .unit_test);
     in.check.dependOn(&run_source.step);
     const cli_test = b.step("cli-test", "Run hermetic glowcap CLI registry + session/capture tests");
     cli_test.dependOn(&run_registry.step);

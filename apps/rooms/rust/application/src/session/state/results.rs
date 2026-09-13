@@ -1,3 +1,4 @@
+//! Result transitions commit durable command outcomes in order.
 use super::transaction::Candidate;
 use super::*;
 use crate::session::fields::Nullable;
@@ -99,15 +100,14 @@ impl SessionState {
 		self.writable()?;
 		let hash = material.map(digest);
 		let Some(at) = self.effects.pending.0.iter().position(|v| v.id() == id) else {
-			if let Some(hash) = hash {
-				if let Some(v) = self.effects.recent.0.iter().find(|v| {
+			if let Some(hash) = hash
+				&& let Some(v) = self.effects.recent.0.iter().find(|v| {
 					&v.id == id
 						&& v.outcome == Outcome::Committed
 						&& v.digest == hash
 						&& v.result.as_ref().map(Rc::as_ref) == Some(&result)
 				}) {
-					return Ok(ResultRecorded::Committed(v.revision.get()));
-				}
+				return Ok(ResultRecorded::Committed(v.revision.get()));
 			}
 			return Err(Error::Missing);
 		};

@@ -6,29 +6,11 @@
 
 const std = @import("std");
 const util = @import("util.zig");
+const scope = @import("bans/scope.zig");
 
 const appendViolation = util.appendViolation;
-
-/// The files a `Ban` row scans.
-pub const Where = union(enum) {
-    /// One repo-relative file.
-    file: []const u8,
-    /// A fixed list of repo-relative files.
-    files: []const []const u8,
-    /// Every matching file under a directory.
-    tree: Tree,
-
-    pub const Tree = struct {
-        dir: []const u8,
-        /// File-name suffixes to include; empty means every file.
-        suffixes: []const []const u8 = &.{},
-        recursive: bool = true,
-        /// Exact repo-relative paths to skip.
-        exclude: []const []const u8 = &.{},
-        /// Path substrings that prune subtrees.
-        skip_dirs: []const []const u8 = &.{},
-    };
-};
+pub const Where = scope.Where;
+pub const collectFiles = scope.collectFiles;
 
 /// One needle claim over a scope.
 pub const Ban = struct {
@@ -74,6 +56,7 @@ pub fn runBans(
 
     var cache: std.StringHashMapUnmanaged(CacheEntry) = .empty;
     var tree_failures: std.StringHashMapUnmanaged(CacheEntry) = .empty;
+    var tree_files: std.StringHashMapUnmanaged([]const []const u8) = .empty;
 
     for (rows) |row| {
         switch (row.where) {
@@ -84,7 +67,7 @@ pub fn runBans(
             .tree => |tree| {
                 var paths: std.ArrayList([]const u8) = .empty;
                 defer paths.deinit(arena);
-                collectFiles(io, arena, root, row.where, &paths) catch |err| {
+                scope.collectRowFiles(io, arena, root, tree, &tree_files, &paths) catch |err| {
                     const gop = try tree_failures.getOrPut(arena, tree.dir);
                     if (!gop.found_existing) gop.value_ptr.* = .{ .contents = null, .err = err };
                     if (row.on_missing == .violate and !gop.value_ptr.reported) {
@@ -101,64 +84,6 @@ pub fn runBans(
             },
         }
     }
-}
-
-/// Append every repo-relative file path a `Where` names. Tree-scope paths are
-/// allocated with `arena`; file scopes append the row's static paths. A tree
-/// whose directory cannot be opened returns the open error to the caller.
-pub fn collectFiles(
-    io: std.Io,
-    arena: std.mem.Allocator,
-    root: std.Io.Dir,
-    where: Where,
-    out: *std.ArrayList([]const u8),
-) !void {
-    switch (where) {
-        .file => |path| try out.append(arena, path),
-        .files => |paths| try out.appendSlice(arena, paths),
-        .tree => |tree| {
-            var dir = try root.openDir(io, tree.dir, .{ .iterate = true });
-            defer dir.close(io);
-            if (tree.recursive) {
-                var walker = try dir.walk(arena);
-                defer walker.deinit();
-                while (try walker.next(io)) |entry| {
-                    if (entry.kind != .file) continue;
-                    if (!treeAdmits(tree, entry.path)) continue;
-                    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ tree.dir, entry.path });
-                    if (treeExcludes(tree, path)) continue;
-                    try out.append(arena, path);
-                }
-            } else {
-                var it = dir.iterate();
-                while (try it.next(io)) |entry| {
-                    if (entry.kind != .file) continue;
-                    if (!treeAdmits(tree, entry.name)) continue;
-                    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ tree.dir, entry.name });
-                    if (treeExcludes(tree, path)) continue;
-                    try out.append(arena, path);
-                }
-            }
-        },
-    }
-}
-
-fn treeAdmits(tree: Where.Tree, sub_path: []const u8) bool {
-    for (tree.skip_dirs) |skip| {
-        if (std.mem.indexOf(u8, sub_path, skip) != null) return false;
-    }
-    if (tree.suffixes.len == 0) return true;
-    for (tree.suffixes) |suffix| {
-        if (std.mem.endsWith(u8, sub_path, suffix)) return true;
-    }
-    return false;
-}
-
-fn treeExcludes(tree: Where.Tree, repo_path: []const u8) bool {
-    for (tree.exclude) |excluded| {
-        if (std.mem.eql(u8, repo_path, excluded)) return true;
-    }
-    return false;
 }
 
 fn applyRowToFile(
@@ -283,65 +208,7 @@ const failure = @import("bans/failure.zig");
 const failure_retention = @import("bans/failure_retention.zig");
 const profiles = @import("bans/profiles.zig");
 const route_bundle = @import("bans/route_bundle.zig");
-
-const nullish_absence = [_]Ban{.{
-    .where = .{ .files = &.{
-        "apps/rooms/lib/operator.ts",
-        "apps/rooms/web/ui/workspace_state.ts",
-        "apps/rooms/web/ui/ops/Operator.tsx",
-    } },
-    .kind = .forbid,
-    .needles = &.{ "=== undefined", "!== undefined" },
-    .check = "nullish absence",
-    .why = "JavaScript and TypeScript use `== null` / `!= null` for ordinary optional-value checks",
-}};
-
-const neutral_alerts = [_]Ban{.{
-    .where = .{ .tree = .{ .dir = "apps/rooms/web/ui", .suffixes = &.{".tsx"} } },
-    .kind = .forbid,
-    .needles = &.{ "className=\"hint\" role=\"alert\"", "role=\"alert\" className=\"hint\"" },
-    .check = "Rooms failure presentation",
-    .why = "an alert is not neutral hint text; render refusals through the shared `Said` failure treatment",
-}};
-
-const readable_rooms_loops = [_]Ban{.{
-    .where = .{ .tree = .{ .dir = "apps/rooms", .suffixes = &.{ ".ts", ".tsx" } } },
-    .kind = .forbid,
-    .needles = &.{"for (;;)"},
-    .check = "Rooms loop readability",
-    .why = "a repeated Rooms operation names its continuation state or bound instead of using an unconditional C-style loop",
-}};
-
-const attached_session_authority = [_]Ban{
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/session/attached_session.ts" },
-        .kind = .forbid,
-        .needles = &.{ "...browser", "createLocalRoomsSession", "RoomsBrowserController &" },
-        .check = "attached Rooms authority",
-        .why = "an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/session/attached_session.ts" },
-        .kind = .require,
-        .needles = &.{"browser: Pick<RoomsBrowserController"},
-        .check = "attached Rooms authority",
-        .why = "the attached session adapter must name the exact browser actions its command surface needs",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/controller/browser.ts" },
-        .kind = .require,
-        .needles = &.{"RoomsBrowserContext = createContext<RoomsBrowserController | null>"},
-        .check = "attached Rooms authority",
-        .why = "browser presentation and establishment authority must have its own stable React context",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/controller/session.ts" },
-        .kind = .require,
-        .needles = &.{"RoomsSessionContext = createContext<RoomsSessionController | null>"},
-        .check = "attached Rooms authority",
-        .why = "Rooms commands must be unavailable until an established session context exists",
-    },
-};
+const rooms = @import("bans/rooms.zig");
 
 const deno_dependency_reproducibility = [_]Ban{
     .{
@@ -369,12 +236,22 @@ const deno_dependency_reproducibility = [_]Ban{
     },
 };
 
+const rust_sidecar_ffi_safety = [_]Ban{.{
+    .where = .{ .tree = .{
+        .dir = "transports",
+        .suffixes = &.{".rs"},
+        .skip_dirs = &.{ "/target/", "/sidecar-common/" },
+    } },
+    .kind = .forbid,
+    .needles = &.{"pub extern \"C\" fn"},
+    .check = "Rust sidecar FFI safety",
+    .why = "a sidecar export crosses caller-owned raw pointers or handles, so its Rust signature must state the unsafe calling contract",
+}};
+
 pub const all: []const Ban =
-    nullish_absence ++
-    neutral_alerts ++
-    readable_rooms_loops ++
-    attached_session_authority ++
+    rooms.rows ++
     deno_dependency_reproducibility ++
+    rust_sidecar_ffi_safety ++
     captp_io.captp_io_spine_table ++
     transport.transport_vocabulary ++
     prose.prerelease_prose ++
@@ -543,12 +420,59 @@ test "bans: attached Rooms controllers keep browser and session authority separa
         .sub_path = "apps/rooms/web/ui/controller/session.ts",
         .data = "export interface RoomsSessionController {}\n",
     });
-    try t.run(&attached_session_authority);
+    try t.run(&rooms.attached_session_authority);
     try t.expectMessages(&.{
         "apps/rooms/web/ui/session/attached_session.ts: contains `...browser` — an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
         "apps/rooms/web/ui/session/attached_session.ts: missing `browser: Pick<RoomsBrowserController` — the attached session adapter must name the exact browser actions its command surface needs",
         "apps/rooms/web/ui/controller/browser.ts: missing `RoomsBrowserContext = createContext<RoomsBrowserController | null>` — browser presentation and establishment authority must have its own stable React context",
         "apps/rooms/web/ui/controller/session.ts: missing `RoomsSessionContext = createContext<RoomsSessionController | null>` — Rooms commands must be unavailable until an established session context exists",
+    });
+}
+
+test "bans: WebRTC listener failures cannot fall back to console-only reporting" {
+    var t = try TestRun.init();
+    defer t.deinit();
+    const io = std.testing.io;
+    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/browser/src/attached");
+    try t.tmp.dir.writeFile(io, .{
+        .sub_path = "apps/rooms/rust/browser/src/attached/local_signaling.rs",
+        .data = "web_sys::console::error_1(&error.into());\n",
+    });
+    try t.tmp.dir.writeFile(io, .{
+        .sub_path = "apps/rooms/rust/browser/src/attached/signaling.rs",
+        .data = "trouble.report(source, reason);\n",
+    });
+    try t.run(&rooms.browser_trouble_reporting);
+    try t.expectMessages(&.{
+        "apps/rooms/rust/browser/src/attached/local_signaling.rs: contains `web_sys::console::error_1` — WebRTC listener failures enter the page trouble journal through the application-owned reporter",
+    });
+}
+
+test "bans: Rooms runtime cannot restore the text catch-all" {
+    var t = try TestRun.init();
+    defer t.deinit();
+    const io = std.testing.io;
+    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/service");
+    try t.tmp.dir.writeFile(io, .{
+        .sub_path = "apps/rooms/rust/runtime/src/service/error.rs",
+        .data = "enum Error { Runtime(String) }\nfn map(e: String) { Error::runtime(e); }\n",
+    });
+    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/session/commands");
+    try t.tmp.dir.writeFile(io, .{
+        .sub_path = "apps/rooms/rust/runtime/src/session/commands/mod.rs",
+        .data = "done: watch::Receiver<Option<Result<(), String>>>,\n",
+    });
+    try t.tmp.dir.createDirPath(io, "apps/rooms/rust/runtime/src/grants");
+    try t.tmp.dir.writeFile(io, .{
+        .sub_path = "apps/rooms/rust/runtime/src/grants/commands.rs",
+        .data = "done: watch::Sender<Option<Result<(), String>>>,\n",
+    });
+    try t.run(&rooms.runtime_error_vocabulary);
+    try t.expectMessages(&.{
+        "apps/rooms/rust/runtime/src/service/error.rs: contains `Runtime(String)` — runtime failures retain their typed class until a CapTP boundary renders them",
+        "apps/rooms/rust/runtime/src/service/error.rs: contains `Error::runtime` — runtime failures retain their typed class until a CapTP boundary renders them",
+        "apps/rooms/rust/runtime/src/session/commands/mod.rs: contains `done: watch::Receiver<Option<Result<(), String>>>` — concurrent closers retain the worker failure class instead of reconstructing it from text",
+        "apps/rooms/rust/runtime/src/grants/commands.rs: contains `done: watch::Sender<Option<Result<(), String>>>` — concurrent closers retain the worker failure class instead of reconstructing it from text",
     });
 }
 
@@ -608,4 +532,45 @@ test "bans: tree scope honors suffixes, recursion, and exclude" {
         },
     });
     try shallow.expectMessages(&.{});
+}
+
+test "bans: recursive scopes do not enter generated dependency trees" {
+    var t = try TestRun.init();
+    defer t.deinit();
+    const io = std.testing.io;
+    try t.tmp.dir.createDirPath(io, "target/deep");
+    try t.tmp.dir.createDirPath(io, "node_modules/deep");
+    try t.tmp.dir.writeFile(io, .{ .sub_path = "target/deep/generated.ts", .data = "needle\n" });
+    try t.tmp.dir.writeFile(io, .{ .sub_path = "node_modules/deep/vendor.ts", .data = "needle\n" });
+    try t.run(&.{.{
+        .where = .{ .tree = .{ .dir = ".", .suffixes = &.{".ts"} } },
+        .kind = .forbid,
+        .needles = &.{"needle"},
+        .check = "generated traversal",
+        .why = "generated trees are outside source authority",
+    }});
+    try t.expectMessages(&.{});
+}
+
+test "bans: repeated missing tree rows report one stable open failure" {
+    var t = try TestRun.init();
+    defer t.deinit();
+    try t.run(&.{
+        .{
+            .where = .{ .tree = .{ .dir = "missing", .suffixes = &.{".zig"} } },
+            .kind = .forbid,
+            .needles = &.{"first"},
+            .check = "first missing tree",
+            .why = "fixture",
+        },
+        .{
+            .where = .{ .tree = .{ .dir = "missing", .suffixes = &.{".zig"} } },
+            .kind = .forbid,
+            .needles = &.{"second"},
+            .check = "second missing tree",
+            .why = "fixture",
+        },
+    });
+    try std.testing.expectEqual(@as(usize, 1), t.violations.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, t.violations.items[0], "failed to open for first missing tree") != null);
 }

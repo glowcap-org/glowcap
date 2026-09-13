@@ -1,4 +1,8 @@
-use super::{Error, Id, MAX_ACTIONS, MAX_FIELDS};
+//! Bridge forms declare bounded actions, fields, and nested disclosures.
+use super::{
+	Error, Id, MAX_ACTIONS, MAX_FIELDS, MAX_FORM_HINT, MAX_FORM_LABEL, MAX_FORM_SAID, MAX_FORM_SCOPE, MAX_FORM_TITLE,
+	MAX_FORM_VALUE,
+};
 use crate::fields::{List, Text};
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
@@ -6,9 +10,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
-	pub scope: Text<64, true>,
-	pub title: Text<60, true>,
-	pub said: Text<240>,
+	pub scope: Text<MAX_FORM_SCOPE, true>,
+	pub title: Text<MAX_FORM_TITLE, true>,
+	pub said: Text<MAX_FORM_SAID>,
 	pub fields: List<Field, MAX_FIELDS>,
 	#[serde(deserialize_with = "actions")]
 	actions: List<Action, MAX_ACTIONS>,
@@ -140,19 +144,19 @@ kind!(ToggleKind, Toggle);
 pub struct TextField {
 	kind: TextKind,
 	pub id: Id,
-	pub label: Text<60, true>,
+	pub label: Text<MAX_FORM_LABEL, true>,
 	#[serde(
 		default,
 		deserialize_with = "crate::fields::present",
 		skip_serializing_if = "Option::is_none"
 	)]
-	pub hint: Option<Text<120>>,
+	pub hint: Option<Text<MAX_FORM_HINT>>,
 	#[serde(
 		default,
 		deserialize_with = "crate::fields::present",
 		skip_serializing_if = "Option::is_none"
 	)]
-	pub placeholder: Option<Text<120>>,
+	pub placeholder: Option<Text<MAX_FORM_HINT>>,
 	#[serde(
 		default,
 		deserialize_with = "crate::fields::present",
@@ -164,7 +168,7 @@ pub struct TextField {
 		deserialize_with = "crate::fields::present",
 		skip_serializing_if = "Option::is_none"
 	)]
-	pub value: Option<Text<512>>,
+	pub value: Option<Text<MAX_FORM_VALUE>>,
 	pub required: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,19 +176,19 @@ pub struct TextField {
 pub struct SecretField {
 	kind: SecretKind,
 	pub id: Id,
-	pub label: Text<60, true>,
+	pub label: Text<MAX_FORM_LABEL, true>,
 	#[serde(
 		default,
 		deserialize_with = "crate::fields::present",
 		skip_serializing_if = "Option::is_none"
 	)]
-	pub hint: Option<Text<120>>,
+	pub hint: Option<Text<MAX_FORM_HINT>>,
 	#[serde(
 		default,
 		deserialize_with = "crate::fields::present",
 		skip_serializing_if = "Option::is_none"
 	)]
-	pub placeholder: Option<Text<120>>,
+	pub placeholder: Option<Text<MAX_FORM_HINT>>,
 	pub required: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,13 +196,13 @@ pub struct SecretField {
 pub struct ToggleField {
 	kind: ToggleKind,
 	pub id: Id,
-	pub label: Text<60, true>,
+	pub label: Text<MAX_FORM_LABEL, true>,
 	#[serde(
 		default,
 		deserialize_with = "crate::fields::present",
 		skip_serializing_if = "Option::is_none"
 	)]
-	pub hint: Option<Text<120>>,
+	pub hint: Option<Text<MAX_FORM_HINT>>,
 	pub on: bool,
 	pub reveals: List<Leaf, MAX_FIELDS>,
 }
@@ -207,8 +211,8 @@ pub struct ToggleField {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Action {
 	pub id: Id,
-	pub label: Text<60, true>,
-	pub busy_label: Text<60, true>,
+	pub label: Text<MAX_FORM_LABEL, true>,
+	pub busy_label: Text<MAX_FORM_LABEL, true>,
 	pub tone: Tone,
 	pub remembered: bool,
 	#[serde(
@@ -228,9 +232,9 @@ pub enum Tone {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Confirm {
-	pub say: Text<240, true>,
-	pub keep: Text<60, true>,
-	pub commit: Text<60, true>,
+	pub say: Text<MAX_FORM_SAID, true>,
+	pub keep: Text<MAX_FORM_LABEL, true>,
+	pub commit: Text<MAX_FORM_LABEL, true>,
 }
 
 /// The optional texts a text field may carry beside its label.
@@ -244,7 +248,7 @@ pub struct TextOptions<'a> {
 
 impl TextField {
 	pub fn new(id: &str, label: &str, required: bool, options: TextOptions<'_>) -> Result<Self, Error> {
-		let bounded = |value: Option<&str>| -> Result<Option<Text<120>>, Error> {
+		let bounded = |value: Option<&str>| -> Result<Option<Text<MAX_FORM_HINT>>, Error> {
 			value.map(|v| Text::new(v.into()).ok_or(Error::Form)).transpose()
 		};
 		Ok(Self {
@@ -280,12 +284,12 @@ impl SecretField {
 	}
 }
 impl ToggleField {
-	pub fn new(id: &str, label: &str, on: bool, reveals: Vec<Leaf>) -> Result<Self, Error> {
+	pub fn new(id: &str, label: &str, hint: Option<&str>, on: bool, reveals: Vec<Leaf>) -> Result<Self, Error> {
 		Ok(Self {
 			kind: ToggleKind::Toggle,
 			id: Id::new(id.into()).ok_or(Error::Form)?,
 			label: Text::new(label.into()).ok_or(Error::Form)?,
-			hint: None,
+			hint: hint.map(|v| Text::new(v.into()).ok_or(Error::Form)).transpose()?,
 			on,
 			reveals: List::new(reveals).ok_or(Error::Form)?,
 		})

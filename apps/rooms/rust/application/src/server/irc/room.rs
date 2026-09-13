@@ -5,19 +5,20 @@
 //! the adapter's; here a member is a connection id and an inbox.
 mod outcome;
 use super::{
-	protocol::{bare_names_nick, ctcp_action_text, fold, nick_from_prefix, Message},
+	VIEWER_LIMIT,
+	protocol::{Message, bare_names_nick, ctcp_action_text, fold, nick_from_prefix},
 	relay::{Relay, SelfEvent},
-	roster::{display_nick, Roster},
+	roster::{Roster, display_nick},
 	seat::{self, View},
 	wire::Notice,
-	VIEWER_LIMIT,
 };
 use crate::{
 	directory::{OriginProof, PublicationKind, RoomInfo},
 	failure::FailureCode,
 	fields::{Nullable, SafeInteger, Text},
 	room::{
-		inbox::{nick_refusal, MAX_NICK},
+		inbox::{MAX_NICK, nick_refusal},
+		message::LineId,
 		policy::MembershipKind,
 	},
 	server::rooms::MAX_ROOM,
@@ -47,6 +48,7 @@ struct Member<R> {
 pub struct Post {
 	pub from: String,
 	pub text: String,
+	line: LineId,
 }
 
 /// Whether a nick is reserved for members bridged from elsewhere.
@@ -70,6 +72,7 @@ pub struct Room<C, R> {
 	irc: Roster,
 	names_pending: Option<BTreeMap<String, String>>,
 	relay: Relay,
+	next_line: u64,
 }
 
 fn valid_network(network: &str) -> bool {
@@ -119,6 +122,7 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 			irc: Roster::default(),
 			names_pending: None,
 			relay: Relay::new(channel, feed_nick),
+			next_line: 1,
 		})
 	}
 	pub fn network(&self) -> &str {
@@ -240,7 +244,7 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 			.ok_or_else(|| Refusal::coded(FailureCode::NotRoomMember, "this IRC bridge membership has ended"))
 	}
 	/// Admit one post without changing either side.
-	pub fn prepare_post(&self, connection: C, text: &str) -> Result<Post, Refusal> {
+	pub fn prepare_post(&mut self, connection: C, text: &str) -> Result<Post, Refusal> {
 		let member = self
 			.members
 			.get(&connection)
@@ -251,10 +255,19 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 				"this observer membership cannot speak to IRC",
 			));
 		}
+		let from = member.nick.clone();
+		let line = self.reserve_line()?;
 		Ok(Post {
-			from: member.nick.clone(),
+			from,
 			text: text.into(),
+			line,
 		})
+	}
+	fn reserve_line(&mut self) -> Result<LineId, Refusal> {
+		let line =
+			LineId::new(self.next_line).ok_or_else(|| Refusal::plain("IRC bridge line identifiers exhausted"))?;
+		self.next_line += 1;
+		Ok(line)
 	}
 	/// Echo a post already accepted by its IRC delivery.
 	pub fn commit_post(&self, post: &Post) -> Effects<C, R> {
@@ -264,6 +277,7 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 			Notice::Line {
 				from: post.from.clone(),
 				text: post.text.clone(),
+				line: post.line,
 			},
 		);
 		effects
@@ -425,12 +439,12 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 		if message.is("366") {
 			let n = message.params.len();
 			let channel = n.checked_sub(2).and_then(|at| message.param(at));
-			if ours(channel) {
-				if let Some(pending) = self.names_pending.take() {
-					self.irc.replace(pending);
-					self.broadcast_roster(&mut effects, "the IRC roster was refreshed", seat_view);
-					effects.count_changed = true;
-				}
+			if ours(channel)
+				&& let Some(pending) = self.names_pending.take()
+			{
+				self.irc.replace(pending);
+				self.broadcast_roster(&mut effects, "the IRC roster was refreshed", seat_view);
+				effects.count_changed = true;
 			}
 			return Ok(effects);
 		}
@@ -449,11 +463,13 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 				Some(action) => format!("/me {action}"),
 				None => raw.into(),
 			};
+			let line = self.reserve_line().map_err(|error| error.reason())?;
 			self.tell_all(
 				&mut effects,
 				Notice::Line {
 					from: display_nick(&nick)?,
 					text,
+					line,
 				},
 			);
 			return Ok(effects);
@@ -492,26 +508,25 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 			self.remove_irc(&mut effects, &nick);
 			return Ok(effects);
 		}
-		if message.is("NICK") {
-			if let Some(next) = message.param(0) {
-				if let Some((was, now)) = self.irc.rename(&nick, next)? {
-					self.tell_all(
-						&mut effects,
-						Notice::Leave {
-							said: format!("{was} is now {now}"),
-							nick: was,
-						},
-					);
-					self.tell_all(
-						&mut effects,
-						Notice::Join {
-							said: format!("{now} joined"),
-							nick: now,
-						},
-					);
-					effects.count_changed = true;
-				}
-			}
+		if message.is("NICK")
+			&& let Some(next) = message.param(0)
+			&& let Some((was, now)) = self.irc.rename(&nick, next)?
+		{
+			self.tell_all(
+				&mut effects,
+				Notice::Leave {
+					said: format!("{was} is now {now}"),
+					nick: was,
+				},
+			);
+			self.tell_all(
+				&mut effects,
+				Notice::Join {
+					said: format!("{now} joined"),
+					nick: now,
+				},
+			);
+			effects.count_changed = true;
 		}
 		Ok(effects)
 	}

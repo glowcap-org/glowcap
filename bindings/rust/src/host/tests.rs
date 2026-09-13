@@ -232,15 +232,16 @@ async fn retained_entropy_restores_durable_names_and_refuses_live_collisions() {
 				.unwrap();
 			let refused_drop = Rc::new(Cell::new(false));
 			let probe = refused_drop.clone();
-			assert!(host
-				.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], move || {
+			assert!(
+				host.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], move || {
 					let probe = DropProbe(probe.clone());
 					Box::new(move |_, _| {
 						let _keep = &probe;
 						Ok(Argument::Void)
 					})
 				})
-				.is_err());
+				.is_err()
+			);
 			assert!(refused_drop.get(), "refused publication returns its behavior custody");
 			assert!(!dropped.get(), "collision does not retire the original actor");
 			assert!(host.remove_durable(&name).unwrap());
@@ -254,12 +255,13 @@ async fn retained_entropy_restores_durable_names_and_refuses_live_collisions() {
 			host.close(PendingWork::Cancel).await.unwrap();
 			assert!(dropped.get());
 			let calls = Cell::new(0);
-			assert!(host
-				.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], || {
+			assert!(
+				host.publish_durable_with_entropy([3; Host::DURABLE_ENTROPY_BYTES], || {
 					calls.set(calls.get() + 1);
 					Box::new(|_, _| Ok(Argument::Void))
 				})
-				.is_err());
+				.is_err()
+			);
 			assert_eq!(calls.get(), 0, "closed-host refusal precedes behavior construction");
 			let restored = Host::from_seed([7; 32]).unwrap();
 			assert_eq!(
@@ -294,13 +296,14 @@ fn cancel_dial_action_joins_its_ticketed_task() {
 		let host = Host::new_host();
 		let dropped = Rc::new(Cell::new(false));
 		let task_dropped = Rc::clone(&dropped);
-		assert!(host
-			.shared
-			.spawn_dial_task(1, 0, move |_host| async move {
-				let _probe = DropProbe(task_dropped);
-				std::future::pending::<()>().await;
-			})
-			.unwrap());
+		assert!(
+			host.shared
+				.spawn_dial_task(1, 0, move |_host| async move {
+					let _probe = DropProbe(task_dropped);
+					std::future::pending::<()>().await;
+				})
+				.unwrap()
+		);
 		tokio::task::yield_now().await;
 
 		host.shared.cancel_dial_task(1, 0).await.unwrap();
@@ -318,20 +321,23 @@ fn panicking_dial_task_reaches_the_host_close_barrier() {
 	let local = tokio::task::LocalSet::new();
 	local.block_on(&runtime, async {
 		let host = Host::new_host();
-		assert!(host
-			.shared
-			.spawn_dial_task(1, 0, move |_host| async move {
-				panic!("dial executor panic");
-			})
-			.unwrap());
+		assert!(
+			host.shared
+				.spawn_dial_task(1, 0, move |_host| async move {
+					panic!("dial executor panic");
+				})
+				.unwrap()
+		);
 		tokio::task::yield_now().await;
 		tokio::task::yield_now().await;
 
 		let error = host.close(crate::PendingWork::Cancel).await.unwrap_err();
 		assert_eq!(error.code(), sys::ERR_INTERNAL);
-		assert!(error
-			.message()
-			.is_some_and(|message| message.contains("dial executor panic")));
+		assert!(
+			error
+				.message()
+				.is_some_and(|message| message.contains("dial executor panic"))
+		);
 	});
 }
 
@@ -410,9 +416,11 @@ fn refused_publication_attaches_panicking_actor_cell_drop() {
 
 	assert_eq!(error.code(), sys::ERR_INVALID_ARGUMENT);
 	assert_eq!(error.secondary_error_count(), 1);
-	assert!(error.secondary_errors()[0]
-		.message()
-		.is_some_and(|message| message.contains("refused actor cell destructor panic")));
+	assert!(
+		error.secondary_errors()[0]
+			.message()
+			.is_some_and(|message| message.contains("refused actor cell destructor panic"))
+	);
 	// Rollback did not poison or consume the Host.
 	host.publish_giftable("still-live", || Box::new(|_verb, _args| Ok(Argument::Void)))
 		.unwrap();

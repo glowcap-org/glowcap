@@ -1,5 +1,5 @@
 //! Rust relay profiles over the actual native web front's rendezvous service.
-use glowcap::{browser::relay, Argument, HintValue, Host, Locator, PendingWork};
+use glowcap::{Argument, HintValue, Host, Locator, PendingWork, browser::relay};
 use rooms_browser::{ice, platform::Platform, transport};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;

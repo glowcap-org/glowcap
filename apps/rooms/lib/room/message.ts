@@ -2,9 +2,9 @@
 //
 // A room states more than the words: which line this is, whether it changes one
 // already on screen, who is here, what the room is about, and what it will
-// carry. All of it rides after the display text as structured arguments, so a
-// client that does not know a fact still shows the line — which is what lets a
-// room say something new without every client being rebuilt first.
+// carry. All of it rides after the display text as structured arguments. A
+// client that does not know a fact still shows the line, so a room can add a
+// fact without requiring every client to be rebuilt first.
 //
 // Each reader answers "did the room say this" rather than throwing, because the
 // arguments are a peer's and a malformed one means the room said nothing.
@@ -16,6 +16,8 @@ import {
 	MAX_FORM_SCOPE,
 	MAX_NICK,
 	MAX_ROOM,
+	MAX_ROOM_FEATURE,
+	MAX_ROOM_FEATURES,
 	MAX_SEAT_BADGE,
 	MAX_SEAT_PREFIX,
 	MAX_SEAT_SAID,
@@ -23,7 +25,20 @@ import {
 } from "../limits.ts";
 import type { Presence } from "./presence.ts";
 import { boundedText, nonemptyText, positiveSafeInteger } from "../schema.ts";
-import { AWAY, EDITED, LINE, LINE_BYTES, LISTED, REFILED, TOPIC, UNLISTED, WITHDRAWN } from "../protocol.ts";
+import {
+	AWAY,
+	CARRIES,
+	EDITED,
+	LINE,
+	LINE_BYTES,
+	LISTED,
+	REFILED,
+	ROOM_FEATURES,
+	type RoomFeature,
+	TOPIC,
+	UNLISTED,
+	WITHDRAWN,
+} from "../protocol.ts";
 import { BRIDGE, SEAT } from "../protocol_irc.ts";
 
 /** One line in the room. `system` is true for the room's own announcements (a
@@ -106,10 +121,21 @@ export const BridgeFactsSchema = z.strictObject({
 
 export type BridgeFacts = z.infer<typeof BridgeFactsSchema>;
 
+/** What a room carries of a message beyond its text and files, as booleans a
+ * surface can switch on. See `readCarries`. Every field is present, so a
+ * reader across a JSON boundary needs no default to tell "not carried" from
+ * "not said": a room that never said is an absent `carries`, not a false one. */
+export const RoomCarriesSchema = z.strictObject({
+	previews: z.boolean(),
+	typing: z.boolean(),
+});
+
+export type RoomCarries = z.infer<typeof RoomCarriesSchema>;
+
 /** Standing facts a room states about itself, as against the things said in it.
  *
- * Both are optional and independent: a line carries whichever the room chose to
- * put on it, usually the welcome, and carries neither the rest of the time. */
+ * All are optional and independent: a line carries whichever the room chose to
+ * put on it, usually the welcome, and carries none the rest of the time. */
 export const RoomFactsSchema = z.strictObject({
 	/** See `readTopic`. An empty string is a topic taken down on purpose. */
 	topic: z.optional(boundedText(MAX_TOPIC)),
@@ -119,6 +145,8 @@ export const RoomFactsSchema = z.strictObject({
 	listed: z.optional(z.boolean()),
 	/** See `readBridge`. What the bridge behind this room calls its own. */
 	bridge: z.optional(BridgeFactsSchema),
+	/** See `readCarries`. What this room keeps or relays of a message. */
+	carries: z.optional(RoomCarriesSchema),
 });
 
 export type RoomFacts = z.infer<typeof RoomFactsSchema>;
@@ -133,7 +161,11 @@ export function readRoomFacts(args: Argument[]): RoomFacts | undefined {
 	const lineBytes = readLineBytes(args);
 	const listed = readListed(args);
 	const bridge = readBridge(args);
-	if (topic === undefined && lineBytes === undefined && listed === undefined && bridge === undefined) {
+	const carries = readCarries(args);
+	if (
+		topic === undefined && lineBytes === undefined && listed === undefined && bridge === undefined &&
+		carries === undefined
+	) {
 		return undefined;
 	}
 	return {
@@ -141,7 +173,32 @@ export function readRoomFacts(args: Argument[]): RoomFacts | undefined {
 		...(lineBytes === undefined ? {} : { lineBytes }),
 		...(listed === undefined ? {} : { listed }),
 		...(bridge === undefined ? {} : { bridge }),
+		...(carries === undefined ? {} : { carries }),
 	};
+}
+
+/** What this room carries of a message beyond its text and files, if it says,
+ * as `notify("room", "", "carries", ...features)`.
+ *
+ * Description rather than authority: what a member can do is what they hold
+ * (a participant seat, the topic facet, the files facet), and nothing they
+ * hold could say whether the room keeps a line's link previews or relays the
+ * typing signal. A feature named is carried and one not named is not, so a
+ * room bridged to IRC states an empty list and a native room states both. A
+ * word this client does not know is skipped, so a room may say something new
+ * before every client is rebuilt. A statement that carries something that is
+ * not a word, or runs past its bounds, is a room saying something malformed,
+ * and the honest reading of that is that it said nothing. */
+export function readCarries(args: Argument[]): RoomCarries | undefined {
+	if (args[2] !== CARRIES) return undefined;
+	const words = args.slice(3);
+	if (words.length > MAX_ROOM_FEATURES) return undefined;
+	const carries: RoomCarries = { previews: false, typing: false };
+	for (const word of words) {
+		if (!bounded(word, MAX_ROOM_FEATURE)) return undefined;
+		if ((ROOM_FEATURES as readonly string[]).includes(word)) carries[word as RoomFeature] = true;
+	}
+	return carries;
 }
 
 /** What the bridge behind this room calls its own, as
@@ -237,11 +294,9 @@ export function readPresence(args: Argument[]): Presence | undefined {
  * would otherwise allow — and a reader should be told that while they are
  * writing rather than by having the end of a sentence disappear on the far side.
  *
- * The reading half is here and specified, and nothing sends it yet. That is the
- * useful order: a bridge can start stating the fact whenever it is written, and
- * every client that already shipped will understand it. A cap is a fact a room
- * states about itself, not a mode anybody switches on — which is what lets two
- * rooms in one tab answer differently. */
+ * The IRC bridge states it at arrival, beside what the room carries. A cap is a
+ * fact a room states about itself, not a mode anybody switches on, which lets
+ * two rooms in one tab answer differently. */
 export function readLineBytes(args: Argument[]): number | undefined {
 	if (args[2] !== LINE_BYTES) return undefined;
 	const said = args[3];

@@ -7,9 +7,11 @@ use crate::driver_event::decode as decode_event;
 #[cfg(any(feature = "tcp", feature = "iroh"))]
 use crate::sys::driver::GlowcapDriverEvent;
 #[cfg(feature = "tcp")]
+use std::sync::Arc;
+#[cfg(feature = "tcp")]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(any(feature = "tcp", feature = "iroh"))]
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 
 #[test]
 fn driver_loop_default_frame_cap_uses_generated_abi_constant() {
@@ -299,7 +301,7 @@ async fn a_finite_finish_close_times_out_over_a_negotiating_loop_dial() {
 #[cfg(feature = "iroh")]
 fn iroh_provider_dials_live() {
 	use crate::iroh::Reachability;
-	use crate::iroh::{listen, Config, ListenOptions, Netlayer};
+	use crate::iroh::{Config, ListenOptions, Netlayer, listen};
 	use crate::{Argument, Session};
 	use std::rc::Rc;
 

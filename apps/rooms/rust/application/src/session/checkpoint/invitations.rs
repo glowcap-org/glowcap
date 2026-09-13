@@ -1,11 +1,12 @@
 //! Received room links use the checkpoint's invitation schema and validation.
 //! Constructing one does not accept or join the offered room.
 use super::{
+	Checkpoint, Routes,
 	commands::{self, Error},
 	fields::*,
 	footprint::HeapBytes,
 	model::{Invitation, InvitationKind},
-	validate, Checkpoint, Routes,
+	validate,
 };
 use crate::text::DocumentText;
 

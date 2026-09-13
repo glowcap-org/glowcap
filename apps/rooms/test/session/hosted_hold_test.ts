@@ -1,3 +1,4 @@
+// Hosted capability sharing coalesces only concurrent attempts and remains retryable after settlement or refusal.
 import { PageHostedSession } from "../../web/ui/session/hosted_hold.ts";
 import { assertEquals } from "../assert.ts";
 

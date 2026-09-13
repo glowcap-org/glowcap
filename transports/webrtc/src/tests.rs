@@ -9,6 +9,12 @@ use std::time::Duration;
 
 mod ice_config;
 
+fn test_endpoint_new(config: *const GlowcapWebrtcEndpointConfig) -> *mut GlowcapWebrtcEndpoint {
+	// SAFETY: tests pass null or a live local configuration; malformed nested
+	// views are intentional inputs that the constructor validates before use.
+	unsafe { glowcap_webrtc_sidecar_endpoint_new(config) }
+}
+
 fn full_inbound() -> Arc<(Mutex<Inbound>, Condvar)> {
 	Arc::new((
 		Mutex::new(Inbound {
@@ -306,29 +312,21 @@ fn local_candidate_queue_bounds_retained_candidate_text() {
 fn next_local_candidate_retries_without_releasing_the_front() {
 	let mut queue = LocalCandidates::new();
 	assert!(queue.admit("abcdef".to_string()));
-	unsafe {
-		let mut short = [0u8; 3];
-		let mut required: usize = 0;
-		assert_eq!(
-			write_local_candidate(&mut queue, short.as_mut_ptr(), short.len(), &mut required),
-			BUFFER_TOO_SMALL
-		);
-		assert_eq!(required, 6);
-		assert_eq!(queue.items.len(), 1);
-		assert_eq!(queue.queued_bytes, 6);
+	let mut short = [0u8; 3];
+	let mut required: usize = 0;
+	// SAFETY: both buffers are this frame's own stack arrays, live throughout.
+	let small = unsafe { OutText::new(short.as_mut_ptr(), short.len(), &mut required) };
+	assert_eq!(write_local_candidate(&mut queue, &small), BUFFER_TOO_SMALL);
+	assert_eq!(required, 6);
+	assert_eq!(queue.items.len(), 1);
+	assert_eq!(queue.queued_bytes, 6);
 
-		let mut out = [0u8; 6];
-		assert_eq!(
-			write_local_candidate(&mut queue, out.as_mut_ptr(), out.len(), &mut required),
-			OK
-		);
-		assert_eq!(&out, b"abcdef");
-		assert_eq!(queue.queued_bytes, 0);
-		assert_eq!(
-			write_local_candidate(&mut queue, out.as_mut_ptr(), out.len(), &mut required),
-			WOULD_BLOCK
-		);
-	}
+	let mut out = [0u8; 6];
+	let roomy = unsafe { OutText::new(out.as_mut_ptr(), out.len(), &mut required) };
+	assert_eq!(write_local_candidate(&mut queue, &roomy), OK);
+	assert_eq!(&out, b"abcdef");
+	assert_eq!(queue.queued_bytes, 0);
+	assert_eq!(write_local_candidate(&mut queue, &roomy), WOULD_BLOCK);
 }
 
 #[tokio::test]
@@ -525,7 +523,7 @@ fn peer_release_joins_its_close_at_endpoint_release() {
 		include_loopback_candidates: 1,
 		worker_threads: 1,
 	};
-	let endpoint = glowcap_webrtc_sidecar_endpoint_new(&config);
+	let endpoint = test_endpoint_new(&config);
 	assert!(!endpoint.is_null());
 	let peer = unsafe { glowcap_webrtc_sidecar_peer_new(endpoint, 1) };
 	assert!(!peer.is_null());
@@ -538,7 +536,7 @@ fn peer_release_joins_its_close_at_endpoint_release() {
 
 #[test]
 fn teardown_panics_become_failures() {
-	assert_eq!(teardown_status(|| Ok(())), OK);
+	assert_eq!(teardown_status(|| Ok::<(), ()>(())), OK);
 	assert_eq!(
 		teardown_status(|| -> Result<(), ()> { panic!("forced teardown panic") }),
 		ERR

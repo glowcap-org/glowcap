@@ -66,7 +66,7 @@ pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 /// makes the constant the measurement: any change to `Conn` fails the build and
 /// is answered by moving the number here and in the ladder together, which is
 /// the process this comment already described and nothing enforced. It holds
-/// across backends because `Backend.Fd` is `i32` for tcp, kqueue, uring, and
+/// across backends because `Backend.Fd` is `i32` for TCP platform backends and
 /// iroh alike, so `Conn` carries no backend-dependent width.
 ///
 /// It exists to stop a field being *added* unnoticed, not to invite shaving

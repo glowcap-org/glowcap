@@ -1,7 +1,7 @@
 use super::{signal, state::Inner};
 use crate::abi_constants::{WEBRTC_MAX_PENDING_ICE_CANDIDATES, WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES};
 use std::{io, rc::Rc};
-use wasm_bindgen::{closure::Closure, JsCast};
+use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{Event, RtcDataChannelEvent, RtcPeerConnection, RtcPeerConnectionIceEvent, RtcPeerConnectionState};
 
 pub(super) struct Events {

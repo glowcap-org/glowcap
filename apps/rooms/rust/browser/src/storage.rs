@@ -60,3 +60,20 @@ impl From<rooms_application::archive::Error> for Error {
 		Self::Archive(value)
 	}
 }
+
+/// The one place browser storage answers the runtime, classed so a caller can
+/// act without reading the sentence. Another tab must release a blocked
+/// database before retry can work; storage that is unavailable or closed
+/// cannot, and an unreadable document needs a different document.
+impl From<Error> for rooms_runtime::Error {
+	fn from(error: Error) -> Self {
+		let text = error.to_string();
+		match error {
+			Error::Blocked => Self::Exhausted(text.into()),
+			Error::Unavailable | Error::Closed => Self::Closed(text.into()),
+			Error::Schema | Error::Invalid(_) => Self::Invalid(text.into()),
+			Error::Platform(_) => Self::storage_message(text),
+			Error::Archive(error) => Self::archive(error),
+		}
+	}
+}

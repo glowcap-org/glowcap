@@ -68,9 +68,9 @@ Deno.test("workspace state bounds reconnect and credential fan-out", () => {
 	);
 	const duplicateVisualizer = valid();
 	duplicateVisualizer.session.capabilities.operations.push({
-		capability: "viz",
-		scope: "wss://elsewhere.test/viz",
-		swiss: "another-viz-swiss",
+		capability: "trace",
+		scope: "wss://elsewhere.test/trace",
+		swiss: "another-trace-swiss",
 	});
 	assert(
 		parseWorkspaceState(JSON.stringify(duplicateVisualizer)) === null,

@@ -1,9 +1,9 @@
 //! Archive passables use the shared tuple contract and the existing binding.
 use glowcap::Argument;
 use rooms_application::archive::{
+	Error, Filter, Record,
 	index::Page,
 	output::{self, Output},
-	Error, Filter, Record,
 };
 struct Passables;
 impl Output for Passables {

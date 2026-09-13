@@ -1,4 +1,4 @@
-.zine_version = "0.13.1-dev",
+.zine_version = "0.14.0-dev",
 .supermd = .{
     .headings_h2 = true,
 },

@@ -1,7 +1,7 @@
 use super::arguments::Arg;
 use rooms_application::files::{
+	CHUNK_BYTES, FileDescription, MAX_FILE_BYTES,
 	sources::{self, Error, Sources},
-	FileDescription, CHUNK_BYTES, MAX_FILE_BYTES,
 };
 use std::{cell::Cell, rc::Rc};
 fn description(size: usize) -> FileDescription {
@@ -47,9 +47,10 @@ pub fn run() {
 	let mut pool = Sources::default();
 	let blob = retain(&mut pool, CHUNK_BYTES + 1, ());
 	assert!(blob.read_call("read", &[Arg::Float(0.), Arg::Integer(1)]).is_err());
-	assert!(blob
-		.read_call("read", &[Arg::Integer(0), Arg::Integer(1), Arg::Null])
-		.is_err());
+	assert!(
+		blob.read_call("read", &[Arg::Integer(0), Arg::Integer(1), Arg::Null])
+			.is_err()
+	);
 	assert!(blob.read(0, 0).is_err());
 	// Out-of-order coverage does not discard a source whose prefix has a gap.
 	let last = blob.read(CHUNK_BYTES as u64, 1).unwrap().unwrap();
@@ -125,7 +126,7 @@ pub fn run() {
 }
 
 fn receiver_budget() {
-	use rooms_application::files::receiving::{selection_fits, Budget, Usage};
+	use rooms_application::files::receiving::{Budget, Usage, selection_fits};
 	let largest = description(MAX_FILE_BYTES);
 	assert!(selection_fits(core::iter::repeat_n(&largest, 4)));
 	assert!(!selection_fits(core::iter::repeat_n(&largest, 5)));

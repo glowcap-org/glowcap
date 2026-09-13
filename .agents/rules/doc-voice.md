@@ -116,11 +116,18 @@ fence) is being used as the default joint so the content thins and the tactic go
   standing in for parentheses when the aside carries its own commas (`the core —
   model, codec, session — stays sync`),
   and a **single** dash for a turn a comma cannot carry, used sparingly and never more than one per sentence. Everything
-  else is overuse: "X — and then Y", "X — which is Y", a lone dash where ", " or ". " reads the same, and three facts
+  else is overuse: "X and then Y" with a dash for the joint, "X which is Y" with one, a lone dash where ", " or ". " reads the same, and three facts
   strung behind dashes in one breath. The test is simple: if a comma, period, colon, or parentheses would carry the
   sentence as well, the dash has not earned its place. `zig build source-check` (`banHabitualEmDash`) rejects the two
-  patterns habit reaches for most, `— which` and `— and then`, across `src/`, `cli/`, `docs/`, `site/content`, and
-  `README.md`. The rest of this bullet is still yours to hold.
+  patterns habit reaches for most, a dash before "which" and a dash before "and then", across `src/`, `cli/`, `docs/`,
+  `site/content`, `README.md`, **and the scaffolding**: `AGENTS.md` and all of `.agents/`. This file is the one
+  exemption, because it has to write the forms down to name them. The rest of this bullet is still yours to hold.
+
+  The scaffolding is in scope for a reason that does not apply to the trees beside it. An agent writing Rooms' copy has
+  just finished reading these files, and prose it finds here it reads as house style, so a habit indulged in a rule is a
+  habit handed to every surface that rule governs, including the reader-facing ones where the same dash is an AI tell.
+  Agent prose is not exempt from voice because its reader is a machine. It is the least exempt, because its reader
+  writes.
 - The justification tic. "X, which is what lets Y" restates a causal joint the sentence already has. Write a comma
   apposition, "so", or a second sentence. `zig build source-check` (`banHabitualJustification`) refuses the phrase
   across the first-party prose trees. The `apps/` files still carrying it are listed in

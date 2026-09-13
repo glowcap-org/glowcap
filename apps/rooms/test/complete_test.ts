@@ -5,7 +5,9 @@
 
 import { acceptCompletion, commandArgTrigger, completeCandidates, nickSource, triggerAt } from "../web/ui/complete.ts";
 import { EMOJI_TABLE } from "../web/ui/emoji.ts";
-import { mentionsYou, PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
+import "./support/browser_application.ts";
+import { PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
+import { messageMentions } from "../web/ui/markdown.ts";
 import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
 import type { Conv } from "../web/ui/types.ts";
 import { assertEquals } from "./assert.ts";
@@ -266,7 +268,7 @@ Deno.test("every spelling of a room-wide call is understood, two are proposed", 
 	// Liberal in what it accepts: somebody arriving from another client writes
 	// the word their client taught them, and is read rather than corrected.
 	for (const name of ROOM_MENTIONS) {
-		if (!mentionsYou(`morning @${name}`, "zoe")) fail(`@${name} did not reach a reader of the room`);
+		if (!messageMentions(`morning @${name}`, "zoe")) fail(`@${name} did not reach a reader of the room`);
 	}
 	// Brief in what it proposes: a list is a recommendation, and five ways to say
 	// one thing recommends nothing.
@@ -277,7 +279,7 @@ Deno.test("every spelling of a room-wide call is understood, two are proposed", 
 		fail("every spelling is proposed, so the list is a menu of synonyms rather than a recommendation");
 	}
 	// And a room-wide call reaches you whether or not you have a name yet.
-	if (!mentionsYou("@here anyone about?", "")) fail("a room-wide call missed a reader with no name granted");
+	if (!messageMentions("@here anyone about?", "")) fail("a room-wide call missed a reader with no name granted");
 });
 
 Deno.test("prefix matches outrank substring matches", () => {

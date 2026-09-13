@@ -16,10 +16,12 @@ export type ArchiveTargetView =
 		}
 	);
 
-/** One archive account offered over a direct line. Live facets keep their Ref
- * in the network layer; durable offers are sturdyrefs whose Host publication
- * the issuer can revoke independently. This row is only the bounded choice the
- * conversation card draws. */
+/** One archive account offered over a direct line. A live offer keeps its
+ * reference in the Rust application; a lasting one is a link whose Host
+ * publication the issuer can revoke on its own. This row is only the bounded
+ * choice the conversation card draws. The link itself is a bearer secret and
+ * stays in the session snapshot; a control that copies it asks there at press
+ * time (`session/bearer.ts`). */
 export interface ArchiveShareView {
 	readonly id: string;
 	readonly conversationKey: string;
@@ -29,5 +31,6 @@ export interface ArchiveShareView {
 	readonly kind: "direct" | "room" | "standing";
 	readonly scopeConversation: string | null;
 	readonly custody: "live" | "durable";
-	readonly sturdyref: string;
+	/** Whether a lasting offer carries a link this tab could copy. */
+	readonly copyable: boolean;
 }

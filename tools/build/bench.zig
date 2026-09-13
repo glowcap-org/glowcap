@@ -19,6 +19,7 @@ pub fn register(
     fast_lib_mod: *std.Build.Module,
     host_mods: []*std.Build.Module,
     check_step: *std.Build.Step,
+    runtime_gate: *execution.SerialGate,
 ) void {
     // ── Benchmarks ───────────────────────────────────────────────────────────
     // Table-driven like the examples: each row builds one executable over
@@ -26,8 +27,9 @@ pub fn register(
     // `zig build <step> -- <args>`. Each row also gets a dedicated gate run that
     // takes no passthrough args; `smoke_on_check` passes `--smoke` there so the
     // heavier benches prove they still run cheaply, without report artifacts
-    // under zig-out. `live_smoke_on_check` adds the smallest real two-process
-    // socket barrier to a smoke run so child orchestration cannot silently rot.
+    // under zig-out. `live_smoke_on_runtime` adds the smallest real two-process
+    // socket barrier to `runtime-check` so child orchestration cannot silently
+    // rot or overlap another process family.
     //
     // Optimize mode is per-module: an executable whose root module is
     // ReleaseFast still runs Debug *library* code when it imports the
@@ -49,7 +51,7 @@ pub fn register(
         name: []const u8,
         path: []const u8,
         smoke_on_check: bool = false,
-        live_smoke_on_check: bool = false,
+        live_smoke_on_runtime: bool = false,
         gate_on_check: bool = false,
         /// The snapshot bench measures the persistent-actor divergence path, so
         /// it imports the persistent-collections leaf module directly, the same
@@ -61,7 +63,7 @@ pub fn register(
         .{ .step_name = "bench-codec", .description = "Run codec/dispatch throughput benchmark", .name = "codec-bench", .path = "bench/codec_bench.zig" },
         .{ .step_name = "bench-dispatch-scaling", .description = "Measure inbound dispatch ns/turn across N peers (cold-cache regime) with p50/p99", .name = "dispatch-scaling-bench", .path = "bench/dispatch_scaling_bench.zig", .gate_on_check = true },
         .{ .step_name = "bench-outbound", .description = "Measure the outbound engine path (send/step/takeOutbound) and the op:gc-answers release storm", .name = "outbound-bench", .path = "bench/outbound_bench.zig", .gate_on_check = true },
-        .{ .step_name = "bench-peer-scaling", .description = "Measure per-session memory and live authenticated socket scale", .name = "peer-scaling-bench", .path = "bench/peer_scaling_bench.zig", .smoke_on_check = true, .live_smoke_on_check = true },
+        .{ .step_name = "bench-peer-scaling", .description = "Measure per-session memory and live authenticated socket scale", .name = "peer-scaling-bench", .path = "bench/peer_scaling_bench.zig", .smoke_on_check = true, .live_smoke_on_runtime = true },
         .{ .step_name = "bench-snapshot", .description = "Measure vat snapshot/restore: O(objects), flat in object size, off by default", .name = "snapshot-bench", .path = "bench/snapshot_bench.zig", .smoke_on_check = true, .needs_persistent = true },
     };
     for (benches) |bench| {
@@ -81,11 +83,12 @@ pub fn register(
         } else {
             const gate = execution.addArtifact(b, .{ .deterministic = 30 }, exe);
             if (bench.smoke_on_check) gate.addArg("--smoke");
-            if (bench.live_smoke_on_check) {
-                gate.addArg("--live");
-                gate.addArg("--live-max=8");
-            }
             check_step.dependOn(&gate.step);
+            if (bench.live_smoke_on_runtime) {
+                const live_gate = execution.addArtifact(b, .{ .deterministic = 30 }, exe);
+                live_gate.addArgs(&.{ "--smoke", "--live", "--live-max=8" });
+                runtime_gate.add(&live_gate.step);
+            }
         }
     }
 }

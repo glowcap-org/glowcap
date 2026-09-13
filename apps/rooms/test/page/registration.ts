@@ -3,6 +3,7 @@
 import type { Page } from "playwright";
 import { fail } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
+import { roomNameReleaseSay } from "../../lib/text/room_authority.ts";
 
 export async function run(tab: Page): Promise<void> {
 	if (new URL(tab.url()).pathname.startsWith("/ops")) await tab.click(".wordmark-link");
@@ -16,10 +17,11 @@ export async function run(tab: Page): Promise<void> {
 	await tab.click("#convcardUnregisterAsk");
 	const confirmation = tab.getByRole("group", { name: "Release the registered name #registration-proof" });
 	const copy = (await confirmation.textContent()) ?? "";
-	if (
-		!copy.includes("public name") || !copy.includes("capabilities you hold remain") ||
-		!copy.includes("register the room again")
-	) fail(`room unregistration did not explain its authority and membership boundary: ${copy}`);
+	// The catalog's own sentence, not a paraphrase of it: this held three
+	// fragments of wording the app had already stopped using.
+	if (!copy.includes(roomNameReleaseSay)) {
+		fail(`room unregistration did not explain its authority and membership boundary: ${copy}`);
+	}
 	if (await tab.locator("#convcardUnregisterAsk").count() !== 0) {
 		fail("room unregistration confirmation did not replace the action being confirmed");
 	}

@@ -13,7 +13,7 @@ export interface OperationSecrets {
 	irc: string;
 	operator: string;
 	peering: string;
-	viz: string;
+	trace: string;
 }
 
 export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationSecrets): Promise<void> {
@@ -30,7 +30,7 @@ export async function verifyCompleteOperationsNav(tab: Page, secrets: OperationS
 		["#opsIrcToggle", "ROOMS-IRC", secrets.irc],
 		["#opsOperatorToggle", "ROOMS-OPERATOR", secrets.operator],
 		["#opsPeeringToggle", "ROOMS-PEERING", secrets.peering],
-		["#opsVizToggle", "ROOMS-VIZ", secrets.viz],
+		["#opsTraceToggle", "ROOMS-TRACE", secrets.trace],
 	] as const;
 	await tab.click("#opsCapabilitySetEditText");
 	await tab.fill(

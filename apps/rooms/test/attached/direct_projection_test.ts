@@ -1,3 +1,4 @@
+// Attached direct conversations retain liveness, notification, and line identity across checkpoint projection.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {
@@ -69,6 +70,7 @@ Deno.test("an attached direct message becomes live and uses the local notificati
 			change: "said",
 			editable: false,
 			history: null,
+			previewUrls: [],
 			attachments: [],
 			system: false,
 		});

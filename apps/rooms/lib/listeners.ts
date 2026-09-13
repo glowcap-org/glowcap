@@ -4,7 +4,7 @@
 // unguessable name (`--admin-listeners`), and holding that name is the whole
 // of the authority. Taking it is the shared operations flow in
 // `operations.ts`; what it answers — the listener rows, `up`, and `down` — is
-// what this module owns. Rust's server side lives under `room_server/operations`.
+// what this module owns. Rust's server side lives under `server/operations`.
 
 import type { Ref, Session } from "@glowcap/runtime";
 import {

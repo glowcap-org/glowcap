@@ -11,10 +11,10 @@
 use std::rc::Rc;
 
 use crate::dial::run_dial_ticket;
-use crate::host::{check_host, HostShared};
+use crate::host::{HostShared, check_host};
 use crate::host_action_gen::{self, HostAction, HostActionHandlers};
 use crate::sys::host as ffi;
-use crate::{sys, Error, Result};
+use crate::{Error, Result, sys};
 
 /// Sync park arm for every `GlowcapHostPumpHooks` slot: decode+append, set
 /// progress, return. Views are copied inside [`host_action_gen::decode`]
@@ -96,10 +96,10 @@ impl HostActionHandlers for Handlers<'_> {
 			// when the drain below finds nothing queued, so the detached task
 			// wakes the parked close drivers itself.
 			host.note_close_activity();
-			if !host.raw().is_null() {
-				if let Err(error) = host.kick_actions().await {
-					retain_detached_failure(&host, "action drain failed after dial completion", error);
-				}
+			if !host.raw().is_null()
+				&& let Err(error) = host.kick_actions().await
+			{
+				retain_detached_failure(&host, "action drain failed after dial completion", error);
 			}
 		});
 		match spawned {
@@ -184,6 +184,13 @@ impl HostActionHandlers for Handlers<'_> {
 	async fn cancel_dial(&self, ticket: u64, route_index: usize) -> Result<()> {
 		self.host.cancel_dial_task(ticket, route_index).await
 	}
+}
+
+/// The executor is deliberately dumb: every decision was already made in the
+/// core; each arm is pure I/O or marshalling. The kind inventory lives in
+/// generated [`host_action_gen::dispatch`] — a new kind fails compile.
+pub(crate) async fn run(host: &Rc<HostShared>, action: HostAction) -> Result<()> {
+	host_action_gen::dispatch(action, &Handlers { host }).await
 }
 
 #[cfg(test)]
@@ -280,11 +287,4 @@ mod tests {
 		assert_eq!(host.take_background_failure(), Some(first.with_secondary(later)));
 		assert_eq!(host.take_background_failure(), None);
 	}
-}
-
-/// The executor is deliberately dumb: every decision was already made in the
-/// core; each arm is pure I/O or marshalling. The kind inventory lives in
-/// generated [`host_action_gen::dispatch`] — a new kind fails compile.
-pub(crate) async fn run(host: &Rc<HostShared>, action: HostAction) -> Result<()> {
-	host_action_gen::dispatch(action, &Handlers { host }).await
 }

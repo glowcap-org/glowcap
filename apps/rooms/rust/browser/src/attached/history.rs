@@ -1,5 +1,5 @@
-use super::{actions::text, files, scalar, view, RoomsBrowserSession};
-use rooms_application::archive::{ConversationKind, Record, ShareKind};
+use super::{RoomsBrowserSession, actions::text, view};
+use rooms_application::archive::{ConversationKind, ShareKind};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -26,20 +26,6 @@ impl RoomsBrowserSession {
 				.await
 				.map_err(|e| e.to_string())?;
 			view::json(&history.records)
-		})
-	}
-	#[wasm_bindgen(js_name = archivedAttachment)]
-	pub fn archived_attachment(&self, record: js_sys::JsString, index: u32) -> js_sys::Promise {
-		let bytes = record.length() as usize * 3;
-		let scope = self.scope.clone();
-		let driver = self.driver.clone();
-		self.action(scalar(record, 512 * 1024), bytes, move |session, json| async move {
-			let record: Record = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-			let file = session
-				.archived_attachment(&record, index as usize)
-				.await
-				.map_err(|e| e.to_string())?;
-			Ok(files::hold(&driver, &scope, file)?.into())
 		})
 	}
 	#[wasm_bindgen(js_name = shareArchive)]

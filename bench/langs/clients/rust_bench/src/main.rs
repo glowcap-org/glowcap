@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use glowcap::{tcp, Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session};
+use glowcap::{Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
 
 const CLIENT: &str = "rust";
 const RUNTIME: &str = "rust";
@@ -127,9 +127,12 @@ async fn run_latency(locator: &Locator, n: usize) -> Result<(), String> {
 		lats.iter().sum::<f64>() / n as f64
 	};
 	println!(
-        "{{\"v\":1,\"metric\":\"latency\",\"client\":\"{CLIENT}\",\"suite\":\"taskboard\",\"n\":{n},\"p50_ms\":{:.4},\"p99_ms\":{:.4},\"p999_ms\":{:.4},\"mean_ms\":{:.4},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
-        percentile_ms(&lats, 0.50), percentile_ms(&lats, 0.99), percentile_ms(&lats, 0.999), mean,
-    );
+		"{{\"v\":1,\"metric\":\"latency\",\"client\":\"{CLIENT}\",\"suite\":\"taskboard\",\"n\":{n},\"p50_ms\":{:.4},\"p99_ms\":{:.4},\"p999_ms\":{:.4},\"mean_ms\":{:.4},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
+		percentile_ms(&lats, 0.50),
+		percentile_ms(&lats, 0.99),
+		percentile_ms(&lats, 0.999),
+		mean,
+	);
 	Ok(())
 }
 
@@ -156,9 +159,10 @@ async fn run_throughput(locator: &Locator, n: usize) -> Result<(), String> {
 		.map_err(|e| format!("close runtime: {e:?}"))?;
 	let rps = if total <= 0.0 { 0.0 } else { n as f64 / (total / 1000.0) };
 	println!(
-        "{{\"v\":1,\"metric\":\"throughput\",\"client\":\"{CLIENT}\",\"suite\":\"taskboard\",\"n\":{n},\"total_ms\":{:.2},\"rps\":{},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
-        total, rps.round() as i64,
-    );
+		"{{\"v\":1,\"metric\":\"throughput\",\"client\":\"{CLIENT}\",\"suite\":\"taskboard\",\"n\":{n},\"total_ms\":{:.2},\"rps\":{},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
+		total,
+		rps.round() as i64,
+	);
 	Ok(())
 }
 
@@ -176,9 +180,10 @@ async fn run_connections(locator: &Locator, n: usize) -> Result<(), String> {
 	}
 	let total = t0.elapsed().as_secs_f64() * 1000.0;
 	println!(
-        "{{\"v\":1,\"metric\":\"connections\",\"client\":\"{CLIENT}\",\"suite\":\"taskboard\",\"conns\":{n},\"total_ms\":{:.2},\"per_conn_ms\":{:.4},\"runtime\":\"{RUNTIME}\"}}",
-        total, total / n.max(1) as f64,
-    );
+		"{{\"v\":1,\"metric\":\"connections\",\"client\":\"{CLIENT}\",\"suite\":\"taskboard\",\"conns\":{n},\"total_ms\":{:.2},\"per_conn_ms\":{:.4},\"runtime\":\"{RUNTIME}\"}}",
+		total,
+		total / n.max(1) as f64,
+	);
 	tokio::time::sleep(Duration::from_millis(2500)).await;
 	for (runtime, conn) in handles {
 		close_held_connection(runtime, conn).await?;
@@ -292,9 +297,13 @@ async fn run_local(n: usize) -> Result<(), String> {
 	};
 	let ratio = if in_mean > 0.0 { via_mean / in_mean } else { 0.0 };
 	println!(
-        "{{\"v\":1,\"metric\":\"local\",\"client\":\"{CLIENT}\",\"suite\":\"local-turn\",\"n\":{n},\"in_lang_ns\":{:.1},\"in_lang_p99_ns\":{:.1},\"via_host_ns\":{:.1},\"via_host_p99_ns\":{:.1},\"ratio\":{:.2},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
-        in_mean, percentile_ms(&in_lang, 0.99), via_mean, percentile_ms(&via_host, 0.99), ratio,
-    );
+		"{{\"v\":1,\"metric\":\"local\",\"client\":\"{CLIENT}\",\"suite\":\"local-turn\",\"n\":{n},\"in_lang_ns\":{:.1},\"in_lang_p99_ns\":{:.1},\"via_host_ns\":{:.1},\"via_host_p99_ns\":{:.1},\"ratio\":{:.2},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
+		in_mean,
+		percentile_ms(&in_lang, 0.99),
+		via_mean,
+		percentile_ms(&via_host, 0.99),
+		ratio,
+	);
 	Ok(())
 }
 

@@ -1,3 +1,4 @@
+//! Join commands reconcile directory intent with durable room authority.
 use super::*;
 use alloc::boxed::Box;
 
@@ -6,6 +7,8 @@ use alloc::boxed::Box;
 pub(super) struct Intent {
 	pub(super) locator: Text<16384, true>,
 	pub(super) nick: Field,
+	#[serde(default, rename = "nickAllocation")]
+	pub(super) nick_allocation: crate::directory::registration::NicknameAllocation,
 	pub(super) conversation: Room,
 }
 
@@ -26,6 +29,7 @@ pub(super) fn apply(state: &mut State, intent: Intent, routes: &impl Routes, fac
 		let mut directory = state.directories.0[index].clone();
 		directory.locator = Text(intent.locator.0);
 		directory.nick = intent.nick;
+		directory.nick_allocation = intent.nick_allocation;
 		directory
 	} else {
 		Directory {
@@ -34,6 +38,7 @@ pub(super) fn apply(state: &mut State, intent: Intent, routes: &impl Routes, fac
 			home: state.directories.0.is_empty(),
 			reached: None,
 			nick: intent.nick,
+			nick_allocation: intent.nick_allocation,
 			standing: Nullable::Null,
 		}
 	};
@@ -58,10 +63,10 @@ pub(super) fn apply(state: &mut State, intent: Intent, routes: &impl Routes, fac
 	{
 		return Err(Error::Publication);
 	}
-	if prior_publication.is_some() || room.publication_id.is_none() {
-		if let Some(value) = publication {
-			room.publication_id = Some(text(value)?);
-		}
+	if (prior_publication.is_some() || room.publication_id.is_none())
+		&& let Some(value) = publication
+	{
+		room.publication_id = Some(text(value)?);
 	}
 	if let Some(i) = recovering {
 		let Conversation::Room(prior) = &state.conversations.0[i] else {

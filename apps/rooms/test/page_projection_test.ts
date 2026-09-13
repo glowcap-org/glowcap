@@ -1,3 +1,4 @@
+// Each page projection owns its drafts, conversations, roster, history, and unread state independently.
 import "./support/browser_application.ts";
 // Two pages in one isolate keep separate presentation. Drafts, conversations,
 // rosters, histories, unreads, and who is composing belong to the page that wrote them.
@@ -34,7 +35,9 @@ Deno.test("two pages do not share drafts, conversations, members, typers, histor
 		topic: null,
 		lineBytes: null,
 		bridge: null,
+		carries: null,
 		canSetTopic: false,
+		canPostFiles: false,
 		canModerate: false,
 	});
 	store.setTyper(first.projection, room.key, "ada", true);

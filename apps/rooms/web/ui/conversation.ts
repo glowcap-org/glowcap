@@ -1,17 +1,22 @@
 // Conversation, message, and invitation state for the Rooms presentation model.
 
 import type { RoomMemberState } from "../../lib/room/presence.ts";
-import type { RoomFacts } from "../../lib/room/message.ts";
+import type { RoomCarries, RoomFacts } from "../../lib/room/message.ts";
+import type { RoomFeature } from "../../lib/protocol.ts";
 import type { WorkspaceRoomBridgeIntent } from "../../lib/rooms_state.ts";
 import type { RoomMembershipKind } from "../../lib/room/membership.ts";
 import type { RoomPolicy } from "./room_policy.ts";
 import type { DirId } from "./types.ts";
 import type { ArchiveCoordinates } from "../../lib/archive/protocol.ts";
 
-export type SendState = "sending" | "failed" | "refused";
+/** What the page knows about a line it sent: still on its way, definitely
+ * nowhere, or somewhere nobody can yet confirm. "unconfirmed" is the runtime's
+ * `delivery-uncertain` evidence: the send may have reached the other side, so
+ * it is drawn as unsent but never offered a blind retry. */
+export type SendState = "sending" | "failed" | "unconfirmed";
 
 export function isUnsent(state: SendState | undefined): boolean {
-	return state === "failed" || state === "refused";
+	return state === "failed" || state === "unconfirmed";
 }
 
 export function canRetry(state: SendState | undefined): boolean {
@@ -39,6 +44,14 @@ export type SysAudience = "here" | "shared";
 
 export type HistoryCoordinate = ArchiveCoordinates;
 
+/** What a chat line carries in its text besides words: a `/me` action or a
+ * `/notice`, read once where the line enters the store. The log draws from
+ * this field, so a line with nothing carried has no field. */
+export interface LineCarried {
+	readonly kind: "action" | "notice";
+	readonly text: string;
+}
+
 export type Item =
 	| {
 		kind: "chat";
@@ -48,6 +61,9 @@ export type Item =
 		mine: boolean;
 		at: number;
 		state?: SendState;
+		/** The action or notice this line's text carries, stamped by the store
+		 * when the line is made or its text changes. */
+		carried?: LineCarried;
 		/** The id assigned by the current live room generation. Retired when that
 		 * membership ends; retained text is not authority for a later generation. */
 		lineId?: number;
@@ -59,6 +75,7 @@ export type Item =
 		withdrawn?: boolean;
 		held?: boolean;
 		attachments?: readonly AttachmentView[];
+		previewUrls?: readonly string[];
 	}
 	| {
 		kind: "sys";
@@ -161,6 +178,11 @@ export type Conv =
 		 * prefix its foreign members' names carry, and the badge and sentence for
 		 * one of them. Absent in an ordinary room, which is most of them. */
 		bridge?: BridgeFacts;
+		/** What this room keeps or relays of a message beyond its text and
+		 * files, when it said: link previews, the typing signal. Absent until
+		 * the room states it, and every control stays while it is. What a
+		 * member can *do* is not here: that is what they hold, in `grants`. */
+		carries?: RoomCarries;
 		earlierHistory: "unasked" | "loading" | "empty" | "shown" | "unavailable";
 		grants: ReadonlySet<string>;
 		membershipKind: RoomMembershipKind;
@@ -168,9 +190,18 @@ export type Conv =
 		/** Private or source-owned, not "this tab is presently in the room". */
 		held: boolean;
 		reconnect?: "manual" | "requested";
-		link?: string;
-		manager?: string;
-		steward?: string;
+		/** Which room entry link, room manager, and room moderator this session
+		 * holds for the room, as the identity the Rust application gives each
+		 * one (`roomAuthorityToken`), never the sturdyref itself.
+		 *
+		 * A token says that an authority is held and tells one from another; it
+		 * opens nothing. The bearer string stays in the Rust checkpoint, and a
+		 * control that copies it asks there at press time (`session/bearer.ts`),
+		 * so a rail row subscribed to this map is never handed a secret it does
+		 * not draw. */
+		linkToken?: string;
+		managerToken?: string;
+		stewardToken?: string;
 		standing: string | null;
 		bridgeIntent?: WorkspaceRoomBridgeIntent | null;
 		bridgeIssue: string;
@@ -195,17 +226,6 @@ export function isSessionConv(conv: Conv): conv is SessionConv {
 	return conv.type !== "directory";
 }
 
-export type RoomReentry =
-	| { kind: "name"; name: string; publicationId?: string }
-	| { kind: "link"; link: string; label: string; key: string }
-	| { kind: "lost" };
-
-export function roomReentry(conv: RoomConv): RoomReentry {
-	if (!conv.held) return { kind: "name", name: conv.id, publicationId: conv.publicationId };
-	if (conv.link != null) return { kind: "link", link: conv.link, label: conv.id, key: conv.key };
-	return { kind: "lost" };
-}
-
 export interface Invitation {
 	id: string;
 	/** Handed offers use the arrival session; durable links use their target authority. */
@@ -220,3 +240,26 @@ export interface Invitation {
 
 /** The bridge half of a room's standing facts. */
 export type BridgeFacts = NonNullable<RoomFacts["bridge"]>;
+export type { RoomCarries };
+
+/** Whether this conversation keeps or relays one part of a message that no
+ * capability stands for: the link previews a line names, or the typing
+ * signal. A room answers from what it stated at arrival. A room that stated
+ * nothing has not said it lacks anything, so it answers yes and keeps every
+ * control; a direct line carries both; a directory carries no messages. */
+export function conversationCarries(conv: Conv | null, feature: RoomFeature): boolean {
+	if (conv === null || conv.type === "directory") return false;
+	if (conv.type === "dm") return true;
+	return conv.carries === undefined || conv.carries[feature];
+}
+
+/** Whether this conversation takes files: a direct line always does, and a
+ * room does when this membership holds the files facet the room handed over
+ * at subscribe. That is what the attach control, the drop target, and a
+ * pasted file are drawn from, so a room that cannot hold bytes never shows
+ * a way to send one. */
+export function conversationTakesFiles(conv: Conv | null): boolean {
+	if (conv === null || conv.type === "directory") return false;
+	if (conv.type === "dm") return true;
+	return conv.grants.has("files");
+}

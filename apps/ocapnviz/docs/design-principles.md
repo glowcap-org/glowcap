@@ -1,65 +1,64 @@
 # ocapnviz — Design Principles
 
-These principles describe code that exists today. When the code moves, this page moves
-with it.
+Use this page when changing the interface. It documents the code that exists
+today, so update it when that code moves. A change must keep gestures consistent
+across surfaces and keep each rule at one implementation point.
 
-Two bars, and a change has to clear both. **It feels obvious to use:** the same
-gesture means the same thing on every surface, affordances announce themselves
-before the click, and nothing mutates outside the mode that owns mutation. **The
-next change is easy:** every fact has one home, and adding a sibling of an
-existing thing means extending that home rather than restating it nearby.
+## Visual vocabulary
 
-The two check each other. A UX inconsistency is usually a second implementation
-drifting from the first, and a second implementation usually starts as "this
-surface is a little different."
+ocapnviz fits a large amount of protocol state on screen. It gets that density
+from alignment and clear levels, not by shrinking every element equally.
 
-## The vocabulary
+**Type.** The interface uses four sizes. Tracked uppercase 9 px text is for
+section titles, field keys, and legend captions, never body text. Data such as
+field values, chips, and list rows uses 10 px. Controls use 11 px. Headings use
+13 px. Monospace is reserved for protocol tokens, times, and addresses. Because
+it renders larger than sans text at the same size, a monospace value normally
+drops one size. The narrow Legend is the exception: both faces use 9 px so its
+sentences do not wrap excessively.
 
-ocapnviz is a dense instrument. Density is bought by taking out space that is
-not doing work, never by shrinking everything together, because a uniform shrink
-keeps the hierarchy it had at a size that is harder to read. What carries the
-reading at small sizes is alignment: strong columns the eye can run down, and
-levels that stay clearly apart.
+**Color.** Full ink is for the primary content, muted ink for controls and
+labels, and subtle ink for captions and asides. The workspace has the strongest
+surface contrast, with controls framing it in nested levels. Borders are faint
+on a control without its own chrome, ordinary at rest, and strong under the
+pointer. Accent color marks the active control or keyboard focus. Green, amber,
+and red describe protocol state, not interface chrome.
 
-**Type.** Four sizes, each with one job. 9 is the tracked uppercase eyebrow:
-section titles, field keys, legend captions, never body text. The treatment is
-what makes it a level, not the pixel. 10 is data, so a field's value, a chip, a
-list row. 11 is chrome, so control labels, buttons and fields. 13 is a heading.
-There is no 12, because between 11 and 13 it is a step no reader can name. Mono
-is for a token, such as a codec, a side letter, a time or an address, and sans
-is for a word a person chose or wrote. Mono renders larger than sans at the same
-size, so a mono value drops one notch. The code does not hold that line
-everywhere: the Legend sets sans and mono both at 9, because a notch up wraps
-its sentences in a narrow pane, so its tokens read a shade large.
+**Treatments.** Use one visual signal for each fact. Hover combines a background
+and border change. A dialog's affirmative action may use a solid accent fill.
+A persistent selected state uses an accent border over a pale wash. Keyboard
+focus uses an outline one pixel outside the box so variants cannot erase it.
+Pressing a control moves it by one pixel. Controls use neither elevation nor
+bevels.
 
-**Color.** Text has three weights: full ink for what you came to read, muted
-for chrome and labels, subtle for eyebrows and asides. Surfaces nest outward
-from the canvas, so the workspace is the brightest thing in light and the
-lightest dark in dark, and chrome frames it. Inside chrome, a group of fields
-sits one step in and a hover or chip one step further. Borders have three
-weights: faint for a control with no chrome of its own, ordinary at rest, strong
-under the pointer. The accent means one thing only, which is that this is the
-control in force or the keyboard is here. Green, amber and red are states of the
-thing described, never of the chrome describing it.
+**Components.** A button runs an action. A segmented control chooses from a
+small fixed set that should remain visible, such as modes or view kinds. A
+dropdown handles a longer list. Anything that accepts a caret is a field,
+including a numeric value that can also be dragged. Use an icon button only for
+a conventional symbol in a cluster of similar controls. Add a text label when
+the symbol would make the reader guess.
 
-**Treatments.** One signal per fact. Background and border together say
-"control, and you are pointing at it". A solid accent fill is reserved for a
-dialog's affirmative answer, which is transient and answers one question. A
-standing chosen state is an accent box over the palest wash instead, because a
-persistent shout is a shout you stop hearing. Focus is an outline one pixel
-outside the box: a different kind of mark from hover rather than a louder one,
-and in its own property so no variant can erase it. The press is a one-pixel
-nudge. There is no elevation and no bevel, because a control wearing four marks
-for one job reads as busy without anyone being able to say why.
+## Interface copy
 
-**Components.** A button runs something. A segmented control picks one of a
-small, fixed, always-visible set, such as modes, lanes or view kinds, so the
-alternatives are part of the reading. A dropdown picks from a list too long or
-too dull to show. A field is anything you type into, including the numeric pill
-you can also drag; if it takes a caret it is a field, whatever it looks like. An
-icon button is right when the action has a conventional picture and sits in a
-cluster of its peers, where a row of equal squares reads faster than a row of
-words. Anything a reader would have to guess at takes a label.
+Use the protocol's exact terms. Define them once in the Reference, then use the
+same names throughout the interface so screen text can be matched with server
+output.
+
+**Separate claims from proof.** An endpoint may claim a designator without
+proving it. `src/ui/reference/endpoint-attribution.ts` owns the wording for that
+difference. When attribution is unknown, say so and leave the endpoint loose.
+
+**A failure answers three questions.** Say what happened, what it means, and
+what the reader can do next. `EngineError` carries those answers as `title`,
+`detail`, and `recovery`. For example: "Live capability unreachable" followed
+by "Check the sturdyref and the Rooms server, then wait for reconnect."
+
+**A tooltip names the control, then explains it.** Use a colon between the two
+parts: "Save (Cmd/Ctrl+S): download this timeline as a JSON file" or "Open
+session: click the first node." Use a period between independent sentences.
+
+**Do not make labels cryptic to save space.** The Scrubber hint uses a full line
+to describe six gestures because each one must be discoverable where it is used.
 
 ## The idiom index
 
@@ -71,7 +70,7 @@ names one authority. A change that cannot use the authority extends it in place.
 | Selection modifier grammar                           | `SelectMode` + `selectModeFromModifiers`, `src/interactions/types.ts`                                                                                                                                                                                                                                                                                                                                                              |
 | What a select mode does to the selection             | `selectionActionFor`, `src/interactions/selection-store.ts`                                                                                                                                                                                                                                                                                                                                                                        |
 | Keyboard shortcuts                                   | the `SHORTCUTS` table, `src/state/keyboard-shortcuts.ts`                                                                                                                                                                                                                                                                                                                                                                           |
-| Whether a press is a shortcut or a gesture           | `resolveKeyDown`, `src/state/keyboard-input.ts` — held gestures first                                                                                                                                                                                                                                                                                                                                                              |
+| Whether a press is a shortcut or a gesture           | `resolveKeyDown`, `src/state/keyboard-input.ts` (held gestures take priority)                                                                                                                                                                                                                                                                                                                                                       |
 | What gesture is running now                          | `inFlightGesture`, `src/interactions/pointer-machine.ts`                                                                                                                                                                                                                                                                                                                                                                           |
 | The canvas cursor                                    | `cursorFor`, `src/interactions/cursor.ts`                                                                                                                                                                                                                                                                                                                                                                                          |
 | Held keys (Space-as-hand, Shift/Alt preview)         | the `HELD_GESTURES` table, `src/state/keyboard-input.ts`                                                                                                                                                                                                                                                                                                                                                                           |
@@ -99,23 +98,23 @@ names one authority. A change that cannot use the authority extends it in place.
 | A node's pin                                         | `src/engine/event-helpers.ts`: `authoredPeerPosition` for one peer, `authoredPins` for the stage                                                                                                                                                                                                                                                                                                                                   |
 | Timing provenance                                    | `TimeSpan.derived`, `src/engine/temporal/time-span.ts`: projection marks it, authoring strips it                                                                                                                                                                                                                                                                                                                                   |
 | Whether a write changes anything                     | `isNoOpIntent`, `src/engine/no-op-guards.ts`. A keyframe restating a value still pins it (`keyframeExactlyAt`)                                                                                                                                                                                                                                                                                                                     |
-| The live feed's connection                           | `useLiveConnection`, `src/state/hooks.ts`: a URL is a dial. `connected` means CapTP is up; `observed` means a record has arrived. Recording is a third fact.                                                                                                                                                                                                                                                                       |
-| Live recording                                       | the same hook's capture arm. Record re-dials and mounts the engine, so t=0 is the press; Stop claims via `claimRecording`, `src/engine/live/mode.ts`                                                                                                                                                                                                                                                                               |
+| The live feed's connection                           | `useLiveConnection`, `src/state/hooks.ts`: a URL is a dial. `connected` means CapTP is up. `observed` means a record has arrived. Recording is a third fact.                                                                                                                                                                                                                                                                       |
+| Live recording                                       | the same hook's capture arm. Record re-dials and mounts the engine, so t=0 is the press. Stop claims via `claimRecording`, `src/engine/live/mode.ts`                                                                                                                                                                                                                                                                               |
 | Live wire names to stage identities                  | the `StageLedger`, `src/engine/stage-ledger.ts`: one lifetime per stage id, leaves refcounted by live sessions, epochs retire a dead producer                                                                                                                                                                                                                                                                                      |
 | Builder mutations                                    | `engine.dispatch` intents, each with a no-op guard and an undo label. A guard compares against the authored doc, not the live world                                                                                                                                                                                                                                                                                                |
 | Taking history back or forward                       | `undoWithSelection` / `redoWithSelection` / `undoAllWithSelection` / `discardAllEdits`, `src/builder/selection-history.ts`: a history step moves ids out from under the selection, so the step and the walk that catches the selection up are one act. Neither the top bar's buttons nor the Cmd-Z binding reaches for `engine.undo` itself                                                                                                                                               |
-| What the Tools pane offers as a command              | `src/ui/ToolCommands.tsx`: a command is an act that runs once, not a tool you sit in, so it is a text button in the wrapping row under the strip rather than a sixth icon square. `ToolCommandButton` holds all three rules — Build only, inert with a tooltip that says why, and a `confirm` exactly when the act cannot be taken back                                                                                                                                          |
-| Going back to where the buffer started               | two questions, not one. `Engine.undoAll` walks the history back and keeps it, offered on `canUndo`; `Engine.discardAllEdits` goes to the whole document the engine was built from and throws the history away, offered on `hasHistory`. The second reaches past the history's hundred-entry bound and past the fields `DocSnapshot` carries, which is why it is not a `BuilderIntent`                                                                                            |
+| What the Tools pane offers as a command              | `src/ui/ToolCommands.tsx`: a command is an act that runs once, not a tool you sit in, so it is a text button in the wrapping row under the strip rather than a sixth icon square. `ToolCommandButton` holds all three rules: Build only, inert with a tooltip that says why, and a `confirm` exactly when the act cannot be taken back                                                                                                                                             |
+| Going back to where the buffer started               | two questions, not one. `Engine.undoAll` walks the history back and keeps it, offered on `canUndo`. `Engine.discardAllEdits` goes to the whole document the engine was built from and throws the history away, offered on `hasHistory`. The second reaches past the history's hundred-entry bound and past the fields `DocSnapshot` carries, which is why it is not a `BuilderIntent`                                                                                             |
 | Whether an act may disturb a live capture            | the App's own `recording` state, read by every control that has to respect it (`ModeToggle`, `SaveOpenControls`, `LiveSturdyrefField`). A capture cannot outlive its connection, so an act that leaves Live is refused with the way out named. Stop and Discard are the only controls that end one                                                                                                                                                                              |
 | What the arrow keys move                             | `nudgeSelection`, `src/builder/selection-history.ts`: the nodes the stage lets you drag, a peer or an end nothing has attributed. A press that moves nothing hands the keystroke back and it scrubs time                                                                                                                                                                                                                                     |
 | Whether the document still holds an entity           | `documentHolds` in `src/interactions/selection-store.ts`, over `doc.entities`. An entity can be declared with no observation at all, and a peer added in Build is exactly that                                                                                                                                                                                                                                                     |
 | A modal dialog                                       | `Dialog` in `src/ui/Dialog.tsx` over the rules in `src/ui/dialog.ts`: one box, and one input contract. Everything else on the page goes inert while it is up, keystrokes stop at the panel rather than reaching the app's window listener, the pointer is claimed from the gesture router by `holdPointerForModal` so a gesture in flight cannot outrank the dialog, and Escape, Enter and Tab mean the same thing in every dialog |
 | What a picker offers                                 | the schema itself, in `src/schema/topology.ts`. A closed set is read off its own declaration (`Codec.options`, `CaptpVersion.options`, `SessionState.options`) and an open one off the list that names the offer (`PROFILE_OPTIONS`, `TRANSPORT_OPTIONS`). A picker never spells its own list, because a value added to the schema would then reach the document by one route and the picker by another                            |
-| What a value in the document means                   | the tables under `src/ui/reference/`, one per closed set, each keyed by the type the schema declares so a value added there cannot ship without an explanation. The Legend says which mark stands for a value and the Reference says what the value means; `REFERENCE_SECTIONS` in `src/ui/reference/Reference.tsx` is the list of sections                                                                                        |
+| What a value in the document means                   | the tables under `src/ui/reference/`, one per closed set, each keyed by the type the schema declares so a value added there cannot ship without an explanation. The Legend says which mark stands for a value and the Reference says what the value means. `REFERENCE_SECTIONS` in `src/ui/reference/Reference.tsx` is the list of sections                                                                                         |
 | Value display                                        | `src/ui/format.ts`, two roles: a fact reads at full fidelity (`formatTime`, `formatCoord`, `formatHexDump`), a moving readout reads coarse and stable (`formatClockTime`)                                                                                                                                                                                                                                                          |
 | What kind of evidence backs an attribution           | `ATTRIBUTION_STANDING` in `src/schema/session-end.ts`, beside the words it classifies. Two surfaces ask it and must not answer differently: `attributionChipStyle` in `src/ui/EntityChips.tsx` picks the chip's tone from it, and the Reference's attribution section ranks its rows by it. Whether a name was backed at all is a separate question from how far the netlayer can be trusted, which belongs to the transports section |
 | Which peer a session end claims                      | `claimedPeerByEnd` in `src/engine/claims.ts`, answered over the whole document so a designator two peers answer to resolves to nobody even when their lifetimes never overlap. Whether that claim is on stage at a moment is the separate question `claimsOnStage` answers                                                                                                                                                         |
-| What the Inspector says about a selection            | `SelectionFields` in `src/ui/inspector/SelectionPanel.tsx` over the pure facts in `selection-summary.ts`. A panel changes the selection only by handing a set to the host's `set-selection`; it never mutates one itself                                                                                                                                                                                                           |
+| What the Inspector says about a selection            | `SelectionFields` in `src/ui/inspector/SelectionPanel.tsx` over the pure facts in `selection-summary.ts`. A panel changes the selection only by handing a set to the host's `set-selection`. It never mutates one itself                                                                                                                                                                                                            |
 | What to call an entity in one line of running text   | `entityLabel` in `src/ui/inspector/SelectionPanel.tsx`, and `pickerLabelFor` / `pickerLabels` in `src/ui/inspector/picker-labels.ts` for a dropdown: lead with the human name, and add the id only when two options would read alike, then on every option in that list. The test is on the rendered string, not the underlying field, and a qualifier constant across the whole list is not a qualifier                           |
 | Which channel carries which fact                     | `src/render/palette.ts`. A fact keeps its channel across surfaces, so hue means identity everywhere and weight, alpha or lightness means state everywhere. A surface may change how a channel is realised, never which channel carries the fact                                                                                                                                                                                    |
 
@@ -129,12 +128,11 @@ names one authority. A change that cannot use the authority extends it in place.
   instead of doing nothing.
 - **One undo step per user gesture, and every edit is one.** A drag, a scrub, a
   wheel burst or a typing burst brackets its dispatches in one transaction.
-  Anything that changes the composition is an edit and takes an undo step;
-  anything that changes only your view of it — zoom, pan, the playhead, which
-  panes are open, which mode you are in — is not, and must leave the history
-  alone. `undo-coverage.test.ts` holds the first half, one case per intent, and
-  refuses to compile when an intent arrives without one.
-- **An equilibrium-preserving edit reuses; everything else derives cold.** The
+  Anything that changes the composition takes an undo step. Zoom, pan,
+  playhead position, open panes, and mode leave the history alone.
+  `undo-coverage.test.ts` holds the first half, one case per intent, and refuses
+  to compile when an intent arrives without one.
+- **Reuse layout only when the edit preserves its equilibrium.** The
   force layout is multi-stable, so re-annealing with a changed constraint can
   settle into a different arrangement even when nothing semantically moved. A
   pin landing where the era already has the peer keeps that layout

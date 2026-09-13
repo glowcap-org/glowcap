@@ -17,6 +17,13 @@ import { loadDiagnosticsPane, loadOperatorPane, prefetch } from "../chunks.ts";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
 import { SectionTitle } from "./Section.tsx";
+import { opsBrowserTroubleTitle } from "../../../lib/text/ops.ts";
+import {
+	opsDirectoryHoldingsLoading,
+	opsInspectPane,
+	opsOperatorPane,
+	opsOperatorStateLoading,
+} from "../../../lib/text/ops.ts";
 
 const OperatorPane = lazy(() => loadOperatorPane());
 const DiagnosticsPane = lazy(() => loadDiagnosticsPane());
@@ -34,17 +41,19 @@ export function DirectoryPane(
 		if (operatorHeld) prefetch(loadOperatorPane);
 		else if (inspectHeld) prefetch(loadDiagnosticsPane);
 	}, [operatorHeld, inspectHeld]);
-	const wait = operatorHeld ? "operator state" : "what this directory holds";
-	const crash = operatorHeld ? "operator pane" : "inspect pane";
+	const wait = operatorHeld ? opsOperatorStateLoading : opsDirectoryHoldingsLoading;
+	const crash = operatorHeld ? opsOperatorPane : opsInspectPane;
 	return (
 		<div className="ops-pane">
 			<ErrorBoundary part={crash}>
 				<Suspense fallback={<OpsLoading what={wait} />}>
 					{operatorHeld
-						? (operator === null ? <OpsLoading what="operator state" /> : <OperatorPane state={operator} />)
+						? (operator === null
+							? <OpsLoading what={opsOperatorStateLoading} />
+							: <OperatorPane state={operator} />)
 						: inspectHeld
 						? (rows === null
-							? <OpsLoading what="what this directory holds" />
+							? <OpsLoading what={opsDirectoryHoldingsLoading} />
 							: <DiagnosticsPane rows={rows} />)
 						: null}
 				</Suspense>
@@ -58,7 +67,7 @@ export function DirectoryPane(
 				   failure already says there is nothing to inspect. */
 					}
 					<section className="ops-section">
-						<SectionTitle>Browser trouble</SectionTitle>
+						<SectionTitle>{opsBrowserTroubleTitle}</SectionTitle>
 						<div className="group well" id="pageTrouble">
 							<ul className="ops-trouble">
 								{trouble.map((row, at) => (

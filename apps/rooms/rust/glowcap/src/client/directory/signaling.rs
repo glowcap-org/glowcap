@@ -7,7 +7,7 @@ mod state;
 pub use inbox::Inbox;
 pub use state::CleanupFailure;
 pub(crate) use state::Registry;
-use state::{wait, wake, State};
+use state::{State, wait, wake};
 
 pub struct Exchange<D: Tasks> {
 	client: Client<D>,

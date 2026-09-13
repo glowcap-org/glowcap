@@ -167,10 +167,10 @@ impl Commands {
 		if active.track {
 			ids.push(active.id.clone());
 		}
-		if let Some(resume) = &active.resume {
-			if !active.track || resume != &active.id {
-				ids.push(resume.clone());
-			}
+		if let Some(resume) = &active.resume
+			&& (!active.track || resume != &active.id)
+		{
+			ids.push(resume.clone());
 		}
 		ids
 	}
@@ -237,14 +237,14 @@ impl Operation {
 	/// reader's decision and are never resumed as a side effect of another act.
 	pub fn refreshed<'a>(&mut self, pending: impl IntoIterator<Item = Pending<'a>>) -> Result<(), Error> {
 		self.expect(Step::Refresh)?;
-		if self.intent.is_some() {
-			if let Some(pending) = pending.into_iter().find(|p| p.kind.as_str() != Some("external")) {
-				let id = OperationId::new(pending.id.clone()).ok_or(Error::Arguments)?;
-				self.owner.borrow_mut().active.as_mut().ok_or(Error::Step)?.resume = Some(id.clone());
-				self.resuming = Some((id, pending.subject.clone()));
-				self.step = Step::Resume;
-				return Ok(());
-			}
+		if self.intent.is_some()
+			&& let Some(pending) = pending.into_iter().find(|p| p.kind.as_str() != Some("external"))
+		{
+			let id = OperationId::new(pending.id.clone()).ok_or(Error::Arguments)?;
+			self.owner.borrow_mut().active.as_mut().ok_or(Error::Step)?.resume = Some(id.clone());
+			self.resuming = Some((id, pending.subject.clone()));
+			self.step = Step::Resume;
+			return Ok(());
 		}
 		self.step = Step::Issue;
 		Ok(())
@@ -326,11 +326,7 @@ impl Operation {
 	}
 	fn expect(&self, step: Step) -> Result<(), Error> {
 		self.open()?;
-		if self.step == step {
-			Ok(())
-		} else {
-			Err(Error::Step)
-		}
+		if self.step == step { Ok(()) } else { Err(Error::Step) }
 	}
 }
 impl Drop for Operation {

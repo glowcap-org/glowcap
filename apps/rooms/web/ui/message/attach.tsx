@@ -10,6 +10,17 @@ import { useRoomsSession } from "../controller/session.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { Said } from "../Said.tsx";
+import {
+	attachmentPlay,
+	attachmentRetry,
+	attachmentShow,
+	fileDownload,
+	fileDownloading,
+	fileLoading,
+	filePlay,
+	fileRetry,
+	fileUploading,
+} from "../../../lib/text/page.ts";
 /** The shape a picture or a video will take, from what its sender measured.
  * Reserving it before the bytes arrive is what keeps a log of media from
  * shoving every line below it down the page as each one loads; without a
@@ -78,7 +89,7 @@ function TransferStatus(
 			<span
 				className="sub"
 				role="progressbar"
-				aria-label={`${mine ? "Uploading" : "Downloading"} ${file.name}`}
+				aria-label={mine ? fileUploading(file.name) : fileDownloading(file.name)}
 				aria-valuenow={pct}
 				aria-valuemin={0}
 				aria-valuemax={100}
@@ -111,7 +122,7 @@ function MediaPlaceholder(
 	const coming = loading ||
 		(kind === "image" && file.size <= AUTO_IMAGE_BYTES && file.error === undefined);
 	const failed = file.error !== undefined;
-	const verb = failed ? "Retry" : kind === "video" ? "Play" : "Show";
+	const verb = failed ? attachmentRetry : kind === "video" ? attachmentPlay : attachmentShow;
 	return (
 		<div
 			// Light travels across a tile whose bytes are on the way. One that
@@ -125,7 +136,7 @@ function MediaPlaceholder(
 					<span
 						className="pct"
 						role="progressbar"
-						aria-label={`Loading ${file.name}`}
+						aria-label={fileLoading(file.name)}
 						aria-valuenow={pct}
 						aria-valuemin={0}
 						aria-valuemax={100}
@@ -146,7 +157,7 @@ function MediaPlaceholder(
 							onClick={() => session.openFile(convKey, id)}
 						>
 							<Icon name={failed ? "retry" : kind === "video" ? "play" : "image"} />
-							<span>{failed ? "Retry" : fileSize(file.size)}</span>
+							<span>{failed ? attachmentRetry : fileSize(file.size)}</span>
 						</button>
 						{failed && file.error !== undefined && (
 							<Said as="span" className="why" kind="failure">{file.error}</Said>
@@ -209,7 +220,7 @@ function AttachedMedia(
 				<span
 					className="upload"
 					role="progressbar"
-					aria-label={`Uploading ${file.name}`}
+					aria-label={fileUploading(file.name)}
 					aria-valuenow={pct}
 					aria-valuemin={0}
 					aria-valuemax={100}
@@ -242,7 +253,7 @@ function AttachedAudio(
 			{file.lost !== true && (
 				<IconButton
 					icon={file.error !== undefined ? "retry" : "play"}
-					label={file.error !== undefined ? `Retry ${file.name}` : `Play ${file.name}`}
+					label={file.error !== undefined ? fileRetry(file.name) : filePlay(file.name)}
 					disabled={loading}
 					onClick={() => session.openFile(convKey, id)}
 				/>
@@ -286,7 +297,7 @@ function AttachedFile(
 			{file.lost !== true && (
 				<IconButton
 					icon={file.error !== undefined ? "retry" : "download"}
-					label={file.error !== undefined ? `Retry ${file.name}` : `Download ${file.name}`}
+					label={file.error !== undefined ? fileRetry(file.name) : fileDownload(file.name)}
 					variant="outline"
 					tone="neutral"
 					disabled={loading}

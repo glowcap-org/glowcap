@@ -3,15 +3,12 @@ use super::policy::RoomPolicy;
 use alloc::string::String;
 use sha2::{Digest, Sha256};
 
-pub const GOVERNS: &str = "governs";
-pub const MANAGED_IDENTITY: &str = "managedRoomIdentity";
-pub const LINK: &str = "link";
+pub use crate::protocol_data::{GOVERNS, KICK, LINK, MANAGED_ROOM_IDENTITY as MANAGED_IDENTITY};
 pub const GIVE_STEWARD: &str = "giveSteward";
 pub const REVOKE_STEWARD: &str = "revokeSteward";
 pub const REVOKE_ROOM_LINK: &str = "revokeRoomLink";
 pub const UNREGISTER_ROOM: &str = "unregisterRoom";
 pub const SET_POLICY: &str = "setRoomPolicy";
-pub const KICK: &str = "kick";
 pub const REQUEST_TIMEOUT_MS: u64 = 15_000;
 
 pub trait Reply {
@@ -91,13 +88,7 @@ pub fn room_identity(token: &str) -> Result<String, Refusal> {
 	hash.update(b"glowcap.rooms.room-authority\0");
 	hash.update(token.as_bytes());
 	let bytes = hash.finalize();
-	let mut result = String::with_capacity(64);
-	const HEX: &[u8; 16] = b"0123456789abcdef";
-	for byte in bytes {
-		result.push(HEX[(byte >> 4) as usize] as char);
-		result.push(HEX[(byte & 15) as usize] as char);
-	}
-	Ok(result)
+	Ok(crate::fields::lower_hex(&bytes))
 }
 
 pub struct StewardGrant<'a> {

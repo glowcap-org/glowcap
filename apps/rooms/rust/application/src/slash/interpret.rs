@@ -163,11 +163,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 					effect(
 						"away",
 						if empty(&text) {
-							if context.away {
-								"".into()
-							} else {
-								"away".into()
-							}
+							if context.away { "".into() } else { "away".into() }
 						} else {
 							text
 						},

@@ -13,6 +13,8 @@ import type { RoomsSessionIssue } from "../../../lib/session/client.ts";
 import type { OperatorReferenceKind } from "../../../lib/operator.ts";
 import type { RoomsPageContext } from "../page.ts";
 import { persistCurrentWorkspace } from "../workspace_state.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { capabilitySetSaveRefused, roomNoLongerAvailable } from "../../../lib/text/attached.ts";
 
 export type AttachedOperationsActions = Pick<
 	RoomsSessionController,
@@ -48,7 +50,7 @@ export interface AttachedOperations {
 }
 
 function errorText(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return refusalText(error);
 }
 
 /** Read failures already owned by durable capability or directory state. They
@@ -73,7 +75,7 @@ function capabilityFromIssue(issue: RoomsSessionIssue): OpsCap | null {
 	if (!issue.subject.startsWith("capability:")) return null;
 	const capability = issue.subject.slice("capability:".length).split("\0", 1)[0];
 	return capability === "listeners" || capability === "diagnostics" || capability === "irc" ||
-			capability === "operator" || capability === "peering" || capability === "viz"
+			capability === "operator" || capability === "peering" || capability === "trace"
 		? capability
 		: null;
 }
@@ -94,7 +96,7 @@ export function attachedOperations(
 		else if (capability === "listeners") store.setListeners(projection, null);
 		else if (capability === "diagnostics") store.setDiagnostics(projection, null);
 		else if (capability === "irc") store.setIrcGateway(projection, null);
-		else if (capability === "viz") store.setVizPublish(projection, null);
+		else if (capability === "trace") store.setTracePublish(projection, null);
 		else store.setPeering(projection, null);
 	};
 	controller.onOperationsRead((result) => {
@@ -117,8 +119,8 @@ export function attachedOperations(
 			if (snapshot.capability === "listeners") store.setListeners(projection, snapshot.rows);
 			else if (snapshot.capability === "diagnostics") store.setDiagnostics(projection, snapshot.rows);
 			else if (snapshot.capability === "irc") store.setIrcGateway(projection, snapshot.gateway);
-			else if (snapshot.capability === "viz") {
-				store.setVizPublish(projection, {
+			else if (snapshot.capability === "trace") {
+				store.setTracePublish(projection, {
 					url: snapshot.url,
 					connected: snapshot.connected,
 					refusal: snapshot.refusal,
@@ -134,7 +136,7 @@ export function attachedOperations(
 	const refreshOperator = (search?: string, referenceKind: OperatorReferenceKind | null = null): Promise<void> =>
 		refresh("operator", search, referenceKind);
 	const refreshCapability = (capability: "listeners" | "diagnostics" | "irc") => refresh(capability);
-	const refreshViz = () => refresh("viz");
+	const refreshTrace = () => refresh("trace");
 	const refreshPeering = () => refresh("peering");
 	const refreshAll = async (wanted: ReadonlySet<OpsCap>, unavailable: ReadonlySet<OpsCap>): Promise<void> => {
 		const attempts: readonly [OpsCap, () => Promise<void>][] = [
@@ -142,7 +144,7 @@ export function attachedOperations(
 			["diagnostics", () => refreshCapability("diagnostics")],
 			["irc", () => refreshCapability("irc")],
 			["operator", () => refreshOperator()],
-			["viz", refreshViz],
+			["trace", refreshTrace],
 			["peering", refreshPeering],
 		];
 		for (const [capability] of attempts) if (!wanted.has(capability)) clearCapability(capability);
@@ -229,7 +231,7 @@ export function attachedOperations(
 			},
 			publishPeeredRoom: async (key, name) => {
 				const room = store.getConv(projection, key);
-				if (room?.type !== "room") return "That room is no longer available.";
+				if (room?.type !== "room") return roomNoLongerAvailable;
 				return await actionResult(async () => {
 					await controller.runOperation("peering", "publish", [room.persistId, name]);
 					await refreshPeering();
@@ -244,7 +246,7 @@ export function attachedOperations(
 				if (capability === "operator") await refreshOperator();
 				else if (capability === "listeners" || capability === "diagnostics" || capability === "irc") {
 					await refreshCapability(capability);
-				} else if (capability === "viz") await refreshViz();
+				} else if (capability === "trace") await refreshTrace();
 				else if (capability === "peering") await refreshPeering();
 			},
 			readOpsBundle: () => Promise.resolve(readBundle()),
@@ -255,13 +257,11 @@ export function attachedOperations(
 					const checkpoint = controller.current?.checkpoint;
 					if (checkpoint == null) throw new Error("The shared session is not available.");
 					const { context } = attachedOperationsView(checkpoint);
-					const advertised = draft.has("viz") ? await prefs.advertisedViz() ?? "" : "";
+					const advertised = draft.has("trace") ? await prefs.advertisedTrace() ?? "" : "";
 					await controller.replaceOperationsBundle(raw, advertised, context);
 					const settled = await controller.refreshSnapshot();
 					if (!persistCurrentWorkspace(page)) {
-						throw new Error(
-							"The capability set changed, but this browser refused to save it. Retry Save before reloading.",
-						);
+						throw new Error(capabilitySetSaveRefused);
 					}
 					const failures = settled.issues.flatMap((issue) => {
 						const capability = capabilityFromIssue(issue);

@@ -1,3 +1,4 @@
+// Capability bundles keep one canonical editable draft and never silently discard labelled values.
 import "./support/browser_application.ts";
 import { formatOpsBundle, opsBundleReady, parseOpsBundle, parseOpsBundleDraft } from "../web/ui/ops/bundle.ts";
 import { assertEquals } from "./assert.ts";
@@ -5,15 +6,15 @@ import { assertEquals } from "./assert.ts";
 Deno.test("the server capability block is accepted without its other output", () => {
 	const parsed = parseOpsBundle(`
 rooms: ready
-ROOMS-VIZ-LISTENING ocapn://127.0.0.1.tcp/s/not-the-viz-swiss
+ROOMS-TRACE-LISTENING ocapn://127.0.0.1.tcp/s/not-the-trace-swiss
 ROOMS-ADMIN-LISTENERS listeners-swiss
 ROOMS-DIAGNOSTICS diagnostics-swiss
 ROOMS-IRC irc-swiss
 ROOMS-OPERATOR operator-swiss
 ROOMS-PEERING peering-swiss
-ROOMS-VIZ viz-swiss
+ROOMS-TRACE trace-swiss
 `);
-	assertEquals([...parsed.keys()].join(","), "listeners,diagnostics,irc,operator,peering,viz");
+	assertEquals([...parsed.keys()].join(","), "listeners,diagnostics,irc,operator,peering,trace");
 	assertEquals(parsed.get("operator"), "operator-swiss");
 });
 

@@ -1,7 +1,7 @@
 use rooms_application::documents::WriteFailure;
 use rooms_application::grants::{
-	derive_entropy, Access, ApplyError, Change, Command, Error, GrantLedger, GrantStorage, PolicyPatch, Rights,
-	MAX_ACTIVE_GRANTS, MAX_DOCUMENT_BYTES, MAX_LIFETIME_GRANTS,
+	Access, ApplyError, Change, Command, Error, GrantLedger, GrantStorage, MAX_ACTIVE_GRANTS, MAX_DOCUMENT_BYTES,
+	MAX_LIFETIME_GRANTS, PolicyPatch, Rights, derive_entropy,
 };
 use serde_json::json;
 
@@ -311,8 +311,8 @@ fn limits() {
 fn documents() {
 	let record = json!({ "id": id(1), "label": " Phone ", "rights": "interact",
 		"history": false, "suspended": false, "note": "", "revoked": false });
-	// Written by the historical TypeScript grant owner, not reconstructed from
-	// the Rust serializer. These remain compatibility inputs.
+	// Written by the shared grant contract, not reconstructed from
+	// the Rust serializer. They independently pin the current document contract.
 	let bytes = include_bytes!("../fixtures/grants-v1.json");
 	let fixture: serde_json::Value = serde_json::from_slice(bytes).unwrap();
 	let ledger = GrantLedger::restore(bytes).unwrap();
@@ -383,7 +383,7 @@ fn documents() {
 }
 
 fn derivation() {
-	// HMAC-SHA256 vector independently computed over the historical TypeScript
+	// HMAC-SHA256 vector independently computed over the shared
 	// derivation's exact bytes and 16-byte truncation.
 	let expected = [
 		0x98, 0x09, 0x15, 0x85, 0x94, 0xad, 0xa3, 0x8d, 0xa4, 0x1f, 0x23, 0xb2, 0x0c, 0x34, 0xdb, 0xb7,

@@ -1,14 +1,14 @@
 //! Shared runtime and TCP fixtures for the Session scenario leaves.
 
 pub(super) use super::super::*;
-pub(super) use crate::sys;
-pub(super) use crate::sys::host as ffi;
-pub(super) use crate::tcp;
 pub(super) use crate::AbortDomain;
 pub(super) use crate::Codec;
 pub(super) use crate::ErrorKind;
 pub(super) use crate::Host;
 pub(super) use crate::Ref;
+pub(super) use crate::sys;
+pub(super) use crate::sys::host as ffi;
+pub(super) use crate::tcp;
 pub(super) use crate::{ConnectOptions, RuntimeConfig};
 pub(super) use std::cell::Cell;
 pub(super) use std::sync::atomic::{AtomicUsize, Ordering};

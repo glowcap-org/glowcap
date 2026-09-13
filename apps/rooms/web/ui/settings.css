@@ -117,8 +117,8 @@ html:has(.app.covered) {
    The rows hold their own height for the second half of the same problem. A
    flex column that can shrink its items will do that before it scrolls, so the
    scroll never engages and the panel inside is squashed instead, by an amount
-   each engine works out for itself. Held to their content, the body scrolls,
-   which is what `overflow-y` was asked for. */
+   each engine works out for itself. Held to their content, the body scrolls
+   as `overflow-y` requires. */
 .modal-card {
 	box-sizing: border-box;
 	width: min(var(--card-panel), 100%);
@@ -147,7 +147,7 @@ html:has(.app.covered) {
 	position: relative;
 }
 /* The rows, and the only thing here that scrolls.
-   The card around it does not, which is what lets the cap above be an ordinary
+   The card around it does not scroll, so the cap above can be an ordinary
    absolute box: a cap inside the scrolling area has to be held in place against
    a scroll position every frame, and it is only ever as still as that
    arithmetic, which is not still at all while a scroll runs past its end and
@@ -332,40 +332,6 @@ html:has(.app.covered) {
 .modal-card [role="tabpanel"] {
 	display: contents;
 }
-/* The way into the parts catalog: the word "secret" in the glossary is the
-   door — tappable and focusable, and only the cursor gives it away. A
-   development surface earns an easter egg's affordance, not a button's. */
-.secret-door {
-	all: unset;
-	font: inherit;
-	color: inherit;
-	cursor: pointer;
-}
-/* The ring is the base rule's; this only rounds the corners it follows. */
-.secret-door:focus-visible {
-	border-radius: 4px;
-}
-.glossary {
-	display: flex;
-	flex-direction: column;
-	gap: var(--gap-group);
-	margin: 0;
-}
-.glossary > div {
-	display: flex;
-	flex-direction: column;
-	gap: var(--gap-line);
-}
-.glossary dt {
-	font-size: var(--type-ui);
-	font-weight: 700;
-}
-.glossary dd {
-	margin: 0;
-	font-size: var(--type-ui);
-	color: var(--ink-soft);
-	line-height: 1.45;
-}
 /* A refusal tucks up under the question it answers rather than sitting on a
    line of its own. Colour and weight live on `.said`.
 
@@ -454,7 +420,7 @@ html:has(.app.covered) {
 	width: min(var(--card-pair), 100%);
 }
 /* Handing an archive account over is a name, two questions and an act: one
-   column of questions, which is what the default step is for, so it names no
+   column of questions. The default step serves that shape, so it names no
    step of its own.
 
    Attaching a session and naming an archive peer are rows instead, each a

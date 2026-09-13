@@ -215,12 +215,19 @@ export class RoomsSessionClient extends RoomsSessionCommandClient {
 		conversationId: string,
 		caption: string,
 		files: AttachmentSource[],
+		previewUrls: readonly string[] = [],
 	): Promise<number> {
 		const raw = await sendWithAttachments(
 			this.session,
 			this.capability,
 			ROOMS_SESSION_FILES,
-			[operationId, BigInt(baseRevision), conversationId, caption],
+			[
+				operationId,
+				BigInt(baseRevision),
+				conversationId,
+				caption,
+				JSON.stringify(previewUrls),
+			],
 			files,
 		);
 		return sessionRevision(raw, "file-send");

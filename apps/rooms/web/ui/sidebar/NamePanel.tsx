@@ -16,6 +16,8 @@ import { roomMarkGlyph } from "../room_mark.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
 import { nextRoomPreset, type RoomPreset } from "../room_policy.ts";
+import { joinAccessLabel, roomAccessFixedLabel, roomNamePlaceholder } from "../../../lib/text/join.ts";
+import { railChange, railChangeDirectory, railIn } from "../../../lib/text/rail.ts";
 
 /** One "+" and the field under it, wherever it is being held.
  *
@@ -167,7 +169,6 @@ export function NamePanel(
 	// keeps its own ephemeral state, which closing still empties.
 	const value = link?.value ?? localValue;
 	const roomPreset = link?.roomPreset ?? localRoomPreset;
-	const secret = roomPreset === "private";
 	const setValue = link?.onValue ?? setLocalValue;
 	const setRoomPreset = link?.onRoomPreset ?? setLocalRoomPreset;
 	const showing = open && canAdd;
@@ -214,6 +215,11 @@ export function NamePanel(
 			setLocalValue("");
 			setLocalRoomPreset("open");
 		}
+		// On the panel opening and closing alone. `link` is read at that moment
+		// rather than depended on: re-running when it moves would clear a value
+		// somebody is part way through typing, which is the opposite of what
+		// closing the panel is being asked to do here.
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the open/close edge, reads the rest as it stands
 	}, [showing]);
 
 	// The other form counts as inside, so a press over there leaves this panel
@@ -248,7 +254,7 @@ export function NamePanel(
 			<input
 				id={id + "Input"}
 				ref={field}
-				placeholder={secret ? "private room name" : placeholder}
+				placeholder={canChooseAccess === true ? roomNamePlaceholder(roomPreset) : placeholder}
 				enterKeyHint="go"
 				aria-label={label}
 				maxLength={max}
@@ -346,8 +352,8 @@ export function NamePanel(
 					icon={roomPreset === "private" ? "lock" : roomPreset === "moderated" ? "observer" : "group"}
 					className="newroom-private"
 					label={link?.accessFixed === true
-						? `Room access: ${roomPreset}. Not this session's to change.`
-						: `Room access: ${roomPreset}. Change to ${nextRoomPreset(roomPreset)}.`}
+						? roomAccessFixedLabel(roomPreset)
+						: joinAccessLabel(roomPreset, nextRoomPreset(roomPreset))}
 					size="small"
 					variant="ghost"
 					disabled={link?.accessFixed === true}
@@ -383,8 +389,7 @@ export function NamePanel(
 					aria-expanded={picks !== undefined ? picking : undefined}
 					// Both halves are said out loud here, because a reader using the
 					// accessible name gets no separator to tell them apart.
-					aria-label={"Change directory. This " + noun.replace(/ name$/, "") + " is going in " +
-						where.name}
+					aria-label={railChangeDirectory(noun.replace(/ name$/, ""), where.name)}
 					// The field's blur closes this panel, so a press that moved focus
 					// would take its own target away before it landed. Preventing the
 					// pointer's default keeps the caret in the field; it suppresses
@@ -412,16 +417,16 @@ export function NamePanel(
 					}}
 				>
 					<Icon name="directory" size={12} />
-					<span className="rwhere-said">in {where.name}</span>
-					<span className="rwhere-change">Change</span>
+					<span className="rwhere-said">{railIn} {where.name}</span>
+					<span className="rwhere-change">{railChange}</span>
 				</Button>
 			)}
 			{picks !== undefined && picking && (
 				<MenuLayer holder={panel} layer={layer} owner={id}>
 					{picks(() => {
 						setPicking(false);
-						// Back to the name being typed, which is what the reader was
-						// doing before they said where it lands.
+						// Return to the name being typed. That is where the reader was
+						// before they said where it lands.
 						field.current?.focus();
 					})}
 				</MenuLayer>

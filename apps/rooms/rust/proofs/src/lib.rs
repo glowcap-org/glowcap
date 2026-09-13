@@ -1,9 +1,10 @@
-//! Executable migration contracts. These are proof entry points, not a Rooms
+//! Executable application contracts. These are proof entry points, not a Rooms
 //! UI API or a second production glowcap binding.
 // The binding owns archive composition and target layouts on both hosts.
 mod archive;
 mod archive_blobs;
 mod archive_disk;
+mod archive_documents;
 mod archive_host;
 mod archive_identity;
 mod archive_merge;
@@ -54,8 +55,8 @@ mod sources;
 mod stewardship;
 mod workspace;
 
-#[no_mangle]
-pub extern "C" fn rooms_migration_contract() -> u32 {
+#[unsafe(no_mangle)]
+pub extern "C" fn rooms_contract_proof() -> u32 {
 	binding::run();
 	archive::run();
 	archive_disk::run();
@@ -63,6 +64,7 @@ pub extern "C" fn rooms_migration_contract() -> u32 {
 	archive_shares::run();
 	archive_identity::run();
 	archive_merge::run();
+	archive_documents::run();
 	archive_recording::run();
 	archive_host::run();
 	authority_client::run();
@@ -108,5 +110,5 @@ pub extern "C" fn rooms_migration_contract() -> u32 {
 
 #[test]
 fn shared_application_and_static_host() {
-	assert_eq!(rooms_migration_contract(), 1);
+	assert_eq!(rooms_contract_proof(), 1);
 }

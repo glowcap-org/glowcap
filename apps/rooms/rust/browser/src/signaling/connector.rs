@@ -3,7 +3,7 @@
 use super::dial;
 use crate::ice;
 use glowcap::{Connector, DialOrigin};
-use rooms_glowcap::client::{directory::Directory, Deadline, Tasks};
+use rooms_glowcap::client::{Deadline, Tasks, directory::Directory};
 use std::io;
 
 /// Select from the application's existing directory inventory before starting

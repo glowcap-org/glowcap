@@ -14,6 +14,7 @@ positional call, then a repeat ``enliven`` of the same swiss-num. Needs
 from __future__ import annotations
 
 import asyncio
+import gc
 import sys
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from helpers import fail, insert_bindings_path, parse_port, read_sturdyref_path 
 
 insert_bindings_path()
 
-from glowcap import Runtime, format_locator_uri, tcp  # noqa: E402
+from glowcap import Ref, Runtime, format_locator_uri, tcp  # noqa: E402
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-interop", 22097)
 RACKET = "racket"
@@ -91,6 +92,28 @@ async def converse() -> None:
             print(
                 "python-goblins-interop: repeat enliven same import (dedup), second call resolved"
             )
+
+            probe = await session.fetch("glowcapGcProbeSwissnumABCDEF1234")
+            made = await session.send(probe, "make", [])
+            if (
+                not isinstance(made, list)
+                or len(made) != 2
+                or not all(isinstance(cap, Ref) for cap in made)
+            ):
+                fail("python-goblins-interop", "GC probe did not return two capabilities")
+            first, second = made
+            session.release(first)
+            if (
+                await session.send(second, "read", []) != "still held"
+                or await session.send(probe, "collected?", []) is not False
+            ):
+                fail("python-goblins-interop", "releasing one occurrence lost the held capability")
+            session.release(second)
+            async with asyncio.timeout(5):
+                while await session.send(probe, "collected?", []) is not True:
+                    gc.collect()
+            session.release(probe)
+            print("python-goblins-interop: Goblins reclaimed the released object with the session open")
 
             print(
                 "python-goblins-interop OK: keyed handshake + enliven/dedup + echo "

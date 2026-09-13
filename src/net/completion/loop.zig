@@ -6,7 +6,8 @@
 //! partial frame tails, queue partial writes, park reads behind the outbound
 //! high-water mark (ADR-0042), and close connections. That orchestration knows
 //! nothing about the operating system. The platform-specific completion primitive
-//! is supplied by a `Backend`, such as io_uring on Linux or kqueue on macOS/BSD.
+//! is supplied by a `Backend`, such as Linux's io_uring/epoll selector or
+//! kqueue on macOS/BSD.
 //! Adding a backend does not change this loop.
 //!
 //! The native TCP backends default their listener to `127.0.0.1`. Embedders that

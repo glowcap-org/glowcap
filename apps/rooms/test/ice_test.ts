@@ -1,5 +1,6 @@
+// ICE deployment parsing preserves defaults and validates bounded STUN and credentialed TURN entries.
 import { WEBRTC_MAX_ICE_CREDENTIAL_BYTES, WEBRTC_MAX_ICE_SERVERS, WEBRTC_MAX_ICE_URL_BYTES } from "@glowcap/abi";
-import { decodeIceServers, iceServersFrom } from "../lib/ice.ts";
+import { decodeIceServers, iceServersFrom } from "./support/ice.ts";
 import { assertEquals } from "./assert.ts";
 
 function throwsContaining(run: () => unknown, text: string): void {

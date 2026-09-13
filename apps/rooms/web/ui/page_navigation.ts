@@ -4,21 +4,26 @@ import { actLocator } from "./page_bootstrap.ts";
 import type { RoomsPageContext } from "./page.ts";
 import type { DirId, MemberRef } from "./types.ts";
 import type { Reach } from "./intent.ts";
-import { implied, named } from "./intent.ts";
-import { dirAddress } from "./page_bootstrap.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
+import { notificationsBlocked, notificationsUnsupported } from "../../lib/text/attached.ts";
 export { dirAddress, directoryId } from "./page_bootstrap.ts";
 export { addFiles } from "./composer/files.ts";
 
-/** A cold address supplies the join form's room. Once a nickname is chosen,
- * the same address is a selection gesture handled by the session owner. */
-export function showRoom(page: RoomsPageContext, session: RoomsSessionController, dir: DirId, name: string): void {
+/** Pick a room a cold address names, once there is a nickname to enter it
+ * with; the session owner handles the selection. Answers false when there is
+ * not, and files nothing: the caller says where the reader landed instead, and
+ * the card's own route reads that address and files the act. One route files
+ * acts, so an address and the card under it cannot say two different things. */
+export function showRoom(
+	page: RoomsPageContext,
+	session: RoomsSessionController,
+	dir: DirId,
+	name: string,
+): boolean {
 	const existing = store.existingRoom(page.projection, dir, name);
-	if (existing != null || store.requestedDirNick(page.projection, dir) !== "") {
-		session.pickRoom(dir, name, existing?.key);
-		return;
-	}
-	reachFor(page, { source: "link", room: named(name), locator: implied(dirAddress(page, dir)) });
+	if (existing == null && store.requestedDirNick(page.projection, dir) === "") return false;
+	session.pickRoom(dir, name, existing?.key);
+	return true;
 }
 
 export function reachFor(page: RoomsPageContext, act: Reach): void {
@@ -55,12 +60,12 @@ export async function toggleNotify(page: RoomsPageContext): Promise<string | nul
 		return null;
 	}
 	if (!("Notification" in globalThis)) {
-		return "This browser can't show desktop notifications";
+		return notificationsUnsupported;
 	}
 	let permitted = Notification.permission;
 	if (permitted === "default") permitted = await Notification.requestPermission();
 	if (permitted !== "granted") {
-		return "Notifications are blocked in your browser settings";
+		return notificationsBlocked;
 	}
 	store.setNotify(page.projection, true);
 	return null;

@@ -61,36 +61,27 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
   same-key session or stages the concrete routes through the pending-dial waist. Host `fetchAt` exposes the same route
   owner for a named publication from a typed locator; applications choose neither CapTP version nor codec for that
   operation.
-- `zig build rooms-chat-build` installs the native interactive client.
-  `zig build rooms-chat -- <locator> <room> <nick>` runs it as an interactive
-  Rooms client. Its installed-process scenario covers TCP and iroh, live listing
-  and traffic, refused-switch preservation, oversized input, EOF and signals.
-  The Deno interactive chat entrypoint has been removed.
-- `zig build rooms-web-operations-refresh` exercises Rust operations pagination,
-  search, capability removal and reload on the production browser page.
+- **Rooms.** The Rooms application composes the protocol above into a chat
+  product. One Rust implementation owns room and directory policy, durable
+  authority, the session and its recovery, files, archives, operations,
+  peering, IRC, and the bounded CommonMark message projection. It runs as
+  the room server, the session service, the archive service, the web front,
+  and the two IRC edges. It also runs in the browser as Wasm linked with
+  glowcap's Zig Host in one module, where React renders what Rust observes.
+  A message keeps its authored source on the wire and in archives. Raw HTML
+  stays inert, remote images never load on their own, and links carry only
+  approved schemes. Link previews are a validated selection of at most five
+  URLs, fetched by readers through a redirect- and private-address-safe
+  same-origin service. Room history is kept in files or PostgreSQL under one
+  index. The [Rooms page](../apps/rooms/README.md) is the way in, and
+  [operating Rooms](../apps/rooms/operating.md) owns the grants, the
+  services, and the limits. Operations credentials follow the retry class of
+  their failure, IRC numerics follow stable failure codes, and direct cleanup
+  distinguishes a departed registration from a partner whose close stalled.
 
-- **Rooms.** The Rooms application composes the protocol above into a product.
-  Portable Rust owns room and directory policy, persistent authority, workspace
-  intent, session recovery, commands and outcome reconciliation, files, archives,
-  operations, peering and IRC. Rust runs every server and session-peer process.
-  The production browser links that application with glowcap's Zig Host in one
-  Wasm module for local, hosted and attached sessions; React supplies reader
-  gestures and renders typed observations. A gesture, its admitted intent, and
-  its asynchronous outcome remain distinct: generations and operation identities
-  prevent a stale completion from clearing newer input, moving the current view,
-  or reviving retired authority. Expected failures retain typed codes and recovery
-  advice; unexpected worker, adapter and cleanup failures reach a generic retained
-  owner. Bounded queues refuse pressure before mutation, ambiguous effects remain
-  recoverable, and shutdown joins admitted work. Native services provide the room
-  server, durable sessions and archives, HTTP front, relay and readiness,
-  visualization, PostgreSQL history, Tor/onion startup, and both IRC edges.
-  Browser integration covers reconnect, shared sessions, files, archive retention,
-  operations, direct messages, WebRTC, relays, TCP and iroh forwarding, and live
-  visualization. [The Rooms page](../apps/rooms/README.md) owns the feature
-  inventory, [operating Rooms](../apps/rooms/operating.md) owns recovery and
-  deployment bounds, and the historical
-  [Rust migration record](planning/rooms-rust.md) names the evidence. No migration
-  performance improvement is claimed.
+- **Distributed reclamation.** Native Zig and all four language bindings hold two handles to one Goblins
+  object, release them independently, and observe Goblins reclaim it before closing the session.
+  Keeping an export or call answer alive prevents that weak-reference proof from succeeding.
 
 - **Three-party handoff.** A capability received from one peer can be returned or passed recursively to another. Inbound
   signed gives become Host-owned promises immediately. Outbound foreign objects and promises wait as one bounded
@@ -98,6 +89,8 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
   can commit. Core and C Host cover terminal failure. Node-local routes use an explicit reference arm, so every `u64`
   remains available to a peer as a wire import and an unlowered route is structurally refused by codecs. The recurring
   Deno, Python, Rust, and Racket gifter matrix proves two nested gives against live Goblins.
+  The recurring iroh handoff proof also puts Goblins in the gifter and exporter roles and verifies
+  direct redemption after the exporter's advertised routing advice changes.
 
 - **Relayed promise settlement.** When a shared home promise settles, its complete Passable value crosses Host identity
   once. Each recipient reuses the bounded Passable transaction. Nested objects become gives, and nested promises become
@@ -116,9 +109,9 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
   [ADR-0116](decisions/adr/ADR-0116-inline-passable-handoff.md)).
 - **Identity.** A session can report the identity its handshake established. On `driver.Session`, the C ABI, Wasm, and
   the bindings, every application capability is one opaque Host-scoped identity
-  ([ADR-0096](decisions/adr/ADR-0096-host-scoped-capability-identity.md)). Repeated lifts on one live exporter session —
-  including a target reached directly and through three-party handoff — converge on that identity. C compares the opaque
-  ids; Rust, Python, and Racket use their native equality operations, and TypeScript uses `Ref.equals` because each
+  ([ADR-0096](decisions/adr/ADR-0096-host-scoped-capability-identity.md)). Repeated lifts on one live exporter session
+  converge on that identity, including a target reached directly and through three-party handoff. C compares the opaque
+  ids. Rust, Python, and Racket use their native equality operations. TypeScript uses `Ref.equals` because each
   wrapper occurrence independently owns one native retain. Release state is not part of equality. Wire positions surface
   only on the low-level `engine.Peer` and `BlockingSession` tiers.
 - **Publication.** Each session reaches the Host's shared Vat through its own Port. Publishing changes discovery only;
@@ -230,10 +223,16 @@ a capability.
 The native TCP completion path has held 500,000 authenticated sessions live in one release-mode server process. Each
 session completed its signed handshake and fetched a published capability before the measurement barrier. The repeatable
 machine, memory, timing, and namespace setup are recorded in [the 1.0 ladder](ladder.md#2-performance-at-scale); the
-cheap eight-session form runs under `zig build check` so the two-process harness stays live. Its listener defaults to
+cheap eight-session form runs under `zig build runtime-check` so the two-process harness stays live without overlapping
+another process family. Its listener defaults to
 `127.0.0.1`; `net.Backend.initWithListenerIp4` selects an interface address or `0.0.0.0` before the backend enters
 `TcpLoop`. The loop then exposes the exact kernel-bound IPv4 address and resolved port. A runtime test binds the
-wildcard address and reaches it through loopback, while the Darwin build checks the same API against kqueue.
+wildcard address and reaches it through loopback, while the Darwin build checks the same API against kqueue. Linux
+prefers io_uring and falls back to epoll when the kernel or host policy cannot support glowcap's io_uring backend.
+Both paths keep the loop-wide bounded read pool. `net.tcpBackendStatus` exposes the choice and reason through the TCP,
+onion, keyed-relay, Noise, and iroh loop compositions. The many-sessions example and Rooms peer write the selected
+backend to their own diagnostic streams. The recorded 500,000-session result used io_uring. Epoll passes the
+completion-loop behavior tests but has no matching scale result.
 
 `noise-tcp` and `noise-relay` run ADR-0107's Noise_XK channel on the byte-fed Host and native tiers; `BlockingSession`
 refuses both symbols. The optional native relay module composes `ws` and `wss` over one provider, while browser-managed
@@ -261,92 +260,29 @@ the call arrived on, so a peer with no listening socket can still receive replie
 - `zig build` installs the `glowcap` command. It can listen, call, fetch, enliven, run an interactive CapTP lab, serve a
   curated MCP interface, and join a rooms session.
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
-- The [Rooms application](../apps/rooms/) exercises browser and terminal peers with durable workspaces. Its chat
-  paths cover rooms and direct messages with files, WebRTC and Noise-sealed relay rendezvous, retained room history,
-  and member-owned archives read as one combined account
-  ([ADR-0144](decisions/adr/ADR-0144-combined-archive-views.md)). IRC edges, directory peering, diagnostics, and
-  revocable operator capabilities complete its operating surface. Its archive peer, session peer, and room server run
-  Rust with durable identity, TCP/iroh/onion and draining shutdown, the room server answering listener, diagnostic,
-  operator and peering capabilities
-  and the live timeline as well. Native history supports files and PostgreSQL,
-  preserving the existing database schema under one native writer's session lease.
-  A live process scenario covers restoration, mutation, restart, writer exclusion
-  and queue saturation without losing accepted changes. History admission precedes
-  policy changes and upload consumption. The browser UI's HTTP front runs Rust.
-  The attached page uses Rust for command classification, bounded retention of unanswered authority requests,
-  recovery and retry decisions. Acknowledged commands cannot be replayed by a failed snapshot read.
-  Shared attached-session client scenarios cover command/view ordering and
-  facet revocation in Wasm and against the native executable over TCP and iroh.
-  The native relay shares bounded operator and operations response admission
-  with that client. Room inventory rows send at most 32 members plus `membersMore`,
-  matching the browser reader rather than exceeding its limit on larger rooms.
-  Both standalone IRC entrypoints run Rust. The client front exercises
-  independent users and room memberships, Unicode name projection, metadata
-  and introduced direct messages over Noise, TCP and iroh. Each user's Rooms
-  peer transfers inbox capabilities from one shared public Host. Departure
-  retires those capabilities before the IRC connection closes; reusing a
-  nickname cannot retarget an old inbox.
-  The standalone IRC bridge provides
-  TLS/SASL, bounded outbound admission and owned reconnection/shutdown;
-  the web launcher, server-test harness and demos
-  start the native room server. Its directory publishes before listening and
-  preserves both baseline and publication watch reply shapes. Native `rooms-server --irc`
-  now composes network/channel leases, room subscriptions, posts and shared
-  member identity changes, durable moderator issuance/revocation and one-shot
-  invitations. A two-channel CapTP scenario exercises that path, including
-  moderator restoration after restart, refusal of revoked held capabilities,
-  and observer admission. IRC operator inventories include rooms, stewards and
-  membership inboxes; their retirement actions await saved changes. Focused
-  checks exercise failed-write preservation, retry, stale IDs, bulk retirement
-  and room reset. Durable native authority jobs now have their own bounded
-  admission queue and drain before the Host closes. Operator batches retain the
-  selected tokens and admit durable acts as capacity becomes available; session
-  retirement awaits closure and inventory cleanup. IRC diagnostics reuse the
-  operator facts without exposing authority tokens; membership changes update
-  the existing session annotation in the live timeline. Uncertain native room
-  authority replacements refuse subsequent mutation, including idempotent
-  issuance, until restart reloads the document.
-  Pending public names exclude native, IRC and foreign creation while an
-  authority write waits; a controlled blocking-worker scenario exercises
-  reservation, installation and retention after uncertain replacement.
-  IRC directory labels use Rooms name equality without IRC punctuation aliases.
-  Shared native listener startup restores `onion-key` through each peer's existing
-  storage custody before readiness. A real Tor check with networking disabled
-  exercises all three binaries across restart and malformed-key refusal, plus
-  room calls through the configured local forward port. The web launcher accepts
-  native IRC/onion by default; `GLOWCAP_ROOMS_SERVER_BIN` overrides its binary
-  path. Subscriber replacement preserves the IRC lease and chosen identity;
-  registration-failure scenarios prove rollback through a surviving channel and
-  isolation from a newly joined identity. The default HTTP launcher and Compose
-  deployment select the native front. Browser test harnesses run TypeScript clients against the native services. The native
-  `rooms-web` executable serves assets, supervises the directory and carries
-  browser byte traffic. Its process scenarios exercise cancellation, relay
-  admission and actual Wasm-to-directory calls over TCP, iroh and local onion
-  forwarding. Attachment probes use the local endpoint independently of the
-  advertised locator; a process scenario covers attachment, nonownership on
-  shutdown and takeover after the external server exits. Native browser
-  preparation atomically selects a complete generation containing scripts,
-  page, styles, fonts and Wasm. Prepared serving needs no compiler or checkout.
-  Native listener changes serialize their durable commits,
-  retain accepted work through caller disconnect and drain before shutdown;
-  a stalled relay preparation does not hold other listener changes.
-  Native room file sends and refiles share
-  exclusive staged-upload custody and freeze attachment content before retry
-  preparation. Room observations carry their original membership context, and
-  join installation checks its exact attempt. Remaining integration and race
-  coverage is recorded in [boundaries](boundaries.md).
-  The [operating page](../apps/rooms/operating.md) describes what the native session peer answers, and
-  `zig build rooms-web-shared-session` attaches two real browser profiles to that peer and proves the
-  mirrored member, lines, files, announcements, and issued, paused, and revoked access.
-  It ships as source at an exact Git commit. The
-  Compose deployment mounts the native artifacts and prepared browser generation,
-  records the checkout revision and browser digest after every artifact finishes,
-  and refuses to start when either prepared identity differs. The [Rooms page](../apps/rooms/README.md) owns the feature inventory; the
-  [development guide](../apps/rooms/developing.md) and [operating guide](../apps/rooms/operating.md) own the runnable
-  checks and deployment controls.
+- The [Rooms application](../apps/rooms/) runs browser and terminal peers
+  with durable sessions. Members hold rooms and direct messages with files
+  over WebRTC, the Noise-sealed relay, iroh, and TCP. Room history is kept
+  in files or PostgreSQL, and member-owned archives are read as one combined
+  account ([ADR-0144](decisions/adr/ADR-0144-combined-archive-views.md)).
+  IRC works in both directions, directories peer, and operator capabilities
+  are revocable and come with a live timeline. Its three services keep
+  their identity across restarts and drain on shutdown. Either participant can
+  close and reopen a direct conversation: the current inbox is advertised
+  again, fresh reply capabilities replace prior routes, and superseded owned
+  connections close when no route uses them.
+  `zig build rooms-web-shared-session` attaches two real browser profiles to
+  the session service and proves the mirrored member, lines, files, and
+  issued, paused, and revoked access. The other browser proofs under
+  `rooms-web-*` cover joining, direct messages on every transport, private
+  rooms, routes, reconnect, and archives on the shipped page. Rooms ships as
+  source at an exact Git commit. The Compose deployment mounts the built
+  artifacts and refuses to start when the prepared identity differs from the
+  checkout.
 - ocapnviz can open a read-only trace sturdyref as a browser OCapN peer. Its production Chromium check covers replay,
   subsequent live observations, and exclusion of the observer session from its own topology. The rooms trace endpoint
-  behind that sturdyref admits no socket — viewer or trace producer — without the viz capability the sturdyref carries
+  behind that sturdyref requires the trace capability from both viewers and
+  trace producers
   (ADR-0120).
 - The accountability example layers signed identity and an audit log above ordinary capabilities without changing CapTP.
   Its three-Host loopback proof redeems a real handoff and attributes the resulting call to the recipient, not the

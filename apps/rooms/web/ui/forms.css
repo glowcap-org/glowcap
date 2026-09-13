@@ -53,48 +53,6 @@
 	border-color: var(--accent);
 	box-shadow: var(--ring);
 }
-/* Text a reader types is 16px wherever a finger can reach it.
-
-   Under sixteen, iOS zooms the page in when the field takes focus and leaves
-   it zoomed, which is the zoom a reader actually meets: nothing to do with
-   pinching, and the one worth removing. Safari decides that from the field's
-   own text and never from the viewport, so this cannot be a phone-width media
-   query. The same phone turned sideways is wider than one, and every field on
-   it was zooming.
-
-   It answers to the pointer instead, which is what the behaviour depends on,
-   and leaves a mouse-driven page at the size it was drawn for. `any-pointer`
-   rather than `pointer`, so a tablet holding a trackpad is still a tablet
-   whose glass can be touched.
-
-   Only the controls that summon a keyboard. A select opens a picker rather
-   than zooming, and a checkbox, radio, file, or range control would take a
-   text size it has no text for and grow the box that follows it.
-
-   The two named selectors are the rules this has to outrank. Both say
-   `font: inherit`, which hands their fields the body's fifteen, and both carry
-   more than the bare element name; this file is imported after the composer's,
-   so naming them is enough and no weight has to be invented. Measured rather
-   than assumed: reading only the elements, and written above these rules, it
-   lost, and the composer and the card fields sat at fifteen while the comment
-   claimed otherwise.
-
-   A floor, not a ruling. A surface that deliberately sets a smaller size after
-   this one keeps it, which is how the capability-set editor stays the dense
-   monospace it was drawn as. Such a field does zoom on focus, and that is the
-   trade its own rule is making. */
-@media (any-pointer: coarse) {
-	.card-plane .field,
-	.composer textarea,
-	input:is([type="text"], [type="search"], [type="url"], [type="email"], [type="password"], [type="tel"], [type="number"], :not([type])),
-	textarea {
-		/* Sixteen because the platform picked it, not because the ramp did:
-		   iOS zooms the page in on any field it focuses that is set smaller,
-		   and a layout already measured for the viewport moves under the
-		   reader. The number is the threshold, so it is written as one. */
-		font-size: 16px;
-	}
-}
 .card-plane .field:disabled {
 	opacity: .55;
 	cursor: not-allowed;

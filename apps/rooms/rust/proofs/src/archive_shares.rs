@@ -1,6 +1,6 @@
 //! Captured TypeScript identities plus commitment and revocation invariants.
 use rooms_application::{
-	archive::{shares::*, Filter},
+	archive::{Filter, shares::*},
 	documents::WriteFailure,
 };
 const ID: &str = "12345678-1234-4234-8234-123456789abc";
@@ -15,7 +15,7 @@ fn share(n: usize) -> Share {
 pub fn run() {
 	use crate::{
 		archive::Passables,
-		arguments::{text, Arg},
+		arguments::{Arg, text},
 	};
 	use rooms_application::archive::{output, shares::protocol};
 	let filter = output::filter::<Passables>(&Filter::default()).unwrap();
@@ -73,12 +73,14 @@ pub fn run() {
 			Ledger::restore(input.replace("\"source\":null,", "").as_bytes()).is_err()
 				|| !input.contains("\"source\":null,")
 		);
-		assert!(Ledger::restore(
-			input
-				.replace("\"revoked\":false", "\"revoked\":false,\"extra\":true")
-				.as_bytes()
-		)
-		.is_err());
+		assert!(
+			Ledger::restore(
+				input
+					.replace("\"revoked\":false", "\"revoked\":false,\"extra\":true")
+					.as_bytes()
+			)
+			.is_err()
+		);
 	}
 	let mut ledger = Ledger::default();
 	assert_eq!(

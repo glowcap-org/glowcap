@@ -6,7 +6,7 @@
 // lines, and directories live in `store/`; this file is who is in a room, where
 // this reader stands, and what they have been offered.
 
-import type { BridgeFacts, DirId, Invitation, RoomConv } from "./types.ts";
+import type { BridgeFacts, DirId, Invitation, RoomCarries, RoomConv } from "./types.ts";
 import { NO_MEMBERS, NO_TYPERS, type PageProjection, type State } from "./store/core.ts";
 import type { RoomMemberState } from "../../lib/room/presence.ts";
 import { getConv, put } from "./store/convs.ts";
@@ -76,6 +76,29 @@ export function setBridgeFacts(projection: PageProjection, key: string, bridge: 
 	put(projection, { ...conv, bridge });
 }
 
+/** Every field of what a room carries, exhaustively, for the same reason
+ * `BRIDGE_FIELD_SET` lists a bridge's: a field the comparison does not know
+ * is a change the composer never hears about. */
+const CARRIES_FIELD_SET: Record<keyof RoomCarries, true> = {
+	previews: true,
+	typing: true,
+};
+const CARRIES_FIELDS = Object.keys(CARRIES_FIELD_SET) as readonly (keyof RoomCarries)[];
+
+function carriesEqual(left: RoomCarries | undefined, right: RoomCarries | undefined): boolean {
+	return (left === undefined) === (right === undefined) &&
+		CARRIES_FIELDS.every((field) => left?.[field] === right?.[field]);
+}
+
+/** What a room keeps or relays of a message, as a line stated it. See
+ * `readCarries`. */
+export function setCarries(projection: PageProjection, key: string, carries: RoomCarries): void {
+	const conv = getConv(projection, key);
+	if (conv?.type !== "room") return;
+	if (carriesEqual(conv.carries, carries)) return;
+	put(projection, { ...conv, carries });
+}
+
 /** Every field of a seat, exhaustively.
  *
  * The comparison below decides whether a roster re-renders, so a field it does
@@ -105,7 +128,11 @@ export interface RoomViewUpdate {
 	topic: string | null;
 	lineBytes: number | null;
 	bridge: BridgeFacts | null;
+	/** What the room stated it carries, or null while it has not said. */
+	carries: RoomCarries | null;
 	canSetTopic: boolean;
+	/** Whether this membership holds the files facet: the `files` grant. */
+	canPostFiles: boolean;
 	canModerate: boolean;
 }
 
@@ -115,13 +142,16 @@ export function setRoomView(projection: PageProjection, key: string, view: RoomV
 	if (conv?.type !== "room") return;
 	const grants = new Set([
 		...(view.canSetTopic ? ["topic"] : []),
+		...(view.canPostFiles ? ["files"] : []),
 		...(view.canModerate ? ["steward"] : []),
 	]);
 	const nextTopic = view.topic == null ? undefined : view.topic;
 	const nextLineBytes = view.lineBytes == null ? undefined : view.lineBytes;
 	const nextBridge = view.bridge ?? undefined;
+	const nextCarries = view.carries ?? undefined;
 	const viewChanged = !setsEqual(conv.grants, grants) || conv.topic !== nextTopic ||
-		conv.lineBytes !== nextLineBytes || !bridgeFactsEqual(conv.bridge, nextBridge);
+		conv.lineBytes !== nextLineBytes || !bridgeFactsEqual(conv.bridge, nextBridge) ||
+		!carriesEqual(conv.carries, nextCarries);
 	const roster = new Map(view.members);
 	const rosterChanged = !rosterEquals(membersOf(projection, key), roster);
 	if (!viewChanged && !rosterChanged) return;
@@ -131,13 +161,14 @@ export function setRoomView(projection: PageProjection, key: string, view: RoomV
 		// Each optional field is stripped before the spread puts it back, so a
 		// view that stops carrying one clears it rather than leaving the previous
 		// snapshot's value standing.
-		const { topic: _topic, lineBytes: _lineBytes, bridge: _bridge, ...base } = conv;
+		const { topic: _topic, lineBytes: _lineBytes, bridge: _bridge, carries: _carries, ...base } = conv;
 		convs.set(key, {
 			...base,
 			grants,
 			...(nextTopic == null ? {} : { topic: nextTopic }),
 			...(nextLineBytes == null ? {} : { lineBytes: nextLineBytes }),
 			...(nextBridge == null ? {} : { bridge: nextBridge }),
+			...(nextCarries == null ? {} : { carries: nextCarries }),
 		});
 		next.convs = convs;
 	}

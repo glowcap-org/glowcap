@@ -195,8 +195,8 @@ roomsTest("a durable grant's access changes under one unchanging link", async ()
 		await admin.resumeGrant(GRANT_ID);
 		const resumed = await held.snapshot();
 		assert(resumed.access === "observe", `lifting a suspension did not restore the access: ${resumed.access}`);
-		// And it is listening again, which is what makes the silence above a
-		// refusal rather than a view that had quietly stopped hearing anything.
+		// It is listening again, proving the silence above was a refusal rather
+		// than a view that had quietly stopped hearing anything.
 		await settled(admin);
 		const atResume = heard;
 		await admin.setStanding("heard-again", (await admin.snapshot()).revision, "back in hand");

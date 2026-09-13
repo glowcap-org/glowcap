@@ -159,12 +159,18 @@
 ;; key, as both scripts in this directory do, because a driver's vat lives
 ;; for one run.
 ;;
+;; Optional `#:advertise-direct-addresses procedure` maps the bound address
+;; list to the currently advertised routing advice. Called for each location
+;; query, so fixtures can change advice while existing sessions retain their
+;; signed snapshot. The default advertises the endpoint's bound addresses.
+;;
 ;; Optional `#:session-trace sink` — a `(lambda (event handle info) ...)` called
 ;; with the CapTP session facts this netlayer observes at the wire. The shape and
 ;; the fields are `session-trace.rkt`'s.
 (define (^iroh-netlayer _bcom
                         reachability
                         #:seed [seed #f]
+                        #:advertise-direct-addresses [advertise-direct-addresses values]
                         #:session-trace [session-trace #f])
   ;; The endpoint binds here, on the caller's thread, so returning from the
   ;; constructor means it is reachable and its node id can be read and published.
@@ -180,10 +186,11 @@
   ;; reaches the same key.
   (define our-designator (iroh-endpoint-node-id endpoint))
   (define our-direct-addresses (iroh-endpoint-direct-addresses endpoint))
-  (define our-location
-    (if (positive? (string-length our-direct-addresses))
+  (define (our-location)
+    (define addresses (advertise-direct-addresses our-direct-addresses))
+    (if (positive? (string-length addresses))
         (make-wire-ocapn-node 'iroh our-designator
-                              (hash direct-addresses-hint our-direct-addresses))
+                              (hash direct-addresses-hint addresses))
         (ocapn-node 'iroh our-designator #f)))
 
   ;; Channel that the accept thread pushes new connections onto, read by the
@@ -222,7 +229,7 @@
     (define base-beh
       (methods
        [(netlayer-name) 'iroh]
-       [(our-location) our-location]))
+       [(our-location) (our-location)]))
 
     ;; Pre-setup: waits for `setup` to start accepting and transition into the
     ;; ready behavior.
@@ -238,7 +245,7 @@
       (methods
        #:extends base-beh
        [(self-location? loc)
-        (same-node-location? our-location loc)]
+        (same-node-location? (our-location) loc)]
        [(connect-to remote-node)
         ;; Dial by transport, designator and direct-address hint. The dial runs
         ;; on the vat's own thread, as `tcp-netlayer.rkt`'s `tcp-connect` does;

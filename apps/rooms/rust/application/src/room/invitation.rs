@@ -1,8 +1,8 @@
 //! An invitation's retry receipt belongs to its claimant, across observations.
+use crate::fields::lower_hex;
 use alloc::string::String;
 
-pub const MINT: &str = "mintInvitation";
-pub const CLAIM: &str = "claimInvitation";
+pub use crate::protocol_data::{CLAIM_INVITATION as CLAIM, MINT_INVITATION as MINT};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -27,13 +27,7 @@ impl core::error::Error for Error {}
 pub struct Receipt(String);
 impl Receipt {
 	pub fn from_entropy(bytes: [u8; 16]) -> Self {
-		const HEX: &[u8; 16] = b"0123456789abcdef";
-		let mut text = String::with_capacity(32);
-		for byte in bytes {
-			text.push(HEX[(byte >> 4) as usize] as char);
-			text.push(HEX[(byte & 15) as usize] as char);
-		}
-		Self(text)
+		Self(lower_hex(&bytes))
 	}
 	pub fn as_str(&self) -> &str {
 		&self.0

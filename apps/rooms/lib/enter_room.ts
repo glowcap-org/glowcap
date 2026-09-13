@@ -12,7 +12,7 @@
 import { Directory, Room } from "./room/client.ts";
 import type { Ref } from "@glowcap/runtime";
 import { NO_ROOM_MANAGERS, NO_SUCH_ROOM, ROOM_EXISTS } from "./errors.ts";
-import { roomErrorOf } from "./errors.ts";
+import { roomsErrorOf } from "./errors.ts";
 import { dialDirectory, type RoomsRuntime } from "./locator.ts";
 
 /** Get a reference to `name` on `dir`, opening the room if it does not exist
@@ -31,13 +31,13 @@ export async function enterOrOpenResult(
 	try {
 		return { ref: await dir.enter(name), opened: false };
 	} catch (err) {
-		if (roomErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
+		if (roomsErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
 	}
 	try {
 		const managed = await dir.openManaged(name);
 		return { ref: managed.room, opened: true, roomLink: managed.roomLink, managerLink: managed.managerLink };
 	} catch (err) {
-		const code = roomErrorOf(err)?.code;
+		const code = roomsErrorOf(err)?.code;
 		// A directory that publishes no room managers still opens rooms; it just
 		// has no authority to hand back, which is why the links above are
 		// optional. Asking for the managed open first and falling back keeps the
@@ -48,7 +48,7 @@ export async function enterOrOpenResult(
 			try {
 				return { ref: await dir.open(name), opened: true };
 			} catch (raced) {
-				if (roomErrorOf(raced)?.code !== ROOM_EXISTS) throw raced;
+				if (roomsErrorOf(raced)?.code !== ROOM_EXISTS) throw raced;
 				return { ref: await dir.enter(name), opened: false };
 			}
 		}

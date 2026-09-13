@@ -4,10 +4,10 @@ use rooms_application::bridge::{self, Answers, Form};
 use wasm_bindgen::prelude::*;
 
 fn text(raw: js_sys::JsString, limit: usize) -> Result<String, String> {
-	let text = crate::commands::read_text(raw, limit).map_err(|error| error.to_string())?;
-	text.as_str()
-		.map(str::to_owned)
-		.ok_or_else(|| "JSON input must escape isolated UTF-16 surrogates".into())
+	crate::js_text::scalar(&raw, limit).map_err(|error| match error {
+		crate::js_text::Refusal::Malformed => "JSON input must escape isolated UTF-16 surrogates".into(),
+		other => other.to_string(),
+	})
 }
 
 #[wasm_bindgen(js_name = prepareBridgeForm)]

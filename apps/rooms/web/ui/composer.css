@@ -37,10 +37,9 @@
 .composer > * {
 	pointer-events: auto;
 }
-/* One line for the two things that ever want it: who else is typing, and the
-   shortcut reminder while you are composing. They are rarely both true and never
-   both worth reading, so they take turns in one reserved row rather than each
-   holding a row of their own, which is what made the band tall enough to notice.
+/* One row for what the field has to say about itself: why it refuses, what the
+   draft is doing to the room's cap, what the keys do, and who else is typing.
+   One shared row made the band tall enough to notice.
 
    It sits under the field rather than over it. Above the field it stood between
    the messages and the thing they answer, and it made the band tall enough that
@@ -56,14 +55,28 @@
 	   which is where that slack came from. */
 	bottom: calc(env(safe-area-inset-bottom) + 2px);
 	height: var(--composer-status-h);
+	/* A row, read left to right: what is standing, then what is passing. These
+	   lines used to be stacked in this box and faded in and out of it, one on
+	   top of another, which made "one at a time" a promise kept by a stylesheet
+	   rule per pair of lines — and the pairs nobody wrote printed two sentences
+	   through each other. Side by side there is nothing to referee, and the
+	   reader keeps both: why the field is dead, and that somebody is answering.
+	   The row's own height is what the composer reserves, so laying its contents
+	   out in flow still never moves the field. */
+	display: flex;
+	align-items: center;
+	gap: var(--gap-tight);
+	/* Aligned with the text you are writing: the input's own left padding plus
+	   its border, so the status line and the caret start on one edge. Carried by
+	   the row now that its lines are in it rather than each inset to it. */
+	padding-inline: 15px;
 }
 .typing,
 .composer-availability,
 .composer .hint {
-	position: absolute;
-	/* Aligned with the text you are writing: the input's own left padding plus
-	   its border, so the status line and the caret start on one edge. */
-	inset: 0 15px;
+	/* Each shrinks before it clips, so a long standing line gives way to a short
+	   passing one rather than pushing it out of the row. */
+	min-width: 0;
 	/* The line box is the reserved row itself, so the two cannot drift apart. At
 	   the row's old fifteen pixels the caption's descenders met the clip this
 	   rule sets, and the y in "is typing" lost its tail. */
@@ -72,18 +85,19 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	color: var(--ink-soft);
-	opacity: 0;
-	transition: opacity .12s ease;
-	/* Three lines share this one row and take turns by fading, so two of them
-	   are lying over the third at any moment. Invisible is not out of the way:
-	   a press still lands on whichever is topmost, and the availability line
-	   becomes a real button when its text is too long to sit on one line. The
-	   two that are only ever furniture take no presses at all, and the one that
-	   can be a control takes them only while it is there to be seen. */
+	/* Furniture takes no presses. The availability line becomes a real control
+	   when its text is too long for the row, and takes them then. */
 	pointer-events: none;
 }
 .composer-availability.show {
 	pointer-events: auto;
+}
+/* A line with nothing to say leaves the row rather than holding a place in it.
+   Stacked, an empty line cost nothing because the others were laid over it; in
+   a row it would take its width and its gap, and push what is beside it along
+   for no reason. */
+.composer .composer-status > :empty {
+	display: none;
 }
 .composer .composer-availability {
 	display: flex;
@@ -94,9 +108,6 @@
 	font-weight: 400;
 	color: var(--ink-soft);
 }
-.composer-availability.show {
-	opacity: 1;
-}
 .composer-availability .said-clamp {
 	display: block;
 	white-space: nowrap;
@@ -105,9 +116,9 @@
 }
 .composer-availability.said-more {
 	flex-direction: row;
-	/* The absolute inset already supplies this control's width. The general
-	   Said button fills an in-flow parent; keeping that 100% here adds it on top
-	   of both insets and pushes Show past the composer's right edge. */
+	/* The row supplies this control's width. The general Said button fills an
+	   in-flow parent, and keeping that 100% here would claim the whole row and
+	   push Show — and whatever is standing beside it — past the edge. */
 	width: auto;
 }
 .composer-availability .said-show {
@@ -117,15 +128,16 @@
 	font-size: var(--type-caption);
 	font-style: italic;
 }
-.typing.show {
-	opacity: 1;
-}
-/* Tiny, and smaller than the typing line it takes turns with. The two are not
-   peers: one is a person at their keyboard and the other is furniture under the
-   field. It is also the denser line by far, and at the caption size half its
-   shortcuts run off the end. */
+/* Tiny, and smaller than the line beside it. The two are not peers: one is a
+   person at their keyboard and the other is furniture under the field. It is
+   also the denser line by far, and at the caption size half its shortcuts run
+   off the end.
+   Out of the row until the caret earns it, by leaving rather than by fading:
+   these lines are laid out in flow now, so one that is merely invisible would
+   still take its width out of the row and push what is beside it along. */
 .composer .hint {
 	font-size: var(--type-tiny);
+	display: none;
 }
 /* The keys and syntax the hint names stand out by weight and ink alone. */
 .composer .hint b {
@@ -134,15 +146,31 @@
 /* The shortcut hint appears while the field has the caret and nothing typed
    yet: it teaches the first keystroke, and once words are down it is furniture
    under them. The room's cap stays as long as the caret does, because it is
-   about the words being typed. Both yield to the typing line whenever someone
-   else is at their keyboard. The row's height is reserved either way, so the
-   field never moves when a line comes or goes. */
-.composer:has(form:focus-within):has(textarea:placeholder-shown) .hint,
+   about the words being typed. The row's height is reserved either way, so the
+   field never moves when a line comes or goes.
+   Whether these two have earned the row is a question about the caret, and so
+   it is answered here. Which of the standing lines is in the row is `standing`
+   in Composer.tsx. */
+.composer:has(:focus-within):has(textarea:placeholder-shown) .hint,
 .composer:has(form:focus-within) .hint.room-cap {
-	opacity: 1;
+	display: block;
 }
-.composer:has(.typing.show) .hint:not(.over) {
-	opacity: 0;
+/* The one thing in the hint that can be pressed: the way to the writing help.
+   The hint takes no presses as a whole (above), so this hands them back. The
+   focus rule above says `.composer` rather than `form`, so tabbing onto this
+   control keeps the hint it lives in on screen. Sized as the hint's own text,
+   not as a button, because it is a word in a sentence. */
+.composer .hint .hint-link {
+	all: unset;
+	pointer-events: auto;
+	cursor: pointer;
+	color: var(--teal-ink);
+	font-weight: 600;
+	border-radius: 3px;
+}
+.composer .hint .hint-link:focus-visible {
+	outline: 2px solid var(--teal-ink);
+	outline-offset: 1px;
 }
 /* Past the room's cap the draft will not go, so this stays up even when the
    field has lost the caret or someone else is typing. The colour is the same
@@ -152,7 +180,7 @@
 	font-weight: 700;
 }
 .composer .hint.room-cap.over {
-	opacity: 1;
+	display: block;
 }
 /* Rewriting a line already posted. It sits above the field rather than inside
    it, so the words being changed are not competing with a label, and it carries
@@ -207,8 +235,8 @@
    under it and because a band that vanished would move the whole conversation
    up and back down again as access came and went.
 
-   Receding by colour rather than by `opacity`, which is what the page's refused
-   controls use elsewhere. That way is not open here: the buttons inside this
+   Receding by color would match the page's refused controls elsewhere. That
+   way is not open here: the buttons inside this
    card are refused controls and already carry the fade, and a second one on
    their container multiplies through them into near invisibility. */
 .composer form:has(#line:disabled) {

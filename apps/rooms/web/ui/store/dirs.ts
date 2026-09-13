@@ -11,11 +11,14 @@ import type { DirectoryMember, RoomInfo } from "../../../lib/directory_publicati
 import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../limits.ts";
 import type { PageProjection } from "./core.ts";
 
-/** Replace one directory's view, leaving every other directory alone. */
+/** Replace one directory's view, leaving every other directory alone. A patch
+ * that changes no field writes nothing, so a snapshot that restates what the
+ * store holds does not hand every subscriber a fresh map. */
 export function patchDir(projection: PageProjection, dir: DirId, fields: Partial<DirView>): void {
 	const current = projection.get().dirs;
 	const held = current.get(dir);
 	if (held === undefined) return;
+	if ((Object.keys(fields) as (keyof DirView)[]).every((field) => held[field] === fields[field])) return;
 	const dirs = new Map(current);
 	dirs.set(dir, { ...held, ...fields });
 	projection.set({ dirs });
@@ -180,8 +183,25 @@ export function dropLiveRoom(projection: PageProjection, dir: DirId, room: RoomI
 	liveRooms.delete(key);
 	patchDir(projection, dir, { liveRooms });
 }
+/** Whether two discovery maps say the same thing row for row, so a snapshot
+ * that restates the listing does not hand out a fresh map. Rows are small
+ * records compared field by field. */
+function sameRows<V extends object>(held: ReadonlyMap<string, V>, next: ReadonlyMap<string, V>): boolean {
+	if (held.size !== next.size) return false;
+	for (const [key, row] of next) {
+		const have = held.get(key);
+		if (have === undefined) return false;
+		if (have !== row && !(Object.keys(row) as (keyof V)[]).every((field) => have[field] === row[field])) {
+			return false;
+		}
+	}
+	return true;
+}
 export function resetLiveRooms(projection: PageProjection, dir: DirId, rooms: Iterable<RoomInfo>): void {
-	patchDir(projection, dir, { liveRooms: new Map([...rooms].map((room) => [liveRoomKey(room.name), room])) });
+	const held = projection.get().dirs.get(dir);
+	if (held == null) return;
+	const liveRooms = new Map([...rooms].map((room) => [liveRoomKey(room.name), room]));
+	patchDir(projection, dir, { liveRooms: sameRows(held.liveRooms, liveRooms) ? held.liveRooms : liveRooms });
 }
 export function setDmable(
 	projection: PageProjection,
@@ -209,12 +229,18 @@ export function resetDirectoryDiscovery(
 	rooms: Iterable<RoomInfo>,
 	peers: Iterable<DirectoryMember>,
 ): void {
+	const held = projection.get().dirs.get(dir);
+	if (held == null) return;
+	const liveRooms = new Map([...rooms].map((room) => [liveRoomKey(room.name), room]));
+	const dmablePeers = new Map([...peers].map((peer) => [peer.name.toLowerCase(), peer]));
 	patchDir(projection, dir, {
-		liveRooms: new Map([...rooms].map((room) => [liveRoomKey(room.name), room])),
-		dmablePeers: new Map([...peers].map((peer) => [peer.name.toLowerCase(), peer])),
+		liveRooms: sameRows(held.liveRooms, liveRooms) ? held.liveRooms : liveRooms,
+		dmablePeers: sameRows(held.dmablePeers, dmablePeers) ? held.dmablePeers : dmablePeers,
 	});
 }
 export function clearDmable(projection: PageProjection, dir: DirId): void {
+	const held = projection.get().dirs.get(dir);
+	if (held == null || held.dmablePeers.size === 0) return;
 	patchDir(projection, dir, { dmablePeers: new Map() });
 }
 

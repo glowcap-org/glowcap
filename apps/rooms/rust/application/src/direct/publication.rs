@@ -53,10 +53,11 @@ pub struct Scope {
 }
 impl Scope {
 	pub fn close(&self) {
-		if self.state.active.replace(false) && self.state.inboxes.get() > 0 {
-			if let Some(closed) = self.state.closed.upgrade() {
-				closed.borrow_mut().insert(self.state.id);
-			}
+		if self.state.active.replace(false)
+			&& self.state.inboxes.get() > 0
+			&& let Some(closed) = self.state.closed.upgrade()
+		{
+			closed.borrow_mut().insert(self.state.id);
 		}
 	}
 }
@@ -121,11 +122,7 @@ pub struct Ledger {
 }
 impl Ledger {
 	pub fn validate_limit(limit: usize) -> Result<(), Error> {
-		if limit == 0 {
-			Err(Error::Limit)
-		} else {
-			Ok(())
-		}
+		if limit == 0 { Err(Error::Limit) } else { Ok(()) }
 	}
 	pub fn new(limit: usize) -> Result<Self, Error> {
 		Self::validate_limit(limit)?;
@@ -188,13 +185,7 @@ impl Ledger {
 		if self.rows.contains_key(&entropy) {
 			return Err(Error::Collision);
 		}
-		let mut alias = String::with_capacity(67);
-		alias.push_str("dm-");
-		for byte in entropy {
-			for digit in [byte >> 4, byte & 15] {
-				alias.push(b"0123456789abcdef"[digit as usize] as char);
-			}
-		}
+		let alias = alloc::format!("dm-{}", crate::fields::lower_hex(&entropy));
 		let row = Inbox(Rc::new(Slot {
 			ledger: self.key.clone(),
 			scope: scope.state.clone(),

@@ -2,8 +2,8 @@ use rooms_application::{
 	grants::Access,
 	session::{
 		checkpoint::{
-			commands::{self, Command, CommandRoutes, Facts},
 			Checkpoint, Routes,
+			commands::{self, Command, CommandRoutes, Facts},
 		},
 		state::Impact,
 	},

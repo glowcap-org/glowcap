@@ -3,24 +3,29 @@
 use crate::{
 	directory::Event,
 	room::{
+		carries::Carries,
 		message::{ChangeKind, LineId},
 		policy::RoomPolicy,
 		stewardship::Kind,
 	},
-	server::history::Persist,
+	server::{
+		Release,
+		history::{KeptLine, Persist},
+	},
 };
-use alloc::{format, string::String, vec::Vec};
+use alloc::{borrow::Cow, format, string::String, sync::Arc, vec::Vec};
 
 pub use crate::files::Blob;
 
 /// One thing a member's inbox hears.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Notice {
-	/// A line said, edited, refiled, or withdrawn. The adapter mints one blob
-	/// capability per file on the hearing member's own connection.
+	/// A line said, edited, refiled, or withdrawn. The body is the row the
+	/// room keeps for the line, shared rather than copied to each member;
+	/// the adapter mints one blob capability per file on the hearing
+	/// member's own connection.
 	Line {
-		from: String,
-		text: String,
+		line: Arc<KeptLine>,
 		marker: Option<(ChangeKind, LineId)>,
 		files: Vec<Blob>,
 	},
@@ -44,6 +49,8 @@ pub enum Notice {
 		changed: bool,
 	},
 	Listed(bool),
+	/// What this room carries, told to an arrival before it is seated.
+	Carries(Carries),
 	Typing {
 		nick: String,
 		on: bool,
@@ -70,13 +77,6 @@ pub struct Tell<C, R> {
 	pub connection: C,
 	pub inbox: R,
 	pub notice: Notice,
-}
-
-/// A capability the adapter gives back on the connection it lives on.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Release<C, R> {
-	pub connection: C,
-	pub capability: R,
 }
 
 /// A line mutation may change one retained tail. Its distinct result requires
@@ -137,32 +137,35 @@ impl<C: Copy, R: Clone> Effects<C, R> {
 }
 
 impl Notice {
-	/// The display text a notice carries beside its tag.
-	pub fn said(&self) -> String {
+	/// The display text a notice carries beside its tag: borrowed where the
+	/// notice already holds the sentence, composed where it does not.
+	pub fn said(&self) -> Cow<'_, str> {
 		match self {
-			Self::Line { text, .. } => text.clone(),
-			Self::Roster(names) => super::state::roster_said(names),
-			Self::Join { nick, count } => format!("{nick} joined ({count} here)"),
-			Self::Leave { nick, count } => format!("{nick} left ({count} here)"),
+			Self::Line { line, .. } => Cow::Borrowed(&line.text),
+			Self::Roster(names) => super::state::roster_said(names).into(),
+			Self::Join { nick, count } => format!("{nick} joined ({count} here)").into(),
+			Self::Leave { nick, count } => format!("{nick} left ({count} here)").into(),
 			Self::Away { nick, why } => {
 				if why.is_empty() {
-					format!("{nick} is back")
+					format!("{nick} is back").into()
 				} else {
-					format!("{nick} is away: {why}")
+					format!("{nick} is away: {why}").into()
 				}
 			}
-			Self::Topic { text, changed: false } => format!("the topic is: {text}"),
+			Self::Topic { text, changed: false } => format!("the topic is: {text}").into(),
 			Self::Topic { text, changed: true } => {
 				if text.is_empty() {
-					"the topic was taken down".into()
+					Cow::Borrowed("the topic was taken down")
 				} else {
-					format!("the topic is now: {text}")
+					format!("the topic is now: {text}").into()
 				}
 			}
-			Self::Said(text) | Self::Ended(text) => text.clone(),
-			Self::Listed(_) | Self::Typing { .. } | Self::AuthorityChanged { .. } | Self::PolicyChanged(_) => {
-				String::new()
-			}
+			Self::Said(text) | Self::Ended(text) => Cow::Borrowed(text),
+			Self::Listed(_)
+			| Self::Carries(_)
+			| Self::Typing { .. }
+			| Self::AuthorityChanged { .. }
+			| Self::PolicyChanged(_) => Cow::Borrowed(""),
 		}
 	}
 }

@@ -469,13 +469,6 @@
 	.join #browseRoomsBtn {
 		display: inline-flex;
 	}
-	/* The shortcut reminder is desktop furniture and goes. The room's own cap
-	   does not: it is the only warning that a draft will not go, it carries the
-	   alert a reader is told about, and hiding it here left a phone with a Send
-	   button that silently did nothing. */
-	.composer-status .hint:not(.room-cap) {
-		display: none;
-	}
 	/* Scale the whole composer row together via its shared height — a bigger touch
 	   target for the primary input — so the textarea and the buttons stay even (the
 	   desktop invariant), rather than sizing the buttons alone and leaving the text

@@ -15,6 +15,7 @@
 // without importing a single view.
 
 import type { Act, Edits, Remembered } from "../intent.ts";
+import type { DraftPreview } from "../link_preview.ts";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ArchiveShareView, ArchiveTargetView } from "../archive_model.ts";
 import type {
@@ -39,9 +40,9 @@ import type {
 	SettingsTab,
 	Standing,
 	ToastNotice,
+	TracePublishState,
 	TroubleRow,
 	Unread,
-	VizPublishState,
 } from "../types.ts";
 
 // Must match the `@media (max-width: 820px)` block in the rooms stylesheets:
@@ -57,6 +58,10 @@ const mobileQuery = matchMedia("(max-width: 820px)");
 export interface Draft {
 	text: string;
 	files: readonly File[];
+	/** Per-link gesture and effect state. URLs come from the shared Markdown
+	 * projection; identity survives unrelated typing, while stale outcomes can
+	 * settle only the exact attempt that started them. */
+	previews: readonly DraftPreview[];
 	/** The line this draft will change rather than post, when a reader has
 	 * pressed the pencil on one of their own.
 	 *
@@ -75,7 +80,7 @@ export interface Draft {
 
 /** The draft for a conversation, or an empty one. A conversation with nothing
  * typed in it keeps no row, so this is what the common case reads. */
-export const NO_DRAFT: Draft = { text: "", files: [] };
+export const NO_DRAFT: Draft = { text: "", files: [], previews: [] };
 
 /** Nobody is composing. Shared so a conversation with no row and a missing
  * key compare equal by identity rather than allocating an empty set per read. */
@@ -84,6 +89,10 @@ export const NO_TYPERS: ReadonlySet<string> = new Set();
 /** Nobody is in the room yet. Shared so a missing roster and an empty one
  * compare equal by identity rather than allocating a map per read. */
 export const NO_MEMBERS: ReadonlyMap<string, Standing> = new Map();
+
+/** The tabs of Help: what Rooms is, how to write a message, and the protocol
+ * names for what the reader has been using. A control opens Help on one. */
+export type HelpTab = "about" | "writing" | "glossary";
 
 export interface State {
 	/** The conversation on screen, or null while the join card is up. */
@@ -189,7 +198,9 @@ export interface State {
 	 * drops it without anybody clearing anything. */
 	edits: Edits;
 	/** What this browser did last, offered only where no act has an answer.
-	 * Written when a join succeeds, never while one is being typed. */
+	 * Written when a join succeeds, never while one is being typed. The stored
+	 * nickname remains checkpoint/reconnect history; the join form gets its
+	 * current automatic offer from the connected directory instead. */
 	remembered: Remembered;
 	theme: "light" | "dark";
 	notifyOn: boolean;
@@ -216,12 +227,15 @@ export interface State {
 	rosterOpen: boolean;
 	/** Narrow layout: is the roster sheet up? */
 	rosterSheet: boolean;
-	/** Settings dialog: the query-param facts (DM transport, viz URL). */
+	/** Settings dialog: the query-param facts (DM transport, trace URL). */
 	settingsOpen: boolean;
 	/** Which Settings panel to show when the dialog mounts. */
 	settingsTab: SettingsTab;
 	/** The glossary modal, which Settings closes beneath. */
 	helpOpen: boolean;
+	/** The Help tab on screen, kept across closings the way `settingsTab` is,
+	 * and set outright by a control that opens Help on a tab. */
+	helpTab: HelpTab;
 	/** The bridged channels the IRC gateway last listed, or null while this
 	 * tab holds no gateway capability. Same split as its siblings: Rust
 	 * holds the reference, this is only what to draw. */
@@ -240,14 +254,16 @@ export interface State {
 	 * carries nothing. Empty otherwise. A link that has gone quiet has to be able
 	 * to account for itself, or the application simply looks broken. */
 	sessionSuspendedNote: string;
-	/** Whether the selected archive keeps room and direct-message history; `ui/history.ts` owns
-	 * the bytes and the same key. */
+	/** Whether the selected archive keeps room and direct-message history. The
+	 * Rust archive behind the session owns the bytes; this is only what the
+	 * switch draws. */
 	keepHistory: boolean;
 	/** Where new member-owned history is written. Live archive authority stays
 	 * below the store; this is only the connection state Settings draws. */
 	archiveTarget: ArchiveTargetView;
-	/** Read-only history facets another member handed this tab. Capability
-	 * occurrences stay below the store; these rows only draw read/drop choices. */
+	/** Read-only history accounts another member handed this tab. The
+	 * references and any lasting link stay below the store; these rows only
+	 * draw the read and drop choices. */
 	archiveShares: readonly ArchiveShareView[];
 	/** The page's bounded trouble journal, newest first; `store/trouble.ts`
 	 * owns the ring. */
@@ -265,10 +281,10 @@ export interface State {
 	 * capability, or null while it holds none. Same split again: Rust holds
 	 * the authority and each publication's lease, this is only what to draw. */
 	peering: PeeringState | null;
-	/** Where this session publishes its own trace while it holds the viz
+	/** Where this session publishes its own trace while it holds the trace
 	 * capability, or null while it holds none. A local tab owns the publisher;
 	 * a shared session projects the durable one. This is only what to draw. */
-	viz: VizPublishState | null;
+	trace: TracePublishState | null;
 	/** The directory whose card is open, or null. */
 	aboutDir: DirId | null;
 	/** Whether that card opened already asking to leave the directory. */
@@ -339,6 +355,7 @@ export function initialState(): State {
 		// Holdings toggles or one operations pane lands back where they were.
 		settingsTab: "session",
 		helpOpen: false,
+		helpTab: "about",
 		opsPane: "listeners",
 		keepHistory: true,
 		archiveTarget: { kind: "owned", owner: "browser" },
@@ -353,7 +370,7 @@ export function initialState(): State {
 		diagnostics: null,
 		listeners: null,
 		peering: null,
-		viz: null,
+		trace: null,
 		aboutDir: null,
 		aboutDirLeave: false,
 		aboutMember: null,
@@ -431,8 +448,8 @@ export class PageProjection {
 	/** Report whether the tab is being looked at.
 	 *
 	 * The count rises on the change to visible, not on every report, so telling
-	 * the projection what it already believes is free — which is what lets
-	 * construction sync the real value without it reading as a return. */
+	 * the projection what it already believes is free, and construction can
+	 * sync the real value without it reading as a return. */
 	noteVisibility(visible: boolean): void {
 		const state = this.get();
 		if (state.visible === visible) return;

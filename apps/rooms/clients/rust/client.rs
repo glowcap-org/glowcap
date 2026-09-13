@@ -38,7 +38,7 @@ use std::collections::HashSet;
 
 use protocol_gen::{Effect, SESSION_DEADLINE_MS};
 use room::{Directory, Room};
-use rooms_cli::{error_code, NO_SUCH_ROOM, ROOM_EXISTS};
+use rooms_cli::{NO_SUCH_ROOM, ROOM_EXISTS, error_code};
 use wire::RoomInfo;
 
 /// The whole-roster deadline every sibling client holds, in seconds.
@@ -155,7 +155,9 @@ async fn run_client(locator: &str, room_name: &str, nick: &str, line: &str, rost
 async fn main() {
 	let args: Vec<String> = std::env::args().collect();
 	if args.len() < 5 {
-		eprintln!("usage: rooms-client <locator> <room> <nick> <line> [roster]   (locator: host:port or an ocapn://…iroh URI; roster: comma-separated nicks to expect; default just you)");
+		eprintln!(
+			"usage: rooms-client <locator> <room> <nick> <line> [roster]   (locator: host:port or an ocapn://…iroh URI; roster: comma-separated nicks to expect; default just you)"
+		);
 		std::process::exit(2);
 	}
 	let locator = args[1].clone();

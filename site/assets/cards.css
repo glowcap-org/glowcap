@@ -56,6 +56,26 @@
   letter-spacing: 0;
 }
 
+/* The Rooms front door carries the app's own lockup at hero scale. The two
+   sizes and the letterfit are the rail's `.wordmark` proportions (17 and 13
+   with 4.8 between, in ui/mark.css) scaled to the hero title, so the mark
+   beside it meets the same drawing it meets in the app's chrome. */
+.hero-lockup {
+  display: flex;
+  align-items: baseline;
+  gap: 0.28em;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.hero-lockup small {
+  font-weight: 600;
+  font-size: 0.765em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
 .hero-tagline {
   margin: 0;
   font-size: 1.15rem;
@@ -195,12 +215,22 @@
   }
 }
 
-/* A full-width lead card, then the rest of the grid. When the last card
-   starts a row it does not fill, it takes the whole row instead of a third
-   of it. At one column that is already true, so the rule needs no width
-   guard. */
-.cards:has(> .card-lead) > .card:last-child:nth-child(3n + 2) {
+/* A full-width lead followed by three routes becomes a two-card row and one
+   final route under the four-card rule above. Let that last route close the
+   grid instead of leaving a card-sized hole beside it. Scope this to the
+   exact shape: longer landing-page grids with a lead already finish full
+   rows, so their last card must keep its ordinary column. */
+.cards:has(> .card-lead:first-child):has(> .card:nth-child(4):last-child) > .card:last-child {
   grid-column: 1 / -1;
+}
+
+/* A lead followed by four routes: two rows of two under the lead, rather
+   than a row of three and one widow. The media query keeps it clear of the
+   one-column stack, as the four-card rule above does. */
+@media (min-width: 46rem) {
+  .cards:has(> .card-lead:first-child):has(> .card:nth-child(5):last-child) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* A card is raised paper with a hairline; that is the whole of what says

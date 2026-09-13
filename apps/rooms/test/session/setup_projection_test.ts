@@ -17,7 +17,7 @@ import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PageProjection } from "../../web/ui/store/core.ts";
 import type { RoomsBrowserController } from "../../web/ui/controller/browser.ts";
-const { SessionSetup } = await import("../../web/ui/SessionSetup.tsx");
+const { SessionSetup } = await import("../../web/ui/panes/SessionSetup.tsx");
 const { RoomsProjectionProvider } = await import("../../web/ui/hooks.ts");
 const { RoomsBrowserProvider } = await import("../../web/ui/controller/browser.ts");
 const { ModalProvider } = await import("../../web/ui/modal.ts");

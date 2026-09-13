@@ -1,3 +1,4 @@
+// The room message stream owns a bounded queue and releases queued capabilities on cancellation or overflow.
 import { Ref } from "@glowcap/runtime";
 import type { Attachment } from "../../lib/attachment.ts";
 import { MAX_ROOM_MESSAGE_BACKLOG } from "../../lib/limits.ts";

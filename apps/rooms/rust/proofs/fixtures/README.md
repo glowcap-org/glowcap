@@ -1,263 +1,70 @@
-# Rooms migration fixtures
+# Rooms contract fixtures
 
-These version-one documents were written by the historical TypeScript session
-implementation using its in-memory document adapter.
-They are retained migration inputs, not Rust-generated expectations.
+These JSON documents pin the portable Rooms application contract: what a
+reader accepts, what it refuses, and what it produces, for every surface the
+Rust application shares between the native binaries and the browser. The
+`rooms-contract-proofs` crate replays each one natively under `zig build
+rooms-rust-test` and in Wasm under `zig build rooms-rust-browser-test`, so a
+change that moves a boundary is exposed when the two target-specific steps run.
 
-- `grants-v1.json` contains an interact grant issued with label ` Phone ` and
-  no access to earlier history.
-- `grants-suspended-v1.json` suspends that grant with the note `Away` and
-  retains a revoked observe grant as a tombstone.
-- `grants-surrogate-v1.json` additionally records an observe grant whose
-  label is one isolated high surrogate, U+D800. The JavaScript schema accepts
-  this value; a Rust translation must preserve it through a document rewrite.
+A fixture is static test material. Its capability values, swiss numbers, and
+entropy confer no authority anywhere, and two notations in them are fixture
+conventions rather than Rooms encodings: `{ "integer": "7" }` keeps an
+integer's wire type distinct from a float, and `{ "capability": true }` stands
+where a live reference would sit. Text that must survive as isolated UTF-16
+surrogates is stored as an encoded string, so no JSON reader can quietly
+replace it with a scalar value.
 
-The root entropy used to capture the derivation vector is sixteen bytes of
-`0x5a`. Grant `00000000-0000-4000-8000-000000000001` produces the sixteen-byte
-entropy `9809158594ada38da41f23b20c34dbb7` through that implementation.
-This is synthetic test material and carries no deployed authority.
+## What each fixture holds
 
-`room-protocol.json` was captured from the historical TypeScript line behavior
-and `lib/room/policy.ts`'s policy reader. It records all eight mode combinations,
-public offers, current line/file limits, and line-edit/withdraw call sequences
-with their admission outcomes and emitted notifications. The line actor used
-a collecting subscriber and no files or retained history. The emoji boundary
-cases distinguish UTF-8 wire bytes from JavaScript character counts. Integers
-in captured notifications use `{ "integer": "7" }` to retain their wire type;
-this notation is fixture data, not a new Rooms encoding.
-The same fixture captures `lib/room/message.ts`'s actual `readLineId` and
-`readLineChange` outputs for integer/number values, their safe-integer bounds,
-unknown tags, missing ids, and malformed values. The Rust producer's changes
-are also passed through the shared Rust marker reader. This proves marker
-agreement, not full inbox admission or attachment decoding.
+The proof module named beside each file is under `src/`.
 
-Refiling, resource retirement, and refused staging are separate Rust scenarios;
-this capture does not claim to have exercised those paths in TypeScript.
+| Fixture | Proof | What it pins |
+| --- | --- | --- |
+| `failures.json` | `failures` | The protocol failure codes and how a bare, wrapped, unknown, or nested reason is read back. Only the leading canonical code is authoritative; code-shaped detail cannot impersonate one. |
+| `session-documents.json` | `documents` | The document ceilings and how ordinary UTF-8, byte-order marks, and malformed bytes decode. |
+| `grants-v1.json`, `grants-suspended-v1.json`, `grants-surrogate-v1.json` | `grants`, `grant_protocol`, `documents` | Version-one grant documents: an interact grant with a padded label and no history access, its suspension with a note beside a revoked tombstone, and a label that is one isolated high surrogate, which a rewrite must preserve. The derivation vector uses sixteen bytes of `0x5a` as root entropy. |
+| `grant-commands.json` | `grant_protocol` | Grant commands for every access level: issue, retry, conflict, policy patches, note clearing, and revocation. |
+| `checkpoints.json` | `checkpoint`, `room_links` | The checkpoint parser and redactor: missing fields, nullable and optional normalization, relationships, route authorities, WebSocket URLs, and surrogate text. Bridge answers keep their insertion order because the retry ledger hashes checkpoint JSON. The redactor removes room bearer links independently of bridge intent. |
+| `session-state.json` | `session_state` | Durable checkpoint and effect documents, and one action trace of the shared state contract with its exact writes, retry and refusal outcomes, and revisions. An oversized embedded checkpoint exercises the envelope's byte ceiling apart from the standalone wire limit. |
+| `session-commands.json` | `session_commands`, `command_admission` | The pure session commands and their join and peering helpers: acceptance, the exact resulting checkpoint, impact, and retry material, across several directories and rooms, cascading retirement, invitations, rejoining, stale authority generations, bridge scope, and UTF-16 input. Secrets never enter retry material. |
+| `session-command-admission.json` | `command_admission` | The command dispatcher's access and envelope checks up to a stubbed mutation: argument count, UTF-16, encoded-byte, and revision limits, and a handed invitation received then accepted through both checkpoint reducers. |
+| `session-results.json` | `session_results` | Result-command preparation, application, and resume, driven through the durable state engine both uninterrupted and restarted at every write. |
+| `reconciliation.json` | `reconciliation` | State-sync cases followed by the equality check durable reconciliation uses: stale routes and tokens, room retirement isolation, acquired-authority conflicts, publication versions, reconnect results, direct registration, and collection limits. Every changed fact is replayed to prove idempotence. |
+| `session-events.json` | `session_events` | Event-reader decisions: header and integer bounds, mutation identity, archive coordinates, presence and room facts, escaped tags, surrogates, nulls, and positional arrays. A valid attachment guard outlives delivery; a malformed one leaves no guard behind. |
+| `snapshots.json` | `snapshot` | Snapshot-reader cases for all four facet projections and the overflow degradation order. Large overflow inputs are rebuilt from bounded rows by the proof; only their answers are stored. |
+| `operator-views.json` | `operator_views` | Operator page rows for every category, member bounds, stewardship relations, decimal revisions, listener relationships, and bridge gateway records. Nested objects refuse positional arrays. |
+| `workspaces.json` | `workspace` | Saved workspace documents decoded, normalized, and exported against a fixture route authority. |
+| `conversation.json` | `conversation` | Room history under its line and byte bounds, file transfer state through chunked upload progress, and the authority a file post needs. |
+| `membership.json` | `membership` | Membership answers, and the inbox's messages, notices, presence, and queue behavior. |
+| `room-protocol.json` | `room` | Every room mode combination, public offers, the line and file limits, and line edit and withdraw sequences with their admission outcomes and notifications. Emoji cases separate UTF-8 wire bytes from character counts. |
+| `room-authority-client.json` | `authority_client` | Manager identity and policy replies, steward grants, and room-publication identity derivation from stubbed replies. |
+| `room-invitation-client.json` | `invitation_client` | Invitation receipts derived from fixture entropy, privacy and policy replies, and the exact calls the client makes. |
+| `stewardship.json` | `stewardship` | The stewardship lifecycle: claim without management, taking authority, reconnect release, voluntary drop, stale and current revocation generations, and kick admission. |
+| `bridge-client.json` | `bridge_client` | Bridge forms decoded and submitted, answers split into public values and transient secrets, their wire form, the calls made, and what the bridge says back. |
+| `files-protocol.json` | `files` | The attachment prefix and exact readers: empty files, malformed and incomplete records, maximum record counts, UTF-16 name limits, integer and float distinctions, and image-dimension normalization. |
+| `direct-client.json` | `direct_client` | The direct-message receiver: messages, reciprocal routes, typing, room and archive offers, UTF-8 line limits, and malformed attachment suffixes. Large strings use a text-repetition descriptor. |
+| `direct-sources.json` | `sources` | Sender-hosted blob reads: chunk bounds, contiguous completion, failed delivery, empty files, and invalid read arguments. |
+| `inbox-publication.json` | `inbox_publication` | Inbox alias and offer counts across two offerers, reuse, limit pressure, forget, and close, with the ordinary and IRC-front pool limits. Opaque alias strings are not compared. |
+| `directory-client.json` | `directory_client` | Directory room lists, snapshots, events, and keys as the client reads them, the calls it makes, and room and manager link derivation. |
+| `directory-view.json` | `directory_view` | The durable directory view across room updates, registration replacement, stale unregister notices, truncation, row limits, and contextual Unicode lowercase. |
+| `registration-client.json` | `registration_client` | Registration arguments, name-voucher calls, registration-id acceptance, and control notifications. |
+| `introduction-client.json` | `introduction_client` | Introduction traces: direct success, early and fresh offers, a stale banked offer, retry exhaustion, offline refusal, and malformed replies, replayed against the notification bank and retry policy. |
+| `signaling-client.json` | `signaling_client` | Signaling reply admission and the relayed-signal byte limits, including the WebRTC description ceiling. SDP and ICE are bounded opaque text here; no channel is negotiated. |
+| `archive.json` | `archive`, `archive_host` | Archive record and filter acceptance with canonical output: integer wire kinds, safe bounds, UTF-8 and UTF-16 limits, control characters, withdrawal, attachment shapes, digests, and malformed rows. |
+| `archive-record-documents.json` | `archive_documents` | The archive record document as one file both readers read: the Rust proof and `apps/rooms/test/archive/record_document_test.ts` parse the same documents, so the two sides cannot drift apart. |
+| `archive-disk.json` | `archive_disk` | Version-one JSONL archive files opened with a small capacity and compaction delta: acceptance, revision high-water marks, surviving records, torn-tail repair, snapshot gaps, malformed rows, a leading byte-order mark, and isolated surrogates. |
+| `archive-recording.json` | `archive_recording` | Which messages become archive records under the recording policy, and the retention standings that follow. |
+| `archive-shares.json` | `archive_shares` | Share documents before and after revocation, with the HMAC entropy for whole and scoped shares. |
+| `archive-merge.json` | `archive_merge` | Merging archive accounts: withdrawal and edit precedence, current-writer and listed-order ties, standing records, and first-seen output order. |
 
-`files-protocol.json` captures the existing `lib/attachment.ts` prefix and exact
-readers, with synthetic objects of the binding's `Ref` class. It includes empty
-files, truncated dimensions, malformed suffixes, maximum record counts, UTF-16
-name limits, integer/float distinctions, and image-dimension normalization.
-The file's limit snapshot comes from `lib/limits.ts`. Its `{ "capability": true }`
-values stand for synthetic parser inputs; they confer no authority and are not
-a Rooms encoding. Rust file-store scenarios separately cover staging, aggregate
-and per-room pressure, cancellation, alias expiration, and line integration.
+## What a fixture does not prove
 
-`failures.json` records every exported failure code and the actual
-`lib/errors.ts` `RoomError.from` result for bare, prefixed, unknown, and nested
-reasons. The machine-readable code is the compatibility contract; human detail
-may change. Native file calls exercise these classifications through the real
-binding's broken-promise carrier as well.
-
-`session-documents.json` captures the existing document ceilings and
-`decodeSessionDocument` outputs for ordinary UTF-8, byte-order marks, and
-malformed bytes. Native filesystem tests use the existing grant fixtures too;
-they restore and rewrite revoked and isolated-surrogate records through the
-real document store.
-The existing file store also decodes before returning bytes, so the native
-grant path accepts two initial byte-order marks while direct document decoding
-consumes one. Native and shared tests preserve those distinct boundaries;
-the existing file-backed grant owner was exercised with zero through three marks.
-
-`grant-commands.json` captures the current `dispatchGrantCommand` against the
-real TypeScript grant ledger for all four access levels, issue/retry/conflict,
-policy patches, suspension-note clearing, and revocation. Views contain a
-fixture publisher's stable URI; native tests separately exercise the actual
-Rooms v1.0 URI format through glowcap. Capability custody is tested with owned
-argument guards rather than encoded as JSON authority.
-
-`checkpoints.json` captures 94 cases from the historical TypeScript checkpoint
-parser and redactor, including missing fields, nullable/optional normalization,
-relationships, route authorities, WebSocket URLs and UTF-16 surrogate text.
-Expected documents are encoded strings so the fixture reader never substitutes
-Unicode scalar values for isolated surrogates. Bridge-answer insertion order is preserved: the durable retry ledger hashes
-material that includes checkpoint JSON. The
-redactor includes the fix that removes room bearer links independently of
-bridge intent, backed by `checkpoint_redaction_test.ts`. Native tests verify
-captured route facts through the real binding; the portable scenario consumes
-those facts without implementing another locator parser.
-
-`session-events.json` captures 83 TypeScript event-reader decisions: header and
-integer bounds, mutation identity, archive coordinates, presence and room facts,
-including escaped JSON tags, isolated UTF-16 surrogates, nulls and positional
-arrays. The shared proof additionally checks that a valid attachment guard
-outlives delivery and that malformed metadata or a later malformed attachment
-leaves no retained guards. Capability custody uses live test guards rather than
-JSON substitutes; the capture itself contains no accepted file capabilities.
-
-`snapshots.json` captures 86 TypeScript snapshot-reader cases, all four facet
-projections and the existing overflow degradation order. Integer wire values
-use the fixture-only `{ "integer": "7" }` form. JSON payload fields remain
-strings, including lossless surrogate cases. Large overflow inputs are rebuilt
-from bounded typed rows by the proof; only their expected answers are stored.
-Rust additionally rejects aggregate inbound overflow before retention and drops
-live JSON that exceeds its individual reader limit. Native tests construct and
-read the binding's real argument types; production watch delivery is not part
-of this fixture.
-
-`operator-views.json` captures 48 operator page cases, one complete inventory,
-32 JSON inventory cases and 18 operations responses from the TypeScript readers.
-They cover all seven row categories, member bounds, issued stewardship relations,
-decimal revisions, listener relationships and bridge gateway records. Nested
-objects reject positional arrays; JSON display text preserves isolated surrogates.
-The native room-server scenarios additionally submit real inventories to the
-shared reader. The session relay scenario uses the typed client for snapshot,
-page, retire and listener reads.
-
-`session-state.json` captures 38 durable checkpoint/effect document cases and a
-17-action trace from the historical TypeScript state owner. The trace records
-exact writes, retry/refusal outcomes and revisions. Action objects are encoded
-JSON strings to preserve isolated UTF-16 surrogates in ids and hash material.
-A large embedded checkpoint exercises the durable envelope's byte ceiling
-independently of the smaller standalone checkpoint wire limit. Rust scenarios
-also inject unchanged/indeterminate failures and cancellation, and restore
-after each result write to prove convergence without repeated external work.
-
-`session-commands.json` captures 113 command cases and four room offers from the
-historical `session/commands.ts` owner and its join/peering helpers. The tests compare acceptance,
-exact resulting checkpoints, impact and retry material, with a successful case
-for every pure command. They cover multiple directories and rooms, cascading
-retirement, invitations, explicit rejoining, stale authority generations,
-bridge scope propagation and UTF-16 input. Secrets are excluded from retry
-material. Native tests check route authorities and generation tokens through
-the binding, including the existing UTF-8 decoder's leading-BOM behavior.
-
-`session-results.json` captures 38 preparation, 45 application and 12 resume
-cases from the historical result-command owner. Intent and result JSON remain encoded
-strings. The same native/browser body also drives each result kind through the
-durable state engine, with uninterrupted execution and restart at every write.
-These prove pure policy and recovery, not the external calls that obtain room
-authority. Native storage separately rejects stale new plans before writing
-and refuses unknown or malformed pending plans on load without rewriting them.
-
-`reconciliation.json` captures 59 cases from the historical state-sync owner, followed
-by the validation and equality check used by durable reconciliation. An equal
-candidate is recorded as no change. The cases include stale routes and tokens,
-room retirement isolation, acquired authority conflicts, publication versions,
-reconnect results, direct registration admission and collection limits. Fact
-objects remain encoded JSON strings so surrogate values survive fixture loading.
-Rust tests also replay every changed fact to check idempotence. Native queue
-tests separately cover ordered retries, count/byte pressure, command progress
-during backoff, unsent admissions, shutdown and cancellation during disk work.
-
-`session-command-admission.json` captures the real session command dispatcher's
-access and envelope checks, stopping at a stubbed mutation boundary. It records
-argument-count, UTF-16, encoded-byte and revision limits; it does not execute
-external effects or establish per-command argument validity. Large inputs use
-text/repetition descriptors, and integers retain their wire kind. The same file
-captures handed-invitation receipt followed by acceptance through both existing
-checkpoint reducers, including intermediate validation and failure cases. Rust
-runs these cases natively and in browser Wasm; native storage separately proves
-atomic failure, one commit and retry after the transient handoff disappears.
-
-`room-authority-client.json` captures manager identity and policy replies,
-steward grants and room-publication identity derivation from the existing
-TypeScript clients. These captures use stubbed capability replies; native and
-browser tests compare shared Rust acceptance and derived identities. Native
-client tests separately exercise the real Rust Host, exact method arguments,
-malformed replies and shared-connection custody. They do not replace the
-production room actors or prove browser Host portability.
-
-`stewardship.json` captures 24 lifecycle actions from `RoomStewardship`, including
-claim without management, taking authority, reconnect release, voluntary drop,
-stale and current revocation generations, and kick admission. Shared Rust also
-tests owner-bound acquisition tickets, cancellation, candidate disposal and
-cross-room isolation. Native tests separately drive these clients through real
-Host calls, including deferred replies during revocation and cancellation.
-
-`registration-client.json` captures registration arguments, name voucher calls,
-registration-ID acceptance and control notifications from the existing
-`DirectoryRegistration`. Shared Rust also exercises bounded notification queues
-and capability custody independently of acknowledgement. Native CapTP scenarios
-cover cancellation, replacement, timeout and closure with controlled actors;
-these actors do not implement production names or reconnect persistence.
-
-`introduction-client.json` captures seven `Directory.introduceVia` traces: direct
-success, early and fresh offers, a stale banked offer, retry exhaustion, offline
-refusal and malformed capability replies. Shared Rust replays the trace against
-its notification bank and retry policy. Additional cases cover queue pressure,
-cancelled and foreign-owner wait tickets, bank eviction and registration-ID
-isolation. Native TCP tests separately prove actual three-party transfer and the
-exporter connection needed for reciprocal calls; browser Host and signaling
-integration remain separate work.
-
-`signaling-client.json` captures actual `DirectorySignaling` reply admission and
-`relayedSignalFits` byte limits, including the WebRTC ABI description ceiling.
-Shared Rust also checks independently settled acceptance/answer milestones,
-late replies, terminal failure and queue overflow. Native capabilities exercise
-outbound exchange ownership and the answering inbox. The protocol treats SDP
-and ICE as bounded opaque text; these tests do not negotiate a WebRTC channel.
-
-`direct-client.json` captures the actual `directMessageReceiverBehavior` parser
-with all optional receivers supplied. It covers messages, reciprocal routes,
-typing, room/archive offers, UTF-8 line limits and malformed attachment suffixes.
-Large strings use text/repetition descriptors. Capability and integer markers
-are synthetic parser inputs. Shared Rust also checks borrowed text and exact
-retention of admitted occurrences. Native tests separately exercise actual
-capability routes, unsupported receivers and deferred failure; this capture
-does not implement production direct-inbox publication or durable message storage.
-
-`direct-sources.json` captures sender-hosted blob calls created by the actual
-TypeScript `sendWithAttachments`. It records chunk bounds, contiguous completion,
-failed delivery, empty files and invalid read arguments. Synthetic asynchronous
-readers generate only requested chunks. Additional Rust scenarios cover budget
-pressure, cancelled read leases and ownership retirement. Native tests separately
-exercise file capabilities, deferred reads, short replies and pending-read shutdown.
-
-`inbox-publication.json` captures alias and offer counts from the actual
-TypeScript `inboxPublisher` across two offerers, reuse, limit pressure, forget
-and close, along with the ordinary and IRC-front pool limits. Opaque alias
-strings are not compared. Shared Rust fills and retires the captured IRC pool
-across separate scopes. It additionally pins
-retirement failure/retry, scope identity and immediate refusal after scope closure.
-Native TCP tests separately exercise real Host aliases and directory reconnect,
-including refusal of collisions with unrelated mutable Host publications.
-
-`directory-view.json` captures the actual `DurableDirectoryView` across room
-updates, registration replacement, stale unregister notices and truncation.
-Shared Rust additionally checks row limits, independent directory views,
-contextual Unicode lowercase, offers-only changes and replacement at capacity.
-The last two cases intentionally improve notification and admission behavior.
-Native tests separately compose discovery and registration with durable session
-state; this capture does not prove the production session dispatcher.
-
-`archive.json` captures record/filter acceptance and canonical output from
-`lib/archive/protocol.ts` (`parseArchiveRecord`, `archiveRecordRow`,
-`parseArchiveFilter`, `archiveFilterRow`). Inputs include integer wire kinds,
-JavaScript-safe bounds, UTF-8/UTF-16 limits, control characters, withdrawal,
-attachment shapes, digests and malformed rows. Shared Rust separately exercises
-index identity, chronology, restore atomicity, capability custody, monotonic scope
-and bounded scans. The cursor-ahead improvement is an explicit Rust scenario,
-not a claim captured from TypeScript. Native TCP tests use a fixture archive;
-these proofs do not cover production blob storage or durable shares.
-
-`archive-disk.json` captures `FileArchiveBackend` opening version-one JSONL
-files with capacity three and compaction delta two. It records acceptance,
-revision high-water marks, surviving records, physical torn-tail repair and
-explicit UTF-16 vectors for IDs, text and attachment names. Cases cover snapshot
-gaps, tail continuity, chronology, malformed rows, safe numeric spellings,
-withdrawal, a leading BOM and isolated surrogates. Rust replays this static
-capture natively and in browser Wasm without invoking Deno. Additional Rust
-scenarios cover invalid UTF-8 bytes, bounded snapshot encoding and wire-only
-replacement of isolated surrogates. Native filesystem tests exercise the actual
-journal backend; blob storage and durable shares remain outside this capture.
-
-`archive-shares.json` captures the actual TypeScript share issuer's version-one
-documents before and after revocation, plus HMAC entropy for whole and scoped
-shares, including isolated UTF-16 units. Native and Wasm replay the capture.
-Additional Rust proofs cover capacity, retry/conflict, immutable revoked IDs,
-and unchanged versus indeterminate storage outcomes. Native filesystem tests
-exercise the serial archive owner; native TCP tests separately cover durable publication and descendant revocation.
-
-`archive-merge.json` captures `lib/archive/merge.ts`'s actual
-`mergeArchiveAccounts` output. Cases cover withdrawal/edit precedence,
-current-writer ties, listed-order ties, standing records, full identity and
-first-seen output order. Native and Wasm replay record and keeper attribution.
-Separate Rust scenarios verify borrowed winner identity and input bounds that
-charge duplicate rows and empty accounts; no Deno process runs during replay.
-
-The historical `authority` paths in `archive-disk.json` and `archive-shares.json`
-name the TypeScript owners at capture time. Those owners are retired. Native
-`archive::file` tests now exercise the journal, blob accounting, custody and
-share publication against these inputs. Unsupported schemas report both
-versions without modifying the original archive.
+A fixture proves the pure contract. It does not stand in for the effects
+around it, and the proofs say so where they stop: production blob storage,
+durable shares, live inbox publication, three-party handoff, a real WebRTC
+channel, and disk failure with restart are each covered by the native
+`rooms-services` tests over real files and sockets, or by the browser proofs
+in Chromium, not here. When a fixture's reader gains a case that only one
+target exercises, the case belongs in that target's own test, not in the
+shared document.

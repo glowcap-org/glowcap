@@ -8,11 +8,11 @@ mod feed;
 pub mod projection;
 
 use super::{
-	model::{channel_key, network_key, BridgeIntent, NetworkChoice},
-	registration::{automatic_nick, SaslPlain},
+	MAX_BRIDGED_ROOMS, MAX_READERS_PER_CHANNEL,
+	model::{BridgeIntent, NetworkChoice, channel_key, network_key},
+	registration::{SaslPlain, automatic_nick},
 	room::Room,
 	seat::{Phase, View},
-	MAX_BRIDGED_ROOMS, MAX_READERS_PER_CHANNEL,
 };
 use crate::failure::FailureCode;
 use alloc::{
@@ -100,26 +100,7 @@ impl<C, R> Default for Gateway<C, R> {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-	pub code: Option<FailureCode>,
-	pub detail: String,
-}
-
-impl Refusal {
-	pub fn plain(detail: impl Into<String>) -> Self {
-		Self {
-			code: None,
-			detail: detail.into(),
-		}
-	}
-	pub fn reason(&self) -> String {
-		match self.code {
-			Some(code) => format!("{}: {}", code.wire(), self.detail),
-			None => self.detail.clone(),
-		}
-	}
-}
+pub use crate::server::Refusal;
 
 impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 	pub fn networks(&self) -> impl Iterator<Item = &Network> {
@@ -301,6 +282,7 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 			network: network.choice.network.clone(),
 			channel: bridge.room.channel().into(),
 			publication_id: bridge.room.publication_id().into(),
+			operator_permission: true,
 		})
 	}
 	// ── Seats and identities ────────────────────────────────────────────
@@ -470,6 +452,7 @@ mod tests {
 			port: 6667,
 			tls: false,
 			nick: "feed".into(),
+			realname: "bridge bot; admin: alice".into(),
 			sasl: None,
 		}
 	}

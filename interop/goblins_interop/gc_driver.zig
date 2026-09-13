@@ -48,6 +48,7 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("goblins-gc: goblins published echo swiss={s} on {s}:{s}\n", .{ swiss, host, port_str });
 
     try proveExportGc(io, allocator, swiss, port);
+    try @import("gc_outbound.zig").prove(io, allocator, port);
 
     child.kill(io);
     reaped = true;

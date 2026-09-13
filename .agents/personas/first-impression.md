@@ -52,7 +52,7 @@ into the lead and let the testing path sit where it belongs.
 ## What good looks like
 
 Start building's first tab is iroh. The rooms page leads with encrypted iroh
-and names `rooms-web-tcp` as the cleartext sibling. Relay listen is
+and names `rooms-web -Dtransport=tcp` as the cleartext sibling. Relay listen is
 `noise-relay` once; keyed registration is a constructor delta, not a second
 program. The stranger who stops at the homepage snippet or that first tab has
 met a sealed, identity-aware path.

@@ -1,8 +1,8 @@
 //! Message recording decisions shared by native sessions and browser peers.
 //! Clocks, source capabilities and storage commitment belong to the caller.
 use super::{
-	index::{Identity, Key, Parts},
 	Attachment, Body, ConversationKind, Coordinates, Error, Kind, LineState, Record,
+	index::{Identity, Key, Parts},
 };
 use crate::{
 	files::FileDescription,
@@ -20,6 +20,7 @@ pub struct Message<'a> {
 	pub nick: &'a str,
 	pub from: &'a str,
 	pub text: &'a str,
+	pub previews: &'a crate::open_graph::Selection,
 	pub system: bool,
 	pub line: Option<LineId>,
 	pub change: ChangeKind,
@@ -95,6 +96,12 @@ pub fn message<'a>(
 				ChangeKind::Withdrawn => LineState::Withdrawn,
 				ChangeKind::Edited | ChangeKind::Refiled => LineState::Edited,
 				ChangeKind::Said => LineState::Present,
+			},
+			previews: if withdrawn {
+				crate::open_graph::Selection::default()
+			} else {
+				crate::open_graph::Selection::new(input.text, input.previews.urls().iter().map(|url| url.as_str()))
+					.map_err(|_| Error::Record)?
 			},
 			attachments,
 		},

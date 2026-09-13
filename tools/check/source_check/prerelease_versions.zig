@@ -33,6 +33,20 @@ const roots = [_][]const u8{ "apps", "bindings/ts" };
 /// How a schema states its version. Everything this rule reads follows it.
 const marker = "version: z.literal(";
 
+const browser_database_versions = [_]struct {
+    path: []const u8,
+    needle: []const u8,
+}{
+    .{
+        .path = "apps/rooms/rust/browser/src/storage/database.rs",
+        .needle = "open_with_u32(\"rooms-history\", 1)",
+    },
+    .{
+        .path = "apps/rooms/rust/browser/src/storage/database/schema.rs",
+        .needle = "database.version() != 1.0",
+    },
+};
+
 fn isSourcePath(path: []const u8) bool {
     return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx");
 }
@@ -127,6 +141,16 @@ pub fn check(
             };
             defer gpa.free(body);
             try checkFile(gpa, path, body, violations);
+        }
+    }
+    for (browser_database_versions) |expected| {
+        const body = root.readFileAlloc(io, expected.path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for the prerelease browser database version check with {s}", .{ expected.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(body);
+        if (std.mem.indexOf(u8, body, expected.needle) == null) {
+            try appendViolation(gpa, violations, "{s}: the Rooms browser database must keep its unsupported prerelease schema at version 1", .{expected.path});
         }
     }
 }

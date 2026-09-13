@@ -262,12 +262,13 @@ async fn failed_handshake_does_not_poison_a_later_connection() {
 			let target = next.fetch("alive").await.unwrap();
 			assert!(next.send(&target, "check", &[]).await.is_ok());
 			next.close(crate::PendingWork::Cancel).await.unwrap();
-			assert!(host
-				.close(crate::PendingWork::Cancel)
-				.await
-				.unwrap_err()
-				.to_string()
-				.contains("physical close failed"));
+			assert!(
+				host.close(crate::PendingWork::Cancel)
+					.await
+					.unwrap_err()
+					.to_string()
+					.contains("physical close failed")
+			);
 			serving.await.unwrap();
 		})
 		.await;

@@ -3,8 +3,8 @@
 use super::*;
 use glowcap::{CaptpVersion, Host, Locator};
 use rooms_application::archive::{
-	shares::{protocol, Share},
 	Access,
+	shares::{Share, protocol},
 };
 struct Published {
 	spec: Share,
@@ -33,46 +33,59 @@ impl Publications {
 	pub(super) fn suspend(&self) {
 		self.ready.set(false);
 	}
-	fn link(&self, name: &str) -> Result<String, String> {
-		glowcap::format_sturdyref(&self.locator, name.as_bytes(), CaptpVersion::V1_0).map_err(|e| e.to_string())
+	fn link(&self, name: &str) -> Result<String, Error> {
+		Ok(glowcap::format_sturdyref(
+			&self.locator,
+			name.as_bytes(),
+			CaptpVersion::V1_0,
+		)?)
 	}
-	pub(super) fn root_link(&self) -> Result<String, String> {
-		self.link(self.root_name.as_deref().ok_or("archive root is not published")?)
+	pub(super) fn root_link(&self) -> Result<String, Error> {
+		self.link(
+			self.root_name
+				.as_deref()
+				.ok_or_else(|| Error::closed("archive root is not published"))?,
+		)
 	}
-	pub(super) fn share_link(&self, id: &str) -> Result<String, String> {
+	pub(super) fn share_link(&self, id: &str) -> Result<String, Error> {
 		let row = self
 			.rows
 			.iter()
 			.find(|r| r.spec.id() == id && r.active.get())
-			.ok_or("archive share is not published")?;
+			.ok_or_else(|| Error::invalid("archive share is not published"))?;
 		self.link(&row.name)
 	}
-	pub(super) fn listing(&self, specs: &[Share]) -> Result<Argument, String> {
+	pub(super) fn listing(&self, specs: &[Share]) -> Result<Argument, Error> {
 		let mut rows = Vec::with_capacity(specs.len());
 		for spec in specs {
-			rows.push(wire::share_row(spec, &self.share_link(spec.id())?).map_err(|e| e.to_string())?);
+			rows.push(wire::share_row(spec, &self.share_link(spec.id())?).map_err(Error::invalid_by)?);
 		}
 		Ok(Argument::List(rows))
 	}
 	/// A failed effect retains its exact name for retry. Readiness prevents a
 	/// partial restored set from answering, while issuer calls can retry it.
+	/// The backend's committed share set is checked here, so a set it could
+	/// not have committed is its storage failure, never a caller's.
 	pub(super) fn reconcile<P: Platform>(
 		&mut self,
 		specs: Vec<Share>,
 		receiver: &Receiver<P>,
-	) -> Result<Vec<Share>, String> {
+	) -> Result<Vec<Share>, Error> {
 		self.suspend();
 		if specs.len() > rooms_application::archive::shares::MAX_ACTIVE {
-			return Err("archive backend returned too many shares".into());
+			return Err(Error::storage_message("archive backend returned too many shares"));
 		}
 		let mut ids = std::collections::BTreeSet::new();
 		for spec in &specs {
-			Share::new(spec.id().into(), spec.label().clone(), spec.filter().clone()).map_err(|e| e.to_string())?;
+			Share::new(spec.id().into(), spec.label().clone(), spec.filter().clone())
+				.map_err(|error| Error::storage_message(error.to_string()))?;
 			if spec.revoked() || !ids.insert(spec.id()) {
-				return Err("archive backend returned invalid active shares".into());
+				return Err(Error::storage_message("archive backend returned invalid active shares"));
 			}
 			if self.rows.iter().any(|r| r.spec.id() == spec.id() && r.spec != *spec) {
-				return Err("archive backend changed immutable share identity".into());
+				return Err(Error::storage_message(
+					"archive backend changed immutable share identity",
+				));
 			}
 		}
 		for row in &self.rows {
@@ -83,9 +96,9 @@ impl Publications {
 		let mut at = 0;
 		while at < self.rows.len() {
 			if !self.rows[at].active.get() {
-				self.host
-					.remove_durable(&self.rows[at].name)
-					.map_err(|e| format!("archive share is revoked; publication cleanup failed: {e}"))?;
+				self.host.remove_durable(&self.rows[at].name).map_err(|e| {
+					Error::storage_message(format!("archive share is revoked; publication cleanup failed: {e}"))
+				})?;
 				self.rows.remove(at);
 			} else {
 				at += 1;
@@ -100,7 +113,8 @@ impl Publications {
 				active: active.clone(),
 				ready: self.ready.clone(),
 			};
-			let facet = Facet::new(spec.filter().clone(), Access::Read).map_err(|e| e.to_string())?;
+			let facet = Facet::new(spec.filter().clone(), Access::Read)
+				.map_err(|error| Error::storage_message(error.to_string()))?;
 			let name = self.publish(receiver, spec.entropy(&self.root), facet, authority)?;
 			self.rows.push(Published {
 				spec: spec.clone(),
@@ -125,8 +139,11 @@ impl Publications {
 		entropy: [u8; Host::DURABLE_ENTROPY_BYTES],
 		facet: Facet,
 		authority: Authority,
-	) -> Result<String, String> {
-		let state = receiver.0.upgrade().ok_or("archive owner has ended")?;
+	) -> Result<String, Error> {
+		let state = receiver
+			.0
+			.upgrade()
+			.ok_or_else(|| Error::closed("archive owner has ended"))?;
 		state.live()?;
 		let permit = state.facet_permit(&facet)?;
 		let receiver = receiver.clone();
@@ -134,12 +151,14 @@ impl Publications {
 			.publish_durable_with_entropy(entropy, || {
 				Box::new(move |verb, args| {
 					let _held = &permit;
-					receiver.receive(&facet, &authority, verb, args)
+					receiver
+						.receive(&facet, &authority, verb, args)
+						.map_err(Error::into_refusal)
 				})
 			})
-			.map_err(|e| format!("archive share state is committed; publication failed: {e}"))
+			.map_err(|e| Error::storage_message(format!("archive share state is committed; publication failed: {e}")))
 	}
-	pub(super) fn close(&mut self) -> Result<(), String> {
+	pub(super) fn close(&mut self) -> Result<(), Error> {
 		self.suspend();
 		for row in &self.rows {
 			row.active.set(false);
@@ -163,7 +182,7 @@ impl Publications {
 		if errors.is_empty() {
 			Ok(())
 		} else {
-			Err(errors.join("; "))
+			Err(Error::storage_message(errors.join("; ")))
 		}
 	}
 }
@@ -180,25 +199,25 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 		host: Host,
 		root: [u8; Host::DURABLE_ENTROPY_BYTES],
 		locator: Locator,
-	) -> Result<String, String> {
+	) -> Result<String, Error> {
 		if self.publications.is_some() {
-			return Err("archive publications already configured".into());
+			return Err(Error::invalid("archive publications already configured"));
 		}
 		if !self.backend.durable_shares() {
-			return Err("archive backend does not retain durable shares".into());
+			return Err(Error::refused("archive backend does not retain durable shares"));
 		}
 		self.publications = Some(Publications::new(host, root, locator));
 		self.retry_publications().await
 	}
-	pub async fn retry_publications(&mut self) -> Result<String, String> {
+	pub async fn retry_publications(&mut self) -> Result<String, Error> {
 		self.reconcile_publications().await?;
 		self.publications.as_ref().expect("configured publications").root_link()
 	}
-	async fn reconcile_publications(&mut self) -> Result<Vec<Share>, String> {
+	async fn reconcile_publications(&mut self) -> Result<Vec<Share>, Error> {
 		let publications = self
 			.publications
 			.as_mut()
-			.ok_or("archive has no durable share issuer")?;
+			.ok_or_else(|| Error::refused("archive has no durable share issuer"))?;
 		let specs = match self.backend.active_shares().await {
 			Ok(specs) => specs,
 			Err(error) => {
@@ -208,10 +227,10 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 		};
 		publications.reconcile(specs, &Receiver(Rc::downgrade(&self.state)))
 	}
-	pub(super) async fn share_request(&mut self, request: protocol::Request) -> Result<Argument, String> {
+	pub(super) async fn share_request(&mut self, request: protocol::Request) -> Result<Argument, Error> {
 		use rooms_application::archive::shares::{Change, Command};
 		if self.publications.is_none() {
-			return Err("archive has no durable share issuer".into());
+			return Err(Error::refused("archive has no durable share issuer"));
 		}
 		let (id, changed) = match request {
 			protocol::Request::Issue(spec) => {
@@ -234,11 +253,9 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 			Err(e) => {
 				self.publications.as_ref().expect("configured publications").suspend();
 				// A policy refusal leaves storage usable. Reconcile that committed
-				// state before the next queued call; uncertain storage stays closed.
-				return match self.reconcile_publications().await {
-					Ok(_) => Err(e),
-					Err(recovery) => Err(format!("{e}; share publications unavailable: {recovery}")),
-				};
+				// state before the next queued call; uncertain storage stays closed,
+				// and a reconcile that also failed is retained behind the refusal.
+				return Err(e.retain_result(self.reconcile_publications().await.map(|_| ())));
 			}
 		};
 		self.reconcile_publications().await?;

@@ -1,6 +1,6 @@
 // Cross-language rooms demo orchestrator.
 //
-// Starts the Deno rooms server, then joins one client per available language —
+// Starts the native Rust rooms-server, then joins one client per available language —
 // Deno and the native Zig client always, plus Python, Racket, and Rust when their
 // runtimes are on PATH — into one capability-secure chat room over TCP. Each
 // client subscribes, waits for every roster member to be present, posts one
@@ -11,7 +11,7 @@
 //
 // It does not require every runtime: a language whose runtime is missing is
 // skipped with a note, not treated as a failure, so the demo runs on whatever
-// machine you have. Deno is the floor — it hosts the room and runs this script.
+// machine you have. Deno orchestrates the native server and clients.
 //
 // Run by `zig build demo-rooms`, which passes the built Zig client's path as argv[0].
 // `--port=N` (from `-Dport`) pins the server's port instead of an ephemeral one;

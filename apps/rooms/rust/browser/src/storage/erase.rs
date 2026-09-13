@@ -1,12 +1,12 @@
 //! Explicit device deletion can remove obsolete schemas. The request retains
 //! its callbacks and local erasure effects even when its observer goes away.
-use super::{blobs::Cache, memory::Memory, Database, Error};
+use super::{Database, Error, blobs::Cache, memory::Memory};
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
 };
 use tokio::sync::Notify;
-use wasm_bindgen::{closure::Closure, JsCast};
+use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{Event, IdbFactory, IdbOpenDbRequest};
 
 type Callback = Closure<dyn FnMut(Event)>;

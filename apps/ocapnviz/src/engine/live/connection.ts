@@ -120,9 +120,10 @@ export const browserPeerFactory: LivePeerFactory = async (
 			},
 		);
 	});
-	// The inbox can receive records before subscribe returns. Keep its exact
-	// terminal outcome observed throughout construction; the caller receives
-	// this same promise once construction succeeds.
+	// tolerant: the caller receives this same promise as `closed` once
+	// construction succeeds and observes its outcome there. The inbox can
+	// receive records before subscribe returns, so this handler only keeps a
+	// failure during construction from surfacing as an unhandled rejection.
 	void gone.catch(() => {});
 	const retire = (): Promise<void> => {
 		if (retirement === null) {
@@ -157,6 +158,9 @@ export const browserPeerFactory: LivePeerFactory = async (
 			},
 		};
 	} catch (error) {
+		// tolerant: the failure that brought construction down is the one
+		// thrown; a close that then fails too is retirement of a session the
+		// caller never received, and its cause would only shadow the first.
 		await retire().catch(() => {});
 		await closed.catch(() => {});
 		throw error;
@@ -284,7 +288,8 @@ export class LiveFeed {
 				code: "validation",
 				title: "Live record unreadable",
 				detail: error instanceof Error ? error.message : String(error),
-				recovery: "The feed stays connected. Later records still arrive; reload Live if the stage looks wrong.",
+				recovery:
+					"The feed stays connected and later records still arrive. Reload Live if the stage looks wrong.",
 				cause: error,
 			});
 		}
@@ -303,7 +308,7 @@ export class LiveFeed {
 				code: "internal",
 				title: "Live connection lost",
 				detail: cause instanceof Error ? cause.message : String(cause),
-				recovery: "Reconnecting. The stage keeps what it has; a replay fills in what changed.",
+				recovery: "Reconnecting. The stage keeps what it has, and a replay fills in what changed.",
 				cause,
 			});
 		}

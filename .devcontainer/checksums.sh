@@ -11,10 +11,10 @@
 # are pinned here beside the Linux ones.
 zig_sha256() {
     case "$(uname -s)-$(uname -m)" in
-        Linux-x86_64) echo "e07d5330e46420c56bf6c725fa4aed655292dcce3286d6d77c64e6bdaf90e307" ;;
-        Linux-aarch64) echo "6a8c495c2ade9ad50c825bcdd4af97858e901b297f3a02d62db1e06fa4707298" ;;
-        Darwin-arm64) echo "b3cfd2744a79c35860e6c0994804b5f21e882a644ccd92a4988c0b7cbe04641f" ;;
-        Darwin-x86_64) echo "7d5cf0363c2e921f41e8cb5e28f5406f70ece8d16b91ed53ab759769f4ad488b" ;;
+        Linux-x86_64) echo "719f5612fddb58eefc33735696e3b53400f2794e2b5324796dc4f94e12fd5f05" ;;
+        Linux-aarch64) echo "c53b05c16fca9c85558be58f541ae16f87f36715b902ed679bdd0dc60135036d" ;;
+        Darwin-arm64) echo "5b8ed7c7cde2877db157ac2544170461ee0eaf38235a68f51907e9bc111182af" ;;
+        Darwin-x86_64) echo "46e5c668d4a03feeb92f88476cc5aeb7a95a9902251ae5c70268907357df397b" ;;
         *)
             echo "zig_sha256: unsupported platform: $(uname -s)-$(uname -m)" >&2
             return 1
@@ -56,14 +56,14 @@ opencode_sha256() {
 
 cursor_agent_sha256() {
     glowcap_pick_by_arch cursor_agent_sha256 \
-        "0d7a11dd01b652b8b92d05cc14f769fbc5a3442b786cd8b636041f189ab81f1e" \
-        "153ae182db90814748d544f2a26abc073e4e4e5df0b867abfd69def0ff77aa71"
+        "27997c8391ad853a5a732b1845db8ef82a8ba6afb0f7829cc739464f8966e96e" \
+        "e0494438b01c37bc34848491d1f3478ef469494c56caf020de11796d146db64a"
 }
 
 uv_sha256() {
     glowcap_pick_by_arch uv_sha256 \
-        "ab9b309d4586403f024e100abaceb396616e178a553e2500c36087d180f09509" \
-        "fe08db50cc1b56cd1da7801065ed1103d27ed3f9571cd122386cfc7faf1b8df5"
+        "745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd" \
+        "2eaa5d94f5db7b3a1a092156b9420459e42ab0217d917fe74a876309cef9b5e9"
 }
 
 racket_tarball_and_sha256() {

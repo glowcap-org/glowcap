@@ -3,15 +3,14 @@
 mod room_execution;
 use rooms_application::{
 	grants::Access,
-	session::checkpoint::{commands::Command, reconciliation::Id, Checkpoint, Routes},
+	session::checkpoint::{Checkpoint, Routes, commands::Command, reconciliation::Id},
 };
 use rooms_browser::platform::Platform;
 use rooms_glowcap::{client::directory::Directory, routes::CheckpointRoutes};
 use rooms_runtime::{
-	directory_runtime::{DirectoryRuntime, Phase},
+	directories::runtime::{DirectoryRuntime, Phase},
 	documents::VolatileDocuments,
-	session_commands::SessionCommands,
-	session_state::DurableSession,
+	session::{commands::SessionCommands, state::DurableSession},
 };
 use std::rc::Rc;
 
@@ -29,7 +28,7 @@ pub async fn exercise(transport: Rc<glowcap::Runtime>, directory: Directory<Plat
 	let mut state = DurableSession::new(VolatileDocuments::default(), platform.clone());
 	assert!(matches!(
 		state.load().await.unwrap(),
-		rooms_runtime::session_state::LoadStatus::Ready
+		rooms_runtime::session::state::LoadStatus::Ready
 	));
 	state
 		.adopt(
@@ -105,9 +104,11 @@ pub async fn exercise(transport: Rc<glowcap::Runtime>, directory: Directory<Plat
 		}
 		runtime.close().await.unwrap();
 		assert!(runtime.is_closed());
-		assert!(runtime
-			.adopt(id.text(), directory.clone(), "shared-runtime".into())
-			.is_err());
+		assert!(
+			runtime
+				.adopt(id.text(), directory.clone(), "shared-runtime".into())
+				.is_err()
+		);
 		// Retiring this owner's watches leaves the sibling client and room usable.
 		assert_eq!(directory.advertised_location().await.unwrap(), advertised);
 		commands.close().await.unwrap();

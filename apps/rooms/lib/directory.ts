@@ -14,7 +14,7 @@ import type { Session } from "@glowcap/runtime";
 import type { RoomsDirectoryDial } from "./locator.ts";
 import { isManagedRoomId, MAX_DM_INBOXES, newManagedRoomId, REQUEST_TIMEOUT_MS } from "./limits.ts";
 import type { RoomPolicy } from "./room/policy.ts";
-import { INTRODUCTION_PENDING, RoomError, roomErrorOf } from "./errors.ts";
+import { INTRODUCTION_PENDING, RoomsError, roomsErrorOf } from "./errors.ts";
 import {
 	ADVERTISED_LOCATION,
 	DIRECTORY,
@@ -131,8 +131,9 @@ export class Directory {
 		const routedDirectory = "session" in reached ? reached.directory : null;
 		// Start the inbound loop before fetching, so the fetch's resolution arrives.
 		const serving = session.serve();
-		// A Directory owns this promise and observes it at close. Attach a handler
-		// now so a transport fault before then is not an unhandled rejection.
+		// tolerant: a Directory owns this promise and observes it at close, so
+		// nothing is lost here. This handler only keeps a transport fault before
+		// then from surfacing as an unhandled rejection.
 		void serving.catch(() => {});
 		try {
 			const directory = routedDirectory ?? await claimCapabilityWithin(
@@ -396,7 +397,7 @@ export class Directory {
 		try {
 			return await this.#introduceOnce(nick, registrationId);
 		} catch (err) {
-			if (roomErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
+			if (roomsErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
 		}
 		// First contact with this peer: the directory has just asked them for an
 		// inbox for us. Wait for the offer to land, then ask again.
@@ -411,10 +412,10 @@ export class Directory {
 			try {
 				return await this.#introduceOnce(nick, registrationId);
 			} catch (err) {
-				if (roomErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
+				if (roomsErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
 			}
 		}
-		throw new RoomError(
+		throw new RoomsError(
 			INTRODUCTION_PENDING,
 			`"${nick}" did not offer an inbox for us`,
 		);
@@ -515,7 +516,7 @@ export class Directory {
 			const abort = () => finish(this.#lifetime.signal.reason);
 			const timer = setTimeout(() => {
 				finish(
-					new RoomError(
+					new RoomsError(
 						INTRODUCTION_PENDING,
 						`"${nick}" did not offer an inbox for us in time`,
 					),

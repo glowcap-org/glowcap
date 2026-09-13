@@ -1,7 +1,10 @@
 //! One directory's registered-name owner. Dropped observations leave the
 //! bounded attempt running until finish_pending recovers its actual result.
 use super::*;
-use rooms_application::directory::registration::{self as policy, Custody, Event, Id, Notice};
+use rooms_application::{
+	directory::registration::{self as policy, Custody, Event, Id, NicknameAllocation, Notice},
+	fields::Text,
+};
 use std::{
 	cell::RefCell,
 	future::poll_fn,
@@ -11,7 +14,7 @@ mod registry;
 pub(crate) use registry::Registry;
 
 struct Inbox {
-	ack: Option<Id>,
+	ack: Option<Result<Grant, policy::Error>>,
 	ack_waiter: Option<Waker>,
 	events: policy::Events,
 	event_waiter: Option<Waker>,
@@ -23,8 +26,24 @@ struct Name {
 }
 struct State {
 	custody: Custody<Name>,
-	outcome: Option<Result<Id, Error>>,
+	outcome: Option<Result<Grant, Error>>,
 	waiter: Option<Waker>,
+}
+struct Request {
+	nick: String,
+	allocation: NicknameAllocation,
+	locator: String,
+	voucher: Option<Vec<u8>>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Grant {
+	pub nick: Text<32, true>,
+	pub id: Id,
+}
+impl Grant {
+	pub fn as_str(&self) -> &str {
+		self.id.as_str()
+	}
 }
 pub struct Registration<D: Tasks> {
 	client: Client<D>,
@@ -117,26 +136,32 @@ impl<D: Deadline + Tasks + Clone + 'static> Registration<D> {
 			claim: policy::Claim::Named,
 		}
 	}
-	pub async fn register(&mut self, nick: &str, locator: &str, voucher: Option<Vec<u8>>) -> Result<Id, Error> {
+	pub async fn register(&mut self, nick: &str, locator: &str, voucher: Option<Vec<u8>>) -> Result<Grant, Error> {
+		self.register_with_allocation(nick, NicknameAllocation::Exact, locator, voucher)
+			.await
+	}
+	pub async fn register_with_allocation(
+		&mut self,
+		nick: &str,
+		allocation: NicknameAllocation,
+		locator: &str,
+		voucher: Option<Vec<u8>>,
+	) -> Result<Grant, Error> {
 		let admission = self
 			.client
 			.directory_names
 			.begin(&self.directory, &self.state, self.claim)?;
 		self.state.borrow_mut().custody.begin()?;
 		let (client, directory, weak) = (self.client.clone(), self.directory.clone(), Rc::downgrade(&self.state));
-		let (nick, locator) = (nick.to_owned(), locator.to_owned());
+		let request = Request {
+			nick: nick.to_owned(),
+			allocation,
+			locator: locator.to_owned(),
+			voucher,
+		};
 		let notifications = self.notifications.clone();
 		self.pending = Some(self.client.deadline.spawn(async move {
-			let result = attempt(
-				&client,
-				&directory,
-				nick,
-				locator,
-				voucher,
-				&weak,
-				(notifications, admission),
-			)
-			.await;
+			let result = attempt(&client, &directory, request, &weak, (notifications, admission)).await;
 			if let Some(state) = weak.upgrade() {
 				let waiter = {
 					let mut s = state.borrow_mut();
@@ -151,7 +176,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Registration<D> {
 		self.finish_pending().await
 	}
 	/// Recover a cancelled observation without sending another registration.
-	pub async fn finish_pending(&mut self) -> Result<Id, Error> {
+	pub async fn finish_pending(&mut self) -> Result<Grant, Error> {
 		if self.pending.is_none() {
 			return Err(policy::Error::NoPending.into());
 		}
@@ -222,12 +247,16 @@ impl<D: Deadline + Tasks + Clone + 'static> Registration<D> {
 async fn attempt<D: Deadline>(
 	client: &Client<D>,
 	directory: &Ref,
-	nick: String,
-	locator: String,
-	voucher: Option<Vec<u8>>,
+	request: Request,
 	state: &std::rc::Weak<RefCell<State>>,
 	(notifications, admission): (introduction::Notifications, registry::Attempt),
-) -> Result<Id, Error> {
+) -> Result<Grant, Error> {
+	let Request {
+		nick,
+		allocation,
+		locator,
+		voucher,
+	} = request;
 	let inbox = Rc::new(RefCell::new(Inbox {
 		ack: None,
 		ack_waiter: None,
@@ -236,6 +265,7 @@ async fn attempt<D: Deadline>(
 	}));
 	let weak = Rc::downgrade(&inbox);
 	let owner = state.clone();
+	let expected_nick = nick.clone();
 	let root = client.session.spawn_owned(move |verb, args| {
 		let state = owner.upgrade().ok_or("the name registration has ended")?;
 		if state.borrow().custody.ended() {
@@ -243,19 +273,30 @@ async fn attempt<D: Deadline>(
 		}
 		let inbox = weak.upgrade().ok_or("the name registration has ended")?;
 		let notice = policy::notice(verb, |i| args.get(i).map(Value)).map_err(|e| e.to_string())?;
-		if let Some(Notice::Event(event)) = &notice {
-			if event.kind == policy::Kind::Introducible {
-				notifications.notify(&event.registration);
-			}
+		if let Some(Notice::Event(event)) = &notice
+			&& event.kind == policy::Kind::Introducible
+		{
+			notifications.notify(&event.registration);
 		}
 		let (waiter, result) = {
 			let mut i = inbox.borrow_mut();
 			match notice {
-				Some(Notice::Registered(id)) => {
+				Some(Notice::Registered { nick, id }) => {
 					if i.ack.is_none() {
-						i.ack = Some(id)
+						i.ack = Some(
+							if allocation == NicknameAllocation::Exact
+								&& nick.text().as_str() != Some(expected_nick.as_str())
+							{
+								Err(policy::Error::Grant)
+							} else {
+								Ok(Grant { nick, id })
+							},
+						)
 					}
-					(i.ack_waiter.take(), Ok(()))
+					(
+						i.ack_waiter.take(),
+						i.ack.as_ref().expect("filed acknowledgement").clone().map(|_| ()),
+					)
 				}
 				Some(Notice::Event(event)) => {
 					let result = i.events.push(event);
@@ -272,6 +313,9 @@ async fn attempt<D: Deadline>(
 	})?;
 	let reply = {
 		let mut args = vec![nick.into(), locator.into(), root.clone().into()];
+		if allocation == NicknameAllocation::Automatic {
+			args.push(Argument::String(allocation.wire().into()));
+		}
 		if let Some(voucher) = voucher {
 			args.push(Argument::Bytes(voucher));
 		}
@@ -286,8 +330,8 @@ async fn attempt<D: Deadline>(
 		policy::ACK_MS,
 		poll_fn(|cx| {
 			let mut i = inbox.borrow_mut();
-			if let Some(id) = &i.ack {
-				Poll::Ready(id.clone())
+			if let Some(grant) = &i.ack {
+				Poll::Ready(grant.clone())
 			} else {
 				i.ack_waiter = Some(cx.waker().clone());
 				Poll::Pending
@@ -303,10 +347,13 @@ async fn attempt<D: Deadline>(
 		}
 		// Poll the acknowledgement clock from the first turn, independently of
 		// when the capability reply becomes observable.
-		if ack.is_none() {
-			if let Poll::Ready(result) = acknowledgement.as_mut().poll(cx) {
-				ack = Some(result.ok_or(Error::Timeout("the directory did not acknowledge registration")));
-			}
+		if ack.is_none()
+			&& let Poll::Ready(result) = acknowledgement.as_mut().poll(cx)
+		{
+			ack = Some(match result {
+				Some(result) => result.map_err(Error::from),
+				None => Err(Error::Timeout("the directory did not acknowledge registration")),
+			});
 		}
 		if !accepted {
 			match reply.as_mut().poll(cx) {
@@ -332,10 +379,8 @@ async fn attempt<D: Deadline>(
 				Poll::Pending => {}
 			}
 		}
-		if accepted {
-			if let Some(result) = ack.take() {
-				return Poll::Ready(result);
-			}
+		if accepted && let Some(result) = ack.take() {
+			return Poll::Ready(result);
 		}
 		Poll::Pending
 	})

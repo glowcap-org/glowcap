@@ -3,6 +3,8 @@
 import { applicationModule } from "../application.ts";
 import { clearWorkspaceState } from "../workspace/bundle.ts";
 import type { RoomsPageContext } from "../page.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { clearWorkspaceRefused } from "../../../lib/text/attached.ts";
 
 /** Delete every Rooms datum owned by this browser, without navigating. */
 export async function deleteRoomsBrowserData(page: RoomsPageContext): Promise<string> {
@@ -13,10 +15,8 @@ export async function deleteRoomsBrowserData(page: RoomsPageContext): Promise<st
 			page.browserArchive ??= new (applicationModule().RoomsBrowserArchive)();
 			await page.browserArchive.erase();
 		}
-		return clearWorkspaceState(page)
-			? ""
-			: "Browser history was erased, but this browser refused to clear the saved Rooms workspace. Retry Delete browser data.";
+		return clearWorkspaceState(page) ? "" : clearWorkspaceRefused;
 	} catch (error) {
-		return error instanceof Error ? error.message : String(error);
+		return refusalText(error);
 	}
 }

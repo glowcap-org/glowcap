@@ -14,6 +14,13 @@
 // a typed answer is a field, and adding either kind changes nothing here.
 
 import { useEffect, useRef } from "react";
+import { railFilterLabel } from "../../../lib/text/controls.ts";
+import {
+	filterChangeSaid,
+	filterChooseSaid,
+	filterNothingToChoose,
+	filterShowEverything,
+} from "../../../lib/text/rail.ts";
 import { Checkbox } from "../Checkbox.tsx";
 import { Icon } from "../icons.tsx";
 import { MenuLayer, useMenu } from "../Menu.tsx";
@@ -69,8 +76,8 @@ function TypedAsk(
 
 /** A question with a known set of answers, each of which can be turned off.
  *
- * A list of rows in a well, one answer to a row, which is what this question
- * is: every answer is included or excluded on its own and none of them is a
+ * A list of rows in a well gives one answer per row. Every answer is included
+ * or excluded on its own, and none of them is a
  * choice between the others. The page's own `Checkbox` answers each row, and
  * the whole row is its label, so pressing anywhere on the line is pressing the
  * answer.
@@ -89,7 +96,7 @@ function ChoiceAsk(
 		<div className="filter-ask">
 			<span className="filter-label" id={labelId}>{criterion.label}</span>
 			{criterion.choices.length === 0
-				? <span className="filter-none">Nothing to choose from yet</span>
+				? <span className="filter-none">{filterNothingToChoose}</span>
 				: (
 					<div className="filter-choices" role="group" aria-labelledby={labelId}>
 						{criterion.choices.map((choice) => {
@@ -152,9 +159,7 @@ export function RailFilter(
 				aria-controls="railFilterPanel"
 				// Both halves are said out loud, because a reader using the
 				// accessible name is given no punctuation to tell them apart.
-				aria-label={asked
-					? title + ". Change what the rail shows. " + countSentence(shown, total)
-					: title + ". Choose what the rail shows. Nothing is hidden"}
+				aria-label={asked ? filterChangeSaid(title, countSentence(shown, total)) : filterChooseSaid(title)}
 				onClick={() => setOpen((was) => !was)}
 			>
 				<span className="rail-filter-title">{title}</span>
@@ -168,7 +173,7 @@ export function RailFilter(
 						className="filter-panel"
 						ref={panel}
 						role="group"
-						aria-label="What the rail shows"
+						aria-label={railFilterLabel}
 					>
 						{criteria.map((criterion) => (
 							criterion.kind === "text"
@@ -212,7 +217,7 @@ export function RailFilter(
 									disabled={!asked}
 									onChange={() => onAnswers(askedNothing)}
 								/>
-								<span className="filter-choice-said">Show everything</span>
+								<span className="filter-choice-said">{filterShowEverything}</span>
 							</label>
 						</div>
 					</div>

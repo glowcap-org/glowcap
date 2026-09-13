@@ -22,6 +22,7 @@ pub const loadRoomsCss = shared.loadRoomsCss;
 const codeOnly = shared.codeOnly;
 
 pub const checkRoomsSelectors = @import("rooms_ui/selectors.zig").checkRoomsSelectors;
+pub const checkRoomsTextCatalog = @import("rooms_ui/text_catalog.zig").checkRoomsTextCatalog;
 pub const checkRoomsCustomProperties = @import("rooms_ui/tokens.zig").checkRoomsCustomProperties;
 pub const checkRoomsCardWidths = @import("rooms_ui/tokens.zig").checkRoomsCardWidths;
 pub const checkRoomsTypeRamp = @import("rooms_ui/tokens.zig").checkRoomsTypeRamp;
@@ -479,7 +480,7 @@ const rail_row = [_][]const u8{ ".room-open", ".dm-open" };
 /// parse, both apply, and only their order decides — so nothing but a browser
 /// could see it.
 ///
-/// `apps/rooms/test/web/dm_tabs_test.ts` measures that geometry and would catch
+/// `apps/rooms/test/proofs/dm_tabs_proof.ts` measures that geometry and would catch
 /// it again. This catches it at the edit.
 pub fn checkRoomsRailRow(
     io: std.Io,
@@ -614,7 +615,7 @@ pub fn checkRoomsConfig(
     }
     // Comments may cross-reference the number freely; what must not exist is a
     // third place that *decides* with it.
-    for ([_][]const u8{ ui_dir ++ "/hooks.ts", ui_dir ++ "/Composer.tsx", ui_dir ++ "/App.tsx" }) |elsewhere| {
+    for ([_][]const u8{ ui_dir ++ "/hooks.ts", ui_dir ++ "/panes/Composer.tsx", ui_dir ++ "/shell/App.tsx" }) |elsewhere| {
         const source = root.readFileAlloc(io, elsewhere, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot be read for the rooms UI check ({s})", .{ elsewhere, @errorName(err) });
             continue;

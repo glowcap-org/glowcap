@@ -307,6 +307,11 @@ pointing it at nothing.
   zero-copy claim is scoped to spill-inactive.** Deleting the pool reopens the
   per-connection buffer floor, about 7.6 GiB at 500k; deleting the tail copy
   means parsing across recycled storage.
+- **Readiness pending-operation rows:** `epoll.Backend.pending` and
+  `kqueue.Backend.pending`. One compact row joins each descriptor with its
+  armed read and write completion identities. The map grows when concurrent
+  armed descriptors reach a new peak, then retains that capacity so steady
+  re-arm is allocation-free.
 - **Outbound queue front and back** — `completion.Loop` (ADR-0042). One copy in,
   because the loop cannot block on a send. **Two buffers because a submitted
   write borrows `front` while the loop keeps running**, and appending could

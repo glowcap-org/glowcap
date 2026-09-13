@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Serialize finite builds launched through glowcap-dev.
+
+Arguments are the command to execute. GLOWCAP_BUILD_LEASE_FILE selects the
+lock file and GLOWCAP_BUILD_LEASE_TIMEOUT selects how many seconds contention
+may wait. The default is to report the owner immediately and exit 75.
+"""
+
+from __future__ import annotations
+
+import errno
+import fcntl
+import os
+import shlex
+import sys
+import time
+from typing import NoReturn
+
+
+NAME = "glowcap-build-lease"
+
+
+def fail(message: str, status: int) -> NoReturn:
+    print(f"{NAME}: {message}", file=sys.stderr)
+    raise SystemExit(status)
+
+
+def parse_timeout(raw: str) -> float:
+    try:
+        timeout = float(raw)
+    except ValueError:
+        fail(
+            "GLOWCAP_BUILD_LEASE_TIMEOUT must be a non-negative number, "
+            f"not {raw!r}",
+            2,
+        )
+    if timeout < 0 or not timeout < float("inf"):
+        fail(
+            "GLOWCAP_BUILD_LEASE_TIMEOUT must be a finite non-negative number, "
+            f"not {raw!r}",
+            2,
+        )
+    return timeout
+
+
+def try_lock(fd: int) -> bool:
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno in (errno.EACCES, errno.EAGAIN):
+            return False
+        raise
+    return True
+
+
+def report_owner(fd: int) -> None:
+    print(f"{NAME}: another build owns this worktree", file=sys.stderr)
+    owner = os.pread(fd, 64 * 1024, 0).decode(errors="replace").rstrip()
+    if owner:
+        for line in owner.splitlines():
+            print(f"  {line}", file=sys.stderr)
+
+
+def acquire(fd: int, timeout: float, raw_timeout: str) -> None:
+    if try_lock(fd):
+        return
+    report_owner(fd)
+    if timeout == 0:
+        fail("inspect that build, then retry when its boundary is free", 75)
+
+    print(f"{NAME}: waiting up to {raw_timeout}s", file=sys.stderr)
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            fail(
+                "the other build still owns the lease after "
+                f"{raw_timeout}s; inspect that build before retrying",
+                75,
+            )
+        time.sleep(min(remaining, 0.05))
+        if try_lock(fd):
+            return
+
+
+def write_owner(fd: int, argv: list[str]) -> None:
+    owner = (
+        f"pid: {os.getpid()}\n"
+        f"workdir: {os.getcwd()}\n"
+        f"command: {shlex.join(argv)}\n"
+    ).encode()
+    os.ftruncate(fd, 0)
+    with os.fdopen(os.dup(fd), "wb") as owner_file:
+        owner_file.write(owner)
+        owner_file.flush()
+
+
+def main(argv: list[str]) -> int:
+    if not argv:
+        fail("command required", 2)
+
+    lease_file = os.environ.get(
+        "GLOWCAP_BUILD_LEASE_FILE", "/tmp/glowcap-build.lock"
+    )
+    raw_timeout = os.environ.get("GLOWCAP_BUILD_LEASE_TIMEOUT", "0")
+    timeout = parse_timeout(raw_timeout)
+    parent = os.path.dirname(os.path.abspath(lease_file))
+    try:
+        os.makedirs(parent, exist_ok=True)
+        fd = os.open(lease_file, os.O_RDWR | os.O_CREAT, 0o600)
+        acquire(fd, timeout, raw_timeout)
+        write_owner(fd, argv)
+        os.set_inheritable(fd, True)
+    except OSError as error:
+        fail(f"cannot acquire {lease_file}: {error}", 2)
+
+    try:
+        os.execvp(argv[0], argv)
+    except FileNotFoundError:
+        fail(f"command not found: {argv[0]}", 127)
+    except PermissionError:
+        fail(f"command is not executable: {argv[0]}", 126)
+    except OSError as error:
+        fail(f"cannot execute {argv[0]}: {error}", 126)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

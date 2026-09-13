@@ -44,7 +44,7 @@ impl FileStore {
 			return Err(FileError::Spent.into());
 		}
 		match verb {
-			"write" => {
+			crate::protocol_data::WRITE => {
 				let [chunk] = args else {
 					return Err(FileCallError::WriteArguments);
 				};
@@ -53,7 +53,7 @@ impl FileStore {
 				}
 				self.write(upload, chunk.bytes().ok_or(FileCallError::WriteArguments)?)?;
 			}
-			"discard" => {
+			crate::protocol_data::DISCARD => {
 				if !args.is_empty() {
 					return Err(FileCallError::DiscardArguments);
 				}
@@ -72,7 +72,7 @@ impl FileStore {
 		if args.iter().any(ArgumentView::contains_capability) {
 			return Err(FileCallError::UnexpectedCapability);
 		}
-		if verb != "read" {
+		if verb != crate::protocol_data::READ {
 			return Err(FileCallError::UnknownMethod(verb.into()));
 		}
 		let [offset, length] = args else {

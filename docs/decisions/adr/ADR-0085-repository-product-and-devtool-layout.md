@@ -6,6 +6,8 @@ tags: [repository, apps, tools, cli, layout]
 decision: "Product binaries live under cli/ and apps/; demos under apps/; the dev-tool verbs are test/ (top-level), tools/check/, and tools/gen/, with tools/c-abi/ for the C-ABI operator toolkit. tools/ never hosts product apps."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0150]
 ---
 
 # ADR-0085 repository product and dev-tool layout

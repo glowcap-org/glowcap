@@ -1,5 +1,5 @@
 //! Lossless argument slicing. Normal scalar input remains on the UTF-8 path.
-use crate::text::{js_whitespace, DocumentText};
+use crate::text::{DocumentText, js_whitespace};
 use alloc::{format, vec::Vec};
 use serde::Serialize;
 

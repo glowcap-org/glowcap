@@ -6,7 +6,7 @@ use tokio::sync::Notify;
 use super::check_iroh;
 use super::sync::lock_iroh;
 use crate::sys::iroh::{self as ffi, GlowcapIrohNetlayer};
-use crate::{sys, Error, Result};
+use crate::{Error, Result, sys};
 
 const RELEASE_OPEN: u8 = 0;
 const RELEASE_RESERVED: u8 = 1;
@@ -133,16 +133,22 @@ impl NetlayerRelease {
 }
 
 unsafe fn close_native(raw: usize) {
-	ffi::glowcap_iroh_netlayer_close(raw as *mut GlowcapIrohNetlayer);
+	// SAFETY: the caller passes a live netlayer handle. `close` is a shutdown
+	// lever, not a free, so it is callable while other owners still hold `raw`.
+	unsafe { ffi::glowcap_iroh_netlayer_close(raw as *mut GlowcapIrohNetlayer) };
 }
 
 unsafe fn release_native(raw: usize) -> i32 {
-	ffi::glowcap_iroh_netlayer_release(
-		raw as *mut GlowcapIrohNetlayer,
-		core::ptr::null_mut(),
-		0,
-		core::ptr::null_mut(),
-	)
+	// SAFETY: the caller has already joined the dispatcher task, so this frame
+	// is the handle's last owner and the release is the final use of `raw`.
+	unsafe {
+		ffi::glowcap_iroh_netlayer_release(
+			raw as *mut GlowcapIrohNetlayer,
+			core::ptr::null_mut(),
+			0,
+			core::ptr::null_mut(),
+		)
+	}
 }
 
 // The raw netlayer handle is shared (behind an `Arc`) between the public

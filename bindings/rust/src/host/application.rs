@@ -36,13 +36,13 @@ impl Host {
 					return Ok(value
 						.clone()
 						.downcast::<T>()
-						.unwrap_or_else(|_| unreachable!("TypeId owns this value")))
+						.unwrap_or_else(|_| unreachable!("TypeId owns this value")));
 				}
 				Some(Entry::Initializing) => {
 					return Err(Error::with_detail(
 						sys::ERR_INTERNAL,
 						"recursive Host application-state initialization".into(),
-					))
+					));
 				}
 				None => {
 					entries.insert(key, Entry::Initializing);
@@ -89,10 +89,12 @@ mod tests {
 			})
 			.unwrap();
 		assert_eq!(*nested, 3);
-		assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-			|| host.application_state::<u16>(|| panic!("initializer"))
-		))
-		.is_err());
+		assert!(
+			std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+				|| host.application_state::<u16>(|| panic!("initializer"))
+			))
+			.is_err()
+		);
 		assert_eq!(*host.application_state(|| 12u16).unwrap(), 12);
 		let retained = Rc::downgrade(&host.application_state(|| Cell::new(0u32)).unwrap());
 		assert!(retained.upgrade().is_some());

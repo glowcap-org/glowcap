@@ -1,6 +1,6 @@
 //! Admission for record storage and live facet methods. The host executes the
 //! returned operation; parsing itself cannot touch storage or mint authority.
-use super::{index::Page, protocol, records::safe, Access, Error, Facet, Filter, Record};
+use super::{Access, Error, Facet, Filter, Record, index::Page, protocol, records::safe};
 use crate::{files::FileArgument, room::ListArgument};
 use alloc::vec::Vec;
 

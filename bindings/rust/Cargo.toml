@@ -1,7 +1,8 @@
 [package]
 name = "glowcap-rust-dogfood"
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
+license = "Apache-2.0"
 publish = false
 
 [lib]
@@ -13,6 +14,16 @@ path = "src/lib.rs"
 # in every build, including `zig build rust-dogfood`).
 [lints.rust]
 dead_code = "deny"
+# An `unsafe fn` body is not implicitly unsafe at edition 2024, so every raw
+# operation inside one says so where it happens. Rust only warns about a body
+# that has not caught up, and a warning in a crate this size is a thing nobody
+# reads: the wasm32-only allocator in `context.rs` sat unmarked through a
+# whole-tree sweep because the sweep ran on the host target. Denied, a missed
+# body is a build failure on whichever target compiles it.
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
 
 [features]
 # The feature set mirrors glowcap's à-la-carte C ABI archives (ADR-0059): the

@@ -7,10 +7,14 @@ alwaysApply: true
 
 ## Gates
 
-Run before calling code work complete:
+Choose evidence by the boundary that changed:
 
 ```sh
-zig build check
+zig build source-check         # docs, plans, static scaffolding, cross-file contracts
+zig build check                # in-process Zig, static, generated, compile, and performance checks
+zig build runtime-check        # deterministic child processes and language workspaces
+zig build infrastructure-check # executable devcontainer and worktree behavior
+zig build check-external       # outside protocol authority and shipped browser journeys
 ```
 
 **A gate passes by its exit code, not by its output**, in both directions.
@@ -19,19 +23,26 @@ build into a false green. Conversely, the build runner echoes a passing step's
 captured stderr under a `failed command:` label, so error-shaped output in a
 green log is not a failure verdict.
 
-`check` needs no network, no submodules, and no live peer, and is the step to run
-while iterating; its cost is that a green `check` proves only that glowcap agrees
-with glowcap. It is not Zig-only: Python enforces deterministic deadlines and
-compile-checks its benchmark client, Cargo checks the Rust client and links the
-CLI tests' iroh sidecar, `raco` compiles the Racket clients, Bash harnesses make
-`tar` part of the hard floor, and Deno type-checks TypeScript surfaces. **Run
-`check` in the devcontainer**, where the complete declared toolchain is pinned.
-`check_runtimes` in `tools/build/toolchain.zig` names every program visible in the
+`check` needs no network, no submodules, and no live peer. It keeps evidence
+that runs in a self-contained Zig process or has no service lifecycle: Zig unit
+and scenario tests, generated-state checks, compile-only consumers, and
+performance budgets. `runtime-check` owns suites with live process or socket
+lifecycles and language workspaces with shared output. Those families run in a
+fixed order so one family releases its processes, ports, and build directories
+before the next starts.
+Run both in the devcontainer when both boundaries changed.
+
+`check` is not Zig-only: Python enforces deterministic deadlines and
+compile-checks its benchmark client, Cargo checks compile-only consumers,
+`raco` compiles Racket clients, Bash harnesses make `tar` part of the hard
+floor, and Deno type-checks TypeScript surfaces. **Run checks in the
+devcontainer**, where the complete declared toolchain is pinned.
+`in_tree_runtimes` in `tools/build/toolchain.zig` names every program visible in the
 build graph and the interpreter scripts or modules allowed to hide host-tool
 calls, so raising the hard floor is a reviewed edit rather than a silent one.
 `toolchain-check` reads that table both ways, so a declared program that is not
 installed here is named with its reason before the gate spends a compile on it.
-Its sibling `check_capabilities` covers what the graph cannot see, a toolchain
+Its sibling `in_tree_capabilities` covers what the graph cannot see, a toolchain
 target that is state inside a program rather than an argument to it, by
 declaring the command that reports the capability and the text that report must
 contain. Both failures usually mean the container is older than the image layer
@@ -39,39 +50,45 @@ that installs the thing, and the report says so: rebuild rather than
 hand-install, because hand-installing answers one report and leaves the next
 layer of the same rebuild to find you.
 
-`check-external` is the other half, every check whose authority is outside
-glowcap, and `ci/gates.sh` runs the same set on every push to the mirror. Run it
-before believing a protocol claim. Cross-language dogfood, live Goblins interop,
-and the Rust/TypeScript formatting check stay siblings rather than members,
-because each needs an outside authority or a whole language runtime of its own.
+`infrastructure-check` black-boxes the devcontainer and worktree integration
+tools in temporary repositories. It stays separate from `source-check`, whose
+job is static source, documentation, generated mirrors, and scaffolding truth.
+A plan-only documentation edit therefore runs `source-check`, not the product
+or infrastructure gates.
 
-### A hang is usually contention, not your change
+`check-external` holds evidence whose authority is outside glowcap, and
+`ci/gates.sh` runs the recurring set on every push to the mirror. Run it before
+believing a protocol claim. Cross-language dogfood and live Goblins interop
+stay siblings when they carry narrower ownership than the aggregate.
 
-Run `zig build` from the repository root: from a subdirectory it drops
-`zig-out/` where it stands (and `.zig-cache/` / `zig-pkg/` when the container
-local-cache env is unset) and resolves relative manifest paths wrong. Test runs
-are exclusive, because the suite and the interop steps bind real loopback
-ports. Two concurrent runs (a second agent, an editor's build-on-save, a stale
-run a crashed session left behind) wedge each other's test binaries in silent
-socket waits that look like hangs. Three faces of the same problem, each with
-its own sweep:
+### Build ownership and unusual failures
 
-- A "hung" gate: sweep for orphaned Zig test processes from a dead session
-  (`pkill -f 'zig-cache/o/.*/test|zig-local/o/.*/test'` covers a checkout
-  `.zig-cache` and the container `ZIG_LOCAL_CACHE_DIR`), then run the gate
-  alone.
-- A `check` that fails compiling executables which build fine alone: a live
-  rival builder is racing the cache. Find it with `ps aux | grep 'zig build'`
-  before touching code.
-- A step that fails with no printed assertion while its binary passes
-  standalone, its cache hash changing on every retry: same rival. Only an
-  *actively compiling* one collides, so a parked `--watch` runner at 0% CPU is
-  innocent. Wait out live compiles and link stragglers, then re-run.
+Run `zig build` from the repository root. A run from a subdirectory creates
+output there and resolves relative manifests against the wrong directory.
 
-A *failed* `ocapn-conformance` run can leave its peer behind on the fixed port
-and the next run inherits it, showing up as one unrelated `ConnectionResetError`
-where the suite expected a timeout. Re-run alone before believing a conformance
-failure that names a test your change does not touch.
+Agent sessions should enter the devcontainer through
+`.agents/skills/work/bin/glowcap-dev`. For finite `zig build` commands it adds
+the per-test timeout and acquires one build lease for the worktree. On the host
+it enters that worktree's running container. Inside the glowcap image it stays
+local and changes to the repository root. A contender prints the owning PID,
+working directory, and command, then exits 75 instead of racing `zig-out`, the
+Zig cache, Cargo's target directory, or fixed loopback ports. Set
+`GLOWCAP_BUILD_LEASE_TIMEOUT` only when waiting is the intended work.
+Long-running service steps such as `docs-serve`, `rooms-dev`, and
+`ocapnviz-dev` do not take the lease. Direct host builds remain supported when
+the host provides the declared toolchain.
+
+Inside `runtime-check`, process families are serial even though each family may
+compile or test in parallel internally. CI invokes top-level gates in sequence
+and gives each one an outer containment deadline. Zig unit tests use the build
+runner's per-active-test deadline, so aggregate suite growth cannot make the
+last test look slow.
+
+If the lease refuses the build or an explicit wait expires, inspect the current
+build and its children before changing code. If no owner is alive but a child
+still holds a port, identify and stop that exact process, then rerun the focused
+step. A conformance failure on an unrelated module is not evidence of protocol
+drift until the focused module reproduces with no inherited peer.
 
 Wrap CapTP and socket work in `timeout N` (tens of seconds) rather than waiting
 forever: a silent hang is almost always an unbounded wait, not a slow test. See
@@ -84,7 +101,9 @@ Every step, grouped by what it proves, lives in
 place a new step gets documented. The steps worth remembering:
 
 ```sh
-zig build check              # the gate; run before calling code work complete
+zig build check              # in-process Zig, static, generated, compile, and performance evidence
+zig build runtime-check      # process and language-workspace evidence
+zig build infrastructure-check # devcontainer and worktree behavior
 zig build check-external     # the external-authority half (needs uv + racket + goblins)
 zig build test
 zig build test -Dtest-filter=substring   # only tests whose names match

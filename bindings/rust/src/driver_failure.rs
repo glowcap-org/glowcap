@@ -6,8 +6,8 @@
 //! module owns the one Rust projection of that fixed C record; policy remains
 //! native.
 
-use crate::sys::driver::{self as ffi, GlowcapDriverFailure, GlowcapDriverLoop};
 use crate::sys::GlowcapTransportProvider;
+use crate::sys::driver::{self as ffi, GlowcapDriverFailure, GlowcapDriverLoop};
 use crate::{Error, Result};
 
 fn empty() -> GlowcapDriverFailure {

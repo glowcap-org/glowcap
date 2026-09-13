@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use glowcap_rust_dogfood::{tcp, Argument, ConnectOptions, Locator, Runtime, RuntimeConfig};
+use glowcap_rust_dogfood::{Argument, ConnectOptions, Locator, Runtime, RuntimeConfig, tcp};
 use tokio::sync::oneshot;
 use tokio::task::LocalSet;
 
@@ -58,17 +58,14 @@ async fn call_greeter(partner: &Locator, published: oneshot::Receiver<()>) -> Re
 }
 
 async fn host_one(server: Rc<tcp::Server>, published: oneshot::Sender<()>) {
-	match server.accept().await {
-		Ok(session) => {
-			if session.publish("greeter", greeter).is_ok() {
-				let _ = published.send(());
-			}
-			// An accepted session answers only while it is served. Parking the
-			// task here instead leaves the greeter published and unreachable,
-			// and the dialing half waits on a fetch nobody will answer.
-			let _ = session.serve().await;
+	if let Ok(session) = server.accept().await {
+		if session.publish("greeter", greeter).is_ok() {
+			let _ = published.send(());
 		}
-		Err(_) => {}
+		// An accepted session answers only while it is served. Parking the
+		// task here instead leaves the greeter published and unreachable,
+		// and the dialing half waits on a fetch nobody will answer.
+		let _ = session.serve().await;
 	}
 }
 

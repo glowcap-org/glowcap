@@ -14,16 +14,54 @@
 // what is already here, is a form and not a row.
 
 import { useRef, useState } from "react";
+import {
+	sessionCapabilityLabel,
+	sessionContinueLocally,
+	sessionGoLocalSay,
+	sessionKeepLocal,
+	sessionLeaveLabel,
+	sessionLocalCopyLabel,
+	sessionShareLabel,
+	sessionShareSay,
+	sessionStayAttached,
+} from "../../../lib/text/settings.ts";
+import {
+	sessionAttachAnotherTitle,
+	sessionAttachCommit,
+	sessionAttachHostingHint,
+	sessionAttachHostingLead,
+	sessionAttachLocalHint,
+	sessionAttachLocalLead,
+	sessionAttachSharedHint,
+	sessionAttachSharedLead,
+	sessionAttachTitle,
+	sessionContinueLocallyAsk,
+	sessionDetachBrowser,
+	sessionLeaveHostingSay,
+	sessionLeaveKeep,
+	sessionLeaveLocalSay,
+	sessionLeaveSharedSay,
+	sessionLeaveWorkspace,
+	sessionMoveAnother,
+	sessionMovesTitle,
+	sessionMoveThis,
+	sessionMoveThisBrowser,
+	sessionReturnToSetupAsk,
+	sessionStartOver,
+	sessionStopHosting,
+} from "../../../lib/text/session_settings.ts";
 import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
-import { locatorRefusal, sessionCapabilityRefusal } from "../error_text.ts";
+import { actionRefusal, locatorRefusal, sessionCapabilityRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
 import { Said } from "../Said.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 
 export function SessionMoves(
 	{ sessionKind }: { sessionKind: "local" | "attached" | "hosted" },
@@ -39,16 +77,16 @@ export function SessionMoves(
 	const hosting = sessionKind === "hosted";
 	return (
 		<>
-			<h3 className="well-title overline" id="switchSessionLegend">Where this browser works</h3>
+			<h3 className="well-title overline" id="switchSessionLegend">{sessionMovesTitle}</h3>
 			<div className="group well session-moves" role="group" aria-labelledby="switchSessionLegend">
 				{asking === "share"
 					? (
 						<Confirm
-							label="Share this session"
+							label={sessionShareLabel}
 							tone="primary"
-							say="This browser hosts the session. Other browsers attach with a capability copied from Holdings, including from a different Rooms page. Closing or reloading this tab ends sharing for everyone."
-							keep="Keep it local"
-							commit="Share this session"
+							say={sessionShareSay}
+							keep={sessionKeepLocal}
+							commit={sessionShareLabel}
 							busy={sharing}
 							onKeep={() => setAsking(null)}
 							onCommit={() =>
@@ -59,7 +97,7 @@ export function SessionMoves(
 										setLeaveError(why);
 										if (why === "") setAsking(null);
 									} catch (error) {
-										setLeaveError(error instanceof Error ? error.message : String(error));
+										setLeaveError(refusalText(error));
 									} finally {
 										setSharing(false);
 									}
@@ -69,11 +107,11 @@ export function SessionMoves(
 					: asking === "local-copy"
 					? (
 						<Confirm
-							label="Continue with a local session copy"
+							label={sessionLocalCopyLabel}
 							tone="primary"
-							say="This browser keeps a copy of the rooms and settings and works from it. The shared session keeps running. Names stay with it, so rooms here are for reading until you join under a name of your own. Coming back needs that link again."
-							keep="Stay attached"
-							commit="Continue locally"
+							say={sessionGoLocalSay}
+							keep={sessionStayAttached}
+							commit={sessionContinueLocally}
 							onKeep={() => setAsking(null)}
 							onCommit={() => commitments.request(() => setLeaveError(browser.useLocalRoomsSession()))}
 						/>
@@ -81,14 +119,18 @@ export function SessionMoves(
 					: asking === "leave"
 					? (
 						<Confirm
-							label="Leave current Rooms session"
+							label={sessionLeaveLabel}
 							say={hosting
-								? "This browser stops hosting. Everyone attached to it loses the session. Rooms and settings stay saved here."
+								? sessionLeaveHostingSay
 								: sharedSession
-								? "This browser leaves the shared session. That session keeps running for everyone else attached to it. Names stay with it, so rooms here are for reading until you join under a name of your own. Coming back needs that link again."
-								: "This browser goes back to choosing a session. Its rooms, settings, and message archive stay saved here."}
-							keep="Stay"
-							commit={hosting ? "Stop hosting" : sharedSession ? "Detach browser" : "Leave workspace"}
+								? sessionLeaveSharedSay
+								: sessionLeaveLocalSay}
+							keep={sessionLeaveKeep}
+							commit={hosting
+								? sessionStopHosting
+								: sharedSession
+								? sessionDetachBrowser
+								: sessionLeaveWorkspace}
 							onKeep={() => setAsking(null)}
 							onCommit={() => commitments.request(() => setLeaveError(browser.leaveRoomsSession()))}
 						/>
@@ -98,7 +140,7 @@ export function SessionMoves(
 							<ul className="entries">
 								<li className="entry">
 									<div className="entry-head" data-one-line>
-										<span className="entry-name">Another session</span>
+										<span className="entry-name">{sessionMoveAnother}</span>
 										<div className="actions">
 											<Button
 												id="sessionAttachOpen"
@@ -114,7 +156,7 @@ export function SessionMoves(
 								{sessionKind === "local" && (
 									<li className="entry">
 										<div className="entry-head" data-one-line>
-											<span className="entry-name">This session</span>
+											<span className="entry-name">{sessionMoveThis}</span>
 											<div className="actions">
 												<Button
 													id="sessionShareAsk"
@@ -131,7 +173,7 @@ export function SessionMoves(
 								{sessionKind === "attached" && (
 									<li className="entry">
 										<div className="entry-head" data-one-line>
-											<span className="entry-name">This browser</span>
+											<span className="entry-name">{sessionMoveThisBrowser}</span>
 											<div className="actions">
 												<Button
 													id="sessionLocalCopyAsk"
@@ -139,7 +181,7 @@ export function SessionMoves(
 													variant="quiet"
 													onClick={() => setAsking("local-copy")}
 												>
-													Continue locally…
+													{sessionContinueLocallyAsk}
 												</Button>
 											</div>
 										</div>
@@ -147,7 +189,7 @@ export function SessionMoves(
 								)}
 								<li className="entry">
 									<div className="entry-head" data-one-line>
-										<span className="entry-name">Start over</span>
+										<span className="entry-name">{sessionStartOver}</span>
 										<div className="actions">
 											<Button
 												id="sessionLeaveAsk"
@@ -155,7 +197,7 @@ export function SessionMoves(
 												variant="quiet"
 												onClick={() => setAsking("leave")}
 											>
-												Return to setup…
+												{sessionReturnToSetupAsk}
 											</Button>
 										</div>
 									</div>
@@ -212,7 +254,10 @@ function AttachModal(
 		setBusy(true);
 		setWhy("");
 		try {
-			const refusal = locatorRefusal(await browser.attachRoomsSession(candidate), "session capability link");
+			const refusal = locatorRefusal(
+				await actionRefusal(() => browser.attachRoomsSession(candidate)),
+				"session capability link",
+			);
 			setWhy(refusal);
 			// Emptied once it has been used, because a filled field is a pending
 			// change and this one is spent. A capability that moves this browser
@@ -229,18 +274,14 @@ function AttachModal(
 	};
 	return (
 		<Submodal
-			title={sharedSession ? "Attach to another session" : "Attach a session"}
+			title={sharedSession ? sessionAttachAnotherTitle : sessionAttachTitle}
 			titleId="sessionAttachTitle"
 			className="session-attach-modal"
 			open={open}
 			onClose={() => commitments.request(onClose, { only: ["settings-session-attach"] })}
 		>
 			<p className="lead">
-				{hosting
-					? "This browser stops hosting. Everyone attached to it loses this session. Then this browser shows the session the capability names."
-					: sharedSession
-					? "This browser moves to the session the capability names, and shows what that session keeps."
-					: "A session peer keeps your rooms and settings, so every browser you attach sees the same workspace."}
+				{hosting ? sessionAttachHostingLead : sharedSession ? sessionAttachSharedLead : sessionAttachLocalLead}
 			</p>
 			<form
 				className="group well"
@@ -251,12 +292,12 @@ function AttachModal(
 			>
 				<Field
 					id="sharedSessionCapability"
-					label="Session capability"
+					label={sessionCapabilityLabel}
 					hint={hosting
-						? "A capability for another session ends hosting for everyone attached here. A capability for this same session leaves hosting as it is."
+						? sessionAttachHostingHint
 						: sharedSession
-						? "A capability for another session moves this browser to it, and the session it is on now keeps running for everyone else. A second capability for that same session only changes which one this browser uses."
-						: "An empty session takes this browser's rooms and settings with it. One that already keeps rooms and settings shows those instead."}
+						? sessionAttachSharedHint
+						: sessionAttachLocalHint}
 					said={why}
 				>
 					{(wiring) => (
@@ -273,7 +314,7 @@ function AttachModal(
 								setLink(event.currentTarget.value);
 								setWhy("");
 							}}
-							placeholder="ocapn://…/s/…"
+							placeholder={sturdyrefPlaceholder}
 						/>
 					)}
 				</Field>
@@ -285,7 +326,7 @@ function AttachModal(
 						busy={busy}
 						disabled={busy || link.trim() === ""}
 					>
-						Attach this browser
+						{sessionAttachCommit}
 					</Button>
 				</div>
 			</form>

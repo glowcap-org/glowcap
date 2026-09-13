@@ -1,7 +1,8 @@
 // The installed server, owned by a demo or compatibility scenario. Members
 // remain independent clients; no TypeScript server runs inside the harness.
 import { spawnOwned, stopOwned } from "./children.ts";
-import { readAnnounce, ROOT, SERVER } from "./rooms_server.ts";
+import { ROOT, SERVER } from "./paths.ts";
+import { readAnnounce } from "./rooms_server.ts";
 
 export interface ServerEndpoint {
 	locator: string;

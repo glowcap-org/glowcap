@@ -218,11 +218,6 @@ pub fn build(b: *std.Build) void {
     // loud, so an unsupported pairing is an error, never a silent ignore.
     const pin_port = b.option(u16, "port", "Pin the listening TCP port for demo and interop steps (default: ephemeral for demos, each step's documented fixed port for interop)");
     const attach = b.option(bool, "attach", "With -Dport: demo orchestrators join an already-running server on that port instead of spawning one") orelse false;
-    const rooms_diagnostics = b.option(bool, "diagnostics", "When serving the rooms web UI, mint an inspect capability and print its swiss") orelse false;
-    const rooms_admin_listeners = b.option(bool, "admin-listeners", "When serving the rooms web UI, mint a listener-admin capability and print its swiss") orelse false;
-    const rooms_operator = b.option(bool, "operator", "When serving the rooms web UI, mint a room-steward operator capability and print its swiss") orelse false;
-    const rooms_peering = b.option(bool, "peering", "When serving the rooms web UI, mint a directory-peering capability and print its swiss") orelse false;
-    const rooms_viz = b.option(bool, "viz", "When serving the rooms web UI, serve the live timeline endpoint (default port 9300; GLOWCAP_ROOMS_VIZ_PORT overrides) and mint the viz capability") orelse false;
     if (attach and pin_port == null) {
         std.process.fatal("-Dattach requires -Dport: there is no server to join without a port", .{});
     }
@@ -368,6 +363,7 @@ pub fn build(b: *std.Build) void {
         .driver_abi_mod = driver_abi_mod,
     });
     const check_step = gates.check_step;
+    const runtime_gate = gates.runtime_gate;
     const test_filter = gates.test_filter;
     const wasm_driver_install_step = gates.wasm_install;
 
@@ -440,7 +436,7 @@ pub fn build(b: *std.Build) void {
     // tools/build/bench.zig; the Cap'n Proto fixture generator joins the gen
     // family it belongs to.
     const fast_lib_mod = graphFromTable(b, target, .ReleaseFast, &layer_table, false)[layerIndex("glowcap")];
-    bench_build.register(b, target, optimize, lib_mod, fast_lib_mod, host_mods, check_step);
+    bench_build.register(b, target, optimize, lib_mod, fast_lib_mod, host_mods, check_step, runtime_gate);
     gen_build.registerCapnpFixtures(b, target, optimize, lib_mod, check_step);
 
     // The per-language dogfoods and their aggregates register from
@@ -560,10 +556,6 @@ pub fn build(b: *std.Build) void {
         .headers = release_headers.items,
         .binaries = &.{ "glowcap", "rooms-peer" },
     });
-    // External conformance pressure registers from tools/build/conformance.zig,
-    // bundling the upstream suite, the findings, corpus parity, and the live
-    // Goblins steps into `check-external`.
-    conformance_build.register(b, target, optimize, lib_mod, check_step, pin_port, goblins_reg);
     // ── Cross-language application demos (siblings of `check`) ───────────────
     // The Zig demo clients' shared helper modules under
     // `apps/_demo/zig/`: the typed room-error vocabulary, the
@@ -573,11 +565,11 @@ pub fn build(b: *std.Build) void {
     const demo_usage_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/usage.zig"), .target = target, .optimize = optimize });
     const demo_tools_check_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/tools_check.zig"), .target = target, .optimize = optimize });
 
-    // The rooms application family (native clients, the hermetic suite that
-    // rides `check`, the demos, the browser UI serves, the rooms-web proofs,
-    // and deploy prep) registers as one subject from tools/build/rooms.zig.
+    // The rooms application family (native clients, its process suites, the
+    // demos, the browser UI serves, the rooms-web proofs, and deploy prep)
+    // registers as one subject from tools/build/rooms.zig.
     // The product CLI below stays here as its own subject.
-    const rooms_native_install = rooms_build.register(.{
+    const rooms = rooms_build.register(.{
         .b = b,
         .target = target,
         .optimize = optimize,
@@ -586,6 +578,7 @@ pub fn build(b: *std.Build) void {
         .demo_rooms_cli_mod = demo_rooms_cli_mod,
         .demo_usage_mod = demo_usage_mod,
         .check_step = check_step,
+        .runtime_gate = runtime_gate,
         .browser_preflight = &browser_preflight.step,
         .wasm_driver_install = wasm_driver_install_step,
         .wasm_archives = gates.wasm_archives,
@@ -598,16 +591,16 @@ pub fn build(b: *std.Build) void {
         .relay_install = &relay_archive.dynamic_install.step,
         .pin_port = pin_port,
         .attach = attach,
-        .diagnostics = rooms_diagnostics,
-        .admin_listeners = rooms_admin_listeners,
-        .operator = rooms_operator,
-        .peering = rooms_peering,
-        .viz = rooms_viz,
     });
+    const rooms_services_install = rooms.services_install;
+
+    // External conformance and the shipped Rooms page proofs meet in the
+    // opt-in external gate after both families have registered their steps.
+    conformance_build.register(b, target, optimize, lib_mod, check_step, pin_port, goblins_reg, rooms.web_proofs);
 
     // The cross-runtime relay matrix and the live Goblins relay/rooms proofs
     // register from tools/build/relay_matrix.zig.
-    relay_matrix_build.register(b, pin_port, wasm_driver_install_step, &browser_preflight.step, iroh_abi_step, rooms_native_install);
+    relay_matrix_build.register(b, pin_port, wasm_driver_install_step, &browser_preflight.step, iroh_abi_step, rooms_services_install);
 
     cli_build.add(b, .{
         .target = target,
@@ -624,18 +617,18 @@ pub fn build(b: *std.Build) void {
 
     // The tasks, tools, and accountability applications register from
     // tools/build/apps_demos.zig.
-    apps_demos_build.register(b, target, optimize, lib_mod, check_step, pin_port, attach, demo_usage_mod, demo_tools_check_mod);
+    apps_demos_build.register(b, target, optimize, lib_mod, check_step, runtime_gate, pin_port, attach, demo_usage_mod, demo_tools_check_mod);
 
     // The formatting and per-scope checks register from
     // tools/build/bindings_steps.zig, over the archives and dogfood runs.
     bindings_steps_build.registerChecks(b, check_step, &onion_archive.dynamic_install.step, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
-    ocapnviz_steps_build.register(b, check_step, wasm_driver_install_step, &browser_preflight.step, rooms_native_install);
+    ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, &browser_preflight.step, rooms_services_install);
 
     // Finalize graph-level runtime policing after every registrar has had a
     // chance to add members to `check`.
-    toolchain_build.register(b, check_step, target, optimize);
+    toolchain_build.register(b, check_step, runtime_gate, target, optimize);
 
     // Serena's SolidLSP ZLS adapter currently hard-codes build-on-save args to
     // `zig build build`; keep that editor-only alias pointed at the normal

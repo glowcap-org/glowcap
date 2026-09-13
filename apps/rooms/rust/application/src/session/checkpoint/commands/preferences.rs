@@ -1,5 +1,5 @@
 //! Relative preference gestures resolve against the checkpoint being committed.
-use super::{conversation, push, text, Conversation, DocumentText, Error, Nullable, State};
+use super::{Conversation, DocumentText, Error, Nullable, State, conversation, push, text};
 
 pub(super) fn ignored(state: &mut State, name: &DocumentText, ignored: &DocumentText) -> Result<(), Error> {
 	let name = name.lowercase();

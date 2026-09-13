@@ -1,3 +1,4 @@
+// Redeem-route scheduling bounds active and queued work while giving each directory a turn.
 import { RedeemRouteCoordinator } from "../lib/redeem_routes.ts";
 import { Unanswered } from "../lib/deadline.ts";
 

@@ -14,7 +14,7 @@ const collectBulletSpans = util.collectBulletSpans;
 /// `dogfood/`). A co-located `*_test.ts` next to `mod.ts` makes a broad
 /// `publish.include` of `**/*.ts` ship test code unless someone remembers an
 /// exclude — and remembering is not a gate.
-fn jsonWithoutComments(gpa: std.mem.Allocator, contents: []const u8) ![]u8 {
+pub fn jsonWithoutComments(gpa: std.mem.Allocator, contents: []const u8) ![]u8 {
     const out = try gpa.dupe(u8, contents);
     var at: usize = 0;
     var in_string = false;

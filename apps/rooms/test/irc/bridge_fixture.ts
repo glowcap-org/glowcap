@@ -12,7 +12,7 @@ export async function writeAll(conn: Deno.Conn, bytes: Uint8Array): Promise<void
 
 export const say = (line: string) => new TextEncoder().encode(line + "\r\n");
 
-export async function registerSaslReader(
+export async function registerSaslFeed(
 	conn: Deno.Conn,
 	nick: string,
 	account: string,
@@ -30,7 +30,8 @@ export async function registerSaslReader(
 		`the authenticated seat requested ${JSON.stringify(nickLine?.params)}`,
 	);
 	assert(
-		user?.command === "USER" && user.params[0] === nick,
+		user?.command === "USER" && user.params[0] === nick &&
+			user.params[3] === "glowcap bridge bot; admin: fixture-admin",
 		`the authenticated seat's user was ${JSON.stringify(user?.params)}`,
 	);
 	await writeAll(conn, say(`:fixture CAP ${nick} LS :sasl=PLAIN`));
@@ -56,6 +57,12 @@ export async function registerSaslReader(
 	await writeAll(conn, say(`:fixture 903 ${nick} :SASL authentication successful`));
 	const capEnd = (await lines.next()).value;
 	assert(capEnd?.command === "CAP" && capEnd.params[0] === "END", "the seat ends capability negotiation");
+	await writeAll(conn, say(`:fixture 005 ${nick} BOT=b :supported`));
+	const mode = (await lines.next()).value;
+	assert(
+		mode?.command === "MODE" && mode.params[0] === nick && mode.params[1] === "+b",
+		"the feed enables the server-advertised bot mode",
+	);
 	await writeAll(conn, say(`:fixture 001 ${nick} :welcome`));
 	const join = (await lines.next()).value;
 	assert(join?.command === "JOIN" && join.params[0] === channel, "the authenticated seat joins");

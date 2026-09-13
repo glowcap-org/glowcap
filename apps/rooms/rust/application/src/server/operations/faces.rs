@@ -45,7 +45,7 @@ pub fn live_room<'a, C: Copy + Ord, R: Clone>(rooms: &'a Rooms<C, R>, name: &str
 	let public = rooms.public_key_of(name);
 	rooms
 		.live()
-		.find(|room| room.key.eq_ignore_ascii_case(name) || public.as_ref() == Some(room.key))
+		.find(|room| room.key.as_str().eq_ignore_ascii_case(name) || public.as_ref() == Some(room.key))
 }
 
 pub fn link_face<C: Copy + Ord, R: Clone>(rooms: &Rooms<C, R>, authority: &Authority, name: &str) -> LinkFace {
@@ -148,11 +148,7 @@ pub fn stewardship_rows<C: Copy + Ord, R: Clone>(
 
 /// What a reader sees a row called.
 pub fn shown(row: &StewardshipRow) -> &str {
-	if row.label.is_empty() {
-		&row.name
-	} else {
-		&row.label
-	}
+	if row.label.is_empty() { &row.name } else { &row.label }
 }
 
 /// Shared ordering for native and bridged stewardship rows. Compute each

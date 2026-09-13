@@ -30,7 +30,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use glowcap_rust_dogfood::iroh::Reachability;
-use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig};
+use glowcap_rust_dogfood::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, iroh};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;

@@ -106,11 +106,19 @@ impl Transport {
 	pub const fn summary(self) -> &'static str {
 		match self {
 			Self::Tcp => "Plain TCP, in the clear. For local development and peers that speak nothing else.",
-			Self::KeyedTcp => "TCP dialed by key designator. Still in the clear: the key names a dial target and proves nobody.",
-			Self::NoiseTcp => "TCP sealed end to end with Noise_XK. Finishing the handshake proves the peer's durable key.",
+			Self::KeyedTcp => {
+				"TCP dialed by key designator. Still in the clear: the key names a dial target and proves nobody."
+			}
+			Self::NoiseTcp => {
+				"TCP sealed end to end with Noise_XK. Finishing the handshake proves the peer's durable key."
+			}
 			Self::Iroh => "Encrypted QUIC. Peers dial the node id.",
-			Self::KeyedRelay => "Held sockets registered at a WebSocket relay, in the clear. Somebody reaches this peer through the relay, so it opens no port of its own.",
-			Self::NoiseRelay => "The same relay pipe with the Noise_XK seal over it. The relay forwards only ciphertext.",
+			Self::KeyedRelay => {
+				"Held sockets registered at a WebSocket relay, in the clear. Somebody reaches this peer through the relay, so it opens no port of its own."
+			}
+			Self::NoiseRelay => {
+				"The same relay pipe with the Noise_XK seal over it. The relay forwards only ciphertext."
+			}
 			Self::Onion => "A Tor onion service, published through a running Tor.",
 		}
 	}
@@ -145,40 +153,11 @@ impl Transport {
 /// and the refusal an `up` gives anyway.
 pub const ONION_NEEDS_TOR: &str = "This server was started without a running Tor, so no onion listener can come up. GLOWCAP_ONION_SOCKS and GLOWCAP_ONION_CONTROL are not set.";
 
-/// A refusal the caller hears as a break: a coded one a client acts on, or
-/// text alone.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-	pub code: Option<FailureCode>,
-	pub detail: String,
-}
-impl Refusal {
-	pub fn coded(code: FailureCode, detail: impl Into<String>) -> Self {
-		Self {
-			code: Some(code),
-			detail: detail.into(),
-		}
-	}
-	pub fn plain(detail: impl Into<String>) -> Self {
-		Self {
-			code: None,
-			detail: detail.into(),
-		}
-	}
-	pub fn unsupported(detail: impl Into<String>) -> Self {
-		Self::coded(FailureCode::ListenerUnsupported, detail)
-	}
-	pub fn reason(&self) -> String {
-		match self.code {
-			Some(code) => format!("{}: {}", code.wire(), self.detail),
-			None => self.detail.clone(),
-		}
-	}
-}
-impl From<Refusal> for String {
-	fn from(refusal: Refusal) -> Self {
-		refusal.reason()
-	}
+pub use crate::server::Refusal;
+
+/// The refusal a listener gives when its transport cannot come up here.
+pub fn unsupported(detail: impl Into<String>) -> Refusal {
+	Refusal::coded(FailureCode::ListenerUnsupported, detail)
 }
 
 /// What an `up` asked for, read from the wire and checked against the
@@ -409,7 +388,9 @@ impl Seats {
 		if self.serving(row) {
 			return Err(Refusal::coded(
 				FailureCode::ListenerServing,
-				format!("Listener {id} answers the locator this server announced. The web relay and this admin session ride it, so taking it down would cut them off."),
+				format!(
+					"Listener {id} answers the locator this server announced. The web relay and this admin session ride it, so taking it down would cut them off."
+				),
 			));
 		}
 		Ok(row)

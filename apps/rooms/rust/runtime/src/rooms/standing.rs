@@ -1,7 +1,7 @@
 //! One serialized, coalescing standing sender per actual membership. A new
 //! checkpoint may replace the desired value while the preceding send settles.
-use super::{intent::Intent, worker::Notice, Platform};
-use crate::session_commands::SessionCommands;
+use super::{Platform, intent::Intent, worker::Notice};
+use crate::{Error, session::commands::SessionCommands};
 use rooms_glowcap::client::room::Room;
 use std::rc::Rc;
 use tokio::sync::{mpsc, watch};
@@ -15,32 +15,29 @@ pub(super) async fn maintain<P: Platform>(
 	notices: mpsc::Sender<Notice>,
 ) {
 	let mut sent = String::new();
-	let result: Result<(), String> = async {
+	let result: Result<(), Error> = async {
 		loop {
 			changes.borrow_and_update();
-			let desired = commands
-				.view()
-				.read(|state| {
-					let checkpoint = state.checkpoint().map_err(|error| error.to_string())?;
-					if !checkpoint
-						.rooms()
-						.filter_map(Intent::read)
-						.any(|intent| expected.same_membership(&intent))
-					{
-						return Ok(None);
-					}
-					Ok::<_, String>(checkpoint.room_standing(&expected.id).map(|value| {
-						char::decode_utf16(value.utf16())
-							.map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
-							.collect::<String>()
-					}))
-				})
-				.map_err(|error| error.to_string())??;
+			let desired = commands.view().read(|state| {
+				let checkpoint = state.checkpoint()?;
+				if !checkpoint
+					.rooms()
+					.filter_map(Intent::read)
+					.any(|intent| expected.same_membership(&intent))
+				{
+					return Ok(None);
+				}
+				Ok::<_, Error>(checkpoint.room_standing(&expected.id).map(|value| {
+					char::decode_utf16(value.utf16())
+						.map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
+						.collect::<String>()
+				}))
+			})??;
 			let Some(desired) = desired else {
 				return Ok(());
 			};
 			if desired != sent {
-				room.away(&desired).await.map_err(|error| error.to_string())?;
+				room.away(&desired).await.map_err(Error::peer)?;
 				sent = desired;
 			}
 			if changes.changed().await.is_err() {

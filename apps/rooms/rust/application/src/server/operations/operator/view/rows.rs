@@ -1,6 +1,6 @@
 //! Admitted operator rows, shared by direct and attached consumers. Inventory
 //! construction stays with the server; these values own bounded display data.
-pub use super::super::{rows::RoomKind, ReferenceKind};
+pub use super::super::{ReferenceKind, rows::RoomKind};
 use crate::fields::{List, Nullable, Object, SafeInteger, Text};
 pub use crate::server::operations::faces::Visibility;
 use serde::{Deserialize, Serialize};

@@ -1,7 +1,7 @@
 use rooms_application::{
 	direct::operation::{Command, Context, LineKey},
-	files::identity::Identity,
 	files::FileDescription,
+	files::identity::Identity,
 	room::message::LineId,
 };
 pub fn run() {
@@ -25,6 +25,7 @@ pub fn run() {
 	}];
 	let send = Command::Send {
 		text: "caption",
+		previews: &Default::default(),
 		files: &a,
 	}
 	.material(context())
@@ -33,6 +34,7 @@ pub fn run() {
 		send,
 		Command::Send {
 			text: "caption",
+			previews: &Default::default(),
 			files: &a
 		}
 		.material(context())
@@ -42,6 +44,7 @@ pub fn run() {
 		send,
 		Command::Send {
 			text: "caption",
+			previews: &Default::default(),
 			files: &b
 		}
 		.material(context())
@@ -62,6 +65,23 @@ pub fn run() {
 	))
 	.unwrap();
 	assert_eq!(send.as_str(), Some(old.as_str()));
+	let selected = rooms_application::open_graph::Selection::all("https://example.com");
+	assert_ne!(
+		Command::Send {
+			text: "https://example.com",
+			previews: &Default::default(),
+			files: &a,
+		}
+		.material(context())
+		.unwrap(),
+		Command::Send {
+			text: "https://example.com",
+			previews: &selected,
+			files: &a,
+		}
+		.material(context())
+		.unwrap()
+	);
 	let key = LineKey {
 		generation: [1; 16],
 		line: LineId::new(1).unwrap(),

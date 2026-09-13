@@ -24,6 +24,11 @@ pub struct Submission {
 	pub you: Text<65536>,
 	pub away: bool,
 	pub line_limit: Option<usize>,
+	/// Whether this membership holds the files facet a room hands over
+	/// where it can hold bytes. A direct line always can. Files are refused
+	/// here, at the one admission every controller submits through, so a
+	/// file that came in by paste or drop meets the same answer as one picked.
+	pub can_post_files: bool,
 	pub files: Vec<Attachment>,
 	pub keeping: bool,
 }
@@ -44,6 +49,7 @@ pub enum Prepared {
 	Command { plan: Plan },
 }
 pub const DIRECTORY_NO_CHAT: &str = "This view does not carry messages. Use a command.";
+pub const ROOM_NO_FILES: &str = "This room does not carry files.";
 pub fn line_refusal(text: &DocumentText, limit: Option<usize>) -> Option<String> {
 	let maximum = limit.unwrap_or(MAX_LINE_BYTES).min(MAX_LINE_BYTES);
 	(text.utf8_lossy().len() > maximum).then(|| format!("Message too long (max {maximum} bytes)"))
@@ -61,15 +67,18 @@ pub fn prepare(submission: &Submission) -> Prepared {
 	if submission.place == Place::Directory && !submission.files.is_empty() {
 		return refuse("This view does not carry files.");
 	}
+	if submission.place == Place::Room && !submission.can_post_files && !submission.files.is_empty() {
+		return refuse(ROOM_NO_FILES);
+	}
 	let limit = if submission.place == Place::Room {
 		submission.line_limit
 	} else {
 		None
 	};
-	if submission.place != Place::Directory {
-		if let Some(why) = line_refusal(text, limit) {
-			return refuse(why);
-		}
+	if submission.place != Place::Directory
+		&& let Some(why) = line_refusal(text, limit)
+	{
+		return refuse(why);
 	}
 	let context = Context {
 		place: submission.place,

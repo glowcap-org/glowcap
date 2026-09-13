@@ -12,6 +12,12 @@ amended_by: [ADR-0139]
 
 # ADR-0128 Room links, directory peering, and the IRC edges
 
+[ADR-0139](ADR-0139-rooms-entrances-memberships-and-registration.md) refines
+the room-capability language in this record. A room link now redeems into a
+reusable entrance capability. A successful `subscribe` creates a membership
+and reconstitutes the live room when none exists. The link itself retains
+neither a live room nor a membership.
+
 ## Context
 
 Rooms began with locators at the server level: every client dialed one
@@ -28,7 +34,7 @@ The decision engages the first principles that session state owns authority
 and that names carry their namespace ([architecture rule](../../../.agents/rules/architecture.md),
 "Names carry three things"), and it rides the route-bundle contract of
 [ADR-0125](ADR-0125-identity-route-multihome.md). The
-[application contract](../../../apps/rooms/developing.md#application-contract)
+[objects on the wire](../../../apps/rooms/developing.md#the-objects)
 and [`apps/rooms/irc/README.md`](../../../apps/rooms/irc/README.md) describe
 the shipped shape; this record keeps the rules that shaped it.
 

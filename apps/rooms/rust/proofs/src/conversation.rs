@@ -1,8 +1,9 @@
-//! Actual TS history captures and shared transfer-state invariants.
+//! Room history under its bounds, and the file transfer state a conversation
+//! carries, replayed from `fixtures/conversation.json`.
 use rooms_application::{
 	files::{
-		transfer::{self, Error, UploadProgress},
 		CHUNK_BYTES, MAX_FILE_BYTES,
+		transfer::{self, Error, UploadProgress},
 	},
 	room::history::{Error as HistoryError, History, MAX_BYTES, MAX_LINES},
 };

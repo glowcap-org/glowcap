@@ -13,7 +13,7 @@ pub fn checkRoomsWebrtcIceCaps(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/ice.ts", &.{
+    try expectFileContains(io, gpa, root, violations, "apps/rooms/test/support/ice.ts", &.{
         "WEBRTC_MAX_ICE_CREDENTIAL_BYTES",
         "WEBRTC_MAX_ICE_SERVERS",
         "WEBRTC_MAX_ICE_URL_BYTES",

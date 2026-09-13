@@ -28,12 +28,12 @@ change a deployment, read [known limitations](boundaries.md).
 | Rust, Deno, Python, and Racket bindings | Each binding holds a live Goblins session as a client, accepts one as a listener, and exercises both handoff roles. The listener matrix requires Goblins to enliven and call a Host-wide actor and checks the exact reply. | Bun cannot host the native listener loop. |
 | TypeScript on Bun | The `bun-dogfood` consumer check covers Host identity and lifetime, locator and sturdyref ABI calls, and fail-closed native-loop admission. | Bun's synchronous FFI cannot host the native driver or blocking transport lifecycles. No Bun-native Goblins check runs. |
 | Native Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are glowcap-native APIs with no outside implementation to compare. |
-| Distributed GC | A live Goblins peer sends `op:gc-exports`; in-tree tests cover outbound release and `op:gc-answers`. | No live peer observes glowcap's outbound GC or binding finalizers. |
+| Distributed GC | Goblins sends `op:gc-exports` and observes outbound release from Zig and every native binding. A weak reference proves remote reclamation after capability release and answer cleanup while the session stays open; a second held occurrence remains callable after the first release. | Automatic capability finalizers have in-tree evidence; the live binding checks finalize answer wrappers and release capability handles explicitly. |
 | Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The Goblins interoperability check does not run through the Python, Rust, or Racket relays. |
-| Rooms | The recurring `goblins-rooms` scenario puts a real Goblins vat and a glowcap member in one room and proves their independently settled wire profiles. The recurring `demo-rooms` tour puts every one-shot client (Deno, Python, Racket, Rust, and Zig) in one room, so no client can drift from the room contract unseen. `goblins-rooms-irc` composes that outside implementation with both shipped IRC edges. In-tree checks cover room authority, operator revocation, the bounded browser state bundle, archives, and a durable session peer with two attached OCapN clients, room events, interaction, revocation, restart, and unresolved-effect custody. | The complete browser page, browser direct messages, and the four-peer iroh matrix remain on demand because they require Chromium or the iroh sidecar. |
+| Rooms | The recurring `goblins-rooms` scenario puts a real Goblins vat and a glowcap member in one room and proves their independently settled wire profiles. The recurring `demo-rooms` tour puts every one-shot client (Deno, Python, Racket, Rust, and Zig) in one room, so no client can drift from the room contract unseen. `goblins-rooms-irc` composes that outside implementation with both shipped IRC edges. `rooms-web-proofs` runs every shipped-page journey in Chromium, including direct messages, durable and shared sessions, private rooms, routing, management, reconnect, archive, and trace lifecycles. In-tree checks cover room authority, operator revocation, the bounded browser state bundle, archives, and a durable session peer with two attached OCapN clients, room events, interaction, revocation, restart, and unresolved-effect custody. | The four-peer iroh matrix remains on demand because it requires the iroh sidecar and a live Goblins vat. |
 | CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
 | Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. The recurring `web-peer-test` drives a Chromium Wasm peer and proves native-to-browser Noise rendezvous over local WSS; on demand, `ocapnviz-live-browser` drives the production visualizer bundle as an OCapN peer. | WebRTC and public-certificate WSS scenarios remain on-demand or unsupported as named above. |
-| Linux | The full CI sequence runs on Linux. | No claim is made for untested kernel or architecture combinations. |
+| Linux | The full CI sequence runs on Linux. TCP completion loops exercise io_uring when the host provides its required facilities and otherwise exercise the epoll fallback. Selection and its reasons are tested separately. | The recorded 500,000-session result used io_uring. No equivalent epoll scale result or claim exists. |
 | macOS | Recurring `zig build test` executes the native suite, including the host-selected kqueue path, on a macOS runner. | `zig build check` and the external-runtime matrix remain Linux-only. |
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
 | Untrusted-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The recurring fuzz budget is shallow, and most assertions are written by glowcap. |
@@ -56,8 +56,20 @@ This list is compared with [`ci/gates.sh`](../ci/gates.sh) by
 `zig build source-check`, so a removed check cannot remain documented as
 recurring evidence.
 
+The first three entries divide local evidence by execution cost.
+`infrastructure-check` black-boxes the devcontainer and worktree tools in
+temporary repositories. `check` runs self-contained Zig tests, generated,
+static, compile-only, and performance evidence. `runtime-check` runs process,
+socket, application, and language-workspace families in order, so shared ports
+and output directories are released before the next family starts. Zig's
+30-second timeout applies to each active test. Non-Zig process tests retain
+their own process-group deadlines, and CI adds a much wider outer deadline only
+to contain a wedged gate.
+
 <!-- ci-gate-list:begin -->
+- `zig build infrastructure-check`
 - `zig build check`
+- `zig build runtime-check`
 - `zig build native-tls-build`
 - `zig build fuzz`
 - `zig build sidecar-common-test`
@@ -76,6 +88,7 @@ recurring evidence.
 - `zig build wasm-abi-layout-check`
 - `zig build wasm-import-check`
 - `zig build web-peer-test`
+- `zig build rooms-web-proofs`
 - `zig build goblins-interop`
 - `zig build goblins-rooms`
 - `zig build demo-rooms`
@@ -84,6 +97,7 @@ recurring evidence.
 - `zig build bindings-goblins-handoff`
 - `zig build bindings-goblins-gift`
 - `zig build goblins-handoff`
+- `zig build goblins-handoff-iroh`
 - `zig build goblins-gift`
 - `zig build goblins-gift-hints`
 - `zig build goblins-relayed-give`

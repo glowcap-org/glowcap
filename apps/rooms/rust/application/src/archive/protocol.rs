@@ -67,7 +67,7 @@ fn record_at<A: ListArgument>(row: &A, offset: usize) -> Result<Record, Error> {
 	let tag = item(row, offset)?;
 	let standing = match (tag.text(), count) {
 		(Some("standing"), 8) => true,
-		(Some("line"), 14) => false,
+		(Some("line"), 14 | 15) => false,
 		_ => return Err(Error::Record),
 	};
 	let coordinates = Coordinates {
@@ -91,6 +91,28 @@ fn record_at<A: ListArgument>(row: &A, offset: usize) -> Result<Record, Error> {
 			"edited" => LineState::Edited,
 			"withdrawn" => LineState::Withdrawn,
 			_ => return Err(Error::Record),
+		};
+		let line_text = document(row, offset + 8, crate::room::line::MAX_LINE_BYTES, true)?;
+		let previews = if count == 15 {
+			let values = item(row, offset + 14)?;
+			let count = values
+				.list_len()
+				.filter(|count| *count <= crate::open_graph::MAX_PREVIEWS)
+				.ok_or(Error::Record)?;
+			let selected = (0..count)
+				.map(|at| text(&values, at, crate::open_graph::MAX_URL_BYTES, false))
+				.collect::<Result<Vec<_>, _>>()?;
+			if selected.is_empty() {
+				crate::open_graph::Selection::default()
+			} else {
+				crate::open_graph::Selection::new(
+					line_text.as_str().ok_or(Error::Record)?,
+					selected.iter().map(String::as_str),
+				)
+				.map_err(|_| Error::Record)?
+			}
+		} else {
+			crate::open_graph::Selection::default()
 		};
 		let files = item(row, offset + 13)?;
 		let count = files
@@ -121,11 +143,12 @@ fn record_at<A: ListArgument>(row: &A, offset: usize) -> Result<Record, Error> {
 			conversation_kind: kind,
 			conversation: document(row, offset + 6, MAX_CONVERSATION_BYTES, false)?,
 			from: document(row, offset + 7, 128, false)?,
-			text: document(row, offset + 8, crate::room::line::MAX_LINE_BYTES, true)?,
+			text: line_text,
 			mine: item(row, offset + 9)?.boolean().ok_or(Error::Record)?,
 			at: number(row, offset + 10, false)?,
 			order: number(row, offset + 11, true)?,
 			state,
+			previews,
 			attachments,
 		}
 	};

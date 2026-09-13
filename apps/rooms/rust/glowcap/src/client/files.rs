@@ -5,8 +5,8 @@ use super::{Client, Deadline, Error};
 use glowcap::{Argument, Ref};
 use rooms_application::{
 	files::{
+		CHUNK_BYTES, FileDescription,
 		transfer::{self, UploadProgress},
-		FileDescription, CHUNK_BYTES,
 	},
 	room::attachment::Attachment,
 };
@@ -28,7 +28,12 @@ impl<D: Deadline> Upload<D> {
 				Argument::Integer(width.into()),
 				Argument::Integer(height.into()),
 			];
-			client.call(member, "attach", &args, "the room did not answer taking the file")
+			client.call(
+				member,
+				rooms_application::protocol_data::ATTACH,
+				&args,
+				"the room did not answer taking the file",
+			)
 		}
 		.await?;
 		let Argument::Reference(reference) = reply.0 else {
@@ -60,7 +65,7 @@ impl<D: Deadline> Upload<D> {
 			let arg = Argument::Bytes(bytes);
 			self.client.call_with_timeout(
 				&self.reference,
-				"write",
+				rooms_application::protocol_data::WRITE,
 				&[arg],
 				"the file stopped being taken",
 				transfer::STALL_MS,
@@ -76,7 +81,7 @@ impl<D: Deadline> Upload<D> {
 		self.client
 			.call(
 				&self.reference,
-				"discard",
+				rooms_application::protocol_data::DISCARD,
 				&[],
 				"the room did not answer discarding the file",
 			)
@@ -135,7 +140,7 @@ impl<D: Deadline> File<D> {
 			.call_on(
 				self.session()?,
 				&self.attachment.blob,
-				"read",
+				rooms_application::protocol_data::READ,
 				&[Argument::Integer(offset as i64), Argument::Integer(expected as i64)],
 				"the file stopped arriving",
 				transfer::STALL_MS,

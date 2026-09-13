@@ -45,7 +45,7 @@ pub fn checkHumanDocVoice(
 
     // The em-dash overuse rows apply to prose wherever it lives, including the
     // Zig doc comments the doc-voice audience table counts as human surfaces.
-    for (em_dash_overuse_scopes) |where| {
+    for (em_dash_scopes) |where| {
         var files: std.ArrayList([]const u8) = .empty;
         defer files.deinit(arena);
         // tolerant: an unopenable tree already violates through the ban rows.
@@ -85,9 +85,10 @@ pub fn checkHumanDocVoice(
     }
 }
 
-/// Where the em-dash overuse check runs. Wider than the human first-read scopes
-/// above, because the habit shows up most in source comments.
-const em_dash_overuse_scopes = [_]bans.Where{
+/// First-party prose, wider than the human first-read scopes above, because the
+/// habits these checks refuse show up most in source comments. Read by the
+/// sentence-length ceiling, and by the em-dash scopes that extend it.
+const prose_scopes = [_]bans.Where{
     .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
     .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } },
     .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
@@ -106,6 +107,30 @@ const em_dash_overuse_scopes = [_]bans.Where{
     .{ .tree = .{ .dir = "conformance/ocapn-findings", .suffixes = &.{".md"} } },
 };
 
+/// Where the em-dash overuse check runs: the prose scopes above, and the
+/// scaffolding.
+///
+/// The scaffolding is held to this line for a reason that does not apply to the
+/// trees above. An agent writing Rooms' copy has just finished reading these
+/// files, and prose it finds here is prose it reads as house style, so a habit
+/// indulged in a rule is a habit handed to every surface that rule governs,
+/// including the reader-facing ones where the same dash is an AI tell. The
+/// scaffolding was already clear of both forms when this scope was added, so
+/// nothing here is a migration: it is a line already held, now held by the
+/// build instead of by whoever last noticed.
+///
+/// Its own list rather than the prose one, because that list feeds the
+/// sentence-length check too, and widening it for this would have quietly
+/// widened that. One list meaning two things is how a narrow edit gets a wide
+/// blast radius.
+const em_dash_scopes = prose_scopes ++ [_]bans.Where{
+    .{ .tree = .{ .dir = ".agents", .suffixes = &.{ ".md", ".sh" } } },
+    .{ .files = &.{"AGENTS.md"} },
+    // The Rooms Rust crates carry the largest body of first-party comment
+    // prose outside `src/`; their doc comments are human surfaces too.
+    .{ .tree = .{ .dir = "apps/rooms/rust", .suffixes = &.{".rs"}, .skip_dirs = &.{"target/"} } },
+};
+
 /// The em-dash is a strong occasional tool, and doc-voice allows exactly two
 /// uses: a matched pair standing in for parentheses, and a single dash for a
 /// turn a comma cannot carry. It bans the rest by name, and these two spellings
@@ -119,6 +144,12 @@ fn banHabitualEmDash(
     path: []const u8,
     contents: []const u8,
 ) !void {
+    // The rule that names the forms has to write them down, so it is the one
+    // file allowed to. Exempt by name rather than by trying to tell a citation
+    // from a use: doc-voice quotes them both ways, inside backticks and inside
+    // a quoted example sentence, and a check that guessed at the difference
+    // would be a worse thing to trust than a list of one.
+    if (std.mem.eql(u8, path, ".agents/rules/doc-voice.md")) return;
     const habits = [_][]const u8{ "— which", "— and then" };
     for (habits) |needle| {
         if (std.mem.indexOf(u8, contents, needle) != null) {
@@ -149,7 +180,7 @@ const justification_tic_scopes = [_]bans.Where{
     .{ .tree = .{ .dir = "conformance/goblins-peer/racket", .suffixes = &.{".rkt"} } },
     .{ .tree = .{ .dir = "conformance/ocapn-conformance", .suffixes = &.{".zig"} } },
     .{ .tree = .{ .dir = "interop", .suffixes = &.{ ".zig", ".rs", ".ts", ".py", ".rkt" } } },
-    .{ .tree = .{ .dir = "apps", .suffixes = &.{ ".zig", ".ts", ".tsx", ".css", ".md", ".py", ".rkt" }, .skip_dirs = &.{"node_modules"} } },
+    .{ .tree = .{ .dir = "apps", .suffixes = &.{ ".zig", ".rs", ".ts", ".tsx", ".css", ".md", ".py", ".rkt" }, .skip_dirs = &.{ "node_modules", "target/" } } },
 };
 
 /// The which-is-what justification tic is one authorial habit repeated
@@ -303,7 +334,7 @@ pub fn checkProseSentenceLength(
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    for (em_dash_overuse_scopes) |where| {
+    for (prose_scopes) |where| {
         var files: std.ArrayList([]const u8) = .empty;
         defer files.deinit(arena);
         // tolerant: an unopenable tree already violates through the ban rows.

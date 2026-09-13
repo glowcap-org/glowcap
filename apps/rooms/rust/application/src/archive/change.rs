@@ -1,6 +1,6 @@
 //! History invalidation carries scope, never a record or file authority. A
 //! consumer subscribes before reading and repeats a read invalidated in flight.
-use super::{records::bounded_text, ConversationKind, Error, Record, MAX_CONTEXT_BYTES, MAX_CONVERSATION_BYTES};
+use super::{ConversationKind, Error, MAX_CONTEXT_BYTES, MAX_CONVERSATION_BYTES, Record, records::bounded_text};
 use crate::{room::ArgumentView, text::DocumentText};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

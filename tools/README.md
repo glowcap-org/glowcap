@@ -18,5 +18,14 @@ here.
 
 Product code belongs in [`apps/`](../apps/) or [`cli/`](../cli/).
 
+An operation is placed by what it acts on, not here by default. A command
+against the toolchain is a `zig build` step. A command an operator runs
+against a shipped deployable is one front beside that deployable, such as
+[`apps/rooms/web/deploy/ops`](../apps/rooms/web/deploy/ops). Container
+scripts stay under `.devcontainer/`, agent workflow under `.agents/`, and a
+maintainer's machine and account facts in gitignored tooling under `.local/`.
+
 See [ADR-0085](../docs/decisions/adr/ADR-0085-repository-product-and-devtool-layout.md)
-for the layout decision.
+for the layout decision and
+[ADR-0150](../docs/decisions/adr/ADR-0150-operations-fronts-and-script-placement.md)
+for script placement and lifecycle.

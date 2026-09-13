@@ -125,3 +125,43 @@ Deno.test("a locally recoverable send is drawn before dispatch and retries the s
 	const retried = store.historyOf(page.projection, conversation.key).at(-1);
 	assertEquals(retried?.kind === "chat" ? [retried.id, retried.state] : null, [failed!.id, "sending"]);
 });
+
+// A send the runtime cannot confirm may already have reached the other side.
+// The line it drew stays, marked unconfirmed rather than failed, and the draft
+// is not put back, because sending it again could land it twice.
+Deno.test("an unconfirmed send keeps its line and puts no draft back", async () => {
+	const page = new RoomsPage();
+	resetStore(page);
+	addActiveDm(page);
+	store.setDraft(page.projection, "did this land");
+	const controller = new FakeController();
+	const session = sessionFor(page, controller, true);
+	const conversation = store.activeConv(page.projection);
+	if (conversation == null) throw new Error("the send fixture has no conversation");
+
+	session.send();
+	controller.sends[0].reject(new Error("delivery-uncertain: the peer went quiet mid-send"));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	const drawn = store.historyOf(page.projection, conversation.key).at(-1);
+	assertEquals(drawn?.kind === "chat" ? [drawn.text, drawn.state] : null, ["did this land", "unconfirmed"]);
+	assertEquals(store.activeDraft(page.projection).text, "");
+});
+
+// The same holds where sends are not locally recoverable: a definite failure
+// would put the text back here, an unconfirmed one must not.
+Deno.test("an unconfirmed send keeps its line even where sends are not recoverable", async () => {
+	const page = new RoomsPage();
+	resetStore(page);
+	addActiveDm(page);
+	store.setDraft(page.projection, "did this land");
+	const controller = new FakeController();
+	const session = sessionFor(page, controller);
+	const conversation = store.activeConv(page.projection);
+	if (conversation == null) throw new Error("the send fixture has no conversation");
+	session.send();
+	controller.sends[0].reject(new Error("delivery-uncertain: the peer went quiet mid-send"));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	const drawn = store.historyOf(page.projection, conversation.key).at(-1);
+	assertEquals(drawn?.kind === "chat" ? drawn.state : null, "unconfirmed");
+	assertEquals(store.activeDraft(page.projection).text, "");
+});

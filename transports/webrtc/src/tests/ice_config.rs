@@ -31,7 +31,7 @@ fn endpoint_config(servers: &[GlowcapWebrtcIceServer]) -> GlowcapWebrtcEndpointC
 }
 
 fn endpoint_refuses(servers: &[GlowcapWebrtcIceServer]) {
-	assert!(glowcap_webrtc_sidecar_endpoint_new(&endpoint_config(servers)).is_null());
+	assert!(test_endpoint_new(&endpoint_config(servers)).is_null());
 }
 
 fn ice_server(
@@ -80,7 +80,7 @@ fn ice_servers_reach_the_endpoint() {
 		include_loopback_candidates: 0,
 		worker_threads: 0,
 	};
-	let ep = glowcap_webrtc_sidecar_endpoint_new(&cfg);
+	let ep = test_endpoint_new(&cfg);
 	assert!(!ep.is_null());
 	assert_eq!(
 		unsafe { &*ep }.inner.ice_servers,
@@ -108,7 +108,7 @@ fn ice_servers_reach_the_endpoint() {
 		include_loopback_candidates: 0,
 		worker_threads: 0,
 	};
-	let host_only = glowcap_webrtc_sidecar_endpoint_new(&empty);
+	let host_only = test_endpoint_new(&empty);
 	assert!(!host_only.is_null());
 	assert!(unsafe { &*host_only }.inner.ice_servers.is_empty());
 	unsafe { glowcap_webrtc_sidecar_endpoint_free(host_only) };
@@ -119,7 +119,7 @@ fn ice_servers_reach_the_endpoint() {
 /// deployment where nothing can traverse NAT.
 #[test]
 fn a_null_config_is_refused() {
-	assert!(glowcap_webrtc_sidecar_endpoint_new(std::ptr::null()).is_null());
+	assert!(test_endpoint_new(std::ptr::null()).is_null());
 }
 
 #[test]

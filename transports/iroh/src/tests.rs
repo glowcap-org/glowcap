@@ -6,6 +6,69 @@ use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
+// These wrappers exercise the C surface with buffers and live handles owned by
+// each test. Keeping the unsafe calls here makes that repeated test contract
+// explicit without hiding unsafe operations in production helpers.
+fn glowcap_iroh_sidecar_accept_timeout(
+	ep: *mut GlowcapIrohEndpoint,
+	timeout_ms: i32,
+	out_code: *mut i32,
+) -> *mut GlowcapIrohConn {
+	unsafe { crate::connect::glowcap_iroh_sidecar_accept_timeout(ep, timeout_ms, out_code) }
+}
+
+fn glowcap_iroh_sidecar_endpoint_drain_ready(
+	ep: *const GlowcapIrohEndpoint,
+	out: *mut GlowcapIrohReadyEvent,
+	out_cap: usize,
+) -> isize {
+	unsafe { crate::nonblocking::glowcap_iroh_sidecar_endpoint_drain_ready(ep, out, out_cap) }
+}
+
+fn glowcap_iroh_sidecar_endpoint_start_connect(
+	ep: *mut GlowcapIrohEndpoint,
+	request_id: usize,
+	node_id: *const u8,
+	node_id_len: usize,
+	addr_hints: *const u8,
+	addr_hints_len: usize,
+) -> i32 {
+	unsafe {
+		crate::connect::glowcap_iroh_sidecar_endpoint_start_connect(
+			ep,
+			request_id,
+			node_id,
+			node_id_len,
+			addr_hints,
+			addr_hints_len,
+		)
+	}
+}
+
+fn glowcap_iroh_sidecar_endpoint_finish_connect(
+	ep: *mut GlowcapIrohEndpoint,
+	request_id: usize,
+	out_conn: *mut *mut GlowcapIrohConn,
+	out_text: *mut u8,
+	out_text_cap: usize,
+	out_text_len: *mut usize,
+) -> i32 {
+	unsafe {
+		crate::connect::glowcap_iroh_sidecar_endpoint_finish_connect(
+			ep,
+			request_id,
+			out_conn,
+			out_text,
+			out_text_cap,
+			out_text_len,
+		)
+	}
+}
+
+fn glowcap_iroh_sidecar_endpoint_cancel_connect(ep: *mut GlowcapIrohEndpoint, request_id: usize) -> i32 {
+	unsafe { crate::connect::glowcap_iroh_sidecar_endpoint_cancel_connect(ep, request_id) }
+}
+
 pub(super) fn direct_endpoint(connect_timeout_ms: u64) -> *mut GlowcapIrohEndpoint {
 	let config = GlowcapIrohEndpointConfig {
 		reachability: REACH_DIRECT,
@@ -13,7 +76,43 @@ pub(super) fn direct_endpoint(connect_timeout_ms: u64) -> *mut GlowcapIrohEndpoi
 		idle_timeout_ms: 0,
 		worker_threads: 0,
 	};
-	glowcap_iroh_sidecar_endpoint_new(std::ptr::null(), &config)
+	// SAFETY: `config` lives for the call and the optional seed is null.
+	unsafe { glowcap_iroh_sidecar_endpoint_new(std::ptr::null(), &config) }
+}
+
+pub(super) fn free_endpoint(endpoint: *mut GlowcapIrohEndpoint) -> i32 {
+	// SAFETY: tests call this once after releasing every connection they minted.
+	unsafe { glowcap_iroh_sidecar_endpoint_free(endpoint) }
+}
+
+fn close_endpoint(endpoint: *mut GlowcapIrohEndpoint) {
+	// SAFETY: tests retain the live endpoint handle until a later `free_endpoint`.
+	unsafe { glowcap_iroh_sidecar_endpoint_close(endpoint) }
+}
+
+#[test]
+fn null_nonblocking_handles_are_refused_without_dereference() {
+	unsafe {
+		assert_eq!(crate::glowcap_iroh_sidecar_endpoint_readiness_fd(std::ptr::null()), -1);
+		assert_eq!(
+			crate::glowcap_iroh_sidecar_endpoint_drain_ready(std::ptr::null(), std::ptr::null_mut(), 0),
+			-1
+		);
+		assert_eq!(
+			crate::glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(std::ptr::null_mut()),
+			-1
+		);
+		assert!(crate::glowcap_iroh_sidecar_endpoint_try_accept(std::ptr::null_mut()).is_null());
+		assert_eq!(crate::glowcap_iroh_sidecar_conn_id(std::ptr::null()), 0);
+		assert_eq!(
+			crate::glowcap_iroh_sidecar_conn_try_read(std::ptr::null_mut(), std::ptr::null_mut(), 0),
+			-1
+		);
+		assert_eq!(
+			crate::glowcap_iroh_sidecar_conn_try_write(std::ptr::null_mut(), std::ptr::null(), 0),
+			-1
+		);
+	}
 }
 
 #[test]
@@ -66,8 +165,10 @@ fn readiness_queue_coalesces_without_losing_distinct_subjects() {
 
 #[test]
 fn outbound_bound_admits_a_prefix_and_blocks_only_when_full() {
-	let mut outbound = Outbound::default();
-	outbound.in_flight = NB_BUFFER_BOUND - 4;
+	let mut outbound = Outbound {
+		in_flight: NB_BUFFER_BOUND - 4,
+		..Outbound::default()
+	};
 
 	let bytes = [9u8; 16];
 	assert_eq!(enqueue_outbound(&mut outbound, &bytes), 4);
@@ -138,19 +239,19 @@ fn blocking_accept_timeout_does_not_arm_or_drain_readiness() {
 	let endpoint = unsafe { &*ep };
 	assert!(endpoint.readiness.get().is_none());
 	assert!(endpoint.accept.get().is_none());
-	glowcap_iroh_sidecar_endpoint_free(ep);
+	free_endpoint(ep);
 }
 
 #[test]
 fn blocking_accept_reports_endpoint_close_as_lost_not_timeout() {
 	let ep = direct_endpoint(200);
 	assert!(!ep.is_null(), "endpoint_new");
-	glowcap_iroh_sidecar_endpoint_close(ep);
+	close_endpoint(ep);
 	let mut code = -1;
 	let conn = glowcap_iroh_sidecar_accept_timeout(ep, 1000, &mut code);
 	assert!(conn.is_null());
 	assert_eq!(code, DIAL_LOST);
-	glowcap_iroh_sidecar_endpoint_free(ep);
+	free_endpoint(ep);
 }
 
 #[test]
@@ -168,7 +269,7 @@ fn endpoint_release_joins_writers_detached_by_connection_release() {
 	});
 	drop(writer);
 
-	assert_eq!(glowcap_iroh_sidecar_endpoint_free(ep), 0);
+	assert_eq!(free_endpoint(ep), 0);
 	assert!(
 		finished.load(Ordering::Acquire),
 		"runtime shutdown abandoned a writer whose connection transferred ownership"
@@ -217,7 +318,7 @@ fn inner_connect_timeout_keeps_its_timeout_classification() {
 fn dial_text_truncates_at_a_char_boundary() {
 	// A three-byte character never divides the bound evenly, so the cut lands
 	// inside one and the whole character has to go.
-	let long: String = std::iter::repeat('€').take(DIAL_TEXT_BYTES).collect();
+	let long = "€".repeat(DIAL_TEXT_BYTES);
 	let text = DialText::describe(format_args!("{long}"));
 	assert_eq!(text.as_str().len(), DIAL_TEXT_BYTES - DIAL_TEXT_BYTES % 3);
 	assert!(text.as_str().chars().all(|c| c == '€'));
@@ -285,7 +386,7 @@ fn evented_connect_returns_promptly_and_times_out_once() {
 		"one admitted dial emits exactly one terminal event"
 	);
 
-	glowcap_iroh_sidecar_endpoint_free(ep);
+	free_endpoint(ep);
 }
 
 #[test]
@@ -299,7 +400,7 @@ fn rejected_connect_owes_no_event() {
 	);
 	let mut event = GlowcapIrohReadyEvent { subject: 0, events: 0 };
 	assert_eq!(glowcap_iroh_sidecar_endpoint_drain_ready(ep, &mut event, 1), 0);
-	glowcap_iroh_sidecar_endpoint_free(ep);
+	free_endpoint(ep);
 }
 
 #[test]
@@ -377,7 +478,7 @@ fn evented_connect_admission_is_bounded_and_reclaimed() {
 		),
 		DIAL_CANCELED
 	);
-	glowcap_iroh_sidecar_endpoint_free(ep);
+	free_endpoint(ep);
 }
 
 #[test]
@@ -419,5 +520,5 @@ fn canceled_connect_finishes_once() {
 		glowcap_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn, std::ptr::null_mut(), 0, std::ptr::null_mut()),
 		DIAL_INVALID
 	);
-	glowcap_iroh_sidecar_endpoint_free(ep);
+	free_endpoint(ep);
 }

@@ -1,6 +1,7 @@
+// Standalone peer shutdown preserves the primary connection outcome together with any cleanup failure.
 import { GlowcapError, type Session } from "@glowcap/runtime";
 import { IO } from "@glowcap/abi";
-import { type ClosingServer, serveStandalone } from "../lib/standalone_peer.ts";
+import { type ClosingServer, serveStandalone } from "./support/standalone_server.ts";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("a standalone peer reports both a connection failure and its close consequence", async () => {

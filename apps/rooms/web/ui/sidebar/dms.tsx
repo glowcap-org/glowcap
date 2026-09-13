@@ -7,6 +7,19 @@
 // and the rail itself only decides which sections there are.
 
 import { useMemo } from "react";
+import { dmMarkTitle, dmRemove, dmSectionTitle } from "../../../lib/text/controls.ts";
+import {
+	dmJoinARoomFirst,
+	dmMemberNamePlaceholder,
+	dmMessageAMember,
+	dmOnDirectory,
+	dmOpen,
+	dmOpenClosed,
+	dmRemoveSaid,
+	dmStart,
+	railClosed,
+	railIn,
+} from "../../../lib/text/rail.ts";
 import { useRoomsState, useSessionPaused } from "../hooks.ts";
 import { NO_MEMBERS } from "../store/core.ts";
 import { MAX_NICK } from "../limits.ts";
@@ -79,10 +92,10 @@ function DmRow(
 	// room you are in can be left while you are reading a direct message, and the
 	// reverse has to be true too.
 	const lineMark = conv.line === "closed"
-		? <span className="closed-mark">closed</span>
+		? <span className="closed-mark">{railClosed}</span>
 		: conv.line === "live"
 		? (
-			<span className="lock" title="Direct, peer-to-peer">
+			<span className="lock" title={dmMarkTitle}>
 				<Icon name="lock" size={12} />
 			</span>
 		)
@@ -96,9 +109,8 @@ function DmRow(
 			<button
 				type="button"
 				className="dm-open"
-				aria-label={(conv.line === "closed"
-					? "Open the closed conversation with " + conv.id
-					: "Open direct message with " + conv.id) + (where.name === null ? "" : " on " + where.name)}
+				aria-label={(conv.line === "closed" ? dmOpenClosed(conv.id) : dmOpen(conv.id)) +
+					(where.name === null ? "" : dmOnDirectory(where.name))}
 				onClick={() => onOpen(conv.key)}
 			>
 				{
@@ -146,14 +158,14 @@ function DmRow(
 					onClick={() => onAbout(conv.dir)}
 				>
 					<Icon name="directory" size={12} />
-					{where.name !== null && <span className="rwhere-said">in {where.name}</span>}
+					{where.name !== null && <span className="rwhere-said">{railIn} {where.name}</span>}
 					{standing !== "" && <span className="rwhere-how">{standing}</span>}
 				</Button>
 			)}
 			{canInteract && (
 				<RowClose
-					title="Remove this direct message"
-					said={"Remove the direct message with " + conv.id}
+					title={dmRemove}
+					said={dmRemoveSaid(conv.id)}
 					onClose={() => onClose(conv)}
 				/>
 			)}
@@ -211,11 +223,7 @@ function DmRows(
 	if (rows.length === 0) {
 		return (
 			<Empty
-				text={paused
-					? nothingWhilePaused
-					: inARoom
-					? "Message a member to start one."
-					: "Join a room to message someone from the roster."}
+				text={paused ? nothingWhilePaused : inARoom ? dmMessageAMember : dmJoinARoomFirst}
 			/>
 		);
 	}
@@ -311,13 +319,13 @@ export function DirectMessages(
 	return (
 		<RailSection
 			className="dms"
-			title="Direct messages"
+			title={dmSectionTitle}
 			listId="dmList"
 			field={{
 				id: "newDm",
 				open,
-				label: "Start a direct message",
-				placeholder: "member name",
+				label: dmStart,
+				placeholder: dmMemberNamePlaceholder,
 				max: MAX_NICK,
 				noun: "name",
 				canAdd: canInteract && inARoom,

@@ -1,3 +1,4 @@
+// Roster projection updates membership and bridge attribution without replacing its conversation object.
 /// <reference lib="dom" />
 import "../support/browser_application.ts";
 
@@ -29,7 +30,9 @@ function memberView(away: string): import("../../web/ui/store.ts").RoomViewUpdat
 		topic: null,
 		lineBytes: null,
 		bridge: null,
+		carries: null,
 		canSetTopic: false,
+		canPostFiles: false,
 		canModerate: false,
 	};
 }
@@ -60,7 +63,9 @@ Deno.test("an attached snapshot can refresh the roster without replacing the con
 		topic: "Shared work",
 		lineBytes: 4096,
 		bridge: null,
+		carries: { previews: true, typing: true },
 		canSetTopic: true,
+		canPostFiles: true,
 		canModerate: true,
 	};
 	store.setRoomView(projection, room.key, { ...shared, members: [["ada", { online: true, away: "" }]] });
@@ -89,7 +94,9 @@ Deno.test("an attached snapshot carries the bridge behind a room, and lets it go
 		members: [["irc/ada", { online: true, away: "" }]] as [string, RoomMemberState][],
 		topic: null,
 		lineBytes: null,
+		carries: null,
 		canSetTopic: false,
+		canPostFiles: false,
 		canModerate: false,
 	};
 	const bridge = { prefix: "irc/", badge: "IRC", said: "Bridged from libera.", scope: "Libera" };

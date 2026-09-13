@@ -7,21 +7,22 @@ import { fileSize } from "../media.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";
 import { TYPING_IDLE_MS } from "../limits.ts";
+import { typingMore, typingOne, typingTwo } from "../../../lib/text/page.ts";
 
 /** Tell the room we are typing while the draft holds text, and stop when we
  * send, go idle, blur, or leave.
  *
  * The flag is level, not edge: `true` goes once and a final `false` always goes,
  * so a stuck indicator cannot linger on the other members' screens. Leaving the
- * conversation runs this effect's cleanup, which is what sends that last
- * `false` — there is no separate "stop typing on switch" call to forget.
+ * conversation runs this effect's cleanup and sends that last `false`; there is
+ * no separate "stop typing on switch" call to forget.
  *
  * `draft` is a dependency even though nothing here reads it, and that is the
  * whole of the idle timer working: `typing` stays true across a whole burst of
  * keystrokes, so depending on it alone the effect runs once, the timer fires at
  * four seconds, and nothing ever re-arms it. Typing longer than that would stop
- * telling the room. Depending on the draft re-arms the timer per keystroke,
- * which is what "idle" has to mean. */
+ * telling the room. Depending on the draft re-arms the timer per keystroke, so
+ * "idle" means no keystroke arrived during the whole interval. */
 export function useTypingSignal(typing: boolean, draft: string, setTyping: (on: boolean) => void) {
 	const on = useRef(false);
 	useEffect(() => {
@@ -105,7 +106,7 @@ function typingText(names: Iterable<string>, except: string): string {
 		count++;
 	}
 	if (count === 0) return "";
-	if (count === 1) return `${first} is typing…`;
-	if (count === 2) return `${first} and ${second} are typing…`;
-	return `${first}, ${second}, and ${count - 2} more are typing…`;
+	if (count === 1) return typingOne(first);
+	if (count === 2) return typingTwo(first, second);
+	return typingMore(first, second, count - 2);
 }

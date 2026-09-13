@@ -10,6 +10,7 @@ import { settleViewCleanup } from "./cleanup.ts";
 import type { PageProjection } from "../store/core.ts";
 
 import type { ArchiveLine } from "../../../lib/archive/protocol.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
 interface HeldFile {
 	readonly mime: string;
 	readonly durable: boolean;
@@ -17,8 +18,9 @@ interface HeldFile {
 	release(): void;
 }
 
-export const EARLIER_CONNECTION_BYTES_UNAVAILABLE =
-	"This file belonged to an earlier connection and is no longer available.";
+import { earlierConnectionBytesUnavailable } from "../../../lib/text/attached.ts";
+
+export const EARLIER_CONNECTION_BYTES_UNAVAILABLE = earlierConnectionBytesUnavailable;
 
 export class AttachedSessionFiles {
 	readonly #controller: AttachedRoomsController;
@@ -91,7 +93,9 @@ export class AttachedSessionFiles {
 		if (durable == null || this.#files.get(id)?.durable === true) return;
 		const prior = this.#files.get(id);
 		const transferring = this.#transfers.has(id);
-		if (prior != null) settleViewCleanup("attached file capability release failed", prior.release);
+		if (prior != null) {
+			settleViewCleanup(this.#projection, "attached file capability release failed", prior.release);
+		}
 		this.#files.set(id, durable);
 		if (!transferring) return;
 		this.#transfers.delete(id);
@@ -107,6 +111,7 @@ export class AttachedSessionFiles {
 	releaseIncoming(attachments: readonly Attachment[]): void {
 		for (const attachment of attachments) {
 			settleViewCleanup(
+				this.#projection,
 				"attached file capability release failed",
 				() => this.#controller.releaseAttachment(attachment),
 			);
@@ -157,10 +162,12 @@ export class AttachedSessionFiles {
 				this.#transfers.delete(id);
 				const display = displayData(bytes, file.mime);
 				this.#files.delete(id);
-				settleViewCleanup("attached file capability release failed", file.release);
+				settleViewCleanup(this.#projection, "attached file capability release failed", file.release);
 				const prior = this.#urls.get(id);
 				this.#urls.delete(id);
-				if (prior != null) settleViewCleanup("attached file display release failed", prior.release);
+				if (prior != null) {
+					settleViewCleanup(this.#projection, "attached file display release failed", prior.release);
+				}
 				this.#urls.set(id, display);
 				this.#progress.delete(id);
 				store.updateAttachment(this.#projection, key, id, {
@@ -175,7 +182,7 @@ export class AttachedSessionFiles {
 				this.#progress.delete(id);
 				store.updateAttachment(this.#projection, key, id, {
 					got: undefined,
-					error: error instanceof Error ? error.message : String(error),
+					error: refusalText(error),
 				});
 			});
 	}
@@ -230,12 +237,12 @@ export class AttachedSessionFiles {
 		const file = this.#files.get(id);
 		if (file != null) {
 			this.#files.delete(id);
-			settleViewCleanup("attached file capability release failed", file.release);
+			settleViewCleanup(this.#projection, "attached file capability release failed", file.release);
 		}
 		const url = this.#urls.get(id);
 		if (url != null) {
 			this.#urls.delete(id);
-			settleViewCleanup("attached file display release failed", url.release);
+			settleViewCleanup(this.#projection, "attached file display release failed", url.release);
 		}
 		this.#progress.delete(id);
 		this.#transfers.delete(id);

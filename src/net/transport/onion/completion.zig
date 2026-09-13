@@ -169,6 +169,11 @@ pub fn InnerBackend(comptime Inner: type) type {
             self.ready.deinit(self.allocator);
         }
 
+        /// Delegate the wrapped Linux TCP backend selection.
+        pub fn tcpBackendStatus(self: *const Self) @TypeOf(self.inner.tcpBackendStatus()) {
+            return self.inner.tcpBackendStatus();
+        }
+
         pub fn openListener(self: *Self, port: u16) !Fd {
             if (self.listener_fd != null) return error.ListenerAlreadyOpen;
             const fd = try self.inner.openListener(port);

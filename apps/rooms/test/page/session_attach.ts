@@ -68,7 +68,7 @@ export async function reattachThroughSettings(page: Page, capability: string, wh
 	if (refusal !== "") fail(`${what} was refused the capability it is already holding: ${refusal}`);
 	const survived = await page.evaluate(() => (globalThis as unknown as { __attachMark?: number }).__attachMark);
 	if (survived !== mark) {
-		fail(`${what} reloaded over a capability that asked for no change, which is what ends hosting`);
+		fail(`${what} reloaded over a capability that asked for no change and ended hosting`);
 	}
 	const controller = await page.evaluate(
 		(key) => JSON.parse(localStorage.getItem(key) ?? "null")?.controller,

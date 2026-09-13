@@ -56,9 +56,13 @@ fn checkMarkdownLinksUnder(
     };
     defer dir.close(io);
 
-    var walker = try dir.walk(gpa);
+    var walker = try dir.walkSelectively(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
+        if (entry.kind == .directory) {
+            try util.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
+            continue;
+        }
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
 
@@ -155,9 +159,13 @@ fn checkRepoBlobLinksUnder(
     };
     defer dir.close(io);
 
-    var walker = try dir.walk(gpa);
+    var walker = try dir.walkSelectively(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
+        if (entry.kind == .directory) {
+            try util.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
+            continue;
+        }
         if (entry.kind != .file) continue;
         const is_prose = std.mem.endsWith(u8, entry.path, ".md") or
             std.mem.endsWith(u8, entry.path, ".smd");

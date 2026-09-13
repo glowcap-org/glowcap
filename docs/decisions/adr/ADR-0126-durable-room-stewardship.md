@@ -92,7 +92,7 @@ reference actually held by the current membership.
 
 ## Evidence and gate
 
-`apps/rooms/rust/native/src/room_server/tests/rooms.rs` covers issuance, typed
+`apps/rooms/rust/services/src/server/tests/rooms.rs` covers issuance, typed
 refusal, cross-room authority, replacement, kicking, return after a kick, and
 restart restoration. `zig build rooms-web-page` covers
 the visible claim, possession status, bearer warning, copyable capability, and

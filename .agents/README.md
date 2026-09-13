@@ -52,6 +52,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [project-values](rules/project-values.md)           | Explicit systems design, polished library surface, and no hidden costs                                 |
 | [resilience](rules/resilience.md)                   | Untrusted inbound bytes, parse limits, and layer-owned refusal policy                                    |
 | [serena-mcp](rules/serena-mcp.md)                   | When to use Serena symbol tools vs. host file tools for Zig code                                       |
+| [scripts](rules/scripts.md)                         | Placement, interface, verification, and lifecycle for committed helper scripts                         |
 | [tests](rules/tests.md)                             | Test taxonomy and vocabulary: which layer, what authority, what a failure means                        |
 
 ## Skills
@@ -89,3 +90,4 @@ shape: [`personas/README.md`](personas/README.md).
 | Hook                                              | Purpose                                                |
 | ------------------------------------------------- | ------------------------------------------------------ |
 | [format-edited-file](hooks/format-edited-file.sh) | Per-edit formatter dispatch (`zig fmt`, `rustfmt`, `deno fmt`) for agent-edited files |
+| [before-commit](hooks/before-commit.sh)           | The three questions that separate a fix from a workaround, asked on `git commit` |

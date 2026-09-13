@@ -40,7 +40,7 @@ pub fn behavior(
 		if args.len() > policy::MAX_ARGUMENTS {
 			return Err(policy::Error::Arguments.to_string());
 		}
-		if verb == "withdraw" && args.is_empty() && line.is_withdrawn() {
+		if verb == rooms_application::protocol_data::WITHDRAW && args.is_empty() && line.is_withdrawn() {
 			return Ok(Argument::Void);
 		}
 		let mut fields = [Value(&Argument::Void); policy::MAX_ARGUMENTS];

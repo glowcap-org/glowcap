@@ -1,7 +1,6 @@
 //! Portable Rooms application policy. Platform adapters own I/O and acknowledge
 //! durable writes before committing the corresponding application transition.
 #![no_std]
-#![forbid(unsafe_code)]
 
 extern crate alloc;
 
@@ -13,6 +12,9 @@ pub mod fields;
 pub mod files;
 pub mod grants;
 pub mod ice;
+pub mod markdown;
+pub mod open_graph;
+pub mod protocol_data;
 pub mod room;
 pub mod server;
 pub mod session;

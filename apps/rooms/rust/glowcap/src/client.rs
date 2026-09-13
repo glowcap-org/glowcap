@@ -1,7 +1,10 @@
 //! Shared client execution over the existing Rust Host binding. The platform
 //! supplies deadline scheduling; application reply policy lives in Rooms core.
 use glowcap::{Argument, Ref, Session};
-use rooms_application::room::authority::{self, Refusal};
+use rooms_application::{
+	failure::{Failure, Retry},
+	room::authority::{self, Refusal},
+};
 use std::{
 	future::{Future, IntoFuture},
 	rc::Rc,
@@ -61,8 +64,63 @@ impl Error {
 	/// A protocol refusal leaves the selected capability usable; transport loss
 	/// and a missed deadline mean this client no longer has a proved live peer.
 	pub fn connection_failed(&self) -> bool {
-		matches!(self, Self::Binding(_) | Self::Timeout(_))
+		match self {
+			Self::Binding(error) => binding_kind_connection_failed(error.kind()),
+			Self::Timeout(_) => true,
+			_ => false,
+		}
 	}
+	/// Preserve a peer's canonical Rooms failure code when it supplied one.
+	/// Untyped application refusals may depend on either a different request or
+	/// changed peer state; transport loss always needs the connection to change.
+	pub fn retry(&self) -> Retry {
+		if let Self::Binding(error) = self {
+			return binding_retry(error);
+		}
+		if matches!(self, Self::Timeout(_)) {
+			return Retry::AfterStateChange;
+		}
+		let reason = self.to_string();
+		coded_retry(&reason).unwrap_or(Retry::AfterRequestOrStateChange)
+	}
+}
+
+/// Retry classification for the shared binding error carried by client and
+/// runtime failures. A broken promise belongs to the remote application; the
+/// remaining kinds distinguish a definite local request defect from binding or
+/// connection state. A frame-size failure is direction-dependent, so either
+/// the request or the peer state may have to change.
+pub fn binding_retry(error: &glowcap::Error) -> Retry {
+	if error.is_publication_not_found() {
+		return Retry::AfterRequestChange;
+	}
+	binding_kind_retry(error.kind(), error.message())
+}
+
+fn binding_kind_connection_failed(kind: glowcap::ErrorKind) -> bool {
+	matches!(
+		kind,
+		glowcap::ErrorKind::Closed | glowcap::ErrorKind::Io | glowcap::ErrorKind::TimedOut
+	)
+}
+
+fn binding_kind_retry(kind: glowcap::ErrorKind, message: Option<&str>) -> Retry {
+	use glowcap::ErrorKind;
+	match kind {
+		ErrorKind::Broken => message
+			.and_then(coded_retry)
+			.unwrap_or(Retry::AfterRequestOrStateChange),
+		ErrorKind::NullPointer
+		| ErrorKind::InvalidArgument
+		| ErrorKind::UnsupportedValue
+		| ErrorKind::BufferTooSmall => Retry::AfterRequestChange,
+		ErrorKind::FrameTooLarge | ErrorKind::NotFound => Retry::AfterRequestOrStateChange,
+		_ => Retry::AfterStateChange,
+	}
+}
+
+fn coded_retry(reason: &str) -> Option<Retry> {
+	Failure::parse(reason).map(|failure| failure.code.definition().retry)
 }
 impl From<rooms_application::archive::shares::Error> for Error {
 	fn from(error: rooms_application::archive::shares::Error) -> Self {
@@ -317,5 +375,53 @@ impl authority::Reply for Reply {
 	}
 	fn list_text(&self, index: usize) -> Option<&str> {
 		self.0.as_list()?.get(index)?.as_str()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rooms_application::failure::FailureCode;
+
+	#[test]
+	fn peer_retry_uses_the_owned_wire_code_not_its_detail() {
+		let coded = format!(
+			"{}: detail mentioning {}",
+			FailureCode::IntroductionPending.wire(),
+			FailureCode::NickTaken.wire()
+		);
+		assert_eq!(coded_retry(&coded), Some(Retry::Soon));
+		assert_eq!(
+			binding_kind_retry(glowcap::ErrorKind::Broken, Some(&coded)),
+			Retry::Soon
+		);
+		assert_eq!(
+			binding_kind_retry(glowcap::ErrorKind::InvalidArgument, None),
+			Retry::AfterRequestChange
+		);
+		assert_eq!(
+			binding_kind_retry(glowcap::ErrorKind::Malformed, None),
+			Retry::AfterStateChange
+		);
+		assert_eq!(Error::Timeout("late").retry(), Retry::AfterStateChange);
+		assert_eq!(Error::Reply(Refusal::Policy).retry(), Retry::AfterRequestOrStateChange);
+	}
+
+	#[test]
+	fn only_connection_loss_retires_a_selected_peer() {
+		use glowcap::ErrorKind;
+		for kind in [ErrorKind::Closed, ErrorKind::Io, ErrorKind::TimedOut] {
+			assert!(binding_kind_connection_failed(kind));
+		}
+		for kind in [
+			ErrorKind::Broken,
+			ErrorKind::InvalidArgument,
+			ErrorKind::Malformed,
+			ErrorKind::FrameTooLarge,
+		] {
+			assert!(!binding_kind_connection_failed(kind));
+		}
+		assert!(Error::Timeout("late").connection_failed());
+		assert!(!Error::Reply(Refusal::Policy).connection_failed());
 	}
 }

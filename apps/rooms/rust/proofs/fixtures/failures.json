@@ -795,10 +795,7 @@
     },
     {
       "reason": "prefix: : blob-expired: nested",
-      "parsed": {
-        "code": "blob-expired",
-        "detail": "nested"
-      }
+      "parsed": null
     },
     {
       "reason": "blob-expired: upload-incomplete: detail",

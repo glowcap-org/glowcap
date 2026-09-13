@@ -1,3 +1,4 @@
+// Scroll memory remains bounded to the most recently visited workspace positions.
 import { MAX_WORKSPACE_CONVERSATIONS } from "../lib/rooms_state.ts";
 import { ScrollMemory } from "../web/ui/scroll_memory.ts";
 

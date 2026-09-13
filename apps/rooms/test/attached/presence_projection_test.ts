@@ -1,3 +1,4 @@
+// Attached IRC presence updates roster and issue state without inventing conversation lines.
 /// <reference lib="dom" />
 
 import type { RoomsSessionSnapshot } from "../../lib/session/client.ts";
@@ -75,6 +76,7 @@ Deno.test("attached IRC seat state updates the roster without drawing an empty l
 			said: "Linking Libera as ada_irc",
 		},
 		history: null,
+		previewUrls: [],
 		attachments: [],
 	});
 	const afterLine = store.getConv(page.projection, room.key);

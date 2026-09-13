@@ -1,7 +1,7 @@
 //! Disk captures are independent TypeScript outcomes. Explicit UTF-16 vectors
 //! prevent a lossy decoder and encoder from agreeing on the same damaged text.
 use rooms_application::{
-	archive::{self, disk, index::Index, Attachment, Body, ConversationKind, Coordinates, Filter, LineState, Record},
+	archive::{self, Attachment, Body, ConversationKind, Coordinates, Filter, LineState, Record, disk, index::Index},
 	text::DocumentText,
 };
 use serde_json::Value;
@@ -75,6 +75,7 @@ fn record(id: DocumentText, name: &str, digest: &str, at: u64) -> Record {
 			at,
 			order: at,
 			state: LineState::Present,
+			previews: Default::default(),
 			attachments: vec![Attachment::new(name.into(), "text/plain".into(), 1, 0, 0, Some(digest.into())).unwrap()],
 		},
 	)

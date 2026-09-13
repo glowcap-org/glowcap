@@ -4,32 +4,44 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tcp"))]
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Notify;
 
-use crate::host::{check_host, HostShared};
+use crate::host::{HostShared, check_host};
 use crate::sys::host as ffi;
 use crate::trampoline::{
-	ctx_free, current_turn_for, inside_turn, register_actor_cell, trampoline, turn_spawn, DeliverGuard,
-	InternalBehavior,
+	DeliverGuard, InternalBehavior, ctx_free, current_turn_for, inside_turn, register_actor_cell, trampoline,
+	turn_spawn,
 };
-use crate::{sys, Argument, Error, Ref, Result, SendArena};
+use crate::{Argument, Error, Ref, Result, SendArena, sys};
 
 mod retirement;
 
 pub(crate) const READ_CHUNK: usize = sys::BINDING_STREAM_READ_CHUNK_BYTES;
 
-/// Map a transport `std::io::Error` to a glowcap [`Error`], carrying the
-/// original message through the detail channel so a consumer can tell
-/// connection-refused from timeout from reset (the public `Error` keeps its
-/// `Clone`/`PartialEq` derives, so it holds the message string, not a
-/// `Box<dyn Error>` source). The flat code stays `GLOWCAP_ERR_IO`.
+/// Preserve a transport deadline as `TimedOut`; other transport failures use
+/// `Io`. Keep the original diagnostic for display without making consumers
+/// parse it to distinguish an unanswered close from another I/O failure.
 pub(crate) fn io_err(e: std::io::Error) -> Error {
-	Error::with_detail(sys::ERR_IO, e.to_string())
+	let code = match e.kind() {
+		std::io::ErrorKind::TimedOut => sys::ERR_TIMEOUT,
+		_ => sys::ERR_IO,
+	};
+	Error::with_detail(code, e.to_string())
+}
+
+#[cfg(test)]
+#[test]
+fn transport_timeouts_keep_their_class_without_reading_the_message() {
+	let timeout = io_err(std::io::Error::new(std::io::ErrorKind::TimedOut, "arbitrary detail"));
+	assert_eq!(timeout.kind(), crate::ErrorKind::TimedOut);
+	assert_eq!(timeout.message(), Some("arbitrary detail"));
+	let other = io_err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "timed out"));
+	assert_eq!(other.kind(), crate::ErrorKind::Io);
 }
 
 impl From<&Ref> for Argument {
@@ -140,7 +152,12 @@ pub(crate) struct SessionShared {
 }
 
 impl SessionShared {
-	#[cfg(test)]
+	// The stream shorthand exists for `session_tests`, so it carries that
+	// module's own gate. Gated on `test` alone it was dead under any feature set
+	// that compiles the tests without `tcp` — `--features iroh` is one the build
+	// checks — and `dead_code = "deny"` turned that into a compile error rather
+	// than a warning nobody read.
+	#[cfg(all(test, feature = "tcp"))]
 	pub(crate) fn new<S>(ptr: *mut ffi::GlowcapHostSession, host: Rc<HostShared>, stream: S) -> Rc<SessionShared>
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,

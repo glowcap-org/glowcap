@@ -103,8 +103,8 @@ staged replacement and removal, corrupt-document refusal, and failed-write
 recovery. Native document tests prove exclusive file custody, mode 0600, and
 restart. The native session-service room scenario drives password replacement,
 refusal, restart, and final pruning through the actual command and realization
-path. These run under `zig build rooms-rust-test`, which `zig build check`
-includes.
+path. These run under `zig build rooms-rust-test`, which
+`zig build runtime-check` includes.
 
 ## Notes
 

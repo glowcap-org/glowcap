@@ -1,42 +1,5 @@
-const std = @import("std");
-const glowcap = @import("glowcap");
-const iroh = @import("iroh");
-
-pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    const seed = @as([32]u8, @splat(7)); // keep this seed to preserve the node id
-    const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
-    var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
-    defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
-    const server = try glowcap.driver.listen(
-        allocator,
-        iroh_resident.netlayer(),
-        .{ .designator = "" },
-        .{ .keyed = secret },
-        .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
-    );
-    defer server.deinit();
-
-    const uri = try glowcap.ocapn.model.uri.writePeer(allocator, (try server.advertisedLocator()));
-    defer allocator.free(uri);
-    std.debug.print("{s}\n", .{uri}); // hand this discovery-reachable node id to partners
-
-    try serve(server);
-}
-
+// PLANNED: native driver.Session and driver.Server accept stream netlayers.
+// iroh has one readiness descriptor for the whole endpoint, so native Zig
+// currently uses driver.Bridge with the iroh completion backend. The managed
+// C and language-binding providers already adapt that shared readiness.
 // From here, the CapTP workflow is transport-independent.
-const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *glowcap.driver.HostTurn, verb: []const u8, args: []const glowcap.driver.Value) !glowcap.driver.Value {
-        if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
-        if (args.len != 1 or args[0] != .string) return error.BadInvocation;
-        return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{args[0].string}) };
-    }
-};
-
-fn serve(server: *glowcap.driver.Server) !void {
-    try server.publishGiftable("greeter", Greeter, .{});
-    while (true) {
-        var session = try server.accept();
-        defer session.deinit();
-        try session.serve();
-    }
-}

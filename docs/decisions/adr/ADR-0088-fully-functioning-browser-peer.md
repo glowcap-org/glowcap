@@ -74,9 +74,10 @@ The browser must therefore hold every one of these, and does:
    necessary and irreducibly so.* Built for any peer on a shared relay:
    `zig build rooms-web-dm-tabs` drives one browser tab cold-dialing another by
    identity through the relay rendezvous, and `zig build rooms-web-dm-native`
-   drives a native Deno peer cold-dialing the tab through the same leg. A
-   redeemer on a *different* relay is not yet built, for the honest reason the
-   cold-dial section below records.
+   drives a native Deno peer cold-dialing the tab through the same leg.
+   Cross-relay dial also ships through locator-carried rendezvous advice;
+   `bindings-keyed-relay-rendezvous` checks it, as the cold-dial section below
+   records.
 
 Capabilities 1–4 make the browser a full peer for every session it opens.
 Capability 5 is the reachability of a *listener*, which a browser is not; the
@@ -305,7 +306,7 @@ it is what `currentSession()` enables.
   `src/c_abi/host/host.zig`); the rooms client's `DirectMessage`
   (`apps/rooms/lib/room/client.ts`); proofs `apps/rooms/demos/dm_back_demo.ts`
   (native), `apps/rooms/test/dm_reredeem_test.ts` (deterministic re-redeem
-  attribution), and `apps/rooms/test/web/dm_test.ts` (browser).
+  attribution), and `apps/rooms/test/proofs/dm_proof.ts` (browser).
 - Cold-dial rendezvous: `Rendezvous` (identity → held buffering channel) and
   `webSocketChannel` in `@glowcap/relay` (`bindings/ts/relay/rendezvous.ts`,
   `bindings/ts/relay/ws_relay.ts`); the accept side `serveRendezvous` and the
@@ -315,10 +316,10 @@ it is what `currentSession()` enables.
   the host's configured mapping (`Host.setRendezvousUrl`,
   `bindings/ts/runtime/host.ts`); the resident-less `keyed-relay` transport
   symbol (`src/ocapn/model/transport.zig`, `src/driver/core/vocab.zig`); the
-  rooms relay endpoints and browser transport wiring (`apps/rooms/rust/native/src/web/relay.rs`,
-  `apps/rooms/rust/native/src/web/http.rs`, `apps/rooms/rust/browser/src/transport.rs`); proofs
-  `apps/rooms/test/web/dm_tabs_test.ts` (`zig build rooms-web-dm-tabs`) and
-  `apps/rooms/test/web/dm_native_dial_test.ts`
+  rooms relay endpoints and browser transport wiring (`apps/rooms/rust/services/src/web/relay.rs`,
+  `apps/rooms/rust/services/src/web/http.rs`, `apps/rooms/rust/browser/src/transport.rs`); proofs
+  `apps/rooms/test/proofs/dm_tabs_proof.ts` (`zig build rooms-web-dm-tabs`) and
+  `apps/rooms/test/proofs/dm_native_dial_proof.ts`
   (`zig build rooms-web-dm-native`).
 - Cross-runtime route proof: `bindings/proofs/keyed_relay_rendezvous/`, run by
   `zig build bindings-keyed-relay-rendezvous`; native registration proof:

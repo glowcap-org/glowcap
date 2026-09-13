@@ -43,9 +43,13 @@ pub fn check(
                 continue;
             };
             defer dir.close(io);
-            var walker = try dir.walk(gpa);
+            var walker = try dir.walkSelectively(gpa);
             defer walker.deinit();
             while (try walker.next(io)) |entry| {
+                if (entry.kind == .directory) {
+                    try util.enterSourceDirectory(io, gpa, &walker, bind_root, entry);
+                    continue;
+                }
                 if (entry.kind != .file) continue;
                 var ok_ext = false;
                 for (exts) |ext| {

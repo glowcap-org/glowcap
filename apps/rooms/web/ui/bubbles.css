@@ -21,11 +21,6 @@
 	tab-size: 4;
 }
 .bubble .code-block code {
-	display: block;
-	padding: 0;
-	border-radius: 0;
-	background: transparent;
-	color: inherit;
 	font-size: var(--type-caption);
 }
 .mention {
@@ -54,8 +49,8 @@
    this page does. */
 /* The message log fills this column absolutely, so the bar has to say it is on
    top or it is a picture of a bar: the words show through and every press lands
-   in the log behind them. Messages pass underneath it, which is what its opaque
-   ground is for, and the log's own top padding below keeps the first of them
+   in the log behind them. Its opaque ground covers messages passing underneath,
+   and the log's own top padding below keeps the first of them
    from starting out of sight. */
 .topic {
 	position: relative;
@@ -173,7 +168,10 @@
 .spoiler {
 	all: unset;
 	border-radius: 5px;
-	background: color-mix(in srgb, currentColor 78%, transparent);
+	/* The slab is the ink, named outright: the text under it is set
+	   transparent, and `currentColor` here would be that same transparent,
+	   which painted nothing at all. */
+	background: color-mix(in srgb, var(--ink) 78%, transparent);
 	color: transparent;
 	cursor: pointer;
 }
@@ -269,9 +267,9 @@
    at the mark from the margin — which is where it is, and so where they aim —
    was hovering nothing until they crossed into the message itself, and the mark
    they were aiming at only existed once they had stopped needing to aim. The
-   strip is transparent and sits over the empty column beside the message; a
-   pseudo-element hovers as part of the element that owns it, which is what
-   makes this the bubble's own reach rather than a second thing to hover. */
+   strip is transparent and sits over the empty column beside the message. A
+   pseudo-element hovers as part of the element that owns it, so the reach
+   belongs to the bubble rather than to a second hover target. */
 .bubble::before {
 	content: "";
 	position: absolute;

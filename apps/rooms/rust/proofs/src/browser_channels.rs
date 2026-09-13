@@ -4,9 +4,9 @@
 mod directory_execution;
 #[path = "browser_media.rs"]
 mod media_execution;
-use glowcap::{browser, AcceptedTransport, Argument, ChannelDesignator, Host, Locator, PendingWork, Session};
-use rooms_glowcap::client::{directory::Directory, room::Room, Client};
-use std::time::Duration;
+use glowcap::{AcceptedTransport, Argument, ChannelDesignator, Host, Locator, PendingWork, Session, browser};
+use rooms_glowcap::client::{Client, directory::Directory, room::Room};
+use std::{io, time::Duration};
 use wasm_bindgen::prelude::*;
 use web_sys::{RtcDataChannel, WebSocket};
 
@@ -194,8 +194,22 @@ pub async fn rooms_browser_rtc_peer_contract() {
 			for role in [browser::RtcRole::Offerer, browser::RtcRole::Answerer] {
 				let host = Host::with_options(rooms_glowcap::host_options()).unwrap();
 				let mut peer = browser::RtcPeer::new(&host, role, &config).unwrap();
-				assert!(peer.wait_open().await.is_err());
-				assert!(peer.close().await.is_err());
+				let failure = peer.wait_open().await.unwrap_err();
+				match role {
+					browser::RtcRole::Offerer => {
+						// The caller already owns the injected route failure. Retirement
+						// must not report that same stored outcome as a cleanup failure.
+						peer.retire_after_error(&failure).await.unwrap();
+					}
+					browser::RtcRole::Answerer => {
+						// A signaling failure does not own a different, concurrently stored
+						// peer failure. Retirement must preserve the latter for reconciliation.
+						let primary = io::Error::new(io::ErrorKind::TimedOut, "injected signaling timeout");
+						let cleanup = peer.retire_after_error(&primary).await.unwrap_err();
+						assert_eq!(cleanup.kind(), failure.kind());
+						assert_eq!(cleanup.to_string(), failure.to_string());
+					}
+				}
 				host.close(PendingWork::Cancel).await.unwrap();
 			}
 		})

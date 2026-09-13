@@ -245,6 +245,13 @@
 	text-overflow: unset;
 	max-width: 100%;
 }
+/* A file held over the conversation. The whole column is the target, so the
+   whole column says so: a dashed hairline in the page's ink at the card
+   radius, the ordinary sign for "this takes a drop", and a veil light enough
+   that the conversation underneath stays readable. Nothing is amber; the
+   drop is an invitation, not an alarm. The words get a place of their own, a
+   raised chip in the middle with the clip on it, which rises in as the file
+   arrives so the offer reads as made rather than switched on. */
 .drop-hint {
 	position: absolute;
 	inset: 8px;
@@ -252,17 +259,42 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	border: 2px dashed var(--accent);
-	border-radius: 16px;
-	background: color-mix(in srgb, var(--paper) 86%, transparent);
-	color: var(--accent-ink);
-	font-size: var(--type-body);
+	border: 1.5px dashed color-mix(in srgb, var(--ink) 38%, transparent);
+	border-radius: var(--radius-card);
+	background: color-mix(in srgb, var(--paper) 72%, transparent);
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity 120ms ease;
 }
+.drop-hint-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--gap-tight);
+	padding: 8px 14px 8px 12px;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-pill);
+	background: var(--paper-raised);
+	box-shadow: var(--shadow-sm);
+	color: var(--ink);
+	font-size: var(--type-ui);
+	font-weight: 600;
+	translate: 0 6px;
+	transition: translate 160ms ease-out;
+}
+.drop-hint-chip .icon-svg {
+	color: var(--ink-soft);
+}
 .stream.dropping .drop-hint {
 	opacity: 1;
+}
+.stream.dropping .drop-hint-chip {
+	translate: 0 0;
+}
+@media (prefers-reduced-motion: reduce) {
+	.drop-hint-chip {
+		translate: 0 0;
+		transition: none;
+	}
 }
 .composer-files {
 	display: flex;

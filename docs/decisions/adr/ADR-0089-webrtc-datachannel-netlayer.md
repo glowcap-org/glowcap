@@ -242,7 +242,7 @@ keyed session, and continues withdrawal there. The rooms app carries the
 production form: members file signaling inboxes with the directory
 (`offerSignaling`), and the directory routes `signalOffer` / `signalAnswer` /
 `signalCandidate` between designators without parsing a payload
-(`apps/rooms/rust/native/src/room_server/signaling.rs`, `apps/rooms/lib/signaling.ts`).
+(`apps/rooms/rust/services/src/server/signaling.rs`, `apps/rooms/lib/signaling.ts`).
 
 **Where the redeeming host's signaling authority comes from.** The bootstrap
 question both proposals above leave open is settled by the same seam ADR-0088

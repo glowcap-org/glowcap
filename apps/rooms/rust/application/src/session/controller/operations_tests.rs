@@ -4,8 +4,8 @@ use crate::{
 	grants::Access,
 	session::{
 		checkpoint::{
-			commands::{Command, CommandRoutes},
 			Checkpoint, Routes,
+			commands::{Command, CommandRoutes},
 		},
 		snapshot::views::Adoption,
 	},

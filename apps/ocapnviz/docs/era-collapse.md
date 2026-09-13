@@ -109,7 +109,13 @@ there, and the result stays a pure function of `t`.
   settles, which is the one place the excursion was ever visible. The six cases above all passed while it was still
   happening, because each of them settles before it looks.
 
-## What this does not fix
+## The recorded connection churn
 
-The room opening a session every six seconds is upstream, and it will keep accumulating session entities in any
-recording of that room whatever the layout does. The leak above is the viewer's own; the churn only exposed it.
+The input used for this investigation opened a room session every six seconds.
+That observation described the producer at the time; it is not a current Rooms
+defect or an external upstream dependency. `zig build rooms-web-trace-lifecycle`
+now observes two joined browser members for thirteen idle seconds and refuses
+any session opening, closing, or loss of observation, including transient
+replacements. That local proof passes; it does not establish the behavior of
+every deployment. The layout must still handle recordings containing churn,
+whatever its producer or cause.

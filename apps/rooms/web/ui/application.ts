@@ -2,8 +2,8 @@
 // choices. This module adapts its JSON projection to existing presentation
 // types; it owns no protocol calls, validation rules, or Host.
 import type { InitInput } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
-export type { RoomsCommands } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { RoomsSessionState, RoomsWorkspaceState } from "../../lib/rooms_state.ts";
+import type { RoomsErrorCode, RoomsFailureRetry } from "../../lib/error_codes.ts";
 import { type DirId, dirId } from "./types.ts";
 
 type Application = typeof import("../../../../zig-out/wasm/rooms/rooms_browser.js");
@@ -68,4 +68,60 @@ export function emptyRoomsSessionState(): RoomsSessionState {
 
 export function workspaceStorageKey(): string {
 	return applicationModule().workspaceStorageKey();
+}
+
+export type RustNicknameAvailability =
+	| { readonly kind: "unknown" }
+	| { readonly kind: "available" }
+	| { readonly kind: "taken"; readonly source: "directory" | "room"; readonly suggestion: string };
+
+export function nicknameAvailability(
+	nick: string,
+	own: string | null,
+	directory: readonly string[] | null,
+	room: readonly string[] | null,
+): RustNicknameAvailability {
+	// wasm-bindgen types every JavaScript Array as mutable. Rust only iterates
+	// these arrays, so keep the caller's read-only contract without copying.
+	return JSON.parse(
+		applicationModule().nicknameAvailability(
+			nick,
+			own ?? undefined,
+			directory == null ? undefined : directory as string[],
+			room == null ? undefined : room as string[],
+		),
+	) as RustNicknameAvailability;
+}
+
+export function suggestedNickname(nick: string): string {
+	return applicationModule().suggestedNickname(nick);
+}
+
+export interface SessionFailureAdvice {
+	readonly code: RoomsErrorCode;
+	readonly subject: string;
+	readonly retry: RoomsFailureRetry;
+	readonly summary: string;
+	readonly action: string;
+}
+
+export function attachmentFailureAdvice(reason: string): SessionFailureAdvice | null {
+	const encoded = applicationModule().attachmentFailureAdvice(reason);
+	return encoded == null ? null : JSON.parse(encoded) as SessionFailureAdvice;
+}
+
+export function markdownDocument(text: string): string {
+	return applicationModule().markdownDocument(text);
+}
+
+export function openGraphTargets(text: string): string {
+	return applicationModule().openGraphTargets(text);
+}
+
+export function openGraphSelection(text: string, encoded: string): string | undefined {
+	return applicationModule().openGraphSelection(text, encoded);
+}
+
+export function openGraphMetadata(encoded: string): string | undefined {
+	return applicationModule().openGraphMetadata(encoded);
 }

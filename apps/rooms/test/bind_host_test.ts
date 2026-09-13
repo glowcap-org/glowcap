@@ -1,4 +1,5 @@
-import { isLoopbackHost, isWildcardHost } from "../lib/bind_host.ts";
+// Bind-host classification distinguishes wildcard, loopback, and interface-specific addresses.
+import { isLoopbackHost, isWildcardHost } from "./support/bind_host.ts";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("a wildcard bind is recognized in every spelling of the any-address", () => {

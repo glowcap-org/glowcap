@@ -20,6 +20,16 @@
 
 import type { DirId, DirView, DmConv, Invitation, RoomConv, Unread } from "../types.ts";
 import { directoryName } from "../text.ts";
+import {
+	filterAccessLabel,
+	filterCaughtUp,
+	filterDirectoryLabel,
+	filterNameLabel,
+	filterNamePlaceholder,
+	filterPrivate,
+	filterPublic,
+	filterUnread,
+} from "../../../lib/text/rail.ts";
 
 /** A row of the rail, reduced to the facts the questions ask about.
  *
@@ -29,8 +39,7 @@ import { directoryName } from "../text.ts";
 export interface RailRow {
 	/** The directory this row belongs to. */
 	dir: DirId;
-	/** What the row is called, which is what a reader would type looking for
-	 * it. */
+	/** What the row is called and what a reader would type while looking for it. */
 	name: string;
 	/** Whether the thing on this row can be reached by name or only by a
 	 * reference somebody hands over. Null on a row the question does not apply
@@ -188,14 +197,14 @@ export function railCriteria(
 		{
 			kind: "text",
 			id: "name",
-			label: "Name",
-			placeholder: "part of a name",
+			label: filterNameLabel,
+			placeholder: filterNamePlaceholder,
 			answer: (row) => row.name,
 		},
 		{
 			kind: "choices",
 			id: "directory",
-			label: "Directory",
+			label: filterDirectoryLabel,
 			choices: [...dirs.values()].map((dir) => ({
 				value: dir.id as string,
 				said: directoryName(dir.id, home),
@@ -205,20 +214,20 @@ export function railCriteria(
 		{
 			kind: "choices",
 			id: "access",
-			label: "Access",
+			label: filterAccessLabel,
 			choices: [
-				{ value: "public", said: "Public" },
-				{ value: "private", said: "Private" },
+				{ value: "public", said: filterPublic },
+				{ value: "private", said: filterPrivate },
 			],
 			answer: (row) => row.access,
 		},
 		{
 			kind: "choices",
 			id: "unread",
-			label: "Unread",
+			label: filterUnread,
 			choices: [
-				{ value: "unread", said: "Unread" },
-				{ value: "caught-up", said: "Caught up" },
+				{ value: "unread", said: filterUnread },
+				{ value: "caught-up", said: filterCaughtUp },
 			],
 			answer: (row) => row.unread,
 		},

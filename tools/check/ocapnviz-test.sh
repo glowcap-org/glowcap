@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The bounded ocapnviz suite, as a member of `check`.
+# The bounded ocapnviz suite, as a member of `runtime-check`.
 #
 # The app carries hundreds of tests and, until this script, no `zig build` step
 # ran a single one of them: `apps/ocapnviz/` is outside the root Deno scope and
@@ -11,19 +11,12 @@
 # Build, type, lint, and format checks live in ocapnviz-build-check.sh because
 # they are cache-populating tool work, not a deterministic test deadline.
 #
-# This needs `deno`, which `check` otherwise does not, so it skips when deno is
-# missing rather than failing — the same posture `c-abi-extract-matrix.sh` takes
-# for the language ports it cannot find. A machine with deno gets the coverage;
-# a Zig-only machine still gets a green hermetic gate, and says which it was.
+# Deno is part of the declared in-tree toolchain. A missing runtime is a failed
+# precondition, not a green test with less coverage.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 app="$root/apps/ocapnviz"
-
-if ! command -v deno >/dev/null 2>&1; then
-	echo "ocapnviz-test: deno not on PATH, skipping the ocapnviz suite"
-	exit 0
-fi
 
 if [ ! -d "$app" ]; then
 	echo "ocapnviz-test: $app is missing" >&2

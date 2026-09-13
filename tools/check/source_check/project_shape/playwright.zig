@@ -74,9 +74,13 @@ pub fn checkPlaywrightPin(
             continue;
         };
         defer dir.close(io);
-        var walker = try dir.walk(gpa);
+        var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
+            if (entry.kind == .directory) {
+                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                continue;
+            }
             if (entry.kind != .file) continue;
             // Vendored and generated trees carry no glowcap rule, and a lock
             // file records a resolution rather than declaring one.

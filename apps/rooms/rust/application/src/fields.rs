@@ -2,12 +2,13 @@
 pub(crate) mod footprint;
 mod hex;
 use crate::text::DocumentText;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use core::fmt;
+pub use hex::lower_hex;
 pub(crate) use hex::Hex;
 use serde::{
-	de::{Error, SeqAccess, Visitor},
 	Deserialize, Deserializer, Serialize,
+	de::{Error, SeqAccess, Visitor},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -80,6 +81,69 @@ pub(crate) fn json_object<'de, T: Deserialize<'de>>(raw: &'de str) -> Result<T, 
 	let value = object(&mut reader)?;
 	reader.end()?;
 	Ok(value)
+}
+
+/// Exact unsigned JSON integer admission for identity and version fields.
+/// Decimal and exponent spellings remain compatible with JavaScript numbers,
+/// but no value is rounded through binary floating point before admission.
+pub(crate) fn json_u64<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+	let raw = Box::<serde_json::value::RawValue>::deserialize(d)?;
+	exact_json_u64(raw.get()).ok_or_else(|| D::Error::custom("unsigned integer"))
+}
+
+fn exact_json_u64(raw: &str) -> Option<u64> {
+	let (negative, raw) = match raw.strip_prefix('-') {
+		Some(raw) => (true, raw),
+		None => (false, raw),
+	};
+	let (coefficient, exponent) = raw.split_once(['e', 'E']).unwrap_or((raw, "0"));
+	let exponent_digits = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+	if exponent_digits.is_empty() || !exponent_digits.bytes().all(|digit| digit.is_ascii_digit()) {
+		return None;
+	}
+	let (whole, fraction) = coefficient.split_once('.').unwrap_or((coefficient, ""));
+	if whole.is_empty()
+		|| (coefficient.contains('.') && fraction.is_empty())
+		|| !whole
+			.bytes()
+			.chain(fraction.bytes())
+			.all(|digit| digit.is_ascii_digit())
+	{
+		return None;
+	}
+	if whole.bytes().chain(fraction.bytes()).all(|digit| digit == b'0') {
+		return Some(0);
+	}
+	if negative {
+		return None;
+	}
+	let exponent = exponent.parse::<i64>().ok()?;
+	let fractional = i64::try_from(fraction.len()).ok()?;
+	let scale = fractional.checked_sub(exponent)?;
+	let digits = whole.bytes().chain(fraction.bytes());
+	let digit_count = whole.len().checked_add(fraction.len())?;
+	let kept = if scale > 0 {
+		let discarded = usize::try_from(scale).ok()?;
+		if discarded > digit_count || !digits.clone().skip(digit_count - discarded).all(|digit| digit == b'0') {
+			return None;
+		}
+		digit_count - discarded
+	} else {
+		digit_count
+	};
+	let mut value = 0_u64;
+	for digit in digits.take(kept) {
+		value = value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))?;
+	}
+	let appended = if scale < 0 {
+		usize::try_from(scale.checked_neg()?).ok()?
+	} else {
+		0
+	};
+	for _ in 0..appended {
+		value = value.checked_mul(10)?;
+	}
+	Some(value)
 }
 
 /// An object inside a JSON collection. Its representation is exactly `T`;
@@ -201,10 +265,39 @@ impl<const POSITIVE: bool> SafeInteger<POSITIVE> {
 }
 impl<'de, const POSITIVE: bool> Deserialize<'de> for SafeInteger<POSITIVE> {
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-		let n = f64::deserialize(d)?;
-		let integer = n as u64;
-		Self::new(integer)
-			.filter(|_| n >= 0.0 && n == integer as f64)
-			.ok_or_else(|| serde::de::Error::custom("safe integer"))
+		let value = json_u64(d).map_err(|_| D::Error::custom("safe integer"))?;
+		Self::new(value).ok_or_else(|| D::Error::custom("safe integer"))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{SafeInteger, exact_json_u64};
+	use serde::Deserialize;
+
+	#[derive(Deserialize)]
+	struct Nested {
+		value: SafeInteger,
+	}
+
+	#[test]
+	fn safe_integer_json_admission_is_exact() {
+		assert_eq!(exact_json_u64("18446744073709551615"), Some(u64::MAX));
+		assert_eq!(exact_json_u64("18446744073709551616"), None);
+		assert_eq!(exact_json_u64("-0.0e999999999999999999999"), Some(0));
+		assert_eq!(exact_json_u64("true"), None);
+		let read = |raw| serde_json::from_str::<SafeInteger>(raw).map(SafeInteger::get);
+		assert_eq!(read("0").unwrap(), 0);
+		assert_eq!(read("1.0").unwrap(), 1);
+		assert_eq!(read("1e1").unwrap(), 10);
+		assert_eq!(read("10e-1").unwrap(), 1);
+		assert_eq!(read("0.1e1").unwrap(), 1);
+		assert_eq!(read("9007199254740991").unwrap(), (1_u64 << 53) - 1);
+		for raw in ["-1", "1e-1", "1.00000000000000001", "9007199254740992"] {
+			assert!(read(raw).is_err(), "admitted non-safe integer {raw}");
+		}
+		assert!(serde_json::from_str::<SafeInteger<true>>("0").is_err());
+		assert_eq!(serde_json::from_str::<SafeInteger<true>>("1").unwrap().get(), 1);
+		assert_eq!(serde_json::from_str::<Nested>(r#"{"value":3}"#).unwrap().value.get(), 3);
 	}
 }

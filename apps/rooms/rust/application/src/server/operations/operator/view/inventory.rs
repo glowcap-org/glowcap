@@ -1,12 +1,12 @@
 //! A retained operator view owns admitted page chunks. Rendering flattens the
 //! chunks without cloning rows; failed admission leaves the old view intact.
-use super::{rows::*, Categories, Page, PageRows, Revision, Snapshot};
+use super::{Categories, Page, PageRows, Revision, Snapshot, rows::*};
 use crate::{
-	fields::{footprint::HeapBytes, Nullable, Object, SafeInteger},
+	fields::{Nullable, Object, SafeInteger, footprint::HeapBytes},
 	server::operations::operator::Category,
 };
 use alloc::{vec, vec::Vec};
-use serde::{ser::SerializeSeq, Serialize, Serializer};
+use serde::{Serialize, Serializer, ser::SerializeSeq};
 
 pub const MAX_RETAINED_BYTES: usize = 8 * 1024 * 1024;
 const MAX_CHUNKS: usize = 256;

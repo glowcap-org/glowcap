@@ -13,6 +13,19 @@
 // `App` puts in the content cell, loaded when the address stands in /ops.
 
 import { Fragment, lazy, type ReactNode, Suspense, useEffect } from "react";
+import {
+	opsEditCapabilitySet,
+	opsIndex,
+	opsIrcBridgesWhat,
+	opsNeedsAdmin,
+	opsNotFoundSaid,
+	opsNotFoundTitle,
+	opsNothingHeld,
+	opsPanesAre,
+	opsPanesEach,
+	opsPanesJoin,
+	opsPanesJoinLast,
+} from "../../../lib/text/ops.ts";
 import { Link, useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
@@ -20,18 +33,20 @@ import { useRoomsState } from "../hooks.ts";
 import { Button } from "../Button.tsx";
 import { type OpsHeld, opsHeldOf } from "../types.ts";
 import { peeringSourcesOf } from "../text.ts";
-import { loadIrcPane, loadListenersPane, loadOpsPane, loadPeeringPane, loadVizPane, prefetch } from "../chunks.ts";
+import { operationsTitle } from "../../../lib/text/settings.ts";
+import { loadIrcPane, loadListenersPane, loadOpsPane, loadPeeringPane, loadTracePane, prefetch } from "../chunks.ts";
 import { OPS_CATALOG } from "./catalog.ts";
-import { OPS_PANES, type OpsPaneFace, paneCapsHeld, paneOf } from "./panes.ts";
+import { OPS_PANES, opsAddress, type OpsPaneFace, paneCapsHeld, paneOf } from "./panes.ts";
 import { effectiveRoomsSessionAccess } from "../controller/access.ts";
 import { DirectoryPane } from "./Directory.tsx";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";
+import { opsListenersLoading, opsPeeredRoomsLoading, opsVisualizerStatusLoading } from "../../../lib/text/ops.ts";
 
 const ListenersPane = lazy(() => loadListenersPane());
 const GatewayPane = lazy(() => loadIrcPane());
 const PeeringPane = lazy(() => loadPeeringPane());
-const VizPane = lazy(() => loadVizPane());
+const TracePane = lazy(() => loadTracePane());
 
 /** A held pane's body: start its chunk as soon as the address stands here,
  * and keep the same sheen whether the wait is the chunk or the first answer. */
@@ -97,11 +112,11 @@ function GateCard({ pane, canEdit }: { pane: OpsPaneFace; canEdit: boolean }) {
 								browser.openSettings();
 							}}
 						>
-							Edit capability set
+							{opsEditCapabilitySet}
 						</Button>
 					</div>
 				)
-				: <p className="hint">An administrator session capability is required to change this set.</p>}
+				: <p className="hint">{opsNeedsAdmin}</p>}
 		</section>
 	);
 }
@@ -133,7 +148,7 @@ function OpsNav(
 					key={pane.id}
 					id={`${pane.id}OpsLink`}
 					className={pane === selected ? "ops-nav-item here" : "ops-nav-item"}
-					to={`/ops/${pane.path}`}
+					to={opsAddress(pane)}
 					aria-current={pane === selected ? "page" : undefined}
 					onPointerEnter={() => prefetchPane(pane)}
 					onFocus={() => prefetchPane(pane)}
@@ -155,7 +170,7 @@ export function OpsMain({ segment }: { segment: string | null }) {
 		irc: state.irc,
 		operator: state.operator,
 		peering: state.peering,
-		viz: state.viz,
+		trace: state.trace,
 		trouble: state.trouble,
 		convs: state.convs,
 		homeDir: state.homeDir,
@@ -163,22 +178,21 @@ export function OpsMain({ segment }: { segment: string | null }) {
 		sessionAccess: state.sessionAccess,
 	})));
 	const navigate = useNavigate();
-	const held = opsHeldOf(s.listeners, s.diagnostics, s.irc, s.operator, s.peering, s.viz);
+	const held = opsHeldOf(s.listeners, s.diagnostics, s.irc, s.operator, s.peering, s.trace);
 	const pane = segment === null ? null : paneOf(segment);
 	const open = pane !== null && paneCapsHeld(pane, held).length > 0;
 	const heldPanes = OPS_PANES.filter((face) => paneCapsHeld(face, held).length > 0);
-	const canEdit = effectiveRoomsSessionAccess(useRoomsController(), s.sessionAccess) === "admin";
+	const controller = useRoomsController();
+	const canEdit = effectiveRoomsSessionAccess(controller, s.sessionAccess) === "admin";
 
 	return (
-		<section className="ops-main" id="opsPage" aria-label="Operations">
+		<section className="ops-main" id="opsPage" aria-label={operationsTitle}>
 			{heldPanes.length > 1 && <OpsNav panes={heldPanes} selected={open ? pane : null} held={held} />}
 			<div className="ops-page-body">
 				{segment !== null && pane === null && (
 					<section className="ops-card card-plane ops-gate" id="opsNotFound">
-						<h2>Nothing answers this address</h2>
-						<p>
-							/ops/{segment} names no operations pane.
-						</p>
+						<h2>{opsNotFoundTitle}</h2>
+						<p>{opsNotFoundSaid(segment)}</p>
 						{
 							/* Named the way the chooser names them, and each name is the way
 							   there. The list used to be the address segments themselves,
@@ -186,12 +200,13 @@ export function OpsMain({ segment }: { segment: string | null }) {
 							   more and retype the right one. */
 						}
 						<p className="hint">
-							The panes are {OPS_PANES.map((face, at) => (
+							{opsPanesAre} {OPS_PANES.map((face, at) => (
 								<Fragment key={face.id}>
-									{at > 0 && (at === OPS_PANES.length - 1 ? ", and " : ", ")}
-									<Link to={`/ops/${face.path}`}>{face.label}</Link>
+									{at > 0 && (at === OPS_PANES.length - 1 ? opsPanesJoinLast : opsPanesJoin)}
+									<Link to={opsAddress(face)}>{face.label}</Link>
 								</Fragment>
-							))}. Each opens when this tab holds a capability that fills it.
+							))}
+							{opsPanesEach}
 						</p>
 						<div className="actions">
 							<Button
@@ -199,17 +214,14 @@ export function OpsMain({ segment }: { segment: string | null }) {
 								onClick={() =>
 									navigate("/ops", { replace: true })}
 							>
-								The operations index
+								{opsIndex}
 							</Button>
 						</div>
 					</section>
 				)}
 				{segment === null && heldPanes.length === 0 && (
 					<>
-						<p className="lead">
-							Nothing is held yet. Each pane below opens when this tab takes its capability from the
-							server that minted it.
-						</p>
+						<p className="lead">{opsNothingHeld}</p>
 						{OPS_PANES.map((face) => <GateCard key={face.id} pane={face} canEdit={canEdit} />)}
 					</>
 				)}
@@ -217,7 +229,7 @@ export function OpsMain({ segment }: { segment: string | null }) {
 				{open && pane?.id === "listeners" && (
 					<HeldPane
 						id="listeners"
-						what="listeners"
+						what={opsListenersLoading}
 						panelId="listenersOpsPanel"
 						ready={s.listeners !== null}
 					>
@@ -236,14 +248,14 @@ export function OpsMain({ segment }: { segment: string | null }) {
 					</div>
 				)}
 				{open && pane?.id === "irc" && (
-					<HeldPane id="irc" what="IRC bridges" panelId="ircOpsPanel" ready={s.irc !== null}>
+					<HeldPane id="irc" what={opsIrcBridgesWhat} panelId="ircOpsPanel" ready={s.irc !== null}>
 						<GatewayPane state={s.irc} />
 					</HeldPane>
 				)}
 				{open && pane?.id === "peering" && (
 					<HeldPane
 						id="peering"
-						what="peered rooms"
+						what={opsPeeredRoomsLoading}
 						panelId="peeringOpsPanel"
 						ready={s.peering !== null}
 					>
@@ -253,14 +265,14 @@ export function OpsMain({ segment }: { segment: string | null }) {
 						/>
 					</HeldPane>
 				)}
-				{open && pane?.id === "viz" && (
+				{open && pane?.id === "trace" && (
 					<HeldPane
-						id="viz"
-						what="visualizer status"
-						panelId="vizOpsPanel"
-						ready={s.viz !== null}
+						id="trace"
+						what={opsVisualizerStatusLoading}
+						panelId="traceOpsPanel"
+						ready={s.trace !== null}
 					>
-						<VizPane state={s.viz} />
+						<TracePane state={s.trace} />
 					</HeldPane>
 				)}
 			</div>

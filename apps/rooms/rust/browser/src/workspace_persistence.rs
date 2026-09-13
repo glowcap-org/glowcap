@@ -1,9 +1,9 @@
 //! Browser effects for the shared workspace save policy. Timer closures hold
 //! weak custody; explicit stop fences writes and releases all page callbacks.
 use gloo_timers::callback::Timeout;
-use rooms_application::workspace::persistence::{Persistence, COALESCE_MS};
+use rooms_application::workspace::persistence::{COALESCE_MS, Persistence};
 use std::{cell::RefCell, rc::Rc};
-use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen::{JsCast, prelude::*};
 
 struct Hooks {
 	read: js_sys::Function,

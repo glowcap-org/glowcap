@@ -1,5 +1,6 @@
 //! Reader replacement commits before effects run, preserving feed demand.
 use super::*;
+use crate::room::carries::Carries;
 
 impl<C: Copy + Ord, R: Clone> Room<C, R> {
 	/// Seat one reader. `seat_view` is the gateway's projection of each
@@ -47,6 +48,10 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 				nick: nick.into(),
 			},
 		);
+		// What the room carries goes ahead of the roster a client returns on,
+		// so its surface is shaped before anybody can type into it. IRC keeps
+		// no link previews and relays no typing, whichever way the bridge runs.
+		self.tell_one(&mut effects, connection, Notice::Carries(Carries::NOTHING));
 		self.tell_one(
 			&mut effects,
 			connection,

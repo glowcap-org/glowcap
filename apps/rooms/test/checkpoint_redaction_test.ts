@@ -1,3 +1,4 @@
+// Checkpoint redaction removes room bearers without disturbing independent bridge intent.
 import { emptyRoomsSessionState, redactRoomsSessionCapabilities } from "../lib/rooms_state.ts";
 import { assertEquals } from "./assert.ts";
 

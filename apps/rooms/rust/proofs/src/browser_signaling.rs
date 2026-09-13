@@ -1,10 +1,10 @@
 //! Both Rust browser signaling halves carried by the actual native directory.
-use glowcap::{browser, Argument, Host, PendingWork, Session};
+use glowcap::{Argument, Host, PendingWork, Session, browser};
 use rooms_browser::platform::Platform;
 use rooms_browser::signaling;
 use rooms_glowcap::client::{
-	directory::{registration::Registration, Directory},
 	Client,
+	directory::{Directory, registration::Registration},
 };
 use std::{
 	cell::{Cell, RefCell},

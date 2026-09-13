@@ -5,11 +5,11 @@ use crate::{
 	bridge::gateway::Description,
 	fields::{List, Nullable, Object, SafeInteger},
 	server::operations::{
-		operator::view::{
-			rows::{Field, Name},
-			Refusal, MAX_JSON_UNITS,
-		},
 		MAX_OPERATIONS_ROWS,
+		operator::view::{
+			MAX_JSON_UNITS, Refusal,
+			rows::{Field, Name},
+		},
 	},
 };
 use alloc::boxed::Box;
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 pub enum Capability {
 	Listeners,
 	Diagnostics,
-	Viz,
+	Trace,
 	Peering,
 	Irc,
 }
@@ -28,7 +28,7 @@ impl Capability {
 		match self {
 			Self::Listeners => "listeners",
 			Self::Diagnostics => "diagnostics",
-			Self::Viz => "viz",
+			Self::Trace => "trace",
 			Self::Peering => "peering",
 			Self::Irc => "irc",
 		}
@@ -109,7 +109,7 @@ pub enum Phase {
 pub enum Snapshot {
 	Listeners(List<Object<Listener>, MAX_OPERATIONS_ROWS>),
 	Diagnostics(List<Object<Diagnostic>, MAX_OPERATIONS_ROWS>),
-	Viz(Visualization),
+	Trace(Visualization),
 	Peering(List<Object<Peered>, 256>),
 	// The infrequent gateway read owns one large declaration; boxing it keeps
 	// every small operations answer from reserving space for both forms.
@@ -126,7 +126,7 @@ impl Snapshot {
 			}
 			Self::Diagnostics(rows) => serde_json::to_string(rows),
 			Self::Peering(rows) => serde_json::to_string(rows),
-			Self::Viz(view) => serde_json::to_string(view),
+			Self::Trace(view) => serde_json::to_string(view),
 			Self::Irc(view) => serde_json::to_string(view),
 		}
 		.map_err(|_| Refusal::Json)?;
@@ -149,7 +149,7 @@ impl Snapshot {
 				Self::Listeners(rows)
 			}
 			Capability::Diagnostics => Self::Diagnostics(serde_json::from_str(raw).map_err(invalid)?),
-			Capability::Viz => Self::Viz(crate::fields::json_object(raw).map_err(invalid)?),
+			Capability::Trace => Self::Trace(crate::fields::json_object(raw).map_err(invalid)?),
 			Capability::Peering => Self::Peering(serde_json::from_str(raw).map_err(invalid)?),
 			Capability::Irc => Self::Irc(Box::new(crate::fields::json_object(raw).map_err(invalid)?)),
 		})

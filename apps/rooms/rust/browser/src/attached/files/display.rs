@@ -1,13 +1,13 @@
 //! Bounded file materialization in the browser heap. Only individual chunks
 //! cross Wasm memory; the displayed URL retains the shared receiver charge.
-use super::{hold, Reader, RoomsBrowserFile};
+use super::{Reader, RoomsBrowserFile, hold};
 use crate::{
 	abort::Abort,
-	attached::{observation::call, Environment, Result, RoomsBrowserSession},
+	attached::{Environment, Result, RoomsBrowserSession, observation::call},
 };
 use rooms_application::{
 	archive::Record,
-	files::{receiving::Charge, CHUNK_BYTES},
+	files::{CHUNK_BYTES, receiving::Charge},
 };
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;

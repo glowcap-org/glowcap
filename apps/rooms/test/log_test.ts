@@ -3,6 +3,7 @@
 // be mistaken for each other. Consecutive lines of one kind share one run.
 
 import { blocksOf, ONLY_YOU } from "../web/ui/log_blocks.ts";
+import { lineCarried } from "../web/ui/commands.ts";
 import type { Item } from "../web/ui/types.ts";
 import { assertEquals } from "./assert.ts";
 
@@ -42,11 +43,14 @@ Deno.test("an action and a notice stay shared banners", () => {
 	assertEquals(
 		banners([
 			{ kind: "action", id: 1, from: "alice", text: "waves", at: 0 },
+			// A line reaches the log already stamped with what its words carry,
+			// by the same reader the store runs when the line enters.
 			{
 				kind: "chat",
 				id: 2,
 				from: "alice",
 				text: "/notice keep it down",
+				carried: lineCarried("/notice keep it down"),
 				mine: false,
 				at: 1,
 			},

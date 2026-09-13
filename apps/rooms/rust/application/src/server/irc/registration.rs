@@ -3,7 +3,7 @@
 //! welcome for the shared feed and for a member's own connection alike. The
 //! socket driver feeds it every message before registration and sends what
 //! it answers; after the welcome the driver owns the conversation.
-use super::protocol::{encode, Message};
+use super::protocol::{Message, encode};
 use alloc::{
 	format,
 	string::{String, ToString},
@@ -13,6 +13,7 @@ use alloc::{
 const SASL_ACCOUNT_BYTES: usize = 64;
 const SASL_PASSWORD_BYTES: usize = 256;
 const SASL_CHUNK: usize = 400;
+const REALNAME_BYTES: usize = 300;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SaslPlain {
@@ -43,6 +44,21 @@ pub fn validate_nick(nick: &str) -> Result<(), String> {
 	} else {
 		Err("IRC nickname must be 1..28 ASCII nickname characters and begin with a letter or special".into())
 	}
+}
+
+/// Admit the GECOS/real-name value that IRC publishes in WHOIS. Feed callers
+/// use it to identify the bot and a reachable administrator; the wire encoder
+/// remains the final authority on the complete 512-byte USER line.
+pub fn validate_realname(realname: &str) -> Result<(), String> {
+	if realname.is_empty()
+		|| realname.len() > REALNAME_BYTES
+		|| realname.bytes().any(|byte| matches!(byte, 0 | b'\r' | b'\n'))
+	{
+		return Err(format!(
+			"IRC real name must be 1..{REALNAME_BYTES} UTF-8 bytes without NUL or a line break"
+		));
+	}
+	Ok(())
 }
 
 /// An IRC-legal nick for a Rooms name that is not one, derived from the
@@ -134,8 +150,8 @@ pub fn sasl_lines(credentials: &SaslPlain) -> Result<Vec<Vec<u8>>, String> {
 	Ok(lines)
 }
 
-/// The connection's role determines its USER description and nick-change
-/// policy. Both roles require the same SASL negotiation and casemapping.
+/// The connection's role determines bot-mode and nick-change policy. Both
+/// roles require the same SASL negotiation and casemapping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
 	Feed,
@@ -176,6 +192,7 @@ pub struct Registration {
 	role: Role,
 	nick: String,
 	current: String,
+	realname: String,
 	sasl: Option<SaslPlain>,
 	registered: bool,
 	sasl_advertised: bool,
@@ -184,6 +201,7 @@ pub struct Registration {
 	sasl_started: bool,
 	sasl_payload_sent: bool,
 	sasl_authenticated: bool,
+	bot_mode_requested: bool,
 }
 
 fn encoded(command: &str, params: &[&str]) -> Result<Vec<u8>, String> {
@@ -191,8 +209,9 @@ fn encoded(command: &str, params: &[&str]) -> Result<Vec<u8>, String> {
 }
 
 impl Registration {
-	pub fn new(role: Role, nick: &str, sasl: Option<SaslPlain>) -> Result<Self, String> {
+	pub fn new(role: Role, nick: &str, realname: &str, sasl: Option<SaslPlain>) -> Result<Self, String> {
 		validate_nick(nick)?;
+		validate_realname(realname)?;
 		if let Some(sasl) = &sasl {
 			validate_sasl_plain(sasl)?;
 		}
@@ -200,6 +219,7 @@ impl Registration {
 			role,
 			nick: nick.into(),
 			current: nick.into(),
+			realname: realname.into(),
 			sasl_authenticated: sasl.is_none(),
 			sasl,
 			registered: false,
@@ -208,6 +228,7 @@ impl Registration {
 			sasl_requested: false,
 			sasl_started: false,
 			sasl_payload_sent: false,
+			bot_mode_requested: false,
 		})
 	}
 	pub fn nick(&self) -> &str {
@@ -229,11 +250,7 @@ impl Registration {
 			lines.push(encoded("CAP", &["LS", "302"])?);
 		}
 		lines.push(encoded("NICK", &[&self.nick])?);
-		let realname = match self.role {
-			Role::Feed => "glowcap rooms bridge",
-			Role::Member => "glowcap rooms member",
-		};
-		lines.push(encoded("USER", &[&self.nick, "0", "*", realname])?);
+		lines.push(encoded("USER", &[&self.nick, "0", "*", &self.realname])?);
 		Ok(lines)
 	}
 	/// A PING answered at any time, registration or not.
@@ -266,14 +283,29 @@ impl Registration {
 		}
 		if command == "NICK" {
 			if let (Some(next), true) = (message.param(0), self.is_self(message.prefix.as_deref())) {
-				if self.role == Role::Feed {
-					if let Some(reason) = rename_refusal(&self.nick, next) {
-						return Err(reason);
-					}
+				if self.role == Role::Feed
+					&& let Some(reason) = rename_refusal(&self.nick, next)
+				{
+					return Err(reason);
 				}
 				self.current = next.into();
 			}
 			return Ok(Step::default());
+		}
+		// IRCv3 makes the mode letter server-owned through the BOT ISUPPORT
+		// token. A feed marks itself when that token appears instead of assuming
+		// the conventional +B or asking an operator to know server vocabulary.
+		if command == "005" && self.role == Role::Feed && !self.bot_mode_requested {
+			let mode = message.params.iter().find_map(|param| {
+				param
+					.strip_prefix("BOT=")
+					.filter(|value| value.len() == 1 && value.as_bytes()[0].is_ascii_alphabetic())
+			});
+			if let Some(mode) = mode {
+				self.bot_mode_requested = true;
+				let setting = format!("+{mode}");
+				return Ok(Step::sends(alloc::vec![encoded("MODE", &[&self.current, &setting],)?]));
+			}
 		}
 		if command == "CAP" && self.sasl.is_some() {
 			let subcommand = message.param(1).map(str::to_ascii_uppercase);
@@ -355,10 +387,10 @@ impl Registration {
 		if command == "005" {
 			for param in &message.params {
 				let upper = param.to_ascii_uppercase();
-				if let Some(mapping) = upper.strip_prefix("CASEMAPPING=") {
-					if !mapping.eq_ignore_ascii_case("rfc1459") {
-						return Err(format!("IRC server uses unsupported {param}"));
-					}
+				if let Some(mapping) = upper.strip_prefix("CASEMAPPING=")
+					&& !mapping.eq_ignore_ascii_case("rfc1459")
+				{
+					return Err(format!("IRC server uses unsupported {param}"));
 				}
 			}
 		}
@@ -372,17 +404,18 @@ impl Registration {
 			if !self.sasl_authenticated {
 				return Err("IRC registered before SASL authentication completed".into());
 			}
-			if self.role == Role::Feed {
-				if let Some(reason) = message.param(0).and_then(|nick| rename_refusal(&self.nick, nick)) {
-					return Err(reason);
-				}
+			if self.role == Role::Feed
+				&& let Some(reason) = message.param(0).and_then(|nick| rename_refusal(&self.nick, nick))
+			{
+				return Err(reason);
 			}
 			self.registered = true;
 			self.sasl = None;
-			if let Some(granted) = message.param(0) {
-				if granted != "*" && granted != self.current {
-					self.current = granted.into();
-				}
+			if let Some(granted) = message.param(0)
+				&& granted != "*"
+				&& granted != self.current
+			{
+				self.current = granted.into();
 			}
 			return Ok(Step {
 				send: Vec::new(),
@@ -420,9 +453,11 @@ mod tests {
 		assert_eq!(automatic_nick("alice"), "alice");
 		assert!(automatic_nick("web alice").starts_with("rooms-"));
 		assert!(rename_refusal("Chosen", "cHOSEN").is_none());
-		assert!(rename_refusal("Chosen", "Guest1234")
-			.unwrap()
-			.contains("registered account"));
+		assert!(
+			rename_refusal("Chosen", "Guest1234")
+				.unwrap()
+				.contains("registered account")
+		);
 	}
 
 	#[test]
@@ -432,16 +467,20 @@ mod tests {
 			password: "pw".into(),
 		};
 		assert_eq!(sasl_plain_payload(&credentials).unwrap(), "AGFjY3QAcHc=");
-		assert!(validate_sasl_plain(&SaslPlain {
-			account: "".into(),
-			password: "pw".into()
-		})
-		.is_err());
-		assert!(validate_sasl_plain(&SaslPlain {
-			account: "a".into(),
-			password: "x".repeat(257)
-		})
-		.is_err());
+		assert!(
+			validate_sasl_plain(&SaslPlain {
+				account: "".into(),
+				password: "pw".into()
+			})
+			.is_err()
+		);
+		assert!(
+			validate_sasl_plain(&SaslPlain {
+				account: "a".into(),
+				password: "x".repeat(257)
+			})
+			.is_err()
+		);
 		let lines = sasl_lines(&credentials).unwrap();
 		assert_eq!(lines, [b"AUTHENTICATE AGFjY3QAcHc=\r\n".to_vec()]);
 	}
@@ -453,7 +492,7 @@ mod tests {
 				account: "acct".into(),
 				password: "pw".into(),
 			};
-			let mut registration = Registration::new(role, "gwbot", Some(sasl)).unwrap();
+			let mut registration = Registration::new(role, "gwbot", "test identity", Some(sasl)).unwrap();
 			let start = registration.start().unwrap();
 			assert_eq!(start[0], b"CAP LS 302\r\n");
 			assert_eq!(start[1], b"NICK gwbot\r\n");
@@ -470,6 +509,7 @@ mod tests {
 			let mut strict = Registration::new(
 				role,
 				"gwbot",
+				"test identity",
 				Some(SaslPlain {
 					account: "a".into(),
 					password: "b".into(),
@@ -483,7 +523,7 @@ mod tests {
 
 	#[test]
 	fn a_feed_refuses_a_different_registration_name_before_becoming_ready() {
-		let mut registration = Registration::new(Role::Feed, "bridgebot", None).unwrap();
+		let mut registration = Registration::new(Role::Feed, "bridgebot", "bridge bot; admin: alice", None).unwrap();
 		let step = registration.observe(&line(":s 001 Guest123 :welcome"));
 		assert!(matches!(step.event, Some(Event::Failed(_))));
 		assert!(!registration.registered());
@@ -497,8 +537,41 @@ mod tests {
 	}
 
 	#[test]
+	fn a_feed_publishes_its_operator_identity_and_uses_the_advertised_bot_mode() {
+		assert!(Registration::new(Role::Feed, "bridgebot", "", None).is_err());
+		let mut registration =
+			Registration::new(Role::Feed, "bridgebot", "Rooms bridge bot; admin: operator", None).unwrap();
+		assert_eq!(
+			registration.start().unwrap(),
+			[
+				b"NICK bridgebot\r\n".to_vec(),
+				b"USER bridgebot 0 * :Rooms bridge bot; admin: operator\r\n".to_vec(),
+			]
+		);
+		assert!(Registration::new(Role::Feed, "bridgebot", "line\nbreak", None).is_err());
+		registration.observe(&line(":s 001 bridgebot :welcome"));
+		let step = registration.observe(&line(":s 005 bridgebot BOT=b CASEMAPPING=rfc1459 :are supported"));
+		assert_eq!(step.send, [b"MODE bridgebot +b\r\n".to_vec()]);
+		assert!(
+			registration
+				.observe(&line(":s 005 bridgebot BOT=b :are supported"))
+				.send
+				.is_empty()
+		);
+
+		let mut member = Registration::new(Role::Member, "reader", "Rooms member", None).unwrap();
+		member.observe(&line(":s 001 reader :welcome"));
+		assert!(
+			member
+				.observe(&line(":s 005 reader BOT=B :are supported"))
+				.send
+				.is_empty()
+		);
+	}
+
+	#[test]
 	fn a_member_follows_its_own_nick_and_answers_pings() {
-		let mut registration = Registration::new(Role::Member, "reader", None).unwrap();
+		let mut registration = Registration::new(Role::Member, "reader", "Rooms member", None).unwrap();
 		assert_eq!(registration.start().unwrap().len(), 2);
 		let step = registration.observe(&line("PING :token"));
 		assert_eq!(step.send, [b"PONG token\r\n".to_vec()]);

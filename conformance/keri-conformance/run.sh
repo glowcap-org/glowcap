@@ -26,5 +26,5 @@ else
 fi
 export GOBLINS_DATA_DIR="$DATA_DIR"
 
-DEPS=(--python 3.12 --with 'pynacl>=1.5.0' --with 'blake3>=0.4.0' --with 'keri==1.2.6')
+DEPS=(--python 3.14 --with 'pynacl==1.6.2' --with 'blake3==1.0.9' --with 'keri==1.3.6')
 exec uv run "${DEPS[@]}" python oracle/verify.py "$@"

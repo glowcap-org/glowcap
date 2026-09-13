@@ -2,7 +2,7 @@
 //! connection. Every event walks this table, so a connection that could add
 //! rows without limit would make each change do its work again per row;
 //! watching again replaces, as re-claiming a seat replaces a membership.
-use super::{discovery::Shape, Refusal, MAX_WATCHERS};
+use super::{MAX_WATCHERS, Refusal, discovery::Shape};
 use alloc::{collections::BTreeMap, format};
 
 pub(super) struct Watchers<C, R> {

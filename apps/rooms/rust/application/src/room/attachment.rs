@@ -1,6 +1,6 @@
 //! Rooms attachment records shared by room and direct-message recipients.
 //! Decoding borrows binding values and retains only admitted capabilities.
-use super::{line::MAX_MESSAGE_FILES, ArgumentView};
+use super::{ArgumentView, line::MAX_MESSAGE_FILES};
 use crate::files::{FileDescription, MAX_FILE_BYTES};
 use alloc::vec::Vec;
 
@@ -30,6 +30,15 @@ pub enum AttachmentError {
 /// the file cap. A hostile suffix cannot erase the text and valid files before
 /// it. Every argument remains in the binding's custody until its call ends.
 pub fn read_prefix<A: AttachmentArgument>(args: &[A], start: usize) -> Vec<Attachment<A::Capability>> {
+	read_prefix_with_end(args, start).0
+}
+
+/// Also return the first field after the accepted record prefix so an additive
+/// message extension can be decoded without scanning or reinterpreting files.
+pub fn read_prefix_with_end<A: AttachmentArgument>(
+	args: &[A],
+	start: usize,
+) -> (Vec<Attachment<A::Capability>>, usize) {
 	let mut files = Vec::new();
 	let mut at = start;
 	while files.len() < MAX_MESSAGE_FILES {
@@ -42,7 +51,7 @@ pub fn read_prefix<A: AttachmentArgument>(args: &[A], start: usize) -> Vec<Attac
 		};
 		at = next;
 	}
-	files
+	(files, at)
 }
 
 /// State-changing calls require a complete record suffix. On refusal, all
@@ -79,8 +88,8 @@ fn record<A: AttachmentArgument>(args: &[A], at: usize) -> Option<Attachment<A::
 		return None;
 	}
 	let blob = args.get(4)?.capability()?;
-	let pixels = |at| u64::try_from(args.get(at).and_then(ArgumentView::integer).unwrap_or(0)).unwrap_or(u64::MAX);
-	let description = FileDescription::parse(name, mime, size as u64, pixels(5), pixels(6)).ok()?;
+	let pixels = |at: usize| u64::try_from(args.get(at)?.integer()?).ok();
+	let description = FileDescription::parse(name, mime, size as u64, pixels(5)?, pixels(6)?).ok()?;
 	Some(Attachment {
 		description,
 		blob: blob.clone(),

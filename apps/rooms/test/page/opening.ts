@@ -378,6 +378,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	// catalog. The glossary stays the surface; this is Help aimed at the
 	// controls rather than the words, in the same dialog. Only the cursor
 	// marks the door, so the proof also holds that it is a real press target.
+	await tab.click("#helpGlossaryTab");
 	await tab.click("#glossarySecret");
 	await tab.waitForSelector("#kitchenSink").catch(() =>
 		fail("the glossary's secret door did not open the parts catalog")
@@ -564,8 +565,8 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (sendHint !== "send") {
 		fail(`the composer does not offer a Send key (${JSON.stringify(sendHint)})`);
 	}
-	const joinHidden = await tab.evaluate(() => document.getElementById("joinScreen")?.hidden ?? false);
-	if (!joinHidden) fail("the join card stayed in the tree as a visible screen after joining");
+	const joinGone = await tab.evaluate(() => document.getElementById("joinScreen") === null);
+	if (!joinGone) fail("the join card stayed mounted after joining");
 
 	// Send a line; the room echoes it to every member (including us), so it
 	// arrives back through the capability stream and renders as a bubble.

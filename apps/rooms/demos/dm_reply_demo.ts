@@ -25,7 +25,7 @@ import process from "node:process";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { DM } from "../lib/protocol.ts";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
-import { waitUntil } from "./dm_handoff.ts";
+import { DemoSessions, waitUntil } from "./dm_handoff.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 
 const TEXT = "hi Bob, from Alice";
@@ -49,6 +49,8 @@ let bobAccepts = 0;
 const dmBehavior = recordingReplyDm(bobInbox, (text) => `re: ${text}`);
 
 async function main(): Promise<void> {
+	const services = new DemoSessions();
+	const until = (ready: () => boolean, what: string) => waitUntil(ready, 10_000, what, () => services.check());
 	const bobHost = roomsHost();
 	bobHost.publishGiftable("dm", dmBehavior);
 	const bob = await roomsListen("127.0.0.1", 0, bobHost);
@@ -56,7 +58,7 @@ async function main(): Promise<void> {
 	(async () => {
 		for await (const session of bob) {
 			bobAccepts += 1;
-			session.serve().catch(() => {});
+			services.serve(session);
 		}
 	})();
 
@@ -65,7 +67,7 @@ async function main(): Promise<void> {
 	// call cleanly). Alice never listens.
 	const aliceRuntime = await openRoomsRuntime();
 	const alice = await dial(bobLocator, aliceRuntime);
-	alice.serve().catch(() => {});
+	services.serve(alice);
 	const bobDm = await alice.fetch("dm");
 
 	const aliceReplies: string[] = [];
@@ -75,8 +77,8 @@ async function main(): Promise<void> {
 	});
 
 	await alice.send(bobDm, DM, [TEXT, aliceInbox]);
-	await waitUntil(() => bobInbox.includes(TEXT), 10_000, "Bob to receive Alice's message");
-	await waitUntil(() => aliceReplies.includes(REPLY), 10_000, "Bob's reply to reach Alice");
+	await until(() => bobInbox.includes(TEXT), "Bob to receive Alice's message");
+	await until(() => aliceReplies.includes(REPLY), "Bob's reply to reach Alice");
 
 	if (bobAccepts !== 1) {
 		fail(`expected Bob to accept exactly 1 connection (no dial-back), saw ${bobAccepts}`);
@@ -94,6 +96,7 @@ async function main(): Promise<void> {
 	alice.close();
 	bob.close();
 	await aliceRuntime.close();
+	await services.settle();
 	process.exit(0);
 }
 

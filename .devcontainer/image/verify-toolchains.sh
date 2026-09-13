@@ -100,11 +100,7 @@ expect_pin_contains() {
 }
 
 expect_pin_equals "zig" ZIG_VERSION zig version
-if glowcap_devcontainer_zls_enabled; then
-    expect_pin_equals "zls" ZLS_VERSION zls --version
-elif command -v zls >/dev/null; then
-    fail "zls: installed even though ZLS_ENABLED=false"
-fi
+expect_pin_equals "zls" ZLS_VERSION zls --version
 
 expect_pin_contains "racket" RACKET_VERSION racket --version
 expect_on_path raco
@@ -126,7 +122,7 @@ fi
 
 expect_pin_contains "deno" DENO_VERSION deno --version
 expect_pin_contains "node" NODE_VERSION node --version
-expect_on_path npm
+expect_pin_equals "npm" NPM_VERSION npm --version
 expect_pin_contains "bun" BUN_VERSION bun --version
 expect_pin_contains "claude" CLAUDE_CODE_VERSION claude --version
 expect_pin_contains "opencode" OPENCODE_VERSION opencode --version
@@ -174,9 +170,8 @@ else
 fi
 expect_contains "Rust browser target" "wasm32-unknown-unknown" rustup target list --installed
 expect_pin_contains "uv" UV_VERSION uv --version
-if require_pin "ocapn-conformance-python" OCAPN_CONFORMANCE_PYTHON; then
-    expect_contains "ocapn-conformance-python" "${OCAPN_CONFORMANCE_PYTHON}" \
-        uv python find "${OCAPN_CONFORMANCE_PYTHON}"
+if require_pin "python" PYTHON_VERSION; then
+    expect_contains "python" "${PYTHON_VERSION}" uv python find "${PYTHON_VERSION}"
 fi
 expect_pin_contains "serena" SERENA_AGENT_VERSION serena --version
 

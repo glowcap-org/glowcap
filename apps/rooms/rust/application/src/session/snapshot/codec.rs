@@ -1,3 +1,4 @@
+//! Snapshot encoding enforces aggregate view bounds while serializing once.
 use super::*;
 use crate::session::fields::{present, version};
 use serde::{Deserialize, Serialize};

@@ -1,10 +1,10 @@
 use super::arguments::{self, Arg};
 use rooms_application::room::{
-	inbox::{self, metadata::Presence, queue, Message, Notice},
+	inbox::{self, Message, Notice, metadata::Presence, queue},
 	membership::{self, Membership},
 	policy::MembershipKind,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{cell::Cell, rc::Rc};
 pub fn run() {
 	let fixture: Value = serde_json::from_str(include_str!("../fixtures/membership.json")).unwrap();
@@ -15,7 +15,7 @@ pub fn run() {
 		let result = args
 			.as_ref()
 			.and_then(|a| membership::read_answer(a).ok())
-			.map(|s| json!({"kind":s.kind.as_str(),"topic":s.topic.is_some()}))
+			.map(|s| json!({"kind":s.kind.as_str(),"topic":s.topic.is_some(),"files":s.files.is_some()}))
 			.unwrap_or(Value::Null);
 		assert_eq!(result, row["result"]);
 	}
@@ -61,19 +61,23 @@ fn state_and_queue() {
 			reference: (),
 			kind: MembershipKind::Observer,
 			topic: None,
+			files: None,
 		})
 		.unwrap();
 	assert!(state.ready());
 	state.retire();
 	state.arrived();
 	assert!(!state.ready());
-	assert!(state
-		.accept(membership::Seat {
-			reference: (),
-			kind: MembershipKind::Participant,
-			topic: None
-		})
-		.is_err());
+	assert!(
+		state
+			.accept(membership::Seat {
+				reference: (),
+				kind: MembershipKind::Participant,
+				topic: None,
+				files: None,
+			})
+			.is_err()
+	);
 	let cap = Rc::new(Cell::new(0));
 	let args = [
 		arguments::text("alice"),
@@ -121,6 +125,7 @@ fn state_and_queue() {
 		facts: None,
 		marker: None,
 		attachments: vec![],
+		previews: Default::default(),
 	};
 	assert_eq!(bytes.push(message), Err(queue::Error::Overflow));
 	assert!(core::mem::size_of::<Message<String, ()>>() <= 224); // ordinary lines don't inline bridge-only details

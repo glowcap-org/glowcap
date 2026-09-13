@@ -163,7 +163,7 @@ pub fn register(ctx: Context) Registered {
 
     // Live distributed-GC evidence vs Goblins: introduce a near export into the
     // suite echo and observe inbound op:gc-exports (needs racket + goblins).
-    _ = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-gc", .source = "interop/goblins_interop/gc_driver.zig", .step_name = "goblins-gc", .description = "Live Goblins GC evidence: inbound op:gc-exports after echo consumes a near export (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
+    _ = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-gc", .source = "interop/goblins_interop/gc_driver.zig", .step_name = "goblins-gc", .description = "Live Goblins GC in both directions, including remote reclamation after capability and answer release with the owning Session open (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // Per-binding Goblins clients (interop / handoff / gift) register with the
     // root's shared `binding_families` table — same emitter as the iroh and

@@ -12,11 +12,11 @@
 
 use core::ffi::{c_int, c_uchar};
 
+use super::GlowcapTransportProvider;
 use super::ocapn::GlowcapContext;
 use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime};
-use super::GlowcapTransportProvider;
 
-extern "C" {
+unsafe extern "C" {
 	pub fn glowcap_relay_archive_fingerprint() -> u64;
 	pub fn glowcap_relay_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn glowcap_relay_clear_last_error();

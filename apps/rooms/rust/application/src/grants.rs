@@ -1,5 +1,5 @@
 //! Durable session grant policy and commit ordering. Storage execution is an
-//! adapter effect. The native durable owner and shared migration proofs consume
+//! adapter effect. The native durable owner and shared contract proofs consume
 //! this ledger; no browser or transport adapter owns grant policy.
 mod model;
 pub(crate) use model::{validate_id, validate_label};
@@ -7,8 +7,8 @@ pub mod protocol;
 mod shared;
 mod storage;
 pub use model::{
-	Access, Change, Command, Error, Grant, PolicyPatch, Rights, MAX_ACTIVE_GRANTS, MAX_DOCUMENT_BYTES,
-	MAX_GRANT_LABEL_UNITS, MAX_GRANT_NOTE_UNITS, MAX_LIFETIME_GRANTS,
+	Access, Change, Command, Error, Grant, MAX_ACTIVE_GRANTS, MAX_DOCUMENT_BYTES, MAX_GRANT_LABEL_UNITS,
+	MAX_GRANT_NOTE_UNITS, MAX_LIFETIME_GRANTS, PolicyPatch, Rights,
 };
 pub use shared::{GrantPolicy, GrantState};
 use storage::Phase;
@@ -16,7 +16,7 @@ pub use storage::{ApplyError, GrantStorage, PersistedGrant, PreparedGrant};
 
 use alloc::{collections::BTreeMap, rc::Rc, string::String, vec::Vec};
 use core::cell::Cell;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
@@ -227,10 +227,10 @@ impl GrantLedger {
 			.iter()
 			.map(|grant| next.filter(|next| next.id == grant.id).unwrap_or(grant))
 			.collect();
-		if let Some(next) = next {
-			if !self.by_id.contains_key(&next.id) {
-				rows.push(next);
-			}
+		if let Some(next) = next
+			&& !self.by_id.contains_key(&next.id)
+		{
+			rows.push(next);
 		}
 		let mut bytes = serde_json::to_vec(&View {
 			version: 1,

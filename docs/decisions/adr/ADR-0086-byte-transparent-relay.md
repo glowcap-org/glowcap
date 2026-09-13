@@ -317,7 +317,7 @@ adapter; the contract is already defined over an abstract byte duplex, not over
 - **Reference implementation:** `@glowcap/relay` (`bindings/ts/relay/`):
   `relayBytes` (the pump) and `webSocketRelay` (the WebSocket adapter), with the
   `RelayChannel` shape. The rooms endpoint that adds policy is
-  `apps/rooms/rust/native/src/web/relay.rs`.
+  `apps/rooms/rust/services/src/web/relay.rs`.
 - **Rooms target admission:** the native relay uses glowcap locator and
   host/port parsing, admits the resulting endpoint, and transfers that selected
   target to the byte-channel dial job. The relay owns deployment admission;

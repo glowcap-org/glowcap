@@ -121,7 +121,9 @@ pub fn attachment_failure_advice(reason: js_sys::JsString) -> Option<String> {
 		0,
 		reason.length().min(rooms_application::failure::MAX_REASON_BYTES as u32),
 	);
-	rooms_application::session::diagnosis::attachment(&prefix.as_string()?).map(str::to_owned)
+	let scalar = prefix.as_string()?;
+	let prefix = rooms_application::failure::reason_prefix(&scalar);
+	rooms_application::session::diagnosis::attachment(prefix).and_then(|advice| serde_json::to_string(&advice).ok())
 }
 
 #[wasm_bindgen(js_name = emptySessionCheckpoint)]

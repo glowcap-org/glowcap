@@ -125,6 +125,8 @@ comptime {
         _ = @import("net/readiness_test.zig");
     if (@import("builtin").os.tag == .linux)
         _ = @import("net/uring_test.zig");
+    if (@import("builtin").os.tag == .linux)
+        _ = @import("net/linux_completion_test.zig");
     if (@import("builtin").os.tag == .linux) {
         _ = @import("driver/host_runtime_multiplexed/lifecycle_test.zig");
         _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");

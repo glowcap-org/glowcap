@@ -1,3 +1,4 @@
+// An unchanged attached checkpoint preserves the draft object and an edit already in progress.
 /// <reference lib="dom" />
 import "../support/browser_application.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";

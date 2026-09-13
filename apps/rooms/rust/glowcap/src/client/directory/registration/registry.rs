@@ -1,6 +1,6 @@
 //! Coordinate name replacements across clients sharing a directory connection.
 //! A signaling name can yield to a chosen name, and cannot replace it later.
-use super::{close, policy, State};
+use super::{State, close, policy};
 use glowcap::Ref;
 use std::{
 	cell::RefCell,
@@ -79,20 +79,20 @@ impl Attempt {
 			entry.claim = self.claim;
 			std::mem::replace(&mut entry.current, self.state.clone())
 		};
-		if !prior.ptr_eq(&self.state) {
-			if let Some(prior) = prior.upgrade() {
-				close(&prior);
-			}
+		if !prior.ptr_eq(&self.state)
+			&& let Some(prior) = prior.upgrade()
+		{
+			close(&prior);
 		}
 	}
 }
 impl Drop for Attempt {
 	fn drop(&mut self) {
 		let mut entries = self.registry.0.borrow_mut();
-		if let Some(entry) = entries.iter_mut().find(|entry| entry.directory == self.directory) {
-			if entry.pending.ptr_eq(&self.state) {
-				entry.pending = Weak::new();
-			}
+		if let Some(entry) = entries.iter_mut().find(|entry| entry.directory == self.directory)
+			&& entry.pending.ptr_eq(&self.state)
+		{
+			entry.pending = Weak::new();
 		}
 	}
 }

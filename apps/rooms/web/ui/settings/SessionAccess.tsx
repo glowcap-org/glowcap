@@ -7,6 +7,13 @@
 // row's.
 
 import { useState } from "react";
+import {
+	sessionAccessFor,
+	sessionAccessKeep,
+	sessionAccessPlaceholder,
+	sessionAccessRevoke,
+	sessionAccessTitle,
+} from "../../../lib/text/settings.ts";
 import { MAX_SESSION_GRANT_LABEL } from "../limits.ts";
 import type { RoomsSessionFacet } from "../../../lib/session/client.ts";
 import { Button } from "../Button.tsx";
@@ -20,16 +27,31 @@ import { useRoomsSession } from "../controller/session.ts";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
+import { actionRefusal } from "../error_text.ts";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
+import { ACCESS_LEVELS, ACCESS_TONE, SessionGrantEditModal } from "./SessionGrantEdit.tsx";
 import {
-	ACCESS_DESCRIPTION,
-	ACCESS_LABEL,
-	ACCESS_LEVELS,
-	ACCESS_TONE,
-	HISTORY_LABEL,
-	HISTORY_SAID,
-	SessionGrantEditModal,
-} from "./SessionGrantEdit.tsx";
+	sessionAccessActiveTitle,
+	sessionAccessCopyLabel,
+	sessionAccessCreate,
+	sessionAccessCreated,
+	sessionAccessEarlierMessages,
+	sessionAccessEmpty,
+	sessionAccessLabel,
+	sessionAccessLead,
+	sessionAccessNewTitle,
+	sessionAccessPaused,
+	sessionAccessPausedPrefix,
+	sessionAccessRevoked,
+	sessionAccessRevokeInUseSay,
+	sessionAccessRevokeLabel,
+	sessionAccessRevokeSay,
+	sessionAccessSaid,
+	sessionAccessThisBrowser,
+	sessionGrantAccessTitle,
+	sessionHistoryLabel,
+	sessionHistorySaid,
+} from "../../../lib/text/session_settings.ts";
 
 export function SessionAccessModal({ open, onClose }: { open: boolean; onClose(): void }) {
 	const browser = useRoomsBrowser();
@@ -39,8 +61,8 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	// Which of these links this browser is attached through, if it is attached
 	// through one at all. An administering link lists itself, so revoking is
 	// one press away from locking this browser out of the session it is
-	// reading the list on. Matched on the capability text, which is what the
-	// reader copied out of this very card, so a miss only costs the marker.
+	// reading the list on. The match uses the capability text the reader copied
+	// out of this very card, so a miss only costs the marker.
 	const controller = useRoomsController();
 	const held = sharedRoomsSession(controller)?.sturdyref ?? null;
 	const [label, setLabel] = useState("");
@@ -62,8 +84,8 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	 * other card here leaves. */
 	const [editorOpen, setEditorOpen] = useState(false);
 	/** Bumped on each opening, so the card is a fresh one every time it is opened
-	 * and never wears a half-typed reason from the last time. It is not bumped on
-	 * closing, which is what keeps the card whole while it leaves. */
+	 * and never wears a half-typed reason from the last time. Closing does not
+	 * bump it, so the card stays whole while it leaves. */
 	const [editorOpening, setEditorOpening] = useState(0);
 	const commit = useCommitSettling();
 	useChangeGroup("settings-session-access", {
@@ -89,10 +111,10 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 		setBusy(true);
 		setError("");
 		try {
-			const why = await session.issueSessionGrant(id, rights, label, mayReadHistory);
+			const why = await actionRefusal(() => session.issueSessionGrant(id, rights, label, mayReadHistory));
 			setError(why);
 			if (why === "") {
-				browser.toast("success", `Created ${ACCESS_LABEL[rights].toLowerCase()} access for ${label}.`);
+				browser.toast("success", sessionAccessCreated(sessionAccessLabel[rights].toLowerCase(), label));
 				setLabel("");
 				setRights("interact");
 				setMayReadHistory(false);
@@ -107,11 +129,11 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 		setRevoking(id);
 		setRevokeWhy((prior) => ({ ...prior, [id]: "" }));
 		try {
-			const why = await session.revokeSessionGrant(id);
+			const why = await actionRefusal(() => session.revokeSessionGrant(id));
 			setRevokeWhy((prior) => ({ ...prior, [id]: why }));
 			if (why === "") {
 				setConfirming(null);
-				browser.toast("success", `Revoked session access for ${name}.`);
+				browser.toast("success", sessionAccessRevoked(name));
 			}
 		} finally {
 			setRevoking(null);
@@ -119,18 +141,16 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 	};
 	return (
 		<Submodal
-			title="Session access"
+			title={sessionAccessTitle}
 			titleId="sessionAccessTitle"
 			className="session-access-modal"
 			open={open}
 			onClose={() => commitments.request(onClose, { only: ["settings-session-access"] })}
 		>
-			<p className="lead">
-				Create a separately revocable link for each person, device, or integration that shares this session.
-			</p>
+			<p className="lead">{sessionAccessLead}</p>
 			<div className="session-access-columns">
 				<section className="session-access-column">
-					<h3 className="well-title overline" id="sessionGrantIssueTitle">New access link</h3>
+					<h3 className="well-title overline" id="sessionGrantIssueTitle">{sessionAccessNewTitle}</h3>
 					<form
 						className="group well session-access-form"
 						role="group"
@@ -140,7 +160,7 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 							void issue();
 						}}
 					>
-						<Field id="sessionGrantLabel" label="Who or what is this for?">
+						<Field id="sessionGrantLabel" label={sessionAccessFor}>
 							{(wiring) => (
 								<input
 									id={wiring.id}
@@ -152,12 +172,12 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 										setLabel(event.currentTarget.value);
 										changeIntent();
 									}}
-									placeholder="Kitchen display"
+									placeholder={sessionAccessPlaceholder}
 								/>
 							)}
 						</Field>
 						<div className="question">
-							<p className="group-label" id="sessionGrantRightsLabel">Access</p>
+							<p className="group-label" id="sessionGrantRightsLabel">{sessionGrantAccessTitle}</p>
 							<div
 								className="choices"
 								role="radiogroup"
@@ -182,8 +202,8 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 											}}
 										/>
 										<span>
-											<strong>{ACCESS_LABEL[level]}</strong>
-											{ACCESS_DESCRIPTION[level]}
+											<strong>{sessionAccessLabel[level]}</strong>
+											{sessionAccessSaid[level]}
 										</span>
 									</label>
 								))}
@@ -200,90 +220,88 @@ export function SessionAccessModal({ open, onClose }: { open: boolean; onClose()
 								}}
 							/>
 							<span>
-								<strong>{HISTORY_LABEL}</strong>
-								{HISTORY_SAID}
+								<strong>{sessionHistoryLabel}</strong>
+								{sessionHistorySaid}
 							</span>
 						</label>
 						{error !== "" && <Said kind="failure">{error}</Said>}
 						<div className="actions">
 							<Button type="submit" busy={busy} disabled={busy || label === ""}>
-								Create access link
+								{sessionAccessCreate}
 							</Button>
 						</div>
 					</form>
 				</section>
 				<section className="session-access-column">
-					<h3 className="well-title overline" id="sessionGrantListTitle">Active access links</h3>
+					<h3 className="well-title overline" id="sessionGrantListTitle">{sessionAccessActiveTitle}</h3>
 					<div className="group well" role="group" aria-labelledby="sessionGrantListTitle">
-						{grants.length === 0
-							? <p className="empty">Nobody holds a separate access link to this session yet.</p>
-							: (
-								<ul className="entries">
-									{grants.map((grant) => {
-										const inUse = grant.sturdyref === held;
-										return (
-											<li className="entry session-grant" key={grant.id}>
-												<div className="entry-head" data-one-line>
-													<span className="entry-name">{grant.label}</span>
-													<span className="tag" data-tone={ACCESS_TONE[grant.rights]}>
-														{ACCESS_LABEL[grant.rights]}
+						{grants.length === 0 ? <p className="empty">{sessionAccessEmpty}</p> : (
+							<ul className="entries">
+								{grants.map((grant) => {
+									const inUse = grant.sturdyref === held;
+									return (
+										<li className="entry session-grant" key={grant.id}>
+											<div className="entry-head" data-one-line>
+												<span className="entry-name">{grant.label}</span>
+												<span className="tag" data-tone={ACCESS_TONE[grant.rights]}>
+													{sessionAccessLabel[grant.rights]}
+												</span>
+												{inUse && <span className="tag">{sessionAccessThisBrowser}</span>}
+												{grant.suspended && (
+													<span className="tag" data-tone="warn">{sessionAccessPaused}</span>
+												)}
+												{grant.history && (
+													<span className="tag" data-tone="quiet">
+														{sessionAccessEarlierMessages}
 													</span>
-													{inUse && <span className="tag">This browser</span>}
-													{grant.suspended && (
-														<span className="tag" data-tone="warn">Paused</span>
-													)}
-													{grant.history && (
-														<span className="tag" data-tone="quiet">Earlier messages</span>
-													)}
-													{confirming !== grant.id && (
-														<div className="actions session-grant-actions">
-															<Button
-																variant="quiet"
-																onClick={() => {
-																	setEditing(grant.id);
-																	setEditorOpening((was) => was + 1);
-																	setEditorOpen(true);
-																}}
-															>
-																Edit…
-															</Button>
-															<Button
-																variant="quiet"
-																onClick={() => setConfirming(grant.id)}
-															>
-																Revoke…
-															</Button>
-														</div>
-													)}
-												</div>
-												{confirming === grant.id && (
-													<Confirm
-														label={`Revoke access for ${grant.label}`}
-														say={inUse
-															? "This is the link this browser is using. Revoking it cuts this browser off as well, and coming back needs another link. Everyone holding it loses access immediately, and it stays revoked after restart."
-															: "Existing holders lose access immediately, and this access link stays revoked after restart."}
-														keep="Keep access"
-														commit="Revoke access"
-														busy={revoking === grant.id}
-														onKeep={() => setConfirming(null)}
-														onCommit={() => void revoke(grant.id, grant.label)}
-													/>
 												)}
-												{grant.suspended && grant.note !== "" && (
-													<Said kind="warning">Paused: {grant.note}</Said>
+												{confirming !== grant.id && (
+													<div className="actions session-grant-actions">
+														<Button
+															variant="quiet"
+															onClick={() => {
+																setEditing(grant.id);
+																setEditorOpening((was) => was + 1);
+																setEditorOpen(true);
+															}}
+														>
+															Edit…
+														</Button>
+														<Button
+															variant="quiet"
+															onClick={() => setConfirming(grant.id)}
+														>
+															Revoke…
+														</Button>
+													</div>
 												)}
-												<CopyField
-													text={grant.sturdyref}
-													label={`Copy session access for ${grant.label}`}
+											</div>
+											{confirming === grant.id && (
+												<Confirm
+													label={sessionAccessRevokeLabel(grant.label)}
+													say={inUse ? sessionAccessRevokeInUseSay : sessionAccessRevokeSay}
+													keep={sessionAccessKeep}
+													commit={sessionAccessRevoke}
+													busy={revoking === grant.id}
+													onKeep={() => setConfirming(null)}
+													onCommit={() => void revoke(grant.id, grant.label)}
 												/>
-												{revokeWhy[grant.id] != null && revokeWhy[grant.id] !== "" && (
-													<Said kind="failure">{revokeWhy[grant.id]}</Said>
-												)}
-											</li>
-										);
-									})}
-								</ul>
-							)}
+											)}
+											{grant.suspended && grant.note !== "" && (
+												<Said kind="warning">{sessionAccessPausedPrefix} {grant.note}</Said>
+											)}
+											<CopyField
+												text={grant.sturdyref}
+												label={sessionAccessCopyLabel(grant.label)}
+											/>
+											{revokeWhy[grant.id] != null && revokeWhy[grant.id] !== "" && (
+												<Said kind="failure">{revokeWhy[grant.id]}</Said>
+											)}
+										</li>
+									);
+								})}
+							</ul>
+						)}
 					</div>
 				</section>
 			</div>

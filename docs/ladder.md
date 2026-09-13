@@ -32,10 +32,10 @@ glowcap checks its protocol behavior three ways:
   recurring over testing TCP;
 - in-tree scenarios cover message arms, failure paths, limits, and both codecs.
 
-The live checks cover calls, promises, sturdyrefs, inbound export release, and
-all three roles in a three-party handoff. Outbound garbage collection and
-answer release have in-tree coverage. Each language binding also acts as a
-Goblins client, recipient, and gifter.
+The live checks cover calls, promises, sturdyrefs, garbage collection in both
+directions, answer release, and all three roles in a three-party handoff.
+Each language binding also acts as a Goblins client, recipient, and gifter,
+and proves remote object reclamation before its session closes.
 
 This milestone remains open because some implemented behavior has only in-tree
 or on-demand evidence. [Community review](community-review.md) has the exact
@@ -87,6 +87,8 @@ RSS is sampled.
 
 On 2026-08-24, a ReleaseFast run reached 500,000 sessions on Linux
 6.17.0-1029-nvidia, aarch64, 20 logical CPUs, 121.7 GiB RAM, and 16 GiB swap.
+The run selected the io_uring backend. The epoll fallback has no equivalent
+full-target measurement.
 The server grew from 573,828 KiB to 4,548,376 KiB RSS: 3,974,548 KiB
 (3.79 GiB) incremental. The separate load process used 3,015,316 KiB
 (2.88 GiB). The signed-handshake and bootstrap-fetch barrier completed in
@@ -146,13 +148,15 @@ adopts signaled peers through a completion backend
 (`zig build webrtc-loop`). Native three-party redeem over a bare `webrtc`
 give is proved by `zig build webrtc-bridge-redeem`.
 
-The remaining work is about deployment evidence and operating systems rather
-than another protocol core. A native peer cold-dials a Chromium-hosted actor
+The remaining work covers native Session provider setup, managed WebRTC
+adapters, deployment evidence, and operating systems. A native peer cold-dials a Chromium-hosted actor
 over local WSS and end-to-end Noise in recurring CI, and every native
 binding follows a locator-carried rendezvous route. The recurring macOS job
 executes the native test suite, while the full external-runtime matrix remains
 on Linux.
 
+- extend native Session/Server setup to multiplexed providers and complete
+  managed WebRTC setup across the native fronts;
 - add a Windows completion backend;
 - repeat the native-to-browser relay proof at a deployed hostname with a
   public certificate;

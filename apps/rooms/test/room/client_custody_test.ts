@@ -1,3 +1,4 @@
+// Room clients release surplus, late, and malformed capability occurrences at the inbox boundary.
 import { type Argument, type Behavior, Ref, type Session } from "@glowcap/runtime";
 import type { Attachment } from "../../lib/attachment.ts";
 import { Room } from "../../lib/room/client.ts";
@@ -39,7 +40,7 @@ Deno.test("a Room inbox releases surplus and late attachment capabilities", asyn
 		send(_target: Ref, verb: string) {
 			if (verb === SUBSCRIBE) queueMicrotask(() => hosted[0]?.(NOTIFY, ["room", "", "listed"]));
 			if (verb !== SUBSCRIBE && verb !== LEAVE) throw new Error(`unexpected test verb ${verb}`);
-			return Promise.resolve(verb === SUBSCRIBE ? [membershipRef, "participant", null] : null);
+			return Promise.resolve(verb === SUBSCRIBE ? [membershipRef, "participant", null, null] : null);
 		},
 		serve: () => new Promise<void>(() => {}),
 		release: (capability: Ref) => released.push(capability),
@@ -90,7 +91,7 @@ Deno.test("a room session ending before arrival refuses and releases its inbox",
 	const released: Ref[] = [];
 	const session = {
 		spawn: () => inboxRef,
-		send: () => Promise.resolve([membershipRef, "participant", null]),
+		send: () => Promise.resolve([membershipRef, "participant", null, null]),
 		serve: () => Promise.resolve(),
 		release: (capability: Ref) => released.push(capability),
 	} as unknown as Session;

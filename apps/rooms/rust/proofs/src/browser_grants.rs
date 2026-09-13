@@ -3,17 +3,19 @@ use glowcap::{Argument, CaptpVersion, Locator, Session};
 use rooms_application::{
 	documents::SessionDocument,
 	grants::{
-		protocol::{self, GrantView},
 		Access,
+		protocol::{self, GrantView},
 	},
 };
 use rooms_browser::platform::Platform;
 use rooms_glowcap::client::Client;
 use rooms_runtime::{
 	documents::{Document, VolatileDocument},
-	grant_commands::{GrantCommandEffects, GrantCommands, GrantNotice},
-	grant_publications::PublishedGrants,
-	grants::{DurableGrants, LoadError},
+	grants::{
+		DurableGrants, LoadError,
+		commands::{GrantCommandEffects, GrantCommands, GrantNotice},
+		publications::PublishedGrants,
+	},
 };
 use std::{cell::Cell, rc::Rc};
 const ID: &str = "00000000-0000-4000-8000-000000000001";

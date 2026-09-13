@@ -1,8 +1,8 @@
 use super::*;
 use crate::client::{
+	Tasks,
 	files::File,
 	sources::{Source, Sources},
-	Tasks,
 };
 use rooms_application::{
 	archive::{self, Body, ConversationKind, Filter, Record},
@@ -14,6 +14,7 @@ pub struct FileMessage<'a> {
 	pub base: u64,
 	pub conversation: &'a str,
 	pub caption: &'a str,
+	pub previews: rooms_application::open_graph::Selection,
 }
 pub struct Refile<'a> {
 	pub message: FileMessage<'a>,
@@ -152,7 +153,11 @@ impl<D: Deadline + Tasks + Clone + 'static> Session<D> {
 		sources: Vec<Source>,
 	) -> Result<u64, Error> {
 		let mut args = transaction(message.operation, message.base)?;
-		args.extend([message.conversation.into(), message.caption.into()]);
+		args.extend([
+			message.conversation.into(),
+			message.caption.into(),
+			message.previews.encode().into(),
+		]);
 		let reply = pool
 			.send_scoped(&self.client, &self.reference, verbs::SEND_FILES, args, sources)
 			.await?;

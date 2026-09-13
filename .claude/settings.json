@@ -6,7 +6,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .agents/hooks/format-edited-file.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.agents/hooks/format-edited-file.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.agents/hooks/before-commit.sh\""
           }
         ]
       }

@@ -228,14 +228,26 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     //                   superset. Deterministic.
     //   iroh-bridge-redeem — ADR-0076: recipient on Loop(iroh.Backend, iroh.DialResolver) redeems
     //                   a handoff via Loop.dialLocator. Deterministic.
-    //   goblins-iroh  — the one row whose partner is not glowcap: a real Spritely
+    //   goblins-iroh  — a foreign protocol partner: a real Spritely
     //                   Goblins vat over the iroh netlayer this repository wrote
     //                   for it, both directions. Needs racket + goblins as well
-    //                   as cargo, so it is the family's only Racket-spawning row.
+    //                   as cargo, as does goblins-handoff-iroh below.
     //   bench-iroh    — round-trip latency/throughput over real keyed QUIC vs a
     //                   same-machine cleartext TCP baseline; reports numbers,
     //                   gates none, and forwards `-- <args>`. `bench-site-report`
     //                   runs it to refresh the performance page.
+    const iroh_abi = registerAbi(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .version = abi_version,
+        .model_mod = host_mods[layerIndex("model")],
+        .net_mod = host_mods[layerIndex("net")],
+        .c_abi_shared_mod = host_mods[layerIndex("c_abi_shared")],
+        .resident_mod = iroh_resident_mod,
+        .sidecar_archive = sidecar_archive,
+    });
+
     const iroh_drivers = [_]struct {
         step_name: []const u8,
         description: []const u8,
@@ -243,12 +255,14 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         root_source: []const u8,
         forwards_args: bool = false,
         posture: execution.Posture,
+        goblins: bool = false,
     }{
         .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)", .exe_name = "glowcap-iroh-interop", .root_source = "interop/iroh_interop/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "glowcap-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig", .posture = .real_internet },
         .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "glowcap-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
-        .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a glowcap peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 } },
+        .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a glowcap peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 }, .goblins = true },
+        .{ .step_name = "goblins-handoff-iroh", .description = "Live encrypted handoff: Goblins gifts and exports, glowcap completion loop redeems directly over iroh (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-handoff-iroh", .root_source = "interop/goblins_interop/handoff_iroh_driver.zig", .posture = .{ .deterministic = 30 }, .goblins = true },
         .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "glowcap-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true, .posture = .benchmark },
     };
     for (iroh_drivers) |drv| {
@@ -267,6 +281,9 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         const run = execution.addArtifact(b, drv.posture, exe);
         run.setCwd(b.path("."));
         run.has_side_effects = true;
+        // The Racket netlayer loads the public companion as well as the
+        // native driver's private sidecar; neither may rely on a previous build.
+        if (drv.goblins) run.step.dependOn(iroh_abi.step);
         if (drv.forwards_args) run.addPassthruArgs();
         live_step.dependOn(&run.step);
     }
@@ -325,17 +342,6 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     });
     check_step.dependOn(&iroh_resident_check.step);
 
-    const site_iroh_examples = [_]struct { name: []const u8, path: []const u8 }{
-        .{ .name = "site-example-dial-iroh", .path = "site/examples/dial/iroh.zig" },
-        .{ .name = "site-example-listen-iroh", .path = "site/examples/listen/iroh.zig" },
-    };
-    for (site_iroh_examples) |example| {
-        common.addSiteZigExampleCompile(b, target, optimize, example.name, example.path, &.{
-            .{ .name = "glowcap", .module = lib_mod },
-            .{ .name = "iroh", .module = iroh_resident_mod },
-        }, ctx.site_zig_examples_check);
-    }
-
     const iroh_locator_test_mod = b.createModule(.{
         .root_source_file = b.path("test/net/iroh_locator_test.zig"),
         .target = target,
@@ -352,7 +358,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .name = "iroh-locator",
         .root_module = iroh_locator_test_mod,
     });
-    const run_iroh_locator_test = execution.addZigTest(b, iroh_locator_test, .{ .deterministic = 30 });
+    const run_iroh_locator_test = execution.addZigTest(b, iroh_locator_test, .unit_test);
     ctx.site_zig_examples_check.dependOn(&run_iroh_locator_test.step);
 
     // Internal resident evidence links a scripted sidecar directly. It imports
@@ -374,7 +380,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .name = "iroh-resident-internal-test",
         .root_module = iroh_resident_internal_mod,
     });
-    const run_iroh_resident_internal_test = execution.addZigTest(b, iroh_resident_internal_test, .{ .deterministic = 30 });
+    const run_iroh_resident_internal_test = execution.addZigTest(b, iroh_resident_internal_test, .unit_test);
     check_step.dependOn(&run_iroh_resident_internal_test.step);
     ctx.site_zig_examples_check.dependOn(&run_iroh_resident_internal_test.step);
 
@@ -397,21 +403,10 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .name = "iroh-sidecar-internal-test",
         .root_module = iroh_sidecar_internal_test_mod,
     });
-    const run_iroh_sidecar_internal_test = execution.addZigTest(b, iroh_sidecar_internal_test, .{ .deterministic = 30 });
+    const run_iroh_sidecar_internal_test = execution.addZigTest(b, iroh_sidecar_internal_test, .unit_test);
     check_step.dependOn(&run_iroh_sidecar_internal_test.step);
     ctx.site_zig_examples_check.dependOn(&run_iroh_sidecar_internal_test.step);
 
-    const iroh_abi = registerAbi(.{
-        .b = b,
-        .target = target,
-        .optimize = optimize,
-        .version = abi_version,
-        .model_mod = host_mods[layerIndex("model")],
-        .net_mod = host_mods[layerIndex("net")],
-        .c_abi_shared_mod = host_mods[layerIndex("c_abi_shared")],
-        .resident_mod = iroh_resident_mod,
-        .sidecar_archive = sidecar_archive,
-    });
     const iroh_abi_install = iroh_abi.install;
     const iroh_abi_step = iroh_abi.step;
 

@@ -10,6 +10,7 @@
 // definition serves both themes and any size.
 
 import { Mark } from "./Mark.tsx";
+import { brandName, brandRooms } from "../../lib/text/page.ts";
 
 const paths = {
 	moon: <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z" />,
@@ -263,8 +264,8 @@ export const iconNames: readonly IconName[] = [
 export function Wordmark() {
 	return (
 		<span className="wordmark">
-			<span>glowcap</span>
-			<small>rooms</small>
+			<span>{brandName}</span>
+			<small>{brandRooms}</small>
 		</span>
 	);
 }

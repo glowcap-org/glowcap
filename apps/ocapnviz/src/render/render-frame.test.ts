@@ -16,7 +16,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { Container } from "pixi.js";
 import { Engine } from "../engine/engine.ts";
-import type { TimelineDocument } from "../engine/timeline.ts";
+import { TimelineDocument } from "../engine/timeline.ts";
 import { attachedEndpoint } from "../schema/session-end.ts";
 import { installHeadlessCanvas } from "./headless-canvas.fixture.ts";
 import { themedColors } from "./palette.ts";
@@ -488,3 +488,34 @@ Deno.test(
 		}
 	},
 );
+
+Deno.test("masterpiece playback restrokes at most once per frame and leaves quiet frames alone", async () => {
+	const source = JSON.parse(
+		await Deno.readTextFile(new URL("../../test-data/the-kids-masterpiece.json", import.meta.url)),
+	);
+	const engine = new Engine(TimelineDocument.parse(source));
+	const stage = scene();
+	let clears = 0;
+	let paintedFrames = 0;
+	const clear = stage.edgeStrokeBatch.gfx.clear.bind(stage.edgeStrokeBatch.gfx);
+	stage.edgeStrokeBatch.gfx.clear = () => {
+		clears += 1;
+		return clear();
+	};
+	try {
+		engine.clock.play();
+		for (let t = 0; t <= engine.doc.duration; t += 1000 / 60) {
+			engine.tick(1000 / 60);
+			const before = clears;
+			stage.paint(engine);
+			assert(clears - before <= 1, "one shared wire rebuild per playback frame");
+			if (stage.edgeSprites.size > 0) paintedFrames += 1;
+			const after = clears;
+			stage.paint(engine);
+			assertEquals(clears, after, "repainting the same picture must not re-tessellate wires");
+		}
+		assert(paintedFrames > 30, "the stress document must actually exercise moving wires");
+	} finally {
+		stage.dispose();
+	}
+});

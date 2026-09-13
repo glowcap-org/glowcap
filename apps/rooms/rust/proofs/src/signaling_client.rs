@@ -1,6 +1,6 @@
 use super::arguments::from_fixture;
 use rooms_application::signaling::{self as signal, Candidate, Description, Error, Exchange, Id, Reply};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 pub fn run() {
 	let fixture: Value = serde_json::from_str(include_str!("../fixtures/signaling-client.json")).unwrap();
 	assert_eq!(

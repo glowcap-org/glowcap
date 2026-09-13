@@ -23,6 +23,7 @@ import { Icon } from "./icons.tsx";
 import { IconButton, type IconButtonProps } from "./IconButton.tsx";
 import { writeClipboard } from "./clipboard.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
+import { copyRefused } from "../../lib/text/page.ts";
 
 /** How long the reply stands. Long enough to read after the eye comes back to
  * the control, short enough that the control is offering again by the time a
@@ -53,7 +54,7 @@ export function useCopy(text: string | null) {
 		try {
 			await writeClipboard(text, root);
 		} catch {
-			browser.toast("failure", "Your browser would not let the page copy that.");
+			browser.toast("failure", copyRefused);
 			return;
 		}
 		clearTimeout(back.current);

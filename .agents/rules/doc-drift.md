@@ -57,6 +57,12 @@ change as the state they describe:
 - `apps/rooms/goblins-vat.md`
 - `apps/rooms/operating.md`
 - `apps/rooms/web/deploy/README.md`
+- `apps/rooms/web/ui/README.md`
+- `apps/rooms/rust/README.md`
+- `apps/rooms/rust/archive.md`
+- `apps/rooms/rust/runtime/README.md`
+- `apps/rooms/rust/browser/README.md`
+- `apps/rooms/rust/proofs/fixtures/README.md`
 - `apps/tasks/README.md`
 - `apps/tools/README.md`
 - `apps/accountability-on-glowcap/README.md`
@@ -99,9 +105,9 @@ them by role:
 - operational notes when they describe local workflow without project-state
   claims.
 
-`docs/planning/**` is not a first-read contract by default. A planning file must
-say whether it is an active plan, a historical snapshot, or a living-state
-surface; do not let old plan language masquerade as current architecture.
+`checkPlanningDocRoles` holds `docs/planning/**` roles: active plan, historical
+snapshot, or living-state surface. Every active plan needs a direct link from
+the roadmap or upstream watch; an app README alone does not make work visible.
 
 ## Discipline
 

@@ -12,6 +12,12 @@ pub enum Error {
 	Cleanup { primary: Box<Self>, cleanup: Box<Self> },
 }
 impl Error {
+	pub(super) fn channel(&self) -> Option<&io::Error> {
+		match self {
+			Self::Channel(error) => Some(error),
+			_ => None,
+		}
+	}
 	pub(super) fn retain(self, cleanup: Result<(), Self>) -> Self {
 		match cleanup {
 			Ok(()) => self,

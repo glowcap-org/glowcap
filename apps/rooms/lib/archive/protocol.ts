@@ -9,7 +9,7 @@
 
 import { type Argument, type Behavior, currentSession, Ref, type Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
-import { type Attachment, attachmentRefusal, type AttachmentSource, sendWithAttachments } from "../attachment.ts";
+import { type Attachment, type AttachmentSource, sendWithAttachments } from "../attachment.ts";
 import {
 	ARCHIVE_ATTACHMENT,
 	ARCHIVE_BLOB,
@@ -18,18 +18,10 @@ import {
 	dispatchArchiveBlob,
 } from "./blob_protocol.ts";
 import { ARCHIVE_SHARE_UNHANDLED, dispatchArchiveDurableShare } from "./durable_protocol.ts";
-import {
-	MAX_IMAGE_DIM,
-	MAX_LINE,
-	MAX_MESSAGE_FILES,
-	MAX_ROOM_ATTACHMENT_BYTES,
-	nickRefusal,
-	utf8Fits,
-} from "../limits.ts";
+import { boundedString, opaqueId } from "./record.ts";
 import {
 	ALL_ARCHIVE_RECORDS,
 	type ArchiveAccess,
-	type ArchiveConversationKind,
 	type ArchiveFilter,
 	archiveMatches,
 	intersectArchiveFilters,
@@ -46,6 +38,7 @@ export {
 	archiveMatches,
 } from "./scope.ts";
 export { ArchiveIndex, archiveRecordKey, MAX_ARCHIVE_RECORDS, MemoryArchiveBackend } from "./index.ts";
+export type { ArchivedAttachment } from "./record_attachments.ts";
 
 export const ARCHIVE_PUT = "put";
 export const ARCHIVE_READ = "read";
@@ -59,71 +52,31 @@ export const MAX_ARCHIVE_READ = 128;
  * Released facets do not refill the budget: actor churn is still work and
  * consumes monotonic export positions even when no occurrence remains live. */
 export const MAX_ARCHIVE_FACETS_PER_SESSION = 256;
-/** Opaque recorder coordinates are deliberately small bearer-independent
- * labels. The shipped tab mints 128 bits as printable UUID text. */
-export const MAX_ARCHIVE_ID_BYTES = 128;
-/** Directory locators and contextual conversation labels are data from
- * another peer. Bound them independently of the much smaller room vocabulary. */
-export const MAX_ARCHIVE_CONTEXT_BYTES = 8192;
-export const MAX_ARCHIVE_CONVERSATION_BYTES = 512;
 
-export type ArchiveLineState = "present" | "edited" | "withdrawn";
-
-/** The durable fact that a file occupied one place on a line. Its bytes remain
- * separate capability authority; keeping metadata lets a restored message say
- * exactly what is no longer available instead of silently becoming text-only. */
-export interface ArchivedAttachment {
-	readonly name: string;
-	readonly mime: string;
-	readonly size: number;
-	readonly width: number;
-	readonly height: number;
-	/** Content digest minted by the archive that holds the bytes, or null when
-	 * this record retains metadata only. It identifies content, not authority. */
-	readonly blob: string | null;
-}
-
-export interface ArchiveCoordinates {
-	/** Opaque stable identity minted by this recorder. It is not a person ID. */
-	readonly source: string;
-	/** Opaque identity for one live conversation as this recorder saw it. */
-	readonly generation: string;
-	/** Opaque identity for this record inside the generation. */
-	readonly id: string;
-}
-
+// The record itself, and the one validator behind every form of it, live in
+// `record.ts` so a reader with no session can hold one; the verbs stay here.
+export {
+	type ArchiveCoordinates,
+	type ArchiveLine,
+	type ArchiveLineState,
+	type ArchiveRecord,
+	archiveRecordRow,
+	type ArchiveStanding,
+	MAX_ARCHIVE_CONTEXT_BYTES,
+	MAX_ARCHIVE_CONVERSATION_BYTES,
+	MAX_ARCHIVE_ID_BYTES,
+	parseArchiveCoordinates,
+	parseArchiveRecord,
+} from "./record.ts";
+import {
+	type ArchiveLine,
+	type ArchiveRecord,
+	archiveRecordRow,
+	MAX_ARCHIVE_CONTEXT_BYTES,
+	MAX_ARCHIVE_CONVERSATION_BYTES,
+	parseArchiveRecord,
+} from "./record.ts";
 export { sameArchiveCoordinates } from "./coordinates.ts";
-
-/** Where the recorder stood: enough to offer a returning reader the same
- * place again, without claiming that its names still have the same holders. */
-export interface ArchiveStanding extends ArchiveCoordinates {
-	readonly kind: "standing";
-	readonly directory: string;
-	readonly room: string;
-	readonly nick: string;
-	readonly at: number;
-}
-
-/** One line as this recorder saw it. File metadata preserves the message's
- * shape; byte custody remains separate capability authority. */
-export interface ArchiveLine extends ArchiveCoordinates {
-	readonly kind: "line";
-	readonly conversationKind: ArchiveConversationKind;
-	readonly directory: string;
-	readonly conversation: string;
-	readonly from: string;
-	readonly text: string;
-	readonly mine: boolean;
-	/** Time this line first entered the recorder. Later mutations keep it. */
-	readonly at: number;
-	/** Positive monotone position assigned by the live conversation generation.
-	 * Coordinates remain identity-only. */
-	readonly order: number;
-	readonly state: ArchiveLineState;
-	readonly attachments: readonly ArchivedAttachment[];
-}
-
-export type ArchiveRecord = ArchiveStanding | ArchiveLine;
 
 export interface RevisedArchiveRecord {
 	readonly revision: number;
@@ -147,181 +100,6 @@ export interface ArchiveBackend {
 /** Storage authority held by an owner that may erase its own archive account. */
 export interface ErasableArchiveBackend extends ArchiveBackend {
 	clear(): Promise<void> | void;
-}
-
-function boundedString(raw: unknown, what: string, maxBytes: number, empty = false): string {
-	if (typeof raw !== "string") throw new Error(`${what} must be text`);
-	if (!empty && raw.length === 0) throw new Error(`${what} may not be empty`);
-	if (!utf8Fits(raw, maxBytes)) throw new Error(`${what} is too long`);
-	return raw;
-}
-
-function opaqueId(raw: unknown, what: string): string {
-	const value = boundedString(raw, what, MAX_ARCHIVE_ID_BYTES);
-	// These are coordinates, never display text. Excluding controls makes their
-	// accidental appearance in logs unambiguous and keeps composite keys safe.
-	// deno-lint-ignore no-control-regex
-	if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) throw new Error(`${what} contains a control character`);
-	return value;
-}
-
-export function parseArchiveCoordinates(source: unknown, generation: unknown, id: unknown): ArchiveCoordinates {
-	return {
-		source: opaqueId(source, "archive source"),
-		generation: opaqueId(generation, "archive generation"),
-		id: opaqueId(id, "archive record id"),
-	};
-}
-
-function archiveName(raw: unknown, what: string): string {
-	if (typeof raw !== "string") throw new Error(`${what} must be text`);
-	const refusal = nickRefusal(raw);
-	if (refusal !== null) throw new Error(`${what}: ${refusal}`);
-	return raw;
-}
-
-function timestamp(raw: unknown): number {
-	if (typeof raw !== "bigint" || raw < 0n || raw > BigInt(Number.MAX_SAFE_INTEGER)) {
-		throw new Error("archive time must be a non-negative safe integer");
-	}
-	return Number(raw);
-}
-
-function conversationOrder(raw: unknown): number {
-	if (typeof raw !== "bigint" || raw < 1n || raw > BigInt(Number.MAX_SAFE_INTEGER)) {
-		throw new Error("archive line order must be a positive safe integer");
-	}
-	return Number(raw);
-}
-
-function readCommon(raw: Argument[]): ArchiveCoordinates {
-	return parseArchiveCoordinates(raw[1], raw[2], raw[3]);
-}
-
-function archivedDimension(raw: unknown): number {
-	if (typeof raw !== "bigint" || raw < 0n || raw > BigInt(MAX_IMAGE_DIM)) {
-		throw new Error("archive attachment dimensions are invalid");
-	}
-	return Number(raw);
-}
-
-function parseArchivedAttachments(raw: unknown): ArchivedAttachment[] {
-	if (!Array.isArray(raw) || raw.length > MAX_MESSAGE_FILES) {
-		throw new Error(`an archive line may carry at most ${MAX_MESSAGE_FILES} attachment records`);
-	}
-	const attachments = raw.map((entry) => {
-		if (
-			!Array.isArray(entry) || entry.length !== 6 || typeof entry[0] !== "string" ||
-			typeof entry[1] !== "string" || typeof entry[2] !== "bigint" || entry[2] > BigInt(Number.MAX_SAFE_INTEGER)
-		) throw new Error("an archive attachment record has the wrong shape");
-		const blob = entry[5];
-		if (blob !== null && (typeof blob !== "string" || !/^[0-9a-f]{64}$/.test(blob))) {
-			throw new Error("an archive attachment has an invalid blob digest");
-		}
-		const size = Number(entry[2]);
-		const refused = attachmentRefusal(entry[0], entry[1], size);
-		if (refused != null) throw new Error(`archive attachment: ${refused}`);
-		return {
-			name: entry[0],
-			mime: entry[1],
-			size,
-			width: archivedDimension(entry[3]),
-			height: archivedDimension(entry[4]),
-			blob,
-		};
-	});
-	if (attachments.reduce((total, attachment) => total + attachment.size, 0) > MAX_ROOM_ATTACHMENT_BYTES) {
-		throw new Error(`archive line attachments may total at most ${MAX_ROOM_ATTACHMENT_BYTES} bytes`);
-	}
-	return attachments;
-}
-
-/** Decode and validate the exact passable record tuple accepted by `put`. */
-export function parseArchiveRecord(raw: unknown): ArchiveRecord {
-	if (!Array.isArray(raw)) throw new Error("archive put needs one record row");
-	if (raw[0] === "standing") {
-		if (raw.length !== 8) throw new Error("an archive standing row has the wrong shape");
-		return {
-			kind: "standing",
-			...readCommon(raw as Argument[]),
-			directory: boundedString(raw[4], "archive directory", MAX_ARCHIVE_CONTEXT_BYTES),
-			room: boundedString(raw[5], "archive room", MAX_ARCHIVE_CONVERSATION_BYTES),
-			nick: archiveName(raw[6], "archive nickname"),
-			at: timestamp(raw[7]),
-		};
-	}
-	if (raw[0] === "line") {
-		if (raw.length !== 14) throw new Error("an archive line row has the wrong shape");
-		const conversationKind = raw[4];
-		if (conversationKind !== "room" && conversationKind !== "direct") {
-			throw new Error("an archive line needs a conversation kind");
-		}
-		const state = raw[12];
-		if (state !== "present" && state !== "edited" && state !== "withdrawn") {
-			throw new Error("an archive line needs a state");
-		}
-		const text = boundedString(raw[8], "archive line", MAX_LINE, true);
-		if (state === "withdrawn" && text !== "") throw new Error("a withdrawn archive line must erase its text");
-		if (typeof raw[9] !== "boolean") throw new Error("an archive line needs its local direction");
-		const attachments = parseArchivedAttachments(raw[13]);
-		if (state === "withdrawn" && attachments.length > 0) {
-			throw new Error("a withdrawn archive line must erase its attachment metadata");
-		}
-		return {
-			kind: "line",
-			...readCommon(raw as Argument[]),
-			conversationKind,
-			directory: boundedString(raw[5], "archive directory", MAX_ARCHIVE_CONTEXT_BYTES),
-			conversation: boundedString(raw[6], "archive conversation", MAX_ARCHIVE_CONVERSATION_BYTES),
-			from: archiveName(raw[7], "archive sender"),
-			text,
-			mine: raw[9],
-			at: timestamp(raw[10]),
-			order: conversationOrder(raw[11]),
-			state,
-			attachments,
-		};
-	}
-	throw new Error("archive record kind is unknown");
-}
-
-/** Encode one record without its storage-owned revision. */
-export function archiveRecordRow(record: ArchiveRecord): Argument[] {
-	if (record.kind === "standing") {
-		return [
-			"standing",
-			record.source,
-			record.generation,
-			record.id,
-			record.directory,
-			record.room,
-			record.nick,
-			BigInt(record.at),
-		];
-	}
-	return [
-		"line",
-		record.source,
-		record.generation,
-		record.id,
-		record.conversationKind,
-		record.directory,
-		record.conversation,
-		record.from,
-		record.text,
-		record.mine,
-		BigInt(record.at),
-		BigInt(record.order),
-		record.state,
-		record.attachments.map((attachment) => [
-			attachment.name,
-			attachment.mime,
-			BigInt(attachment.size),
-			BigInt(attachment.width),
-			BigInt(attachment.height),
-			attachment.blob,
-		]),
-	];
 }
 
 function nullableString(raw: unknown, what: string, maxBytes: number): string | null {

@@ -18,7 +18,6 @@ import {
 	MAX_PENDING_INVITES,
 	MAX_ROSTER_SEEN,
 	MAX_SESSION_DIRECTORY_ROWS,
-	MAX_SESSION_ROOM_MEMBERS,
 	MAX_TOPIC,
 } from "../limits.ts";
 import {
@@ -29,7 +28,7 @@ import {
 } from "./grants.ts";
 import { type RoomsSessionWorkspaceAdoption, RoomsSessionWorkspaceAdoptionSchema } from "./adoption.ts";
 import { PresenceSchema, RoomMemberStateSchema } from "../room/presence.ts";
-import { BridgeFactsSchema, RoomFactsSchema } from "../room/message.ts";
+import { BridgeFactsSchema, RoomCarriesSchema, RoomFactsSchema } from "../room/message.ts";
 import { RoomPolicySchema } from "../room/policy.ts";
 import {
 	MAX_WORKSPACE_CONVERSATIONS,
@@ -44,6 +43,8 @@ const MAX_WIRE_TEXT_CHARS = 64 * 1024;
 const MAX_BEARER_CHARS = 16 * 1024;
 const MAX_OPERATIONS_SNAPSHOT_CHARS = 512 * 1024;
 const MAX_SESSION_PENDING_EFFECTS = 256;
+const MAX_LINK_PREVIEWS = 5;
+const MAX_LINK_PREVIEW_URL_CHARS = 2_048;
 export const ROOMS_SESSION_SNAPSHOT_VERSION = 1;
 export const MAX_SESSION_ISSUES = MAX_WORKSPACE_CONVERSATIONS + MAX_WORKSPACE_DIRECTORIES +
 	MAX_WORKSPACE_OPERATION_CREDENTIALS + 16;
@@ -82,7 +83,13 @@ export const RoomsSessionRoomViewSchema = z.strictObject({
 	/** See `readBridge`. Carried on the view so an attached reader who reloads
 	 * still knows which of its names are not the room's own. */
 	bridge: z.optional(z.nullable(BridgeFactsSchema)),
+	/** See `readCarries`. Absent until the room states it; an attached reader
+	 * keeps every control while it is. */
+	carries: z.optional(RoomCarriesSchema),
 	canSetTopic: z.optional(z.boolean()),
+	/** Whether this membership holds the files facet: what the attach control
+	 * is drawn from, the way the topic control is drawn from `canSetTopic`. */
+	canPostFiles: z.optional(z.boolean()),
 	canModerate: z.optional(z.boolean()),
 });
 
@@ -124,7 +131,6 @@ const RoomsSessionHandedRoomsSchema = z.array(RoomsSessionHandedRoomSchema).chec
 const RoomsSessionRoomViewsSchema = z.array(RoomsSessionRoomViewSchema).check(
 	z.maxLength(MAX_WORKSPACE_CONVERSATIONS),
 	z.refine((views) => new Set(views.map((view) => view.conversationId)).size === views.length),
-	z.refine((views) => views.reduce((total, view) => total + view.members.length, 0) <= MAX_SESSION_ROOM_MEMBERS),
 );
 
 const RoomsSessionDirectoryViewsSchema = z.array(RoomsSessionDirectoryViewSchema).check(
@@ -162,8 +168,8 @@ const IrcSnapshotSchema = z.strictObject({
 	capability: z.literal("irc"),
 	gateway: BridgeGatewaySchema,
 });
-const VizSnapshotSchema = z.strictObject({
-	capability: z.literal("viz"),
+const TraceSnapshotSchema = z.strictObject({
+	capability: z.literal("trace"),
 	url: nonemptyWireText(),
 	connected: z.boolean(),
 	refusal: z.nullable(nonemptyWireText()),
@@ -183,7 +189,7 @@ export const RoomsOperationsSnapshotSchema = z.union([
 	DiagnosticsSnapshotSchema,
 	IrcSnapshotSchema,
 	PeeringSnapshotSchema,
-	VizSnapshotSchema,
+	TraceSnapshotSchema,
 ]);
 
 export type RoomsSessionPendingEffect = z.infer<typeof RoomsSessionPendingEffectSchema>;
@@ -237,6 +243,7 @@ export interface RoomsSessionLineEvent {
 	system: boolean;
 	presence?: RoomsSessionPresence;
 	facts?: RoomsSessionRoomFacts;
+	previewUrls: string[];
 	attachments: Attachment[];
 }
 
@@ -260,11 +267,11 @@ export function parseOperationsSnapshot(
 	raw: unknown,
 ): RoomsOperationsSnapshot {
 	const rows = jsonText(raw, MAX_OPERATIONS_SNAPSHOT_CHARS, `${capability} snapshot`, z.unknown());
-	if (capability === "viz") {
+	if (capability === "trace") {
 		if (typeof rows !== "object" || rows == null || Array.isArray(rows)) {
 			throw new Error("the Rooms session answered an invalid visualizer snapshot");
 		}
-		const parsed = z.safeParse(VizSnapshotSchema, { capability, ...rows });
+		const parsed = z.safeParse(TraceSnapshotSchema, { capability, ...rows });
 		if (!parsed.success) throw new Error("the Rooms session answered an invalid visualizer snapshot");
 		return parsed.data;
 	}
@@ -289,7 +296,7 @@ export function parseOperationsSnapshot(
 
 export function parseLineEvent(args: unknown[]): RoomsSessionLineEvent {
 	if (
-		args.length < 15 || (args.length - 15) % ATTACHMENT_RECORD_SPAN !== 0 ||
+		args.length < 16 || (args.length - 16) % ATTACHMENT_RECORD_SPAN !== 0 ||
 		typeof args[0] !== "string" || args[0] === "" || args[0].length > MAX_WIRE_TEXT_CHARS ||
 		typeof args[1] !== "bigint" || args[1] < 1n || args[1] > BigInt(Number.MAX_SAFE_INTEGER) ||
 		typeof args[2] !== "string" || args[2].length > MAX_WIRE_TEXT_CHARS ||
@@ -307,8 +314,17 @@ export function parseLineEvent(args: unknown[]): RoomsSessionLineEvent {
 		: parseArchiveCoordinates(args[9], args[10], args[11]);
 	const presence = parseEventPresence(args[13]);
 	const facts = parseEventFacts(args[14]);
-	const attachments = readAttachments(args as Argument[], 15);
-	if (attachments.length * ATTACHMENT_RECORD_SPAN !== args.length - 15) {
+	const previewUrls = jsonText(
+		args[15],
+		MAX_LINK_PREVIEWS * (MAX_LINK_PREVIEW_URL_CHARS + 3),
+		"link preview selection",
+		z.array(wireText(MAX_LINK_PREVIEW_URL_CHARS)).check(
+			z.maxLength(MAX_LINK_PREVIEWS),
+			z.refine((urls) => new Set(urls).size === urls.length),
+		),
+	);
+	const attachments = readAttachments(args as Argument[], 16);
+	if (attachments.length * ATTACHMENT_RECORD_SPAN !== args.length - 16) {
 		throw new Error("the Rooms session answered malformed line attachments");
 	}
 	const lineId = args[6] == null ? null : Number(args[6]);
@@ -333,6 +349,7 @@ export function parseLineEvent(args: unknown[]): RoomsSessionLineEvent {
 		system: args[12],
 		...(presence == null ? {} : { presence }),
 		...(facts == null ? {} : { facts }),
+		previewUrls,
 		attachments,
 	};
 }

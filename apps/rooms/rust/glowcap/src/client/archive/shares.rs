@@ -1,5 +1,5 @@
 use super::*;
-use rooms_application::archive::shares::{self, protocol as share_protocol, Share};
+use rooms_application::archive::shares::{self, Share, protocol as share_protocol};
 pub struct ShareView {
 	pub share: Share,
 	pub sturdyref: String,

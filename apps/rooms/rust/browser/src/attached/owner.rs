@@ -1,15 +1,16 @@
 //! Attachment lifetime and reconnect. Only observations restart; an external
 //! command is never replayed by transport recovery.
 use super::{
+	Environment, Result,
 	connections::{self, Connection},
 	driver::Driver,
 	observation::{Callbacks, LocalCallbacks, RemoteCallbacks, Scope},
-	view, Environment, Result,
+	view,
 };
 use crate::platform::Platform;
 use glowcap::CaptpVersion;
 use rooms_application::session::snapshot::Snapshot;
-use rooms_glowcap::client::{session::Session, Deadline};
+use rooms_glowcap::client::{Deadline, session::Session};
 use std::{cell::RefCell, rc::Rc};
 use tokio::sync::watch;
 use wasm_bindgen::JsValue;
@@ -17,13 +18,13 @@ use wasm_bindgen::JsValue;
 #[derive(Clone)]
 pub(super) struct Observers {
 	pub changed: js_sys::Function,
-	pub event: Option<js_sys::Function>,
 	pub operations: js_sys::Function,
 	pub history: js_sys::Function,
 }
 struct Active {
 	session: Session<Platform>,
 	connection: Connection,
+	route: Option<super::signaling::RouteLease>,
 }
 pub(super) struct Owner {
 	pub(super) driver: Driver,
@@ -37,11 +38,12 @@ pub(super) struct Owner {
 	serial: tokio::sync::Mutex<()>,
 	pub changed: Rc<tokio::sync::Notify>,
 	active: RefCell<Option<Active>>,
-	local: Option<rooms_runtime::session_service::Local<Platform>>,
+	local: Option<rooms_runtime::service::Local<Platform>>,
 	local_control: Option<super::local::Control>,
 	disconnected: RefCell<Option<String>>,
 	observers: RefCell<Option<Observers>>,
 	pub latest: Rc<RefCell<Option<Rc<Snapshot>>>>,
+	projected: RefCell<Option<(Rc<Snapshot>, String)>>,
 	pub scope: Rc<Scope>,
 	pub ended: watch::Receiver<Option<Result<()>>>,
 }
@@ -70,7 +72,7 @@ impl Owner {
 		driver: &Driver,
 		scope: Rc<Scope>,
 		active: Option<Active>,
-		local: Option<rooms_runtime::session_service::Local<Platform>>,
+		local: Option<rooms_runtime::service::Local<Platform>>,
 		ended: watch::Receiver<Option<Result<()>>>,
 	) -> Rc<Self> {
 		Rc::new_cyclic(|weak| Self {
@@ -92,6 +94,7 @@ impl Owner {
 			disconnected: RefCell::default(),
 			observers: RefCell::new(None),
 			latest: Rc::default(),
+			projected: RefCell::default(),
 			scope,
 			ended,
 		})
@@ -108,7 +111,7 @@ impl Owner {
 		driver.background(0, move |_| async move {
 			let result = tokio::select! { biased;
 				() = running.scope.stopped() => Ok(()),
-				result = connections::terminal(&mut terminal) => result,
+				result = connections::settled(&mut terminal) => result,
 			};
 			let outcome = super::retain(result, running.retire().await);
 			finished.send_replace(Some(outcome));
@@ -125,7 +128,7 @@ impl Owner {
 	}
 	pub fn operation_id(&self) -> Result<String> {
 		self.scope.open()?;
-		let id = rooms_runtime::entropy::random_id(&mut *self.entropy.borrow_mut(), "")?;
+		let id = rooms_runtime::entropy::random_id(&mut *self.entropy.borrow_mut(), "").map_err(|e| e.to_string())?;
 		Ok(id.text().as_str().expect("generated identifier is scalar").to_owned())
 	}
 	pub fn session(&self) -> Result<super::endpoint::Endpoint> {
@@ -190,13 +193,10 @@ impl Owner {
 		self: &Rc<Self>,
 		driver: Driver,
 		session: Session<Platform>,
-		mut ended: watch::Receiver<Option<Result<()>>>,
+		mut ended: connections::Terminal,
 		observers: Observers,
 	) -> Result<()> {
 		let generation = self.scope.begin()?;
-		if let Some(event) = observers.event.clone() {
-			self.events.listen(Some(event))?;
-		}
 		let callbacks = Callbacks {
 			owner: Rc::downgrade(self),
 			scope: Rc::downgrade(&self.scope),
@@ -210,7 +210,7 @@ impl Owner {
 		let (snapshot, guard) = tokio::select! {
 			biased;
 			() = self.scope.stopped() => return Err("Rooms attachment closed while watching".into()),
-			result = connections::terminal(&mut ended) => return Err(result.err().unwrap_or_else(|| "the shared Rooms session connection closed".into())),
+			result = connections::terminal(&mut ended) => return Err(closed_reason(result)),
 			result = session.watch(RemoteCallbacks { callbacks, session: session.clone() }) => result.map_err(|e| e.to_string())?,
 		};
 		self.scope.install(generation, guard)?;
@@ -226,13 +226,10 @@ impl Owner {
 	fn install_local(
 		self: &Rc<Self>,
 		driver: Driver,
-		session: rooms_runtime::session_service::Local<Platform>,
+		session: rooms_runtime::service::Local<Platform>,
 		observers: Observers,
 	) -> Result<()> {
 		let generation = self.scope.begin()?;
-		if let Some(event) = observers.event {
-			self.events.listen(Some(event))?;
-		}
 		let callbacks = LocalCallbacks {
 			callbacks: Callbacks {
 				owner: Rc::downgrade(self),
@@ -261,7 +258,13 @@ impl Owner {
 		let snapshot = latest
 			.as_ref()
 			.ok_or("the shared Rooms session has not produced a snapshot")?;
-		let output = view::snapshot(snapshot)?;
+		let output = {
+			let mut projected = self.projected.borrow_mut();
+			if projected.as_ref().is_none_or(|(held, _)| !Rc::ptr_eq(held, snapshot)) {
+				*projected = Some((snapshot.clone(), view::snapshot_text(snapshot)?));
+			}
+			view::parse_snapshot(&projected.as_ref().expect("installed snapshot projection").1)?
+		};
 		if let Some(reason) = disconnected {
 			view::set(&output, "connectedDirectories", js_sys::Array::new().into())?;
 			let issues = js_sys::Array::new();
@@ -335,11 +338,7 @@ impl Owner {
 				self.active.borrow_mut().take();
 				self.scope.disconnect()?;
 				self.events.discard();
-				self.announce(Some(
-					&outcome
-						.err()
-						.unwrap_or_else(|| "the shared Rooms session connection closed".into()),
-				))?;
+				self.announce(Some(&closed_reason(outcome)))?;
 			}
 			tokio::select! { biased;
 				() = self.scope.stopped() => break,
@@ -390,8 +389,13 @@ impl Owner {
 		let _serial = self.serial.lock().await;
 		let active = self.active.borrow_mut().take();
 		if let Some(active) = active {
-			let Active { session, connection } = active;
+			let Active {
+				session,
+				connection,
+				route,
+			} = active;
 			drop(session);
+			drop(route);
 			return connection.client.relinquish().await.map_err(|e| e.to_string());
 		}
 		Ok(())
@@ -417,15 +421,23 @@ async fn open(environment: &Environment, driver: &Driver, text: &str, home: Opti
 		if parsed.swissnum.is_empty() {
 			return Err("Rooms attachment needs a capability".into());
 		}
-		environment
+		let route = environment
 			.signaling
 			.prepare(environment, driver, &parsed.locator, home)
 			.await?;
-		let connection = environment.connections.connect(&parsed.locator).await?;
+		let connection = environment
+			.connections
+			.connect(&parsed.locator)
+			.await
+			.map_err(|e| e.to_string())?;
 		let session = Session::enliven(connection.client.clone(), text)
 			.await
 			.map_err(|e| e.to_string())?;
-		Ok(Active { session, connection })
+		Ok(Active {
+			session,
+			connection,
+			route,
+		})
 	};
 	let budget = u64::from(rooms_application::web_relay::IROH_DIAL_TIMEOUT_MS)
 		+ rooms_application::signaling::TIMEOUT_MS
@@ -437,4 +449,13 @@ async fn open(environment: &Environment, driver: &Driver, text: &str, home: Opti
 		.within(budget, work)
 		.await
 		.ok_or("The shared Rooms session exceeded its staged attachment deadline.")?
+}
+
+/// The sentence the page shows when the shared session's connection ended.
+/// The runtime names why whenever it knows; a clean retirement does not.
+fn closed_reason(outcome: std::result::Result<(), rooms_runtime::Error>) -> String {
+	outcome
+		.err()
+		.map(|error| error.into_refusal())
+		.unwrap_or_else(|| "the shared Rooms session connection closed".into())
 }

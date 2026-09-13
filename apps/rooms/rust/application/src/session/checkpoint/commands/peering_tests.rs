@@ -31,7 +31,7 @@ fn bundle_replacement_uses_current_home_and_preserves_foreign_credentials() {
 		&json!([
 			{"capability":"listeners", "scope":"first", "swiss":"foreign"},
 			{"capability":"diagnostics", "scope":"second", "swiss":"old"},
-			{"capability":"viz", "scope":"ws://old.test/viz", "swiss":"old-viz"}
+			{"capability":"trace", "scope":"ws://old.test/trace", "swiss":"old-trace"}
 		])
 		.to_string(),
 	)
@@ -41,8 +41,8 @@ fn bundle_replacement_uses_current_home_and_preserves_foreign_credentials() {
 		.apply(
 			&before,
 			&[
-				"ROOMS-OPERATOR operator-swiss\nROOMS-VIZ viz-swiss".into(),
-				"ws://advertised.test/viz".into(),
+				"ROOMS-OPERATOR operator-swiss\nROOMS-TRACE trace-swiss".into(),
+				"ws://advertised.test/trace".into(),
 				before.operations_bundle_context().into(),
 			],
 			&Addresses,
@@ -55,12 +55,12 @@ fn bundle_replacement_uses_current_home_and_preserves_foreign_credentials() {
 		[
 			("listeners", "first", "foreign"),
 			("operator", "second", "operator-swiss"),
-			("viz", "ws://old.test/viz", "viz-swiss"),
+			("trace", "ws://old.test/trace", "trace-swiss"),
 		]
 	);
 	assert_eq!(
 		next.operations_bundle(),
-		"ROOMS-OPERATOR operator-swiss\nROOMS-VIZ viz-swiss"
+		"ROOMS-OPERATOR operator-swiss\nROOMS-TRACE trace-swiss"
 	);
 	let cleared = Command::ReplaceOperationsBundle
 		.apply(
@@ -76,8 +76,8 @@ fn bundle_replacement_uses_current_home_and_preserves_foreign_credentials() {
 		.apply(
 			&cleared,
 			&[
-				"ROOMS-VIZ fresh".into(),
-				"ws://advertised.test/viz".into(),
+				"ROOMS-TRACE fresh".into(),
+				"ws://advertised.test/trace".into(),
 				cleared.operations_bundle_context().into(),
 			],
 			&Addresses,
@@ -85,17 +85,19 @@ fn bundle_replacement_uses_current_home_and_preserves_foreign_credentials() {
 		)
 		.unwrap();
 	assert_eq!(
-		restored.operations().find(|c| c.capability == "viz").unwrap().scope,
-		"ws://advertised.test/viz"
+		restored.operations().find(|c| c.capability == "trace").unwrap().scope,
+		"ws://advertised.test/trace"
 	);
-	assert!(Command::ReplaceOperationsBundle
-		.apply(
-			&before,
-			&["ROOMS-OPERATOR ocapn://other.tcp/s/secret".into(), "".into(),],
-			&Addresses,
-			&()
-		)
-		.is_err());
+	assert!(
+		Command::ReplaceOperationsBundle
+			.apply(
+				&before,
+				&["ROOMS-OPERATOR ocapn://other.tcp/s/secret".into(), "".into(),],
+				&Addresses,
+				&()
+			)
+			.is_err()
+	);
 	assert_eq!(
 		before
 			.operations()

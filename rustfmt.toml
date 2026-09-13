@@ -7,5 +7,13 @@ hard_tabs = true
 tab_spaces = 4
 max_width = 120
 # Standalone `rustfmt <file>` (the per-edit format hook) parses with this
-# edition; `cargo fmt` reads the same value from each crate's Cargo.toml.
-edition = "2021"
+# edition; `cargo fmt` reads the same value from each crate's Cargo.toml. A
+# 2021 parser cannot read `unsafe extern` and a 2024 parser cannot read a 2021
+# crate's plain `extern`, so this value and the crates move together or not at
+# all.
+edition = "2024"
+# How rustfmt lays code out, which edition 2024 changes independently of what it
+# parses. Kept explicit rather than left to follow `edition`, so a future
+# language bump is a decision about parsing alone and cannot reflow the tree as
+# a side effect.
+style_edition = "2024"

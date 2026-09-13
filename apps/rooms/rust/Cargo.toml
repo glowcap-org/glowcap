@@ -1,21 +1,54 @@
 [workspace]
-members = ["application", "glowcap", "runtime", "native", "browser", "proofs"]
-resolver = "2"
+members = ["application", "glowcap", "runtime", "platform", "services", "browser", "proofs"]
+resolver = "3"
 
 [workspace.package]
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
+license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
 serde = { version = "=1.0.229", default-features = false, features = ["derive", "alloc", "rc"] }
 serde_json = { version = "=1.0.151", default-features = false, features = ["alloc", "raw_value"] }
-hmac = { version = "=0.12.1", default-features = false }
-sha2 = { version = "=0.10.9", default-features = false }
+hmac = { version = "=0.13.0", default-features = false }
+sha2 = { version = "=0.11.0", default-features = false }
 glowcap = { package = "glowcap-rust-dogfood", path = "../../../bindings/rust", default-features = false, features = ["async"] }
 tokio = { version = "=1.53.1", default-features = false, features = ["rt", "macros", "sync", "time"] }
+url = { version = "=2.5.8", default-features = false }
+tokio-tungstenite = { version = "=0.30.0", default-features = false }
+futures-util = { version = "=0.3.34", default-features = false }
+tokio-rustls = { version = "=0.26.5", default-features = false }
+bytes = "=1.12.1"
+wasm-bindgen = "=0.2.128"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+gloo-timers = "0.4"
+
+# The floor every crate answers to, in the manifest rather than only on the
+# command line the gate happens to use. That distinction is the point: with the
+# denial passed as `-D warnings` from `tools/build/rooms/rust.zig` alone, a
+# contributor running `cargo clippy` by hand and an editor running
+# rust-analyzer both saw a weaker standard than CI, and found out at push time.
+# Declared here, all three agree.
+#
+# `unsafe_code` was already forbidden at the root of five of the six crates,
+# one fact written five times. `proofs` does not inherit this setting because
+# it drives the C ABI directly and must use unsafe at that boundary.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# Priority -1 so an individual lint below could be relaxed by name without
+# turning the group off; nothing needs that yet, and the shape is here so the
+# first exception has to be written down rather than achieved with a flag.
+all = { level = "deny", priority = -1 }
 
 [profile.release]
 lto = true
 codegen-units = 1
+# A panic means an internal invariant has failed. Ending the process lets its
+# supervisor restart one coherent service instead of leaving sibling tasks
+# alive around state that can no longer be trusted.
 panic = "abort"

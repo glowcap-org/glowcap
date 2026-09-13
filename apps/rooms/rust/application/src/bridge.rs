@@ -15,6 +15,12 @@ pub const SUBMIT: &str = "submitBridgeForm";
 pub const MAX_JSON: usize = 16 * 1024;
 pub const MAX_FIELDS: usize = 8;
 pub const MAX_ACTIONS: usize = 3;
+pub const MAX_FORM_SCOPE: usize = 64;
+pub const MAX_FORM_TITLE: usize = 60;
+pub const MAX_FORM_SAID: usize = 240;
+pub const MAX_FORM_LABEL: usize = 60;
+pub const MAX_FORM_HINT: usize = 120;
+pub const MAX_FORM_VALUE: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {

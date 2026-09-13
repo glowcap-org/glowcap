@@ -1,6 +1,6 @@
 //! Editable and pasted boot-capability bundles. The boot inventory owns labels;
 //! parsing never turns a capability for another host into a local swiss number.
-use super::{boot_capability, BOOT_CAPABILITIES};
+use super::{BOOT_CAPABILITIES, boot_capability};
 use crate::text::js_whitespace;
 use alloc::{format, string::String, vec::Vec};
 
@@ -19,7 +19,7 @@ impl Draft {
 			}
 			let mut parts = line.split(js_whitespace).filter(|part| !part.is_empty());
 			let label = parts.next().expect("nonempty line");
-			if pasted && label == "ROOMS-VIZ-LISTENING" {
+			if pasted && label == "ROOMS-TRACE-LISTENING" {
 				continue;
 			}
 			let definition = BOOT_CAPABILITIES

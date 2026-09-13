@@ -29,19 +29,19 @@ use std::future::Future;
 use std::rc::{Rc, Weak};
 use std::time::Duration;
 
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::{Notify, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::PendingWork;
+use crate::Ref;
 use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
 use crate::trampoline::{
-	ctx_free, current_turn_for, inside_turn, outcome_behavior, register_actor_cell, trampoline, ActorCell,
-	InternalBehavior,
+	ActorCell, InternalBehavior, ctx_free, current_turn_for, inside_turn, outcome_behavior, register_actor_cell,
+	trampoline,
 };
 use crate::uri::OwnedLocator;
-use crate::PendingWork;
-use crate::Ref;
-use crate::{sys, Argument, Behavior, Codec, Context, ContextInner, Error, Locator, Result};
+use crate::{Argument, Behavior, Codec, Context, ContextInner, Error, Locator, Result, sys};
 
 mod application;
 mod lifecycle;

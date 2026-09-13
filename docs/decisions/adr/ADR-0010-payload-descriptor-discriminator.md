@@ -123,9 +123,10 @@ terse. This is an additive model widening with no profile-name bump.
 
 ## Scope (what this does not decide)
 
-- **Promise-import bookkeeping.** The session has no concept of queuing against
-  an import the way the inbound-answer table queues against an answer;
-  `ImportKind.promise` on a decoded import is carried, not yet branched on.
+- **Promise-import bookkeeping.** This record owns the wire discriminator.
+  [ADR-0111](ADR-0111-next-promise-listeners.md) later gave next-profile promise
+  imports their session-owned shortening and settling listeners; inbound
+  answer queues remain a separate authority.
 
 ## Alternatives Considered
 

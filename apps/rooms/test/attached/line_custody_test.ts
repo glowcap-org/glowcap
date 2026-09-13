@@ -1,3 +1,4 @@
+// Attached line storage owns bounded history, attribution boundaries, and release of file capabilities.
 /// <reference lib="dom" />
 
 import type { Attachment } from "../../lib/attachment.ts";

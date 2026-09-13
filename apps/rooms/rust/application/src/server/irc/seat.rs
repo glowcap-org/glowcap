@@ -3,7 +3,7 @@
 //!
 //! A seat is a native Rooms member who also holds an IRC identity; a foreign
 //! member is somebody who has no Rooms membership at all. The words for both
-//! are IRC's own and live here, because a room server does not know what its
+//! are IRC's own and live here, because a Rooms server does not know what its
 //! bridge is, and a browser that spelled them itself would have to be
 //! rebuilt before a second bridge could say anything of its own.
 use crate::bridge::{Action, Confirm, Field, Form, Leaf, SecretField, TextField, TextOptions, ToggleField, Tone};
@@ -131,6 +131,7 @@ pub fn identity_form(view: &View, origin: &str, tls: bool) -> Result<Form, crate
 		fields.push(Field::Toggle(ToggleField::new(
 			REGISTERED_FIELD,
 			"Log in to a registered IRC account",
+			None,
 			false,
 			alloc::vec![
 				Leaf::Text(TextField::new(ACCOUNT_FIELD, "Account", true, TextOptions::default())?),
@@ -267,10 +268,12 @@ mod tests {
 		assert_eq!(sealed.fields.as_slice().len(), 2);
 		assert_eq!(sealed.actions().len(), 2);
 		assert!(sealed.actions()[1].confirm.is_some());
-		assert!(sealed
-			.encode()
-			.unwrap()
-			.contains("The connection reaches irc.example:6697."));
+		assert!(
+			sealed
+				.encode()
+				.unwrap()
+				.contains("The connection reaches irc.example:6697.")
+		);
 		let clear = identity_form(&view(Phase::Rooms), "", false).unwrap();
 		assert_eq!(clear.fields.as_slice().len(), 1);
 		assert_eq!(clear.actions().len(), 1);

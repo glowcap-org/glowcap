@@ -1,6 +1,6 @@
 //! Sharing gestures keep room and registration identity in Rust through every
 //! await. The page supplies a choice and renders the acknowledged outcome.
-use super::{view, RoomsBrowserSession};
+use super::{RoomsBrowserSession, view};
 use rooms_application::session::{
 	checkpoint::gestures::{DirectGesture, ShareRoom},
 	state::OperationId,

@@ -322,7 +322,7 @@ Deno.test({
 	async fn() {
 		const root = new URL("../../../../../../", import.meta.url);
 		const hostScript = new URL(
-			"../../../../../rooms/test/viz/browser_host.ts",
+			"../../../../../rooms/test/trace/browser_host.ts",
 			import.meta.url,
 		);
 		const child = new Deno.Command(Deno.execPath(), {
@@ -438,7 +438,7 @@ async function readJsonLine(
 	while (true) {
 		const { value, done } = await reader.read();
 		if (done) {
-			throw new Error("viz host exited before announcing its capability");
+			throw new Error("trace host exited before announcing its capability");
 		}
 		buffered += decoder.decode(value, { stream: true });
 		const newline = buffered.indexOf("\n");

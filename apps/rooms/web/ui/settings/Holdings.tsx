@@ -17,6 +17,21 @@ import { ArchiveHolding } from "./History.tsx";
 import { IssuedArchiveShares } from "./ArchiveShares.tsx";
 import { SessionAccessModal } from "./SessionAccess.tsx";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
+import {
+	holdingsCopyAttached,
+	holdingsCopyHosted,
+	holdingsEntryLink,
+	holdingsManageAccessAsk,
+	holdingsManager,
+	holdingsModerator,
+	holdingsOpenRoomControls,
+	holdingsOpsTitle,
+	holdingsSavedEmpty,
+	holdingsSavedTitle,
+} from "../../../lib/text/session_settings.ts";
+import { holdingsLocalLead, holdingsSharedLead } from "../../../lib/text/ops.ts";
+import { sessionAccessTitle } from "../../../lib/text/settings.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
 
 export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }) {
 	const browser = useRoomsBrowser();
@@ -25,7 +40,9 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 	const convs = useRoomsState((state) => state.convs);
 	const [accessOpen, setAccessOpen] = useState(false);
 	const rooms = [...convs.values()].filter((conv): conv is RoomConv => conv.type === "room");
-	const savedRooms = rooms.filter((room) => room.link != null || room.manager != null || room.steward != null);
+	const savedRooms = rooms.filter((room) =>
+		room.linkToken != null || room.managerToken != null || room.stewardToken != null
+	);
 	const controller = useRoomsController();
 	const shared = sharedRoomsSession(controller);
 	// Opening a saved room may have to reach it first, and until it does this
@@ -39,26 +56,23 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 		void session.openConv(room.key).then(() => {
 			browser.closeSettings();
 			browser.aboutConversation("capabilities");
-		}, (cause) => browser.toast("failure", cause instanceof Error ? cause.message : String(cause)))
+		}, (cause) => browser.toast("failure", refusalText(cause)))
 			.finally(() => setOpening(null));
 	};
 
 	return (
 		<>
 			<p className="lead" id="liveHoldingsLegend">
-				{shared != null ? "The shared session" : "This browser session"}{" "}
-				holds live capabilities; the sturdyrefs below are saved authority.
+				{shared != null ? holdingsSharedLead : holdingsLocalLead}
 			</p>
 			{shared != null && (
 				<>
-					<h3 className="well-title overline" id="sessionHoldingLegend">Session access</h3>
+					<h3 className="well-title overline" id="sessionHoldingLegend">{sessionAccessTitle}</h3>
 					<div className="group well" role="group" aria-labelledby="sessionHoldingLegend">
 						<CopyField
 							id="currentSessionCapability"
 							text={shared.sturdyref}
-							label={controller.kind === "hosted"
-								? "Copy the hosted session capability"
-								: "Copy the attached session capability"}
+							label={controller.kind === "hosted" ? holdingsCopyHosted : holdingsCopyAttached}
 						/>
 						<div className="actions">
 							<Button
@@ -67,7 +81,7 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 								variant="quiet"
 								onClick={(event) => openModalFrom(event.currentTarget, () => setAccessOpen(true))}
 							>
-								Manage access…
+								{holdingsManageAccessAsk}
 							</Button>
 						</div>
 					</div>
@@ -75,46 +89,48 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 				</>
 			)}
 
-			<h3 className="well-title overline" id="savedHoldingsLegend">Saved bearer authority</h3>
+			<h3 className="well-title overline" id="savedHoldingsLegend">{holdingsSavedTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="savedHoldingsLegend">
-				{savedRooms.length === 0
-					? <p className="empty">This session has saved no room authority.</p>
-					: (
-						<ul className="entries">
-							{savedRooms.map((room) => (
-								<li className="entry" key={room.key}>
-									<div className="entry-head" data-one-line>
-										<span className="entry-name">{room.id}</span>
-										{
-											/* Which authority this row is about. The name alone said a
+				{savedRooms.length === 0 ? <p className="empty">{holdingsSavedEmpty}</p> : (
+					<ul className="entries">
+						{savedRooms.map((room) => (
+							<li className="entry" key={room.key}>
+								<div className="entry-head" data-one-line>
+									<span className="entry-name">{room.id}</span>
+									{
+										/* Which authority this row is about. The name alone said a
 										    room was in here without saying what was held in it, and
 										    these three are not the same thing to hold: one gets
 										    somebody in, one moderates, one is the room itself. */
-										}
-										{room.link != null && <span className="tag" data-tone="quiet">Entry link</span>}
-										{room.steward != null && <span className="tag">Moderator</span>}
-										{room.manager != null && <span className="tag" data-tone="warn">Manager</span>}
-										<div className="actions">
-											<Button
-												variant="quiet"
-												busy={opening === room.key}
-												disabled={opening !== null && opening !== room.key}
-												onClick={() => openRoomControls(room)}
-											>
-												Open room controls
-											</Button>
-										</div>
+									}
+									{room.linkToken != null && (
+										<span className="tag" data-tone="quiet">{holdingsEntryLink}</span>
+									)}
+									{room.stewardToken != null && <span className="tag">{holdingsModerator}</span>}
+									{room.managerToken != null && (
+										<span className="tag" data-tone="warn">{holdingsManager}</span>
+									)}
+									<div className="actions">
+										<Button
+											variant="quiet"
+											busy={opening === room.key}
+											disabled={opening !== null && opening !== room.key}
+											onClick={() => openRoomControls(room)}
+										>
+											{holdingsOpenRoomControls}
+										</Button>
 									</div>
-								</li>
-							))}
-						</ul>
-					)}
+								</div>
+							</li>
+						))}
+					</ul>
+				)}
 			</div>
 
 			<ArchiveHolding archiveTarget={archiveTarget} />
 			<IssuedArchiveShares archiveTarget={archiveTarget} />
 
-			<h3 className="well-title overline" id="opsLegend">Operations capabilities</h3>
+			<h3 className="well-title overline" id="opsLegend">{holdingsOpsTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="opsLegend">
 				<CapabilitySetForm />
 			</div>

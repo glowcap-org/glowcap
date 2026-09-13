@@ -9,6 +9,8 @@ import { type ReactNode, useRef, useState } from "react";
 import { Confirm } from "../Confirm.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import type { RoomsSessionController } from "../controller/session.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { sessionConfirmKeep } from "../../../lib/text/session.ts";
 
 export interface OperatorActs {
 	/** Which row is holding its question open, keyed by the caller's own key. */
@@ -52,7 +54,7 @@ export function useOperatorActs(): OperatorActs {
 			try {
 				refused = await request();
 			} catch (error) {
-				refused = error instanceof Error ? error.message : String(error);
+				refused = refusalText(error);
 			} finally {
 				running.current.delete(key);
 				setBusy((prior) => {
@@ -77,7 +79,7 @@ export function useOperatorActs(): OperatorActs {
 				<Confirm
 					label={label}
 					say={say}
-					keep="Keep it"
+					keep={sessionConfirmKeep}
 					commit={label}
 					busy={busy.has(key)}
 					onKeep={() => setConfirming(null)}

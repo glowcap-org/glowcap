@@ -12,7 +12,7 @@ import { Button } from "./Button.tsx";
 import { Confirm } from "./Confirm.tsx";
 import { Field } from "./Field.tsx";
 import { WorkingAction } from "./WorkingAction.tsx";
-import { JoinField, JoinPrefix } from "./JoinField.tsx";
+import { JoinField, JoinPrefix } from "./cards/JoinField.tsx";
 import { CopyButton, CopyField } from "./Copy.tsx";
 import { Icon, iconNames } from "./icons.tsx";
 import { IconButton, type IconButtonTone } from "./IconButton.tsx";
@@ -338,7 +338,7 @@ export function KitchenSink() {
 			</Sample>
 			<Sample
 				label="Segmented"
-				note="A closed set of answers, any number of which can be in force. Finished and ready to use, though nothing in the page draws one yet. It is as wide as its answers and never wider, it stays on one line, every boundary in it is a single line that lights from whichever side of it was chosen, and the squeezed example is as narrow as the rail so its answers cut rather than break. A cell is a button and answers Tab and Space, which is what a set where any number can be on should do: arrow walking belongs to the tab bar next door, where the answers take turns."
+				note="A closed set of answers, any number of which can be in force. Finished and ready to use, though nothing in the page draws one yet. It is as wide as its answers and never wider, it stays on one line, every boundary in it is a single line that lights from whichever side of it was chosen, and the squeezed example is as narrow as the rail so its answers cut rather than break. Each cell is a button that answers Tab and Space. Arrow walking belongs to the tab bar next door, where the answers take turns."
 			>
 				<div className="kitchen-stack">
 					<p className="group-label" id="kitchenSegmentedAccess">Who can get in</p>

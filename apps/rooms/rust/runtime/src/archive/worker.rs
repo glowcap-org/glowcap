@@ -1,15 +1,16 @@
 use super::ingestion::Queue;
 use super::*;
 use rooms_application::fields::SafeInteger;
-use rooms_glowcap::client::files::{capture::Captured as Bytes, File};
+use rooms_glowcap::client::files::{File, capture::Captured as Bytes};
 use std::collections::HashMap;
 use tokio::task::{Id, JoinError, JoinSet};
 enum Answer {
 	Data(Argument),
 	Capability(Ref),
 }
-fn revision(revision: u64) -> Result<Answer, String> {
-	SafeInteger::<true>::new(revision).ok_or_else(|| "archive backend returned an invalid revision".to_string())?;
+fn revision(revision: u64) -> Result<Answer, Error> {
+	SafeInteger::<true>::new(revision)
+		.ok_or_else(|| Error::storage_message("archive backend returned an invalid revision"))?;
 	Ok(Answer::Data(Argument::Integer(revision as i64)))
 }
 /// Backend completion and reply settlement are separate facts. A failed reply
@@ -37,7 +38,7 @@ pub struct Worker<B, P: Platform> {
 	finished: watch::Sender<Option<Report>>,
 	pub(super) backend: B,
 	pub(super) publications: Option<publications::Publications>,
-	captures: JoinSet<Result<Vec<Bytes>, String>>,
+	captures: JoinSet<Result<Vec<Bytes>, Error>>,
 	capturing: HashMap<Id, Filing>,
 }
 impl<B: Backend, P: Platform> Worker<B, P> {
@@ -115,7 +116,7 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 						self.backend.read(&filter, after, limit).await.and_then(|page| {
 							wire::page_row(&page, &filter, after, limit)
 								.map(Answer::Data)
-								.map_err(|e| e.to_string())
+								.map_err(Error::invalid_by)
 						})
 					}
 					Operation::Digest {
@@ -129,7 +130,7 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 							.backend
 							.blob_reader(facet, digest.clone())
 							.await
-							.and_then(|reader| reader.restrict(&scope, &digest).map_err(|e| e.to_string()))
+							.and_then(|reader| reader.restrict(&scope, &digest).map_err(Error::invalid_by))
 							.and_then(|reader| {
 								receiver
 									.spawn_reader(session, reader, authority.descendant())
@@ -157,24 +158,26 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 		while let Some(landed) = self.captures.join_next_with_id().await {
 			self.landed(landed, &mut report).await;
 		}
-		if let Some(publications) = &mut self.publications {
-			if publications.close().is_err() {
-				report.publication_failures += 1;
-			}
+		if let Some(publications) = &mut self.publications
+			&& publications.close().is_err()
+		{
+			report.publication_failures += 1;
 		}
 		self.finished.send_replace(Some(report.clone()));
 		report
 	}
 	/// Store a file put whose capture landed, or refuse it with what cut the
 	/// capture short.
-	async fn landed(&mut self, landed: Result<(Id, Result<Vec<Bytes>, String>), JoinError>, report: &mut Report) {
+	async fn landed(&mut self, landed: Result<(Id, Result<Vec<Bytes>, Error>), JoinError>, report: &mut Report) {
 		let (id, outcome) = match landed {
 			Ok((id, outcome)) => (id, outcome),
 			Err(error) if error.is_cancelled() => (
 				error.id(),
-				Err("the archive let this record go before its file bytes arrived".into()),
+				Err(Error::closed(
+					"the archive let this record go before its file bytes arrived",
+				)),
 			),
-			Err(error) => (error.id(), Err(error.to_string())),
+			Err(error) => (error.id(), Err(Error::closed(error.to_string()))),
 		};
 		let Some(Filing {
 			record,
@@ -194,10 +197,10 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 	}
 }
 /// Take every byte of a put's files from their sources, one file at a time.
-async fn capture<P: Platform>(sources: Vec<File<P>>) -> Result<Vec<Bytes>, String> {
+async fn capture<P: Platform>(sources: Vec<File<P>>) -> Result<Vec<Bytes>, Error> {
 	let mut captured = Vec::with_capacity(sources.len());
 	for source in &sources {
-		captured.push(Bytes::read(source).await?);
+		captured.push(Bytes::read(source).await.map_err(Error::closed)?);
 	}
 	Ok(captured)
 }
@@ -213,7 +216,7 @@ impl<B, P: Platform> Drop for Worker<B, P> {
 	}
 }
 
-fn complete(reply: Reply, answer: Result<Answer, String>, report: &mut Report) {
+fn complete(reply: Reply, answer: Result<Answer, Error>, report: &mut Report) {
 	if answer.is_ok() {
 		report.completed = report.completed.saturating_add(1);
 	} else {
@@ -223,9 +226,7 @@ fn complete(reply: Reply, answer: Result<Answer, String>, report: &mut Report) {
 		Reply::Remote(mut reply) => match answer {
 			Ok(Answer::Data(value)) => reply.fulfill(&value).map_err(|_| ()),
 			Ok(Answer::Capability(reference)) => reply.fulfill_value(&reference.into()).map_err(|_| ()),
-			Err(error) => reply
-				.break_with(rooms_application::failure::reason_prefix(&error))
-				.map_err(|_| ()),
+			Err(error) => reply.break_with(&error.into_refusal()).map_err(|_| ()),
 		},
 		Reply::Clear(reply) => reply
 			.send(answer.map(|answer| match answer {

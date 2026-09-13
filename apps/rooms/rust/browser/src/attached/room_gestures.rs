@@ -1,5 +1,5 @@
 //! Rust owns gesture identities and durable intent material; the UI supplies choices.
-use super::{view, RoomsBrowserSession};
+use super::{RoomsBrowserSession, view};
 use rooms_application::{grants::Access, room::policy::RoomPolicy, session::state::OperationId};
 use rooms_glowcap::client::session::controller::{self, Observation};
 use wasm_bindgen::prelude::*;
@@ -18,8 +18,11 @@ impl RoomsBrowserSession {
 		let input = (|| {
 			let request: rooms_glowcap::routes::joining::Request =
 				serde_json::from_str(&super::scalar(destination, 65_536)?).map_err(|e| e.to_string())?;
-			let nick = super::scalar(nick, 32)?;
-			if let Some(error) = rooms_application::room::inbox::nick_refusal(&nick) {
+			let nick_intent: rooms_application::directory::registration::NicknameIntent =
+				serde_json::from_str(&super::scalar(nick, 256)?).map_err(|_| "Invalid nickname intent")?;
+			let nick = nick_intent.requested();
+			let nick_allocation = nick_intent.allocation();
+			if let Some(error) = rooms_application::room::inbox::nick_refusal(nick) {
 				return Err(error);
 			}
 			let default = super::scalar(default_directory, 16384)?;
@@ -37,7 +40,8 @@ impl RoomsBrowserSession {
 						directory: &destination.directory,
 						locator: &destination.locator,
 						name: &destination.name,
-						nick: &nick,
+						nick,
+						nick_allocation,
 						link: destination.link.as_deref(),
 						policy: destination.policy,
 					},

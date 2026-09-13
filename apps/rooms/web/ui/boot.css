@@ -81,7 +81,7 @@
 /* The mushroom's own box. Its canvas hangs around this by the mark's plume
    box, so the light has somewhere to go. The session chooser draws the same
    lockup at this same size — the number's twin is the `size` its `Icon` takes
-   in ui/SessionSetup.tsx — so the mark does not jump when the screen fades
+   in ui/panes/SessionSetup.tsx — so the mark does not jump when the screen fades
    into it. */
 .boot-mark {
 	position: relative;

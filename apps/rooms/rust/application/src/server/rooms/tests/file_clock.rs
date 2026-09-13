@@ -12,7 +12,10 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 	let upload = world.rooms.attach(&entrance.room, alice, description, start).unwrap();
 	assert_eq!(world.rooms.next_upload_deadline(), Some(start + UPLOAD_IDLE_MS));
 	let (_, posted) = world.rooms.post_files(&entrance.room, alice, "", 123, start).unwrap();
-	assert_eq!(world.rooms.history(&entrance.room, alice).unwrap()[0].at, 123);
+	assert_eq!(
+		world.rooms.history(&entrance.room, alice).unwrap().next().unwrap().at,
+		123
+	);
 	let blob = match &posted.effects.tells[0].notice {
 		Notice::Line { files, .. } => files[0].clone(),
 		_ => panic!("a file line"),
@@ -40,19 +43,23 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 	}
 	// Timer delivery may be delayed. A write at expiry must still be refused,
 	// and must never revive the old upload with a newly renewed deadline.
-	assert!(world
-		.rooms
-		.upload_verb(upload, "write", &[Value::Bytes(&[2])], write_at + UPLOAD_IDLE_MS)
-		.is_err());
-	assert!(world
-		.rooms
-		.blob_verb(
-			&blob,
-			"read",
-			&[Value::Natural(0), Value::Natural(1)],
-			write_at + UPLOAD_IDLE_MS
-		)
-		.is_err());
+	assert!(
+		world
+			.rooms
+			.upload_verb(upload, "write", &[Value::Bytes(&[2])], write_at + UPLOAD_IDLE_MS)
+			.is_err()
+	);
+	assert!(
+		world
+			.rooms
+			.blob_verb(
+				&blob,
+				"read",
+				&[Value::Natural(0), Value::Natural(1)],
+				write_at + UPLOAD_IDLE_MS
+			)
+			.is_err()
+	);
 }
 
 #[test]
@@ -62,8 +69,10 @@ fn posting_cannot_publish_a_reservation_that_expired_before_timer_delivery() {
 	let alice = world.join(1, &entrance, "Alice").membership;
 	let description = FileDescription::parse("late.bin", "", 3, 0, 0).unwrap();
 	world.rooms.attach(&entrance.room, alice, description, 7).unwrap();
-	assert!(world
-		.rooms
-		.post_files(&entrance.room, alice, "", 123, 7 + UPLOAD_IDLE_MS)
-		.is_err());
+	assert!(
+		world
+			.rooms
+			.post_files(&entrance.room, alice, "", 123, 7 + UPLOAD_IDLE_MS)
+			.is_err()
+	);
 }

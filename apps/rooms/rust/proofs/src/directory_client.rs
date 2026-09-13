@@ -1,5 +1,5 @@
 use super::arguments::from_fixture;
-use rooms_application::directory::{self, creation::RecoveryKey, queue::Queue, Error, Event};
+use rooms_application::directory::{self, Error, Event, creation::RecoveryKey, queue::Queue};
 use serde_json::Value;
 
 pub fn run() {

@@ -2,8 +2,8 @@
 //! Identity belongs to the archive index; revisions from different accounts are
 //! incomparable. Lifecycle wins first, then the current writer, then listed order.
 use super::{
-	index::{Entry, Identity},
 	Body, Error, LineState, Record,
+	index::{Entry, Identity},
 };
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 pub struct Account<'a, K> {

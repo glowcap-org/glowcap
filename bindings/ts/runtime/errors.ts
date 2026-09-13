@@ -7,14 +7,7 @@
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { readErrorSlot } from "./internal/seam.ts";
-import {
-	ABORT_DOMAIN_CODEC,
-	ABORT_DOMAIN_FOREIGN,
-	ABORT_DOMAIN_SESSION,
-	BROKEN,
-	INTERNAL,
-	OK,
-} from "@glowcap/abi";
+import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_FOREIGN, ABORT_DOMAIN_SESSION, BROKEN, INTERNAL, OK } from "@glowcap/abi";
 import type { CarrierFailure } from "./carrier_failure.ts";
 
 /** The calling thread's last core-archive (`glowcap_*`) error message, or null
@@ -75,12 +68,7 @@ export class GlowcapError extends Error {
 	}
 }
 
-export {
-	retainCleanupFailures,
-	retainSecondaryFailure,
-	secondaryFailureCount,
-	secondaryFailures,
-} from "./cleanup.ts";
+export { retainCleanupFailures, retainSecondaryFailure, secondaryFailureCount, secondaryFailures } from "./cleanup.ts";
 
 /** A promise the partner broke, the typed rejection an awaited `send` (or any
  * settled vow) produces. `reason` is the partner's break message. */

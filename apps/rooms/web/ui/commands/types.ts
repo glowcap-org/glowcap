@@ -76,7 +76,7 @@ export interface CommandPowers {
 	/** Take the most recent line of ours here back. */
 	withdrawLast(): CommandResult<boolean>;
 	/** Say what this room is about. False when this membership holds no topic
-	 * capability, which is what an older room leaves it with. */
+	 * capability, as an older room leaves it. */
 	setTopic(text: string): CommandResult<boolean>;
 	/** Say you have stepped away, or `""` that you are back. Written at whichever
 	 * of the three levels this reader's standing already comes from — the room,
@@ -85,8 +85,8 @@ export interface CommandPowers {
 	setAway(reason: string): CommandResult<boolean>;
 	/** Hand the room this was typed in to a member: the live reference crosses
 	 * the direct line to them as a handoff, and they may take it up or not.
-	 * Nothing durable is minted anywhere, which is what tells it apart from
-	 * `roomLink`. False when there is no room membership to hand over, or when
+	 * Nothing durable is minted anywhere. That distinguishes it from `roomLink`.
+	 * False when there is no room membership to hand over, or when
 	 * `nick` is this reader — they already hold the room. */
 	invite(nick: string): CommandResult<boolean>;
 	/** Ask a member to leave the room this was typed in, through the room's

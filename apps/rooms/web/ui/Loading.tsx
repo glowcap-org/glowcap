@@ -5,6 +5,8 @@
 // kind of pause. `pane` stands in for an operations pane, `page` for the
 // content cell, `catalog` for the parts catalog inside Help.
 
+import { loadingWhat } from "../../lib/text/page.ts";
+
 export type LoadingLayout = "pane" | "page" | "catalog";
 
 export function LoadingSurface({ what, layout }: { what: string; layout: LoadingLayout }) {
@@ -14,7 +16,7 @@ export function LoadingSurface({ what, layout }: { what: string; layout: Loading
 		? "chunk-loading chunk-loading-page"
 		: "chunk-loading chunk-loading-catalog";
 	return (
-		<div className={surface} role="status" aria-live="polite" aria-label={`Loading ${what}`}>
+		<div className={surface} role="status" aria-live="polite" aria-label={loadingWhat(what)}>
 			<span className="ops-loading-line lead-line" aria-hidden="true" />
 			<div className="group well" aria-hidden="true">
 				<span className="ops-loading-line title-line" />

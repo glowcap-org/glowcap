@@ -86,22 +86,18 @@
 			</div>
 			<div class="boot-explain">
 				<h1>glowcap rooms needs JavaScript</h1>
-				<p>This page is not a view onto a chat server. It runs a peer in
-					your browser: it holds the room as a capability, and messages
-					you send directly to someone travel between the two of you
-					without the room seeing them. None of that can happen without
-					scripting.</p>
+				<p>Part of Rooms runs in this tab, so with scripting turned off
+					there is nothing here to show you.</p>
 				<p>If scripting is on and you are still reading this, the page
 					script did not load. Reloading is worth a try.</p>
 			</div>
 			<div class="boot-insecure">
 				<h1>glowcap rooms needs a secure address</h1>
-				<p>This page becomes a peer: it holds your room capabilities and
-					direct messages. Over plain network HTTP, somebody on the path could
-					replace it before it becomes yours, and the browser withholds APIs
-					Rooms needs.</p>
+				<p>This tab is about to hold your links and your messages. Over
+					plain HTTP somebody on the network could swap this page out
+					before it does, and browsers hold back things Rooms needs.</p>
 				<p>Forward this port to your computer and open it at
-					http://localhost, or serve Rooms through HTTPS.</p>
+					http://localhost, or serve Rooms over HTTPS.</p>
 			</div>
 		</div>
 		<script>

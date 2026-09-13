@@ -28,8 +28,11 @@ fourth outcome, and no follow-up PR.
 
 ## The scaffolding has a gate
 
-Code answers to `zig build check`; the scaffolding answers to the same
-invocation. The gate verifies, mechanically, every claim it can reach.
+Static scaffolding answers to `zig build source-check`. Executable devcontainer
+and worktree behavior answers to `zig build infrastructure-check`. The full
+code gate still includes `source-check`, but a scaffolding-only edit runs the
+focused owner instead of spending the product gate. These gates verify every
+claim they can reach.
 `tools/check/source_check.zig` (the driver) and its `tools/check/source_check/`
 check modules and tables are the complete inventory, read them before assuming
 a claim is unchecked. The shape of

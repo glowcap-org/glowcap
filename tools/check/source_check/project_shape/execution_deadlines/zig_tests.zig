@@ -12,11 +12,11 @@ const syntax = @import("syntax.zig");
 const appendViolation = util.appendViolation;
 const gates_path = "tools/build/gates.zig";
 
-const Kind = enum { deterministic, search };
+const Kind = enum { unit_test, search };
 const Exemption = struct { name: []const u8, kind: Kind };
 
 /// The only assigned Zig test in this owner that does not terminate as a
-/// deterministic proof. This list is intentionally tiny and exact; ordinary
+/// unit test. This list is intentionally tiny and exact. Ordinary
 /// tests derive their inventory from the declarations and classifications.
 const exemptions = [_]Exemption{
     .{ .name = "fuzz_tests", .kind = .search },
@@ -55,7 +55,7 @@ pub fn checkSource(
         for (classifications.items) |got| {
             if (!std.mem.eql(u8, got.name, name)) continue;
             classified += 1;
-            const expected_kind: Kind = if (exemption) |item| item.kind else .deterministic;
+            const expected_kind: Kind = if (exemption) |item| item.kind else .unit_test;
             if (got.kind != expected_kind) {
                 try appendViolation(gpa, violations, "{s}: `{s}` has posture `.{s}`, expected `.{s}`; only the explicit unbounded exemption inventory may use search", .{ gates_path, name, @tagName(got.kind), @tagName(expected_kind) });
             }
@@ -144,18 +144,8 @@ fn parsePosture(
     if (std.mem.eql(u8, value, ".search")) {
         return .{ .name = "", .kind = .search };
     }
-    const prefix = ".{.deterministic=";
-    if (std.mem.startsWith(u8, value, prefix) and std.mem.endsWith(u8, value, "}")) {
-        const number = value[prefix.len .. value.len - 1];
-        const seconds = std.fmt.parseInt(u16, number, 10) catch {
-            try appendViolation(gpa, violations, "{s}: deterministic Zig test deadline must be a literal integer from 1 through 30", .{gates_path});
-            return null;
-        };
-        if (seconds == 0 or seconds > 30) {
-            try appendViolation(gpa, violations, "{s}: deterministic Zig test deadline is {d}s; owner-calibrated test/proof processes must be 1..30s", .{ gates_path, seconds });
-            return null;
-        }
-        return .{ .name = "", .kind = .deterministic };
+    if (std.mem.eql(u8, value, ".unit_test")) {
+        return .{ .name = "", .kind = .unit_test };
     }
     try appendViolation(gpa, violations, "{s}: Zig test posture `{s}` is missing or unsupported in the standard-suite inventory", .{ gates_path, std.mem.trim(u8, text, " \t\r\n") });
     return null;
@@ -219,17 +209,17 @@ fn findExemption(name: []const u8) ?Exemption {
 
 const good_source =
     \\const tests = b.addTest(.{});
-    \\const run_tests = execution.addZigTest(b, tests, .{ .deterministic = 30 });
+    \\const run_tests = execution.addZigTest(b, tests, .unit_test);
     \\const completion_deadlines_tests = b.addTest(.{});
-    \\const run_completion = execution.addZigTest(b, completion_deadlines_tests, .{ .deterministic = 3 });
+    \\const run_completion = execution.addZigTest(b, completion_deadlines_tests, .unit_test);
     \\const fuzz_tests = b.addTest(.{});
     \\const run_fuzz = execution.addZigTest(b, fuzz_tests, .search);
     \\const onion_loop_tests = b.addTest(.{});
-    \\const run_onion = execution.addZigTest(b, onion_loop_tests, .{ .deterministic = 3 });
+    \\const run_onion = execution.addZigTest(b, onion_loop_tests, .unit_test);
     \\const oracle_tests = b.addTest(.{});
-    \\const run_oracle = execution.addZigTest(b, oracle_tests, .{ .deterministic = 3 });
+    \\const run_oracle = execution.addZigTest(b, oracle_tests, .unit_test);
     \\const source_check_tests = b.addTest(.{});
-    \\const run_source = execution.addZigTest(b, source_check_tests, .{ .deterministic = 3 });
+    \\const run_source = execution.addZigTest(b, source_check_tests, .unit_test);
 ;
 
 fn expectClean(source: []const u8) !void {
@@ -261,31 +251,31 @@ test "standard Zig test inventory accepts the classified gate set" {
     try expectClean(good_source);
 }
 
-test "deterministic Zig test deadline rejects 31 seconds" {
-    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, ".{ .deterministic = 30 }", ".{ .deterministic = 31 }");
+test "Zig test rejects a process-level deterministic posture" {
+    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, ".unit_test", ".{ .deterministic = 30 }");
     defer std.testing.allocator.free(bad);
-    try expectViolation(bad, "must be 1..30s");
+    try expectViolation(bad, "missing or unsupported");
 }
 
 test "assigned Zig test without a posture is rejected" {
-    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, "const run_tests = execution.addZigTest(b, tests, .{ .deterministic = 30 });", "");
+    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, "const run_tests = execution.addZigTest(b, tests, .unit_test);", "");
     defer std.testing.allocator.free(bad);
     try expectViolation(bad, "must have exactly one");
 }
 
-test "raw deterministic Zig test run is rejected" {
-    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, "execution.addZigTest(b, tests, .{ .deterministic = 30 })", "b.addRunArtifact(tests)");
+test "raw Zig test run is rejected" {
+    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, "execution.addZigTest(b, tests, .unit_test)", "b.addRunArtifact(tests)");
     defer std.testing.allocator.free(bad);
     try expectViolation(bad, "raw `b.addRunArtifact(tests)`");
 }
 
-test "a raw alias cannot hide a deterministic Zig test run" {
+test "a raw alias cannot hide a Zig test run" {
     const bad = good_source ++ "\nconst alias = tests; const raw = b.addRunArtifact(alias);\n";
     try expectViolation(bad, "outside the standard-suite inventory");
 }
 
 test "duplicate Zig test classification is rejected" {
-    const bad = good_source ++ "\nconst duplicate = execution.addZigTest(b, tests, .{ .deterministic = 30 });\n";
+    const bad = good_source ++ "\nconst duplicate = execution.addZigTest(b, tests, .unit_test);\n";
     try expectViolation(bad, "exactly one `execution.addZigTest`");
 }
 
@@ -296,31 +286,31 @@ test "inline Zig test run cannot bypass assignment and posture" {
 
 test "comments and strings cannot fabricate Zig test inventory entries" {
     const decorated = good_source ++
-        \\// const phantom = b.addTest(.{}); execution.addZigTest(b, phantom, .{ .deterministic = 2 });
+        \\// const phantom = b.addTest(.{}); execution.addZigTest(b, phantom, .unit_test);
         \\/// b.addTest execution.addZigTest
         \\const quoted = "b.addTest execution.addZigTest b.addRunArtifact(tests)";
     ;
     try expectClean(decorated);
 }
 
-test "ordinary deterministic test cannot claim search posture" {
-    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, ".{ .deterministic = 30 }", ".search");
+test "ordinary unit test cannot claim search posture" {
+    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, ".unit_test", ".search");
     defer std.testing.allocator.free(bad);
     try expectViolation(bad, "only the explicit unbounded exemption inventory");
 }
 
-test "newly assigned deterministic test needs no detached inventory row" {
+test "newly assigned unit test needs no detached inventory row" {
     const expanded = good_source ++
         \\const new_suite = b.addTest(.{});
-        \\const run_new = execution.addZigTest(b, new_suite, .{ .deterministic = 7 });
+        \\const run_new = execution.addZigTest(b, new_suite, .unit_test);
     ;
     try expectClean(expanded);
 }
 
-test "removed deterministic test leaves no deadline tombstone" {
+test "removed unit test leaves no deadline tombstone" {
     const removed_declaration = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, "const completion_deadlines_tests = b.addTest(.{});\n", "");
     defer std.testing.allocator.free(removed_declaration);
-    const removed = try std.mem.replaceOwned(u8, std.testing.allocator, removed_declaration, "const run_completion = execution.addZigTest(b, completion_deadlines_tests, .{ .deterministic = 3 });\n", "");
+    const removed = try std.mem.replaceOwned(u8, std.testing.allocator, removed_declaration, "const run_completion = execution.addZigTest(b, completion_deadlines_tests, .unit_test);\n", "");
     defer std.testing.allocator.free(removed);
     try expectClean(removed);
 }

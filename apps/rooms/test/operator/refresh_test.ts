@@ -1,3 +1,4 @@
+// Operator refresh requests serialize, coalesce to current intent, and deliver eventual failures to every waiter.
 import { OperatorRefreshQueue } from "../../web/ui/ops/operator_refresh.ts";
 import { assertEquals } from "../assert.ts";
 

@@ -18,12 +18,13 @@ import type {
 import { applicationModule, readSavedWorkspace as parseWorkspaceState, workspaceStorageKey } from "./application.ts";
 export { readSavedWorkspace as parseWorkspaceState } from "./application.ts";
 import type { RoomsPageContext } from "./page.ts";
+import { refusalText } from "../../lib/text/failure.ts";
 export type { RoomsWorkspaceState } from "../../lib/rooms_state.ts";
 
 interface RetainedWorkspaceState {
 	readonly controller: RoomsControllerSelection;
 	dmMode: RoomsWorkspaceState["session"]["dmMode"];
-	vizOverride: string;
+	traceOverride: string;
 	operations: WorkspaceOperationCredential[];
 	archivePeer: string | null;
 	peering: WorkspacePeeringIntent[];
@@ -32,7 +33,7 @@ interface RetainedWorkspaceState {
 const EMPTY_RETAINED: RetainedWorkspaceState = {
 	controller: { kind: "none" },
 	dmMode: "webrtc",
-	vizOverride: "",
+	traceOverride: "",
 	operations: [],
 	archivePeer: null,
 	peering: [],
@@ -91,7 +92,7 @@ export function retainWorkspace(page: RoomsPageContext, document: RoomsWorkspace
 	page.workspace.retained = document == null ? { ...EMPTY_RETAINED, operations: [] } : {
 		controller: document.controller,
 		dmMode: document.session.dmMode,
-		vizOverride: document.session.vizOverride,
+		traceOverride: document.session.traceOverride,
 		operations: [...document.session.capabilities.operations],
 		archivePeer: document.session.capabilities.archivePeer,
 		peering: [...document.session.peering],
@@ -133,7 +134,7 @@ function retainedWithSession(
 	return {
 		...retained,
 		dmMode: session.dmMode,
-		vizOverride: session.vizOverride,
+		traceOverride: session.traceOverride,
 		operations: [...session.capabilities.operations],
 		archivePeer: session.capabilities.archivePeer,
 		peering: [...session.peering],
@@ -190,7 +191,7 @@ export function validatedWorkspaceState(
 	try {
 		return { document: workspaceStateOf(page, page.projection.get()) };
 	} catch (error) {
-		return { refused: error instanceof Error ? error.message : String(error) };
+		return { refused: refusalText(error) };
 	}
 }
 
@@ -198,7 +199,7 @@ function encodedWorkspaceState(page: RoomsPageContext): { encoded: string } | { 
 	try {
 		return { encoded: encodeWorkspace(page, page.projection.get()) };
 	} catch (error) {
-		return { refused: error instanceof Error ? error.message : String(error) };
+		return { refused: refusalText(error) };
 	}
 }
 
@@ -224,11 +225,11 @@ export function persistPreparedWorkspace(page: RoomsPageContext, document: Rooms
 	return page.workspace.persistenceControl?.commitEncoded(canonical) ?? false;
 }
 
-export function workspaceConnectionSettings(): { dmMode: "webrtc" | "relay"; vizOverride: string } {
+export function workspaceConnectionSettings(): { dmMode: "webrtc" | "relay"; traceOverride: string } {
 	const document = parseWorkspaceState(LS.get(workspaceStorageKey()));
 	return document == null
-		? { dmMode: "webrtc", vizOverride: "" }
-		: { dmMode: document.session.dmMode, vizOverride: document.session.vizOverride };
+		? { dmMode: "webrtc", traceOverride: "" }
+		: { dmMode: document.session.dmMode, traceOverride: document.session.traceOverride };
 }
 
 /** Persist only when the durable projection changes. Store traffic includes
@@ -289,11 +290,14 @@ export function installWorkspaceStatePersistence(page: RoomsPageContext): () => 
 		clear: () => saver.clear(),
 		attach: async (link, home) => {
 			const current = page.attachedSession.current;
-			const encoded =
-				await (current == null
-					? applicationModule().RoomsBrowserApplication.selectWorkspace(saver, link, home)
-					: current.selectWorkspace(saver, link, home));
-			const result = JSON.parse(encoded) as { workspace: string | null; cleanup: string | null };
+			const result = await (current == null
+				? applicationModule().RoomsBrowserApplication.selectWorkspace(
+					saver,
+					link,
+					home,
+					(source: string, reason: string) => store.noteTrouble(page.projection, source, reason),
+				)
+				: current.selectWorkspace(saver, link, home));
 			if (result.workspace != null) {
 				stop();
 				retainWorkspace(page, JSON.parse(result.workspace) as RoomsWorkspaceState);

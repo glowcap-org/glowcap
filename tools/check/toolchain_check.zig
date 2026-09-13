@@ -1,49 +1,24 @@
-//! Toolchain gate — holds `zig build check` to a declared set of runtimes.
+//! Declared runtime checker for the in-tree build gates.
 //!
-//! `check` is hermetic in the sense that matters: no network, no submodules, no
-//! live peer, no authority outside glowcap. That is the axis `check-external`
-//! divides on. It is *not* Zig-only, and the [cli rule](../../.agents/rules/cli.md)
-//! promised for a long time that it was, even though the hermetic CLI tests link
-//! the iroh sidecar staticlib and two gated harnesses invoke host tools.
+//! `tools/build/toolchain.zig` owns the runtime inventory. This module walks a
+//! completed gate graph and rejects programs outside that inventory. An
+//! interpreter may run only the scripts or modules its row names.
 //!
-//! Each of those was a deliberate call by its author, and each was right — a
-//! soft-green extract matrix is a footgun, and the CLI goldens are worth having
-//! in the gate everyone runs. What went wrong is that the requirement arrived
-//! silently three times, so the rule's claim died without anyone deciding to
-//! kill it, and a contributor with only Zig found the gate would not run at all.
-//!
-//! So the set is declared in `check_runtimes` in tools/build/toolchain.zig and held here: a
-//! member of `check` that invokes a program outside it fails this step, and an
-//! interpreter may only run the scripts its row names. Requiring a fourth
-//! runtime becomes a one-line, reviewed edit to that table.
-//!
-//! **What this cannot see.** The graph identifies the command after plain
-//! `env NAME=value` assignments, but a program a
-//! declared script reaches *inside* itself is invisible here. The extract matrix
-//! requires `tar`; its Python and Deno validators and the visualizer's Deno suite
-//! are optional coverage that reports an explicit skip. The Bash row records
-//! that contract because the graph can only see Bash.
-//!
-//! **The other direction.** Declaring a runtime is a claim that the machine
-//! running `check` has it, and that claim goes stale on its own: a commit adds
-//! an image layer, and every container built before it keeps working until some
-//! member deep in the graph reports `FileNotFound` for a program the reader has
-//! never heard of. So the same walk that finds what `check` runs also resolves
-//! each declared program on `PATH` and names the missing one against its
-//! reason, before the gate spends a compile on the step that needs it.
-//!
-//! Wired as the `zig build toolchain-check` step and into `zig build check`.
+//! The walk recognizes plain `env NAME=value ... command` wrappers. It cannot
+//! see programs launched from inside a declared script, so each interpreter
+//! row must name that hidden floor in its reason. Presence and capability
+//! probes are wired separately by the owning gate. They fail before the first
+//! member that needs a stale devcontainer toolchain.
 
 const std = @import("std");
 const Build = std.Build;
 const Step = Build.Step;
 
-/// One program `check` may invoke, and why a step needing it belongs in the main
-/// gate instead of a sibling.
+/// One program an in-tree gate may invoke, and why that gate needs it.
 pub const Runtime = struct {
     /// The command name as written, after any plain environment assignments.
     program: []const u8,
-    /// For an interpreter, the scripts it may run under `check`. Arguments are
+    /// For an interpreter, the scripts it may run under the gate. Arguments are
     /// unconstrained only when both this and `modules` are empty.
     scripts: []const []const u8 = &.{},
     /// Modules accepted after `-m`. Kept separate from scripts so declaring
@@ -54,7 +29,7 @@ pub const Runtime = struct {
     why: []const u8,
 };
 
-/// What `check`'s graph says about the runtimes it declares.
+/// What one gate graph says about the runtimes it declares.
 pub const Verdict = struct {
     /// The declaration verdict as a step: a failing step naming every member
     /// that reaches for an undeclared program, or a satisfied marker.
@@ -66,13 +41,12 @@ pub const Verdict = struct {
 
 /// Read the graph rooted at `root` against `runtimes`.
 ///
-/// `root` is `check` itself. Zig 0.17 removed make-time custom build steps, so
-/// callers create this after wiring the full gate; the walk then sees exactly
-/// what `check` would run. Reaching itself is harmless: a top-level step runs
-/// no program.
+/// Callers create this after wiring the full gate, so the walk sees exactly
+/// what that gate would run. Reaching the root itself is harmless because a
+/// top-level step runs no program.
 pub fn create(b: *Build, root: *Step, runtimes: []const Runtime) Verdict {
     const gpa = b.allocator;
-    const findings = checkGraph(gpa, root, runtimes, b.graph.zig_exe, b.root.toString(gpa) catch @panic("OOM")) catch @panic("OOM");
+    const findings = checkGraph(gpa, root, root.name, runtimes, b.graph.zig_exe, b.root.toString(gpa) catch @panic("OOM")) catch @panic("OOM");
     if (findings.undeclared) |text|
         return .{ .declaration = &b.addFail(text).step, .reached = findings.reached };
 
@@ -114,7 +88,7 @@ fn commandArgs(args: []const Step.Run.Arg) []const Step.Run.Arg {
 ///
 /// `addRunArtifact` puts the compiled binary in the first argument, so the
 /// `.artifact` arm needs no declaration. `addSystemCommand` puts the program
-/// name there as bytes, which is the case that costs something on PATH — except
+/// name there as bytes, which is the case that costs something on PATH, except
 /// when that name is the running compiler, which is on PATH by construction.
 fn programOf(step: *Step, zig_exe: []const u8) ?[]const u8 {
     const run = step.cast(Step.Run) orelse return null;
@@ -156,9 +130,9 @@ fn moduleOf(step: *Step) ?[]const u8 {
     };
 }
 
-/// A script named the way `check_runtimes` names it: relative to the repository.
+/// A script named the way `in_tree_runtimes` names it: relative to the repository.
 ///
-/// A call site is free to write the path absolutely, and one has to — the
+/// A call site is free to write the path absolutely, and one has to. The
 /// deadline wrapper runs from whichever directory its step works in, so only an
 /// absolute path finds it. That is a spelling, not a different script, and the
 /// declaration is about which script may run. Comparing spellings instead made
@@ -170,7 +144,7 @@ fn repoRelative(root: []const u8, script: []const u8) []const u8 {
     return if (rest.len > 0 and rest[0] == std.fs.path.sep) rest[1..] else rest;
 }
 
-/// The row declaring `program`, or null when `check` declares no such runtime.
+/// The row declaring `program`, or null when the gate declares no such runtime.
 fn declaredIndex(runtimes: []const Runtime, program: []const u8) ?usize {
     for (runtimes, 0..) |runtime, index| {
         if (std.mem.eql(u8, runtime.program, program)) return index;
@@ -188,6 +162,7 @@ fn violation(
     step: *Step,
     program: []const u8,
     root_path: []const u8,
+    gate_name: []const u8,
 ) !?[]const u8 {
     if (declared) |runtime| {
         if (moduleOf(step)) |module| {
@@ -218,14 +193,14 @@ fn violation(
     }
     return try std.fmt.allocPrint(
         gpa,
-        "step '{s}' runs '{s}', which `check` does not declare",
-        .{ step.name, program },
+        "step '{s}' runs '{s}', which `{s}` does not declare",
+        .{ step.name, program, gate_name },
     );
 }
 
-/// What one walk of the `check` graph found.
+/// What one gate-graph walk found.
 const Findings = struct {
-    /// Steps invoking a program `check_runtimes` does not permit, or null when
+    /// Steps invoking a program `in_tree_runtimes` does not permit, or null when
     /// every invocation is declared.
     undeclared: ?[]const u8,
     /// Rows in `runtimes` this graph will actually run, deduplicated. The
@@ -237,6 +212,7 @@ const Findings = struct {
 fn checkGraph(
     gpa: std.mem.Allocator,
     root: *Step,
+    gate_name: []const u8,
     runtimes: []const Runtime,
     zig_exe: []const u8,
     root_path: []const u8,
@@ -263,7 +239,7 @@ fn checkGraph(
                 if (std.mem.indexOfScalar(usize, reached.items, found) == null)
                     try reached.append(gpa, found);
             }
-            if (try violation(gpa, if (index) |found| runtimes[found] else null, current, program, root_path)) |line|
+            if (try violation(gpa, if (index) |found| runtimes[found] else null, current, program, root_path, gate_name)) |line|
                 try offenders.append(gpa, line);
         }
         for (current.dependencies.items) |dependency| try pending.append(gpa, dependency);
@@ -276,7 +252,7 @@ fn checkGraph(
     if (offenders.items.len == 0) return .{ .undeclared = null, .reached = reached_rows };
 
     var report: std.ArrayList(u8) = .empty;
-    try report.appendSlice(gpa, "`zig build check` may only invoke the runtimes it declares, but:\n");
+    try report.print(gpa, "`zig build {s}` may only invoke the runtimes it declares, but:\n", .{gate_name});
     for (offenders.items) |line| {
         try report.appendSlice(gpa, "  - ");
         try report.appendSlice(gpa, line);
@@ -286,9 +262,9 @@ fn checkGraph(
         gpa,
         \\
         \\Either give the step its own `zig build` step and sequence it from
-        \\`ci/gates.sh`, or add a row to `check_runtimes` in tools/build/toolchain.zig saying
-        \\which member needs the program and why it belongs in the gate everyone
-        \\runs. A new row raises what a contributor must install, so the cli rule
+        \\`ci/gates.sh`, or add a row to `in_tree_runtimes` in tools/build/toolchain.zig saying
+        \\which member needs the program and why it belongs in this gate. A new
+        \\row raises what a contributor must install, so the cli rule
         \\names the set too.
         ,
     );

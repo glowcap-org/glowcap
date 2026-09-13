@@ -11,7 +11,7 @@ mod peering_tests;
 mod preferences;
 pub mod results;
 
-use super::{fields::*, model::*, validate, Checkpoint, Routes};
+use super::{Checkpoint, Routes, fields::*, model::*, validate};
 use crate::{session::state::Impact, text::DocumentText};
 use alloc::{string::String, vec};
 use serde::{Deserialize, Serialize};
@@ -171,10 +171,10 @@ impl Command {
 			| Self::SetEffectiveStanding
 			| Self::SetIgnoredName
 			| Self::AcceptInvitation
-			| Self::SetDirectoryNick
 			| Self::DropRoomModerator
 			| Self::DropRoomManager
 			| Self::ChooseConnection => 2..=2,
+			Self::SetDirectoryNick => 2..=3,
 			Self::ReplaceOperationsBundle => 3..=3,
 			Self::SubmitRoomBridgeForm => 5..=6,
 			_ => 1..=1,
@@ -232,6 +232,11 @@ impl Command {
 					.ok_or(Error::Missing)?;
 				if self == Self::SetDirectoryNick {
 					directory.nick = text(&args[1])?;
+					directory.nick_allocation = match args.get(2).and_then(DocumentText::as_str) {
+						None | Some("exact") => crate::directory::registration::NicknameAllocation::Exact,
+						Some("automatic") => crate::directory::registration::NicknameAllocation::Automatic,
+						Some(_) => return Err(Error::Arguments),
+					};
 				} else {
 					directory.standing = optional(args.get(1))?;
 				}
@@ -338,7 +343,7 @@ impl Command {
 					Some("relay") => DmMode::Relay,
 					_ => return Err(Error::Arguments),
 				};
-				next.viz_override = text(&args[1])?;
+				next.trace_override = text(&args[1])?;
 			}
 			Self::SelectArchive => next.capabilities.archive_peer = optional(args.first())?,
 		}

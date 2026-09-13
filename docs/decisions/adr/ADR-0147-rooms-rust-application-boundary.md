@@ -7,7 +7,7 @@ decision: "Rooms application policy and capability custody belong to one portabl
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0148]
 ---
 
 # ADR-0147 Rooms' Rust application boundary
@@ -68,9 +68,8 @@ hosted, and attached sessions, shared connections, workspace persistence and
 archive custody. TypeScript renders typed observations and supplies platform
 effects; its old Host, FFI and protocol clients are absent from the executable
 page graph. Retained TypeScript protocol consumers and test fixtures are not
-application owners. The historical
-[migration record](../../planning/rooms-rust.md) names feature coverage and
-evidence. This decision does not change wire formats, authorize a state reset,
+application owners. The living [shipped inventory](../../shipped.md) names
+current feature coverage and evidence. This decision does not change wire formats, authorize a state reset,
 replace React, or remove other applications' TypeScript bindings.
 
 ## Alternatives
@@ -111,13 +110,13 @@ adding a Rooms wire verb or changing CapTP's session identity rules.
 
 `zig build rooms-rust-test` executes grant policy, failure, restart, HMAC, and
 Host allocation/retirement contracts natively. It participates in
-`zig build check`. `zig build rooms-rust-browser-test` runs the same Rust
-scenario bodies in Node and Chromium and checks that the linked module has one
+`zig build runtime-check`. `zig build rooms-rust-browser-test` runs the same Rust
+scenario bodies in Deno and Chromium and checks that the linked module has one
 memory and no imports. The latter proves direct linking for the functions it
 calls, including the real Rust Context and locator binding with target-generated
 layout assertions and archive fingerprints. The separate
 `rooms-rust-browser-host-test` executes the real async Rust Host and Rooms
-client in Node and Chromium over an in-memory byte channel. A browser executor
+client in Deno and Chromium over an in-memory byte channel. A browser executor
 polls Tokio's local tasks; browser timers and Web Crypto supply platform effects.
 Native driver ownership is excluded from Wasm. Default browser Host contexts
 use Rust's allocator, and all byte-fed close timestamps share one monotonic

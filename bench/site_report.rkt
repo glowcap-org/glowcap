@@ -413,7 +413,7 @@
     (let ([m (regexp-match #px"v([0-9.]+) \\[(\\w+)\\]" (sh1 "racket --version"))])
       (if m (format "Racket v~a ~a" (list-ref m 1) (string-upcase (list-ref m 2))) "Racket")))
   (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>glowcap</code> archives built by Zig ~a in ReleaseFast. The regeneration command is at the bottom of the page.</em></p>"
-          (sh1 "date +%Y-%m-%d") (sh1 "uname -srm") (sh1 "nproc") gib
+          (sh1 "date +%Y-%m-%d") (sh1 "uname -sm") (sh1 "nproc") gib
           racket-v goblins-v (sh1 "zig version")))
 
 ;; Replace the body of the `=html` block tagged with the bench marker.

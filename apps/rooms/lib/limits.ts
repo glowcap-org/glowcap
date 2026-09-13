@@ -15,19 +15,20 @@
 // record it describes.
 
 import { WEBRTC_MAX_SIGNAL_BYTES } from "@glowcap/abi";
+import * as APPLICATION_DATA from "./application_data.ts";
 
 /** Hard length caps a room enforces, so an oversize name or line is refused at
  * the edge instead of silently truncated (a lying path that delivered half a
  * line as if it were whole). */
-export const MAX_NICK = 32;
-export const MAX_ROOM = 32;
+export const MAX_NICK = APPLICATION_DATA.MAX_NICK;
+export const MAX_ROOM = APPLICATION_DATA.MAX_ROOM;
 /** How many bytes of entropy identify a managed room independently of its
  * human name and admission policy. Sixteen is the shape of a swissnum: this is
  * opaque application identity, never a directory lookup key. */
-export const ROOM_ID_BYTES = 16;
+export const ROOM_ID_BYTES = APPLICATION_DATA.ROOM_ID_BYTES;
 /** The longest durable room identifier a server keeps: an unmanaged room's
  * public name, or a managed room's opaque id, whichever is longer. */
-export const MAX_DURABLE_ROOM = Math.max(MAX_ROOM, 1 + ROOM_ID_BYTES * 2);
+export const MAX_DURABLE_ROOM = APPLICATION_DATA.MAX_DURABLE_ROOM;
 
 /** Whether a durable room identifier is in the opaque managed-room namespace.
  * Length is load-bearing: public names are one character shorter at most, so a
@@ -48,7 +49,7 @@ export function newManagedRoomId(): string {
 	const bytes = crypto.getRandomValues(new Uint8Array(ROOM_ID_BYTES));
 	return "~" + [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-export const MAX_LINE = 8192;
+export const MAX_LINE = APPLICATION_DATA.MAX_LINE;
 
 /** Whether a subscribe that was refused for a held name may present a name
  * voucher, the proof that this reader already holds that name here.
@@ -93,20 +94,36 @@ export function mayPresentNameVoucher(at: {
 	return at.trusted && at.nickTaken && at.attempt === 0 && !at.presented && at.ownName;
 }
 
-/** Offer the next conventional spelling without changing what was asked. A
- * later refusal can suggest the following number; only the reader chooses it. */
-export function suggestedNick(nick: string): string {
-	const match = /^(.*?)(?:-(\d+))?$/.exec(nick);
-	const numbered = match?.[2] == null ? 2 : Number(match[2]) + 1;
-	const suffix = `-${Number.isSafeInteger(numbered) ? numbered : 2}`;
-	const base = (match?.[1] ?? nick).slice(0, MAX_NICK - suffix.length);
-	return base + suffix;
-}
-
 /** The names a line addresses a whole room by. Mentions understand every
  * spelling, completion proposes two of them, and granting reserves all of
  * them, so the words stay vocabulary rather than becoming people. */
-export const ROOM_MENTIONS: readonly string[] = ["here", "room", "channel", "everyone", "all"];
+export const ROOM_MENTIONS = APPLICATION_DATA.ROOM_MENTIONS;
+
+/** Why a room will not take a file described this way, or null when it will.
+ *
+ * Both sides ask: a sender so it fails before a byte moves, and the room because
+ * it cannot trust a sender. The checks belong in both places; the sentences do
+ * not, and they were written out twice — the same three, word for word, in the
+ * client and in the room, which is two authorities for one answer and a drift
+ * waiting to happen. An archived line asks too, and holds the same file rules
+ * without holding a session, which is why the sentence lives with the limits.
+ *
+ * Each one names the file it is about, because a message may carry several and a
+ * reader looking at eight chips cannot act on a rule stated in the abstract. */
+export function attachmentRefusal(name: string, mime: string, size: number): string | null {
+	const shown = name.length > 60 ? name.slice(0, 57) + "…" : name;
+	if (name.length === 0) return "a file needs a name";
+	if (name.length > MAX_FILE_NAME) {
+		return `a file name may be at most ${MAX_FILE_NAME} characters, and this one is ${name.length}`;
+	}
+	if (mime.length > MAX_MIME) return `"${shown}" declares a media type longer than ${MAX_MIME} characters`;
+	if (!Number.isSafeInteger(size) || size < 0) return `"${shown}" declares a size that is not a file size`;
+	if (size > MAX_ATTACHMENT_BYTES) {
+		const cap = MAX_ATTACHMENT_BYTES / (1024 * 1024);
+		return `a file may be at most ${cap} MB, and "${shown}" is ${(size / (1024 * 1024)).toFixed(1)} MB`;
+	}
+	return null;
+}
 
 /** Why this app will not answer to `nick`, or null when it will.
  *
@@ -172,15 +189,15 @@ export const MAX_SCROLLBACK = 2000;
 
 /** Live room messages awaiting a consumer. The web client normally has one
  * read pending, so this is outage/flood protection rather than scrollback. */
-export const MAX_ROOM_MESSAGE_BACKLOG = 256;
+export const MAX_ROOM_MESSAGE_BACKLOG = APPLICATION_DATA.MAX_ROOM_MESSAGE_BACKLOG;
 
 /** The longest topic a room accepts. Shorter than a line because a topic is
  * read at a glance, above every message, on a phone as well as a screen. */
-export const MAX_TOPIC = 300;
+export const MAX_TOPIC = APPLICATION_DATA.MAX_TOPIC;
 /** The longest reason a member may leave when they step away. Short because it
  * sits beside a name in the member list, where a sentence would push the names
  * off the edge. */
-export const MAX_AWAY = 120;
+export const MAX_AWAY = APPLICATION_DATA.MAX_AWAY;
 
 /** The longest attribution prefix a bridge may claim on this room's roster.
  *
@@ -188,7 +205,7 @@ export const MAX_AWAY = 120;
  * room's namespace and `bo` is a name in the service's, and the prefix is what
  * keeps a foreign member from taking a Rooms member's name. Short because it is
  * carried on every roster row a reader ever sees. */
-export const MAX_SEAT_PREFIX = 12;
+export const MAX_SEAT_PREFIX = APPLICATION_DATA.MAX_SEAT_PREFIX;
 
 /** What a bridge may write into a form it asks Rooms to draw.
  *
@@ -201,18 +218,18 @@ export const MAX_SEAT_PREFIX = 12;
  * A value is bounded well above a nick because a token or a passphrase is a
  * credential for somebody else's service and this is not the place that decides
  * what shape those take. */
-export const MAX_FORM_TITLE = 60;
-export const MAX_FORM_SAID = 240;
+export const MAX_FORM_TITLE = APPLICATION_DATA.MAX_FORM_TITLE;
+export const MAX_FORM_SAID = APPLICATION_DATA.MAX_FORM_SAID;
 /** A label sits on a control, so it is short. Sixty rather than forty because
  * the real case names its service inside the label — "Disconnect from libera"
  * — and a service name is itself bounded at `MAX_ROOM`. A bridge that shortened
  * that to fit would be truncating the one word telling a reader where they are
  * about to stop appearing. */
-export const MAX_FORM_LABEL = 60;
-export const MAX_FORM_HINT = 120;
-export const MAX_FORM_VALUE = 512;
-export const MAX_FORM_FIELDS = 8;
-export const MAX_FORM_ACTIONS = 3;
+export const MAX_FORM_LABEL = APPLICATION_DATA.MAX_FORM_LABEL;
+export const MAX_FORM_HINT = APPLICATION_DATA.MAX_FORM_HINT;
+export const MAX_FORM_VALUE = APPLICATION_DATA.MAX_FORM_VALUE;
+export const MAX_FORM_FIELDS = APPLICATION_DATA.MAX_FORM_FIELDS;
+export const MAX_FORM_ACTIONS = APPLICATION_DATA.MAX_FORM_ACTIONS;
 
 /** The JSON one form, or one set of answers to it, may cross as.
  *
@@ -220,7 +237,7 @@ export const MAX_FORM_ACTIONS = 3;
  * sentence, eight fields carrying a label, a hint and a value each, and three
  * actions, which is a few kilobytes with its punctuation. This is that with room
  * to spare, and it is still a ceiling rather than a wish. */
-export const MAX_FORM_JSON = 16 * 1024;
+export const MAX_FORM_JSON = APPLICATION_DATA.MAX_FORM_JSON;
 
 /** The JSON one whole gateway description may cross as.
  *
@@ -229,11 +246,11 @@ export const MAX_FORM_JSON = 16 * 1024;
  * theoretical product (a thousand connections of a thousand leases) is not a
  * deployment size. A quarter mebibyte holds hundreds of fully
  * loaded connections and is checked before the description is parsed. */
-export const MAX_GATEWAY_JSON = 256 * 1024;
+export const MAX_GATEWAY_JSON = APPLICATION_DATA.MAX_GATEWAY_JSON;
 
 /** What a bridge may name as the reach of one form's answers. Sized like a
  * room or a network name, because on every bridge so far it is one of those. */
-export const MAX_FORM_SCOPE = 64;
+export const MAX_FORM_SCOPE = APPLICATION_DATA.MAX_FORM_SCOPE;
 /** The longest badge a bridge may put on one of its members, and the longest
  * sentence it may say under their name.
  *
@@ -242,8 +259,13 @@ export const MAX_FORM_SCOPE = 64;
  * pushed out of a rail; the sentence has the second roster line to itself and
  * is capped near an away reason, which is the neighbouring line it must not
  * out-shout. */
-export const MAX_SEAT_BADGE = 12;
-export const MAX_SEAT_SAID = 120;
+export const MAX_SEAT_BADGE = APPLICATION_DATA.MAX_SEAT_BADGE;
+export const MAX_SEAT_SAID = APPLICATION_DATA.MAX_SEAT_SAID;
+/** How many features one `carries` statement may name, and how long one
+ * name may be. Bounds on a peer's line, not on the vocabulary, which is
+ * shorter: a room naming more than this has said something malformed. */
+export const MAX_ROOM_FEATURES = APPLICATION_DATA.MAX_ROOM_FEATURES;
+export const MAX_ROOM_FEATURE = APPLICATION_DATA.MAX_ROOM_FEATURE;
 
 /** How many name vouchers one registration may have outstanding, and how many
  * bytes each carries.
@@ -254,8 +276,8 @@ export const MAX_SEAT_SAID = 120;
  * unguessable bytes standing in for a reference that cannot be recognised
  * across sessions. Bounded per registration so a holder cannot grow another
  * process's memory by asking forever. */
-export const MAX_NAME_VOUCHERS = 8;
-export const NAME_VOUCHER_BYTES = 32;
+export const MAX_NAME_VOUCHERS = APPLICATION_DATA.MAX_NAME_VOUCHERS;
+export const NAME_VOUCHER_BYTES = APPLICATION_DATA.NAME_VOUCHER_BYTES;
 /** How many room offers a tab keeps waiting for an answer.
  *
  * An offer arrives from a peer and sits until the reader answers it, and a
@@ -274,17 +296,13 @@ export const MAX_PENDING_ARCHIVE_SHARES = 16;
  * the map — and the rendered list — for the life of the membership. Past the
  * ceiling the oldest offline rows go; the online rows are bounded by the
  * room's admission ceiling and are never evicted. */
-export const MAX_ROSTER_SEEN = 512;
+export const MAX_ROSTER_SEEN = APPLICATION_DATA.MAX_ROSTER_SEEN;
 /** Live memberships one room admits. The server enforces this before seating
  * a new member, and separately checks the actual UTF-8 roster line so long
  * Unicode names cannot turn a valid count into an oversized notification. */
-export const MAX_ROOM_MEMBERS = 256;
-/** Aggregate live facts carried by one durable-session snapshot. These sit
- * below the per-object bounds so many valid rooms cannot multiply into an
- * oversized CapTP answer. */
-export const MAX_SESSION_ROOM_MEMBERS = MAX_ROOM_MEMBERS;
-export const MAX_SESSION_DIRECTORY_ROWS = 128;
-export const MAX_DIRECTORY_DISCOVERY_ROWS = 256;
+export const MAX_ROOM_MEMBERS = APPLICATION_DATA.MAX_ROOM_MEMBERS;
+export const MAX_SESSION_DIRECTORY_ROWS = APPLICATION_DATA.MAX_SESSION_DIRECTORY_ROWS;
+export const MAX_DIRECTORY_DISCOVERY_ROWS = APPLICATION_DATA.MAX_DIRECTORY_DISCOVERY_ROWS;
 /** What a reader who steps away without writing a reason is away for.
  *
  * One word said in two places — the menu that sets a standing and the `/away`
@@ -295,20 +313,20 @@ export const PLAIN_AWAY = "away";
  * Live rooms remain ephemeral and unbounded in count; a link is different
  * because its name survives every disconnect and restart. The server therefore
  * refuses the durable allocation once this ceiling is full. */
-export const MAX_ROOM_LINKS = 4096;
-export const MAX_TROUBLE_SOURCE_BYTES = 128;
-export const MAX_TROUBLE_REASON_BYTES = 1024;
-export const MAX_OPERATOR_PAGE = 32;
+export const MAX_ROOM_LINKS = APPLICATION_DATA.MAX_ROOM_LINKS;
+export const MAX_TROUBLE_SOURCE_BYTES = APPLICATION_DATA.MAX_TROUBLE_SOURCE_BYTES;
+export const MAX_TROUBLE_REASON_BYTES = APPLICATION_DATA.MAX_TROUBLE_REASON_BYTES;
+export const MAX_OPERATOR_PAGE = APPLICATION_DATA.MAX_OPERATOR_PAGE;
 /** How long a search over an operator inventory may be. A search is scanned
  * against every row, so its length is peer-influenced work per row. */
-export const MAX_OPERATOR_QUERY = 128;
+export const MAX_OPERATOR_QUERY = APPLICATION_DATA.MAX_OPERATOR_QUERY;
 /** How many rows one bulk retire may take in a single call. The operator's
  * client runs again for what remains, so this bounds the turn rather than the
  * act, and keeps a hundred-thousand-row sweep interruptible. */
-export const MAX_OPERATOR_RETIRE_BATCH = 256;
+export const MAX_OPERATOR_RETIRE_BATCH = APPLICATION_DATA.MAX_OPERATOR_RETIRE_BATCH;
 /** Largest low-frequency operations inventory accepted from one capability. */
-export const MAX_OPERATIONS_ROWS = 1024;
-export const MAX_OPERATOR_MEMBERS_PER_ROOM = 64;
+export const MAX_OPERATIONS_ROWS = APPLICATION_DATA.MAX_OPERATIONS_ROWS;
+export const MAX_OPERATOR_MEMBERS_PER_ROOM = APPLICATION_DATA.MAX_OPERATOR_MEMBERS_PER_ROOM;
 /** How many rooms one connection may have open at once.
  *
  * A private `open` never collides, a public open with a generated name need not,
@@ -317,17 +335,17 @@ export const MAX_OPERATOR_MEMBERS_PER_ROOM = 64;
  * when its membership ends or the connection leaves. Every room-creation path
  * spends this one registry-owned budget. Generous, because a legitimate host (a
  * bot serving many rooms) is a real shape; past it, creation refuses by name. */
-export const MAX_ROOMS_PER_CREATOR = 256;
-export const MAX_ROOM_INVITATIONS = 64;
+export const MAX_ROOMS_PER_CREATOR = APPLICATION_DATA.MAX_ROOMS_PER_CREATOR;
+export const MAX_ROOM_INVITATIONS = APPLICATION_DATA.MAX_ROOM_INVITATIONS;
 
 /** Foreign rooms one directory retains in total and from one source session.
  * Both counts include the held room capability and its directory metadata. */
-export const MAX_PEERED_ROOMS = 4096;
-export const MAX_PEERED_ROOMS_PER_SOURCE = 256;
+export const MAX_PEERED_ROOMS = APPLICATION_DATA.MAX_PEERED_ROOMS;
+export const MAX_PEERED_ROOMS_PER_SOURCE = APPLICATION_DATA.MAX_PEERED_ROOMS_PER_SOURCE;
 /** How long a foreign-room namespace and quota reservation may wait for the
  * handed capability to resolve. A source that never settles it must not hold
  * destination capacity for the life of its connection. */
-export const PEERED_ROOM_READY_TIMEOUT_MS = 15_000;
+export const PEERED_ROOM_READY_TIMEOUT_MS = APPLICATION_DATA.PEERED_ROOM_READY_TIMEOUT_MS;
 
 /** Attachment caps.
  *
@@ -337,10 +355,10 @@ export const PEERED_ROOM_READY_TIMEOUT_MS = 15_000;
  * accepts, and it is also what a reader will allocate for a size the record
  * claims — the reader holds that bound rather than trusting the number.
  * `MAX_FILE_NAME` and `MAX_MIME` cap the describing strings. */
-export const BLOB_CHUNK = 64 * 1024;
-export const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
-export const MAX_FILE_NAME = 160;
-export const MAX_MIME = 80;
+export const BLOB_CHUNK = APPLICATION_DATA.BLOB_CHUNK;
+export const MAX_ATTACHMENT_BYTES = APPLICATION_DATA.MAX_ATTACHMENT_BYTES;
+export const MAX_FILE_NAME = APPLICATION_DATA.MAX_FILE_NAME;
+export const MAX_MIME = APPLICATION_DATA.MAX_MIME;
 
 /** How large a picture will load itself when it arrives.
  *
@@ -354,7 +372,7 @@ export const AUTO_IMAGE_BYTES = 2 * 1024 * 1024;
 /** The largest pixel dimension a sender may declare for a picture. The number
  * only reserves layout space, so this is a sanity bound on a claim rather
  * than a limit on anything real. */
-export const MAX_IMAGE_DIM = 65_535;
+export const MAX_IMAGE_DIM = APPLICATION_DATA.MAX_IMAGE_DIM;
 
 /** What one room will hold in media, and how many files that may be spread
  * across. The room hosts the bytes so a picture outlives the tab that posted
@@ -362,9 +380,9 @@ export const MAX_IMAGE_DIM = 65_535;
  * it hopes nobody tests. Passing either bound drops the oldest file: its
  * reference then breaks on `read` with `blob-expired`, because a stale
  * reference that answered zero bytes would look like an empty file. */
-export const MAX_ROOM_ATTACHMENT_BYTES = 64 * 1024 * 1024;
-export const MAX_ROOM_ATTACHMENTS = 128;
-export const MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES = 64 * 1024 * 1024;
+export const MAX_ROOM_ATTACHMENT_BYTES = APPLICATION_DATA.MAX_ROOM_ATTACHMENT_BYTES;
+export const MAX_ROOM_ATTACHMENTS = APPLICATION_DATA.MAX_ROOM_ATTACHMENTS;
+export const MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES = APPLICATION_DATA.MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES;
 
 /** What one TypeScript process will retain for direct-message recipients that
  * have not fetched their files yet. Direct files have no room server to own
@@ -377,7 +395,7 @@ export const MAX_DIRECT_ATTACHMENTS = 128;
  * uploads one connection may stage into its next message. Published uploads
  * may still be streaming independently; their declared bytes remain covered
  * by the server-wide pending budget. */
-export const MAX_MESSAGE_FILES = 8;
+export const MAX_MESSAGE_FILES = APPLICATION_DATA.MAX_MESSAGE_FILES;
 
 /** What the whole server will hold, across every room.
  *
@@ -391,8 +409,8 @@ export const MAX_MESSAGE_FILES = 8;
  * In-flight uploads are not evictable — nobody has seen those bytes and there
  * is no owner to tell — so an upload that would not fit is refused at
  * `attach`, before a byte moves, against the size it declares there. */
-export const MAX_SERVER_ATTACHMENT_BYTES = 256 * 1024 * 1024;
-export const MAX_SERVER_PENDING_BYTES = 64 * 1024 * 1024;
+export const MAX_SERVER_ATTACHMENT_BYTES = APPLICATION_DATA.MAX_SERVER_ATTACHMENT_BYTES;
+export const MAX_SERVER_PENDING_BYTES = APPLICATION_DATA.MAX_SERVER_PENDING_BYTES;
 
 /** How long an upload may sit without being written to or posted.
  *
@@ -403,7 +421,7 @@ export const MAX_SERVER_PENDING_BYTES = 64 * 1024 * 1024;
  * released and its capability handed back; the member sees its next `write`
  * refused and can start again. The window is generous next to the round trips
  * a real upload makes, because re-arming happens on every chunk. */
-export const UPLOAD_IDLE_MS = 30_000;
+export const UPLOAD_IDLE_MS = APPLICATION_DATA.UPLOAD_IDLE_MS;
 
 /** How long one chunk of a transfer may take before the side waiting on it
  * gives up.
@@ -434,7 +452,7 @@ export const TRANSFER_STALL_MS = 60_000;
  * this long is a partner that is not going to answer, and the shapes that
  * leaves behind are the ones nothing else recovers from: a line that says it is
  * sending, a Join that says it is joining, an edit that never lands. */
-export const REQUEST_TIMEOUT_MS = 15_000;
+export const REQUEST_TIMEOUT_MS = APPLICATION_DATA.REQUEST_TIMEOUT_MS;
 
 /** How many reads one file will hold parked at once.
  *
@@ -447,7 +465,7 @@ export const REQUEST_TIMEOUT_MS = 15_000;
  * the same picture the moment it lands; past it the room refuses, and a refused
  * read is one the reader can ask for again.
  */
-export const MAX_BLOB_READERS = 256;
+export const MAX_BLOB_READERS = APPLICATION_DATA.MAX_BLOB_READERS;
 
 /** How many direct-message inboxes one member will hold live. Each inbox costs
  * a Host publication and an export on every session that projects it. Leaving
@@ -457,54 +475,54 @@ export const MAX_BLOB_READERS = 256;
  * `cli/app/rooms_peer/common.zig` and in
  * `conformance/goblins-peer/racket/rooms-dm.rkt` are the same bound for the Zig
  * peer and the Goblins one. */
-export const MAX_DM_INBOXES = 256;
+export const MAX_DM_INBOXES = APPLICATION_DATA.MAX_DM_INBOXES;
 /** Repeated requests for the same reciprocal direct route inside this window
  * produce one notification. Expired rows are removed lazily, so the bound is
  * on active request pressure rather than every peer seen by a registration. */
-export const DIRECT_REQUEST_COALESCE_MS = 1_000;
+export const DIRECT_REQUEST_COALESCE_MS = APPLICATION_DATA.DIRECT_REQUEST_COALESCE_MS;
 /** A successful reciprocal request must produce a route inside the same
  * bounded interaction window as other Rooms requests. */
-export const DIRECT_CONVERSATION_ROUTE_TIMEOUT_MS = 15_000;
+export const DIRECT_CONVERSATION_ROUTE_TIMEOUT_MS = APPLICATION_DATA.DIRECT_CONVERSATION_ROUTE_TIMEOUT_MS;
 
 /** How many WebRTC signaling exchanges the directory holds at once. An
  * exchange is transient scratch for one channel bring-up; the oldest is
  * evicted when the cap is hit, so a flood of offers cannot pin unbounded
  * routing rows. A candidate for an evicted exchange is dropped, which a
  * caller experiences as a failed dial, not a wedged directory. */
-export const MAX_SIGNAL_EXCHANGES = 64;
+export const MAX_SIGNAL_EXCHANGES = APPLICATION_DATA.MAX_SIGNAL_EXCHANGES;
 
 /** Durable attenuated grants issued by one Rooms session. Active grants cost a
  * Host publication; lifetime rows include revocation tombstones so no old
  * sturdyref can return through identifier reuse. */
-export const MAX_ACTIVE_SESSION_GRANTS = 32;
-export const MAX_LIFETIME_SESSION_GRANTS = 256;
+export const MAX_ACTIVE_SESSION_GRANTS = APPLICATION_DATA.MAX_ACTIVE_SESSION_GRANTS;
+export const MAX_LIFETIME_SESSION_GRANTS = APPLICATION_DATA.MAX_LIFETIME_SESSION_GRANTS;
 /** Bridge credential rows one durable Rooms session keeps, one per directory
  * and bridge scope a reader answered a secret field for. A directory rarely
  * bridges more than a couple of networks, so this is two per directory the
  * workspace may hold. */
 export const MAX_BRIDGE_SECRET_SCOPES = 64;
-export const MAX_SESSION_GRANT_LABEL = 80;
+export const MAX_SESSION_GRANT_LABEL = APPLICATION_DATA.MAX_SESSION_GRANT_LABEL;
 /** Room for a sentence saying why a link has gone quiet, and no more: it is
  * read by whoever is holding that link, in place of the session. */
-export const MAX_SESSION_GRANT_NOTE = 200;
+export const MAX_SESSION_GRANT_NOTE = APPLICATION_DATA.MAX_SESSION_GRANT_NOTE;
 
 /** Durable attenuated archive-peer shares. Active shares cost a Host
  * publication; lifetime rows include revocation tombstones so no old sturdyref
  * can return through identifier reuse. */
-export const MAX_ACTIVE_ARCHIVE_SHARES = 32;
-export const MAX_LIFETIME_ARCHIVE_SHARES = 256;
+export const MAX_ACTIVE_ARCHIVE_SHARES = APPLICATION_DATA.MAX_ACTIVE_ARCHIVE_SHARES;
+export const MAX_LIFETIME_ARCHIVE_SHARES = APPLICATION_DATA.MAX_LIFETIME_ARCHIVE_SHARES;
 
 /** How much WebRTC bring-up text the directory will carry between two members.
  * A description follows the sidecar's signal bound; one ICE candidate stays a
  * smaller room relay policy. Both limits are bytes, not UTF-16 code units. */
 export const MAX_SIGNAL_SDP = WEBRTC_MAX_SIGNAL_BYTES;
-export const MAX_SIGNAL_CANDIDATE = 4096;
+export const MAX_SIGNAL_CANDIDATE = APPLICATION_DATA.MAX_SIGNAL_CANDIDATE;
 
 /** How long the directory's own handle for a bring-up may be, and the key
  * designator naming its other side. Both are short identifiers, minted here or
  * validated elsewhere; this is what keeps one from arriving as a megabyte of
  * text to be held as a map key. */
-export const MAX_SIGNAL_ID = 128;
+export const MAX_SIGNAL_ID = APPLICATION_DATA.MAX_SIGNAL_ID;
 
 /** Whether one relayed signaling message is one to act on.
  *
@@ -552,7 +570,7 @@ function utf8ByteLengthUpTo(text: string, stopAfter?: number): number {
 
 /** A directory exchange that has not been explicitly retired by its offerer
  * cannot retain routing capability state forever. */
-export const SIGNAL_EXCHANGE_TIMEOUT_MS = 30_000;
+export const SIGNAL_EXCHANGE_TIMEOUT_MS = APPLICATION_DATA.SIGNAL_EXCHANGE_TIMEOUT_MS;
 
 /** How long a member may pause mid-draft before we stop telling the room they
  * are typing. */

@@ -1,8 +1,8 @@
 use rooms_application::{
 	grants::Access,
 	session::checkpoint::{
-		commands::results::{Command, Kind, Plan},
 		Checkpoint, Routes,
+		commands::results::{Command, Kind, Plan},
 	},
 };
 use serde_json::Value;

@@ -16,6 +16,7 @@ import type { RoomsPageContext } from "../page.ts";
 import type { RoomsBrowserController } from "./browser.ts";
 import { deleteRoomsBrowserData } from "./browser_data.ts";
 import { coverForReload, finishCoveredReload, reloadNow, uncoverReload } from "../boot.ts";
+import { forgetWorkspaceRefused, leaveSessionRefused, localCopySaveRefused } from "../../../lib/text/attached.ts";
 
 function leaveAttachedSession(
 	page: RoomsPageContext,
@@ -67,7 +68,8 @@ export function createRoomsBrowserController(
 		closeSettings: () => store.closeSettings(projection),
 		setSettingsTab: (tab) => store.setSettingsTab(projection, tab),
 		setTheme: (theme) => store.setTheme(projection, theme),
-		openHelp: () => store.openHelp(projection),
+		openHelp: (tab) => store.openHelp(projection, tab),
+		setHelpTab: (tab) => store.setHelpTab(projection, tab),
 		closeHelp: () => store.closeHelp(projection),
 		openOperations: () => {
 			store.closeSettings(projection);
@@ -81,6 +83,11 @@ export function createRoomsBrowserController(
 		cancelChange: () => store.cancelChange(projection),
 		addFiles: (files) => net.addFiles(page, files),
 		removeFile: (index) => store.removeDraftFile(projection, index),
+		startPreview: (key, id) => store.startDraftPreview(projection, key, id),
+		settlePreview: (key, id, attempt, outcome) => store.settleDraftPreview(projection, key, id, attempt, outcome),
+		cancelPreview: (key, id, attempt) => store.cancelDraftPreview(projection, key, id, attempt),
+		removePreview: (key, id) => store.removeDraftPreview(projection, key, id),
+		retryPreview: (key, id) => store.retryDraftPreview(projection, key, id),
 		closeViewer: () => store.closeViewer(projection),
 		editJoin: (patch) => store.editJoin(projection, patch),
 		attachRoomsSession: async (sturdyref) => {
@@ -106,16 +113,14 @@ export function createRoomsBrowserController(
 			return why;
 		},
 		shareRoomsSession: () => page.hostedSession.share(),
-		useLocalRoomsSession: () =>
-			leaveAttachedSession(page, { kind: "local" }, "This browser refused to save local Rooms reconstruction."),
-		leaveRoomsSession: () =>
-			leaveAttachedSession(page, { kind: "none" }, "This browser refused to leave the current Rooms session."),
+		useLocalRoomsSession: () => leaveAttachedSession(page, { kind: "local" }, localCopySaveRefused),
+		leaveRoomsSession: () => leaveAttachedSession(page, { kind: "none" }, leaveSessionRefused),
 		controllerSelection: page.workspace.controllerSelection,
 		resetBrowserWorkspace: () => {
 			coverForReload();
 			if (!clearWorkspaceState(page)) {
 				uncoverReload();
-				return "This browser refused to forget the saved workspace.";
+				return forgetWorkspaceRefused;
 			}
 			finishCoveredReload(true);
 			return "";

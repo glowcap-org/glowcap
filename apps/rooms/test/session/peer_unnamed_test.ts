@@ -227,7 +227,8 @@ roomsTest("an unnamed saved directory connects for scoped capabilities without r
 					refusedCapability.issues.some((issue) =>
 						issue.subject === `capability:operator\0${roomDirectoryId}` &&
 						issue.reason ===
-							"The directory does not recognize that swiss number. Use the value it currently prints as ROOMS-OPERATOR."
+							"The directory does not recognize that swiss number. Use the value it currently prints as ROOMS-OPERATOR. " +
+								"Automatic retries stopped. Replace this capability to try again."
 					),
 					"capability replacement answered before runtime reconciliation exposed its actionable refusal",
 				);

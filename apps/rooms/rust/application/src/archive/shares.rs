@@ -9,7 +9,7 @@ use crate::{
 	text::DocumentText,
 };
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 pub const FILE: &str = "shares.json";
@@ -156,11 +156,7 @@ impl Ledger {
 		self.recovery
 	}
 	fn ready(&self) -> Result<(), Error> {
-		if self.recovery {
-			Err(Error::Recovery)
-		} else {
-			Ok(())
-		}
+		if self.recovery { Err(Error::Recovery) } else { Ok(()) }
 	}
 	pub fn records(&self) -> Result<impl ExactSizeIterator<Item = &Share>, Error> {
 		self.ready()?;
@@ -187,10 +183,10 @@ impl Ledger {
 			.iter()
 			.map(|s| next.filter(|n| n.id == s.id).unwrap_or(s))
 			.collect();
-		if let Some(next) = next {
-			if !self.by_id.contains_key(&next.id) {
-				shares.push(next);
-			}
+		if let Some(next) = next
+			&& !self.by_id.contains_key(&next.id)
+		{
+			shares.push(next);
 		}
 		let mut bytes = serde_json::to_vec(&View { version: 1, shares }).map_err(|_| Error::Document)?;
 		bytes.push(b'\n');

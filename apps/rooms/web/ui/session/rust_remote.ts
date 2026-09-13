@@ -2,7 +2,27 @@
 import { applicationModule } from "../application.ts";
 import type { RoomsBrowserFile, RoomsBrowserSession } from "../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { AttachmentSource } from "../../../lib/attachment.ts";
-import type { AttachedFile, AttachedRoomsRemote } from "./remote.ts";
+import { archiveRecordDocument, parseArchiveRecordDocument } from "../../../lib/archive/record_document.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import type { AttachedFile, AttachedHistoryRead, AttachedRoomsRemote } from "./remote.ts";
+
+// Archive records cross this boundary as the runtime's own documents. They are
+// read into the page's record type here, at the one seam that sees them, and
+// written back in the runtime's form when a record is handed over for its
+// bytes; a document the page cannot read is a failed read with its reason,
+// not a record trusted as far as the first field the page reaches for.
+function records(raw: unknown): ReturnType<typeof parseArchiveRecordDocument>[] {
+	if (!Array.isArray(raw)) throw new Error("the Rooms session answered invalid archive history records");
+	return raw.map(parseArchiveRecordDocument);
+}
+function historyRead(read: AttachedHistoryRead): AttachedHistoryRead {
+	if (read.phase !== "ready") return read;
+	try {
+		return { ...read, records: records(read.records) };
+	} catch (error) {
+		return { conversationId: read.conversationId, phase: "failed", error: refusalText(error) };
+	}
+}
 
 function sources(files: AttachmentSource[]) {
 	return files.map((file) =>
@@ -56,8 +76,15 @@ export function rustRemote(session: RoomsBrowserSession): AttachedRoomsRemote {
 		},
 		runCommand: (name, args) => session.runCommand(undefined, name, args),
 		writes: {
-			files: (conversation, caption, files) =>
-				session.sendFiles(undefined, undefined, conversation, caption, sources(files)),
+			files: (conversation, caption, previewUrls, files) =>
+				session.sendFiles(
+					undefined,
+					undefined,
+					conversation,
+					caption,
+					JSON.stringify(previewUrls),
+					sources(files),
+				),
 			refile: (conversation, line, caption, keep, files) =>
 				session.refileLine(
 					undefined,
@@ -74,26 +101,20 @@ export function rustRemote(session: RoomsBrowserSession): AttachedRoomsRemote {
 		settleRevision: (revision) => session.settleRevision(revision),
 		snapshot: () => session.snapshot(),
 		verifySibling: (link) => session.verifySibling(link),
-		watch: (changed, _event, operations, history) => session.watch(changed, undefined, operations, history),
+		watch: (changed, operations, history) => session.watch(changed, operations, history),
 		listenLines: (listener) => session.listenLines(listener),
-		listenHistory: (listener) => session.listenHistory(listener),
+		listenHistory: (listener) =>
+			session.listenHistory(
+				listener === undefined ? undefined : (read: AttachedHistoryRead) => listener(historyRead(read)),
+			),
 		command: (id, base, name, args) => session.command(id, base, name, args),
 		setTyping: (conversation, on) => session.typing(conversation, on),
 		lastEditableLine: (conversation) => session.lastEditableLine(conversation),
 		ignoredNickname: (conversation) => session.ignoredNickname(conversation),
 		inviteToRoom: (conversation, who) => session.inviteToRoom(conversation, who),
 		roomLinkFor: (conversation, name) => session.roomLinkFor(conversation, name),
-		editLine: (id, base, conversation, line, text) =>
-			session.command(id, base, "editLine", [conversation, String(line), text]),
-		withdrawLine: (id, base, conversation, line) =>
-			session.command(id, base, "withdrawLine", [conversation, String(line)]),
-		replace: (id, base, checkpoint) => session.replaceCheckpoint(id, base, JSON.stringify(checkpoint), false),
-		adoptWorkspace: (id, base, checkpoint) => session.replaceCheckpoint(id, base, JSON.stringify(checkpoint), true),
-		sendFiles: (id, base, conversation, caption, files) =>
-			session.sendFiles(id, base, conversation, caption, sources(files)),
-		refileLine: (id, base, conversation, line, caption, keep, files) =>
-			session.refileLine(id, base, conversation, line, caption, Uint32Array.from(keep), sources(files)),
-		readHistory: (kind, directory, conversation) => session.readHistory(kind, directory, conversation),
+		readHistory: (kind, directory, conversation) =>
+			session.readHistory(kind, directory, conversation).then(records),
 		roomBridgeForm: (conversation) => session.roomBridgeForm(conversation),
 		operatorSnapshot: (scope, query = "", kind) => session.operatorSnapshot(scope, query, kind),
 		operatorPage: (scope, category, cursor, query = "", kind) =>
@@ -103,7 +124,8 @@ export function rustRemote(session: RoomsBrowserSession): AttachedRoomsRemote {
 		operationsSnapshot: (scope, capability) => session.operationsSnapshot(scope, capability),
 		shareArchiveHistory: (kind, conversation, peer) => session.shareArchive(kind, conversation, peer, false),
 		offerDurableArchive: (kind, conversation, peer) => session.shareArchive(kind, conversation, peer, true),
-		readArchiveShare: (id) => session.readArchiveShare(id),
+		readArchiveShare: (id) =>
+			session.readArchiveShare(id).then((shared) => ({ view: shared.view, records: records(shared.records) })),
 		dropArchiveShare: (id) => session.dropArchiveShare(id),
 		listIssuedArchiveShares: () => session.listIssuedArchiveShares(),
 		revokeIssuedArchiveShare: (id) => session.revokeIssuedArchiveShare(id),
@@ -112,7 +134,7 @@ export function rustRemote(session: RoomsBrowserSession): AttachedRoomsRemote {
 		revokePeeredRoom: (id, base, peer) => session.command(id, base, "revokePeeredRoom", [peer]),
 		fetchAttachment: (attachment, progress, signal) => fileObject(attachment).open(progress, signal),
 		fetchArchivedAttachment: (record, index, progress, signal) =>
-			session.openArchivedFile(JSON.stringify(record), index, progress, signal),
+			session.openArchivedFile(JSON.stringify(archiveRecordDocument(record)), index, progress, signal),
 		releaseAttachment: (attachment) => fileObject(attachment).release(),
 		resolveEffect: (id, outcome) => session.resolveEffect(id, outcome === "committed"),
 		resumeEffect: (id) => session.resumeEffect(id),

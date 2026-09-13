@@ -1,46 +1,17 @@
-// Browser operations shared by the private-room scenario. This is the page
-// vocabulary — join, speak, inspect the rail, and read or redeem a link — while
-// web_private_room_test.ts owns the authority story and its process topology.
+// Browser operations the private-room scenario and its siblings share: making
+// a room from the rail, standing in one, reading or redeeming a link. The
+// private-room proof owns the authority story and its process topology.
 
-import type { Browser, Page } from "playwright";
+import type { Page } from "playwright";
 
-import { fail } from "./page.ts";
-import { freePort, waitForHttp } from "./rooms_server.ts";
-import { establishLocalSession } from "./session_setup.ts";
-
-export { fail, freePort, waitForHttp };
-
-export const ROOM = "lobby";
-
-export async function joinAs(browser: Browser, port: number, nick: string): Promise<Page> {
-	const context = await browser.newContext();
-	const tab = await context.newPage();
-	tab.on("pageerror", (error) => console.error(`  [${nick} page error]`, error.message));
-	tab.on("console", (message) => {
-		if (message.type() === "error") console.error(`  [${nick} console.error]`, message.text());
-	});
-	await tab.goto(`http://127.0.0.1:${port}/`);
-	await establishLocalSession(tab);
-	await tab.fill("#nick", nick);
-	await tab.fill("#room", ROOM);
-	await tab.click("#joinBtn");
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
-		const status = await tab.textContent("#status").catch(() => "?");
-		fail(`${nick} never joined; status="${status}"`);
-	});
-	return tab;
-}
-
-export async function say(tab: Page, text: string): Promise<void> {
-	await tab.fill("#line", text);
-	await tab.press("#line", "Enter");
-}
+import { fail } from "./fail.ts";
+import { delay } from "./wait.ts";
 
 /** Name a room in the rail's own field, privately or not. */
 export async function makeRoom(tab: Page, label: string, privately: boolean): Promise<void> {
 	await tab.click("#newRoomBtn");
 	const publicName = await tab.getAttribute("#newRoomInput", "placeholder");
-	if (publicName !== "room name") {
+	if (publicName !== "open room name") {
 		fail(`the rail field said ${JSON.stringify(publicName)} before the access control was pressed`);
 	}
 	await tab.fill("#newRoomInput", label);
@@ -129,7 +100,7 @@ export async function waitForTcp(port: number, what: string): Promise<void> {
 		} catch {
 			// not listening yet
 		}
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await delay(50);
 	}
 	fail(`${what} never began listening on ${port}`);
 }

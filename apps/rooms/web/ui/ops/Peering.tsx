@@ -12,6 +12,17 @@
 // drawing an empty picker.
 
 import { useState } from "react";
+import {
+	opsPeeringAsLabel,
+	opsPeeringRoomLabel,
+	peeringAsHint,
+	peeringLead,
+	peeringListedAs,
+	peeringNothingToPublish,
+	peeringPublishedEmpty,
+	peeringPublishedTitle,
+	peeringPublishTitle,
+} from "../../../lib/text/ops.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
@@ -20,6 +31,13 @@ import { identifierField } from "../field.ts";
 import type { PeeringSource, PeeringState } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
 import { SectionTitle } from "./Section.tsx";
+import { actionRefusal } from "../error_text.ts";
+import {
+	peeringAsPlaceholder,
+	peeringPublish,
+	peeringPublishing,
+	peeringPublishingAction,
+} from "../../../lib/text/ops.ts";
 
 export function PeeringPane(
 	{ state, sources }: {
@@ -53,119 +71,110 @@ export function PeeringPane(
 		setRefused(null);
 		setPublished("");
 		setPublishing(true);
-		void session.publishPeeredRoom(chosen.key, publishedName).then((why) => {
+		void actionRefusal(() => session.publishPeeredRoom(chosen.key, publishedName)).then((why) => {
 			setPublishing(false);
 			if (why !== "") {
 				setRefused(why);
 				return;
 			}
-			setPublished(`Listed here as ${publishedName}.`);
+			setPublished(peeringListedAs(publishedName));
 			setNamed(null);
 		});
 	};
 
 	const revoke = (id: string | number) => {
 		setRowRefusals((prior) => ({ ...prior, [String(id)]: undefined }));
-		void session.revokePeeredPublication(id).then((why) => {
+		void actionRefusal(() => session.revokePeeredPublication(id)).then((why) => {
 			if (why !== "") setRowRefusals((prior) => ({ ...prior, [String(id)]: why }));
 		});
 	};
 
 	return (
 		<div className="ops-pane">
-			<OpsHead refresh={() => session.refreshOpsCap("peering")}>
-				List a durable room from another directory here, and revoke what this tab published.
-			</OpsHead>
+			<OpsHead refresh={() => session.refreshOpsCap("peering")}>{peeringLead}</OpsHead>
 			<section className="ops-section">
-				<SectionTitle id="peeringPublishLabel">Publish a room</SectionTitle>
+				<SectionTitle id="peeringPublishLabel">{peeringPublishTitle}</SectionTitle>
 				<div className="group well" role="group" aria-labelledby="peeringPublishLabel">
-					{sources.length === 0
-						? (
-							<p className="empty">
-								Nothing to publish yet. Join a room on another directory first, and it will be offered
-								here.
-							</p>
-						)
-						: (
-							<form
-								className="group"
-								onSubmit={(event) => {
-									event.preventDefault();
-									// The submitted controls are authoritative. Reading the
-									// rendered-state closure here can lag a very fast type-and-submit
-									// sequence by one React commit and publish the previous name.
-									const submitted = new FormData(event.currentTarget);
-									const sourceKey = String(submitted.get("source") ?? "");
-									const chosen = sources.find((row) => row.key === sourceKey) ?? null;
-									publish(chosen, String(submitted.get("name") ?? ""));
-								}}
-							>
-								<Field id="peeringSource" label="Room to publish">
-									{(wiring) => (
-										<span className="select-wrap">
-											<select
-												id={wiring.id}
-												name="source"
-												className="field"
-												value={source?.key ?? ""}
-												disabled={publishing}
-												onChange={(event) => {
-													setPicked(event.target.value);
-													setNamed(null);
-												}}
-											>
-												{sources.map((row) => (
-													<option key={row.key} value={row.key}>
-														{row.room} · on {row.directory}
-													</option>
-												))}
-											</select>
-										</span>
-									)}
-								</Field>
-								<Field
-									id="peeringName"
-									label="Listed here as"
-									hint="Anyone on this directory can enter it under that name. The room itself stays where it lives. The listing lasts until you revoke it or this directory connection ends."
-									said={refused ?? ""}
-								>
-									{(wiring) => (
-										<input
+					{sources.length === 0 ? <p className="empty">{peeringNothingToPublish}</p> : (
+						<form
+							className="group"
+							onSubmit={(event) => {
+								event.preventDefault();
+								// The submitted controls are authoritative. Reading the
+								// rendered-state closure here can lag a very fast type-and-submit
+								// sequence by one React commit and publish the previous name.
+								const submitted = new FormData(event.currentTarget);
+								const sourceKey = String(submitted.get("source") ?? "");
+								const chosen = sources.find((row) => row.key === sourceKey) ?? null;
+								publish(chosen, String(submitted.get("name") ?? ""));
+							}}
+						>
+							<Field id="peeringSource" label={opsPeeringRoomLabel}>
+								{(wiring) => (
+									<span className="select-wrap">
+										<select
 											id={wiring.id}
-											name="name"
+											name="source"
 											className="field"
-											type="text"
-											enterKeyHint="go"
-											value={name}
+											value={source?.key ?? ""}
 											disabled={publishing}
-											onChange={(event) => setNamed(event.target.value)}
-											{...identifierField}
-											placeholder="what this directory lists it as"
-											aria-describedby={wiring.describedBy}
-											aria-invalid={wiring.invalid}
-										/>
-									)}
-								</Field>
-								<div className="actions">
-									<Button
-										id="peeringPublish"
-										type="submit"
-										busy={publishing}
-										disabled={name === ""}
-									>
-										{publishing ? "Publishing…" : "Publish"}
-									</Button>
-								</div>
-								{published !== "" && <Said kind="success">{published}</Said>}
-							</form>
-						)}
+											onChange={(event) => {
+												setPicked(event.target.value);
+												setNamed(null);
+											}}
+										>
+											{sources.map((row) => (
+												<option key={row.key} value={row.key}>
+													{row.room} · on {row.directory}
+												</option>
+											))}
+										</select>
+									</span>
+								)}
+							</Field>
+							<Field
+								id="peeringName"
+								label={opsPeeringAsLabel}
+								hint={peeringAsHint}
+								said={refused ?? ""}
+							>
+								{(wiring) => (
+									<input
+										id={wiring.id}
+										name="name"
+										className="field"
+										type="text"
+										enterKeyHint="go"
+										value={name}
+										disabled={publishing}
+										onChange={(event) => setNamed(event.target.value)}
+										{...identifierField}
+										placeholder={peeringAsPlaceholder}
+										aria-describedby={wiring.describedBy}
+										aria-invalid={wiring.invalid}
+									/>
+								)}
+							</Field>
+							<div className="actions">
+								<Button
+									id="peeringPublish"
+									type="submit"
+									busy={publishing}
+									disabled={name === ""}
+								>
+									{publishing ? peeringPublishingAction : peeringPublish}
+								</Button>
+							</div>
+							{published !== "" && <Said kind="success">{published}</Said>}
+						</form>
+					)}
 				</div>
 			</section>
 			<section className="ops-section">
-				<SectionTitle id="peeringListLabel">Published by this tab</SectionTitle>
+				<SectionTitle id="peeringListLabel">{peeringPublishedTitle}</SectionTitle>
 				<div className="group well" role="group" aria-labelledby="peeringListLabel">
 					{state.publications.length === 0
-						? <p className="empty">No rooms published from this tab yet.</p>
+						? <p className="empty">{peeringPublishedEmpty}</p>
 						: (
 							<ul className="entries" id="peeringList">
 								{state.publications.map((row) => (
@@ -179,7 +188,7 @@ export function PeeringPane(
 										    control arrives with the authority it names. */
 											}
 											{row.phase === "publishing"
-												? <span className="entry-meta">publishing…</span>
+												? <span className="entry-meta">{peeringPublishing}</span>
 												: (
 													<div className="actions">
 														<Button

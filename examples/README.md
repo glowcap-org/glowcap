@@ -55,7 +55,8 @@ For the command line instead of Zig, use the [CLI guide](../docs/cli.md).
   chapter 01 with caller-owned buffers and the lower-level blocking API.
 - [`many_sessions_one_loop.zig`](zig/many_sessions_one_loop.zig) repeats
   chapter 02's introduction on the completion-loop tier, where one thread
-  serves many connections.
+  serves many connections. On Linux it also reports whether the loop selected
+  io_uring or fell back to epoll, including the fallback reason.
 - [`frame_view.zig`](zig/frame_view.zig) shows an owned frame becoming a
   borrowed view.
 

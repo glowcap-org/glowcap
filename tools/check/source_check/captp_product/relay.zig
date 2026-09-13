@@ -93,8 +93,8 @@ pub fn checkProductionRelayClassifierLockstep(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const web = "apps/rooms/rust/native/src/web/http.rs";
-    const relay = "apps/rooms/rust/native/src/web/relay.rs";
+    const web = "apps/rooms/rust/services/src/web/http.rs";
+    const relay = "apps/rooms/rust/services/src/web/relay.rs";
     try expectFileContains(io, gpa, root, violations, relay, &.{"self.target(target)"});
     try expectFileContains(io, gpa, root, violations, relay, &.{"match target {"});
     for ([_][]const u8{ web, relay }) |path| {

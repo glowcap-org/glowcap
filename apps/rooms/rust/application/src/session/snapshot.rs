@@ -6,7 +6,7 @@ pub mod views;
 use super::checkpoint::{Checkpoint, Routes};
 pub use super::fields::{Field, Id, List, Nullable, Presence, SafeInteger, Text};
 use crate::{
-	grants::{protocol::GrantView, Access},
+	grants::{Access, protocol::GrantView},
 	room::ArgumentView,
 	text::DocumentText,
 };

@@ -1,5 +1,6 @@
 //! Retained facet storage and nonrefundable issuance belong to one archive owner.
 use super::{CALLER_LIMIT, FACET_BYTES};
+use crate::Error;
 use glowcap::{Ref, Session};
 use rooms_application::archive::{
 	blobs::MAX_READERS_PER_SESSION,
@@ -39,9 +40,9 @@ impl Budget {
 	pub fn callers(&self) -> usize {
 		self.callers.borrow().len()
 	}
-	pub fn retain(&self, bytes: usize) -> Result<Permit, String> {
+	pub fn retain(&self, bytes: usize) -> Result<Permit, Error> {
 		if bytes > FACET_BYTES.saturating_sub(self.bytes.get()) {
-			return Err("archive facet storage is full".into());
+			return Err(Error::exhausted("archive facet storage is full"));
 		}
 		self.bytes.set(self.bytes.get() + bytes);
 		Ok(Permit {
@@ -55,15 +56,15 @@ impl Budget {
 		&self,
 		session: &Session,
 		kind: Kind,
-		create: impl FnOnce() -> Result<Ref, String>,
-	) -> Result<Ref, String> {
+		create: impl FnOnce() -> Result<Ref, Error>,
+	) -> Result<Ref, Error> {
 		let mut callers = self.callers.borrow_mut();
 		callers.retain(|caller| caller.session.is_open());
 		let at = match callers.iter().position(|caller| caller.session.same_session(session)) {
 			Some(at) => at,
 			None => {
 				if callers.len() == CALLER_LIMIT {
-					return Err("archive caller limit reached".into());
+					return Err(Error::exhausted("archive caller limit reached"));
 				}
 				callers.push(Caller {
 					session: session.borrowed(),
@@ -79,7 +80,7 @@ impl Budget {
 			Kind::Reader => caller.readers.available(),
 		};
 		if !available {
-			return Err("archive mint ceiling reached for this session".into());
+			return Err(Error::exhausted("archive mint ceiling reached for this session"));
 		}
 		let reference = create()?;
 		match kind {

@@ -1,7 +1,6 @@
 //! Cutting an inventory to a page. A page is a few dozen rows whether the
 //! directory holds thirty or three hundred thousand, so the search and the
-//! count happen here, once, over every row: a row is matched by its
-//! prematched text and built only when it lands inside the page.
+//! count happen here, once, over every already-built row.
 use alloc::{string::String, vec::Vec};
 
 /// One candidate row: its lowercased search text, the row itself, and the
@@ -80,10 +79,10 @@ pub fn query_batch<T, A>(sources: impl Iterator<Item = Source<T, A>>, query: &st
 			continue;
 		}
 		total += 1;
-		if (acts.len() as u64) < limit {
-			if let Some(act) = source.retire {
-				acts.push(act);
-			}
+		if (acts.len() as u64) < limit
+			&& let Some(act) = source.retire
+		{
+			acts.push(act);
 		}
 	}
 	(acts, total)

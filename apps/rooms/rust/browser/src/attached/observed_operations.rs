@@ -1,6 +1,6 @@
 //! One operations read per capability. Invalidations coalesce in shared policy;
 //! browser tasks retain effects and bounded driver admission owns caller waits.
-use super::{observation::call, owner::Owner, view, Result, RoomsBrowserSession};
+use super::{Result, RoomsBrowserSession, observation::call, owner::Owner, view};
 use rooms_application::{
 	server::operations::operator::ReferenceKind,
 	session::{
@@ -237,7 +237,7 @@ impl Feed {
 							"listeners" => Capability::Listeners,
 							"diagnostics" => Capability::Diagnostics,
 							"irc" => Capability::Irc,
-							"viz" => Capability::Viz,
+							"trace" => Capability::Trace,
 							"peering" => Capability::Peering,
 							_ => unreachable!("the shared operations inventory has six views"),
 						};

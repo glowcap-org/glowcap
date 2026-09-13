@@ -25,7 +25,7 @@
 	</header>
 	<div class="prose" :html="$page.content()"></div>
 	<nav class="cards" aria-label="Where to go next">
-		<a class="card card-lead" href="$site.page('examples').link()">
+		<a class="card card-lead" href="$site.page('rooms').link()">
 			<span class="card-lead-mark" aria-hidden="true"></span>
 			<div>
 				<h2>Rooms: glowcap as a chat</h2>

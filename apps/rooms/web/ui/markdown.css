@@ -1,0 +1,144 @@
+/* Block Markdown inside messages. Inline code, links, mentions, quotes, and
+   spoilers remain bubble vocabulary; this sheet owns the document structures
+   that can nest or overflow. */
+.bubble p {
+	margin: 0 0 0.45rem;
+}
+.bubble p:last-child {
+	margin-bottom: 0;
+}
+.bubble ul,
+.bubble ol {
+	margin: 0.35rem 0;
+	padding-left: 1.5rem;
+}
+.bubble li > p {
+	display: inline;
+}
+.bubble .markdown-heading {
+	margin: 0.55rem 0 0.25rem;
+	font-weight: 700;
+	line-height: 1.25;
+}
+.bubble .markdown-heading:first-child {
+	margin-top: 0;
+}
+.bubble .markdown-heading.h1 {
+	font-size: var(--type-display);
+}
+.bubble .markdown-heading.h2 {
+	font-size: var(--type-title);
+}
+.bubble .markdown-heading.h3,
+.bubble .markdown-heading.h4,
+.bubble .markdown-heading.h5,
+.bubble .markdown-heading.h6 {
+	font-size: var(--type-body);
+}
+.bubble hr {
+	margin: 0.65rem 0;
+	border: 0;
+	border-top: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+}
+.markdown-task {
+	list-style: none;
+}
+.markdown-task > input {
+	margin: 0 0.4rem 0 -1.3rem;
+	accent-color: var(--accent);
+}
+/* A table sits in the message's own ink: rules mixed from `currentColor`
+   rather than the page hairline, which is tuned to the paper and vanishes
+   against a head row. A head cell starts left like the body under it, so a
+   column reads as one column until the source aligns it. The wrapper scrolls
+   sideways when a table is wider than the bubble, and the table's own edge
+   stays with it rather than being cut. */
+.markdown-table-scroll {
+	max-width: min(70vw, 620px);
+	margin: 0.45rem 0;
+	overflow-x: auto;
+}
+.markdown-table-scroll:first-child {
+	margin-top: 0;
+}
+.markdown-table-scroll:last-child {
+	margin-bottom: 0;
+}
+.markdown-table-scroll table {
+	border-spacing: 0;
+	border-collapse: separate;
+	border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+	border-radius: var(--radius-chip);
+	line-height: 1.35;
+}
+.markdown-table-scroll th,
+.markdown-table-scroll td {
+	padding: 0.3rem 0.6rem;
+	border: 0;
+	border-left: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+	text-align: left;
+	vertical-align: top;
+}
+.markdown-table-scroll th:first-child,
+.markdown-table-scroll td:first-child {
+	border-left: 0;
+}
+.markdown-table-scroll th {
+	padding-top: 0.35rem;
+	padding-bottom: 0.35rem;
+	background: color-mix(in srgb, currentColor 7%, transparent);
+	font-weight: 650;
+}
+.markdown-table-scroll tbody td {
+	border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+.markdown-align-left {
+	text-align: left;
+}
+.markdown-align-center {
+	text-align: center;
+}
+.markdown-align-right {
+	text-align: right;
+}
+.markdown-image-link::before {
+	content: "↗ ";
+}
+.markdown-footnote {
+	margin-top: 0.35rem;
+	padding-top: 0.35rem;
+	border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+	font-size: var(--type-caption);
+}
+.markdown-footnote > sup {
+	margin-right: 0.35rem;
+}
+.markdown-footnote-ref {
+	margin-left: 0.1rem;
+}
+
+/* A topic stays one line even when its source uses a block construct. */
+.topic-said p,
+.topic-said .markdown-heading,
+.topic-said blockquote,
+.topic-said ul,
+.topic-said ol {
+	display: inline;
+	margin: 0;
+	padding: 0;
+}
+.topic-said li {
+	display: inline;
+}
+.topic-said li + li::before {
+	content: ", ";
+}
+.topic-said .markdown-table-scroll,
+.topic-said .code-block,
+.topic-said .markdown-footnote {
+	display: inline;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+}

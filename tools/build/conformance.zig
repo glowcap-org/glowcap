@@ -19,6 +19,7 @@ pub fn register(
     check_step: *std.Build.Step,
     pin_port: ?u16,
     goblins_reg: goblins_build.Registered,
+    rooms_web_proofs: *std.Build.Step,
 ) void {
     // ── External conformance pressure (siblings of `check`) ──────────────────
     // A glowcap peer the upstream OCapN test suite can dial: it serves the
@@ -36,7 +37,10 @@ pub fn register(
     // breaks this consumer then fails fast on `zig build check` rather than only
     // under the uv-driven ocapn-conformance sibling.
     check_step.dependOn(&ocapn_peer_exe.step);
-    const ocapn_conformance = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--peer" });
+    // The wrapper derives its module inventory from the pinned upstream tree.
+    // Its readiness probe and every module own separate deadlines, so adding a
+    // module increases coverage without competing for one aggregate budget.
+    const ocapn_conformance = execution.addSystemCommand(b, .child_bounded, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--peer" });
     ocapn_conformance.addArtifactArg(ocapn_peer_exe);
     ocapn_conformance.setCwd(b.path("."));
     ocapn_conformance.has_side_effects = true;
@@ -90,10 +94,11 @@ pub fn register(
     const fixture_gen_check_step = b.step("fixture-gen-check", "Regenerate Syrup fixtures via the upstream Racket Syrup encoder and diff against the committed corpus (needs racket + syrup)");
     fixture_gen_check_step.dependOn(&fixture_diff.step);
 
-    // The core external protocol baseline, in one step.
+    // The outside-authority protocol baseline and shipped-page browser proofs,
+    // in one release gate.
     //
     // `check` is deliberately hermetic: it needs no network or live external
-    // authority. Its small host tool set is declared by `check_runtimes` in
+    // authority. Its small host tool set is declared by `in_tree_runtimes` in
     // toolchain.zig; CLI tests link the trap-on-use iroh stub, so Cargo and its cache
     // stay outside this gate. A green `check` still proves only that glowcap
     // agrees with glowcap. These
@@ -102,7 +107,7 @@ pub fn register(
     // the upstream Syrup encoder re-deriving the committed corpus. Run this
     // before believing a protocol claim; the checks workflow runs
     // `ci/gates.sh` on main-branch pushes and pull requests.
-    const check_external_step = b.step("check-external", "Run the core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role, both foreign-promise listener directions, the hinted-locator give, and Syrup corpus parity (needs uv + racket + goblins)");
+    const check_external_step = b.step("check-external", "Run outside-authority protocol conformance and every shipped Rooms page browser proof (needs uv + racket + goblins + cargo + deno + Playwright)");
     check_external_step.dependOn(ocapn_conformance_step);
     check_external_step.dependOn(ocapn_findings_step);
     check_external_step.dependOn(goblins_reg.interop_step);
@@ -113,6 +118,7 @@ pub fn register(
     check_external_step.dependOn(goblins_reg.listen_recipient_step);
     check_external_step.dependOn(goblins_reg.exporter_step);
     check_external_step.dependOn(fixture_gen_check_step);
+    check_external_step.dependOn(rooms_web_proofs);
 
     // Hermetic C-ABI extract refuse matrix (ADR-0077): archive path escape / symlink
     // fixtures against each resolve port's hard-fail hygiene. `tar` is

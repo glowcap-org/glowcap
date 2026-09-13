@@ -1,10 +1,11 @@
 //! The Darwin kqueue completion backend for `completion.Loop`.
 //!
-//! One implementation of the completion-backend interface documented in
-//! `completion.Loop` (`loop.zig`). The portable connection orchestration lives in
-//! `completion.Loop`; this file provides only the platform completion primitive
-//! and the native TCP socket primitives. The io_uring (Linux) sibling is
-//! `uring.zig`; the server logic does not change between them.
+//! This file implements the completion-backend interface documented in
+//! `completion.Loop` (`loop.zig`). The portable connection orchestration lives
+//! there. This file provides only the platform completion primitive and native
+//! TCP socket primitives. Linux selects between the io_uring and
+//! epoll siblings through `linux.zig`. The server logic does not change between
+//! them.
 //!
 //! kqueue is a *readiness* interface, not a completion one: `kevent` reports that
 //! an fd is ready to read or write, not that a transfer finished. This backend
@@ -17,18 +18,16 @@
 //!
 //! The shared read-buffer pool (ADR-0054) is a `BufferPool` owned here: a
 //! readiness backend reads at poll time, so `poll` acquires a scratch buffer,
-//! performs the `recv` into it, and lends it to the loop on the completion;
+//! performs the `recv` into it and lends it to the loop on the completion.
 //! `recycleBorrowed` reclaims it. Buffers are allocated lazily up to the pool size,
 //! and a read-ready fd that finds the pool empty completes with
-//! `Completion.recv_no_buffer` — pool contention, never a connection error.
+//! `Completion.recv_no_buffer`: pool contention, never a connection error.
 //!
-//! Type-checked on every `zig build check` by the `cross-check` gate, which
-//! cross-compiles the whole library to `aarch64-macos` (compile-only), so this
-//! backend cannot regress unnoticed from a Linux host. What that gate cannot do
-//! is *run* it — that needs a macOS machine or CI runner. So this backend is
-//! type-correct and reviewed against the io_uring sibling's contract, but its
-//! runtime behavior is unproven here; treat a change to it as needing a macOS run
-//! before it is trusted in production.
+//! `zig build check` runs `cross-check`, which compiles the whole library for
+//! `aarch64-macos`. This catches type errors from a Linux host, but it cannot run
+//! the backend. Runtime proof requires a macOS machine or CI runner. Review this
+//! backend against the same completion contract as both Linux backends, then run
+//! it on macOS before trusting a behavior change in production.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -81,6 +80,11 @@ pub const Backend = struct {
 
     allocator: std.mem.Allocator,
     kq: c.fd_t,
+    /// One row per descriptor with an armed direction. The map grows only when
+    /// concurrent armed descriptors reach a new peak, then retains capacity so
+    /// steady re-arm is allocation-free. A readiness event names an fd, and
+    /// one fd may carry both a read and a write operation, so the backend needs
+    /// this join from kernel identity to the two exact completion identities.
     pending: std.AutoHashMap(c.fd_t, Pending),
     /// Completions that need no readiness (closes), drained before blocking.
     ready: completion.ReadyQueue,
@@ -350,7 +354,10 @@ pub const Backend = struct {
         const got = while (true) {
             const rc = c.kevent(self.kq, @ptrCast(&events), 0, @ptrCast(&events), want, timeout_ptr);
             if (rc >= 0) break rc;
-            if (std.posix.errno(rc) == .INTR) continue;
+            // The loop owns the deadline. An empty turn lets it recompute the
+            // remaining time. Retrying the full timespec here can extend a
+            // finite wait after every signal.
+            if (std.posix.errno(rc) == .INTR) return 0;
             return error.KeventFailed;
         };
         if (got == 0) return 0;

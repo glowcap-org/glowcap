@@ -1,14 +1,15 @@
 //! Shared archive admission and share authority execute inside the linked Wasm.
 use glowcap::{Argument, Locator, PendingWork, Runtime, RuntimeConfig, Session};
 use rooms_application::archive::{
+	Access, Body, ConversationKind, Coordinates, Facet, Filter, LineState, Record,
 	index::{Index, Page},
-	shares, Access, Body, ConversationKind, Coordinates, Facet, Filter, LineState, Record,
+	shares,
 };
 use rooms_browser::platform::Platform;
-use rooms_glowcap::client::{archive::Archive as ClientArchive, Client};
+use rooms_glowcap::client::{Client, archive::Archive as ClientArchive};
 use rooms_runtime::{
+	archive::session::SessionArchive,
 	archive::{Archive, Backend},
-	session_archive::SessionArchive,
 };
 use std::rc::Rc;
 
@@ -73,6 +74,7 @@ fn record() -> Record {
 			order: 1,
 			state: LineState::Present,
 			attachments: vec![],
+			previews: Default::default(),
 		},
 	)
 	.unwrap()
@@ -125,18 +127,22 @@ pub async fn exercise(client: &Client<Platform>, accepted: &Session, locator: &L
 	let durable = ClientArchive::new(client.clone(), durable_ref.clone());
 	let child = durable.narrow(&Filter::default(), Access::Read).await.unwrap();
 	assert_eq!(child.read_all(&Filter::default()).await.unwrap().len(), 1);
-	assert!(client
-		.session()
-		.send(&durable_ref, "read", &[const { Argument::Void }; 4])
-		.await
-		.is_err());
+	assert!(
+		client
+			.session()
+			.send(&durable_ref, "read", &[const { Argument::Void }; 4])
+			.await
+			.is_err()
+	);
 	// Failed selection cannot reinterpret a previously granted local archive.
-	assert!(owner
-		.select(Some("ocapn://missing.invalid?transport=tcp".into()))
-		.unwrap()
-		.wait()
-		.await
-		.is_err());
+	assert!(
+		owner
+			.select(Some("ocapn://missing.invalid?transport=tcp".into()))
+			.unwrap()
+			.wait()
+			.await
+			.is_err()
+	);
 	assert!(owner.read(Filter::default()).unwrap().wait().await.is_err());
 	assert_eq!(live.read_all(&Filter::default()).await.unwrap().len(), 1);
 	assert_eq!(child.read_all(&Filter::default()).await.unwrap().len(), 1);

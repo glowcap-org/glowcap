@@ -10,8 +10,17 @@ pub fn listeners<A: ListArgument>(value: &A) -> Result<Snapshot, Refusal> {
 	let mut remaining = MAX_JSON_UNITS;
 	budget(value, &mut remaining, 5)?;
 	let rows = list(value, |value| {
-		let [transport, description, reference, reference_name, takes, unavailable, id, locator, serving] =
-			tuple(value)?;
+		let [
+			transport,
+			description,
+			reference,
+			reference_name,
+			takes,
+			unavailable,
+			id,
+			locator,
+			serving,
+		] = tuple(value)?;
 		let id = number::<false>(&id)?.get();
 		let row = Listener {
 			transport: text(&transport)?,

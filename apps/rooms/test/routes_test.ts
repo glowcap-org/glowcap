@@ -1,3 +1,4 @@
+// Route selection keeps authenticated identity evidence distinct from baseline reachability hints.
 import {
 	DURABLE_SWISS_ENTROPY_BYTES,
 	formatLocatorUri,

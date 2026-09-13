@@ -1,7 +1,7 @@
 //! Actual TypeScript response captures pin operator and operations admission.
-use crate::arguments::{from_fixture, Arg};
+use crate::arguments::{Arg, from_fixture};
 use rooms_application::{
-	server::operations::operator::{view, Category},
+	server::operations::operator::{Category, view},
 	session::operations::{Capability, Snapshot},
 };
 use serde_json::Value;
@@ -51,7 +51,7 @@ pub fn run() {
 		let capability = match case["capability"].as_str().unwrap() {
 			"listeners" => Capability::Listeners,
 			"diagnostics" => Capability::Diagnostics,
-			"viz" => Capability::Viz,
+			"trace" => Capability::Trace,
 			"peering" => Capability::Peering,
 			"irc" => Capability::Irc,
 			_ => unreachable!(),

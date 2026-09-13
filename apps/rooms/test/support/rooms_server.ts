@@ -10,14 +10,19 @@ import { Reachability } from "@glowcap/iroh";
 
 import { dial as dialWithRuntime, isUriLocator, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
+import { assert } from "../assert.ts";
 import { spawnOwned, stopOwned } from "./children.ts";
-export const ROOT = new URL("../../../../", import.meta.url).pathname;
-import { SERVER } from "./server_binary.ts";
-export { SERVER };
+import { ROOT, SERVER } from "./paths.ts";
+import { freePort } from "./ports.ts";
+import { delay, until, within } from "./wait.ts";
+
+export { assert, delay, freePort, ROOT, SERVER, until, within };
 
 export class TestRuntimeScope {
 	readonly #byHost = new Map<Host, Promise<Runtime>>();
 	readonly #runtimes = new Set<Runtime>();
+	readonly #served: Promise<void>[] = [];
+	readonly #faults: unknown[] = [];
 
 	async dial(locator: string, host = roomsHost()): Promise<Session> {
 		let pending = this.#byHost.get(host);
@@ -33,10 +38,31 @@ export class TestRuntimeScope {
 		return await dialWithRuntime(locator, runtime);
 	}
 
+	/** Run a session's inbound loop and make its outcome this test's.
+	 *
+	 * `serve()` resolves when the connection closes cleanly and rejects on a
+	 * transport or protocol fault, so a loop nobody awaits is a wire fault
+	 * nobody sees. The scope keeps every loop it started, latches a rejection
+	 * the moment it happens, and raises it when the scope closes: the test
+	 * that opened the session fails, named, rather than a later wait naming an
+	 * unrelated selector. */
+	serve(session: Session): Promise<void> {
+		const served = session.serve().then(() => undefined, (error: unknown) => {
+			this.#faults.push(error);
+		});
+		this.#served.push(served);
+		return served;
+	}
+
 	async close(): Promise<void> {
 		for (const runtime of [...this.#runtimes].reverse()) await runtime.close();
 		this.#runtimes.clear();
 		this.#byHost.clear();
+		// Every loop ends with its runtime, so this waits on nothing that is
+		// still running; what it collects is the faults latched along the way.
+		await Promise.all(this.#served.splice(0));
+		const faults = this.#faults.splice(0);
+		if (faults.length > 0) throw faults[0];
 	}
 }
 
@@ -63,30 +89,11 @@ export function dial(locator: string, host?: Host): Promise<Session> {
 	return activeRuntimeScope.dial(locator, host);
 }
 
-// The native test server includes iroh. Probe one direct endpoint once per
-// suite; failure is a failure, not an implicit skip of supported behavior.
-export function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
-
-export const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Wait for one thing with a deadline on it.
- *
- * A stream that never delivers what a test is waiting for is the ordinary shape
- * of a broken feature, and awaiting it plainly turns that into a hang: the run
- * sits there until something outside kills it, and reports nothing about what
- * was missing. This turns the same failure into a sentence. */
-export async function within<T>(work: Promise<T>, what: string, ms = 10_000): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const expiry = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), ms);
-	});
-	try {
-		return await Promise.race([work, expiry]);
-	} finally {
-		clearTimeout(timer);
-	}
+/** Run `session`'s inbound loop under the active test scope, which raises any
+ * wire fault the loop ends with when the test's scope closes. */
+export function serving(session: Session): Promise<void> {
+	if (activeRuntimeScope === null) throw new Error("rooms test serve used outside a test scope");
+	return activeRuntimeScope.serve(session);
 }
 
 export async function readPort(proc: Deno.ChildProcess): Promise<number> {
@@ -125,23 +132,12 @@ export async function readPort(proc: Deno.ChildProcess): Promise<number> {
 	throw new Error("rooms server never announced its port");
 }
 
-/** Child servers that mean no durable state must not inherit a live
- * `GLOWCAP_ROOMS_STATE` from the pane that launched the suite.
- *
- * `spawnOwned` is the authority that actually hides the pane directory
- * (Deno overlays `env` unless `clearEnv` is set). This helper still names
- * that absence for callers who pass an explicit environment map. */
-function ephemeralRoomsEnv(): Record<string, string> {
-	const env = { ...Deno.env.toObject() };
-	delete env.GLOWCAP_ROOMS_STATE;
-	return env;
-}
-
+/** A server that means no durable state. `spawnOwned` keeps the pane's live
+ * `GLOWCAP_ROOMS_STATE` away from it. */
 export async function withServer(fn: (port: number) => Promise<void>): Promise<void> {
 	const proc = spawnOwned(SERVER, {
 		args: ["--transport=tcp", "--port=0"],
 		cwd: ROOT,
-		env: ephemeralRoomsEnv(),
 		stdout: "piped",
 		stderr: "piped",
 	});
@@ -174,16 +170,9 @@ export async function withPeeringServer(
 	}
 }
 
-export function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
-
-/** Wait until serve.ts answers `/locator` on `port`, or throw. The web
- * server answers only once the room it supervises has announced, so this is
- * the one probe that means "serving and useful". */
+/** Wait until `rooms-web` answers `/locator` on `port`, or throw. The front
+ * answers only once the room it supervises has announced, so this is the one
+ * probe that means "serving and useful". */
 export async function waitForHttp(port: number): Promise<void> {
 	for (let i = 0; i < 400; i++) {
 		try {
@@ -193,9 +182,9 @@ export async function waitForHttp(port: number): Promise<void> {
 		} catch {
 			// not up / room not ready yet
 		}
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await delay(50);
 	}
-	throw new Error("serve.ts did not answer with a room locator");
+	throw new Error("rooms-web did not answer with a room locator");
 }
 
 /** Restart a stateful server on the port it held before. The number comes from
@@ -210,7 +199,7 @@ export async function restartStatefulServer(
 ): Promise<Deno.ChildProcess> {
 	let last = "";
 	for (let attempt = 0; attempt < 6; attempt++) {
-		if (attempt > 0) await new Promise((settle) => setTimeout(settle, 150));
+		if (attempt > 0) await delay(150);
 		const proc = startStatefulServer(port, stateDirectory, serverArgs);
 		try {
 			await readPort(proc);
@@ -282,7 +271,6 @@ export {
 	subscribeOnceIroh,
 	subscribeTwiceAndClose,
 	trySubscribe,
-	until,
 	waitForLine,
 	waitForMatch,
 	waitForRoster,

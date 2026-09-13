@@ -1,5 +1,6 @@
-// Exercise the same application loading boundary and generated module as the page.
-import { loadApplication } from "../../web/ui/application.ts";
-await loadApplication(
-	await Deno.readFile(new URL("../../../../zig-out/wasm/rooms/rooms_browser_bg.wasm", import.meta.url)),
-);
+// Load the production Rust application once, before any test module runs. The
+// Deno batches preload this file; a test that needs the application ready
+// before a top-level await of its own imports `initializeApplication` instead.
+import { initializeApplication } from "./application.ts";
+
+await initializeApplication();

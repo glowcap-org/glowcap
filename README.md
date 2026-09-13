@@ -15,7 +15,7 @@ it was given and cannot forge others, so there is no ambient authority.
 
 <br clear="left" />
 
-The session protocol is [CapTP](http://erights.org/elib/distrib/captp/). The
+The session protocol is [CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/). The
 core is codec-neutral, and on the wire it speaks
 [Syrup](https://github.com/ocapn/syrup), OCapN's canonical encoding.
 
@@ -160,7 +160,8 @@ glowcap builds with Zig 0.17. `build.zig.zon` pins the exact minimum, and
 
 ```sh
 zig build          # C ABI archives + headers + the glowcap CLI
-zig build check    # the full in-tree check: tests, examples, fixtures, budgets
+zig build check    # in-process tests, static checks, examples, fixtures, budgets
+zig build runtime-check # process, application, and language-workspace checks
 zig build test -Dtest-filter=substring   # just the tests whose names match
 ```
 
@@ -176,6 +177,12 @@ a local preview, run `zig build docs-serve` and open
 `http://127.0.0.1:1990/glowcap/`. In the devcontainer that process binds every
 interface so the published host port (`GLOWCAP_DOCS_HOST_PORT`, 1990 on the
 primary checkout) reaches it.
+
+That preview renders the authored pages and reloads them as you edit, and it
+is all it renders. The generated API reference, `sitemap.xml`, and the three
+surfaces written for programs, `llms.txt`, `llms-full.txt`, and each page's
+`index.md` twin, are produced by `zig build site` under `zig-out/site/`; serve
+that directory with any static file server to check them locally.
 
 These pages must match the code as it is today:
 

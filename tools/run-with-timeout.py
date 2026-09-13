@@ -6,33 +6,37 @@ call this instead. The exit codes a caller can act on match GNU timeout, because
 ci/gates.sh reads them: 124 when the deadline fires, 126 when the command cannot
 be executed, 127 when it does not exist, and 128+N when a signal kills the
 child. One does not match, and it is the one nothing reads: a bad argument list
-exits 2, argparse's code, where GNU uses 125. Nothing branches on it — a gate
-invoked wrongly is a broken gate script either way — so it is named here rather
-than translated.
+exits 2, argparse's code, where GNU uses 125. Nothing branches on it. A gate
+invoked incorrectly is broken either way, so the difference is named here
+rather than translated.
 
 Signalling matches GNU too: the child gets SIGTERM at the deadline and is only
 SIGKILLed if `--kill-after` was given and it outlives that grace period.
 Escalating by default would hard-kill callers that pass no grace, which is a
 harsher contract than the `timeout` they replaced.
 
-Requires `python3` on PATH. In ci/gates.sh that costs nothing — `zig build
-bindings` and `bindings-fmt-check` already need it — so the only caller paying
-a new dependency is the conformance runner. A shell-only shim was rejected: it
-would have to re-derive 128+N signal fidelity, --kill-after escalation, and
-process-group teardown, which is more shell than it saves. What it promises is
-held by `zig build timeout-runner-test`, which runs the wrapper and reads the
-codes a shell actually sees rather than grepping this file for them. A bare macOS
-resolves `/usr/bin/python3` to the Command Line Tools stub, so install CLT
-before running the gates by hand there.
+`--quiet-success` spools the child's combined output to a temporary file. A
+failure replays it exactly. A successful check emits nothing.
+
+Requires `python3` on PATH. CI already needs it for `zig build bindings` and
+`bindings-fmt-check`. The conformance runner is the only caller that adds this
+dependency. A shell-only shim would have to reimplement 128+N signal fidelity,
+`--kill-after` escalation, and process-group teardown, so Python keeps the
+contract smaller. `zig build timeout-runner-test` checks the wrapper by reading
+the codes a shell actually sees. A bare macOS resolves `/usr/bin/python3` to the
+Command Line Tools stub, so install CLT before running the gates by hand there.
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 
 
 def duration(value: str) -> float:
@@ -44,8 +48,8 @@ def duration(value: str) -> float:
         seconds = float(number) * multiplier
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid duration: {value}") from exc
-    if seconds < 0:
-        raise argparse.ArgumentTypeError("duration must be non-negative")
+    if seconds < 0 or not math.isfinite(seconds):
+        raise argparse.ArgumentTypeError("duration must be finite and non-negative")
     return seconds
 
 
@@ -59,7 +63,7 @@ def signal_group(process: subprocess.Popen[bytes], sig: int) -> None:
 def escalate(process: subprocess.Popen[bytes], kill_after: float | None) -> None:
     """Wait for the already-signalled group, escalating to SIGKILL only when a
     grace period was asked for. Without one this waits, exactly as GNU timeout
-    does — a caller wanting a bound passes `--kill-after`. Either way the child
+    does. A caller wanting a bound passes `--kill-after`. Either way the child
     is reaped before the caller returns, so nothing is left running."""
     if kill_after is None:
         process.wait()
@@ -81,6 +85,11 @@ def shell_code(returncode: int) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kill-after", type=duration, default=None)
+    parser.add_argument(
+        "--quiet-success",
+        action="store_true",
+        help="replay combined child output only when the command fails",
+    )
     parser.add_argument("timeout", type=duration)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -94,29 +103,56 @@ def main() -> int:
     # just gave it. The child unblocks them for itself before exec.
     relayed = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
     signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
+    capture = tempfile.TemporaryFile() if args.quiet_success else None
+    finishing = False
+
+    def finish(code: int) -> int:
+        nonlocal finishing
+        if capture is None:
+            return code
+        if finishing:
+            return code
+        finishing = True
+        try:
+            if code != 0:
+                capture.flush()
+                capture.seek(0)
+                shutil.copyfileobj(capture, sys.stderr.buffer)
+                sys.stderr.buffer.flush()
+        finally:
+            capture.close()
+        return code
 
     def unblock_in_child() -> None:
         signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
 
     try:
         process = subprocess.Popen(
-            command, start_new_session=True, preexec_fn=unblock_in_child
+            command,
+            start_new_session=True,
+            preexec_fn=unblock_in_child,
+            stdout=capture,
+            stderr=subprocess.STDOUT if capture is not None else None,
         )
     except FileNotFoundError as exc:
         signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
+        if capture is not None:
+            capture.close()
         print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
         return 127
     except OSError as exc:
         # GNU timeout separates these: 127 is "no such command", 126 is
         # "found it, could not run it".
         signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
+        if capture is not None:
+            capture.close()
         print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
         return 126
 
     # Cancellation from a CI runner or a terminal must reach the child, which
     # is in its own session and would otherwise outlive us. Relay the signal
-    # that actually arrived — a Ctrl-C the child sees as SIGTERM is a different
-    # event — then apply the same escalation a deadline gets, reap, and exit
+    # that actually arrived. A Ctrl-C the child sees as SIGTERM is a different
+    # event. Then apply the same escalation a deadline gets, reap, and exit
     # 128+N so the caller sees what killed it. SIGINT is relayed here rather
     # than left to raise `KeyboardInterrupt`, because returning from a handler
     # into `wait()` would let a child that ignores the signal defeat the
@@ -124,18 +160,18 @@ def main() -> int:
     def relay(sig: int, _frame: object) -> None:
         signal_group(process, sig)
         escalate(process, args.kill_after)
-        sys.exit(128 + sig)
+        sys.exit(finish(128 + sig))
 
     for forwarded in relayed:
         signal.signal(forwarded, relay)
     signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
 
     try:
-        return shell_code(process.wait(timeout=args.timeout))
+        return finish(shell_code(process.wait(timeout=args.timeout)))
     except subprocess.TimeoutExpired:
         signal_group(process, signal.SIGTERM)
         escalate(process, args.kill_after)
-        return 124
+        return finish(124)
 
 
 if __name__ == "__main__":

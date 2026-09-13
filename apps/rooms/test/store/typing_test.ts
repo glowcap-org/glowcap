@@ -1,3 +1,4 @@
+// Typing projection changes only ephemeral composition state and retires it with the conversation.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {

@@ -10,24 +10,33 @@
 
 import { type ReactNode, useState } from "react";
 import { IconButton } from "../IconButton.tsx";
+import { Said } from "../Said.tsx";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { opsRefresh, opsRefreshing } from "../../../lib/text/ops.ts";
 
 export function OpsHead({ children, refresh }: { children: ReactNode; refresh?: () => Promise<void> }) {
 	const [asking, setAsking] = useState(false);
+	const [why, setWhy] = useState("");
 	return (
 		<div className="ops-head">
-			<p className="lead">{children}</p>
+			<div className="ops-head-copy">
+				<p className="lead">{children}</p>
+				{why !== "" && <Said kind="failure">{why}</Said>}
+			</div>
 			{refresh !== undefined && (
 				<IconButton
 					icon="retry"
-					label={asking ? "Refreshing" : "Refresh"}
-					title={asking ? "Refreshing" : "Refresh"}
+					label={asking ? opsRefreshing : opsRefresh}
+					title={asking ? opsRefreshing : opsRefresh}
 					size="small"
 					variant="ghost"
 					className="ops-refresh"
 					busy={asking}
 					onClick={() => {
 						setAsking(true);
-						void refresh().finally(() => setAsking(false));
+						setWhy("");
+						void refresh().catch((error) => setWhy(refusalText(error)))
+							.finally(() => setAsking(false));
 					}}
 				/>
 			)}

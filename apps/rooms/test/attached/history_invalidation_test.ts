@@ -1,3 +1,4 @@
+// Attached history invalidation is scoped, coalesced, and retired with the projection that requested it.
 /// <reference lib="dom" />
 import { assertEquals } from "../assert.ts";
 import { type HistoryChange, parseHistoryChange } from "../../lib/session/history.ts";
@@ -119,6 +120,7 @@ Deno.test("history invalidations coalesce across reads, preserve scope and stop 
 		at: 1,
 		order: 1,
 		state: "present",
+		previewUrls: [],
 		attachments: [],
 	});
 	const answer = (conversation: string, text: string) => {

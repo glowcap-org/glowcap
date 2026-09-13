@@ -1,6 +1,6 @@
 use std::sync::{LockResult, Mutex, MutexGuard};
 
-use crate::{sys, Error};
+use crate::{Error, sys};
 
 /// No iroh mutex protects an application invariant: critical sections only
 /// move owned task handles, readiness flags, wakers, and channel endpoints.

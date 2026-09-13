@@ -19,15 +19,39 @@
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" || exit 1
 
+SCRATCH="$(mktemp -d)" || exit 1
+PEER_PID=
+peer_is_running() {
+  jobs -pr | grep -Fxq "$PEER_PID"
+}
+cleanup() {
+  if [ -n "$PEER_PID" ]; then
+    kill "$PEER_PID" 2>/dev/null || true
+    for _ in $(seq 1 40); do
+      peer_is_running || break
+      sleep 0.05
+    done
+    if peer_is_running; then
+      echo "ocapn-conformance: peer did not stop after 2s; killing it" >&2
+      kill -KILL "$PEER_PID" 2>/dev/null || true
+    fi
+    wait "$PEER_PID" 2>/dev/null || true
+  fi
+  rm -rf -- "$SCRATCH"
+}
+trap cleanup EXIT
+
 # uv needs writable cache + Python-install dirs; the devcontainer's defaults may
 # be read-only, so fall back to temp dirs when the configured dirs cannot be
 # written.
 if [ -z "${UV_CACHE_DIR:-}" ] || [ ! -w "$UV_CACHE_DIR" ]; then
-  UV_CACHE_DIR="$(mktemp -d)"
+  UV_CACHE_DIR="$SCRATCH/uv-cache"
+  mkdir -p "$UV_CACHE_DIR" || exit 1
   export UV_CACHE_DIR
 fi
 if [ -z "${UV_PYTHON_INSTALL_DIR:-}" ] || [ ! -w "$UV_PYTHON_INSTALL_DIR" ]; then
-  UV_PYTHON_INSTALL_DIR="$(mktemp -d)"
+  UV_PYTHON_INSTALL_DIR="$SCRATCH/uv-python"
+  mkdir -p "$UV_PYTHON_INSTALL_DIR" || exit 1
   export UV_PYTHON_INSTALL_DIR
 fi
 
@@ -54,7 +78,7 @@ while [ "$#" -gt 0 ]; do
 done
 export GLOWCAP_OCAPN_CONFORMANCE_PORT="$PORT"
 URL="ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port=$PORT"
-LOG="$(mktemp)"
+LOG="$SCRATCH/peer.log"
 FILTER='Download|Built|Installed|Building|Audited|Resolved|Prepared|Updating'
 
 if [ ! -x "$PEER" ]; then
@@ -65,13 +89,21 @@ fi
 
 "$PEER" "--port=$PORT" >"$LOG" 2>&1 &
 PEER_PID=$!
-trap 'kill "$PEER_PID" 2>/dev/null; rm -f "$LOG"' EXIT
 
+peer_ready=false
 for _ in $(seq 1 100); do
-  grep -q GLOWCAP-OCAPN-PEER-READY "$LOG" && break
+  if grep -q GLOWCAP-OCAPN-PEER-READY "$LOG"; then
+    peer_ready=true
+    break
+  fi
   kill -0 "$PEER_PID" 2>/dev/null || { echo "ocapn-conformance: peer exited early" >&2; cat "$LOG" >&2; exit 1; }
   sleep 0.1
 done
+if [ "$peer_ready" != true ]; then
+  echo "ocapn-conformance: peer did not become ready after 10s" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
 
 run_handshake_abort_probe() {
   echo "ocapn-conformance: handshake-abort probe (pre-setup abort + invalid signature + invalid version)"
@@ -89,7 +121,7 @@ run_handshake_abort_probe() {
 
 run_module() {
   module="$1"
-  suite_out="$(mktemp)"
+  suite_out="$SCRATCH/suite.out"
   echo "ocapn-conformance: module $module"
   python3 tools/run-with-timeout.py --kill-after 5s "$MODULE_TIMEOUT" bash conformance/ocapn-conformance/run.sh test "$URL" --test-module "$module" --verbose >"$suite_out" 2>&1
   code=$?
@@ -110,7 +142,6 @@ run_module() {
     echo "ocapn-conformance: $module reported skipped tests; not counting as a pass" >&2
     code=1
   fi
-  rm -f "$suite_out"
   return "$code"
 }
 
@@ -131,7 +162,7 @@ if [ "$MODULE" = "all" ]; then
   modules="$(cd conformance/ocapn-conformance/upstream/tests && ls -- *.py | sed 's/\.py$//' | grep -v '^__init__$' | grep -v '^op_abort$' | sort | sed 's/^/tests./')"
   if [ -z "$modules" ]; then
     echo "ocapn-conformance: no upstream test modules under conformance/ocapn-conformance/upstream/tests" >&2
-  echo "ocapn-conformance: run 'bash conformance/bootstrap-submodules.sh' to initialize the pinned submodules" >&2
+    echo "ocapn-conformance: run 'bash conformance/bootstrap-submodules.sh' to initialize the pinned submodules" >&2
     exit 1
   fi
   for module in $modules; do

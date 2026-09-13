@@ -1,3 +1,4 @@
+// Transient handed rooms reach an attached view without becoming durable checkpoint claims.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {

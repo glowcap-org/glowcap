@@ -7,17 +7,19 @@ import { applicationModule } from "./application.ts";
  * long-running tab from retaining one key for every conversation ever opened. */
 export class ScrollMemory {
 	readonly #positions = new Map<string, number>();
+	#limit: number | undefined;
 
 	get size(): number {
 		return this.#positions.size;
 	}
 
 	remember(key: string, position: number): void {
+		this.#limit ??= applicationModule().workspaceConversationLimit();
 		// Refresh recency on every real scroll; Map.set alone preserves the old
 		// insertion position and would evict an actively read conversation.
 		this.#positions.delete(key);
 		this.#positions.set(key, position);
-		if (this.#positions.size <= applicationModule().workspaceConversationLimit()) return;
+		if (this.#positions.size <= this.#limit) return;
 		const oldest = this.#positions.keys().next().value;
 		if (oldest !== undefined) this.#positions.delete(oldest);
 	}

@@ -4,8 +4,8 @@
 // interchangeable. `reach` is somebody arriving at the card and how they got
 // there; `editJoin` is them changing an answer while they are in front of it;
 // `remember` is a join having actually worked. Nothing else may write these
-// fields, which is what stops a surface from leaving a value behind for the
-// next one to find. The model itself is `intent.ts`, and what the card does
+// fields, so one surface cannot leave a value behind for the next one to find.
+// The model itself is `intent.ts`, and what the card does
 // with it is `joining.ts`.
 
 import { current, type Reach } from "../intent.ts";
@@ -83,14 +83,4 @@ export function answers(
 	context: DirectoryDestinationContext = { home: snapshot.homeDir, defaultDirectory: null },
 ): JoinAnswers {
 	return joinAnswers(snapshot.reaching, snapshot.edits, snapshot.remembered, context);
-}
-
-/** The name this reader goes by when nothing else has granted one.
- *
- * Every "do we have a name to enter a room with" asks this, so a name typed
- * into the card but not yet used counts, and so does one remembered from a
- * past visit. A directory's own grant is a different and stronger answer, and
- * lives in `dirNick`. */
-export function reachingNick(projection: PageProjection): string {
-	return answers(projection).nick.value;
 }

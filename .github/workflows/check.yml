@@ -1,6 +1,8 @@
-# The full gate sequence, run in the canonical devcontainer image via
-# ci/gates.sh. The sequence itself is forge-neutral, so this file is the only
-# thing that would change if glowcap moved.
+# Pull requests get a short Zig-only check. Main and dev pushes run the full
+# gate sequence in the canonical devcontainer image via ci/gates.sh, plus the
+# host-side infrastructure and runtime checks on macOS. The sequence itself is
+# forge-neutral, so this file is the only thing that would change if glowcap
+# moved.
 # Topology: CONTRIBUTING.md "Continuous integration".
 #
 # The devcontainer image is rebuilt from scratch on every run (push: never,
@@ -21,11 +23,32 @@ permissions:
   contents: read
 
 jobs:
+  pull-request:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Install the pinned Zig
+        run: |
+          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+
+      - name: Run the Zig test suite
+        run: zig build test --test-timeout 30s --summary all
+
+      - name: Check Zig formatting
+        run: zig build fmt-check --summary all
+
   gates:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
@@ -45,10 +68,11 @@ jobs:
           runCmd: bash ci/gates.sh
 
   macos-runtime:
+    if: github.event_name == 'push'
     runs-on: macos-15
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
@@ -57,5 +81,8 @@ jobs:
           ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
 
+      - name: Check host-side infrastructure on macOS
+        run: zig build infrastructure-check --test-timeout 30s --summary all
+
       - name: Run the Zig test suite on macOS
-        run: zig build test -j4 --summary all
+        run: zig build test --test-timeout 30s -j4 --summary all

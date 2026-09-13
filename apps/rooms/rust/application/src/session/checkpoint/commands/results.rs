@@ -412,6 +412,7 @@ impl Plan {
 				let intent = join::Intent {
 					locator: text(&directory.locator.0)?,
 					nick: directory.nick.clone(),
+					nick_allocation: directory.nick_allocation,
 					conversation: room,
 				};
 				join::apply(&mut next, intent, routes, &())?;

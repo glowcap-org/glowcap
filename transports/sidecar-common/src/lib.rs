@@ -19,6 +19,6 @@ mod barrier;
 mod readiness;
 mod runtime;
 
-pub use barrier::{TaskBarrier, TaskPermit};
+pub use barrier::{TaskBarrier, TaskFailure, TaskPermit};
 pub use readiness::Readiness;
 pub use runtime::RuntimeOwner;

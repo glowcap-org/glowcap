@@ -1,5 +1,6 @@
 //! The living-state registry and planning-doc roles: every doc that claims
-//! to describe the present is registered, and every registered path exists.
+//! to describe the present is registered, every registered path exists, and
+//! active plans are linked from the roadmap or upstream watch.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -23,6 +24,11 @@ pub fn checkPlanningDocRoles(
     };
     defer planning.close(io);
 
+    const roadmap = try root.readFileAlloc(io, "docs/roadmap.md", gpa, .limited(1 << 20));
+    defer gpa.free(roadmap);
+    const upstream = try root.readFileAlloc(io, "docs/upstream-watch.md", gpa, .limited(1 << 20));
+    defer gpa.free(upstream);
+
     var walker = try planning.walk(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
@@ -35,11 +41,20 @@ pub fn checkPlanningDocRoles(
         };
         defer gpa.free(contents);
 
-        if (std.mem.indexOf(u8, contents, "Status: active plan") == null and
+        const active = std.mem.indexOf(u8, contents, "Status: active plan") != null;
+        if (!active and
             std.mem.indexOf(u8, contents, "Status: historical") == null and
             std.mem.indexOf(u8, contents, "Status: living-state") == null)
         {
             try appendViolation(gpa, violations, "docs/planning/{s}: must declare `Status: active plan`, `Status: historical ...`, or `Status: living-state ...`", .{entry.path});
+        }
+
+        if (active) {
+            const link = try std.fmt.allocPrint(gpa, "](planning/{s})", .{entry.path});
+            defer gpa.free(link);
+            if (std.mem.indexOf(u8, roadmap, link) == null and std.mem.indexOf(u8, upstream, link) == null) {
+                try appendViolation(gpa, violations, "docs/planning/{s}: active plan must have a direct link from docs/roadmap.md or docs/upstream-watch.md", .{entry.path});
+            }
         }
     }
 }

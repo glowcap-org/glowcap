@@ -9,6 +9,8 @@ import { emptyRoomsSessionState, type RoomsSessionState } from "../../lib/rooms_
 import type { RoomsBrowserController } from "../../web/ui/controller/browser.ts";
 import { registrationId } from "../support/registration.ts";
 import { roomsSessionSnapshot } from "../support/session_snapshot.ts";
+import { initializeApplication } from "../support/application.ts";
+import { DRAFT_SAVE_DEBOUNCE_MS } from "../../web/ui/application_data.ts";
 
 Object.defineProperty(globalThis, "localStorage", {
 	configurable: true,
@@ -27,6 +29,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 });
 
+await initializeApplication();
 export const store = await import("../../web/ui/store.ts");
 export const { attachedCommandPowers } = await import("../../web/ui/session/attached_command_powers.ts");
 export const { createAttachedRoomsSession } = await import("../../web/ui/session/attached_session.ts");
@@ -152,7 +155,7 @@ export class FakeController {
 
 	joinDestination(
 		destination: { room: string; locator: string; hidden?: boolean },
-		nick: string,
+		nick: import("../../web/ui/controller/session.ts").JoinNicknameIntent,
 		defaultDirectory: string,
 	): Promise<RoomsSessionSnapshot> {
 		const linkMarker = destination.locator.lastIndexOf("/s/");
@@ -174,7 +177,7 @@ export class FakeController {
 			standing: null,
 			draft: "",
 		};
-		return this.joinRoom(room, { locator, nick });
+		return this.joinRoom(room, { locator, nick: nick.kind === "exact" ? nick.name : nick.base });
 	}
 
 	select(id: string): Promise<RoomsSessionSnapshot> {
@@ -245,7 +248,7 @@ export class FakeController {
 			const timer = setTimeout(() => {
 				this.scheduledDrafts.delete(conversation);
 				void this.setDraft(conversation, text).then(resolve, reject);
-			}, 150);
+			}, DRAFT_SAVE_DEBOUNCE_MS);
 			this.scheduledDrafts.set(conversation, { timer, resolve });
 		});
 	}
@@ -316,5 +319,5 @@ export function sessionFor(
 }
 
 export function waitForDraftSave(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 180));
+	return new Promise((resolve) => setTimeout(resolve, DRAFT_SAVE_DEBOUNCE_MS + 30));
 }

@@ -1,8 +1,8 @@
 //! Pagination effects share the operator slot with snapshots and invalidations.
 use super::*;
 use rooms_application::server::operations::operator::{
-	view::inventory::{Appended, Inventory},
 	Category,
+	view::inventory::{Appended, Inventory},
 };
 
 pub(super) async fn read(session: &super::super::endpoint::Endpoint, ticket: &Read) -> Result<Answer> {

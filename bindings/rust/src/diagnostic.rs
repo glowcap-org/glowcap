@@ -1,6 +1,6 @@
 //! Structured failures that had no remaining deterministic return recipient.
 
-use crate::{abi_constants_gen, sys, Error, Result};
+use crate::{Error, Result, abi_constants_gen, sys};
 
 /// The layer that observed an unreturnable failure.
 #[non_exhaustive]

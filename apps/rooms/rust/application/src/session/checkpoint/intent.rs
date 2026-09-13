@@ -1,9 +1,9 @@
 //! Read-only intent projections for runtime realization. These borrow the
 //! committed graph; adapters do not serialize and reparse checkpoint documents.
 use super::{
+	Checkpoint,
 	fields::{Bearer, Field, Id, Text},
 	model::Reconnect,
-	Checkpoint,
 };
 use crate::bridge::Answers;
 
@@ -13,6 +13,7 @@ pub struct DirectoryIntent<'a> {
 	pub id: &'a Id,
 	pub locator: &'a Id,
 	pub nick: &'a Field,
+	pub nick_allocation: crate::directory::registration::NicknameAllocation,
 }
 #[derive(Clone, Copy)]
 pub struct DirectIntent<'a> {
@@ -161,8 +162,8 @@ impl Checkpoint {
 			})
 		})
 	}
-	pub fn viz_override(&self) -> &str {
-		self.0.viz_override.text().as_str().unwrap_or("")
+	pub fn trace_override(&self) -> &str {
+		self.0.trace_override.text().as_str().unwrap_or("")
 	}
 	pub fn directories(&self) -> impl ExactSizeIterator<Item = DirectoryIntent<'_>> {
 		self.0.directories.0.iter().map(|directory| DirectoryIntent {
@@ -170,6 +171,7 @@ impl Checkpoint {
 			id: &directory.id,
 			locator: &directory.locator,
 			nick: &directory.nick,
+			nick_allocation: directory.nick_allocation,
 		})
 	}
 }

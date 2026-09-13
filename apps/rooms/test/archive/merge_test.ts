@@ -2,7 +2,7 @@
 // shows one record, lifecycle state outranks, the write target breaks the
 // remaining tie, and no record ever leaves its recorder's source.
 
-import { mergeArchiveAccounts } from "../../lib/archive/merge.ts";
+import { mergeArchiveAccounts } from "../support/archive/merge.ts";
 import type { ArchiveLine, ArchiveStanding } from "../../lib/archive/protocol.ts";
 import { assertEquals } from "../assert.ts";
 
@@ -21,6 +21,7 @@ function line(id: string, over: Partial<ArchiveLine> = {}): ArchiveLine {
 		at: 1,
 		order: 1,
 		state: "present",
+		previewUrls: [],
 		attachments: [],
 		...over,
 	};

@@ -100,7 +100,7 @@ const goblins_interop_clients = [_]BindingClientRow{
     .{
         .step_name = "deno-goblins-interop",
         .description = "Live keyed OCapN conversation: Deno binding vs a real Goblins vat (needs deno + racket + goblins)",
-        .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "interop/goblins_interop/deno_client.ts" },
+        .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--v8-flags=--expose-gc", "interop/goblins_interop/deno_client.ts" },
         .posture = .{ .deterministic = 30 },
     },
     .{

@@ -3,13 +3,13 @@
 //! between owners, and a refused command leaves both owned and staged files
 //! untouched. The host adapter supplies only the calling session's staged files.
 use super::{
-	message::{ChangeKind, LineId},
 	ArgumentView,
+	message::{ChangeKind, LineId},
 };
 use alloc::{string::String, vec::Vec};
 use core::{fmt, mem};
 
-// Compatibility bounds from lib/limits.ts, held by the migration fixtures.
+// Shared Rooms wire bounds.
 pub const MAX_LINE_BYTES: usize = 8192;
 pub const MAX_MESSAGE_FILES: usize = 8;
 
@@ -120,7 +120,7 @@ impl<F> Line<F> {
 			return Err(LineError::UnexpectedCapability.into());
 		}
 		match verb {
-			"edit" => {
+			crate::protocol_data::EDIT => {
 				self.require_live()?;
 				let text = match args {
 					[value] => value.text().ok_or(LineError::EditArguments)?,
@@ -130,7 +130,7 @@ impl<F> Line<F> {
 				let reservation = self.propose(text, ChangeKind::Edited, self.files.iter(), admit)?;
 				Ok(Some((reservation, self.change(text, ChangeKind::Edited, Vec::new()))))
 			}
-			"refile" => {
+			crate::protocol_data::REFILE => {
 				self.require_live()?;
 				let caption = args
 					.first()
@@ -187,7 +187,7 @@ impl<F> Line<F> {
 				self.withdrawn = kind == ChangeKind::Withdrawn;
 				Ok(Some((reservation, self.change(caption, kind, retired))))
 			}
-			"withdraw" => {
+			crate::protocol_data::WITHDRAW => {
 				if !args.is_empty() {
 					return Err(LineError::WithdrawArguments.into());
 				}

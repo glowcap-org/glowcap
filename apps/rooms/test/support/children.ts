@@ -1,20 +1,20 @@
 // The child processes a rooms proof owns, and the one place they are reaped.
 //
 // These proofs spawn servers that bind real loopback ports, and one of them,
-// `serve.ts`, supervises a room server of its own. A child left behind holds
+// `rooms-web`, supervises a room server of its own. A child left behind holds
 // its port for as long as the container lives, and the run that eventually
 // cannot bind fails a long way from the run that leaked. Fifteen of them
 // stacked up over five gate runs before anyone counted, so how a spawned server
 // dies is not something each proof gets to answer for itself.
 //
 // Owned means the whole tree. Signalling only the process we spawned leaves
-// `serve.ts`'s room server behind whenever `serve.ts` goes without running its
-// own shutdown, and it races the respawn loop even when it does. So every child
-// starts under `setsid` and leads a process group of its own, and the reap
-// signals that group by negative pid.
+// `rooms-web`'s room server behind whenever `rooms-web` goes without running
+// its own shutdown, and it races the respawn loop even when it does. So every
+// child starts under `setsid` and leads a process group of its own, and the
+// reap signals that group by negative pid.
 //
-// That negative pid can only ever mean one of two things, which is what makes
-// it safe to send even to a child that has already exited. A process group is
+// That negative pid can only ever mean one of two things, so it is safe to send
+// even to a child that has already exited. A process group is
 // named by its leader's pid, the leader here is the child we spawned, and the
 // kernel keeps that number reserved for as long as any member of the group is
 // still alive. So the signal reaches this proof's own group, or it reaches
@@ -31,6 +31,8 @@
 //
 // A harness killed with SIGKILL still leaks, because nothing a parent process
 // writes can outlive that signal.
+
+import { LIB_DIR } from "./paths.ts";
 
 /** How long a group gets to stop politely before it is killed. */
 const GRACE_MS = 3_000;
@@ -49,11 +51,23 @@ let doorsOpen = false;
  *
  * Deno overlays `options.env` onto the parent (`clearEnv` defaults false), so
  * deleting a key from a copied map does not hide it. The pane that launches
- * `check` sets `GLOWCAP_ROOMS_STATE` for a live server; hermetic proofs must
+ * `check` sets `GLOWCAP_ROOMS_STATE` for a live server; in-tree proofs must
  * not inherit that directory. A caller that names the variable in
- * `options.env` is asking for a specific directory and keeps it. */
+ * `options.env` is asking for a specific directory and keeps it.
+ *
+ * Every native child links or opens glowcap's shared libraries, so the install
+ * prefix is named for all of them here, once, unless the build or the caller
+ * already said where they are. */
 function childEnv(extra?: Record<string, string>): Record<string, string> {
-	const env = { ...Deno.env.toObject(), ...extra };
+	const env: Record<string, string> = {
+		...Deno.env.toObject(),
+		...extra,
+		// A hand-run proof gets the same IRC safety boundary as a build-owned
+		// test: the native dialer rejects public hosts before DNS.
+		GLOWCAP_TEST_IRC_LOOPBACK_ONLY: "1",
+	};
+	env.LD_LIBRARY_PATH ??= LIB_DIR;
+	env.GLOWCAP_LIB_DIR ??= LIB_DIR;
 	if (extra?.GLOWCAP_ROOMS_STATE === undefined) delete env.GLOWCAP_ROOMS_STATE;
 	return env;
 }
@@ -83,7 +97,7 @@ export function spawnOwned(command: string, options: Deno.CommandOptions = {}): 
 /** Stop one owned child and everything it started, then wait for it.
  *
  * Polite first, because a room server given the chance removes the temporary
- * state directory it made and `serve.ts` takes its own child down with it. A
+ * state directory it made and `rooms-web` takes its own child down with it. A
  * group still standing after the grace period is killed instead: a child that
  * will not answer a signal is a defect, and hanging here would hide it behind a
  * run that never ends. */

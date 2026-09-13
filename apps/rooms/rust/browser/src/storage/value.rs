@@ -64,14 +64,14 @@ pub(super) fn document(value: &JsValue, maximum: usize) -> Option<DocumentText> 
 	if text.length() as usize > maximum {
 		return None;
 	}
-	let units = || (0..text.length()).map(|i| text.char_code_at(i) as u16);
-	let bytes: usize = char::decode_utf16(units())
+	let units: Vec<u16> = (0..text.length()).map(|i| text.char_code_at(i) as u16).collect();
+	let bytes: usize = char::decode_utf16(units.iter().copied())
 		.map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER).len_utf8())
 		.sum();
 	if bytes > maximum {
 		return None;
 	}
-	Some(DocumentText::from_utf16(&units().collect::<Vec<_>>()))
+	Some(DocumentText::from_utf16(&units))
 }
 pub(super) fn text(value: &DocumentText) -> JsValue {
 	match value.as_str() {

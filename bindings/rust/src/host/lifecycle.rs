@@ -106,11 +106,7 @@ impl HostShared {
 		let mut wait_ms: i64 = -1;
 		let rc = unsafe { ffi::glowcap_host_close_wait_ms(self.raw(), monotonic_ms(), &mut wait_ms) };
 		check_host(rc)?;
-		if wait_ms >= 0 {
-			Ok(Some(Duration::from_millis(wait_ms as u64)))
-		} else {
-			Ok(None)
-		}
+		decode_close_wait(wait_ms)
 	}
 
 	pub(crate) fn start_owned_task(self: &Rc<Self>) -> Result<OwnedTaskRegistration> {
@@ -400,6 +396,23 @@ impl HostShared {
 		// non-owning pointers and cannot retain stale lookup results afterward.
 	}
 }
+
+fn decode_close_wait(wait_ms: i64) -> Result<Option<Duration>> {
+	match wait_ms {
+		-1 => Ok(None),
+		0.. => Ok(Some(Duration::from_millis(u64::try_from(wait_ms).map_err(|_| {
+			Error::with_detail(
+				sys::ERR_INTERNAL,
+				"native close wait exceeded the duration range".into(),
+			)
+		})?))),
+		_ => Err(Error::with_detail(
+			sys::ERR_INTERNAL,
+			format!("native close wait returned invalid negative duration {wait_ms}"),
+		)),
+	}
+}
+
 impl Drop for HostShared {
 	fn drop(&mut self) {
 		// A loop-adopted Host's native handle dies with `glowcap_driver_release`
@@ -439,5 +452,27 @@ impl Drop for HostShared {
 				}
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod close_wait_tests {
+	use super::*;
+
+	#[test]
+	fn decodes_close_wait_contract() {
+		assert_eq!(decode_close_wait(-1).unwrap(), None);
+		assert_eq!(decode_close_wait(0).unwrap(), Some(Duration::ZERO));
+		assert_eq!(decode_close_wait(42).unwrap(), Some(Duration::from_millis(42)));
+	}
+
+	#[test]
+	fn refuses_out_of_contract_negative_close_wait() {
+		let error = decode_close_wait(-2).unwrap_err();
+		assert_eq!(error.code(), sys::ERR_INTERNAL);
+		assert_eq!(
+			error.message(),
+			Some("native close wait returned invalid negative duration -2")
+		);
 	}
 }

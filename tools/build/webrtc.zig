@@ -230,7 +230,7 @@ pub fn register(ctx: Context) Registered {
 
     const webrtc_internal_test_step = b.step("webrtc-internal-test", "Run WebRTC resident ownership and bounded-signaling tests");
     for ([_]*std.Build.Step.Compile{webrtc_internal_tests}) |tests| {
-        const run = execution.addZigTest(b, tests, .{ .deterministic = 30 });
+        const run = execution.addZigTest(b, tests, .unit_test);
         webrtc_internal_test_step.dependOn(&run.step);
     }
     check_step.dependOn(webrtc_internal_test_step);

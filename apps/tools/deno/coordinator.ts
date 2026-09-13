@@ -54,5 +54,11 @@ console.log(`TOOLS-SERVER-LISTENING ${server.port}`);
 
 for await (const session of server) {
 	session.publish(TOOLS, coordinatorBehavior(session));
-	session.serve().catch(() => {});
+	// A partner's transport fault ends only that partner's service; the
+	// coordinator keeps accepting, and says which session went down.
+	session.serve().catch((error: unknown) => {
+		console.error(
+			`tools coordinator: a session ended with a fault: ${error instanceof Error ? error.message : error}`,
+		);
+	});
 }

@@ -11,7 +11,7 @@ import {
 	readArchive,
 	readArchiveAttachment,
 } from "../../lib/archive/protocol.ts";
-import { issueArchiveShare, listArchiveShares, revokeArchiveShare } from "../../lib/archive/client.ts";
+import { issueArchiveShare, listArchiveShares, revokeArchiveShare } from "../support/archive/client.ts";
 import { fetchBlob } from "../../lib/attachment.ts";
 import { roomsAddress, roomsHost } from "../../lib/locator.ts";
 import { stopOwned } from "../support/children.ts";
@@ -43,6 +43,7 @@ function record(): ArchiveLine {
 		at: 1,
 		order: 1,
 		state: "present",
+		previewUrls: [],
 		attachments: [],
 	};
 }

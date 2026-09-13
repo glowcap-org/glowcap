@@ -1,4 +1,5 @@
 {
+  "license": "Apache-2.0",
   "imports": {
     "@glowcap/runtime/cleanup": "./bindings/ts/runtime/cleanup.ts",
     "@glowcap/runtime": "./bindings/ts/runtime/mod.ts",
@@ -14,25 +15,25 @@
     "@glowcap/web": "./bindings/ts/web/mod.ts",
     "@glowcap/webrtc": "./bindings/ts/webrtc/mod.ts",
     "playwright": "npm:playwright@1.63.0",
-    "react": "npm:react@19.2.8",
-    "react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
-    "react-dom": "npm:react-dom@19.2.8",
-    "react-dom/client": "npm:react-dom@19.2.8/client",
-    "react-dom/server": "npm:react-dom@19.2.8/server",
-		"react-router": "npm:react-router@7.18.2",
+    "react": "npm:react@19.3.0",
+    "react/jsx-runtime": "npm:react@19.3.0/jsx-runtime",
+    "react-dom": "npm:react-dom@19.3.0",
+    "react-dom/client": "npm:react-dom@19.3.0/client",
+    "react-dom/server": "npm:react-dom@19.3.0/server",
+		"react-router": "npm:react-router@8.3.1",
 		"zustand": "npm:zustand@5.0.15",
 		"zustand/vanilla": "npm:zustand@5.0.15/vanilla",
 		"zustand/react/shallow": "npm:zustand@5.0.15/react/shallow",
-		"@types/react": "npm:@types/react@19.2.18",
-    "@types/react-dom": "npm:@types/react-dom@19.2.4",
-    "zod": "npm:zod@4.4.3",
-    "zod/mini": "npm:zod@4.4.3/mini"
+		"@types/react": "npm:@types/react@19.3.0",
+    "@types/react-dom": "npm:@types/react-dom@19.3.0",
+    "zod": "npm:zod@4.6.4",
+    "zod/mini": "npm:zod@4.6.4/mini"
   },
   "lock": {
     "path": "./deno.lock",
     "frozen": true
   },
-  // ocapnviz stays its own scope for everything else, but the rooms viz proofs
+  // ocapnviz stays its own scope for everything else, but the rooms trace proofs
   // load its real converter and its real `Observation` schema at run time
   // instead of declaring a second copy of them, and both are built on zod. This
   // is the one specifier the root scope has to resolve for a proof to run the
@@ -46,12 +47,28 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "jsxImportSourceTypes": "npm:@types/react@19.2.18"
+    "jsxImportSourceTypes": "npm:@types/react@19.3.0"
   },
   // ocapnviz is its own Deno scope: its imports resolve through its own
   // deno.json, not this one, and its checks run through its own tasks. The
   // top-level exclude keeps every root-scope walk (check, lint, fmt) out.
   "exclude": ["apps/ocapnviz"],
+  // Deno's recommended set carries most of the JSX rules already. The three
+  // below are tagged `react` and left out of it, and the first is the one that
+  // matters: `react-rules-of-hooks` is what catches a hook behind a condition,
+  // inside a loop, or outside a component. Those do not fail a type-check and
+  // do not fail a render — they corrupt the hook order and surface later as
+  // state belonging to the wrong call, which is among the hardest defects in a
+  // React codebase to read backwards from. The rooms page is the only React in
+  // this scope, and it is large enough to need the rule.
+  //
+  // The two `danger` rules are cheap insurance on a surface that renders text
+  // other people wrote.
+  "lint": {
+    "rules": {
+      "include": ["react-rules-of-hooks", "react-no-danger", "react-no-danger-with-children"]
+    }
+  },
   "fmt": {
     "lineWidth": 120,
     "semiColons": true,

@@ -50,12 +50,11 @@ export type LayoutMode = z.infer<typeof LayoutMode>;
  * Per-category entity definitions — the IDENTITY half of the
  * entity-vs-event split. Lives independently of `events`:
  *
- *   - The `events` array carries TEMPORAL facts (peer arrived
- *     at t=12, session closed at t=45, message in flight from
- *     t=20 to t=22). Each creation event still carries its
- *     own identity payload for backwards-compat with existing
- *     fixtures; new authors write identity to `entities` and
- *     emit creation events that just point at the id + t.
+ *   - Observations carry TEMPORAL facts (peer arrived at t=12,
+ *     session closed at t=45, message in flight from t=20 to
+ *     t=22). A creation observation is self-describing capture
+ *     evidence, so it carries the genesis facts observed at that
+ *     moment. Build-mode authors write definitions directly.
  *
  *   - The `entities` map carries the STATIC identity (peer's
  *     profile / label, session's endpoints, message's payload).
@@ -64,9 +63,8 @@ export type LayoutMode = z.infer<typeof LayoutMode>;
  *     captured activity, mirroring the existing "no end event"
  *     = eternal-end semantic for peers and sessions.
  *
- * Reading order at lookup time: `entities[cat][id]` first,
- * creation event payload as fallback. New builder writes
- * always populate `entities`.
+ * The parser projects captured genesis facts into missing definitions;
+ * runtime reads then have one path through `entities[cat][id]`.
  */
 const PeerDefinition = z.object({
 	profile: PeerProfile,
@@ -97,8 +95,8 @@ const PeerDefinition = z.object({
 		profile: z.array(Keyframe(PeerProfile)).optional(),
 	}).optional(),
 	/** Stored timing — start + duration, each side explicit/implicit.
-	 *  Optional in the parser schema for fixture / wire-format
-	 *  compatibility; the engine projects from observations on load
+	 *  Optional because a captured entity obtains its span from observations;
+	 *  the engine projects from observations on load
 	 *  so every entity has `timing` populated by the time any reader
 	 *  consults it. See `docs/temporal-model.md` and
 	 *  `docs/data-model.md`. */

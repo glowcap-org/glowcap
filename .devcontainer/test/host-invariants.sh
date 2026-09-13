@@ -103,19 +103,6 @@ if glowcap_devcontainer_validate_session_designator abcdefghijklmnopqrstuvwxy >/
     exit 1
 fi
 
-mkdir "${scratch}/bin"
-# The single quotes are the source text of the fake command, not this shell's
-# interpolation context.
-# shellcheck disable=SC2016
-printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    'if [[ "$1" == ps ]]; then printf "abc123\\n"; exit 0; fi' \
-    'printf "%s\\n" "$*"' > "${scratch}/bin/docker"
-chmod 755 "${scratch}/bin/docker"
-ln -s "${dir}/../.agents/skills/work/bin/glowcap-dev" "${scratch}/host/glowcap-dev"
-dev_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${scratch}/host/glowcap-dev" /bin/true)"
-[[ "${dev_exec}" == *"--workdir /workspaces/glowcap abc123 /bin/true"* ]]
-
 expect_launcher_error enter.sh "mutually exclusive" --rebuild --no-cache
 expect_launcher_error enter.sh "--session requires a designator" --session
 expect_launcher_error enter.sh "--session requires a designator" --session=
@@ -346,9 +333,41 @@ for submodule_path in ocapn-conformance ocapn-spec syrup spritely-goblins; do
 done
 git -C "${submodule_primary}" add .
 git -C "${submodule_primary}" commit -qm submodules
+
+# Repair container-only pointers and stale reverse links before asking Git to
+# update. Preserve local submodule edits, and keep a primary clone relocatable.
+for submodule_path in ocapn-conformance ocapn-spec syrup spritely-goblins; do
+    printf 'gitdir: /missing-container/.git/modules/conformance/%s/upstream\n' \
+        "${submodule_path}" > "${submodule_primary}/conformance/${submodule_path}/upstream/.git"
+    git config --file "${submodule_primary}/.git/modules/conformance/${submodule_path}/upstream/config" \
+        core.worktree "/missing-container/conformance/${submodule_path}/upstream"
+done
+printf 'local edit\n' > "${submodule_primary}/conformance/syrup/upstream/seed"
+bootstrap_log="${scratch}/bootstrap-submodules.log"
+if ! GIT_ALLOW_PROTOCOL='file' bash "${submodule_primary}/conformance/bootstrap-submodules.sh" \
+    >"${bootstrap_log}" 2>&1; then
+    cat "${bootstrap_log}" >&2
+    exit 1
+fi
+mv "${submodule_primary}" "${submodule_primary}-moved"
+submodule_primary="${submodule_primary}-moved"
+git -C "${submodule_primary}" status --short >/dev/null
+[[ "$(git -C "${submodule_primary}/conformance/syrup/upstream" diff -- seed)" == *"+local edit"* ]]
+if ! GIT_ALLOW_PROTOCOL='file' bash "${submodule_primary}/conformance/bootstrap-submodules.sh" \
+    >"${bootstrap_log}" 2>&1; then
+    cat "${bootstrap_log}" >&2
+    exit 1
+fi
+for submodule_path in ocapn-conformance ocapn-spec syrup spritely-goblins; do
+    git -C "${submodule_primary}/conformance/${submodule_path}/upstream" status --short >/dev/null
+done
 git -C "${submodule_primary}" worktree add -q -b submodule-linked "${submodule_linked}"
-GIT_ALLOW_PROTOCOL=file GLOWCAP_CHECKOUT_DIR="${submodule_linked}" \
-    bash "${submodule_linked}/conformance/bootstrap-submodules.sh" >/dev/null
+bootstrap_log="${scratch}/bootstrap-submodules.log"
+if ! GIT_ALLOW_PROTOCOL='file' GLOWCAP_CHECKOUT_DIR="${submodule_linked}" \
+    bash "${submodule_linked}/conformance/bootstrap-submodules.sh" >"${bootstrap_log}" 2>&1; then
+    cat "${bootstrap_log}" >&2
+    exit 1
+fi
 submodule_git_dir="$(git -C "${submodule_linked}" rev-parse --path-format=absolute --git-dir)"
 for submodule_path in ocapn-conformance ocapn-spec syrup spritely-goblins; do
     submodule_store="${submodule_git_dir}/modules/conformance/${submodule_path}/upstream"

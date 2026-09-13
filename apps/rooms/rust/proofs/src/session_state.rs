@@ -90,10 +90,12 @@ fn reconciliation_closes_adoption_only_for_a_changed_checkpoint() {
 	use rooms_application::session::snapshot::views::Adoption;
 	let mut state = fresh();
 	let mut store = Store::new(&state);
-	assert!(state
-		.reconcile(Impact::Presentation, |_| Ok(Some(Checkpoint::empty())))
-		.unwrap()
-		.is_none());
+	assert!(
+		state
+			.reconcile(Impact::Presentation, |_| Ok(Some(Checkpoint::empty())))
+			.unwrap()
+			.is_none()
+	);
 	assert_eq!(state.workspace_adoption().unwrap(), Adoption::Available);
 	let prepared = state
 		.reconcile(Impact::Standing, |_| Ok(Some(checkpoint(&"learned".into()))))
@@ -109,10 +111,12 @@ fn reconciliation_closes_adoption_only_for_a_changed_checkpoint() {
 		state.adopt(text("late"), 0, &"adopt".into(), Checkpoint::empty()),
 		Err(Error::AdoptionClosed)
 	));
-	assert!(state
-		.reconcile(Impact::Standing, |_| Ok(Some(checkpoint(&"learned".into()))))
-		.unwrap()
-		.is_none());
+	assert!(
+		state
+			.reconcile(Impact::Standing, |_| Ok(Some(checkpoint(&"learned".into()))))
+			.unwrap()
+			.is_none()
+	);
 	assert_eq!(
 		store.frames.len(),
 		1,

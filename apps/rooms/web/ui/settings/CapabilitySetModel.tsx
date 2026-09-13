@@ -1,4 +1,11 @@
 import { createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	capabilitySetMintedSaid,
+	capabilitySetSaveTo,
+	capabilitySetSwissRefused,
+	capabilitySwissLabel,
+} from "../../../lib/text/settings.ts";
+import { holdingsSetChanged, holdingsSetSaved } from "../../../lib/text/ops.ts";
 import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
@@ -80,7 +87,7 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 					setErrors([]);
 				}
 				setSavedBundle(bundle);
-				if (refresh && dirty) setNotice("The saved capability set changed. Your unsaved edits are still here.");
+				if (refresh && dirty) setNotice(holdingsSetChanged);
 				setLoaded(true);
 			}, (cause) => {
 				if (!current || generation !== loadGeneration.current) return;
@@ -193,7 +200,7 @@ export function CapabilitySetProvider({ children }: { children: ReactNode }) {
 						),
 					);
 					setRetryPending(result.bundle === requested && result.failures.length > 0);
-					if (result.bundle === requested && result.failures.length === 0) setNotice("Capability set saved.");
+					if (result.bundle === requested && result.failures.length === 0) setNotice(holdingsSetSaved);
 				} catch (cause) {
 					setErrors([cause instanceof Error ? cause.message : String(cause)]);
 				} finally {
@@ -268,7 +275,7 @@ function CapabilityValueModal(
 	const face = OPS_CATALOG[showing];
 	const save = () => {
 		if (!opsBundleReady(new Map([[showing, swiss]]))) {
-			setWhy("Enter the exact bare swiss number the server printed.");
+			setWhy(capabilitySetSwissRefused);
 			return;
 		}
 		onSave(showing, swiss);
@@ -293,13 +300,8 @@ function CapabilityValueModal(
 					<div className="group well">
 						<Field
 							id="capabilityValueSwiss"
-							label="Swiss number"
-							hint={
-								<>
-									The server mints it with {face.flag}. {face.how}{" "}
-									It is bearer authority and is kept in the Rooms state bundle.
-								</>
-							}
+							label={capabilitySwissLabel}
+							hint={capabilitySetMintedSaid(face.flag, face.how)}
 							said={why}
 						>
 							{(wiring) => (
@@ -320,7 +322,7 @@ function CapabilityValueModal(
 						</Field>
 					</div>
 					<div className="actions" data-fill>
-						<Button type="submit" size="large">Save to capability set</Button>
+						<Button type="submit" size="large">{capabilitySetSaveTo}</Button>
 					</div>
 				</div>
 			</form>

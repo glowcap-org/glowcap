@@ -38,26 +38,26 @@ use nonblocking::*;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::AsRawFd;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
 use iroh::address_lookup::memory::MemoryLookup;
-use iroh::endpoint::{presets, ConnectError, Connection, ConnectionError, RecvStream, SendStream};
+use iroh::endpoint::{ConnectError, Connection, ConnectionError, RecvStream, SendStream, presets};
 use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
-use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier};
+use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier, TaskFailure};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
 type Readiness = glowcap_sidecar_common::Readiness<GlowcapIrohReadyEvent>;
 
-fn teardown_status(f: impl FnOnce() -> Result<(), ()>) -> i32 {
+fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
 	match catch_unwind(AssertUnwindSafe(f)) {
 		Ok(Ok(())) => 0,
-		Ok(Err(())) | Err(_) => -1,
+		Ok(Err(_)) | Err(_) => -1,
 	}
 }
 
@@ -320,8 +320,12 @@ pub struct GlowcapIrohConn {
 /// returns null. Returns an owned handle (release with
 /// `glowcap_iroh_sidecar_endpoint_free`) or null on failure. Blocks until the
 /// UDP sockets are bound.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_new(
+///
+/// # Safety
+/// `config` must be readable. When non-null, `secret_seed32` must address 32
+/// readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_new(
 	secret_seed32: *const u8,
 	config: *const GlowcapIrohEndpointConfig,
 ) -> *mut GlowcapIrohEndpoint {
@@ -440,8 +444,12 @@ fn write_str(s: &str, out: *mut u8, out_cap: usize) -> isize {
 /// its parser accepts alongside base32). Returns the complete byte count and
 /// copies only when `out_cap` is large enough. Borrows the handle; writes no
 /// terminator.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_node_id(
+///
+/// # Safety
+/// `ep` must be live, and `out` must be writable for `out_cap` bytes when the
+/// capacity is nonzero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_node_id(
 	ep: *const GlowcapIrohEndpoint,
 	out: *mut u8,
 	out_cap: usize,
@@ -460,8 +468,12 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_node_id(
 /// as-is. This is the hint string a partner passes to either connect surface.
 /// Returns the complete byte count and copies only when `out_cap` is large
 /// enough. Borrows the handle; writes no terminator.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_direct_addrs(
+///
+/// # Safety
+/// `ep` must be live, and `out` must be writable for `out_cap` bytes when the
+/// capacity is nonzero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_direct_addrs(
 	ep: *const GlowcapIrohEndpoint,
 	out: *mut u8,
 	out_cap: usize,
@@ -482,8 +494,11 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_direct_addrs(
 /// returns null, subsequent dials fail, and queued connection closes are
 /// delivered. Idempotent. Borrows the handle; the handle stays valid until
 /// `glowcap_iroh_sidecar_endpoint_free`.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIrohEndpoint) {
+///
+/// # Safety
+/// `ep` must be null or a live endpoint handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIrohEndpoint) {
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		if let Some(dials) = ep.dials.get() {
@@ -497,8 +512,12 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIrohEndpoi
 /// Release an endpoint handle. Blocks while iroh delivers queued connection
 /// closes, then shuts the runtime down. Free every connection minted from this
 /// endpoint first.
-#[no_mangle]
-pub extern "C" fn glowcap_iroh_sidecar_endpoint_free(ep: *mut GlowcapIrohEndpoint) -> i32 {
+///
+/// # Safety
+/// `ep` must be null or an owned endpoint handle not previously freed, and
+/// every connection minted from it must already have been released.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_free(ep: *mut GlowcapIrohEndpoint) -> i32 {
 	if ep.is_null() {
 		return 0;
 	}
@@ -514,7 +533,7 @@ pub extern "C" fn glowcap_iroh_sidecar_endpoint_free(ep: *mut GlowcapIrohEndpoin
 			endpoint.close().await;
 			let _ = closed_tx.send(());
 		}));
-		let close_result = closed_rx.recv_timeout(CLOSE_DRAIN_TIMEOUT).map_err(|_| ());
+		let close_result = closed_rx.recv_timeout(CLOSE_DRAIN_TIMEOUT).map_err(|_| TaskFailure);
 		// RuntimeOwner is safe to drop even when this C call originated inside an
 		// unrelated Tokio runtime.
 		drop(handle);

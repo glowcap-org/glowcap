@@ -1,5 +1,5 @@
 //! Captured TypeScript event admission plus capability custody on refusal.
-use crate::arguments::{from_fixture, text, Arg};
+use crate::arguments::{Arg, from_fixture, text};
 use rooms_application::session::event::{Event, Presence};
 use std::{cell::Cell, rc::Rc};
 
@@ -68,11 +68,19 @@ pub fn run() {
 	};
 	let args = make();
 	let event = Event::read(&args).unwrap();
+	assert!(event.previews.is_empty());
 	assert_eq!(Rc::strong_count(&drops), 3, "accepted event retains the supplied guard");
 	drop(args);
 	assert_eq!(Rc::strong_count(&drops), 2, "event outlives the delivery frame");
 	drop(event);
 	assert_eq!(Rc::strong_count(&drops), 1);
+	let mut preview_args: Vec<_> = baseline.as_array().unwrap().iter().map(from_fixture).collect();
+	preview_args[4] = text("see https://example.test/page");
+	preview_args[15] = text(r#"["https://example.test/page"]"#);
+	let preview_event = Event::read(&preview_args).unwrap();
+	assert_eq!(preview_event.previews.urls(), ["https://example.test/page"]);
+	preview_args[15] = text(r#"["https://elsewhere.test/"]"#);
+	assert!(Event::read(&preview_args).is_err());
 	for index in [6, 12, 14] {
 		let mut args = make();
 		match index {

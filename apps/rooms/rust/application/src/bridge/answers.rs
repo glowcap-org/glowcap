@@ -1,11 +1,12 @@
-use super::{Error as BridgeError, MAX_FIELDS};
+//! Bounded bridge-form answers preserve declared field identities.
+use super::{Error as BridgeError, MAX_FIELDS, MAX_FORM_VALUE};
 use crate::fields::Text;
 use crate::text::DocumentText;
 use alloc::{string::String, vec::Vec};
 use core::fmt;
 use serde::{
-	de::{Error, Visitor},
 	Deserialize, Deserializer, Serialize, Serializer,
+	de::{Error, Visitor},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -35,7 +36,7 @@ impl<'de> Deserialize<'de> for Id {
 // Answer names are nonnumeric ASCII keys. Preserve insertion order: durable
 // retry digests include JSON.stringify(checkpoint), not just its abstract map.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Answers(Vec<(alloc::string::String, Text<512>)>);
+pub struct Answers(Vec<(alloc::string::String, Text<MAX_FORM_VALUE>)>);
 impl Answers {
 	pub fn decode(raw: &str) -> Result<Self, BridgeError> {
 		super::check_size(raw)?;
@@ -76,7 +77,7 @@ impl Answers {
 		self.0.iter().fold(
 			self.0
 				.capacity()
-				.saturating_mul(core::mem::size_of::<(alloc::string::String, Text<512>)>()),
+				.saturating_mul(core::mem::size_of::<(alloc::string::String, Text<MAX_FORM_VALUE>)>()),
 			|sum, (key, value)| {
 				sum.saturating_add(key.capacity())
 					.saturating_add(value.text().heap_bytes())

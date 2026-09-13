@@ -22,6 +22,7 @@ import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsProjection } from "./hooks.ts";
 import { useOpenModal, useTopModalLayer } from "./modal.ts";
 import { errorDetailTitle, needsErrorDetail } from "./error_text.ts";
+import { noticesLabel, toastDismiss, toastShow } from "../../lib/text/controls.ts";
 
 /** How long a notice stands before it leaves on its own. Long enough to read
  * after the eye has left the control, short enough that a run of them does not
@@ -67,7 +68,7 @@ export function ToastCard(
 							})}
 					>
 						<span className="said-clamp">{text}</span>
-						<span className="said-show">Show</span>
+						<span className="said-show">{toastShow}</span>
 					</button>
 				)
 				: <p className="toast-text">{text}</p>}
@@ -75,7 +76,7 @@ export function ToastCard(
 				<IconButton
 					className="toast-dismiss"
 					icon="close"
-					label="Dismiss"
+					label={toastDismiss}
 					size="small"
 					variant="ghost"
 					onClick={onDismiss}
@@ -123,7 +124,7 @@ export const Toasts = memo(function Toasts({ toasts }: { toasts: readonly ToastN
 	}, [projection]);
 
 	const stack = (
-		<div id="toasts" className="toasts" role="region" aria-label="Notices">
+		<div id="toasts" className="toasts" role="region" aria-label={noticesLabel}>
 			{toasts.map((notice) => (
 				<ToastSlot
 					key={notice.id}

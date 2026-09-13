@@ -3,13 +3,21 @@
 // The card is the one surface in this application with several fields and
 // several ways of being reached, so it is where the act model in `intent.ts`
 // earns its keep. Everything here is a pure function of an act, what the
-// reader has typed under it, and what this browser remembers, which is what
-// lets the whole question be answered in a test without a page.
+// reader has typed under it, and what this browser remembers. The whole
+// question can therefore be answered in a test without a page.
 
 import { type DirId, dirId, dirMarkIn, type DirView, type RoomDestination } from "./types.ts";
+import type { JoinNickTarget } from "./join_nick.ts";
 import { directoryName } from "./text.ts";
 import { applicationModule, inspectCapability, inspectDirectory } from "./application.ts";
 import { openRoomPolicy, privateRoomPolicy, type RoomPolicy, type RoomPreset, standingOffered } from "./room_policy.ts";
+import {
+	joinLeadLink,
+	joinLeadNamedDirectory,
+	joinLeadNamedRoom,
+	joinLeadPlain,
+	joinLeadPressedRoom,
+} from "../../lib/text/join.ts";
 import {
 	type Act,
 	type Answer,
@@ -280,10 +288,13 @@ export interface JoinAnswers {
 /** What the card shows, given how the reader got in front of it.
  *
  * The order is `intent.ts`'s and is not repeated here. What this adds is which
- * tiers each field has: a room, a locator, and a name are all worth offering
- * back from a past visit, and a lock is not. A private room is minted for good
- * on submit, so a lock quietly remembered from last week would mint one nobody
- * asked for. */
+ * tiers each field has: a room and locator are worth offering back from a past
+ * visit. A nickname is not. Its successful outcome belongs to the connected
+ * directory and supplies the empty field's offer; treating that outcome as a
+ * new exact answer would make clearing a prefill reveal the same text as its
+ * placeholder. A lock is not remembered either. A private room is minted for
+ * good on submit, so a lock quietly remembered from last week would mint one
+ * nobody asked for. */
 export function joinAnswers(
 	act: Act,
 	edits: Edits,
@@ -295,9 +306,52 @@ export function joinAnswers(
 		source: act.source,
 		room: settle(mine.room, act.room, keepable(memory.room, JOIN_DEFAULT_ROOM), ""),
 		locator: locatorAnswer(mine.locator, act.locator, memory.locator, context),
-		nick: settle(mine.nick, act.nick, keepable(memory.nick, JOIN_DEFAULT_NICK), ""),
+		nick: settle(mine.nick, act.nick, undefined, ""),
 		roomPreset: settle(mine.roomPreset, act.roomPreset, undefined, "open"),
 	};
+}
+
+/** The nickname an empty join field means for the directory it is aimed at.
+ *
+ * A connected directory's granted name is current authority; the workspace's
+ * requested name is only intent and may have been refused or replaced. An
+ * unreached or disconnected destination has no granted answer to reuse, so it
+ * falls back to the application's ordinary guest offer. Presentation and
+ * submission both call this function so the placeholder is never a promise
+ * different from what pressing Join will do. */
+export function suggestedJoinNick(
+	locator: string,
+	dirs: ReadonlyMap<DirId, DirView>,
+	context: DirectoryDestinationContext,
+	directoryOf: (locator: string) => DirId | null,
+): string {
+	const typed = locator.trim();
+	// An attached session may not call any directory `home`, while still having
+	// a default directory whose locator the empty field means. That directory is
+	// the destination authority in both cases; `home` is the fallback only for a
+	// session without a separately identified default.
+	const target = typed === "" ? context.defaultDirectory?.id ?? context.home : directoryOf(typed);
+	const directory = target == null ? undefined : dirs.get(target);
+	return directory?.session === "connected" && directory.nick !== "" ? directory.nick : JOIN_DEFAULT_NICK;
+}
+
+/** The room identity a join draft names, if its directory can be resolved. */
+export function joinNickTarget(
+	locator: string,
+	room: string,
+	context: DirectoryDestinationContext,
+	directoryOf: (locator: string) => DirId | null,
+): JoinNickTarget | null {
+	const linked = typedRoomLink(locator, room);
+	if (linked !== null) {
+		const destination = roomLinkDestination(linked.link, linked.label);
+		return destination === null
+			? null
+			: { directory: destination.directory, link: destination.link, room: destination.label };
+	}
+	const typed = locator.trim();
+	const directory = typed === "" ? context.defaultDirectory?.id ?? context.home : directoryOf(typed);
+	return directory === null ? null : { directory, link: null, room: room || JOIN_DEFAULT_ROOM };
 }
 
 /** The locator field, whose every tier means one extra thing: this page's own
@@ -414,31 +468,27 @@ export function resolveJoin(
  * directory, resolved by the caller because naming one takes the directories
  * this tab holds and this module answers without them. */
 export function joinLead(answers: JoinAnswers, where: string): string {
-	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) {
-		return `No account is required. ${aimedAt(answers, where)} Display names are not verified.`;
-	}
-	return `No account is required. ${aimedAt(answers, where)} A room that does not exist yet opens when ` +
-		`you enter it. Display names are not verified.`;
+	return aimedAt(answers, where) ?? joinLeadPlain;
 }
 
-function aimedAt(answers: JoinAnswers, where: string): string {
-	// A link names a destination the reader has not necessarily seen yet, so it
-	// speaks up. A press that already named the room does too: the card is then
-	// a gate on that room, and the missing answer is the name. What this
-	// browser merely remembers is an offer, and describing an offer as though
-	// it were a destination is how the card would start sounding certain about
-	// a guess.
-	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) {
-		return "This is a room entry link. It opens the room it names. The name below is only what you will call it here.";
-	}
+/** What this card is a gate on, when it is a gate on anything.
+ *
+ * A link names a destination the reader has not necessarily seen yet, so it
+ * speaks up. A press that already named the room does too: the card is then a
+ * gate on that room, and the missing answer is the name. What this browser
+ * merely remembers is an offer, and describing an offer as though it were a
+ * destination is how the card would start sounding certain about a guess —
+ * which is why an offer answers null here and takes the plain lead. */
+function aimedAt(answers: JoinAnswers, where: string): string | null {
+	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) return joinLeadLink;
 	if (answers.source === "link") {
-		if (answers.room.from === "named") return `This address is for #${answers.room.value} in ${where}.`;
-		if (answers.locator.from === "named") return `This address is for ${where}. Name a room to enter there.`;
+		if (answers.room.from === "named") return joinLeadNamedRoom(answers.room.value, where);
+		if (answers.locator.from === "named") return joinLeadNamedDirectory(where);
 	}
 	if (answers.source === "press" && answers.room.from === "named") {
-		return `This is #${answers.room.value} in ${where}. Choose your name.`;
+		return joinLeadPressedRoom(answers.room.value, where);
 	}
-	return "Name a room in this page's directory, paste another directory's OCapN locator, or paste a room entry link.";
+	return null;
 }
 
 /** Hint in an empty locator field: this page's address, shortened so it reads

@@ -16,7 +16,7 @@ use super::onion::{GlowcapOnionConfig, GlowcapOnionConn};
 use super::onion::{GlowcapOnionListener, GlowcapOnionNetlayer};
 use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
 
-extern "C" {
+unsafe extern "C" {
 	pub fn glowcap_onion_archive_fingerprint() -> u64;
 	pub fn glowcap_onion_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn glowcap_onion_transport_provider(

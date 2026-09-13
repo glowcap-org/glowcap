@@ -227,6 +227,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.buffer_pool.deinit();
         }
 
+        /// Delegate the wrapped Linux TCP backend selection.
+        pub fn tcpBackendStatus(self: *const Self) @TypeOf(self.platform.tcpBackendStatus()) {
+            return self.platform.tcpBackendStatus();
+        }
+
         /// Wake a parked `poll` so owner-thread stop or teardown state can be
         /// observed without timeout polling. Carries no authority and records no
         /// transport readiness; the next harvest drains the nudge and then observes

@@ -4,19 +4,21 @@
 import { applicationModule } from "../application.ts";
 import type { CommandPowers } from "../commands.ts";
 import { applyCommandPlan, type Effect } from "../commands/execute.ts";
-import type { Conv } from "../types.ts";
+import { type Conv, conversationTakesFiles } from "../types.ts";
+import type { DraftPreview } from "../link_preview.ts";
 
 export interface ComposerDraft {
 	readonly text: string;
 	readonly files: readonly File[];
 	readonly keeping?: readonly unknown[];
+	readonly previews: readonly DraftPreview[];
 }
 
 export type PreparedComposerSend =
 	| { kind: "nothing" }
 	| { kind: "handled"; original: string; retires?: "conversation" | "directory"; completion?: Promise<void> }
 	| { kind: "refused"; why: string }
-	| { kind: "send"; original: string; text: string; files: readonly File[] };
+	| { kind: "send"; original: string; text: string; files: readonly File[]; previewUrls: readonly string[] };
 
 export function composerLineRefusal(conv: Conv, text: string): string | null {
 	return applicationModule().composerLineRefusal(text, conv.type === "room" ? conv.lineBytes : undefined) ?? null;
@@ -42,6 +44,7 @@ export function prepareComposerSend(
 			you: powers.you(),
 			away: powers.standingHere() !== "",
 			lineLimit: conv?.type === "room" ? conv.lineBytes ?? null : null,
+			canPostFiles: conversationTakesFiles(conv),
 			files: files.map((file) => ({
 				name: file.name,
 				mime: file.type || "application/octet-stream",
@@ -57,5 +60,11 @@ export function prepareComposerSend(
 		if (outcome.kind !== "done") throw new Error("A Rust command gesture unexpectedly produced a message");
 		return { kind: "handled", original, retires: outcome.retires, completion: outcome.completion };
 	}
-	return { kind: "send", original, text: prepared.text, files };
+	return {
+		kind: "send",
+		original,
+		text: prepared.text,
+		files,
+		previewUrls: draft.previews.filter((preview) => preview.state !== "removed").map((preview) => preview.url),
+	};
 }

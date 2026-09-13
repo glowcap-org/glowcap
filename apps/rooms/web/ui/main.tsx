@@ -23,7 +23,7 @@ import { noteBootDelay, noteBootPhase, startBootAsides } from "./boot_note.ts";
 import { refusePageScaling } from "./gestures.ts";
 import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
-import { bindTabVisibility, RoomsProjectionProvider } from "./hooks.ts";
+import { bindTabVisibility, RoomsPageProvider, RoomsProjectionProvider } from "./hooks.ts";
 import * as prefs from "./prefs.ts";
 import { installWorkspaceStatePersistence } from "./workspace_state.ts";
 import { restoreWorkspaceState } from "./workspace/bundle.ts";
@@ -38,6 +38,8 @@ import { attachedSessionFailureText } from "./session/attached_failure.ts";
 import { ModalProvider } from "./modal.ts";
 import { CapabilitySetEvents } from "./ops/capability_set_events.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
+import { refusalText } from "../../lib/text/failure.ts";
+import { hostedSelectionRefused } from "../../lib/text/page.ts";
 
 const page = new RoomsPage();
 // The stylesheet refuses page scaling everywhere the root's `touch-action` is
@@ -74,9 +76,11 @@ const root = createRoot(mount, {
 function PageSurface({ children }: { children: ReactNode }) {
 	return (
 		<RoomsProjectionProvider value={page.projection}>
-			<RoomsBrowserProvider value={browser}>
-				{children}
-			</RoomsBrowserProvider>
+			<RoomsPageProvider value={page}>
+				<RoomsBrowserProvider value={browser}>
+					{children}
+				</RoomsBrowserProvider>
+			</RoomsPageProvider>
 		</RoomsProjectionProvider>
 	);
 }
@@ -117,6 +121,7 @@ async function awaitRuntime(boot: () => Promise<unknown>): Promise<void> {
 // Rust admits the workspace and selects the controller before a Host exists.
 // Both local and attached sessions run on the Rust application Host.
 async function start(): Promise<void> {
+	startOpeningMark();
 	noteBootPhase("peer");
 	startBootAsides();
 	await awaitRuntime(async () => {
@@ -160,7 +165,7 @@ async function start(): Promise<void> {
 				try {
 					const sturdyref = await local.publish();
 					if (!setWorkspaceControllerSelection(page, { kind: "hosted", sturdyref })) {
-						return "This browser could not save the shared session selection.";
+						return hostedSelectionRefused;
 					}
 					return "";
 				} catch (error) {
@@ -208,13 +213,9 @@ async function start(): Promise<void> {
 	};
 	renderEstablished(session, "established-session");
 
-	// The opening screen's mark starts here rather than at import, because
-	// asking for a device is asynchronous and nothing may wait on it.
-	startOpeningMark();
-
 	handOffWhenReady(page.projection, "controller-snapshot");
 }
 
 void start().catch((error) => {
-	pageDidNotOpen(error instanceof Error ? error.message : String(error));
+	pageDidNotOpen(refusalText(error));
 });

@@ -1,6 +1,6 @@
 //! The real Rust binding consumes target-reflected C layouts on both hosts.
 use glowcap::{Context, ContextAllocator, HintValue, Locator, SturdyRef};
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{Layout, alloc, dealloc};
 
 struct RustHeap;
 impl ContextAllocator for RustHeap {
@@ -11,7 +11,9 @@ impl ContextAllocator for RustHeap {
 		}
 	}
 	unsafe fn free(&self, pointer: *mut u8, size: usize, alignment: usize) {
-		dealloc(pointer, Layout::from_size_align(size, alignment).unwrap());
+		// SAFETY: the trait's contract — `pointer` came from this allocator's
+		// `alloc` under the same size and alignment.
+		unsafe { dealloc(pointer, Layout::from_size_align(size, alignment).unwrap()) };
 	}
 }
 

@@ -1,12 +1,14 @@
 //! Who is registered: one name per live connection, the inboxes each member
 //! offered for particular peers, the vouchers that carry a name to another
 //! connection, and the `webrtc` designators signaling routes by.
+mod requests;
 use super::{
-	Effects, Introduction, Notice, Refusal, Tell, DIRECT_REQUEST_COALESCE_MS, MAX_DM_INBOXES, MAX_NAME_VOUCHERS,
-	NAME_VOUCHER_BYTES,
+	DIRECT_REQUEST_COALESCE_MS, Effects, Introduction, MAX_DM_INBOXES, MAX_NAME_VOUCHERS, NAME_VOUCHER_BYTES, Notice,
+	Refusal, Tell,
 };
 use crate::{
-	directory::{registration::Id, Event, Member, MemberChange},
+	directory::registration::{NicknameAllocation, suggested_nick},
+	directory::{Event, Member, MemberChange, registration::Id},
 	failure::FailureCode,
 	fields::Text,
 	room::inbox::nick_refusal,
@@ -26,6 +28,7 @@ use alloc::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Register<R> {
 	pub nick: String,
+	pub allocation: NicknameAllocation,
 	pub locator: String,
 	/// Whether the connection proved the locator is its own, or nothing could
 	/// be checked. Only a keyed connection can be refused here.
@@ -91,6 +94,9 @@ pub(super) struct Registry<C, R> {
 	rows: BTreeMap<String, Registration<C, R>>,
 	by_id: BTreeMap<String, String>,
 	by_connection: BTreeMap<C, String>,
+	by_claimant: BTreeMap<String, BTreeSet<String>>,
+	offerers_by_target: BTreeMap<String, BTreeSet<String>>,
+	request_targets_by_requester: BTreeMap<String, BTreeSet<String>>,
 	webrtc: BTreeMap<String, String>,
 }
 
@@ -101,6 +107,9 @@ impl<C, R> Default for Registry<C, R> {
 			rows: BTreeMap::new(),
 			by_id: BTreeMap::new(),
 			by_connection: BTreeMap::new(),
+			by_claimant: BTreeMap::new(),
+			offerers_by_target: BTreeMap::new(),
+			request_targets_by_requester: BTreeMap::new(),
 			webrtc: BTreeMap::new(),
 		}
 	}
@@ -164,8 +173,10 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 	}
 	/// Let go of the inbox `nick` offered the peer registered as `peer`.
 	pub fn release_offered(&mut self, nick: &str, peer: &str) -> Option<super::Release<C, R>> {
-		let row = self.rows.get_mut(&fold(nick))?;
+		let key = fold(nick);
+		let row = self.rows.get_mut(&key)?;
 		let offered = row.offered.remove(peer)?;
+		remove_index(&mut self.offerers_by_target, peer, &key);
 		Some(super::Release {
 			connection: row.connection,
 			capability: offered,
@@ -207,6 +218,10 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		id: Id,
 		_now: u64,
 	) -> Result<Withdrawn<C, R>, Refusal> {
+		let mut request = request;
+		if request.allocation == NicknameAllocation::Automatic {
+			request.nick = self.available_nick(&request.nick, connection, request.claimant.as_deref())?;
+		}
 		let key = fold(&request.nick);
 		let caller = (connection, request.claimant.as_deref());
 		let held_by_another = self
@@ -218,7 +233,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 				.voucher
 				.is_some_and(|voucher| self.rows[&key].vouchers.contains(&voucher));
 			if !current {
-				return Err(Refusal::new(
+				return Err(Refusal::coded(
 					FailureCode::NickTaken,
 					format!(
 						"\"{}\" is registered by another member; it frees when they disconnect",
@@ -230,15 +245,15 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		// First writer holds a `webrtc` designator while its connection stands:
 		// accepting a second claim would route every bring-up aimed at the
 		// holder into the claimant's inbox.
-		if let Some(designator) = &request.webrtc {
-			if let Some(holder) = self.webrtc.get(designator).and_then(|held| self.rows.get(held)) {
-				let own_name = fold(&holder.nick) == key;
-				if !own_name && !same_claimant((holder.connection, holder.claimant.as_deref()), caller) {
-					return Err(Refusal::new(
-						FailureCode::NotYourLocator,
-						format!("that webrtc designator is already registered to \"{}\"", holder.nick),
-					));
-				}
+		if let Some(designator) = &request.webrtc
+			&& let Some(holder) = self.webrtc.get(designator).and_then(|held| self.rows.get(held))
+		{
+			let own_name = fold(&holder.nick) == key;
+			if !own_name && !same_claimant((holder.connection, holder.claimant.as_deref()), caller) {
+				return Err(Refusal::coded(
+					FailureCode::NotYourLocator,
+					format!("that webrtc designator is already registered to \"{}\"", holder.nick),
+				));
 			}
 		}
 		let mut withdrawn = Withdrawn {
@@ -247,12 +262,15 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		};
 		// A proved peer's reconnect owns one claim, as one connection does:
 		// replace every stale row of that same peer before filing this one.
-		let stale: Vec<String> = self
-			.rows
-			.iter()
-			.filter(|(held, row)| **held != key && same_claimant((row.connection, row.claimant.as_deref()), caller))
-			.map(|(held, _)| held.clone())
-			.collect();
+		let mut stale = BTreeSet::new();
+		if let Some(held) = self.by_connection.get(&connection).filter(|held| **held != key) {
+			stale.insert(held.clone());
+		}
+		if let Some(claimant) = request.claimant.as_deref()
+			&& let Some(held) = self.by_claimant.get(claimant)
+		{
+			stale.extend(held.iter().filter(|held| held.as_str() != key).cloned());
+		}
 		for held in stale {
 			self.withdraw(&held, &mut withdrawn);
 		}
@@ -264,7 +282,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 				.get_mut(&key)
 				.is_some_and(|holder| holder.vouchers.remove(&voucher))
 			{
-				return Err(Refusal::new(
+				return Err(Refusal::coded(
 					FailureCode::NickTaken,
 					format!("the reconnect proof for \"{}\" is no longer current", request.nick),
 				));
@@ -291,6 +309,9 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		};
 		self.by_id.insert(id.as_str().into(), key.clone());
 		self.by_connection.insert(connection, key.clone());
+		if let Some(claimant) = &row.claimant {
+			insert_index(&mut self.by_claimant, claimant.clone(), key.clone());
+		}
 		if let Some(designator) = request.webrtc {
 			self.webrtc.insert(designator, key.clone());
 		}
@@ -309,6 +330,22 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			count: 1,
 		});
 		Ok(withdrawn)
+	}
+	fn available_nick(&self, base: &str, connection: C, claimant: Option<&str>) -> Result<String, Refusal> {
+		let caller = (connection, claimant);
+		let mut candidate = String::from(base);
+		// With N occupied names, one of N + 1 sequential candidates is free.
+		for _ in 0..=self.rows.len() {
+			let available = self
+				.rows
+				.get(&fold(&candidate))
+				.is_none_or(|holder| same_claimant((holder.connection, holder.claimant.as_deref()), caller));
+			if available {
+				return Ok(candidate);
+			}
+			candidate = suggested_nick(&candidate);
+		}
+		Err(Refusal::plain("the directory could not allocate another nickname"))
 	}
 	pub fn withdraw_connection(&mut self, connection: C) -> Withdrawn<C, R> {
 		let mut withdrawn = Withdrawn {
@@ -329,22 +366,39 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			return;
 		};
 		self.by_id.remove(row.id.as_str());
+		if let Some(claimant) = &row.claimant {
+			remove_index(&mut self.by_claimant, claimant, key);
+		}
 		if self.by_connection.get(&row.connection).is_some_and(|held| held == key) {
 			self.by_connection.remove(&row.connection);
 		}
-		if let Some(designator) = &row.webrtc {
-			if self.webrtc.get(designator).is_some_and(|held| held == key) {
-				self.webrtc.remove(designator);
-			}
+		if let Some(designator) = &row.webrtc
+			&& self.webrtc.get(designator).is_some_and(|held| held == key)
+		{
+			self.webrtc.remove(designator);
 		}
 		let effects = &mut withdrawn.effects;
-		for (_, offered) in row.offered {
+		for (target, offered) in row.offered {
+			remove_index(&mut self.offerers_by_target, &target, key);
 			effects.release(row.connection, offered);
 		}
-		for other in self.rows.values_mut() {
-			other.requests.remove(row.id.as_str());
-			if let Some(offered) = other.offered.remove(row.id.as_str()) {
-				effects.release(other.connection, offered);
+		for requester in row.requests.keys() {
+			remove_index(&mut self.request_targets_by_requester, requester, key);
+		}
+		if let Some(targets) = self.request_targets_by_requester.remove(row.id.as_str()) {
+			for target in targets {
+				if let Some(other) = self.rows.get_mut(&target) {
+					other.requests.remove(row.id.as_str());
+				}
+			}
+		}
+		if let Some(offerers) = self.offerers_by_target.remove(row.id.as_str()) {
+			for offerer in offerers {
+				if let Some(other) = self.rows.get_mut(&offerer)
+					&& let Some(offered) = other.offered.remove(row.id.as_str())
+				{
+					effects.release(other.connection, offered);
+				}
 			}
 		}
 		if let Some(signaling) = row.signaling {
@@ -374,7 +428,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		}
 		let peers = self.check_offer(offer.connection, &offer.peer, offer.target.as_str())?;
 		if peers.owner.id != offer.owner {
-			return Err(Refusal::new(
+			return Err(Refusal::coded(
 				FailureCode::NotRegistered,
 				"the inbox owner's registration changed before its capability settled",
 			));
@@ -386,6 +440,11 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		if let Some(prior) = own.offered.insert(offer.target.as_str().into(), offered) {
 			effects.release(offer.connection, prior);
 		}
+		insert_index(
+			&mut self.offerers_by_target,
+			offer.target.as_str().into(),
+			own_key.clone(),
+		);
 		effects.tell(
 			waiting.0,
 			waiting.1,
@@ -403,10 +462,10 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 				.is_none()
 				.then(|| "offerInbox has an invalid registration ID".into())
 		}) {
-			return Err(Refusal::new(FailureCode::NickTooLong, refusal));
+			return Err(Refusal::coded(FailureCode::NickTooLong, refusal));
 		}
 		let Some(own) = self.own(connection) else {
-			return Err(Refusal::new(
+			return Err(Refusal::coded(
 				FailureCode::NotRegistered,
 				"offerInbox needs a registered name",
 			));
@@ -417,7 +476,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			.get(&waiting_key)
 			.filter(|waiting| waiting.id.as_str() == for_id)
 			.ok_or_else(|| {
-				Refusal::new(
+				Refusal::coded(
 					FailureCode::PeerOffline,
 					format!("the registration for \"{for_nick}\" changed before its inbox arrived"),
 				)
@@ -444,14 +503,14 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			.get(&fold(nick))
 			.filter(|target| target.id.as_str() == id)
 			.ok_or_else(|| {
-				Refusal::new(
+				Refusal::coded(
 					FailureCode::PeerOffline,
 					format!("no member named \"{nick}\" is registered"),
 				)
 			})?;
 		let caller = self
 			.own(connection)
-			.ok_or_else(|| Refusal::new(FailureCode::NotRegistered, "introduce needs a registered name"))?;
+			.ok_or_else(|| Refusal::coded(FailureCode::NotRegistered, "introduce needs a registered name"))?;
 		Ok(match target.offered.get(caller.id.as_str()) {
 			Some(inbox) => Introduction::Inbox(inbox.clone()),
 			None => Introduction::Pending(Tell {
@@ -479,36 +538,49 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		let caller = self
 			.own(connection)
 			.map(|caller| (caller.nick.clone(), caller.id.clone()));
+		let target_key = fold(nick);
 		let target = self
 			.rows
-			.get_mut(&fold(nick))
+			.get_mut(&target_key)
 			.filter(|target| target.id.as_str() == id)
 			.ok_or_else(|| {
-				Refusal::new(
+				Refusal::coded(
 					FailureCode::PeerOffline,
 					format!("no member named \"{nick}\" is registered"),
 				)
 			})?;
-		let (caller_nick, caller_id) =
-			caller.ok_or_else(|| Refusal::new(FailureCode::NotRegistered, "requestDirect needs a registered name"))?;
-		if !notice_due(&mut target.requests, caller_id.as_str(), now)? {
-			return Ok(None);
-		}
-		Ok(Some(Tell {
+		let (caller_nick, caller_id) = caller
+			.ok_or_else(|| Refusal::coded(FailureCode::NotRegistered, "requestDirect needs a registered name"))?;
+		let due = requests::notice_due(&mut target.requests, caller_id.as_str(), now)?;
+		let tell = Tell {
 			connection: target.connection,
 			inbox: target.inbox.clone(),
 			notice: Notice::DirectRequested {
 				nick: caller_nick,
-				id: caller_id,
+				id: caller_id.clone(),
 			},
-		}))
+		};
+		for expired in due.expired {
+			remove_index(&mut self.request_targets_by_requester, &expired, &target_key);
+		}
+		if due.inserted {
+			insert_index(
+				&mut self.request_targets_by_requester,
+				caller_id.as_str().into(),
+				target_key,
+			);
+		}
+		if !due.send {
+			return Ok(None);
+		}
+		Ok(Some(tell))
 	}
 	pub fn member_registration(&self, nick: &str) -> Result<Id, Refusal> {
 		if nick_refusal(nick).is_some() {
 			return Err(Refusal::plain("memberRegistration takes one valid registered name"));
 		}
 		self.rows.get(&fold(nick)).map(|row| row.id.clone()).ok_or_else(|| {
-			Refusal::new(
+			Refusal::coded(
 				FailureCode::PeerOffline,
 				format!("no member named \"{nick}\" is registered"),
 			)
@@ -530,7 +602,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 	}
 	pub fn offer_signaling(&mut self, connection: C, inbox: R) -> Result<Option<super::Release<C, R>>, Refusal> {
 		let Some(key) = self.by_connection.get(&connection).cloned() else {
-			return Err(Refusal::new(
+			return Err(Refusal::coded(
 				FailureCode::NotRegistered,
 				"offerSignaling needs a registered name",
 			));
@@ -543,22 +615,16 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 	}
 }
 
-/// Whether a reciprocal-route notice is due for `peer`. The map is a
-/// coalescing window, not a history: expired rows leave lazily at the
-/// capacity boundary, so a peer can force at most one bounded scan.
-fn notice_due(requests: &mut BTreeMap<String, u64>, peer: &str, now: u64) -> Result<bool, Refusal> {
-	if let Some(prior) = requests.get(peer) {
-		if now.saturating_sub(*prior) < DIRECT_REQUEST_COALESCE_MS {
-			return Ok(false);
-		}
-	} else if requests.len() >= MAX_DM_INBOXES {
-		requests.retain(|_, at| now.saturating_sub(*at) < DIRECT_REQUEST_COALESCE_MS);
-		if requests.len() >= MAX_DM_INBOXES {
-			return Err(Refusal::plain(format!(
-				"a member may track at most {MAX_DM_INBOXES} reciprocal direct requests"
-			)));
-		}
+fn insert_index(index: &mut BTreeMap<String, BTreeSet<String>>, subject: String, row: String) {
+	index.entry(subject).or_default().insert(row);
+}
+
+fn remove_index(index: &mut BTreeMap<String, BTreeSet<String>>, subject: &str, row: &str) {
+	let empty = index.get_mut(subject).is_some_and(|rows| {
+		rows.remove(row);
+		rows.is_empty()
+	});
+	if empty {
+		index.remove(subject);
 	}
-	requests.insert(peer.into(), now);
-	Ok(true)
 }

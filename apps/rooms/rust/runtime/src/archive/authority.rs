@@ -12,10 +12,12 @@ pub(super) enum Authority {
 	},
 }
 impl Authority {
-	pub(super) fn check(&self) -> Result<(), String> {
+	pub(super) fn check(&self) -> Result<(), Error> {
 		match self {
-			Self::Shared { active, .. } if !active.get() => Err("archive share has been revoked".into()),
-			Self::Shared { ready, .. } if !ready.get() => Err("archive share publications are unavailable".into()),
+			Self::Shared { active, .. } if !active.get() => Err(Error::refused("archive share has been revoked")),
+			Self::Shared { ready, .. } if !ready.get() => {
+				Err(Error::closed("archive share publications are unavailable"))
+			}
 			_ => Ok(()),
 		}
 	}

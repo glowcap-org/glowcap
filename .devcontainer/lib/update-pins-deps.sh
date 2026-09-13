@@ -79,21 +79,23 @@ glowcap_pins_require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-GLOWCAP_PINS_DEPS="debian zig zls rust rustup-init deno node bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
+GLOWCAP_PINS_DEPS="debian postgres zig zls rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
 glowcap_pins_dep_var() {
     case "$1" in
         debian) echo DEBIAN_BASE_DIGEST ;;
+        postgres) echo POSTGRES_IMAGE_PIN ;;
         zig) echo ZIG_VERSION ;;
         zls) echo ZLS_SOURCE_REVISION ;;
         rust) echo RUST_VERSION ;;
         rustup-init) echo RUSTUP_INIT_VERSION ;;
         deno) echo DENO_VERSION ;;
         node) echo NODE_VERSION ;;
+        npm) echo NPM_VERSION ;;
         bun) echo BUN_VERSION ;;
         playwright) echo PLAYWRIGHT_VERSION ;;
         uv) echo UV_VERSION ;;
-        python) echo OCAPN_CONFORMANCE_PYTHON ;;
+        python) echo PYTHON_VERSION ;;
         serena) echo SERENA_AGENT_VERSION ;;
         claude) echo CLAUDE_CODE_VERSION ;;
         codex) echo CODEX_VERSION ;;
@@ -111,7 +113,7 @@ glowcap_pins_dep_var() {
 
 glowcap_pins_dep_class() {
     case "$1" in
-        zls | uv | serena | claude | codex | cursor-agent | opencode | devcontainer-cli) echo safe ;;
+        zls | npm | uv | serena | claude | codex | cursor-agent | opencode | devcontainer-cli) echo safe ;;
         racket | goblins) echo manual ;;
         *) echo gated ;;
     esac
@@ -120,6 +122,7 @@ glowcap_pins_dep_class() {
 glowcap_pins_dep_gate() {
     case "$1" in
         debian) echo "zig build check" ;;
+        postgres) echo "docker compose config + zig build rooms-rust-test" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
         rust) echo "zig build check (rust-dogfood rides it)" ;;
@@ -131,12 +134,26 @@ glowcap_pins_dep_gate() {
     esac
 }
 
+# Most pins are installed into the development image. PostgreSQL is consumed
+# only by the production Compose project, so rebuilding the devcontainer would
+# not adopt or prove it.
+glowcap_pins_dep_requires_devcontainer_rebuild() {
+    [[ "$1" != postgres ]]
+}
+
 # Every consumer below reads its whole input: under `set -o pipefail`, an
 # early-exiting head / grep -m1 / awk-exit closes the pipe and turns curl's
 # EPIPE into a query failure.
 glowcap_pins_latest_version() {
     case "$1" in
         debian) glowcap_pins_docker_hub_index_digest library/debian "${DEBIAN_BASE_TAG}" ;;
+        postgres)
+            local version digest
+            version="$(glowcap_pins_fetch https://www.postgresql.org/versions.json \
+                | jq -r '[.[] | select(.current == true)] | max_by(.major | tonumber) | "\(.major).\(.latestMinor)"')"
+            digest="$(glowcap_pins_docker_hub_index_digest library/postgres "${version}-alpine")"
+            printf '%s-alpine@%s\n' "${version}" "${digest}"
+            ;;
         zig) glowcap_pins_fetch https://ziglang.org/download/index.json | jq -r .master.version ;;
         zls) glowcap_pins_fetch https://api.github.com/repos/zigtools/zls/commits/master | jq -r .sha ;;
         # Several packages in the channel file carry a version line; only
@@ -151,13 +168,15 @@ glowcap_pins_latest_version() {
         node) glowcap_pins_fetch https://nodejs.org/dist/index.json \
             | jq -r --arg p "v${NODE_VERSION%%.*}." \
                 '[.[] | select(.version | startswith($p))][0].version' | sed 's/^v//' ;;
+        npm) glowcap_pins_npm_latest npm ;;
         bun) glowcap_pins_github_latest_tag oven-sh/bun | sed 's/^bun-v//' ;;
         playwright) glowcap_pins_npm_latest playwright ;;
         uv) glowcap_pins_github_latest_tag astral-sh/uv ;;
-        # Newest patch of the pinned minor that the pinned uv can install.
+        # Newest stable CPython that the pinned uv can install. The trailing
+        # hyphen excludes prerelease spellings such as 3.15.0rc2.
         python) uv python list --all-versions 2>/dev/null \
-            | grep -oE "cpython-${OCAPN_CONFORMANCE_PYTHON%.*}\.[0-9]+" \
-            | sed 's/^cpython-//' | sort -uV | tail -1 ;;
+            | grep -oE 'cpython-[0-9]+\.[0-9]+\.[0-9]+-' \
+            | sed 's/^cpython-//; s/-$//' | sort -uV | tail -1 ;;
         serena) glowcap_pins_fetch https://pypi.org/pypi/serena-agent/json | jq -r .info.version ;;
         claude) glowcap_pins_npm_latest @anthropic-ai/claude-code ;;
         codex) glowcap_pins_npm_latest @openai/codex ;;
@@ -210,4 +229,3 @@ EOF
             ;;
     esac
 }
-

@@ -1,3 +1,4 @@
+//! Operator inventory rows render into the bounded wire-facing view schema.
 use super::*;
 use crate::{fields::List, room::ListArgument};
 use alloc::vec::Vec;

@@ -15,6 +15,20 @@ struct BarrierState {
 	failed: bool,
 }
 
+/// One or more tasks admitted to a teardown barrier ended without explicitly
+/// committing success. This includes cancellation and panic as well as a
+/// reported task failure; the barrier cannot safely erase any of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TaskFailure;
+
+impl std::fmt::Display for TaskFailure {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str("an admitted task did not complete successfully")
+	}
+}
+
+impl std::error::Error for TaskFailure {}
+
 impl TaskBarrier {
 	pub fn new() -> Self {
 		Self {
@@ -38,7 +52,7 @@ impl TaskBarrier {
 		self.lock().failed = true;
 	}
 
-	pub fn wait(&self) -> Result<(), ()> {
+	pub fn wait(&self) -> Result<(), TaskFailure> {
 		let mut state = self.lock();
 		while state.active != 0 {
 			state = self
@@ -46,11 +60,7 @@ impl TaskBarrier {
 				.wait(state)
 				.unwrap_or_else(|poisoned| poisoned.into_inner());
 		}
-		if state.failed {
-			Err(())
-		} else {
-			Ok(())
-		}
+		if state.failed { Err(TaskFailure) } else { Ok(()) }
 	}
 
 	/// These critical sections contain counters and a boolean only; no callback,
@@ -102,7 +112,7 @@ mod barrier_tests {
 	fn an_unfinished_permit_fails_the_barrier() {
 		let tasks = Arc::new(TaskBarrier::new());
 		drop(tasks.acquire());
-		assert_eq!(tasks.wait(), Err(()));
+		assert_eq!(tasks.wait(), Err(TaskFailure));
 	}
 
 	#[test]

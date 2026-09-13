@@ -1,16 +1,21 @@
 //! Plain-data browser projections. Serialize admitted values directly so
 //! document strings retain UTF-16; no intermediate CapTP or JSON value tree.
 use super::Result;
-use rooms_application::session::snapshot::{views::EffectPhase, Field, Snapshot};
+use rooms_application::session::snapshot::{Field, Snapshot, views::EffectPhase};
 use serde::{
-	ser::{SerializeSeq, SerializeStruct},
 	Serialize, Serializer,
+	ser::{SerializeSeq, SerializeStruct},
 };
 use wasm_bindgen::JsValue;
 
 pub(super) fn snapshot(value: &Snapshot) -> Result<JsValue> {
-	let encoded = serde_json::to_string(&View(value)).map_err(|e| e.to_string())?;
-	js_sys::JSON::parse(&encoded).map_err(|_| "Rooms snapshot projection is invalid JSON".into())
+	parse_snapshot(&snapshot_text(value)?)
+}
+pub(super) fn snapshot_text(value: &Snapshot) -> Result<String> {
+	serde_json::to_string(&View(value)).map_err(|e| e.to_string())
+}
+pub(super) fn parse_snapshot(encoded: &str) -> Result<JsValue> {
+	js_sys::JSON::parse(encoded).map_err(|_| "Rooms snapshot projection is invalid JSON".into())
 }
 struct View<'a>(&'a Snapshot);
 impl Serialize for View<'_> {
@@ -82,7 +87,7 @@ pub(super) fn set(object: &JsValue, key: &str, value: JsValue) -> Result<()> {
 		.then_some(())
 		.ok_or_else(|| "Rooms view property was refused".into())
 }
-pub(super) fn json(value: &impl Serialize) -> Result<JsValue> {
+pub(super) fn json(value: &(impl Serialize + ?Sized)) -> Result<JsValue> {
 	let text = serde_json::to_string(value).map_err(|e| e.to_string())?;
 	js_sys::JSON::parse(&text).map_err(|_| "Rooms view metadata could not be projected".into())
 }
@@ -132,10 +137,11 @@ pub(super) fn event<C>(event: &rooms_application::session::event::Event<C>) -> R
 	if let Some(facts) = &event.facts {
 		set(&output, "facts", json(facts)?)?;
 	}
+	set(&output, "previewUrls", json(event.previews.urls())?)?;
 	Ok(output)
 }
 pub(super) fn history_change(change: rooms_application::archive::change::Change) -> Result<JsValue> {
-	use rooms_application::archive::{change::Change, ConversationKind};
+	use rooms_application::archive::{ConversationKind, change::Change};
 	match change {
 		Change::All => Ok(JsValue::NULL),
 		Change::Conversation {

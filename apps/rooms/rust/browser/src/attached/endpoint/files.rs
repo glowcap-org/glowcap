@@ -34,6 +34,7 @@ impl Endpoint {
 					message.conversation,
 					FileCommand::Send {
 						caption: message.caption.into(),
+						previews: message.previews,
 						files,
 					},
 				)

@@ -6,7 +6,7 @@ use std::{
 	rc::{Rc, Weak},
 };
 use tokio::sync::Notify;
-use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{Event, IdbRequest, IdbTransaction, IdbTransactionMode};
 const MAX_CALLBACKS: usize = 64;
 

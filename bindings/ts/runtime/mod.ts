@@ -93,7 +93,7 @@ export { RemotePromise } from "./promise.ts";
 export { SignalingSendOwner } from "./signaling.ts";
 // The live timeline producer (opt-in): a sink over the versioned timeline
 // schema ocapnviz's Live mode consumes, fed by this Host's own session opens,
-// closes, and message traffic. The rooms server serves it at `/viz`.
+// closes, and message traffic. The rooms server serves it at `/trace`.
 export {
 	annotateSession,
 	CAPTP_VERSION_WIRE,

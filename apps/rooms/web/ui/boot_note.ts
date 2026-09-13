@@ -18,27 +18,9 @@
 // A joke beside a fault report is the wrong register, and the fault is the
 // thing to read.
 
-/** What the page is doing, in the order it does it. `code` is page.html's own
- * word, already on screen before this module exists. */
-export type BootPhase = "peer" | "session" | "rooms";
+import { bootAsides, bootNote, type BootPhase, bootStillOpening } from "../../lib/text/mod.ts";
 
-const NOTES: Readonly<Record<BootPhase, string>> = {
-	peer: "Opening a peer in this browser…",
-	session: "Reaching the session that keeps your rooms…",
-	rooms: "Looking for the rooms you were in…",
-};
-
-/** Dry, short, and true. A reader gets at most a few of these, so none of them
- * is load-bearing and none is a promise. */
-const ASIDES: readonly string[] = [
-	"Lighting the lantern.",
-	"This page is the peer. Nothing is logging you in.",
-	"No account, no password. Just the link you kept.",
-	"Your rooms are capabilities you hold, not rows in a table.",
-	"A room you hold is a room you can hand to somebody.",
-	"Direct messages go direct. The room never sees them.",
-	"Fruiting.",
-];
+export type { BootPhase };
 
 /** Long enough that an ordinary load never shows one. */
 const FIRST_ASIDE_MS = 2_500;
@@ -62,7 +44,7 @@ function aside(): HTMLElement | null {
  * next one reads as a fault in that one. */
 export function noteBootPhase(phase: BootPhase): void {
 	const line = note();
-	if (line !== null) line.textContent = NOTES[phase];
+	if (line !== null) line.textContent = bootNote[phase];
 	document.querySelector("#boot .boot-why")?.remove();
 }
 
@@ -73,11 +55,11 @@ export function startBootAsides(): void {
 	// A reader who asked for less motion gets one aside and no rotation: the
 	// point is something to read, not something to watch change.
 	const still = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-	showing = Math.floor(Math.random() * ASIDES.length);
+	showing = Math.floor(Math.random() * bootAsides.length);
 	const tick = () => {
 		const line = aside();
 		if (line === null) return;
-		line.textContent = ASIDES[showing % ASIDES.length];
+		line.textContent = bootAsides[showing % bootAsides.length];
 		showing += 1;
 		timer = still ? undefined : setTimeout(tick, NEXT_ASIDE_MS);
 	};
@@ -101,7 +83,7 @@ export function noteBootDelay(why: string): void {
 	stopBootAsides();
 	const line = note();
 	if (line !== null) {
-		line.textContent = "Still opening. The server may be rebuilding this page's runtime…";
+		line.textContent = bootStillOpening;
 	}
 	const wait = document.querySelector("#boot .boot-wait");
 	if (wait === null) return;

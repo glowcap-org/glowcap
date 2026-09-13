@@ -11,6 +11,33 @@
 // belongs to the control that asked for it.
 
 import { useState } from "react";
+import { sessionGrantNotePlaceholder } from "../../../lib/text/settings.ts";
+import {
+	sessionAccessCopyLabel,
+	sessionAccessLabel,
+	sessionAccessSaid,
+	sessionGrantAccessTitle,
+	sessionGrantHistoryOff,
+	sessionGrantHistoryOn,
+	sessionGrantKeepWorking,
+	sessionGrantLead,
+	sessionGrantNowSaid,
+	sessionGrantPause,
+	sessionGrantPauseAsk,
+	sessionGrantPausedNote,
+	sessionGrantPausedNow,
+	sessionGrantPausedSaid,
+	sessionGrantPauseInUse,
+	sessionGrantPauseLead,
+	sessionGrantPausing,
+	sessionGrantResume,
+	sessionGrantResumedSaid,
+	sessionGrantWhyHint,
+	sessionGrantWhyLabel,
+	sessionGrantWhyOptional,
+	sessionHistoryLabel,
+	sessionHistorySaid,
+} from "../../../lib/text/session_settings.ts";
 import { MAX_SESSION_GRANT_NOTE } from "../limits.ts";
 import type { RoomsSessionFacet, RoomsSessionGrantView } from "../../../lib/session/client.ts";
 import { Button } from "../Button.tsx";
@@ -21,18 +48,7 @@ import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-
-export const ACCESS_LABEL: Readonly<Record<RoomsSessionFacet, string>> = {
-	observe: "Read only",
-	interact: "Can interact",
-	admin: "Can administer",
-};
-
-export const ACCESS_DESCRIPTION: Readonly<Record<RoomsSessionFacet, string>> = {
-	observe: "Can follow rooms and messages, but cannot type or change the workspace.",
-	interact: "Can join, post, and update their own activity, but cannot manage the session.",
-	admin: "Full workspace control, including session data, access links, and saved capabilities.",
-};
+import { actionRefusal } from "../error_text.ts";
 
 export const ACCESS_LEVELS: readonly RoomsSessionFacet[] = ["observe", "interact", "admin"];
 
@@ -42,13 +58,6 @@ export const ACCESS_TONE: Readonly<Record<RoomsSessionFacet, "quiet" | "warn" | 
 	interact: undefined,
 	admin: "warn",
 };
-
-/** What a link may read of what was said before it arrived. Its own answer
- * rather than a rung on the access scale, because reading the past and
- * administering the session are different authorities. */
-export const HISTORY_LABEL = "Can read earlier messages";
-export const HISTORY_SAID =
-	"Everything this session has recorded, not only what is said from the moment the link is used.";
 
 export function SessionGrantEditModal(
 	{ grant, inUse, open, onClose }: {
@@ -76,7 +85,7 @@ export function SessionGrantEditModal(
 		setBusy(true);
 		setWhy("");
 		try {
-			const refusal = await session.changeSessionGrant(grant.id, patch);
+			const refusal = await actionRefusal(() => session.changeSessionGrant(grant.id, patch));
 			setWhy(refusal);
 			if (refusal === "") {
 				browser.toast("success", said);
@@ -96,11 +105,11 @@ export function SessionGrantEditModal(
 			open={open}
 			onClose={onClose}
 		>
-			<p className="lead">Changes reach whoever is holding this link. The link itself never changes.</p>
+			<p className="lead">{sessionGrantLead}</p>
 
-			<h3 className="well-title overline" id="sessionGrantEditAccess">Access</h3>
+			<h3 className="well-title overline" id="sessionGrantEditAccess">{sessionGrantAccessTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="sessionGrantEditAccess">
-				<div className="choices" role="radiogroup" aria-label="Access">
+				<div className="choices" role="radiogroup" aria-label={sessionGrantAccessTitle}>
 					{ACCESS_LEVELS.map((level) => (
 						<label className="choice" key={level}>
 							<input
@@ -112,12 +121,12 @@ export function SessionGrantEditModal(
 								onChange={() =>
 									void change(
 										{ rights: level },
-										`${grant.label} is now ${ACCESS_LABEL[level].toLowerCase()}.`,
+										sessionGrantNowSaid(grant.label, sessionAccessLabel[level].toLowerCase()),
 									)}
 							/>
 							<span>
-								<strong>{ACCESS_LABEL[level]}</strong>
-								{ACCESS_DESCRIPTION[level]}
+								<strong>{sessionAccessLabel[level]}</strong>
+								{sessionAccessSaid[level]}
 							</span>
 						</label>
 					))}
@@ -131,34 +140,33 @@ export function SessionGrantEditModal(
 							void change(
 								{ history: !grant.history },
 								grant.history
-									? `${grant.label} can no longer read earlier messages.`
-									: `${grant.label} can read earlier messages.`,
+									? sessionGrantHistoryOff(grant.label)
+									: sessionGrantHistoryOn(grant.label),
 							)}
 					/>
 					<span>
-						<strong>{HISTORY_LABEL}</strong>
-						{HISTORY_SAID}
+						<strong>{sessionHistoryLabel}</strong>
+						{sessionHistorySaid}
 					</span>
 				</label>
 			</div>
 
-			<h3 className="well-title overline" id="sessionGrantEditPause">Pausing</h3>
+			<h3 className="well-title overline" id="sessionGrantEditPause">{sessionGrantPausing}</h3>
 			<div className="group well" role="group" aria-labelledby="sessionGrantEditPause">
 				{grant.suspended
 					? (
 						<>
 							<Said kind="warning">
-								{grant.note === ""
-									? "This link is paused. Whoever holds it can reach nothing until it is let back in."
-									: `This link is paused: ${grant.note}`}
+								{grant.note === "" ? sessionGrantPausedSaid : sessionGrantPausedNote(grant.note)}
 							</Said>
 							<div className="actions" data-align="start">
 								<Button
 									id="sessionGrantResume"
 									busy={busy}
-									onClick={() => void change({ suspended: false }, `${grant.label} works again.`)}
+									onClick={() =>
+										void change({ suspended: false }, sessionGrantResumedSaid(grant.label))}
 								>
-									Let it back in
+									{sessionGrantResume}
 								</Button>
 							</div>
 						</>
@@ -168,9 +176,9 @@ export function SessionGrantEditModal(
 						<>
 							<Field
 								id="sessionGrantNote"
-								label="Why"
-								optional="Optional"
-								hint="Said to whoever holds this link, in place of the session."
+								label={sessionGrantWhyLabel}
+								optional={sessionGrantWhyOptional}
+								hint={sessionGrantWhyHint}
 								said={why}
 							>
 								{(wiring) => (
@@ -183,16 +191,11 @@ export function SessionGrantEditModal(
 										maxLength={MAX_SESSION_GRANT_NOTE}
 										disabled={busy}
 										onChange={(event) => setNote(event.currentTarget.value)}
-										placeholder="Back on Monday"
+										placeholder={sessionGrantNotePlaceholder}
 									/>
 								)}
 							</Field>
-							{inUse && (
-								<Said kind="warning">
-									This is the link this browser is using. Pausing it stops this browser too, and
-									letting it back in has to be done from somewhere else.
-								</Said>
-							)}
+							{inUse && <Said kind="warning">{sessionGrantPauseInUse}</Said>}
 							<div className="actions" data-align="start">
 								<Button
 									id="sessionGrantPauseCommit"
@@ -200,26 +203,23 @@ export function SessionGrantEditModal(
 									onClick={() =>
 										void change(
 											{ suspended: true, note: note.trim() },
-											`${grant.label} is paused.`,
+											sessionGrantPausedNow(grant.label),
 										)}
 								>
-									Pause it
+									{sessionGrantPause}
 								</Button>
 								<Button variant="quiet" disabled={busy} onClick={() => setPausing(false)}>
-									Keep it working
+									{sessionGrantKeepWorking}
 								</Button>
 							</div>
 						</>
 					)
 					: (
 						<>
-							<p className="lead">
-								A paused link reaches nothing and keeps the access it was issued with, so letting it
-								back in restores that.
-							</p>
+							<p className="lead">{sessionGrantPauseLead}</p>
 							<div className="actions" data-align="start">
 								<Button id="sessionGrantPause" variant="quiet" onClick={() => setPausing(true)}>
-									Pause access…
+									{sessionGrantPauseAsk}
 								</Button>
 							</div>
 						</>
@@ -232,7 +232,7 @@ export function SessionGrantEditModal(
 				   beside the box it was typed in. */
 			}
 			{why !== "" && !pausing && <Said kind="failure">{why}</Said>}
-			<CopyField text={grant.sturdyref} label={`Copy session access for ${grant.label}`} />
+			<CopyField text={grant.sturdyref} label={sessionAccessCopyLabel(grant.label)} />
 		</Submodal>
 	);
 }

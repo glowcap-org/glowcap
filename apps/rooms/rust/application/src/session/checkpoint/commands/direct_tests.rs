@@ -51,9 +51,11 @@ fn repeated_direct_open_preserves_draft_and_refuses_registration_substitution() 
 	let substituted = DocumentText::from(
 		r#"{"kind":"direct","id":"conversation","directory":"directory","peer":"mallory","peerRegistrationId":"ffffffff-ffff-ffff-ffff-ffffffffffff","closed":false,"draft":""}"#,
 	);
-	assert!(Command::OpenDirect
-		.apply(&checkpoint, &[substituted], &Addresses, &())
-		.is_err());
+	assert!(
+		Command::OpenDirect
+			.apply(&checkpoint, &[substituted], &Addresses, &())
+			.is_err()
+	);
 }
 
 #[test]

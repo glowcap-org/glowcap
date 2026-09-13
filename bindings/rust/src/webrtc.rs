@@ -6,5 +6,5 @@
 //! supply their signaling authority to either backend. All functions here are unsafe C calls and return
 //! glowcap result codes exactly as declared in `glowcap_net_transport_webrtc.h`.
 
-pub use crate::sys::webrtc::*;
 pub use crate::sys::GlowcapTransportProvider;
+pub use crate::sys::webrtc::*;

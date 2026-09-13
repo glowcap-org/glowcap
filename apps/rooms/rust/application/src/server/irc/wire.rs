@@ -2,18 +2,26 @@
 //! notice carries: the same `notify` shapes a native room speaks where the
 //! vocabulary is shared, and the bridge and seat facts beside them.
 use super::seat::{self, View};
-use crate::room::inbox::{AUTHORITY_CHANGED, ENDED, ROOM};
+use crate::room::{
+	carries::{self, Carries},
+	inbox::{AUTHORITY_CHANGED, ENDED, ROOM},
+	message::LineId,
+};
 use crate::server::rooms::wire::DataEncoder;
 use alloc::{format, string::String, vec::Vec};
 
 /// One thing a bridged room's member hears.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
-	/// A line from a member or an IRC name, or the room's own word.
+	/// A fresh chat line from a member or an IRC name.
 	Line {
 		from: String,
 		text: String,
+		/// Its mandatory identity reconciles optimistic sends and admits history.
+		line: LineId,
 	},
+	/// The room's own unmarked announcement.
+	Announcement(String),
 	Roster {
 		said: String,
 		names: Vec<String>,
@@ -31,6 +39,10 @@ pub enum Notice {
 		why: String,
 	},
 	Topic(String),
+	/// What a membership here can use: text when the bridge carries lines
+	/// back, and never files, previews, or typing, which IRC has no way to
+	/// carry. Told first at arrival, ahead of the roster a client returns on.
+	Carries(Carries),
 	/// The longest line IRC carries from here, said at arrival.
 	LineBytes {
 		said: String,
@@ -55,15 +67,13 @@ pub enum Notice {
 
 impl Notice {
 	pub fn room(text: impl Into<String>) -> Self {
-		Self::Line {
-			from: ROOM.into(),
-			text: text.into(),
-		}
+		Self::Announcement(text.into())
 	}
 	/// The display line a notice carries first.
 	pub fn said(&self) -> String {
 		match self {
 			Self::Line { text, .. } => text.clone(),
+			Self::Announcement(text) => text.clone(),
 			Self::Roster { said, .. }
 			| Self::Join { said, .. }
 			| Self::Leave { said, .. }
@@ -77,7 +87,7 @@ impl Notice {
 			}
 			Self::Topic(topic) => format!("the topic is: {topic}"),
 			Self::Ended(reason) => reason.clone(),
-			Self::Bridge { .. } | Self::Seat { .. } | Self::AuthorityChanged { .. } => String::new(),
+			Self::Carries(_) | Self::Bridge { .. } | Self::Seat { .. } | Self::AuthorityChanged { .. } => String::new(),
 		}
 	}
 }
@@ -87,14 +97,20 @@ pub fn arguments<E: DataEncoder>(notice: &Notice, e: &mut E) -> Vec<E::Value> {
 	let mut out = Vec::new();
 	let said = notice.said();
 	match notice {
-		Notice::Line { from, .. } => {
+		Notice::Line { from, line, .. } => {
 			out.push(e.text(from.clone()));
+			out.push(e.text(said));
+			out.push(e.text(crate::protocol_data::LINE.into()));
+			out.push(e.integer(line.get()));
+		}
+		Notice::Announcement(_) => {
+			out.push(e.text(ROOM.into()));
 			out.push(e.text(said));
 		}
 		Notice::Roster { names, .. } => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(said));
-			out.push(e.text("roster".into()));
+			out.push(e.text(crate::protocol_data::ROSTER.into()));
 			for name in names {
 				out.push(e.text(name.clone()));
 			}
@@ -105,9 +121,9 @@ pub fn arguments<E: DataEncoder>(notice: &Notice, e: &mut E) -> Vec<E::Value> {
 			out.push(
 				e.text(
 					if matches!(notice, Notice::Join { .. }) {
-						"join"
+						crate::protocol_data::JOIN
 					} else {
-						"leave"
+						crate::protocol_data::LEAVE
 					}
 					.into(),
 				),
@@ -117,20 +133,28 @@ pub fn arguments<E: DataEncoder>(notice: &Notice, e: &mut E) -> Vec<E::Value> {
 		Notice::Away { nick, why } => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(said));
-			out.push(e.text("away".into()));
+			out.push(e.text(crate::protocol_data::AWAY.into()));
 			out.push(e.text(nick.clone()));
 			out.push(e.text(why.clone()));
 		}
 		Notice::Topic(topic) => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(said));
-			out.push(e.text("topic".into()));
+			out.push(e.text(crate::protocol_data::TOPIC.into()));
 			out.push(e.text(topic.clone()));
+		}
+		Notice::Carries(carries) => {
+			out.push(e.text(ROOM.into()));
+			out.push(e.text(String::new()));
+			out.push(e.text(carries::TAG.into()));
+			for word in carries.words() {
+				out.push(e.text(word));
+			}
 		}
 		Notice::LineBytes { bytes, .. } => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(said));
-			out.push(e.text("line-bytes".into()));
+			out.push(e.text(crate::protocol_data::LINE_BYTES.into()));
 			out.push(e.integer(*bytes));
 		}
 		Notice::Bridge { network } => {
@@ -146,7 +170,7 @@ pub fn arguments<E: DataEncoder>(notice: &Notice, e: &mut E) -> Vec<E::Value> {
 			let (badge, sentence) = seat::words(view);
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(String::new()));
-			out.push(e.text("seat".into()));
+			out.push(e.text(crate::protocol_data::SEAT.into()));
 			out.push(e.text(nick.clone()));
 			out.push(e.text(view.phase.wire().into()));
 			out.push(e.text(view.nick.clone()));
@@ -197,6 +221,22 @@ mod tests {
 
 	#[test]
 	fn seat_and_bridge_facts_take_the_shapes_the_inbox_reads() {
+		let line = arguments(
+			&Notice::Line {
+				from: "alice".into(),
+				text: "hello".into(),
+				line: LineId::new(7).unwrap(),
+			},
+			&mut E,
+		);
+		assert_eq!(
+			line,
+			[V::T("alice".into()), V::T("hello".into()), V::T("line".into()), V::I(7),]
+		);
+		assert_eq!(
+			arguments(&Notice::room("maintenance"), &mut E),
+			[V::T(ROOM.into()), V::T("maintenance".into())]
+		);
 		let seat = Notice::Seat {
 			nick: "alice".into(),
 			view: View {

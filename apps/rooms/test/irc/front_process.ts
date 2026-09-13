@@ -1,9 +1,9 @@
 // The actual native IRC front, owned and reaped even when a scenario fails.
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { ROOT, within } from "../support/rooms_server.ts";
-const FRONT = Deno.env.get("GLOWCAP_ROOMS_IRC_FRONT_BIN") || `${ROOT}zig-out/bin/rooms-irc-front`;
+import { IRC_FRONT, ROOT } from "../support/paths.ts";
+import { within } from "../support/wait.ts";
 export async function startFront(directory: string, args: string[] = []) {
-	const proc = spawnOwned(FRONT, {
+	const proc = spawnOwned(IRC_FRONT, {
 		args: [`--directory=${directory}`, "--port=0", "--server-name=rooms.test", ...args],
 		cwd: ROOT,
 		stdout: "piped",

@@ -12,6 +12,8 @@
 import type { Page } from "playwright";
 import { fail, openDirectoryCard } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
+import { reachPublicRoom } from "../../lib/text/conversation.ts";
+import { roomManagerDiscardSay } from "../../lib/text/room_authority.ts";
 
 export async function run(tab: Page): Promise<void> {
 	// ── A long refusal stays in its slot ─────────────────────────────────
@@ -19,6 +21,13 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#settingsTitle");
 	await tab.click("#helpBtn");
 	await tab.waitForSelector("#helpTitle");
+	// The writing help is drawn by the real parser, so it is either there whole
+	// or the parser failed in the one place a reader is told what it does.
+	await tab.click("#helpWritingTab");
+	await tab.waitForSelector("#helpWritingPanel .help-example").catch(() =>
+		fail("Help did not show how to write a message")
+	);
+	await tab.click("#helpGlossaryTab");
 	await tab.click("#glossarySecret");
 	await tab.waitForSelector("#kitchenSink").catch(() =>
 		fail("Help did not open the parts catalog for the long refusal")
@@ -101,8 +110,13 @@ export async function run(tab: Page): Promise<void> {
 	if (kind !== "Directory locator") {
 		fail(`the conversation card labeled the locator ${JSON.stringify(kind)}`);
 	}
-	const reach = (await tab.textContent("#convcardReach")) ?? "";
-	if (!reach.includes("not a separate address for #lobby")) {
+	// Against the catalog rather than a copy of the sentence. The words here are
+	// owned by `lib/text`, and a literal repeated in a proof is a second copy
+	// that a voice pass does not know it has to move: this assertion held a
+	// sentence the app had stopped saying, and only stopped being green when an
+	// unrelated failure earlier in the suite was fixed and the run reached it.
+	const reach = ((await tab.textContent("#convcardReach")) ?? "").replace(/\s+/g, " ").trim();
+	if (reach !== reachPublicRoom("#lobby")) {
 		fail(`the conversation card did not say why the locator is the directory's: ${JSON.stringify(reach)}`);
 	}
 	if (!about.facts.includes("Public room") || !about.facts.includes("Connected")) {
@@ -204,7 +218,7 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#convcardModerationTab");
 	await tab.click("#convcardManagerDropAsk");
 	const discardManager = tab.getByRole("group", { name: "Discard room manager capability" });
-	if (!(await discardManager.textContent())?.includes("Other copies continue to work")) {
+	if (!(await discardManager.textContent())?.includes(roomManagerDiscardSay)) {
 		fail("discarding room management did not distinguish local custody from revocation");
 	}
 	await discardManager.getByRole("button", { name: "Discard capability" }).click();

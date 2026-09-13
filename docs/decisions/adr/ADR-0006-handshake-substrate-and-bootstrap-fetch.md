@@ -127,7 +127,8 @@ Proto. A bad signature is a loud `Error.InvalidStartSessionSignature`, projected
 to the `invalid_start_session_signature` typed abort and observable in a
 scenario. The session keeps no key custody: authority lives in references, not
 keys. Wire confidentiality (TLS or any transport encryption) is a netlayer
-concern and is not implemented.
+concern; the encrypted transports are inventoried in
+[what ships](../../shipped.md).
 
 ## Scope (what this does not decide)
 

@@ -1,3 +1,4 @@
+// Session wire clients validate watcher rows and retain capability custody only for admitted content.
 import { type Argument, type Behavior, Ref, type Session } from "@glowcap/runtime";
 import { ROOMS_SESSION_ARCHIVE_SHARE_READ, ROOMS_SESSION_EVENT, RoomsSessionClient } from "../../lib/session/client.ts";
 import { emptyRoomsSessionState } from "../../lib/rooms_state.ts";
@@ -41,6 +42,7 @@ function line(blob: Ref): Argument[] {
 		false,
 		null,
 		null,
+		"[]",
 		"file",
 		"note.txt",
 		"text/plain",
@@ -71,17 +73,29 @@ Deno.test("a Rooms session watcher releases unobserved and malformed line capabi
 	observerBehavior!(ROOMS_SESSION_EVENT, line(unobserved));
 	assertEquals(released, [observer, unobserved]);
 
+	const duplicatePreviewCapability = ref();
+	const duplicatePreview = line(duplicatePreviewCapability);
+	duplicatePreview[15] = JSON.stringify(["https://example.com", "https://example.com"]);
+	let refused = false;
+	try {
+		observerBehavior!(ROOMS_SESSION_EVENT, duplicatePreview);
+	} catch {
+		refused = true;
+	}
+	assertEquals(refused, true);
+	assertEquals(released, [observer, unobserved, duplicatePreviewCapability]);
+
 	const malformed = ref();
 	const invalid = line(malformed);
 	invalid[0] = "";
-	let refused = false;
+	refused = false;
 	try {
 		observerBehavior!(ROOMS_SESSION_EVENT, invalid);
 	} catch {
 		refused = true;
 	}
 	assertEquals(refused, true);
-	assertEquals(released, [observer, unobserved, malformed]);
+	assertEquals(released, [observer, unobserved, duplicatePreviewCapability, malformed]);
 
 	const unexpected = ref();
 	refused = false;
@@ -91,7 +105,36 @@ Deno.test("a Rooms session watcher releases unobserved and malformed line capabi
 		refused = true;
 	}
 	assertEquals(refused, true);
-	assertEquals(released, [observer, unobserved, malformed, unexpected]);
+	assertEquals(released, [observer, unobserved, duplicatePreviewCapability, malformed, unexpected]);
+});
+
+Deno.test("a Rooms session watcher delivers a validated link-preview selection with attachment custody", async () => {
+	let observerBehavior: Behavior | null = null;
+	const delivered: { previewUrls: string[]; attachments: { blob: Ref }[] }[] = [];
+	const observer = ref();
+	const released: Ref[] = [];
+	const session = {
+		spawn(behavior: Behavior) {
+			observerBehavior = behavior;
+			return observer;
+		},
+		send: () => Promise.resolve(snapshot()),
+		release: (capability: Ref) => released.push(capability),
+	} as unknown as Session;
+	const client = new RoomsSessionClient(session, ref());
+	await client.watch(() => {}, (event) => {
+		delivered.push(event);
+	});
+
+	const blob = ref();
+	const valid = line(blob);
+	valid[4] = "See https://example.com/path";
+	valid[15] = JSON.stringify(["https://example.com/path"]);
+	observerBehavior!(ROOMS_SESSION_EVENT, valid);
+
+	assertEquals(delivered.map((event) => event.previewUrls), [["https://example.com/path"]]);
+	assertEquals(delivered.flatMap((event) => event.attachments.map((attachment) => attachment.blob)), [blob]);
+	assertEquals(released, [observer]);
 });
 
 Deno.test("archive-share pagination cannot change the share being read", async () => {

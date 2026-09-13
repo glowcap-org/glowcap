@@ -3,7 +3,9 @@
 import type { ArchivedAttachment, ArchiveLine } from "../../lib/archive/protocol.ts";
 import type { AttachmentView, Item } from "./types.ts";
 
-export const ARCHIVED_BYTES_UNAVAILABLE = "These archived file bytes are not available in this view.";
+import { archivedBytesUnavailable } from "../../lib/text/attached.ts";
+
+export const ARCHIVED_BYTES_UNAVAILABLE = archivedBytesUnavailable;
 
 /** Project durable metadata as an explicitly unavailable attachment. The
  * message keeps its original shape without offering a download that no

@@ -1,5 +1,6 @@
 // Stable presentation identity for the selected archive, including peer replacement.
 import type { ArchiveTargetView } from "../archive_model.ts";
+import { sharedArchivePeerLabel } from "../../../lib/text/attached.ts";
 
 export class ArchiveTargetProjection {
 	#peer: string | null = null;
@@ -14,7 +15,7 @@ export class ArchiveTargetProjection {
 			owner: "session",
 			kind: "peer",
 			status: error === "" ? "connected" : "unavailable",
-			label: "Shared session archive peer",
+			label: sharedArchivePeerLabel,
 			remembered: true,
 			error,
 		};

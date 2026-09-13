@@ -1,7 +1,7 @@
 //! Bounded room file commands. Admission retains the selected membership and
 //! charges bytes before capture; accepted work outlives its caller's reply.
 use super::*;
-use crate::session_state::OrdinaryStatus;
+use crate::session::state::OrdinaryStatus;
 use rooms_application::{
 	room::{message::LineId, operation},
 	session::state::{Inspection, OperationId, Outcome},
@@ -16,6 +16,7 @@ const METADATA_BYTES: usize = 2 * 1024 * 1024;
 pub enum FileCommand {
 	Send {
 		caption: String,
+		previews: rooms_application::open_graph::Selection,
 		files: Vec<Source>,
 	},
 	Refile {
@@ -28,10 +29,16 @@ pub enum FileCommand {
 impl FileCommand {
 	fn fields(&self) -> (&str, &[Source], &[u32]) {
 		match self {
-			Self::Send { caption, files } => (caption, files, &[]),
+			Self::Send { caption, files, .. } => (caption, files, &[]),
 			Self::Refile {
 				caption, files, keep, ..
 			} => (caption, files, keep),
+		}
+	}
+	fn preview_bytes(&self) -> usize {
+		match self {
+			Self::Send { previews, .. } => previews.retained_bytes(),
+			Self::Refile { .. } => 0,
 		}
 	}
 	fn take_files(&mut self) -> Vec<Source> {
@@ -39,21 +46,22 @@ impl FileCommand {
 			Self::Send { files, .. } | Self::Refile { files, .. } => std::mem::take(files),
 		}
 	}
-	fn validate(&mut self) -> Result<(usize, usize), String> {
+	fn validate(&mut self) -> Result<(usize, usize), Error> {
 		let (caption, files, keep) = self.fields();
 		if caption.len() > rooms_application::room::line::MAX_LINE_BYTES
 			|| keep.len() + files.len() > rooms_application::room::line::MAX_MESSAGE_FILES
 			|| !rooms_application::files::receiving::selection_fits(files.iter().map(Source::description))
 			|| keep.iter().enumerate().any(|(at, index)| keep[..at].contains(index))
 		{
-			return Err("invalid room file caption or selection".into());
+			return Err(Error::invalid("invalid room file caption or selection"));
 		}
 		if let Self::Refile { line, .. } = self {
-			LineId::new(*line).ok_or("invalid room line id")?;
+			LineId::new(*line).ok_or_else(|| Error::invalid("invalid room line id"))?;
 		}
+		let preview_bytes = self.preview_bytes();
 		// Normalize caller-owned spare capacity before retaining the request.
 		let (caption, files, keep_bytes) = match self {
-			Self::Send { caption, files } => (caption, files, 0),
+			Self::Send { caption, files, .. } => (caption, files, 0),
 			Self::Refile {
 				caption, files, keep, ..
 			} => {
@@ -66,6 +74,7 @@ impl FileCommand {
 		Ok((
 			files.iter().map(|file| file.description().size()).sum(),
 			caption.capacity()
+				+ preview_bytes
 				+ keep_bytes + files.capacity() * std::mem::size_of::<Source>()
 				+ files
 					.iter()
@@ -78,7 +87,9 @@ impl FileCommand {
 pub(super) struct Inputs {
 	usage: Cell<(usize, usize, usize)>,
 	active: Cell<usize>,
-	open: watch::Sender<bool>,
+	/// `true` once the runtime closes, never before; the same polarity as
+	/// every other owner's stop signal, so a guard reads `if *stopping`.
+	closing: watch::Sender<bool>,
 	changed: watch::Sender<()>,
 }
 impl Default for Inputs {
@@ -86,22 +97,22 @@ impl Default for Inputs {
 		Self {
 			usage: Cell::new((0, 0, 0)),
 			active: Cell::new(0),
-			open: watch::channel(true).0,
+			closing: watch::channel(false).0,
 			changed: watch::channel(()).0,
 		}
 	}
 }
 impl Inputs {
-	fn reserve(self: &Rc<Self>, bytes: usize, metadata: usize) -> Result<Permit, String> {
+	fn reserve(self: &Rc<Self>, bytes: usize, metadata: usize) -> Result<Permit, Error> {
 		let (count, held, meta) = self.usage.get();
-		if !*self.open.borrow() {
-			return Err("room file admission is closed".into());
+		if *self.closing.borrow() {
+			return Err(Error::closed("room file admission is closed"));
 		}
 		if count >= REQUESTS
 			|| bytes > FILE_BYTES.saturating_sub(held)
 			|| metadata > METADATA_BYTES.saturating_sub(meta)
 		{
-			return Err("room file requests exceed their retained budget".into());
+			return Err(Error::busy("room file requests exceed their retained budget"));
 		}
 		self.usage.set((count + 1, held + bytes, meta + metadata));
 		Ok(Permit {
@@ -112,7 +123,7 @@ impl Inputs {
 		})
 	}
 	pub async fn close(&self) {
-		self.open.send_replace(false);
+		self.closing.send_replace(true);
 		let mut changed = self.changed.subscribe();
 		while self.active.get() != 0 {
 			if changed.changed().await.is_err() {
@@ -196,46 +207,41 @@ impl<P: Platform> RoomRuntime<P> {
 		base: u64,
 		conversation: &str,
 		mut command: FileCommand,
-	) -> Result<FileAdmission<P>, String> {
+	) -> Result<FileAdmission<P>, Error> {
 		let (bytes, metadata) = command.validate()?;
 		let state = self.shared.borrow();
 		let live = connected(&state, conversation)?;
-		let context = self
-			.commands
-			.view()
-			.read(|state| {
-				state.checkpoint().map_err(|e| e.to_string()).and_then(|checkpoint| {
-					let intent = checkpoint
-						.rooms()
-						.find(|room| room.id.text().as_str() == Some(conversation))
-						.ok_or("room is no longer intended")?;
-					if intent::Intent::read(intent).as_ref() != Some(&live.intent) {
-						return Err("the live room no longer matches its intended context".into());
-					}
-					Ok::<_, String>(Context {
-						conversation: conversation.into(),
-						directory: intent
-							.directory
-							.text()
-							.as_str()
-							.ok_or("room directory is not scalar text")?
-							.into(),
-						name: intent
-							.name
-							.text()
-							.as_str()
-							.ok_or("room name is not scalar text")?
-							.into(),
-						held: intent.held,
-						link: intent.link.map(|link| link.text().clone()),
-						publication: intent.publication_id.map(|id| id.text().clone()),
-						epoch: live.epoch,
-						room: live.room.clone(),
-						queue: live.file_queue.clone(),
-					})
-				})
+		let context = self.commands.view().read(|state| {
+			let checkpoint = state.checkpoint()?;
+			let intent = checkpoint
+				.rooms()
+				.find(|room| room.id.text().as_str() == Some(conversation))
+				.ok_or_else(|| Error::stale("room is no longer intended"))?;
+			if intent::Intent::read(intent).as_ref() != Some(&live.intent) {
+				return Err(Error::stale("the live room no longer matches its intended context"));
+			}
+			Ok::<_, Error>(Context {
+				conversation: conversation.into(),
+				directory: intent
+					.directory
+					.text()
+					.as_str()
+					.ok_or_else(|| Error::invalid("room directory is not scalar text"))?
+					.into(),
+				name: intent
+					.name
+					.text()
+					.as_str()
+					.ok_or_else(|| Error::invalid("room name is not scalar text"))?
+					.into(),
+				held: intent.held,
+				link: intent.link.map(|link| link.text().clone()),
+				publication: intent.publication_id.map(|id| id.text().clone()),
+				epoch: live.epoch,
+				room: live.room.clone(),
+				queue: live.file_queue.clone(),
 			})
-			.map_err(|e| e.to_string())??;
+		})??;
 		let metadata = metadata
 			.saturating_add(2048)
 			.saturating_add(id.text().heap_bytes())
@@ -258,36 +264,37 @@ impl<P: Platform> RoomRuntime<P> {
 impl<P: Platform> FileAdmission<P> {
 	/// The facade's answer task owns this future through completion. Closing the
 	/// runtime refuses unstarted work and observes every retained admission.
-	pub async fn run(mut self) -> Result<u64, String> {
-		let mut stopping = self.runtime.file_inputs.open.subscribe();
-		if !*stopping.borrow() {
-			return Err("room file commands are closed".into());
+	pub async fn run(mut self) -> Result<u64, Error> {
+		let mut stopping = self.runtime.file_inputs.closing.subscribe();
+		if *stopping.borrow() {
+			return Err(Error::closed("room file commands are closed"));
 		}
 		self.permit.running = true;
 		self.permit.owner.active.set(self.permit.owner.active.get() + 1);
 		let queue = self.context.queue.clone();
 		let _ordered = tokio::select! {
 			biased;
-			_ = stopping.changed() => return Err("room file preparation stopped".into()),
+			_ = stopping.changed() => return Err(Error::closed("room file preparation stopped")),
 			guard = queue.lock() => guard,
 		};
 		let frozen = tokio::select! {
 			biased;
-			_ = stopping.changed() => return Err("room file preparation stopped".into()),
-			result = crate::command_files::freeze(&self.runtime.platform, self.command.take_files()) => result?,
+			_ = stopping.changed() => return Err(Error::closed("room file preparation stopped")),
+			result = crate::files::command_files::freeze(&self.runtime.platform, self.command.take_files()) => result?,
 		};
 		let identities = frozen.identities();
 		let (caption, _, keep) = self.command.fields();
-		let command = match self.command {
-			FileCommand::Send { .. } => operation::Command::Send {
+		let command = match &self.command {
+			FileCommand::Send { previews, .. } => operation::Command::Send {
 				caption,
+				previews,
 				files: &identities,
 			},
 			FileCommand::Refile { line, .. } => operation::Command::Refile {
 				line: operation::Line {
 					incarnation: self.runtime.incarnation,
 					membership: self.context.epoch,
-					id: LineId::new(line).ok_or("invalid line id")?,
+					id: LineId::new(*line).ok_or_else(|| Error::invalid("invalid line id"))?,
 				},
 				caption,
 				keep,
@@ -302,7 +309,7 @@ impl<P: Platform> FileAdmission<P> {
 				held: self.context.held,
 				entry: self.context.held.then_some(self.context.link.as_ref()).flatten(),
 			})
-			.map_err(|e| e.to_string())?;
+			.map_err(Error::invalid_by)?;
 		let commands = &self.runtime.commands;
 		let inspected = admission(commands.inspect_ordinary(self.id.clone(), self.base, material.clone())).await?;
 		let Inspection::New(inspected) = inspected else {
@@ -311,21 +318,28 @@ impl<P: Platform> FileAdmission<P> {
 			};
 			return Ok(revision);
 		};
-		if !*stopping.borrow() || !self.context.current(&self.runtime) {
-			return Err("room file context retired before preparation".into());
+		if *stopping.borrow() || !self.context.current(&self.runtime) {
+			return Err(Error::stale("room file context retired before preparation"));
 		}
 		if let OrdinaryStatus::Committed(revision) =
 			admission(commands.prepare_inspected(inspected, material.clone())).await?
 		{
 			return Ok(revision);
 		}
-		let outcome = if !*stopping.borrow() || !self.context.current(&self.runtime) {
-			Err(Failure::NotApplied("room file context retired before delivery".into()))
+		let outcome = if *stopping.borrow() || !self.context.current(&self.runtime) {
+			Err(Failure::NotApplied(Error::stale(
+				"room file context retired before delivery",
+			)))
 		} else {
 			match &self.command {
-				FileCommand::Send { caption, .. } => {
+				FileCommand::Send { caption, previews, .. } => {
 					self.runtime
-						.send_files(&self.context.conversation, caption, frozen.into_sources())
+						.send_files_with_previews(
+							&self.context.conversation,
+							caption,
+							previews.clone(),
+							frozen.into_sources(),
+						)
 						.await
 				}
 				FileCommand::Refile {
@@ -339,25 +353,20 @@ impl<P: Platform> FileAdmission<P> {
 		};
 		match outcome {
 			Ok(()) => admission(commands.commit_ordinary(self.id, material)).await,
-			Err(Failure::Applied(reason)) => {
+			Err(Failure::Applied(cause)) => {
 				admission(commands.commit_ordinary(self.id, material)).await?;
-				Err(reason)
+				Err(cause)
 			}
-			Err(Failure::NotApplied(reason)) => {
+			Err(Failure::NotApplied(cause)) => {
 				admission(commands.resolve(self.id, Outcome::Abandoned)).await?;
-				Err(reason)
+				Err(cause)
 			}
-			Err(Failure::Unknown(reason)) => Err(format!("room file delivery is uncertain: {reason}")),
+			Err(Failure::Unknown(cause)) => Err(Error::uncertain(format!("room file delivery is uncertain: {cause}"))),
 		}
 	}
 }
 async fn admission<T>(
-	ticket: Result<crate::session_commands::Admission<T>, crate::session_commands::AdmissionError>,
-) -> Result<T, String> {
-	ticket
-		.map_err(|e| e.to_string())?
-		.send()
-		.map_err(|e| e.to_string())?
-		.wait()
-		.await
+	ticket: Result<crate::session::commands::Admission<T>, crate::session::commands::AdmissionError>,
+) -> Result<T, Error> {
+	ticket?.send()?.wait().await
 }

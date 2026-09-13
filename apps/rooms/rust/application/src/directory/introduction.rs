@@ -2,7 +2,7 @@
 use super::registration::Id;
 use alloc::{collections::VecDeque, rc::Rc, vec::Vec};
 
-pub const INTRODUCE: &str = "introduce";
+pub use crate::protocol_data::INTRODUCE;
 pub const MAX_OUTSTANDING: usize = 256;
 pub const WAIT_MS: u64 = 10_000;
 
@@ -81,12 +81,10 @@ impl<W> Notices<W> {
 	/// A banked notification can satisfy only the first retry. A subsequent
 	/// refusal requires a notification arriving after the fresh wait begins.
 	pub fn wait(&mut self, id: &Id, use_banked: bool, wake: W) -> Result<Option<Ticket>, Error> {
-		if use_banked {
-			if let Some(at) = self.bank.iter().position(|entry| entry == id) {
-				self.bank.remove(at);
-				self.trim();
-				return Ok(None);
-			}
+		if use_banked && let Some(at) = self.bank.iter().position(|entry| entry == id) {
+			self.bank.remove(at);
+			self.trim();
+			return Ok(None);
 		}
 		if self.waiting.len() == MAX_OUTSTANDING {
 			return Err(Error::Full);

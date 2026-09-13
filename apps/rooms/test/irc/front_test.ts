@@ -1,3 +1,4 @@
+// The native IRC front carries independent client sessions, rooms, and direct messages across supported transports.
 import { type Behavior } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
 import { Reachability } from "@glowcap/iroh";

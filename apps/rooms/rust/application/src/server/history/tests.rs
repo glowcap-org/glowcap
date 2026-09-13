@@ -1,5 +1,5 @@
 //! Retention as values: the tail per room, the global edges, the exact-row
-//! edits, and the row and file forms shared with the TypeScript owner.
+//! edits, and the durable row and file forms.
 use super::*;
 use alloc::{format, vec};
 
@@ -7,14 +7,21 @@ fn line(from: &str, text: &str, at: u64) -> KeptLine {
 	KeptLine {
 		from: from.into(),
 		text: text.into(),
+		previews: crate::open_graph::Selection::default(),
 		at,
 	}
+}
+
+/// A line as the index takes it: shared, the way the room and the history
+/// hold one body between them.
+fn kept(from: &str, text: &str, at: u64) -> Arc<KeptLine> {
+	Arc::new(line(from, text, at))
 }
 
 #[test]
 fn a_room_keeps_its_last_lines_and_persists_each_append() {
 	let mut index = Index::default();
-	let (token, persist) = index.record("Garden", line("alice", "hi", 1)).unwrap();
+	let Recorded { token, persist, .. } = index.record("Garden", kept("alice", "hi", 1)).unwrap();
 	assert_eq!(
 		persist,
 		Persist::Append {
@@ -25,13 +32,17 @@ fn a_room_keeps_its_last_lines_and_persists_each_append() {
 	);
 	for n in 0..LINES_KEPT {
 		index
-			.record("garden", line("bob", &n.to_string(), 2 + n as u64))
+			.record("garden", kept("bob", &n.to_string(), 2 + n as u64))
 			.unwrap();
 	}
 	assert_eq!(index.lines(), LINES_KEPT);
-	assert_eq!(index.read("GARDEN", 2).len(), 2);
-	assert_eq!(index.read("Garden", 1000).len(), LINES_KEPT);
-	assert_eq!(index.read("Garden", 1000)[0].text, "0", "the first line fell off");
+	assert_eq!(index.read("GARDEN", 2).count(), 2);
+	assert_eq!(index.read("Garden", 1000).count(), LINES_KEPT);
+	assert_eq!(
+		index.read("Garden", 1000).next().unwrap().text,
+		"0",
+		"the first line fell off"
+	);
 	// The dropped row's token names nothing any more.
 	assert_eq!(index.forget("Garden", token), None);
 }
@@ -39,9 +50,12 @@ fn a_room_keeps_its_last_lines_and_persists_each_append() {
 #[test]
 fn edits_and_withdrawals_touch_the_exact_row_and_replace_the_tail() {
 	let mut index = Index::default();
-	let (first, _) = index.record("Garden", line("alice", "one", 1)).unwrap();
-	let (second, _) = index.record("Garden", line("alice", "two", 2)).unwrap();
-	let updated = index.update("Garden", first, "uno").unwrap().unwrap();
+	let first = index.record("Garden", kept("alice", "one", 1)).unwrap().token;
+	let second = index.record("Garden", kept("alice", "two", 2)).unwrap().token;
+	let updated = index
+		.replace("Garden", first, kept("alice", "uno", 1))
+		.unwrap()
+		.unwrap();
 	assert_eq!(
 		updated,
 		Persist::Replace {
@@ -49,8 +63,12 @@ fn edits_and_withdrawals_touch_the_exact_row_and_replace_the_tail() {
 			tail: vec![Arc::new(line("alice", "uno", 1)), Arc::new(line("alice", "two", 2))]
 		}
 	);
-	assert!(index.update("Garden", first, &"x".repeat(MAX_LINE_BYTES + 1)).is_err());
-	assert_eq!(index.update("Elsewhere", first, "x").unwrap(), None);
+	assert!(
+		index
+			.replace("Garden", first, kept("alice", &"x".repeat(MAX_LINE_BYTES + 1), 1))
+			.is_err()
+	);
+	assert_eq!(index.replace("Elsewhere", first, kept("alice", "x", 1)).unwrap(), None);
 	let forgotten = index.forget("garden", second).unwrap();
 	assert_eq!(
 		forgotten,
@@ -75,9 +93,9 @@ fn edits_and_withdrawals_touch_the_exact_row_and_replace_the_tail() {
 fn the_server_evicts_the_oldest_room_whole_at_its_edges() {
 	let mut index = Index::default();
 	for n in 0..ROOMS_KEPT {
-		index.record(&format!("r{n:03}"), line("a", "x", n as u64)).unwrap();
+		index.record(&format!("r{n:03}"), kept("a", "x", n as u64)).unwrap();
 	}
-	let (_, persist) = index.record("newest", line("a", "x", 1000)).unwrap();
+	let persist = index.record("newest", kept("a", "x", 1000)).unwrap().persist;
 	assert_eq!(
 		persist,
 		Persist::Append {
@@ -92,12 +110,12 @@ fn the_server_evicts_the_oldest_room_whole_at_its_edges() {
 	for room in 0..9 {
 		for n in 0..LINES_KEPT {
 			index
-				.record(&format!("room{room}"), line("a", "x", (room * LINES_KEPT + n) as u64))
+				.record(&format!("room{room}"), kept("a", "x", (room * LINES_KEPT + n) as u64))
 				.unwrap();
 		}
 	}
 	assert!(index.lines() <= LINES_KEPT_TOTAL);
-	assert_eq!(index.read("room0", 1).len(), 0, "the oldest room left whole");
+	assert_eq!(index.read("room0", 1).count(), 0, "the oldest room left whole");
 }
 
 #[test]
@@ -107,7 +125,7 @@ fn a_restore_trims_validates_and_names_what_it_evicted() {
 		.map(|n| line("a", &n.to_string(), n as u64))
 		.collect();
 	index.restore_room("Garden", lines.clone()).unwrap();
-	assert_eq!(index.read("Garden", 1000).len(), LINES_KEPT);
+	assert_eq!(index.read("Garden", 1000).count(), LINES_KEPT);
 	assert_eq!(index.restore_room("garden", vec![]).unwrap_err(), Error::Repeated);
 	lines[0].from = String::new();
 	assert_eq!(index.restore_room("Other", lines).unwrap_err(), Error::Line);
@@ -125,14 +143,27 @@ fn a_restore_trims_validates_and_names_what_it_evicted() {
 }
 
 #[test]
-fn rows_and_file_names_are_the_typescript_owner_forms() {
+fn rows_and_file_names_round_trip_the_durable_forms() {
 	let encoded = encode_line(&line("alice", "hi \"there\"", 7));
-	assert_eq!(encoded, r#"{"version":1,"from":"alice","text":"hi \"there\"","at":7}"#);
+	assert_eq!(encoded, r#"{"version":2,"from":"alice","text":"hi \"there\"","at":7}"#);
 	assert_eq!(decode_line(&encoded).unwrap(), line("alice", "hi \"there\"", 7));
+	assert_eq!(
+		decode_line(r#"{"version":1,"from":"alice","text":"written before previews","at":6}"#).unwrap(),
+		line("alice", "written before previews", 6),
+	);
 	assert_eq!(decode_line("{").unwrap_err(), Error::Json);
 	assert_eq!(
-		decode_line(r#"{"version":2,"from":"a","text":"x","at":1}"#).unwrap_err(),
+		decode_line(r#"{"version":3,"from":"a","text":"x","at":1}"#).unwrap_err(),
 		Error::Version
+	);
+	let selected = KeptLine {
+		previews: crate::open_graph::Selection::all("https://example.com"),
+		..line("alice", "https://example.com", 8)
+	};
+	assert_eq!(decode_line(&encode_line(&selected)).unwrap(), selected);
+	assert_eq!(
+		decode_line(r#"{"version":1,"from":"a","text":"https://example.com","previews":[],"at":1}"#).unwrap_err(),
+		Error::Version,
 	);
 	assert_eq!(
 		decode_line(r#"{"version":1,"from":"","text":"x","at":1}"#).unwrap_err(),
@@ -155,12 +186,14 @@ fn rows_and_file_names_are_the_typescript_owner_forms() {
 #[test]
 fn queued_replacements_share_unchanged_rows_and_preserve_earlier_values() {
 	let mut index = Index::default();
-	let (first, _) = index.record("Garden", line("a", "one", 1)).unwrap();
-	index.record("Garden", line("b", "two", 2)).unwrap();
-	let Some(Persist::Replace { tail: earlier, .. }) = index.update("Garden", first, "uno").unwrap() else {
+	let first = index.record("Garden", kept("a", "one", 1)).unwrap().token;
+	index.record("Garden", kept("b", "two", 2)).unwrap();
+	let Some(Persist::Replace { tail: earlier, .. }) = index.replace("Garden", first, kept("a", "uno", 1)).unwrap()
+	else {
 		panic!("replacement");
 	};
-	let Some(Persist::Replace { tail: later, .. }) = index.update("Garden", first, "eins").unwrap() else {
+	let Some(Persist::Replace { tail: later, .. }) = index.replace("Garden", first, kept("a", "eins", 1)).unwrap()
+	else {
 		panic!("replacement");
 	};
 	assert_eq!(earlier[0].text, "uno");

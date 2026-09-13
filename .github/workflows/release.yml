@@ -27,7 +27,7 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Require the ABI version tag
         if: github.ref_type == 'tag'
@@ -43,10 +43,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Only a push run carries the full gate sequence; a pull-request run
+          # of the same workflow is the short Zig-only lane and is no evidence.
           check_url="$(
             gh api "/repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?head_sha=$GITHUB_SHA&status=success&per_page=100" |
               jq -r --arg sha "$GITHUB_SHA" \
-                '.workflow_runs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success") | .html_url' |
+                '.workflow_runs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success" and .event == "push") | .html_url' |
               head -n 1
           )"
           if [ -z "$check_url" ]; then
@@ -71,7 +73,7 @@ jobs:
     steps:
       # release-pack needs no conformance submodule, so no
       # `submodules: recursive` here.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install the pinned Zig
         run: |
@@ -87,7 +89,7 @@ jobs:
       - name: Build the release tarball
         run: zig build -Doptimize=ReleaseSafe release-pack
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: archives-${{ matrix.runner }}
           path: |
@@ -106,9 +108,9 @@ jobs:
       id-token: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
 

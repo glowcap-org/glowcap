@@ -161,14 +161,14 @@ pub fn checkBindingReflectedFfiWired(
         return;
     };
     defer dir.close(io);
-    var walker = try dir.walk(gpa);
+    var walker = try dir.walkSelectively(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
+        if (entry.kind == .directory) {
+            try util.enterSourceDirectory(io, gpa, &walker, "bindings", entry);
+            continue;
+        }
         if (entry.kind != .file) continue;
-        if (std.mem.indexOf(u8, entry.path, "target/") != null) continue;
-        if (std.mem.indexOf(u8, entry.path, "__pycache__/") != null) continue;
-        if (std.mem.indexOf(u8, entry.path, "compiled/") != null) continue;
-        if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
         const is_source = std.mem.endsWith(u8, entry.path, ".rs") or
             std.mem.endsWith(u8, entry.path, ".py") or
             std.mem.endsWith(u8, entry.path, ".ts") or
@@ -263,7 +263,7 @@ fn isAbiIdentChar(c: u8) bool {
 }
 
 /// Extract `glowcap_iroh_sidecar_*` declarations behind a fixed anchor —
-/// Rust's `pub extern "C" fn ` or Zig's `extern fn ` — into `out` as name ->
+/// Rust's `extern "C" fn ` (safe or unsafe) or Zig's `extern fn ` — into `out` as name ->
 /// coarse signature. The return type runs from the closing parenthesis to `{`
 /// (Rust, where a leading `->` is stripped) or `;` (Zig).
 fn extractAnchoredAbi(
@@ -416,7 +416,7 @@ pub fn checkIrohSidecarAbi(
                 "transports/iroh/src/conn.rs",
                 "transports/iroh/src/nonblocking.rs",
             },
-            .anchor = "pub extern \"C\" fn ",
+            .anchor = "extern \"C\" fn ",
             .ret_end = '{',
         },
         .{ .paths = &.{"transports/iroh/include/glowcap_iroh_sidecar.h"}, .anchor = null, .ret_end = ';' },

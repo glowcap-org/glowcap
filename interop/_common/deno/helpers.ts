@@ -1,8 +1,7 @@
 // Shared helpers for Deno interop client scripts.
 
 export function fail(gate: string, msg: string): never {
-	console.error(`${gate} FAILED: ${msg}`);
-	Deno.exit(1);
+	throw new Error(`${gate} FAILED: ${msg}`);
 }
 
 export async function readSwiss(

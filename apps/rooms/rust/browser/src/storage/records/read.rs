@@ -1,7 +1,7 @@
-use super::super::{value, Steps};
+use super::super::{Steps, value};
 use super::*;
 use rooms_application::{
-	archive::{blobs::Reader, Facet, MAX_READ, MAX_RECORDS},
+	archive::{Facet, MAX_READ, MAX_RECORDS, blobs::Reader},
 	fields::SafeInteger,
 };
 use std::sync::Arc;
@@ -89,8 +89,9 @@ pub(in crate::storage) fn reader(
 	scope.validate()?;
 	Operation::start(database, &[RECORDS], IdbTransactionMode::Readonly, None, move |steps| {
 		let mut seen = 0;
+		let range = IdbKeyRange::only(&digest.clone().into())?;
 		steps.request(
-			steps.store(RECORDS)?.index("revision")?.open_cursor()?,
+			steps.store(RECORDS)?.index("digest")?.open_cursor_with_range(&range)?,
 			move |steps: &Steps<Option<Reader>>, row: JsValue| {
 				if row.is_null() {
 					return Ok(());
@@ -103,6 +104,9 @@ pub(in crate::storage) fn reader(
 					.dyn_into::<IdbCursorWithValue>()
 					.map_err(|_| Error::Invalid("invalid archive cursor"))?;
 				let entry = codec::decode(cursor.value()?)?;
+				if cursor.key()?.as_string().as_deref() != Some(digest.as_str()) {
+					return Err(Error::Invalid("inconsistent archive digest index"));
+				}
 				if scope.matches(&entry.record) {
 					steps.data(|result| {
 						*result = Some(Reader::matching(&facet, &entry.record, &digest)?);

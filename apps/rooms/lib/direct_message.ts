@@ -480,6 +480,7 @@ export class DirectMessage {
 	 * lost flag costs nothing and never blocks a keystroke, and an inbox that
 	 * predates the verb breaks the tell silently. */
 	typing(on: boolean): Promise<void> {
+		// best-effort: a lost flag is the whole loss; the next keystroke sends another.
 		return this.#session.tell(this.#target(), TYPING, [on]).catch(() => {});
 	}
 }

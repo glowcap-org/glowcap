@@ -3,7 +3,7 @@
 use super::{Platform, Result};
 use rooms_application::files::FileDescription;
 use rooms_glowcap::client::files::File;
-use rooms_runtime::{media_files::FileView, session_service::ArchivedFile};
+use rooms_runtime::{files::media_files::FileView, service::ArchivedFile};
 
 pub(crate) enum Access {
 	Remote(File<Platform>),
@@ -21,7 +21,7 @@ impl Access {
 	pub async fn read(&self, offset: u64, maximum: usize) -> Result<Vec<u8>> {
 		match self {
 			Self::Remote(file) => file.read(offset, maximum).await.map_err(|e| e.to_string()),
-			Self::Local(file) => file.read(offset, maximum).await,
+			Self::Local(file) => file.read(offset, maximum).await.map_err(|e| e.to_string()),
 			Self::Archived(file) => file.read(offset, maximum).await.map_err(|e| e.to_string()),
 		}
 	}

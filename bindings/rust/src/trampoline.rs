@@ -25,15 +25,15 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::host::host_last_error;
 use crate::session_shared::{Caretaker, SessionShared};
 use crate::sys::host as ffi;
-use crate::{args_from_sys, sys, Argument, Error, Ref, Result, SendArena};
+use crate::{Argument, Error, Ref, Result, SendArena, args_from_sys, sys};
 
 mod registration;
 pub(crate) use registration::register_actor_cell;
@@ -267,11 +267,7 @@ thread_local! {
 // the trampoline hands back (OK: the break already settled the answer).
 fn turn_break(turn: *mut ffi::GlowcapHostTurn, message: &str) -> i32 {
 	let rc = unsafe { ffi::glowcap_host_turn_break(turn, message.as_ptr(), message.len()) };
-	if rc == sys::OK {
-		sys::OK
-	} else {
-		rc
-	}
+	if rc == sys::OK { sys::OK } else { rc }
 }
 
 // Resolve a behavior's outcome into the turn's answer: a plain value marshals
@@ -332,18 +328,25 @@ unsafe fn trampoline_body(
 	if ctx.is_null() {
 		return turn_break(turn, "no such hosted object");
 	}
-	let cell = &*(ctx as *const ActorCell);
+	// SAFETY: `ctx` is the `ActorCell` pointer registration handed the host,
+	// and `ctx_free` is the only thing that reclaims it — the host does not
+	// deliver to an object it has freed.
+	let cell = unsafe { &*(ctx as *const ActorCell) };
 	// A zero-length verb is the positional call (the Goblins methodless shape).
 	// The verb bytes outlive this callback, so valid UTF-8 is borrowed as is
 	// and only a malformed verb pays an owned repair.
 	let verb: std::borrow::Cow<'_, str> = if verb_len == 0 || verb.is_null() {
 		std::borrow::Cow::Borrowed("")
 	} else {
-		String::from_utf8_lossy(core::slice::from_raw_parts(verb, verb_len))
+		// SAFETY: the host lends the verb bytes for the callback's duration, and
+		// the null and empty cases went to the arm above.
+		String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(verb, verb_len) })
 	};
 	// The one owned lift per deliver: the borrowed C args become owned Rust
 	// values before any behavior code can run.
-	let mut args = match args_from_sys(args, args_len) {
+	// SAFETY: the host lends the argument tree for the callback's duration, the
+	// window this lift copies out of.
+	let mut args = match unsafe { args_from_sys(args, args_len) } {
 		Ok(args) => args,
 		Err(error) => return turn_break(turn, &error.to_string()),
 	};
@@ -377,7 +380,9 @@ pub(crate) unsafe extern "C" fn trampoline(
 	out_reply: *mut sys::GlowcapArgument,
 ) -> i32 {
 	match catch_unwind(AssertUnwindSafe(|| {
-		trampoline_body(ctx, turn, verb, verb_len, args, args_len, out_reply)
+		// SAFETY: this is the host's own call, so every pointer it passed is
+		// live for the callback; the body's contract is this signature's.
+		unsafe { trampoline_body(ctx, turn, verb, verb_len, args, args_len, out_reply) }
 	})) {
 		Ok(code) => code,
 		Err(payload) => {
@@ -398,10 +403,14 @@ pub(crate) unsafe extern "C" fn ctx_free(ctx: *mut core::ffi::c_void) {
 	if ctx.is_null() {
 		return;
 	}
-	let cell = Box::from_raw(ctx as *mut ActorCell);
+	// SAFETY: the host calls this once, with the pointer registration leaked to
+	// it, and never delivers to the object again.
+	let cell = unsafe { Box::from_raw(ctx as *mut ActorCell) };
 	let receipt = cell.registration.get();
 	if !receipt.is_null() {
-		(*receipt).set(true);
+		// SAFETY: a non-null receipt outlives the cell that points at it, so
+		// the registration can learn the host let go.
+		unsafe { (*receipt).set(true) };
 	}
 	let context = Rc::clone(&cell.context);
 	let diagnostic_id = cell.diagnostic_id;

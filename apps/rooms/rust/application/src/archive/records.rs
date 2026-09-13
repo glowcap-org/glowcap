@@ -1,3 +1,4 @@
+//! Archive record validation and lifecycle replacement policy.
 use super::{Error, MAX_CONTEXT_BYTES, MAX_CONVERSATION_BYTES, MAX_ID_BYTES};
 use crate::{
 	room::{
@@ -64,6 +65,7 @@ pub enum Body {
 		at: u64,
 		order: u64,
 		state: LineState,
+		previews: crate::open_graph::Selection,
 		attachments: Vec<Attachment>,
 	},
 }
@@ -92,6 +94,7 @@ impl Record {
 				at,
 				order,
 				state,
+				previews,
 				attachments,
 				..
 			} => {
@@ -112,7 +115,15 @@ impl Record {
 						return Err(Error::Record);
 					}
 				}
-				if *state == LineState::Withdrawn && (text.utf16().next().is_some() || !attachments.is_empty()) {
+				if !previews.is_empty()
+					&& text.as_str().is_none_or(|text| {
+						crate::open_graph::Selection::new(text, previews.urls().iter().map(|url| url.as_str())).is_err()
+					}) {
+					return Err(Error::Record);
+				}
+				if *state == LineState::Withdrawn
+					&& (text.utf16().next().is_some() || !previews.is_empty() || !attachments.is_empty())
+				{
 					return Err(Error::Record);
 				}
 			}
@@ -198,12 +209,14 @@ impl Record {
 				conversation,
 				from,
 				text,
+				previews,
 				attachments,
 				..
 			} => {
 				conversation.heap_bytes()
 					+ from.heap_bytes()
 					+ text.heap_bytes()
+					+ previews.retained_bytes()
 					+ attachments.capacity() * core::mem::size_of::<Attachment>()
 					+ attachments.iter().map(|a| a.heap_bytes()).sum::<usize>()
 			}

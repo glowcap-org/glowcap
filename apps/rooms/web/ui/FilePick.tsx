@@ -14,6 +14,7 @@
 // from a label's click handler loses the keyboard.
 
 import { Icon } from "./icons.tsx";
+import { chooseAFile } from "../../lib/text/page.ts";
 
 export function FilePick(
 	{ id, accept, name, disabled = false, describedBy, invalid, onChoose }: {
@@ -43,7 +44,7 @@ export function FilePick(
 			/>
 			<span className="file-pick-face" aria-hidden="true">
 				<Icon name="file" size={16} />
-				<span className="file-pick-name">{name ?? "Choose a file"}</span>
+				<span className="file-pick-name">{name ?? chooseAFile}</span>
 			</span>
 		</div>
 	);

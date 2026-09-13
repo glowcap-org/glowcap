@@ -1,4 +1,4 @@
-use super::{owner::Owner, view, Result, RoomsBrowserSession};
+use super::{Result, RoomsBrowserSession, owner::Owner, view};
 use rooms_application::session::{snapshot::Snapshot, state::OperationId};
 use rooms_glowcap::client::session::controller::{self, Observation};
 use std::rc::Rc;

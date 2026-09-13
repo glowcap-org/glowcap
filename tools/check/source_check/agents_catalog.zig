@@ -19,6 +19,7 @@ pub fn checkAgentsRouting(
         "## Start Here",
         "docs/vision.md",
         ".agents/skills/work/SKILL.md",
+        ".agents/rules/scripts.md",
         "Context map",
     });
 }

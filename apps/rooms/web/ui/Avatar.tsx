@@ -2,6 +2,7 @@
 // the same box, so every place that names a person already has one owner for it.
 
 import { hueOf, initials } from "./member_identity.ts";
+import { presenceTitle } from "../../lib/text/conversation.ts";
 
 export type PresenceState = "online" | "away" | "offline";
 
@@ -42,8 +43,8 @@ export function PresenceAvatar(
 			<span
 				className="presence-pip"
 				role="img"
-				aria-label={state}
-				title={reason != null && reason !== "" ? `away: ${reason}` : state}
+				aria-label={presenceTitle(state)}
+				title={presenceTitle(state, reason)}
 			/>
 		</span>
 	);

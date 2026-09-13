@@ -1,8 +1,8 @@
 //! Shared media custody while a native room is still receiving file bytes.
-use rooms_application::files::{FileDescription, CHUNK_BYTES};
+use rooms_application::files::{CHUNK_BYTES, FileDescription};
 use rooms_browser::platform::Platform;
 use rooms_glowcap::client::room::{Messages, Room};
-use rooms_runtime::media::Media;
+use rooms_runtime::files::media::Media;
 
 pub async fn exercise(room: &Room<Platform>, messages: &mut Messages) {
 	let bytes: Vec<u8> = (0..CHUNK_BYTES + 17).map(|i| (i % 251) as u8).collect();

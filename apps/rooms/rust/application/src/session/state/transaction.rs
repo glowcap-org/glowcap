@@ -1,3 +1,4 @@
+//! Session-state transactions stage mutations before exposing committed effects.
 use super::*;
 use crate::documents::WriteFailure;
 

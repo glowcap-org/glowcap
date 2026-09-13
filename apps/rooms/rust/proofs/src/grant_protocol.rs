@@ -1,10 +1,10 @@
 use super::{
-	arguments::{from_fixture, Arg},
-	grants::{ready, MemoryStore},
+	arguments::{Arg, from_fixture},
+	grants::{MemoryStore, ready},
 };
 use rooms_application::grants::{
-	protocol::{self, GrantView},
 	Access, Command, GrantLedger,
+	protocol::{self, GrantView},
 };
 use std::{cell::Cell, rc::Rc};
 

@@ -272,9 +272,12 @@ export class DirectoryPeering {
 		this.#closed = true;
 		const closing = this.#close();
 		this.#closePromise = closing;
-		void closing.finally(() => {
+		const forget = () => {
 			if (this.#closePromise === closing) this.#closePromise = null;
-		}).catch(() => {});
+		};
+		// tolerant: the caller holds `closing` and receives its failure; this
+		// chain only clears the memo, and its own rejection would be a duplicate.
+		void closing.finally(forget).catch(() => {});
 		return closing;
 	}
 

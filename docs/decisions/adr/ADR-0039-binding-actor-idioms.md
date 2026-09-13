@@ -63,8 +63,9 @@ per-binding parity is detailed below.
 ## Scope (what this does not decide)
 
 `define-actor` sugar is optional; the stable canonical form is the plain
-constructor + `spawn`. Far promise pipelining (eventual-send to an unresolved
-far vow) is not yet wired.
+constructor + `spawn`. Far promise pipelining was outside this increment;
+[ADR-0065](ADR-0065-questioner-side-promise-pipelining.md) subsequently made
+an unresolved send result a send target in every binding.
 
 ## Alternatives Considered
 

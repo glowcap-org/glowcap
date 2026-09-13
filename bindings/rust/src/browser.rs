@@ -12,7 +12,7 @@ mod rtc_peer;
 mod socket;
 pub use rtc_peer::{RtcPeer, RtcRole};
 
-use crate::{abi_constants::*, Channel};
+use crate::{Channel, abi_constants::*};
 use socket::Socket;
 use std::{cell::RefCell, collections::VecDeque, io as std_io, rc::Rc, task::Waker};
 use web_sys::{RtcDataChannel, WebSocket};

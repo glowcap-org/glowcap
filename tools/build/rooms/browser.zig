@@ -30,9 +30,11 @@ pub fn register(b: *std.Build, archives: *std.Build.Step, layouts: *std.Build.St
     glue.step.dependOn(&compile.step);
     const step = b.step("rooms-browser-build", "Build the production Rust Rooms browser module (needs the Wasm Rust target and matching wasm-bindgen)");
     step.dependOn(&glue.step);
-    const proof = execution.addSystemCommand(b, .{ .browser_proof = 60 }, &.{ "node", "check_entry.mjs" });
+    const proof = execution.addSystemCommand(b, .{ .browser_proof = 60 }, &.{ "deno", "run", "--allow-all", "check_entry.mjs" });
     proof.setCwd(b.path("apps/rooms/rust/proofs/browser"));
     proof.step.dependOn(step);
-    b.step("rooms-browser-test", "Prove production Rooms Wasm startup in Node and Chromium").dependOn(&proof.step);
+    const proof_cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", "apps/rooms/rust/proofs/browser/check_entry.mjs" });
+    proof.step.dependOn(&proof_cache.step);
+    b.step("rooms-browser-test", "Prove production Rooms Wasm startup in Deno and Chromium").dependOn(&proof.step);
     return step;
 }

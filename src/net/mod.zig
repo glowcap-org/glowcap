@@ -27,8 +27,8 @@
 //! The `completion/` directory is a portable, direction-neutral `Loop` that
 //! multiplexes many connections on one thread. It drives the same peer
 //! stream-input and outbound-frame APIs from completion events and touches no
-//! `std.Io`. It is generic over a platform backend: `completion/uring.zig` is the
-//! Linux io_uring backend, and `completion/kqueue.zig` is the Darwin backend.
+//! `std.Io`. It is generic over a platform backend: Linux prefers io_uring and
+//! falls back to epoll when the host cannot support it. Darwin uses kqueue.
 //! A Windows IOCP backend is not implemented. `TcpLoop` is the portable loop
 //! already bound to the host platform Backend plus `tcp.DialResolver`.
 
@@ -192,6 +192,16 @@ pub const carrier_failure = @import("carrier_failure.zig");
 /// clean; it implements the `completion` backend interface and is reached
 /// through `Loop` below.
 const uring = if (@import("builtin").os.tag == .linux) @import("completion/uring.zig") else struct {};
+const linux_completion = if (@import("builtin").os.tag == .linux) @import("completion/linux.zig") else struct {};
+pub const linux_completion_white_box = if (@import("builtin").is_test and @import("builtin").os.tag == .linux)
+    linux_completion.white_box
+else
+    struct {};
+const epoll = if (@import("builtin").os.tag == .linux) @import("completion/epoll.zig") else struct {};
+pub const epoll_white_box = if (@import("builtin").is_test and @import("builtin").os.tag == .linux)
+    epoll.white_box
+else
+    struct {};
 /// Test-only access to Linux backend invariants; empty in production builds.
 pub const uring_white_box = if (@import("builtin").is_test and @import("builtin").os.tag == .linux)
     uring.white_box
@@ -210,18 +220,18 @@ else
 
 /// The ready-to-use TCP completion loop for the host platform: the portable
 /// `completion.Loop` over the platform Backend plus `tcp.DialResolver` (OCapN
-/// locator into `IpAddress`). Linux uses io_uring, Darwin uses kqueue; on any
-/// other platform this is an empty struct. Named `TcpLoop` so it is not
+/// locator into `IpAddress`). Linux selects io_uring or epoll, Darwin uses
+/// kqueue, and any other platform gets an empty struct. Named `TcpLoop` so it is not
 /// confused with the generic `completion.Loop(Backend, DialResolver)`.
 pub const TcpLoop = if (@import("builtin").os.tag == .linux)
-    completion.Loop(uring.Backend, tcp.DialResolver)
+    completion.Loop(linux_completion.Backend, tcp.DialResolver)
 else if (@import("builtin").os.tag.isDarwin())
     completion.Loop(kqueue.Backend, tcp.DialResolver)
 else
     struct {};
 
-/// The host platform's completion `Backend` (io_uring on Linux, kqueue on
-/// macOS/BSD), the type `TcpLoop` is bound over. Exposed so an embedder that
+/// The host platform's completion `Backend` (runtime-selected io_uring/epoll on
+/// Linux, kqueue on macOS/BSD), the type `TcpLoop` is bound over. Exposed so an embedder that
 /// needs a non-`tcp.DialResolver` locator grammar can bind its own
 /// `completion.Loop(net.Backend, CustomDialResolver)` without re-declaring the
 /// per-OS backend selection. The OCapN conformance harness does exactly that
@@ -231,11 +241,43 @@ else
 /// ordinary constructor deliberately defaults to loopback. An empty struct off
 /// the supported platforms.
 pub const Backend = if (@import("builtin").os.tag == .linux)
-    uring.Backend
+    linux_completion.Backend
 else if (@import("builtin").os.tag.isDarwin())
     kqueue.Backend
 else
     struct {};
+
+/// Linux completion implementation chosen for a concrete native loop,
+/// including the exact reason epoll replaced the preferred io_uring backend.
+/// The TCP, onion, keyed-relay, Noise, and iroh loop backends all preserve this
+/// status through their adapter layers. Applications decide how to present it.
+/// The library never writes unsolicited startup output. Empty off Linux.
+pub const TcpBackendStatus = if (@import("builtin").os.tag == .linux)
+    linux_completion.Status
+else
+    struct {};
+pub const TcpBackendImplementation = if (@import("builtin").os.tag == .linux)
+    linux_completion.Implementation
+else
+    enum {};
+pub const TcpBackendFallbackReason = if (@import("builtin").os.tag == .linux)
+    linux_completion.FallbackReason
+else
+    enum {};
+
+/// Return the selected Linux TCP backend for a TCP, onion, keyed-relay, Noise,
+/// or iroh completion loop. Empty off Linux.
+pub fn tcpBackendStatus(loop: anytype) TcpBackendStatus {
+    if (comptime @import("builtin").os.tag == .linux) {
+        return loop.backend.tcpBackendStatus();
+    } else {
+        return emptyTcpBackendStatus(loop);
+    }
+}
+
+fn emptyTcpBackendStatus(_: anytype) TcpBackendStatus {
+    return .{};
+}
 
 /// The host platform backend wrapped with native onion dials and onion-service
 /// publication (ADR-0108). Construct `Backend`, move it into

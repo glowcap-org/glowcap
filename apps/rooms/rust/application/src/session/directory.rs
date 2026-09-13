@@ -6,7 +6,7 @@ use crate::{
 	text::DocumentText,
 };
 use alloc::vec::Vec;
-use serde::{ser::SerializeSeq, Serialize, Serializer};
+use serde::{Serialize, Serializer, ser::SerializeSeq};
 
 pub const MAX_ROWS: usize = 128;
 

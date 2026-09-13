@@ -16,6 +16,7 @@ pub struct Context<'a> {
 pub enum Command<'a> {
 	Send {
 		text: &'a str,
+		previews: &'a crate::open_graph::Selection,
 		files: &'a [Identity<'a>],
 	},
 	Edit {
@@ -34,8 +35,26 @@ pub enum Command<'a> {
 }
 impl Command<'_> {
 	pub fn material(&self, context: Context<'_>) -> Result<DocumentText, serde_json::Error> {
+		if let Self::Send { text, previews, files } = self
+			&& !previews.is_empty()
+		{
+			return serde_json::to_string(&(
+				if files.is_empty() { "say" } else { "sendFiles" },
+				"direct-v2",
+				context.directory,
+				context.conversation,
+				context.peer,
+				context.registration,
+				Option::<([u8; 16], u64)>::None,
+				text,
+				previews.urls(),
+				&[] as &[u32],
+				files,
+			))
+			.map(Into::into);
+		}
 		let (verb, line, text, keep, files) = match self {
-			Self::Send { text, files } => (
+			Self::Send { text, files, .. } => (
 				if files.is_empty() { "say" } else { "sendFiles" },
 				None,
 				*text,

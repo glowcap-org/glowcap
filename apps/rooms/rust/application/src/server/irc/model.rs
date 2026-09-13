@@ -2,8 +2,13 @@
 //! connection configuration, a bridge intent says one channel is bridged
 //! under a publication identity, and a bridge authority is the entropy its
 //! durable room and moderator names derive from. Each is written into
-//! `operations.json` in the field names the TypeScript owner kept.
-use super::{protocol::fold, registration::SaslPlain};
+//! `operations.json` under the field names declared here, this crate's
+//! version-one contract for that document.
+use super::{
+	protocol::fold,
+	registration::{SaslPlain, validate_realname},
+};
+use crate::fields::lower_hex;
 use alloc::string::String;
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +16,9 @@ use serde::{Deserialize, Serialize};
 /// description a snapshot carries.
 pub use crate::bridge::gateway::MAX_NAME;
 pub const MAX_PUBLICATION_ID: usize = 128;
+/// A network must leave room for `/`, `#`, and at least one channel unit in
+/// the 32-unit room name it will eventually prefix.
+pub const MAX_NETWORK_NAME: usize = crate::server::rooms::MAX_ROOM - 3;
 /// Bytes of entropy a durable bridge name derives from, as hex in the
 /// document.
 pub const ENTROPY_BYTES: usize = 16;
@@ -37,8 +45,8 @@ impl From<&Sasl> for SaslPlain {
 	}
 }
 
-/// Where a network is dialed, whether the leg is sealed, the feed's nick,
-/// and its optional login.
+/// Where a network is dialed, whether the leg is sealed, the feed's public
+/// IRC identity, and its optional login.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkChoice {
@@ -47,6 +55,7 @@ pub struct NetworkChoice {
 	pub port: u16,
 	pub tls: bool,
 	pub nick: String,
+	pub realname: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sasl: Option<Sasl>,
 }
@@ -63,13 +72,13 @@ impl NetworkChoice {
 			&& self.port == other.port
 			&& self.tls == other.tls
 			&& self.nick == other.nick
+			&& self.realname == other.realname
 			&& self.sasl == other.sasl
 	}
 	pub fn endpoint(&self) -> String {
 		alloc::format!("{}:{}", self.host, self.port)
 	}
-	/// What the document admits: every text bounded and non-empty, the
-	/// port a port.
+	/// Validate a connection that may become operational.
 	pub fn validate(&self) -> Result<(), String> {
 		let bounded = |value: &str, what: &str| {
 			if value.is_empty() || value.len() > 64 * 1024 {
@@ -78,9 +87,14 @@ impl NetworkChoice {
 				Ok(())
 			}
 		};
-		bounded(&self.network, "name")?;
+		if self.network.is_empty() || self.network.encode_utf16().count() > MAX_NETWORK_NAME {
+			return Err(alloc::format!(
+				"an IRC network name is 1 to {MAX_NETWORK_NAME} characters so its bridged room names fit"
+			));
+		}
 		bounded(&self.host, "host")?;
 		bounded(&self.nick, "nick")?;
+		validate_realname(&self.realname)?;
 		if self.port == 0 {
 			return Err("an IRC network port is 1 through 65535".into());
 		}
@@ -110,6 +124,7 @@ pub struct BridgeIntent {
 	pub network: String,
 	pub channel: String,
 	pub publication_id: String,
+	pub operator_permission: bool,
 }
 
 impl BridgeIntent {
@@ -117,11 +132,25 @@ impl BridgeIntent {
 		channel_key(&self.network, &self.channel)
 	}
 	pub fn validate(&self) -> Result<(), String> {
-		if self.network.is_empty() || self.network.len() > 64 * 1024 {
-			return Err("an IRC bridge network name is 1 to 65536 bytes".into());
+		if !self.operator_permission {
+			return Err("an IRC bridge requires explicit permission from the channel operators".into());
+		}
+		if self.network.is_empty() || self.network.encode_utf16().count() > MAX_NETWORK_NAME {
+			return Err(alloc::format!(
+				"an IRC bridge network name is 1 to {MAX_NETWORK_NAME} characters"
+			));
 		}
 		if self.channel.is_empty() || self.channel.len() > 64 * 1024 {
 			return Err("an IRC bridge channel is 1 to 65536 bytes".into());
+		}
+		if alloc::format!("{}/{}", self.network, self.channel)
+			.encode_utf16()
+			.count() > crate::server::rooms::MAX_ROOM
+		{
+			return Err(alloc::format!(
+				"an IRC bridged room name is at most {} characters",
+				crate::server::rooms::MAX_ROOM
+			));
 		}
 		if self.publication_id.is_empty() || self.publication_id.len() > MAX_PUBLICATION_ID {
 			return Err("an IRC bridge publication id is 1 to 128 bytes".into());
@@ -147,11 +176,7 @@ pub fn is_entropy(hex: &str) -> bool {
 }
 
 pub fn entropy_hex(bytes: &[u8; ENTROPY_BYTES]) -> String {
-	let mut out = String::with_capacity(ENTROPY_BYTES * 2);
-	for byte in bytes {
-		out.push_str(&alloc::format!("{byte:02x}"));
-	}
-	out
+	lower_hex(bytes)
 }
 
 pub fn entropy_bytes(hex: &str) -> Option<[u8; ENTROPY_BYTES]> {
@@ -185,8 +210,8 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn a_choice_reads_and_writes_the_typescript_field_names() {
-		let text = r#"{"network":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"feed","sasl":{"account":"a","password":"b"}}"#;
+	fn a_choice_reads_and_writes_the_document_field_names() {
+		let text = r#"{"network":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"feed","realname":"bridge bot; admin: alice","sasl":{"account":"a","password":"b"}}"#;
 		let choice: NetworkChoice = serde_json::from_str(text).unwrap();
 		assert_eq!(serde_json::to_string(&choice).unwrap(), text);
 		assert!(choice.validate().is_ok());
@@ -197,13 +222,21 @@ mod tests {
 		assert!(!choice.same(&other));
 		assert_eq!(choice.key(), "libera");
 		assert_eq!(channel_key("Libera", "#Room"), "libera\0#room");
-		let bare: NetworkChoice =
-			serde_json::from_str(r#"{"network":"n","host":"h","port":6667,"tls":false,"nick":"x"}"#).unwrap();
-		assert!(bare.sasl.is_none());
-		assert!(serde_json::from_str::<NetworkChoice>(
-			r#"{"network":"n","host":"h","port":0,"tls":false,"nick":"x","extra":1}"#
+		let bare: NetworkChoice = serde_json::from_str(
+			r#"{"network":"n","host":"h","port":6667,"tls":false,"nick":"x","realname":"bridge bot; admin: alice"}"#,
 		)
-		.is_err());
+		.unwrap();
+		assert!(bare.sasl.is_none());
+		assert!(
+			serde_json::from_str::<NetworkChoice>(r#"{"network":"n","host":"h","port":6667,"tls":false,"nick":"x"}"#)
+				.is_err()
+		);
+		assert!(
+			serde_json::from_str::<NetworkChoice>(
+				r#"{"network":"n","host":"h","port":0,"tls":false,"nick":"x","realname":"bot; admin: alice","extra":1}"#
+			)
+			.is_err()
+		);
 	}
 
 	#[test]
@@ -213,14 +246,44 @@ mod tests {
 		assert_eq!(hex.len(), 32);
 		assert_eq!(entropy_bytes(&hex), Some(bytes));
 		assert!(entropy_bytes("zz").is_none());
-		assert!(BridgeAuthority {
-			publication_id: "p".into(),
-			room_entropy: hex.clone(),
-			steward_entropy: hex,
-			generation: 0,
-			issued: false,
-		}
-		.validate()
-		.is_ok());
+		assert!(
+			BridgeAuthority {
+				publication_id: "p".into(),
+				room_entropy: hex.clone(),
+				steward_entropy: hex,
+				generation: 0,
+				issued: false,
+			}
+			.validate()
+			.is_ok()
+		);
+	}
+
+	#[test]
+	fn network_and_channel_names_fit_the_room_they_construct() {
+		let mut choice: NetworkChoice = serde_json::from_str(
+			r#"{"network":"n","host":"h","port":6667,"tls":false,"nick":"x","realname":"bot; admin: alice"}"#,
+		)
+		.unwrap();
+		choice.network = "n".repeat(MAX_NETWORK_NAME);
+		assert!(choice.validate().is_ok());
+		choice.network.push('n');
+		assert!(choice.validate().is_err());
+
+		let intent = BridgeIntent {
+			network: "n".repeat(MAX_NETWORK_NAME),
+			channel: "#x".into(),
+			publication_id: "publication".into(),
+			operator_permission: true,
+		};
+		assert!(intent.validate().is_ok());
+		assert!(
+			BridgeIntent {
+				channel: "#xy".into(),
+				..intent
+			}
+			.validate()
+			.is_err()
+		);
 	}
 }

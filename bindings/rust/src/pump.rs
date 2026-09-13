@@ -9,10 +9,10 @@
 use std::rc::Rc;
 
 use crate::host::{check_host, host_last_error};
-use crate::session_shared::{io_err, SessionShared};
+use crate::session_shared::{SessionShared, io_err};
 use crate::sys::host as ffi;
 use crate::trampoline::DeliverGuard;
-use crate::{sys, AbortDomain, AbortInfo, Error, Result};
+use crate::{AbortDomain, AbortInfo, Error, Result, sys};
 
 /// Drive a freshly opened connection's keyed handshake to an open session.
 /// The signed `op:start-session` was encoded by the open; its FLUSH is on the
@@ -122,10 +122,10 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 		}
 		// Route the break's FAIL completions before the release retires the
 		// connection.
-		if let Err(error) = shared.host.kick_actions().await {
-			if outcome.is_ok() {
-				outcome = Err(error);
-			}
+		if let Err(error) = shared.host.kick_actions().await
+			&& outcome.is_ok()
+		{
+			outcome = Err(error);
 		}
 		if let Err(error) = &outcome {
 			shared.record_wire_failure(error.clone());

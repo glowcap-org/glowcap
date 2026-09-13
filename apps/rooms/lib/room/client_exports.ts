@@ -51,6 +51,7 @@ export {
 } from "../operator.ts";
 export {
 	type Message,
+	readCarries,
 	readLineBytes,
 	readLineChange,
 	readLineId,
@@ -58,6 +59,7 @@ export {
 	readPresence,
 	readRoomFacts,
 	readTopic,
+	type RoomCarries,
 	type RoomFacts,
 	roomRecordAt,
 } from "./message.ts";

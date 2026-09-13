@@ -1,9 +1,9 @@
 //! Shared merge evidence uses real index entries; keeper and record pointers
 //! prove attribution carries the original winner without copying its payload.
 use rooms_application::archive::{
-	index::Entry,
-	merge::{merge, Account, Limits},
 	Body, ConversationKind, Coordinates, Error, LineState, Record,
+	index::Entry,
+	merge::{Account, Limits, merge},
 };
 use std::sync::Arc;
 fn line(id: &str, source: &str, directory: &str, state: LineState) -> Arc<Entry> {
@@ -26,6 +26,7 @@ fn line(id: &str, source: &str, directory: &str, state: LineState) -> Arc<Entry>
 					at: 1,
 					order: 1,
 					state,
+					previews: Default::default(),
 					attachments: vec![],
 				},
 			)
@@ -209,13 +210,15 @@ fn captured_accounts() {
 		),
 		Err(Error::Capacity)
 	));
-	assert!(merge::<()>(
-		&[],
-		Limits {
-			accounts: 0,
-			records: 0
-		}
-	)
-	.unwrap()
-	.is_empty());
+	assert!(
+		merge::<()>(
+			&[],
+			Limits {
+				accounts: 0,
+				records: 0
+			}
+		)
+		.unwrap()
+		.is_empty()
+	);
 }

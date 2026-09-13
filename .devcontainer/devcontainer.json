@@ -72,7 +72,7 @@
       "settings": {
         "deno.enable": true,
         "zig.path": "zig",
-        "zls.enable": false,
+        "zls.enable": true,
         "files.watcherExclude": {
           "**/.cache/**": true,
           "**/.zig-cache/**": true,

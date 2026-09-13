@@ -3,59 +3,37 @@ import type { AttachedLineEvent as RoomsSessionLineEvent } from "./remote.ts";
 // Revisioned browser controller for an attached durable Rooms session.
 
 import type { HistoryChange } from "../../../lib/session/history.ts";
-import type {
-	RoomsOperationsSnapshot,
-	RoomsSessionFacet,
-	RoomsSessionGrantView,
-	RoomsSessionSnapshot,
-} from "../../../lib/session/client.ts";
+import type { RoomsSessionFacet, RoomsSessionGrantView, RoomsSessionSnapshot } from "../../../lib/session/client.ts";
 import type { RoomsRoomJoinIntent, RoomsSessionState } from "../../../lib/rooms_state.ts";
 import type { RoomPolicy } from "../room_policy.ts";
 import type { AttachmentSource } from "../../../lib/attachment.ts";
 import type { ArchiveRecord } from "../../../lib/archive/protocol.ts";
 import type { BridgeForm } from "../../../lib/bridge/form.ts";
-import type {
-	OperatorCategory,
-	OperatorPage,
-	OperatorReferenceKind,
-	OperatorRetireBatch,
-	OperatorSnapshot,
-} from "../../../lib/operator.ts";
+import type { OperatorCategory, OperatorReferenceKind, OperatorRetireBatch } from "../../../lib/operator.ts";
 import type { AttachedFileData, AttachedHistoryRead, AttachedRoomsRemote, RoomsSessionGrantPatch } from "./remote.ts";
 import { sessionPreferences } from "./preferences.ts";
 import { AttachedSessionFeed } from "./attached_feed.ts";
-
-type ApplicationRemote =
-	& AttachedRoomsRemote
-	& Required<Pick<AttachedRoomsRemote, "runCommand" | "drafts" | "writes" | "encodeWorkspace" | "selectWorkspace">>;
+import { waitForRoomAdmission } from "./join_admission.ts";
 
 export class AttachedRoomsController {
-	readonly #remote: ApplicationRemote;
+	readonly #remote: AttachedRoomsRemote;
 	readonly #closeRemote: () => Promise<void>;
 	readonly #feed: AttachedSessionFeed;
 	#closed = false;
 
 	constructor(remote: AttachedRoomsRemote, closeRemote: () => Promise<void> = () => Promise.resolve()) {
-		if (
-			remote.runCommand == null || remote.drafts == null || remote.writes == null ||
-			remote.encodeWorkspace == null || remote.selectWorkspace == null
-		) {
-			throw new Error("The Rooms controller requires the Rust application owner");
-		}
-		this.#remote = remote as ApplicationRemote;
+		this.#remote = remote;
 		this.#closeRemote = closeRemote;
 		this.#feed = new AttachedSessionFeed(remote);
 	}
 
-	encodeWorkspace(choices: string): string | null {
+	encodeWorkspace(choices: string): string {
 		if (this.#closed) throw new Error("This Rooms controller is closed");
-		return this.#remote.encodeWorkspace?.(choices) ?? null;
+		return this.#remote.encodeWorkspace(choices);
 	}
 
 	eraseBrowserArchive(): Promise<void> {
-		if (this.#closed || this.#remote.eraseBrowserArchive == null) {
-			return Promise.reject(new Error("This Rooms controller cannot erase browser data"));
-		}
+		if (this.#closed) return Promise.reject(new Error("This Rooms controller cannot erase browser data"));
 		return this.#remote.eraseBrowserArchive();
 	}
 
@@ -63,10 +41,8 @@ export class AttachedRoomsController {
 		persistence: import("../../../../../zig-out/wasm/rooms/rooms_browser.js").RoomsWorkspacePersistence,
 		link: string,
 		home: string,
-	): Promise<string> {
-		if (this.#closed || this.#remote.selectWorkspace == null) {
-			return Promise.reject(new Error("This Rooms controller cannot change the workspace"));
-		}
+	): Promise<{ workspace: string | null; cleanup: string | null }> {
+		if (this.#closed) return Promise.reject(new Error("This Rooms controller cannot change the workspace"));
 		return this.#remote.selectWorkspace(persistence, link, home);
 	}
 
@@ -91,9 +67,9 @@ export class AttachedRoomsController {
 	}
 	onHistoryRead(listener: (result: AttachedHistoryRead) => void): () => void {
 		if (this.#closed) throw new Error("this attached Rooms controller is closed");
-		this.#remote.listenHistory?.(listener);
+		this.#remote.listenHistory(listener);
 		return () => {
-			if (!this.#closed) this.#remote.listenHistory?.(undefined);
+			if (!this.#closed) this.#remote.listenHistory(undefined);
 		};
 	}
 
@@ -111,16 +87,14 @@ export class AttachedRoomsController {
 
 	onOperationsRead(listener: (result: import("./remote.ts").AttachedOperationsRead) => void): () => void {
 		if (this.#closed) throw new Error("this attached Rooms controller is closed");
-		if (this.#remote.operationsView == null) throw new Error("this session has no operations view owner");
 		this.#remote.operationsView.listen(listener);
 		return () => {
-			if (!this.#closed) this.#remote.operationsView?.listen(undefined);
+			if (!this.#closed) this.#remote.operationsView.listen(undefined);
 		};
 	}
 	loadOperatorPage(category: OperatorCategory): Promise<void> {
 		if (this.#closed) return Promise.reject(new Error("this attached Rooms controller is closed"));
-		return this.#remote.operationsView?.loadPage(category) ??
-			Promise.reject(new Error("this session has no operations view owner"));
+		return this.#remote.operationsView.loadPage(category);
 	}
 	refreshOperations(
 		capability: import("./remote.ts").AttachedOperationsRead["capability"],
@@ -128,12 +102,7 @@ export class AttachedRoomsController {
 		kind?: OperatorReferenceKind | null,
 	): Promise<void> {
 		if (this.#closed) return Promise.reject(new Error("this attached Rooms controller is closed"));
-		return this.#remote.operationsView?.refresh(capability, search, kind) ??
-			Promise.reject(new Error("this session has no operations view owner"));
-	}
-
-	onOperationsInvalidated(listener: (scope: string) => void): () => void {
-		return this.#feed.onOperationsInvalidated(listener);
+		return this.#remote.operationsView.refresh(capability, search, kind);
 	}
 
 	/** Read the runtime facts that accompany the latest durable checkpoint.
@@ -148,8 +117,8 @@ export class AttachedRoomsController {
 		return this.#remote.runCommand(name, args);
 	}
 
-	say(conversationId: string, text: string): Promise<RoomsSessionSnapshot> {
-		return this.#command("say", [conversationId, text]);
+	say(conversationId: string, text: string, previewUrls: readonly string[] = []): Promise<RoomsSessionSnapshot> {
+		return this.#command("say", [conversationId, text, JSON.stringify(previewUrls)]);
 	}
 
 	editLine(conversationId: string, lineId: number, text: string): Promise<RoomsSessionSnapshot> {
@@ -182,8 +151,13 @@ export class AttachedRoomsController {
 		return this.#command("operations", [scope, capability, action, ...args]);
 	}
 
-	sendFiles(conversationId: string, caption: string, files: AttachmentSource[]): Promise<RoomsSessionSnapshot> {
-		return this.#serialize(() => this.#remote.writes.files(conversationId, caption, files));
+	sendFiles(
+		conversationId: string,
+		caption: string,
+		previewUrls: readonly string[],
+		files: AttachmentSource[],
+	): Promise<RoomsSessionSnapshot> {
+		return this.#serialize(() => this.#remote.writes.files(conversationId, caption, previewUrls, files));
 	}
 
 	refileLine(
@@ -247,8 +221,8 @@ export class AttachedRoomsController {
 		return this.#command("chooseHistoryRetention", [String(keep)]);
 	}
 
-	chooseConnection(dmMode: RoomsSessionState["dmMode"], vizOverride: string): Promise<RoomsSessionSnapshot> {
-		return this.#command("chooseConnection", [dmMode, vizOverride]);
+	chooseConnection(dmMode: RoomsSessionState["dmMode"], traceOverride: string): Promise<RoomsSessionSnapshot> {
+		return this.#command("chooseConnection", [dmMode, traceOverride]);
 	}
 
 	selectArchive(sturdyref: string | null): Promise<RoomsSessionSnapshot> {
@@ -276,37 +250,43 @@ export class AttachedRoomsController {
 		select: boolean,
 	): Promise<import("../../../lib/rooms_state.ts").WorkspaceDirectConversation> {
 		if (this.#closed) return Promise.reject(new Error("This session is closed"));
-		return this.#remote.chooseDirect?.(directory, who, select) ??
-			Promise.reject(new Error("This session has no direct-conversation owner"));
+		return this.#remote.chooseDirect(directory, who, select);
 	}
 
-	reachDirectory(locator: string, nick: string, defaultDirectory: string, signal?: AbortSignal): Promise<void> {
+	reachDirectory(
+		locator: string,
+		nick: import("../controller/session.ts").JoinNicknameIntent,
+		defaultDirectory: string,
+		signal?: AbortSignal,
+	): Promise<void> {
 		if (this.#closed) return Promise.reject(new Error("This session is closed"));
-		return this.#remote.reachDirectory?.(locator, nick, defaultDirectory, signal) ??
-			Promise.reject(new Error("This session has no directory connection owner"));
+		return this.#remote.reachDirectory(locator, JSON.stringify(nick), defaultDirectory, signal);
 	}
 
 	joinDestination(
 		destination: import("../types.ts").RoomDestination,
-		nick: string,
+		nick: import("../controller/session.ts").JoinNicknameIntent,
 		defaultDirectory: string,
 		signal?: AbortSignal,
 	): Promise<RoomsSessionSnapshot> {
 		if (this.#closed) return Promise.reject(new Error("This session is closed"));
-		return this.#remote.joinDestination?.(JSON.stringify(destination), nick, defaultDirectory, signal) ??
-			Promise.reject(new Error("This session has no room gesture owner"));
+		const submitted = this.#remote.joinDestination(
+			JSON.stringify(destination),
+			JSON.stringify(nick),
+			defaultDirectory,
+			signal,
+		);
+		return submitted.then((snapshot) => waitForRoomAdmission(this, snapshot, signal));
 	}
 
 	takeRoomLink(link: string, label: string): Promise<boolean> {
 		if (this.#closed) return Promise.reject(new Error("This session is closed"));
-		return this.#remote.takeRoomLink?.(link, label) ??
-			Promise.reject(new Error("This session has no room gesture owner"));
+		return this.#remote.takeRoomLink(link, label);
 	}
 
 	chooseRoom(directory: string, name: string, policy?: RoomPolicy): Promise<RoomsSessionSnapshot> {
 		if (this.#closed) return Promise.reject(new Error("This session is closed"));
-		return this.#remote.chooseRoom?.(directory, name, policy == null ? undefined : JSON.stringify(policy)) ??
-			Promise.reject(new Error("This session has no room gesture owner"));
+		return this.#remote.chooseRoom(directory, name, policy == null ? undefined : JSON.stringify(policy));
 	}
 
 	joinDirectory(directory: RoomsSessionState["directories"][number]): Promise<RoomsSessionSnapshot> {
@@ -349,8 +329,7 @@ export class AttachedRoomsController {
 
 	acceptInvitation(invitationId: string): Promise<RoomsSessionSnapshot> {
 		if (this.#closed) return Promise.reject(new Error("This session is closed"));
-		return this.#remote.acceptInvitation?.(invitationId) ??
-			Promise.reject(new Error("This session has no invitation gesture owner"));
+		return this.#remote.acceptInvitation(invitationId);
 	}
 
 	dismissInvitation(invitationId: string): Promise<RoomsSessionSnapshot> {
@@ -463,8 +442,8 @@ export class AttachedRoomsController {
 		return this.#command("replaceOperationsCapabilities", [JSON.stringify(credentials)]);
 	}
 
-	replaceOperationsBundle(raw: string, advertisedViz: string, context: string): Promise<RoomsSessionSnapshot> {
-		return this.#command("replaceOperationsBundle", [raw, advertisedViz, context]);
+	replaceOperationsBundle(raw: string, advertisedTrace: string, context: string): Promise<RoomsSessionSnapshot> {
+		return this.#command("replaceOperationsBundle", [raw, advertisedTrace, context]);
 	}
 
 	roomBridgeForm(conversationId: string): Promise<BridgeForm | null> {
@@ -475,28 +454,9 @@ export class AttachedRoomsController {
 		return this.#remote.readHistory(kind, directory, conversation);
 	}
 
-	operatorSnapshot(
-		scope: string,
-		query = "",
-		referenceKind: OperatorReferenceKind | null = null,
-	): Promise<OperatorSnapshot> {
-		return this.#remote.operatorSnapshot(scope, query, referenceKind);
-	}
-
-	operatorPage(
-		scope: string,
-		category: OperatorCategory,
-		cursor: number,
-		query = "",
-		referenceKind: OperatorReferenceKind | null = null,
-	): Promise<OperatorPage> {
-		return this.#remote.operatorPage(scope, category, cursor, query, referenceKind);
-	}
-
 	runOperation(capability: string, action: string, args: string[] = []): Promise<RoomsSessionSnapshot> {
 		if (this.#closed) return Promise.reject(new Error("This session is closed"));
-		return this.#remote.operationsView?.run(capability, action, args) ??
-			Promise.reject(new Error("This session has no operations command owner"));
+		return this.#remote.operationsView.run(capability, action, args);
 	}
 
 	retireOperatorMatches(
@@ -506,25 +466,7 @@ export class AttachedRoomsController {
 		referenceKind: OperatorReferenceKind | null = null,
 	): Promise<OperatorRetireBatch> {
 		if (this.#closed) return Promise.reject(new Error("This session is closed"));
-		return this.#remote.operationsView?.retire(category, query, limit, referenceKind) ??
-			Promise.reject(new Error("This session has no operations command owner"));
-	}
-
-	operatorRetireMatching(
-		scope: string,
-		category: OperatorCategory,
-		query: string,
-		limit: number,
-		referenceKind: OperatorReferenceKind | null = null,
-	): Promise<OperatorRetireBatch> {
-		return this.#remote.operatorRetireMatching(scope, category, query, limit, referenceKind);
-	}
-
-	operationsSnapshot(
-		scope: string,
-		capability: RoomsOperationsSnapshot["capability"],
-	): Promise<RoomsOperationsSnapshot> {
-		return this.#remote.operationsSnapshot(scope, capability);
+		return this.#remote.operationsView.retire(category, query, limit, referenceKind);
 	}
 
 	async shareArchiveHistory(kind: string, conversationId: string, peer = ""): Promise<RoomsSessionSnapshot> {
@@ -641,6 +583,6 @@ export class AttachedRoomsController {
 
 	/** Which operations this tab is currently answering for. */
 	driving(): ReadonlySet<string> {
-		return new Set(this.#closed ? [] : this.#remote.driving?.() ?? []);
+		return new Set(this.#closed ? [] : this.#remote.driving());
 	}
 }

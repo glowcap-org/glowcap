@@ -147,22 +147,50 @@ they use the thing, or a judgement call that was theirs to make.
 
 ## 4. Verify
 
+Choose the final evidence from the boundary the change touched:
+
 ```sh
-zig build check
+zig build source-check         # docs, plans, static scaffolding, and cross-file contracts
+zig build check                # in-process Zig, generated, static, compile-only, and performance evidence
+zig build runtime-check        # process lifecycle, application, and language-workspace behavior
+zig build infrastructure-check # executable devcontainer and worktree behavior
+zig build check-external       # outside protocol authority or shipped browser journeys
 ```
 
+A substantial product change normally needs `check`. Add `runtime-check` only
+when it changed an application, child-process lifecycle, language workspace, or
+live loopback behavior. A plan-only or prose-only change needs `source-check`,
+not a full product gate. Protocol claims still need their focused oracle or
+external evidence before the matching aggregate.
+
+Treat a long gate as a work lane, not a lock: continue independent assessment
+or work on non-overlapping artifacts while it runs. A browser proof owns one
+stable generated-asset generation; do not rebuild those assets underneath it,
+and invalidate and rerun the proof if they change.
+
 Use focused gates while iterating (see [cli rule](../../rules/cli.md)).
-When host tooling is missing but the devcontainer is already running, invoke the
-same command through `.agents/skills/work/bin/glowcap-dev`, for example
-`.agents/skills/work/bin/glowcap-dev zig build source-check`.
+Agent sessions invoke build commands through
+`.agents/skills/work/bin/glowcap-dev`, for example
+`.agents/skills/work/bin/glowcap-dev zig build source-check`. From the host,
+the front enters this worktree's running devcontainer. Inside that image, it
+runs locally from the repository root instead of nesting another `docker exec`.
+Both paths add Zig's per-test timeout and take the same per-worktree build
+lease. If another session owns the lease, the front reports its PID, working
+directory, and command instead of racing caches or ports. A contributor with
+the complete declared toolchain may still invoke `zig build` directly on the
+host.
 
 When the user has directed worktree commits into the shared `dev` integration
 ref, start a clean work stint with
 `.agents/skills/work/bin/glowcap-integrate --sync`; it rebases onto the current
-`main` and `dev` without publishing. Commit only explicit owned paths, then run
+`main` and `dev` without publishing. Make additive commits from explicit owned
+paths; never amend in a shared worktree because another session may move `HEAD`
+between inspection and the command. Then run
 `.agents/skills/work/bin/glowcap-integrate` without the flag to absorb both
 shared lines again and fast-forward `dev`. Both modes discover the current
 branch from Git; the worktree/container name is deliberately not an input.
+In an active named worktree, a direction to go or land means completing this
+commit-and-integrate path, not reporting a verified diff while leaving it dirty.
 
 ## 5. Compound (leave the next agent better off)
 

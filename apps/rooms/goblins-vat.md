@@ -9,20 +9,20 @@ Watching that happen takes three terminals and a browser.
 
 Start the browser UI with the live timeline switched on. The shortest walkthrough uses the cleartext TCP testing adapter
 and needs no transport sidecar. The repository also supplies the iroh netlayer used by the automated encrypted scenario;
-it is an adapter for Goblins rather than a transport shipped by Goblins itself. The TCP room server listens on port
+it is an adapter for Goblins rather than a transport shipped by Goblins itself. The TCP Rooms server listens on port
 9099:
 
 ```sh
-zig build rooms-web-tcp -Dviz
+zig build rooms-web -Dtransport=tcp -- --trace
 ```
 
 Open `http://localhost:8000`, enter the room `general`, and pick a nickname. That is your glowcap member.
 
 In a second terminal, start the viewer, switch the top bar to **Live**, and give the Source field the
-`ROOMS-VIZ-LISTENING` sturdyref:
+`ROOMS-TRACE-LISTENING` sturdyref:
 
 ```sh
-cd apps/ocapnviz && bash dev.sh
+zig build ocapnviz-dev
 ```
 
 In a third terminal, join the same room as a real Goblins vat and start typing:
@@ -56,7 +56,7 @@ Over cleartext TCP this needs one thing from the server. The browser reaches eve
 will not open a cleartext socket to an address a page named, so start the server with the vat's own address listed:
 
 ```sh
-GLOWCAP_RELAY_TCP_PEERS=127.0.0.1:9200 zig build rooms-web-tcp
+GLOWCAP_RELAY_TCP_PEERS=127.0.0.1:9200 zig build rooms-web -Dtransport=tcp
 ```
 
 Over iroh there is nothing to list: an iroh destination has to be a peer holding the key it is named by, and the relay

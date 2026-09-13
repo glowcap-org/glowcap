@@ -1,6 +1,6 @@
 //! Accepted sessions have one Host-level owner, independent of the listener
 //! generation that delivered them. Retiring a listener does not retire peers.
-use super::{retain, Result};
+use super::{Result, retain};
 use glowcap::{PendingWork, Session};
 use std::{
 	cell::{Cell, RefCell},
@@ -8,7 +8,7 @@ use std::{
 	rc::{Rc, Weak},
 };
 use tokio::{
-	sync::{watch, Notify},
+	sync::{Notify, watch},
 	task::JoinSet,
 };
 
@@ -52,7 +52,7 @@ impl Peers {
 	pub async fn close(&self) -> Result<()> {
 		self.state.closed.set(true);
 		self.stop.send_replace(true);
-		super::connections::terminal(&mut self.ended.clone()).await
+		super::connections::settled(&mut self.ended.clone()).await
 	}
 }
 impl Drop for Peers {

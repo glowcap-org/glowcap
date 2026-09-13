@@ -26,17 +26,18 @@ import { addCapability, removeCapability, saveCapabilitySet, takeCapability } fr
 import { runPeeringScene } from "./operations_peering.ts";
 import { takeAndInspectDiagnostics } from "./operations_diagnostics.ts";
 import * as archiveOffline from "./archive_offline.ts";
+import { opsDiagnosticsLabel, opsListenersLabel } from "../../lib/text/ops.ts";
 import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
 
 export async function run(tab: Page, statePath: string, foreignLocator: string): Promise<void> {
 	const listenersSwiss = (await Deno.readTextFile(`${statePath}/admin-listeners`)).trim();
 	const diagnosticsSwiss = (await Deno.readTextFile(`${statePath}/diagnostics`)).trim();
 	const peeringSwiss = (await Deno.readTextFile(`${statePath}/peering`)).trim();
-	const vizSwiss = (await Deno.readTextFile(`${statePath}/viz`)).trim();
+	const traceSwiss = (await Deno.readTextFile(`${statePath}/trace`)).trim();
 	const ircSwiss = (await Deno.readTextFile(`${statePath}/irc`)).trim();
 	const operatorSwiss = (await Deno.readTextFile(`${statePath}/operator`)).trim();
 	if (
-		listenersSwiss === "" || diagnosticsSwiss === "" || peeringSwiss === "" || vizSwiss === "" ||
+		listenersSwiss === "" || diagnosticsSwiss === "" || peeringSwiss === "" || traceSwiss === "" ||
 		ircSwiss === "" || operatorSwiss === ""
 	) {
 		fail("the room server did not persist its operations swiss numbers");
@@ -207,8 +208,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	}
 	const staleText = await staleFailures.allTextContents();
 	if (
-		!staleText.some((text) => text.includes("Administer listeners:") && text.includes("ROOMS-ADMIN-LISTENERS")) ||
-		!staleText.some((text) => text.includes("Inspect this directory:") && text.includes("ROOMS-DIAGNOSTICS")) ||
+		!staleText.some((text) => text.includes(`${opsListenersLabel}:`) && text.includes("ROOMS-ADMIN-LISTENERS")) ||
+		!staleText.some((text) => text.includes(`${opsDiagnosticsLabel}:`) && text.includes("ROOMS-DIAGNOSTICS")) ||
 		staleText.some((text) => !text.includes("does not recognize that swiss number"))
 	) {
 		fail(`stale capability guidance was incomplete: ${JSON.stringify(staleText)}`);
@@ -353,43 +354,43 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.waitForSelector("#settingsTitle");
 	await tab.click("#holdingsTab");
 	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
-	await takeCapability(tab, "#opsVizToggle", vizSwiss);
+	await takeCapability(tab, "#opsTraceToggle", traceSwiss);
 	await tab.waitForFunction(
-		() => document.getElementById("opsVizToggle")?.getAttribute("aria-checked") === "true",
+		() => document.getElementById("opsTraceToggle")?.getAttribute("aria-checked") === "true",
 		undefined,
 		{ timeout: 15_000 },
-	).catch(() => fail("taking the viz capability did not land its toggle on"));
+	).catch(() => fail("taking the trace capability did not land its toggle on"));
 	await tab.click("#opsBtn");
 	await tab.waitForSelector("#opsNav");
 	const three = await tab.getAttribute("#opsNav", "data-count");
 	if (three !== "3") fail(`three held capabilities drew a pane nav of ${three}`);
-	await tab.click("#vizOpsLink");
-	await tab.waitForSelector("#vizPublishing");
+	await tab.click("#traceOpsLink");
+	await tab.waitForSelector("#tracePublishing");
 	const publishing = await tab.evaluate(() => ({
-		connected: document.getElementById("vizPublishing")?.getAttribute("data-connected"),
+		connected: document.getElementById("tracePublishing")?.getAttribute("data-connected"),
 		// The endpoint is the answer beside its own question, in the pane's
 		// ordinary voice: nothing on this page is set in code type.
-		endpoint: document.querySelector("#vizOpsPanel .dirfacts dd")?.textContent ?? "",
+		endpoint: document.querySelector("#traceOpsPanel .dirfacts dd")?.textContent ?? "",
 	}));
 	if (publishing.connected !== "true") {
-		fail(`the held viz capability is not publishing: ${JSON.stringify(publishing)}`);
+		fail(`the held trace capability is not publishing: ${JSON.stringify(publishing)}`);
 	}
 	if (!publishing.endpoint.startsWith("ws")) {
-		fail(`the viz pane does not name its endpoint: ${JSON.stringify(publishing)}`);
+		fail(`the trace pane does not name its endpoint: ${JSON.stringify(publishing)}`);
 	}
 
 	// The endpoint override moved here from Advanced, and its save arms only
 	// on a change: typing enables it, restoring the saved value disables it
 	// again. Saving itself reloads the window, so this scene leaves it alone.
 	const saveDisabled = () =>
-		tab.evaluate(() => (document.getElementById("vizUrlSave") as HTMLButtonElement | null)?.disabled);
-	if (await saveDisabled() !== true) fail("the viz endpoint save was armed with nothing changed");
-	await tab.fill("#vizUrl", "ws://127.0.0.1:1/");
-	if (await saveDisabled() !== false) fail("typing a viz endpoint did not arm its save");
-	await tab.fill("#vizUrl", "");
-	if (await saveDisabled() !== true) fail("restoring the viz endpoint did not disarm its save");
+		tab.evaluate(() => (document.getElementById("traceUrlSave") as HTMLButtonElement | null)?.disabled);
+	if (await saveDisabled() !== true) fail("the trace endpoint save was armed with nothing changed");
+	await tab.fill("#traceUrl", "ws://127.0.0.1:1/");
+	if (await saveDisabled() !== false) fail("typing a trace endpoint did not arm its save");
+	await tab.fill("#traceUrl", "");
+	if (await saveDisabled() !== true) fail("restoring the trace endpoint did not disarm its save");
 
-	// Dropping the viz capability erases the swiss it was asked to remember,
+	// Dropping the trace capability erases the swiss it was asked to remember,
 	// in the same breath as the toggle falling off.
 	const rememberedCaps = () =>
 		tab.evaluate(() => {
@@ -397,22 +398,24 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 			const operations = state?.session?.capabilities?.operations;
 			return Array.isArray(operations) ? operations.map((row: { capability: string }) => row.capability) : [];
 		});
-	if (!(await rememberedCaps()).includes("viz")) fail("the viz take with Remember kept no swiss");
+	if (!(await rememberedCaps()).includes("trace")) fail("the trace take with Remember kept no swiss");
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
 	await tab.click("#holdingsTab");
 	await tab.waitForSelector("#holdingsPanel", { state: "attached" });
-	await removeCapability(tab, "#opsVizToggle");
+	await removeCapability(tab, "#opsTraceToggle");
 	await tab.waitForFunction(
 		() => {
 			const state = JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null");
 			const operations = state?.session?.capabilities?.operations;
 			return Array.isArray(operations) &&
-				!operations.some((row: { capability: string }) => row.capability === "viz");
+				!operations.some((row: { capability: string }) => row.capability === "trace");
 		},
 		undefined,
 		{ timeout: 10_000 },
-	).catch(async () => fail(`dropping the viz capability kept its secret: ${JSON.stringify(await rememberedCaps())}`));
+	).catch(async () =>
+		fail(`dropping the trace capability kept its secret: ${JSON.stringify(await rememberedCaps())}`)
+	);
 
 	// Dropping a capability takes its pane with it: with only listeners
 	// held, the page has no pane navigation and nothing of the diagnostics left.
@@ -589,6 +592,6 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 		irc: ircSwiss,
 		operator: operatorSwiss,
 		peering: peeringSwiss,
-		viz: vizSwiss,
+		trace: traceSwiss,
 	});
 }

@@ -35,11 +35,31 @@ const TRAP: CommandPowers = new Proxy({}, {
 }) as CommandPowers;
 
 const NO_GRANTS: ReadonlySet<string> = new Set();
-const ROOM = { type: "room", lineBytes: 8192 } as Conv;
+const ROOM = { type: "room", lineBytes: 8192, grants: NO_GRANTS } as Conv;
 
 function draft(text: string, files: readonly File[] = []): ComposerDraft {
-	return { text, files };
+	return { text, files, previews: [] };
 }
+
+Deno.test("composer commits the exact non-removed preview selection", () => {
+	const prepared = prepareComposerSend(ROOM, {
+		text: "https://one.example https://two.example",
+		files: [],
+		previews: [
+			{
+				id: 1,
+				url: "https://one.example/",
+				state: "ready",
+				attempt: 0,
+				metadata: { requestedUrl: "https://one.example/", url: "https://one.example/", images: [] },
+			},
+			{ id: 2, url: "https://two.example/", state: "removed", attempt: 0 },
+		],
+	}, QUIET);
+	if (prepared.kind !== "send" || prepared.previewUrls.join() !== "https://one.example/") {
+		fail(`the composer did not preserve its exact preview intent: ${JSON.stringify(prepared)}`);
+	}
+});
 
 Deno.test("command names and aliases identify exactly one command", () => {
 	const owner = new Map<string, string>();
@@ -80,7 +100,7 @@ Deno.test("the shared composer pipeline interprets slash commands before any con
 });
 
 /** Powers that answer without acting, for running every command to see what it
- * says. Each returns the empty answer, which is what a fresh window holds. */
+ * says. Each returns the empty answer held by a fresh window. */
 const QUIET: CommandPowers = {
 	say: () => {},
 	joinRoom: () => NOT_ON_A_DIRECTORY,
@@ -224,7 +244,7 @@ Deno.test("bare /away steps out when you are here, and comes back when you are n
 	// `/away` needs no argument because typing it twice steps out and returns,
 	// and it can only do the first half if it reads where the reader stands
 	// rather than always meaning "back". The reader's own word for that is on
-	// the conversation, which is what outlives the membership that carried it.
+	// the conversation, whose lifetime exceeds the membership that carried it.
 	const away = known().find((command) => command.name === "away") ?? fail("there is no /away command");
 	const told: string[] = [];
 	// Where the reader stands is the page's answer, not the command's: the room,

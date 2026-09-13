@@ -136,7 +136,7 @@ pub const rows: []const Ban = &.{
         .why = "Racket's WebSocket byte transport must consume the generated WebSocket message cap",
     },
     .{
-        .where = .{ .file = "apps/rooms/rust/native/src/web/relay.rs" },
+        .where = .{ .file = "apps/rooms/rust/services/src/web/relay.rs" },
         .kind = .require,
         .needles = &.{
             "glowcap::BINDING_RELAY_MAX_BYTES_PER_SESSION",
@@ -156,7 +156,7 @@ pub const rows: []const Ban = &.{
             "bindings/ts/runtime/websocket.ts",
             "bindings/python/glowcap/_ws.py",
             "bindings/racket/private/ws-transport.rkt",
-            "apps/rooms/rust/native/src/web/relay.rs",
+            "apps/rooms/rust/services/src/web/relay.rs",
         } },
         .kind = .forbid,
         .needles = &.{

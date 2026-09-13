@@ -25,9 +25,8 @@
 // stands back up.
 
 import type { Locator, Page } from "playwright";
-import { fail, openDirectoryCardFromCaption, ROOT } from "./harness.ts";
+import { fail, openDirectoryCardFromCaption, ROOT, SERVER } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
-import { SERVER } from "../support/server_binary.ts";
 import { spawnOwned } from "../support/children.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
@@ -140,9 +139,9 @@ export async function run(
 
 	// Stopped before the line is said, killed after it is drawn. A stopped server
 	// answers nothing while its connection stays up, so the line below is
-	// accepted, painted, and genuinely waiting on an answer — which is what this
-	// whole passage is about. Killing across the press instead is a race with two
-	// losing sides: the composer refuses the moment the session goes, and a server
+	// accepted, painted, and genuinely waiting on an answer. This is the state
+	// the whole passage exercises. Killing across the press instead has two losing
+	// sides: the composer refuses the moment the session goes, and a server
 	// that answers first leaves nothing in flight. Both have happened.
 	const inFlight = "said as the second server went away";
 	try {

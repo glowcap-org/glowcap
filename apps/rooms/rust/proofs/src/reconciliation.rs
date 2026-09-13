@@ -2,14 +2,14 @@ use rooms_application::{
 	grants::Access,
 	session::{
 		checkpoint::{
+			Checkpoint, Routes,
 			commands::CommandRoutes,
 			reconciliation::{Authority, Fact, RoomContext, Text},
-			Checkpoint, Routes,
 		},
 		state::Impact,
 	},
 };
-use serde_json::{value::RawValue, Value};
+use serde_json::{Value, value::RawValue};
 use std::collections::BTreeMap;
 struct CapturedRoutes<'a>(&'a Value);
 impl Routes for CapturedRoutes<'_> {
@@ -33,7 +33,7 @@ fn fact(raw: &str, current: &Checkpoint) -> Fact {
 	) -> Text<N, NONEMPTY> {
 		serde_json::from_str(fields[key].get()).unwrap()
 	}
-	// These historical fixtures describe effects, so capture their original
+	// These fixtures describe delayed effects, so capture their originating
 	// checkpoint here. Delayed-fact scenarios retain this context across edits.
 	let context = || {
 		let id: String = serde_json::from_str(fields["conversationId"].get()).unwrap();

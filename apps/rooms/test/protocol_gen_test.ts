@@ -1,15 +1,16 @@
-// The generated protocol tables against the server's own readers.
+// The generated protocol tables against the application's public vocabulary
+// and readers.
 //
-// `tools/gen/rooms_protocol.zig` declares the wire grammar every terminal
-// client reads, and `zig build gen-rooms-protocol` emits it into each client
-// directory. The Deno module it emits is held here to the tables and readers
-// the server itself is built on, so the server and the five clients cannot
-// disagree about a tag, an arity, a field, or a nullable slot.
+// `tools/gen/rooms_protocol.zig` declares the wire grammar once and emits the
+// application and terminal-client projections. This test holds those
+// projections to the readers, so the application and clients cannot disagree
+// about a method, tag, arity, field, or nullable slot.
 
 import type { Argument, Session } from "@glowcap/runtime";
 import * as z from "zod/mini";
 import * as gen from "../clients/deno/protocol_gen.ts";
 import * as spec from "../lib/protocol.ts";
+import * as data from "../lib/protocol_data.ts";
 import { isRegistrationId, readRoomEvent, ROOM_EVENT_KINDS, RoomInfoSchema } from "../lib/directory_publications.ts";
 import { ROOM_MEMBERSHIP_KINDS } from "../lib/room/membership.ts";
 import { PresenceSchema, SEAT_PHASES } from "../lib/room/presence.ts";
@@ -78,26 +79,29 @@ function unionKinds(schema: unknown): string[] {
 	});
 }
 
-Deno.test("the generated verbs and tags are the human specification's", () => {
-	const pairs: [string, string, string][] = [
-		["DIRECTORY", gen.DIRECTORY, spec.DIRECTORY],
-		["OPEN", gen.OPEN, spec.OPEN],
-		["ENTER", gen.ENTER, spec.ENTER],
-		["LIST_PUBLICATIONS", gen.LIST_PUBLICATIONS, spec.LIST_PUBLICATIONS],
-		["WATCH_PUBLICATIONS", gen.WATCH_PUBLICATIONS, spec.WATCH_PUBLICATIONS],
-		["REGISTER", gen.REGISTER, spec.REGISTER],
-		["INTRODUCE", gen.INTRODUCE, spec.INTRODUCE],
-		["MEMBER_REGISTRATION", gen.MEMBER_REGISTRATION, spec.MEMBER_REGISTRATION],
-		["SUBSCRIBE", gen.SUBSCRIBE, spec.SUBSCRIBE],
-		["POST", gen.POST, spec.POST],
-		["LEAVE", gen.LEAVE, spec.LEAVE],
-		["TYPING", gen.TYPING, spec.TYPING],
-		["AWAY", gen.AWAY, spec.AWAY],
-		["NOTIFY", gen.NOTIFY, spec.NOTIFY],
-		["DM", gen.DM, spec.DM],
-		["MEMBERSHIP_ENDED", gen.MEMBERSHIP_ENDED, spec.MEMBERSHIP_ENDED],
+Deno.test("the client verbs and tags are the application's generated vocabulary", () => {
+	const pairs: [string, string, string, string][] = [
+		["DIRECTORY", gen.DIRECTORY, data.DIRECTORY, spec.DIRECTORY],
+		["OPEN", gen.OPEN, data.OPEN, spec.OPEN],
+		["ENTER", gen.ENTER, data.ENTER, spec.ENTER],
+		["LIST_PUBLICATIONS", gen.LIST_PUBLICATIONS, data.LIST_PUBLICATIONS, spec.LIST_PUBLICATIONS],
+		["WATCH_PUBLICATIONS", gen.WATCH_PUBLICATIONS, data.WATCH_PUBLICATIONS, spec.WATCH_PUBLICATIONS],
+		["REGISTER", gen.REGISTER, data.REGISTER, spec.REGISTER],
+		["INTRODUCE", gen.INTRODUCE, data.INTRODUCE, spec.INTRODUCE],
+		["MEMBER_REGISTRATION", gen.MEMBER_REGISTRATION, data.MEMBER_REGISTRATION, spec.MEMBER_REGISTRATION],
+		["SUBSCRIBE", gen.SUBSCRIBE, data.SUBSCRIBE, spec.SUBSCRIBE],
+		["POST", gen.POST, data.POST, spec.POST],
+		["LEAVE", gen.LEAVE, data.LEAVE, spec.LEAVE],
+		["TYPING", gen.TYPING, data.TYPING, spec.TYPING],
+		["AWAY", gen.AWAY, data.AWAY, spec.AWAY],
+		["NOTIFY", gen.NOTIFY, data.NOTIFY, spec.NOTIFY],
+		["DM", gen.DM, data.DM, spec.DM],
+		["MEMBERSHIP_ENDED", gen.MEMBERSHIP_ENDED, data.MEMBERSHIP_ENDED, spec.MEMBERSHIP_ENDED],
 	];
-	for (const [name, generated, specified] of pairs) assertEquals(generated, specified, name);
+	for (const [name, client, application, specified] of pairs) {
+		assertEquals(client, application, `${name} client projection`);
+		assertEquals(application, specified, `${name} documented export`);
+	}
 	assertEquals(gen.MEMBERSHIP_VERBS.map((verb) => verb.name), [spec.POST, spec.LEAVE, spec.TYPING, spec.AWAY]);
 });
 

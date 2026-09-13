@@ -23,7 +23,7 @@ mod packet_channel;
 
 use glowcap::{Argument, Host, HostOptions, Locator, PendingWork, Session};
 use rooms_browser::platform::Platform;
-use rooms_glowcap::client::{directory::Directory, Client};
+use rooms_glowcap::client::{Client, directory::Directory};
 use std::{cell::Cell, rc::Rc, time::Duration};
 use wasm_bindgen::prelude::*;
 

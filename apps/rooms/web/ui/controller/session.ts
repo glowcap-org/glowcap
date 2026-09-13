@@ -8,6 +8,15 @@ import type { BridgeForm } from "../../../lib/bridge/form.ts";
 import type { RoomAuthorityKind } from "../../../lib/room/authority.ts";
 import type { RoomPolicy } from "../room_policy.ts";
 import type { DirId, DmConv, OperatorCategory, OpsCap, RoomDestination, ViewerDirection } from "../types.ts";
+import type { RoomsErrorCode } from "../../../lib/error_codes.ts";
+
+export type JoinOutcome =
+	| { readonly ok: true }
+	| { readonly ok: false; readonly code: RoomsErrorCode | null; readonly text: string };
+
+export type JoinNicknameIntent =
+	| { readonly kind: "exact"; readonly name: string }
+	| { readonly kind: "automatic"; readonly base: string };
 
 export interface RoomsDirectoryController {
 	readonly directoryReady: Promise<void>;
@@ -25,17 +34,19 @@ export interface RoomsDirectoryController {
 	directoryLocator(): string | null;
 	dirAddress(dir: DirId): string;
 	directoryId(locator: string): DirId | null;
-	join(destination: RoomDestination, nick: string, signal?: AbortSignal): Promise<string>;
+	/** The room's final answer to a join. Expected protocol failures retain their
+	 * code so the field that can repair one receives it; unknown failures still
+	 * carry reader-facing text through the same boundary. */
+	join(destination: RoomDestination, nick: JoinNicknameIntent, signal?: AbortSignal): Promise<JoinOutcome>;
 	/** Reach a directory without entering a room in it, so a card can offer its
 	 * listing before asking which room. An empty locator names this page's own.
 	 * Answers the refusal, or the empty string when the directory is reached. */
-	reachDirectory(locator: string, nick: string, signal?: AbortSignal): Promise<string>;
+	reachDirectory(locator: string, nick: JoinNicknameIntent, signal?: AbortSignal): Promise<string>;
 }
 
 export interface RoomsConversationController {
 	startDm(who: string): void;
 	retry(key: string, id: number): void;
-	stopSend(key: string, id: number): void;
 	withdraw(key: string, id: number): void;
 	mention(who: string): void;
 	setDraft(text: string): void;
@@ -86,7 +97,7 @@ export interface RoomsRoomController {
 }
 
 export interface RoomsWorkspaceController {
-	applySettings(next: { dm?: "webrtc" | "relay"; viz?: string }): Promise<boolean>;
+	applySettings(next: { dm?: "webrtc" | "relay"; trace?: string }): Promise<boolean>;
 	exportRoomsState(includeCapabilities?: boolean): string;
 	importRoomsState(raw: string): Promise<string>;
 	clearRoomsState(): Promise<string>;

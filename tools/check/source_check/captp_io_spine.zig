@@ -40,6 +40,8 @@ pub fn check(
         "shutdownFd",
     };
     const platform_paths = [_][]const u8{
+        "src/net/completion/epoll.zig",
+        "src/net/completion/linux.zig",
         "src/net/completion/uring.zig",
         "src/net/completion/kqueue.zig",
     };
@@ -93,24 +95,27 @@ pub fn check(
         }
     }
 
-    // kqueue Pending is tagged unions; flaggy `read_is_recv` / `connecting` are deleted.
-    // Both readiness backends share `BufferPool` (no hand-copied pool logic).
+    // Readiness Pending rows are tagged unions. Flaggy `read_is_recv` /
+    // `connecting` fields are deleted. Readiness backends share `BufferPool`.
     {
-        const kq_path = "src/net/completion/kqueue.zig";
-        const kq = root.readFileAlloc(io, kq_path, gpa, .limited(2 << 20)) catch |err| blk: {
-            try appendViolation(gpa, violations, "{s}: failed to read for Pending/BufferPool apex check with {s}", .{ kq_path, @errorName(err) });
-            break :blk null;
+        const native_readiness_paths = [_][]const u8{
+            "src/net/completion/epoll.zig",
+            "src/net/completion/kqueue.zig",
         };
-        defer if (kq) |bytes| gpa.free(bytes);
-        if (kq) |kq_bytes| {
+        for (native_readiness_paths) |path| {
+            const source = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: failed to read for readiness Pending check with {s}", .{ path, @errorName(err) });
+                continue;
+            };
+            defer gpa.free(source);
             for ([_][]const u8{ "read_is_recv", "connecting" }) |needle| {
-                if (std.mem.indexOf(u8, kq_bytes, needle) != null) {
-                    try appendViolation(gpa, violations, "{s}: forbidden `{s}` — kqueue Pending is tagged unions (`read`/`write`), not flaggy fields", .{ kq_path, needle });
+                if (std.mem.indexOf(u8, source, needle) != null) {
+                    try appendViolation(gpa, violations, "{s}: forbidden `{s}`: readiness Pending is tagged unions (`read`/`write`), not flaggy fields", .{ path, needle });
                 }
             }
         }
         // The iroh Pending dropped its `read_is_recv` flag too (ADR-0057), so
-        // hold the flag out of iroh the same way it is held out of kqueue.
+        // hold the flag out of iroh the same way it is held out of native readiness backends.
         const iroh_path = "src/net/transport/iroh/backend.zig";
         const iroh_src = root.readFileAlloc(io, iroh_path, gpa, .limited(2 << 20)) catch |err| blk: {
             try appendViolation(gpa, violations, "{s}: failed to read for iroh Pending flag check with {s}", .{ iroh_path, @errorName(err) });
@@ -119,10 +124,11 @@ pub fn check(
         defer if (iroh_src) |bytes| gpa.free(bytes);
         if (iroh_src) |bytes| {
             if (std.mem.indexOf(u8, bytes, "read_is_recv") != null) {
-                try appendViolation(gpa, violations, "{s}: forbidden `read_is_recv`; iroh Pending distinguishes read from write by its request kind, not a flag (ADR-0057)", .{iroh_path});
+                try appendViolation(gpa, violations, "{s}: forbidden `read_is_recv`: iroh Pending distinguishes read from write by its request kind, not a flag (ADR-0057)", .{iroh_path});
             }
         }
         const pool_paths = [_][]const u8{
+            "src/net/completion/epoll.zig",
             "src/net/completion/kqueue.zig",
             "src/net/transport/iroh/backend.zig",
         };
@@ -141,16 +147,18 @@ pub fn check(
     }
 
     // Platform TCP socket policy (bind/listen/reuseaddr, openSocket, dial sockaddr)
-    // lives in `socket_tcp.zig`. Both backends must call it; neither reimplements.
+    // lives in `socket_tcp.zig`. Every native backend calls it rather than
+    // reimplementing socket setup.
     // A full readiness mixin (`readiness_backend.zig`) is a rejected shape.
     {
         root.access(io, "src/net/completion/socket_tcp.zig", .{}) catch {
-            try appendViolation(gpa, violations, "src/net/completion/socket_tcp.zig: file must exist — shared kqueue/uring TCP socket helpers", .{});
+            try appendViolation(gpa, violations, "src/net/completion/socket_tcp.zig: file must exist: shared epoll/kqueue/uring TCP socket helpers", .{});
         };
         if (root.access(io, "src/net/completion/readiness_backend.zig", .{})) |_| {
             try appendViolation(gpa, violations, "src/net/completion/readiness_backend.zig: file must not exist — rejected readiness mixin; share BufferPool + socket_tcp only", .{});
         } else |_| {}
         const sock_paths = [_][]const u8{
+            "src/net/completion/epoll.zig",
             "src/net/completion/kqueue.zig",
             "src/net/completion/uring.zig",
         };
@@ -353,7 +361,7 @@ pub fn check(
             .banned = &.{"`127.0.0.1:${"},
         },
         .{
-            .path = "apps/rooms/rust/native/src/web/relay.rs",
+            .path = "apps/rooms/rust/services/src/web/relay.rs",
             .required = "glowcap::designator_host_port",
             .banned = &.{"rsplit_once(':')"},
         },

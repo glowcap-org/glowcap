@@ -100,8 +100,8 @@ export function spawnSession(
 	const codec = intent.codec ?? DEFAULT_SESSION_CODEC;
 	const captpVersion = intent.captpVersion ?? DEFAULT_SESSION_CAPTP;
 	const initialState = intent.initialState ?? DEFAULT_SESSION_STATE;
-	// Identity → entities map first; event below carries the
-	// same attrs for fixture back-compat.
+	// Identity belongs to the entity definition; Build mode does not invent a
+	// capture observation for a direct document edit.
 	const sessionTiming: TimeSpan = {
 		start: explicitBound(ctx.clock.t),
 		duration: implicitBound(0),

@@ -1,5 +1,5 @@
 use rooms_application::{
-	files::{identity::Identity, FileDescription},
+	files::{FileDescription, identity::Identity},
 	room::{
 		message::LineId,
 		operation::{Command, Context, Line},
@@ -67,8 +67,26 @@ pub fn run() {
 	);
 	let command = Command::Send {
 		caption: "caption",
+		previews: &Default::default(),
 		files: &files,
 	};
+	let selected = rooms_application::open_graph::Selection::all("https://example.com");
+	assert_ne!(
+		Command::Send {
+			caption: "https://example.com",
+			previews: &Default::default(),
+			files: &files,
+		}
+		.material(context())
+		.unwrap(),
+		Command::Send {
+			caption: "https://example.com",
+			previews: &selected,
+			files: &files,
+		}
+		.material(context())
+		.unwrap()
+	);
 	let other = "other-entry".into();
 	assert_ne!(
 		command.material(context()).unwrap(),

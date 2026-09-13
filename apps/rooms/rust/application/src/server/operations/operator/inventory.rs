@@ -6,12 +6,12 @@
 pub mod irc;
 use super::{
 	super::{
-		faces::{link_face, stewardship_rows, Visibility},
+		faces::{Visibility, link_face, stewardship_rows},
 		journal::Journal,
 	},
-	page::{search_text, Source},
+	Category, MAX_MEMBERS_PER_ROOM, ReferenceKind,
+	page::{Source, search_text},
 	rows::{RoomKind, Row},
-	Category, ReferenceKind, MAX_MEMBERS_PER_ROOM,
 };
 use crate::server::{
 	directory::Directory,
@@ -167,9 +167,9 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 						.take(MAX_MEMBERS_PER_ROOM)
 						.map(|member| {
 							(
-								member.nick.clone(),
+								member.nick.to_string(),
 								self.session_id(member.connection).unwrap_or("").to_string(),
-								member.away.clone(),
+								member.away.to_string(),
 							)
 						})
 						.collect();
@@ -276,7 +276,7 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 					format!("ref-m{}", member.membership.raw()),
 					"room membership",
 					room.name.to_string(),
-					member.nick.clone(),
+					member.nick.to_string(),
 					"membership inbox".into(),
 					Act::EndMembership {
 						room: room.key.clone(),

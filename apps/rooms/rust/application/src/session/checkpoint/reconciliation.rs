@@ -3,9 +3,10 @@
 mod room_context;
 pub use super::fields::{Bearer, Field, Id, Text};
 use super::{
+	Checkpoint,
 	commands::{CommandRoutes, Error},
 	model::*,
-	validate, Checkpoint,
+	validate,
 };
 use crate::{session::state::Impact, text::DocumentText};
 pub use room_context::RoomContext;

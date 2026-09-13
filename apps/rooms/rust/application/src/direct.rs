@@ -3,9 +3,9 @@
 use crate::{
 	archive::ShareKind,
 	room::{
+		ArgumentView,
 		attachment::{self, Attachment, AttachmentArgument},
 		line::{MAX_LINE_BYTES, MAX_MESSAGE_FILES},
-		ArgumentView,
 	},
 };
 use alloc::vec::Vec;
@@ -13,15 +13,13 @@ pub mod event;
 pub mod line;
 pub mod operation;
 pub mod publication;
-pub const DM: &str = "dm";
-pub const READY: &str = "directReady";
+pub use crate::protocol_data::{DIRECT_READY as READY, DM, TYPING};
 pub const RECIPROCAL_ROUTE_TIMEOUT_MS: u64 = 15_000;
-pub const TYPING: &str = "typing";
 pub const HAND_ROOM: &str = "handRoom";
 pub const OFFER_ROOM: &str = "offerRoom";
 pub const HAND_ARCHIVE: &str = "handArchive";
 pub const OFFER_ARCHIVE: &str = "offerArchive";
-pub const MAX_ARGUMENTS: usize = 2 + MAX_MESSAGE_FILES * attachment::RECORD_SPAN;
+pub const MAX_ARGUMENTS: usize = 2 + MAX_MESSAGE_FILES * attachment::RECORD_SPAN + crate::open_graph::WIRE_FIELDS;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
 	Method,
@@ -47,6 +45,7 @@ pub enum Notice<'a, C> {
 	Message {
 		text: &'a str,
 		reply: Option<C>,
+		previews: crate::open_graph::Selection,
 		attachments: Vec<Attachment<C>>,
 	},
 	Ready(C),
@@ -116,10 +115,12 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 				return Err(Error::Line);
 			}
 			let reply = cap(1).ok().cloned();
-			let attachments = attachment::read_prefix(args, if reply.is_some() { 2 } else { 1 });
+			let (attachments, extension) = attachment::read_prefix_with_end(args, if reply.is_some() { 2 } else { 1 });
+			let previews = crate::open_graph::Selection::read_suffix(text, args, extension);
 			Ok(Notice::Message {
 				text,
 				reply,
+				previews,
 				attachments,
 			})
 		}

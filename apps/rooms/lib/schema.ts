@@ -16,12 +16,8 @@ export const fixedHex = (bytes: number) =>
 		z.regex(/^[0-9a-f]+$/),
 	);
 
-/** Exact natural counts and IDs at the Rooms wire boundary. Protocol integers
- * arrive as bigint; legacy peers may send integral floating-point values. */
+/** Exact natural counts and IDs at the Rooms wire boundary. */
 export const naturalWireNumber = z.pipe(
-	z.union([
-		nonnegativeSafeInteger,
-		z.bigint().check(z.gte(0n), z.lte(BigInt(Number.MAX_SAFE_INTEGER))),
-	]),
+	z.bigint().check(z.gte(0n), z.lte(BigInt(Number.MAX_SAFE_INTEGER))),
 	z.transform((value) => Number(value)),
 );

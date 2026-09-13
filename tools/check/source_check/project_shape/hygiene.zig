@@ -43,9 +43,13 @@ pub fn checkRawNuls(
             continue;
         };
         defer dir.close(io);
-        var walker = try dir.walk(gpa);
+        var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
+            if (entry.kind == .directory) {
+                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                continue;
+            }
             if (entry.kind != .file or !isTextSource(entry.path) or vendoredOrGenerated(entry.path)) continue;
             const contents = dir.readFileAlloc(io, entry.path, gpa, .limited(16 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}/{s}: failed to read for raw-NUL check with {s}", .{
@@ -63,6 +67,52 @@ pub fn checkRawNuls(
                 .{ tree, entry.path },
             );
         }
+    }
+}
+
+/// Every registered Rooms TypeScript test names the scenario its module owns
+/// before imports and setup. This keeps a cold reader from reverse-engineering
+/// the file's purpose from a list of individual test names.
+pub fn checkRoomsTestHeaders(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const tree = "apps/rooms/test";
+    var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for test-header check with {s}", .{ tree, @errorName(err) });
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".ts")) continue;
+        const body = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}/{s}: failed to read for test-header check with {s}", .{ tree, entry.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(body);
+        if (std.mem.indexOf(u8, body, "Deno.test(") == null and std.mem.indexOf(u8, body, "roomsTest(") == null) continue;
+        var rest = body;
+        var first_line = true;
+        while (rest.len > 0) {
+            const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+            const line = std.mem.trimEnd(u8, rest[0..line_end], "\r");
+            if (!((first_line and std.mem.startsWith(u8, line, "#!")) or
+                std.mem.startsWith(u8, line, "/// <reference"))) break;
+            rest = if (line_end < rest.len) rest[line_end + 1 ..] else "";
+            first_line = false;
+        }
+        const header_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        const header = std.mem.trimEnd(u8, rest[0..header_end], "\r");
+        if (!std.mem.startsWith(u8, header, "// ")) try appendViolation(
+            gpa,
+            violations,
+            "{s}/{s}: registered test module needs a leading sentence naming the scenario it proves",
+            .{ tree, entry.path },
+        );
     }
 }
 
@@ -93,9 +143,13 @@ pub fn checkRemoveDiscards(
             continue;
         };
         defer dir.close(io);
-        var walker = try dir.walk(gpa);
+        var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
+            if (entry.kind == .directory) {
+                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                continue;
+            }
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
             const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
@@ -170,6 +224,13 @@ const discard_forms = [_][]const u8{
     "catch " ++ "break;",
 };
 
+/// The TypeScript discard forms: a rejection handler with an empty body, and
+/// an empty `catch` block.
+const ts_discard_forms = [_][]const u8{
+    ".catch(() => " ++ "{})",
+    "catch " ++ "{}",
+};
+
 /// A discarded error — an empty `catch` body, or a bare `catch` that only
 /// returns, continues, or breaks — erases a failure's cause at the site that
 /// saw it. Project values give every failure an owner, so the discard is
@@ -185,6 +246,13 @@ const discard_forms = [_][]const u8{
 /// `tools/` is in scope because a checker that discards an error skips work
 /// it claims to have done, which is a false green. Vendored packages and
 /// generated trees are not first-party and are skipped.
+///
+/// First-party TypeScript under `apps/` and `tools/` is held to the same
+/// sentence: a `.catch(() => {})` or an empty `catch {}` marks a promise
+/// handled without naming who lost what. Test and proof files are the one
+/// named boundary, because their empty handlers sit in teardown after the
+/// verdict is in; a scenario that hides its own failure is the tests rule's
+/// business, not this check's.
 pub fn checkDiscardedErrors(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -197,17 +265,38 @@ pub fn checkDiscardedErrors(
             continue;
         };
         defer dir.close(io);
-        var walker = try dir.walk(gpa);
+        var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
+            if (entry.kind == .directory) {
+                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                continue;
+            }
             if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
             if (vendoredOrGenerated(entry.path)) continue;
+            const forms: []const []const u8 = if (std.mem.endsWith(u8, entry.path, ".zig"))
+                &discard_forms
+            else if (firstPartyTypeScript(entry.path))
+                &ts_discard_forms
+            else
+                continue;
             const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
             defer gpa.free(path);
-            try checkDiscardedErrorsInFile(io, gpa, root, violations, path);
+            try checkDiscardedErrorsInFile(io, gpa, root, violations, path, forms);
         }
     }
+}
+
+/// A `.ts` or `.tsx` source that is product or tool code rather than a test,
+/// proof, or demo-run scenario.
+fn firstPartyTypeScript(path: []const u8) bool {
+    if (!std.mem.endsWith(u8, path, ".ts") and !std.mem.endsWith(u8, path, ".tsx")) return false;
+    if (std.mem.endsWith(u8, path, ".d.ts")) return false;
+    if (std.mem.indexOf(u8, path, "/test/") != null or std.mem.startsWith(u8, path, "test/")) return false;
+    if (std.mem.indexOf(u8, path, "/tests/") != null or std.mem.startsWith(u8, path, "tests/")) return false;
+    const base = std.fs.path.basename(path);
+    return !std.mem.endsWith(u8, base, "_test.ts") and !std.mem.endsWith(u8, base, "-test.ts") and
+        !std.mem.endsWith(u8, base, ".test.ts") and !std.mem.endsWith(u8, base, "_proof.ts");
 }
 
 /// Trees no first-party rule governs: extracted Zig packages, npm state, and
@@ -222,19 +311,20 @@ fn vendoredOrGenerated(path: []const u8) bool {
 /// True when `line` is a code (non-comment) line carrying one of the discard
 /// forms outside string or character literals — the ban tables in this very
 /// tree hold discard-shaped needles as data, and data is not a discard.
-fn discardedErrorLine(line: []const u8) bool {
+fn discardedErrorLine(line: []const u8, forms: []const []const u8) bool {
     var raw_hit = false;
-    for (discard_forms) |form| {
+    for (forms) |form| {
         if (std.mem.indexOf(u8, line, form) != null) raw_hit = true;
     }
     if (!raw_hit) return false;
     const trimmed = std.mem.trimStart(u8, line, " \t");
     if (std.mem.startsWith(u8, trimmed, "//")) return false;
+    if (std.mem.startsWith(u8, trimmed, "*")) return false;
     if (std.mem.startsWith(u8, trimmed, "\\\\")) return false;
     var buf: [4096]u8 = undefined;
     if (line.len > buf.len) return true;
     const code = blankLiterals(line, &buf);
-    for (discard_forms) |form| {
+    for (forms) |form| {
         if (std.mem.indexOf(u8, code, form) != null) return true;
     }
     return false;
@@ -278,14 +368,15 @@ fn hasDiscardJustification(line: []const u8) bool {
 /// contiguous `//` comment block directly above it. The walk also steps over
 /// adjacent discard lines, so one block can cover a run — a pair of unwind
 /// joins is one decision, and its justification reads best written once.
-fn discardedErrorJustified(lines: []const []const u8, i: usize) bool {
+fn discardedErrorJustified(lines: []const []const u8, i: usize, forms: []const []const u8) bool {
     if (hasDiscardJustification(lines[i])) return true;
     var j = i;
     while (j > 0) {
         j -= 1;
-        if (discardedErrorLine(lines[j])) continue;
+        if (discardedErrorLine(lines[j], forms)) continue;
         const trimmed = std.mem.trimStart(u8, lines[j], " \t");
-        if (!std.mem.startsWith(u8, trimmed, "//")) return false;
+        if (!std.mem.startsWith(u8, trimmed, "//") and !std.mem.startsWith(u8, trimmed, "*") and
+            !std.mem.startsWith(u8, trimmed, "/*")) return false;
         if (hasDiscardJustification(lines[j])) return true;
     }
     return false;
@@ -297,6 +388,7 @@ fn checkDiscardedErrorsInFile(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     path: []const u8,
+    forms: []const []const u8,
 ) !void {
     const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for discarded-error check with {s}", .{ path, @errorName(err) });
@@ -310,9 +402,9 @@ fn checkDiscardedErrorsInFile(
     while (it.next()) |line| try lines.append(gpa, line);
 
     for (lines.items, 0..) |line, i| {
-        if (!discardedErrorLine(line)) continue;
-        if (discardedErrorJustified(lines.items, i)) continue;
-        try appendViolation(gpa, violations, "{s}:{d}: a discarded error (`catch` with an empty body or a bare return/continue/break) needs an inline `// best-effort:` or `// tolerant:` justification naming what is lost and why the loss is bounded — or the failure needs an owner", .{ path, i + 1 });
+        if (!discardedErrorLine(line, forms)) continue;
+        if (discardedErrorJustified(lines.items, i, forms)) continue;
+        try appendViolation(gpa, violations, "{s}:{d}: a discarded error (an empty `catch` body, an empty rejection handler, or a bare return/continue/break) needs an inline `// best-effort:` or `// tolerant:` justification naming what is lost and why the loss is bounded — or the failure needs an owner", .{ path, i + 1 });
     }
 }
 

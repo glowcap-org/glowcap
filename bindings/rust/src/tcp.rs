@@ -11,15 +11,15 @@ use crate::{HintValue, HintWireForm, Locator};
 mod transport;
 #[cfg(all(feature = "tcp", feature = "async"))]
 pub(crate) use transport::ensure_loop_provider;
-#[cfg(all(feature = "tcp", feature = "async"))]
-pub use transport::{provider, OperationOptions};
 #[cfg(feature = "tcp")]
 pub use transport::{Config, Connection, Keepalive, Listener, Netlayer, StreamOptions};
+#[cfg(all(feature = "tcp", feature = "async"))]
+pub use transport::{OperationOptions, provider};
 
 #[cfg(all(feature = "tcp", feature = "async"))]
-pub use crate::tcp_listen::{ListenOptions, Server};
-#[cfg(all(feature = "tcp", feature = "async"))]
 pub use crate::ListenerIdentity;
+#[cfg(all(feature = "tcp", feature = "async"))]
+pub use crate::tcp_listen::{ListenOptions, Server};
 
 /// Bind the plain TCP profile through this package's native provider.
 #[cfg(all(feature = "tcp", feature = "async"))]

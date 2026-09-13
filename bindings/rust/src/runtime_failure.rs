@@ -48,14 +48,22 @@ impl RuntimeFailureJournal {
 			.first()
 			.and_then(|failure| failure.detail.as_deref())
 			.unwrap_or_default();
-		let ([operation, primary_name, primary_message, secondary_name, secondary_message], truncated_fields) =
-			bounded_failure_text([
+		let (
+			[
 				operation,
 				primary_name,
 				primary_message,
 				secondary_name,
 				secondary_message,
-			]);
+			],
+			truncated_fields,
+		) = bounded_failure_text([
+			operation,
+			primary_name,
+			primary_message,
+			secondary_name,
+			secondary_message,
+		]);
 		self.failures.push_back(FailureEvent {
 			sequence,
 			dropped_before,
@@ -88,7 +96,7 @@ static RUNTIME_FAILURES: std::sync::OnceLock<std::sync::Mutex<RuntimeFailureJour
 pub(crate) static RUNTIME_FAILURE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn stable_failure_result(value: i32) -> i32 {
-	if value == crate::sys::OK || (value <= crate::sys::ERR_NULL_POINTER && value >= crate::sys::ERR_TIMEOUT) {
+	if value == crate::sys::OK || (crate::sys::ERR_TIMEOUT..=crate::sys::ERR_NULL_POINTER).contains(&value) {
 		value
 	} else {
 		crate::sys::ERR_INTERNAL

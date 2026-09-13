@@ -188,8 +188,9 @@ value. Linked worktrees keep their administrative Git state there, and their
 `.git` files can contain its absolute host path. Compose mounts both paths at
 their identical host locations inside every container while keeping
 `/workspaces/glowcap` as the ordinary workspace. The checkout's same-path alias
-gives submodule repositories one absolute `core.worktree` that resolves from
-both sides. These explicit mounts are necessary with the current Dev Containers
+gives linked-worktree submodules absolute Git paths that resolve from both
+sides. Primary clones use relative submodule links so they also survive a
+checkout move. These explicit mounts are necessary with the current Dev Containers
 CLI: its automatic Git mounts are not applied to custom Compose workspace
 mounts.
 
@@ -229,8 +230,9 @@ in [`checksums.sh`](checksums.sh).
 | Group | Tools | Installer |
 | --- | --- | --- |
 | Base image | The Debian image both this container and the rooms deploy image build on, pinned by digest | `Dockerfile` |
+| Production database | PostgreSQL's latest stable Alpine image, pinned by version and digest | `apps/rooms/web/deploy/docker-compose.yml` |
 | Workspace shell | zsh (`/bin/zsh`), which the pane runtime execs | `Dockerfile` |
-| Zig | Zig, with ZLS disabled until upstream supports the pinned compiler | `image/zig.sh`, `image/zls.sh` |
+| Zig | Zig and its matching ZLS language server | `image/zig.sh`, `image/zls.sh` |
 | Conformance | Python, Racket, and Goblins | `image/python.sh`, `image/racket-goblins.sh` |
 | Bindings | Rust, its Wasm target, wasm-bindgen, Deno, Node, npm, and Bun | `image/rust.sh`, `image/rust-wasm.sh`, `image/js-toolchains.sh` |
 | Browsers | Playwright's Chromium and the libraries it needs | `image/playwright.sh` |
@@ -272,11 +274,12 @@ editing by hand:
 .devcontainer/bin/update-pins.sh bump --safe   # bump everything outside the build graph
 ```
 
-It fetches versions and hashes from each tool's own release channel, stages
-the edits, and validates them before any file lands. Every bump ends with
-a container rebuild; the report names the build check that proves anything
-deeper (a new Zig means `zig build check`, a new Racket or Goblins means
-`zig build check-external`).
+It fetches versions and hashes from each dependency's own release channel,
+then validates every edit before replacing a file. Rebuild the container when
+an updated tool is installed there. The report also lists the checks required
+for that dependency. For example, Zig requires `zig build check`, while Racket
+and Goblins require `zig build check-external`. A deployment image such as
+PostgreSQL lists its Compose and application checks instead.
 
 A few pins are restated outside `pins.sh`, because a Dockerfile and a
 `deno.json` cannot source a shell file. A bump rewrites those copies with the
@@ -459,10 +462,12 @@ finding fails container open and the CI push checks.
 | `pane/container/.zshrc` | Container half: initializes the shell, runs that pane's function from the worktree's ignored `pane/panes.sh`, and owns `glowcap_devcontainer_exit` | container |
 | `pane/panes.example.sh` | The shape a worktree's own `pane/panes.sh` takes | example |
 | `test/env-sync.sh` | Checks pins, mounts, names, structure, and host lifecycle contracts | anywhere |
-| `test/host-invariants.sh` | Tests checkout configuration, identity, networks, Git-owned lookup, and the pane runtime | anywhere |
+| `test/build-front.sh` | Tests host/container routing, per-test timeout injection, and the build lease | Host or devcontainer (needs Bash and Python 3) |
+| `test/host-invariants.sh` | Tests checkout configuration, identity, networks, Git-owned lookup, and the pane runtime | Host or devcontainer (needs Bash and Git) |
 
-Both files under `test/` run in `zig build source-check`, so this directory
-is checked with the rest of the repository.
+`test/env-sync.sh` runs in `zig build source-check`. The two executable behavior
+tests run in `zig build infrastructure-check`, so a source-only edit does not
+create temporary repositories or exercise host workflow.
 
 Cursor users can enable Serena from [`.cursor/mcp.json`](../.cursor/mcp.json).
 The [Serena rule](../.agents/rules/serena-mcp.md) covers project use.

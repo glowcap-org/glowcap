@@ -33,13 +33,13 @@
 // and a private room's unguessable key stays out of the address entirely —
 // its path carries the label under `?private=1`, which reopens the held
 // conversation in this tab and degrades to the plain join card anywhere
-// else. The `dm` and `viz` page-configuration parameters ride along on every
+// else. The `dm` and `trace` page-configuration parameters ride along on every
 // address the mirror writes, keeping `prefs.ts`'s bookmark contract.
 
 import * as store from "./store.ts";
 import { useEffect, useRef } from "react";
 import { createBrowserRouter, Outlet, RouterProvider, useLocation, useParams, useRouteError } from "react-router";
-import { App } from "./App.tsx";
+import { App } from "./shell/App.tsx";
 import { OpsRoute } from "./ops/OpsRoute.tsx";
 import { coveringReload, handOffNow, reloadNow } from "./boot.ts";
 import { installRouting } from "./routing_api.ts";
@@ -50,8 +50,16 @@ import { useRoomsSession } from "./controller/session.ts";
 import { implied, named } from "./intent.ts";
 import { useRoomsState } from "./hooks.ts";
 import type { DmConv } from "./types.ts";
-import { directoryAddress, pageSearch, roomAddress, withPageSearch } from "./route_address.ts";
+import {
+	directoryAddress,
+	joinAddress,
+	joinAddressOf,
+	pageSearch,
+	roomAddress,
+	withPageSearch,
+} from "./route_address.ts";
 import type { RoomsPageContext } from "./page.ts";
+import { crashReload, crashSessionKept, crashTitle } from "../../lib/text/page.ts";
 
 let routingPage: RoomsPageContext | null = null;
 let mirrored: string | null = null;
@@ -100,7 +108,14 @@ export function addressOfActive(): string {
 	const s = routing().projection.get();
 	const search = pageSearch();
 	const conv = s.activeKey === null ? null : s.convs.get(s.activeKey) ?? null;
-	if (conv === null) return withPageSearch("/", search);
+	// Nothing open, and a link put the card up: the card is what is showing,
+	// and its address is the act's. Without this the mirror, which runs when the
+	// selection clears, would fold a `/join?room=…` a route had just landed on
+	// back to `/`, and the address would be wrong twice in one arrival. A card
+	// nobody linked to, reached by a press or by the page opening, is the front.
+	if (conv === null) {
+		return s.reaching.source === "link" ? joinAddressOf(s.reaching) : withPageSearch("/", search);
+	}
 	if (conv.type === "directory") {
 		return directoryAddress(conv.dir === s.homeDir ? {} : { directory: net.dirAddress(routing(), conv.dir) });
 	}
@@ -111,6 +126,22 @@ export function addressOfActive(): string {
 		return roomAddress(conv.id, { private: true });
 	}
 	return roomAddress(conv.id, conv.dir === s.homeDir ? {} : { directory: net.dirAddress(routing(), conv.dir) });
+}
+
+/** Say where the reader ended up, when it is not where they asked to go.
+ *
+ * Replacing rather than pushing, because this is the same arrival corrected
+ * and not a second one: a Back that returned them to the address that could
+ * not be honored would send them straight here again, which is a loop instead
+ * of a way out. Silent when the address is already right, so a route that did
+ * what it said costs nothing.
+ *
+ * `router` is declared below and read only when this runs, which is after the
+ * module has finished loading. */
+function replaceWith(path: string): void {
+	const at = router.state.location;
+	if (path === `${at.pathname}${at.search}`) return;
+	void router.navigate(path, { replace: true });
 }
 
 /** One dispatch per arrival at an address. A route's intent may have to wait
@@ -168,24 +199,39 @@ function RoomRoute() {
 				arrival.mark();
 				return;
 			}
-			const home = routing().projection.get().homeDir;
-			if (home === null) return; // the effect refires when the directory lands
-			net.reachFor(routing(), { source: "link", locator: implied(net.dirAddress(routing(), home)) });
+			if (routing().projection.get().homeDir === null) return; // the effect refires when the directory lands
+			// The card names no room, so neither does its address; what it keeps
+			// is that this was about somewhere on this page's directory, which
+			// an empty `dir=` says. `/join` files the act.
+			replaceWith(joinAddress({ directory: "" }));
 			arrival.mark();
 			return;
 		}
 		if (dirParam !== "") {
 			const known = net.directoryId(dirParam);
 			if (known !== null && routing().projection.get().dirs.has(known)) {
-				net.showRoom(routing(), session, known, name);
-			} else net.reachFor(routing(), { source: "link", room: named(name), locator: named(dirParam) });
+				if (!net.showRoom(routing(), session, known, name)) {
+					replaceWith(joinAddress({ room: name, directory: net.dirAddress(routing(), known) }));
+				}
+			} else {
+				replaceWith(joinAddress({ room: name, locator: dirParam }));
+			}
 			arrival.mark();
 			return;
 		}
 		const home = routing().projection.get().homeDir;
 		if (home === null) return; // the effect refires when the directory lands
-		net.showRoom(routing(), session, home, name);
+		// A room the page's own directory does not hold yet, with no name to
+		// enter it under, is the card asking for one: the room named, the
+		// directory implied.
+		if (!net.showRoom(routing(), session, home, name)) replaceWith(joinAddress({ room: name, directory: "" }));
 		arrival.mark();
+		// The address this route names, and the directory state it is waiting on.
+		// The session and the parsed location are read as they stand: arriving
+		// somewhere is a thing that happens once per address, and re-running it
+		// because a session was re-established would navigate a reader who is
+		// already where this sent them.
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the address, reads the session as it stands
 	}, [arrival, name, dirParam, isPrivate, homeDir, dirs]);
 	return null;
 }
@@ -228,6 +274,9 @@ function DmRoute() {
 		if (store.actingDir(routing().projection, state) === null) return; // wait for a directory
 		session.startDm(nick);
 		arrival.mark();
+		// As the room route above: on the address, reading the session as it
+		// stands.
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the address, reads the session as it stands
 	}, [arrival, nick, homeDir, dirs, conversations]);
 	return null;
 }
@@ -240,6 +289,10 @@ function JoinRoute() {
 		const search = new URLSearchParams(routed.search);
 		const room = search.get("room");
 		const locator = search.get("locator");
+		// `dir=` is the directory the address stands on rather than one the link
+		// named: a room route that could not open its room lands here with that
+		// much still true. Named outranks implied when an address carries both.
+		const directory = search.get("dir");
 		// A bare /join is a reader asking for the card and naming nothing, so
 		// every field falls through to what this browser last used. Naming a
 		// room or a locator is a deep link, and each part it names is named
@@ -248,7 +301,7 @@ function JoinRoute() {
 		net.reachFor(routing(), {
 			source: "link",
 			room: room === null ? undefined : named(room),
-			locator: locator === null ? undefined : named(locator),
+			locator: locator !== null ? named(locator) : directory !== null ? implied(directory) : undefined,
 		});
 		arrival.mark();
 	}, [arrival, routed.search]);
@@ -275,7 +328,7 @@ function DirectoryRoute() {
 			const known = net.directoryId(dirParam);
 			if (known !== null && routing().projection.get().dirs.has(known)) {
 				net.showDirectory(routing(), known);
-			} else net.reachFor(routing(), { source: "link", locator: named(dirParam) });
+			} else replaceWith(joinAddress({ locator: dirParam }));
 			arrival.mark();
 			return;
 		}
@@ -283,6 +336,10 @@ function DirectoryRoute() {
 		if (home === null) return;
 		net.showDirectory(routing(), home);
 		arrival.mark();
+		// As the routes above. `routed` is compared against where this already
+		// sent the reader, so depending on it would re-enter the check that
+		// exists to stop exactly that.
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the address, reads the location as it stands
 	}, [arrival, dirParam, homeDir, dirs]);
 	return null;
 }
@@ -344,10 +401,10 @@ function RouteCrash() {
 	const message = failed instanceof Error ? failed.message : String(failed);
 	return (
 		<div className="crash" role="alert">
-			<h2>The page ran into a problem</h2>
+			<h2>{crashTitle}</h2>
 			<Said kind="failure">{message}</Said>
-			<p>Your session is not lost. The peer keeps running under this screen.</p>
-			<Button variant="quiet" onClick={() => reloadNow()}>Reload</Button>
+			<p>{crashSessionKept}</p>
+			<Button variant="quiet" onClick={() => reloadNow()}>{crashReload}</Button>
 		</div>
 	);
 }

@@ -33,7 +33,9 @@ respect ([doc-voice](../../rules/doc-voice.md)).
 3. **SYNTHESIZE.** Where they agree, keep the candidate. Where they disagree, decide
    and say why. If both call a real defect, escalate it.
 4. **EXECUTE** only when the user asked for implementation.
-5. **GATE.** `zig build check` is authority (exit code, not skimmed output).
+5. **GATE.** Match verification to the changed surface. A planning-only prose
+   change runs `zig build source-check`; a protocol implementation runs
+   `zig build check` (exit code, not skimmed output).
 6. **DEFER HONESTLY.** Name non-moves with real reasons; park them on
    [`docs/roadmap.md`](../../../docs/roadmap.md) or
    [`docs/boundaries.md`](../../../docs/boundaries.md).
@@ -167,8 +169,10 @@ Synthesize into remediations tagged `invite-blocking` | `packet-honesty` |
 
 ## On this codebase
 
-- **Gate:** `zig build check`. Focused: `zig build test`, `arch-check`, `source-check`,
-  `oracle-check`; live `ocapn-conformance`, `goblins-interop`, `goblins-handoff`.
+- **Verification:** planning-only prose runs `zig build source-check`; protocol
+  implementation runs `zig build check`. Focused: `zig build test`, `arch-check`,
+  `source-check`, `oracle-check`; live `ocapn-conformance`, `goblins-interop`,
+  `goblins-handoff`.
 - **Layer bans:** `build.zig` `layer_table` + `arch-check` (`core = true` bans `std.Io`).
 - **Prerelease posture:** [`.agents/rules/prerelease.md`](../../rules/prerelease.md).
 - **Settled architecture:** [`docs/decisions/adr/`](../../../docs/decisions/adr/).

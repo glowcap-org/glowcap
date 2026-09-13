@@ -27,11 +27,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use glowcap::{
-	designator_host_port, parse_locator, tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session,
-	TRANSPORT_IROH,
+	Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, TRANSPORT_IROH, designator_host_port,
+	parse_locator, tcp,
 };
 #[cfg(feature = "iroh")]
-use glowcap::{iroh, HINT_DIRECT_ADDRESSES};
+use glowcap::{HINT_DIRECT_ADDRESSES, iroh};
 use tokio::sync::mpsc;
 
 // The one grammar every rooms client switches on, and this language's reading of it.
@@ -40,8 +40,8 @@ use crate::protocol_gen::{
 	WATCH_PUBLICATIONS,
 };
 use crate::wire::{
-	membership_ended_fits, membership_seat, parse_rooms, parse_watch_event, parse_watch_rooms, read_presence, Presence,
-	RoomInfo,
+	Presence, RoomInfo, membership_ended_fits, membership_seat, parse_rooms, parse_watch_event, parse_watch_rooms,
+	read_presence,
 };
 
 /// The most lines the room may retain for a reader that has stopped reading.

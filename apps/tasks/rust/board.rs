@@ -13,7 +13,7 @@
 
 use std::rc::Rc;
 
-use glowcap::{tcp, Argument, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig, Session};
+use glowcap::{Argument, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig, Session, tcp};
 
 const BOARD: &str = "board";
 

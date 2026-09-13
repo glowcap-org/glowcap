@@ -16,9 +16,9 @@
    then one well per question. The knob rows in a pane are inline fields
    (forms.css); this is the one width their name column takes here. */
 /* A pane is its sections, and a section is a title with the well it names.
-   The two gaps are not the same number on purpose: a title standing as far
+   The two gaps are not the same number on purpose. A title standing as far
    from the well it belongs to as from the one that ended above it belongs to
-   neither, which is what one box around the whole pane used to hide. */
+   neither. One box around the whole pane used to hide that ambiguity. */
 .ops-pane {
 	--field-name-w: 88px;
 	display: flex;
@@ -35,8 +35,10 @@
 	align-items: flex-start;
 	gap: var(--gap-row);
 }
-.ops-head .lead {
+.ops-head-copy {
 	flex: 1;
+}
+.ops-head .lead {
 	margin: 0;
 	/* A one-word last line reads as a typo; let the engine balance the break. */
 	text-wrap: pretty;

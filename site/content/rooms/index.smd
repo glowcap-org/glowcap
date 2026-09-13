@@ -1,0 +1,129 @@
+---
+.title = "Rooms",
+.description = "A chat app built on glowcap. Everyone in a room is a peer, bots included. Talk to any of them directly, and take your session with you wherever you go.",
+.date = .date("2026-09-12T00:00:00"),
+.layout = "rooms.shtml",
+.draft = false,
+---
+
+Rooms is a chat app where everyone in a room is a peer, bots included. Your
+session holds the rooms you are in and answers when someone messages you.
+Talk to another member and the room stays out of it. Take your session with
+you: keep it on this device, open it on another, or run it on a server so it
+is always on. Rooms also speaks [IRC](https://en.wikipedia.org/wiki/IRC) in
+both directions, and you can host it
+yourself, with history, admin controls, and a live view of what crosses the
+wire.
+
+[A team at work: one person and four bots in a room. On the left, the room and a direct conversation with the lead. In the middle, the plan and each member's findings. On the right, every member, each with a message button.]($image.siteAsset('rooms-conversation-dark.webp'))
+
+[A team at work: one person and four bots in a room. On the left, the room and a direct conversation with the lead. In the middle, the plan and each member's findings. On the right, every member, each with a message button.]($image.siteAsset('rooms-conversation-light.webp'))
+
+The four bots are ordinary members. Each one is a glowcap peer holding the
+same room the person holds, so a team of agents needs no bot API, no
+webhook, and no account. A bot joins by name, hears every line the room
+carries, and answers when you mention it. The [CapTP CLI]($link.page('cli')) ships that
+peer as `glowcap app rooms-peer`, and the repository's rooms-team skill runs
+a whole roster of them under a human lead.
+
+# What you can do
+
+```=html
+<div class="columns">
+<section>
+<h3>As a member</h3>
+<ul>
+<li>Join a public room by name, or open a private one from a link someone sent you.</li>
+<li>Message anyone directly. It goes straight between you, or through an encrypted relay if you choose one.</li>
+<li>Send files, edit or take back what you said, set a topic, and hand out one-time invitations.</li>
+<li>Keep history in your session, in an archive of your own, or read one someone shared with you.</li>
+<li>Share your session with another device, or attach to one that lives on a server.</li>
+</ul>
+</section>
+<section>
+<h3>As a host</h3>
+<ul>
+<li>Serve rooms over encrypted iroh, as a Tor onion service, or over plain TCP while you develop.</li>
+<li>Keep room history in files or PostgreSQL, with limits you set and repair after a bad write.</li>
+<li>Bring an IRC channel in as a room, or let IRC users into your rooms.</li>
+<li>Hand out admin links for listeners, diagnostics, peering, moderation, and the live wire view.</li>
+<li>Run the session and archive services with an identity that survives restarts.</li>
+</ul>
+</section>
+</div>
+```
+
+None of this needs an account. Registering gets you a name on one server.
+Joining a room gets you a seat you can speak from. Every line you post comes
+back with the one reference that can edit or delete it. Private rooms,
+invitations, moderation, shared history, and admin controls all work the same
+way: if you hold the reference, you can use it.
+
+The repository's
+[Rooms overview](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/README.md)
+is the way in for someone with a checkout, and its developing and operating
+guides carry every build command, flag, and limit. These pages stick to the
+paths most people take.
+
+# Direct messages skip the room
+
+Press the message button beside someone and the server introduces you. The
+other side makes an inbox just for you, and from then on you talk over a
+connection of your own. The room made the introduction and hears nothing
+after it.
+
+[The server gives a person and a bot the same room. The room introduces them to each other, and from then on they talk directly, with the room out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
+
+That connection is WebRTC by default: the server passes along the connection
+details, and the messages go straight between the two of you. Where a
+network will not allow that, Settings offers a relay instead, encrypted the
+whole way, so the relay never sees a word.
+[Run Rooms]($link.page('rooms/start')) opens one, and
+[How Rooms works]($link.page('rooms/architecture')) follows the introduction
+step by step.
+
+# Your session, wherever you go
+
+Your rooms, your direct conversations, your drafts, and your history settings
+are your session, and the first thing Rooms asks is where to keep it.
+**This browser** keeps it on this device. Share it from Settings and any
+other device can open it with the link, seeing the same rooms and the same
+conversations as they happen. Run the session service instead and your
+session is always on: it keeps your identity, your rooms, your connections,
+and your links, and wherever you open it, you are looking at the same thing.
+
+[The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-dark.webp'))
+
+[The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-light.webp'))
+
+A link to your session comes in three kinds: observe, interact, and admin.
+What a link may do is checked in the session every time it is used, never
+baked into the link, so you can narrow, pause, or revoke it while someone is
+still holding it. [Run Rooms]($link.page('rooms/start')) shares a session
+with a phone. [Operate Rooms]($link.page('rooms/operations')) runs the
+session service.
+
+# What happens when you click
+
+A click is a request, not proof that it worked. Rooms writes down what you
+asked for, does it, and then shows you what actually happened. If it was
+refused before anything changed, you can simply try again. If nobody can say
+yet whether it worked, Rooms tells you that, rather than pretending it
+worked or quietly undoing it.
+
+That one rule covers joining, sending, editing, reconnecting, changing your
+name, keeping history, and sharing a session. It is written once, and the
+browser and the server both use it.
+[How Rooms works]($link.page('rooms/architecture')) draws it out.
+
+# Under the hood
+
+Rooms is written in Rust. The same crates run in your browser as
+WebAssembly and on the server as native services, so joining, sending, and
+recovering mean the same thing in both places. Underneath sits glowcap's
+protocol core, written in Zig and reached through its C ABI, and TypeScript
+draws the screen. There is no API beyond OCapN itself: the server publishes
+one object by name, and every other reference is handed back from it.
+[How Rooms works]($link.page('rooms/architecture')) shows how the pieces
+fit, and [The Rooms protocol]($link.page('rooms/protocol')) walks through
+the objects.

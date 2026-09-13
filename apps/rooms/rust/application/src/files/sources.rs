@@ -1,6 +1,6 @@
 //! Sender-held direct files. One owner spans conversations; expired in-flight
 //! reads stay charged until their leases drop. No I/O or task ownership lives here.
-use super::{FileArgument, FileDescription, CHUNK_BYTES};
+use super::{CHUNK_BYTES, FileArgument, FileDescription};
 use crate::room::line::MAX_MESSAGE_FILES;
 use alloc::{collections::VecDeque, rc::Rc, vec::Vec};
 use core::{

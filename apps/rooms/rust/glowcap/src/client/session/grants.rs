@@ -1,5 +1,5 @@
 use super::*;
-use rooms_application::grants::{protocol, Rights};
+use rooms_application::grants::{Rights, protocol};
 
 /// A connection-scoped facet and the authority to revoke it. Dropping this
 /// handle releases local custody; only an acknowledged revoke or connection

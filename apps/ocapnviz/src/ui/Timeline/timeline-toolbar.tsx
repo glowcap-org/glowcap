@@ -181,7 +181,7 @@ export function TimelineToolbar(
 						gap: 4,
 						cursor: "pointer",
 					}}
-					title="Auto-size the panel to content (re-fits on row expand/collapse and mode switch; drag the top edge to disable)"
+					title="Auto-size the panel to content — re-fits on row expand, collapse and mode switch. Drag the top edge to turn it off"
 				>
 					<input
 						type="checkbox"
@@ -315,7 +315,7 @@ function LiveBadge({ connected }: { connected: boolean }) {
 	const bg = connected ? c.dangerSoft : c.warningSoft;
 	const title = connected
 		? "Recording from the live feed; playback is disabled"
-		: "The live feed dropped — the capture is running and receiving nothing";
+		: "The live feed dropped. The capture is running and receiving nothing";
 	return (
 		<span
 			role="status"

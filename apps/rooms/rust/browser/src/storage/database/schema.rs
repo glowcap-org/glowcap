@@ -1,6 +1,8 @@
-//! Preserve the version-one records, blob and metadata keys used by existing tabs.
+//! The exact current records, blob and metadata schema. Prerelease schemas are
+//! refused rather than rewritten; browser settings owns explicit deletion.
 use super::Error;
 use web_sys::{IdbDatabase, IdbIndexParameters, IdbObjectStoreParameters};
+
 pub fn create(database: &IdbDatabase) -> Result<(), Error> {
 	if database.object_store_names().length() != 0 {
 		return Err(Error::Schema);
@@ -12,6 +14,9 @@ pub fn create(database: &IdbDatabase) -> Result<(), Error> {
 	index.set_unique(true);
 	records.create_index_with_str_and_optional_parameters("revision", "revision", &index)?;
 	records.create_index_with_str("coordinates", "coordinates")?;
+	let digest = IdbIndexParameters::new();
+	digest.set_multi_entry(true);
+	records.create_index_with_str_and_optional_parameters("digest", "digests", &digest)?;
 	database.create_object_store_with_optional_parameters("archive-blobs", &parameters)?;
 	database.create_object_store_with_optional_parameters("archive-meta", &parameters)?;
 	Ok(())
@@ -34,7 +39,7 @@ pub fn validate(database: &IdbDatabase) -> Result<(), Error> {
 		}
 	}
 	let records = transaction.object_store("archive-records")?;
-	if records.index_names().length() != 2 {
+	if records.index_names().length() != 3 {
 		return Err(Error::Schema);
 	}
 	for (name, unique) in [("revision", true), ("coordinates", false)] {
@@ -42,6 +47,10 @@ pub fn validate(database: &IdbDatabase) -> Result<(), Error> {
 		if index.key_path()?.as_string().as_deref() != Some(name) || index.unique() != unique || index.multi_entry() {
 			return Err(Error::Schema);
 		}
+	}
+	let digest = records.index("digest")?;
+	if digest.key_path()?.as_string().as_deref() != Some("digests") || digest.unique() || !digest.multi_entry() {
+		return Err(Error::Schema);
 	}
 	Ok(())
 }

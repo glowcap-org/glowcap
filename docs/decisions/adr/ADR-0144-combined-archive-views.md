@@ -111,9 +111,8 @@ archives still held, using the selected peer's digest lookup before consulting
 the local blob store. An already-issued wire reader refuses if that file
 position names different bytes; metadata-only changes preserve byte authority.
 ADR-0131's Evidence section's "refusal without device fallback" claim now names
-writes only. The "combining remains open" deferrals
-in ADR-0132, ADR-0140, and the rooms-persistence plan are closed by this
-decision.
+writes only. This decision closes the "combining remains open" deferrals in
+ADR-0132 and ADR-0140.
 
 ## Evidence and gate
 

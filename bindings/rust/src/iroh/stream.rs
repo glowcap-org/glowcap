@@ -176,7 +176,7 @@ impl AsyncWrite for Stream {
 				match st.conns.get_mut(&me.key) {
 					None => return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "iroh session closed"))),
 					Some(slot) if slot.closed => {
-						return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "iroh session closed")))
+						return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "iroh session closed")));
 					}
 					Some(slot) if slot.writable => {
 						slot.writable = false;

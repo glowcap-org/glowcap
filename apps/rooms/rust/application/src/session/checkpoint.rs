@@ -61,16 +61,16 @@ impl Checkpoint {
 			.iter()
 			.find(|directory| directory.home)
 			.map(|directory| &directory.id.0);
-		let viz = self
+		let trace = self
 			.0
 			.capabilities
 			.operations
 			.0
 			.iter()
-			.find(|credential| credential.capability == model::Operation::Viz)
+			.find(|credential| credential.capability == model::Operation::Trace)
 			.map(|credential| &credential.scope.0)
-			.unwrap_or(&self.0.viz_override.0);
-		serde_json::to_string(&(home, viz)).expect("serializing bounded scope text")
+			.unwrap_or(&self.0.trace_override.0);
+		serde_json::to_string(&(home, trace)).expect("serializing bounded scope text")
 	}
 	pub fn operations_bundle(&self) -> String {
 		use crate::server::operations::BOOT_CAPABILITIES;
@@ -91,7 +91,7 @@ impl Checkpoint {
 					.iter()
 					.find(|credential| {
 						credential.capability.wire() == capability.id
-							&& (capability.id == "viz" || Some(&credential.scope.0) == home)
+							&& (capability.id == "trace" || Some(&credential.scope.0) == home)
 					})
 					.map(|credential| {
 						alloc::format!("{} {}", capability.token, credential.swiss.0.as_str().unwrap_or(""))
@@ -155,6 +155,7 @@ impl Checkpoint {
 				home: true,
 				reached: Some(false),
 				nick: fields::Field::new("".into()).expect("empty nickname"),
+				nick_allocation: crate::directory::registration::NicknameAllocation::Exact,
 				standing: fields::Nullable::Null,
 			});
 			state.directories = fields::List::new(directories).ok_or(Refusal::Size)?;

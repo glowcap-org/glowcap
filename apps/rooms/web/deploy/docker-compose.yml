@@ -1,26 +1,31 @@
 # Serve the Rooms browser UI over a WebSocket relay to an iroh room server from
-# a light, toolchain-free container. This tracked base publishes no host port
-# and joins one shared Docker network. How this machine reaches the page is the
-# ignored docker-compose.override.yml's business, so a host's ports and network
-# names never enter the repository. Terminal CapTP peers need neither: they
-# dial over iroh Discovery.
+# a light, toolchain-free container, with kept room lines in a PostgreSQL
+# service beside it. This tracked base publishes no host port and joins one
+# shared Docker network. How this machine reaches the page is the ignored
+# docker-compose.override.yml's business, so a host's ports and network names
+# never enter the repository. Terminal CapTP peers need neither: they dial
+# over iroh Discovery.
 #
 # Prerequisites, in the dev container — this produces the shared libraries,
 # WebAssembly Host, and browser bundle this image loads:
 #
 #     zig build rooms-deploy-prep
 #
-# Then, from this directory, say how the page is reached and bring it up:
+# Then, from this directory on the Docker host, bring it up:
 #
-#     cp docker-compose.override.yml.example docker-compose.override.yml
-#     ./up.sh
+#     ./ops up
 #
-# up.sh waits for both peers to serve and prints the room locator, the operator
-# capabilities, and the session administrator capability in one block.
-# `./compose.sh up -d --build` is the same start without that handoff. With the
-# example override in place the page is at http://127.0.0.1:8000 on the Docker
-# host, and the browser peer dials the room through the same-origin /relay
-# WebSocket.
+# The first up creates the shared network, seeds the override from its
+# example, and mints the database password into secrets/; every up then
+# refuses anything but the prepared, committed source, waits for every
+# service to serve, and prints the room locator, the operator capabilities,
+# and the session administrator capability in one block.
+# `./ops compose up -d --build` is the same start without that handoff. With
+# the example override in place the page is at http://127.0.0.1:8000 on the
+# Docker host, and the browser peer dials the room through the same-origin
+# /relay WebSocket.
+
+name: rooms
 
 services:
   rooms:
@@ -64,7 +69,7 @@ services:
       # Every operator capability, on by default: each swiss number persists in
       # the state volume and prints in the logs; comment one out to withhold
       # that authority from this deployment. Read them any time with
-      #   ./compose.sh exec rooms /runtime/bin/rooms-server --capabilities
+      #   ./ops compose exec rooms /runtime/bin/rooms-server --capabilities
       # Same as starting with --diagnostics: mint inspect.
       GLOWCAP_ROOMS_DIAGNOSTICS: "1"
       # Same as --admin-listeners: mint the listener-admin capability.
@@ -74,25 +79,34 @@ services:
       GLOWCAP_ROOMS_OPERATOR: "1"
       # Same as --peering: mint the directory-peering capability.
       GLOWCAP_ROOMS_PEERING: "1"
-      # Same as --viz: serve the live timeline endpoint (default port 9300;
-      # GLOWCAP_ROOMS_VIZ_PORT only changes the port) and mint the viz
+      # Same as --trace: serve the live timeline endpoint (default port 9300;
+      # GLOWCAP_ROOMS_TRACE_PORT only changes the port) and mint the trace
       # capability it requires of every socket.
-      GLOWCAP_ROOMS_VIZ: "1"
+      GLOWCAP_ROOMS_TRACE: "1"
       # Same as --irc: mint the IRC gateway capability.
       GLOWCAP_ROOMS_IRC: "1"
-      # Same as --history: listed rooms keep their last lines in the state
-      # volume and serve them to members who join later.
+      # Same as --history: listed rooms keep their last lines and serve them
+      # to members who join later.
       GLOWCAP_ROOMS_HISTORY: "1"
-      # Same as --storage=: one destination whose shape picks where kept
-      # lines persist. Empty keeps the state volume's files. To use the
-      # managed database below instead, bring it up with
-      #   ./compose.sh --profile storage-db up -d
-      # and set this to its URL, e.g.
-      #   postgres://rooms:${STORAGE_DB_PASSWORD}@rooms-storage-db:5432/rooms
-      GLOWCAP_ROOMS_STORAGE: ${GLOWCAP_ROOMS_STORAGE:-}
+      # Same as --storage=: where kept lines persist. The default is the
+      # PostgreSQL service below, reached only over the private compose
+      # network, so TLS is off on that leg; the URL names user, host, and
+      # database, and the password rides in as a Docker secret through
+      # --storage-password-file, never in this environment. Export both of
+      # these empty to keep lines in the state volume's files instead, which
+      # is a development posture, not a deployment.
+      GLOWCAP_ROOMS_STORAGE: ${GLOWCAP_ROOMS_STORAGE-postgres://rooms@rooms-storage-db:5432/rooms?sslmode=disable}
+      GLOWCAP_ROOMS_STORAGE_PASSWORD_FILE: ${GLOWCAP_ROOMS_STORAGE_PASSWORD_FILE-/run/secrets/storage-db-password}
+    secrets:
+      - storage-db-password
     volumes:
       - ../../../../zig-out:/runtime:ro
       - rooms-state:/state
+    # The room server refuses to start until it can open its history store,
+    # so it waits for the database to answer before it is started at all.
+    depends_on:
+      rooms-storage-db:
+        condition: service_healthy
     # Readiness checks both the supervised directory and prepared browser assets.
     healthcheck:
       test: ["CMD", "/runtime/bin/rooms-web", "--check-ready"]
@@ -107,7 +121,7 @@ services:
       - rooms-net
 
   # One durable user workspace, separate from the room directory's authority.
-  # Its administrator sturdyref never crosses HTTP: ./up.sh reads the
+  # Its administrator sturdyref never crosses HTTP: ./ops up reads the
   # current-start mirror from this container and the intended owner pastes it
   # into the page's explicit session-establishment form. The page's existing
   # relay can dial this iroh identity without a published container port.
@@ -141,29 +155,51 @@ services:
     networks:
       - rooms-net
 
-  # The managed storage database, opted into with --profile storage-db. The
-  # room server reaches it only over the private compose network; nothing
-  # publishes it to the host. Its password is supplied explicitly in the
-  # process environment when this profile is requested.
+  # The history database. The room server reaches it only over the private
+  # compose network; nothing publishes it to the host, and its one password
+  # is the Docker secret `ops up` mints, mounted here as a file the image reads
+  # at first start. Data checksums are on from the first initdb, because
+  # turning them on later means a dump and restore. The data volume is the
+  # deployment's memory: back it up with pg_dump (README, Storage) before
+  # recreating or upgrading this service, and never change the major version
+  # in place.
   rooms-storage-db:
-    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
     container_name: rooms-storage-db
-    profiles: ["storage-db"]
     environment:
       POSTGRES_DB: rooms
       POSTGRES_USER: rooms
-      POSTGRES_PASSWORD: ${STORAGE_DB_PASSWORD:-}
+      POSTGRES_PASSWORD_FILE: /run/secrets/storage-db-password
+      POSTGRES_INITDB_ARGS: --data-checksums
+    secrets:
+      - storage-db-password
     volumes:
-      - rooms-storage-db:/var/lib/postgresql/data
+      - rooms-storage-db:/var/lib/postgresql
+    # PostgreSQL's shared buffers live in shared memory, and Docker's 64 MiB
+    # default is too small for a busy checkpoint.
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rooms -d rooms"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    # Give a checkpoint time to finish before the process is killed.
+    stop_grace_period: 60s
     restart: unless-stopped
     networks:
       - rooms-net
 
+secrets:
+  # Minted by `ops up` on first use and ignored by Git. One file, read by the
+  # database at its first start and by the room server at every start.
+  storage-db-password:
+    file: ./secrets/storage-db-password
+
 networks:
   # Shared fabric with the glowcap devcontainer: a bot there reaches this
   # container's internal CapTP over this network. Fixed name, external so both
-  # compose projects use the one network (create it once with
-  # `docker network create rooms-net`).
+  # compose projects use the one network (`./ops up` creates it once).
   rooms-net:
     name: rooms-net
     external: true

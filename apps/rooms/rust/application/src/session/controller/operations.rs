@@ -3,7 +3,7 @@
 use crate::{server::operations::BOOT_CAPABILITIES, session::snapshot::Snapshot, text::DocumentText};
 use alloc::{string::String, vec::Vec};
 
-use crate::server::operations::operator::{view::inventory::Inventory, Category};
+use crate::server::operations::operator::{Category, view::inventory::Inventory};
 
 mod target;
 pub use target::Target;
@@ -146,14 +146,14 @@ impl Operations {
 		}) {
 			return Err("Rooms operator search exceeds its text limit");
 		}
-		if let Some(filter) = filter {
-			if slot.filter != filter {
-				slot.filter = filter;
-				if kind.name() == "operator" {
-					self.operator = None;
-				}
-				bump(&mut slot.epoch)?;
+		if let Some(filter) = filter
+			&& slot.filter != filter
+		{
+			slot.filter = filter;
+			if kind.name() == "operator" {
+				self.operator = None;
 			}
+			bump(&mut slot.epoch)?;
 		}
 		slot.page = None;
 		bump(&mut slot.requested)?;

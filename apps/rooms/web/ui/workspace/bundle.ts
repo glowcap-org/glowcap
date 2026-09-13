@@ -16,6 +16,9 @@ import {
 } from "../workspace_state.ts";
 import { announceWorkspaceReplacement } from "./sync.ts";
 import type { RoomsPageContext } from "../page.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { bundleAndChoiceIncomplete, bundleIncomplete, bundleSaveRefused } from "../../../lib/text/attached.ts";
+import { reconcileDraftPreviews } from "../link_preview.ts";
 
 export function encodeWorkspaceState(document: RoomsWorkspaceState, includeCapabilities = false): string {
 	return applicationModule().exportWorkspace(JSON.stringify(document), includeCapabilities);
@@ -36,15 +39,15 @@ export function importWorkspaceState(
 	controllerOverride?: RoomsControllerSelection,
 ): string {
 	const document = parseWorkspaceState(raw);
-	if (document == null) return "That file is not a complete Rooms state bundle.";
+	if (document == null) return bundleIncomplete;
 	const candidate = controllerOverride == null ? document : { ...document, controller: controllerOverride };
 	const installed = controllerOverride == null ? document : parseWorkspaceState(JSON.stringify(candidate));
-	if (installed == null) return "That file and session choice do not form a complete Rooms state bundle.";
+	if (installed == null) return bundleAndChoiceIncomplete;
 	const encoded = JSON.stringify(installed);
 	if (page.workspace.persistenceControl == null) installWorkspaceStatePersistence(page);
 	const persistence = page.workspace.persistenceControl;
 	if (persistence == null || !persistence.replace(encoded)) {
-		return "This browser refused to save the imported Rooms state.";
+		return bundleSaveRefused;
 	}
 	persistence.stop();
 	page.workspace.persistenceBlocked = false;
@@ -91,7 +94,7 @@ export function restoreWorkspaceState(
 		try {
 			resolved = resolve(directory.locator);
 		} catch (error) {
-			return refuseRestore(error instanceof Error ? error.message : String(error));
+			return refuseRestore(refusalText(error));
 		}
 		if (resolved == null || resolved !== dirId(directory.id) || resolvedIds.has(resolved)) {
 			return refuseRestore("a saved directory route did not name its recorded authority");
@@ -140,7 +143,13 @@ export function restoreWorkspaceState(
 		if (conversation.kind === "room" && restored.type === "room" && restored.standing !== conversation.standing) {
 			store.setRoomStanding(page.projection, restored.key, conversation.standing);
 		}
-		if (conversation.draft !== "") drafts.set(restored.key, { text: conversation.draft, files: [] });
+		if (conversation.draft !== "") {
+			drafts.set(restored.key, {
+				text: conversation.draft,
+				files: [],
+				previews: reconcileDraftPreviews([], conversation.draft, () => page.projection.allocItemId()),
+			});
+		}
 		byPersistentId.set(conversation.id, restored.key);
 	}
 	page.projection.set({

@@ -1,16 +1,16 @@
 //! Archive admission for one live room line. Capture starts from the echoed
 //! attachments; the event carries coordinates after the archive accepts them,
 //! and a refused admission is reported rather than hidden behind the line.
-use super::{events::ConversationEvent, worker::Recorder, LiveRoom, Platform};
-use crate::{archive_recording::Recording, session_commands::SessionCommands};
+use super::{LiveRoom, Platform, events::ConversationEvent, worker::Recorder};
+use crate::{Error, archive::recording::Recording, session::commands::SessionCommands};
 use glowcap::Ref;
 use rooms_application::{
-	archive::{recording::Message as Archived, ConversationKind},
+	archive::{ConversationKind, recording::Message as Archived},
 	room::{inbox::Message, message::ChangeKind},
 	text::DocumentText,
 };
 use std::{
-	future::{poll_fn, Future},
+	future::{Future, poll_fn},
 	pin::Pin,
 	task::Poll,
 };
@@ -23,14 +23,12 @@ pub(super) fn record_room<P: Platform>(
 	live: &LiveRoom<P>,
 	message: &Message<String, Ref>,
 	event: &mut ConversationEvent,
-	files: crate::archive_recording::Files,
+	files: crate::archive::recording::Files,
 	observations: &mut Observations,
-) -> Result<(), String> {
+) -> Result<(), Error> {
 	let keep = commands
 		.view()
-		.read(|state| state.checkpoint().map(|checkpoint| checkpoint.keeps_history()))
-		.map_err(|e| e.to_string())?
-		.map_err(|e| e.to_string())?;
+		.read(|state| state.checkpoint().map(|checkpoint| checkpoint.keeps_history()))??;
 	if !keep {
 		return Ok(());
 	}
@@ -38,7 +36,7 @@ pub(super) fn record_room<P: Platform>(
 		return Ok(());
 	};
 	if observations.0.len() >= MAX_RECORDINGS {
-		return Err("room archive observations are at their capacity".into());
+		return Err(Error::busy("room archive observations are at their capacity"));
 	}
 	let directory = DocumentText::from(live.directory.as_str());
 	let conversation = DocumentText::from(event.conversation_id.as_str());
@@ -53,6 +51,7 @@ pub(super) fn record_room<P: Platform>(
 			nick: &live.nick,
 			from: &message.from,
 			text: &message.text,
+			previews: &message.previews,
 			system: event.system,
 			line: Some(line),
 			change: message.marker.map(|marker| marker.kind).unwrap_or(ChangeKind::Said),
@@ -87,6 +86,6 @@ impl Observations {
 		})
 		.await;
 		drop(self.0.remove(index));
-		crate::archive_recording::completion_issue(result)
+		crate::archive::recording::completion_issue(result)
 	}
 }

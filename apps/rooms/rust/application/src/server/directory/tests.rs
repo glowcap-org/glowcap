@@ -1,7 +1,7 @@
 //! The directory policy read as values: every verb's refusal and every
 //! effect it hands the adapter, without a wire.
 use super::*;
-use crate::directory::{MemberChange, MAX_ROWS};
+use crate::directory::{MAX_ROWS, MemberChange};
 use alloc::{format, vec};
 
 type Dir = Directory<u32, &'static str>;
@@ -13,6 +13,7 @@ fn id(n: u32) -> Id {
 fn request(nick: &str, inbox: &'static str) -> Register<&'static str> {
 	Register {
 		nick: nick.into(),
+		allocation: crate::directory::registration::NicknameAllocation::Exact,
 		locator: "ocapn://peer.tcp".into(),
 		own_locator: true,
 		webrtc: None,
@@ -20,6 +21,12 @@ fn request(nick: &str, inbox: &'static str) -> Register<&'static str> {
 		voucher: None,
 		claimant: None,
 	}
+}
+
+fn automatic(nick: &str, inbox: &'static str) -> Register<&'static str> {
+	let mut request = request(nick, inbox);
+	request.allocation = crate::directory::registration::NicknameAllocation::Automatic;
+	request
 }
 
 fn registered(dir: &mut Dir, connection: u32, nick: &str, inbox: &'static str) -> Effects<u32, &'static str> {
@@ -58,6 +65,46 @@ fn register_files_a_name_and_announces_it() {
 	assert_eq!(member_event(&effects.events[0]), Some((true, "Alice", 1)));
 	assert_eq!(dir.registered_nick(1), Some("Alice"));
 	assert_eq!(dir.member_registration("alice"), Ok(id(1)));
+}
+
+#[test]
+fn automatic_registration_atomically_allocates_the_first_free_name() {
+	let mut dir = Dir::default();
+	registered(&mut dir, 1, "guest", "one");
+	registered(&mut dir, 2, "GUEST-2", "two");
+	let effects = dir
+		.register(3, automatic("guest", "three"), id(3), 0)
+		.expect("allocates after folded collisions");
+	assert_eq!(dir.registered_nick(3), Some("guest-3"));
+	assert!(matches!(
+		&effects.tells[0].notice,
+		Notice::Registered { nick, id: granted } if nick == "guest-3" && granted == &id(3)
+	));
+}
+
+#[test]
+fn automatic_registration_is_stable_for_the_same_claimant() {
+	let mut dir = Dir::default();
+	registered(&mut dir, 1, "guest", "one");
+	let mut first = automatic("guest", "first");
+	first.claimant = Some("durable-peer".into());
+	dir.register(2, first, id(2), 0).expect("allocates");
+	let mut retry = automatic("guest", "retry");
+	retry.claimant = Some("durable-peer".into());
+	dir.register(3, retry, id(3), 0).expect("reclaims the allocation");
+	assert_eq!(dir.registered_nick(2), None);
+	assert_eq!(dir.registered_nick(3), Some("guest-2"));
+}
+
+#[test]
+fn automatic_suffixes_respect_the_utf16_nickname_limit() {
+	let mut dir = Dir::default();
+	let full = "😀".repeat(16);
+	registered(&mut dir, 1, &full, "one");
+	dir.register(2, automatic(&full, "two"), id(2), 0)
+		.expect("truncates before suffixing");
+	let expected = format!("{}-2", "😀".repeat(15));
+	assert_eq!(dir.registered_nick(2), Some(expected.as_str()));
 }
 
 #[test]

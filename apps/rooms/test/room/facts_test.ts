@@ -3,8 +3,8 @@
 // A room may say it carries less than this app allows — one bridged to IRC has
 // to fit each line into a protocol that gives 512 bytes to the whole thing,
 // envelope included. That is a fact a room states about itself rather than a
-// mode anybody switches on, which is what lets two rooms in one tab answer
-// differently, and it is why this is arithmetic rather than a flag.
+// mode anybody switches on. Two rooms in one tab can therefore answer
+// differently, and the value is arithmetic rather than a flag.
 //
 // The counting is in bytes, which is the part worth pinning: everything a
 // reader types is characters, everything a limit downstream counts is bytes,
@@ -26,6 +26,7 @@ import {
 	relayedSignalFits,
 } from "../../lib/limits.ts";
 import {
+	readCarries,
 	readLineBytes,
 	readListed,
 	readPresence,
@@ -184,6 +185,30 @@ Deno.test("the two room facts do not answer for each other", () => {
 	assertEquals(readTopic(["a", "b", "listed"]), undefined, "listed-ness is not a topic");
 	assertEquals(readListed(["room", "", "listed"]), true, "listed");
 	assertEquals(readListed(["room", "", "unlisted"]), false, "unlisted");
+});
+
+Deno.test("a room states what it carries, and a word it does not know is skipped", () => {
+	// Positive and additive: what is named is carried, what is not is not.
+	assertEquals(readCarries(["room", "", "carries", "previews", "typing"]), { previews: true, typing: true }, "both");
+	assertEquals(readCarries(["room", "", "carries", "typing"]), { previews: false, typing: true }, "one");
+	assertEquals(readCarries(["room", "", "carries"]), { previews: false, typing: false }, "neither, as IRC says");
+	// A room may say something newer than this client before the client is
+	// rebuilt; the words it knows still land.
+	assertEquals(readCarries(["room", "", "carries", "holograms", "previews"]), { previews: true, typing: false });
+	// Not a statement at all.
+	assertEquals(readCarries(["room", "", "listed"]), undefined, "another tag");
+	assertEquals(readCarries(["alice", "hello"]), undefined, "an ordinary line");
+	// Malformed is nothing said: a word that is not a word, a word past its
+	// bound, or more words than any room has.
+	assertEquals(readCarries(["room", "", "carries", 4]), undefined, "not a word");
+	assertEquals(readCarries(["room", "", "carries", ""]), undefined, "an empty word");
+	assertEquals(readCarries(["room", "", "carries", "x".repeat(17)]), undefined, "past the bound");
+	assertEquals(readCarries(["room", "", "carries", ...Array(17).fill("typing")]), undefined, "too many");
+	assertEquals(
+		readRoomFacts(["room", "", "carries", "previews"]),
+		{ carries: { previews: true, typing: false } },
+		"on the facts",
+	);
 });
 
 Deno.test("a line carries whichever facts the room put on it, and nothing otherwise", () => {

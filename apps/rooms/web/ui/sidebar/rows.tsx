@@ -10,6 +10,25 @@ import { roomMarkGlyph } from "../room_mark.tsx";
 import { roomPreset } from "../room_policy.ts";
 import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
+import {
+	directoryLeaveLabel,
+	rowBridged,
+	rowBridgedFrom,
+	rowDeclineInvitation,
+	rowDeclineTitle,
+	rowDirectoryPhase,
+	rowJoining,
+	rowJoiningStatus,
+	rowJoinRoomOn,
+	rowLeave,
+	rowNotJoined,
+	rowOpen,
+	rowPrivateRoom,
+	rowRetryStatus,
+	rowTakeInvitation,
+	rowTakingInvitation,
+} from "../../../lib/text/conversation.ts";
+import { railFrom, railIn, railLeave, railNoRoomsYet } from "../../../lib/text/rail.ts";
 
 export function Empty({ text }: { text: string }) {
 	return <li className="empty">{text}</li>;
@@ -21,12 +40,7 @@ export function Empty({ text }: { text: string }) {
  * and a list whose rows are all hidden. Both lists say it the same way, so the
  * words live here beside the row that carries them rather than once per
  * list. */
-export const nothingMatches = "Nothing here matches the filter.";
-
-/** And what a list says when the filter is holding only some of them back. */
-export function heldBack(hidden: number): string {
-	return hidden === 1 ? "1 more, hidden by the filter" : hidden + " more, hidden by the filter";
-}
+export { heldBack, nothingMatches } from "../../../lib/text/conversation.ts";
 
 /** The mark that ends a row, in the slot the row's badge otherwise fills. Both
  * lists carry one and they differ only in what they are called.
@@ -112,7 +126,7 @@ export function RoomRow(
 	const inDir = directory === null ? "" : " in " + directory;
 	// The written phrase, never the raw token: a row that read out
 	// ", directory reconnecting" was saying a word nothing else on the page says.
-	const unwell = phase === "connected" ? "" : ", directory " + phaseWord(phase);
+	const unwell = phase === "connected" ? "" : rowDirectoryPhase(phaseWord(phase));
 	// The sigil belongs in the spoken name too. The row draws it, the header
 	// draws it, and a reader who hears "annex" where everyone else reads "#annex"
 	// is being told about a different thing. A private room has no hash-name, so
@@ -121,20 +135,19 @@ export function RoomRow(
 	const named = roomCalled(conv.id, conv.held);
 	// The badge answers whichever question is live. Unread is the urgent one and
 	// takes the slot when there is any; otherwise the slot says how many people
-	// are in there, which is what it has always said and what a reader glances at
-	// to decide where to go next.
+	// are in there. A reader glances at that count to decide where to go next.
 	//
 	// The count is free to show now that nothing sorts by it. It used to order
 	// the list, so a stranger joining anywhere walked the rows out from under the
 	// pointer — but that was the ordering, not the number, and the ordering is
 	// gone.
-	const membership = conv.membership === "joined" ? "" : conv.membership === "joining" ? ", joining" : ", not joined";
+	const membership = conv.membership === "joined" ? "" : conv.membership === "joining" ? rowJoining : rowNotJoined;
 	const bridgeSaid = conv.bridge !== undefined && bridgedFrom !== null
-		? ", a bridged " + conv.bridge.badge + " channel via " + bridgedFrom
+		? rowBridged(conv.bridge.badge, bridgedFrom)
 		: bridgedFrom !== null
-		? ", a bridged channel via " + bridgedFrom
+		? rowBridgedFrom(bridgedFrom)
 		: "";
-	const said = (here ? named : "Open " + named) + (conv.held ? ", a private room" : "") + inDir +
+	const said = (here ? named : rowOpen(named)) + (conv.held ? rowPrivateRoom : "") + inDir +
 		bridgeSaid +
 		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : membership) + unwell;
 	return (
@@ -162,7 +175,11 @@ export function RoomRow(
 					: people > 0
 					? <span className="rcount">{people}</span>
 					: conv.membership !== "joined"
-					? <span className="rcount room-state">{conv.membership === "joining" ? "joining" : "retry"}</span>
+					? (
+						<span className="rcount room-state">
+							{conv.membership === "joining" ? rowJoiningStatus : rowRetryStatus}
+						</span>
+					)
 					: null}
 			</button>
 			{(directory !== null || standing !== "") && (
@@ -185,15 +202,14 @@ export function RoomRow(
 					onClick={() => onAbout(conv.dir)}
 				>
 					<Icon name="directory" size={12} />
-					{directory !== null && <span className="rwhere-said">in {directory}</span>}
+					{directory !== null && <span className="rwhere-said">{railIn} {directory}</span>}
 					{standing !== "" && <span className="rwhere-how">{standing}</span>}
 				</Button>
 			)}
 			{canInteract && (
 				<RowClose
-					title="Leave"
-					said={"Leave " + named + inDir +
-						(conv.held ? ". You can only return if somebody hands it to you again" : "")}
+					title={railLeave}
+					said={rowLeave(named, inDir, conv.held)}
 					oneWay={conv.held}
 					onClose={() => onLeave(conv.key)}
 				/>
@@ -230,8 +246,8 @@ export function InviteRow(
 				type="button"
 				className="room-open"
 				aria-label={taking
-					? `Taking up ${invite.from}'s invitation to ${invite.label}${onDir}`
-					: `Take up ${invite.from}'s invitation to ${invite.label}${onDir}`}
+					? rowTakingInvitation(invite.from, invite.label, onDir)
+					: rowTakeInvitation(invite.from, invite.label, onDir)}
 				data-busy={taking || undefined}
 				disabled={taking || !canInteract}
 				onClick={() => {
@@ -243,12 +259,12 @@ export function InviteRow(
 					<Icon name="lock" size={13} />
 				</span>
 				<span className="rname" title={invite.label}>{invite.label}</span>
-				<span className="rcount invited">from {invite.from}</span>
+				<span className="rcount invited">{railFrom} {invite.from}</span>
 			</button>
 			{canInteract && (
 				<RowClose
-					title={"Decline " + invite.label}
-					said={`Decline ${invite.from}'s invitation to ${invite.label}${onDir}`}
+					title={rowDeclineTitle(invite.label)}
+					said={rowDeclineInvitation(invite.from, invite.label, onDir)}
 					disabled={taking}
 					onClose={() => onDrop(invite.id)}
 				/>
@@ -284,7 +300,7 @@ export function EmptyDirRow(
 			<button
 				type="button"
 				className="room-open"
-				aria-label={"Join a room on " + name}
+				aria-label={rowJoinRoomOn(name)}
 				disabled={!canInteract}
 				onClick={() => onJoinOn(dir.id)}
 			>
@@ -300,10 +316,16 @@ export function EmptyDirRow(
 				onClick={() => onAbout(dir.id)}
 			>
 				{standing === ""
-					? <span className="rwhere-said">no rooms yet</span>
+					? <span className="rwhere-said">{railNoRoomsYet}</span>
 					: <span className="rwhere-how">{standing}</span>}
 			</Button>
-			{canInteract && <RowClose title="Leave" said={"Leave " + name} onClose={() => onLeave(dir.id)} />}
+			{canInteract && (
+				<RowClose
+					title={railLeave}
+					said={directoryLeaveLabel(name)}
+					onClose={() => onLeave(dir.id)}
+				/>
+			)}
 		</li>
 	);
 }

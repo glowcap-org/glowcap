@@ -1,3 +1,4 @@
+//! The in-memory file store owns bounded sources and their expiry.
 use super::*;
 use crate::room::line::MAX_MESSAGE_FILES;
 use alloc::collections::{BTreeMap, VecDeque};

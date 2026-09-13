@@ -24,9 +24,10 @@ mod state;
 mod tests;
 pub mod wire;
 
+pub use super::{Refusal, Release};
 pub use entrance::{Bootstrap, Entrance, Fresh, Gate, Open, Opening, Subscribed};
-pub use notice::{Blob, Effects, Mutation, Notice, Release, Tell};
-pub use state::{public_key, InvitationKey, LineKey, MembershipKey, RoomKey, UploadKey};
+pub use notice::{Blob, Effects, Mutation, Notice, Tell};
+pub use state::{InvitationKey, LineKey, MembershipKey, RoomKey, UploadKey};
 
 /// One live room as an inventory reads it.
 pub struct LiveRoom<'a, C> {
@@ -36,29 +37,28 @@ pub struct LiveRoom<'a, C> {
 	/// The name durable authority files the room under.
 	pub durable_name: &'a str,
 	pub listed: bool,
-	pub members: Vec<LiveMember<C>>,
+	pub members: Vec<LiveMember<'a, C>>,
 	/// Line capabilities this room generation still answers edits on.
 	pub lines: usize,
 	/// Uploads in flight into this room.
 	pub uploads: usize,
 }
 
-pub struct LiveMember<C> {
+pub struct LiveMember<'a, C> {
 	pub membership: MembershipKey,
-	pub nick: String,
+	pub nick: &'a str,
 	pub connection: C,
 	/// Why the member has stepped away; empty while they are here.
-	pub away: String,
+	pub away: &'a str,
 }
 
 use super::{history, links::Authority};
 use crate::{
-	directory::{registration::Id, RoomInfo},
-	failure::FailureCode,
+	directory::{RoomInfo, registration::Id},
 	files::{FileLimits, FileStore},
 	room::policy::{MembershipKind, RoomPolicy},
 };
-use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use state::{Invitation, Line, Room, Upload};
 
 pub const MAX_ROOM_MEMBERS: usize = 256;
@@ -69,53 +69,6 @@ pub const MAX_TOPIC: usize = super::document::MAX_TOPIC;
 pub const MAX_ROOM: usize = super::document::MAX_ROOM;
 /// The lines a room membership's `history` answers.
 pub const HISTORY_ANSWERED: usize = 100;
-
-/// A refusal the caller hears as a break: a Rooms failure code and its
-/// detail when a client acts on it, or the detail alone.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-	pub code: Option<FailureCode>,
-	pub detail: String,
-}
-impl Refusal {
-	pub(super) fn coded(code: FailureCode, detail: impl Into<String>) -> Self {
-		Self {
-			code: Some(code),
-			detail: detail.into(),
-		}
-	}
-	pub(super) fn plain(detail: impl Into<String>) -> Self {
-		Self {
-			code: None,
-			detail: detail.into(),
-		}
-	}
-	pub fn reason(&self) -> String {
-		match self.code {
-			Some(code) => format!("{}: {}", code.wire(), self.detail),
-			None => self.detail.clone(),
-		}
-	}
-}
-impl core::fmt::Display for Refusal {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.write_str(&self.reason())
-	}
-}
-/// The break reason a caller hears.
-impl From<Refusal> for String {
-	fn from(refusal: Refusal) -> Self {
-		refusal.reason()
-	}
-}
-impl From<super::links::Refusal> for Refusal {
-	fn from(refusal: super::links::Refusal) -> Self {
-		Self {
-			code: refusal.code,
-			detail: refusal.detail,
-		}
-	}
-}
 
 /// A refusal that carries back the tokens the adapter minted for the verb.
 #[derive(Debug, PartialEq, Eq)]
@@ -128,12 +81,17 @@ pub struct Refused<R> {
 /// Every live room on one server.
 pub struct Rooms<C, R> {
 	rooms: BTreeMap<RoomKey, Room<C, R>>,
-	/// Listed rooms by public key, and reservations a policy change holds.
+	/// Listed rooms by folded public name. A managed room listed under a
+	/// public name stands here too, under its managed key.
 	public: BTreeMap<String, RoomKey>,
-	reserved: BTreeMap<String, u64>,
 	by_entry: BTreeMap<String, RoomKey>,
 	per_owner: BTreeMap<C, usize>,
+	/// Every line a room still answers edits on; each room's own set names
+	/// its share, oldest first.
 	lines: BTreeMap<LineKey, Line>,
+	/// The line behind each history row this process made, so a row leaving
+	/// the index retires its line in one lookup.
+	kept_lines: BTreeMap<history::Token, LineKey>,
 	uploads: BTreeMap<UploadKey, Upload<C>>,
 	invitations: BTreeMap<InvitationKey, Invitation<C>>,
 	files: FileStore,
@@ -148,10 +106,10 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		Self {
 			rooms: BTreeMap::new(),
 			public: BTreeMap::new(),
-			reserved: BTreeMap::new(),
 			by_entry: BTreeMap::new(),
 			per_owner: BTreeMap::new(),
 			lines: BTreeMap::new(),
+			kept_lines: BTreeMap::new(),
 			uploads: BTreeMap::new(),
 			invitations: BTreeMap::new(),
 			files: FileStore::new(limits),
@@ -196,12 +154,12 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				.iter()
 				.map(|member| LiveMember {
 					membership: member.key,
-					nick: member.nick.clone(),
+					nick: &member.nick,
 					connection: member.connection,
-					away: member.away.clone(),
+					away: &member.away,
 				})
 				.collect(),
-			lines: self.lines.values().filter(|line| line.room == room.key).count(),
+			lines: room.lines.len(),
 			uploads: self.uploads.values().filter(|upload| upload.room == room.key).count(),
 		})
 	}
@@ -268,12 +226,11 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	}
 	/// The live listed room under a public name.
 	pub fn public_key_of(&self, name: &str) -> Option<RoomKey> {
-		self.public.get(&state::public_key(name)).cloned()
+		self.public.get(&state::folded(name)).cloned()
 	}
-	/// Whether a public name is taken by a live listed room or a reservation.
+	/// Whether a public name is taken by a live listed room.
 	pub fn public_name_taken(&self, name: &str) -> bool {
-		let key = state::public_key(name);
-		self.public.contains_key(&key) || self.reserved.contains_key(&key)
+		self.public.contains_key(&state::folded(name))
 	}
 	/// A fresh registration id for a public-room generation, drawn by the
 	/// adapter; the policy checks it names nothing live.
@@ -292,7 +249,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		if let Some(room) = self.rooms.get(key) {
 			return Some(room.policy);
 		}
-		authority.managed_room(key).map(|managed| managed.policy)
+		authority.managed_room(key.as_str()).map(|managed| managed.policy)
 	}
 	pub(super) fn public_kind(policy: RoomPolicy) -> MembershipKind {
 		policy.public_membership().unwrap_or(MembershipKind::Observer)

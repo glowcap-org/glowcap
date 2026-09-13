@@ -7,6 +7,36 @@
 // lead says so once so nobody exports a file expecting their history in it.
 
 import { useRef, useState } from "react";
+import { sessionStateFile } from "../../../lib/text/settings.ts";
+import { sessionConfirmKeep } from "../../../lib/text/session.ts";
+import {
+	sessionDataClearLocalAsk,
+	sessionDataClearLocalCommit,
+	sessionDataClearLocalHint,
+	sessionDataClearLocalLabel,
+	sessionDataClearLocalSay,
+	sessionDataClearLocalTitle,
+	sessionDataClearSharedAsk,
+	sessionDataClearSharedCommit,
+	sessionDataClearSharedHint,
+	sessionDataClearSharedLabel,
+	sessionDataClearSharedSay,
+	sessionDataClearSharedTitle,
+	sessionDataExport,
+	sessionDataExportTitle,
+	sessionDataImport,
+	sessionDataImportLocalHint,
+	sessionDataImportSharedHint,
+	sessionDataImportTitle,
+	sessionDataIncludeCapabilities,
+	sessionDataIncludeCapabilitiesSaid,
+	sessionDataLocalLead,
+	sessionDataLocalTitle,
+	sessionDataMessagesApart,
+	sessionDataSharedAdminLead,
+	sessionDataSharedLead,
+	sessionDataSharedTitle,
+} from "../../../lib/text/session_settings.ts";
 import { Button } from "../Button.tsx";
 import { Checkbox } from "../Checkbox.tsx";
 import { Confirm } from "../Confirm.tsx";
@@ -16,6 +46,7 @@ import { useRoomsSession } from "../controller/session.ts";
 import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
+import { actionRefusal } from "../error_text.ts";
 
 const STATE_FILE = "glowcap-rooms-state.json";
 
@@ -39,7 +70,7 @@ export function SessionDataModal(
 	const [confirming, setConfirming] = useState(false);
 	const selection = useRef(0);
 	const operation = useRef<"import" | "clear" | null>(null);
-	const dataLabel = sharedSession ? "Shared session data" : "Local session data";
+	const dataLabel = sharedSession ? sessionDataSharedTitle : sessionDataLocalTitle;
 	useChangeGroup("settings-session-data", {
 		dirty: file !== null,
 		discard: () => {
@@ -97,7 +128,7 @@ export function SessionDataModal(
 		setBusy("import");
 		setImportError("");
 		try {
-			setImportError(await session.importRoomsState(file.text));
+			setImportError(await actionRefusal(() => session.importRoomsState(file.text)));
 		} finally {
 			operation.current = null;
 			setBusy(null);
@@ -109,7 +140,7 @@ export function SessionDataModal(
 		setBusy("clear");
 		setClearError("");
 		try {
-			setClearError(await session.clearRoomsState());
+			setClearError(await actionRefusal(() => session.clearRoomsState()));
 		} finally {
 			operation.current = null;
 			setBusy(null);
@@ -126,15 +157,10 @@ export function SessionDataModal(
 		>
 			<p className="lead">
 				{sharedSession
-					? canAdminister
-						? "The rooms and settings everyone attached to this session shares, plus this browser's own view preferences."
-						: "The rooms and settings this capability can see, plus this browser's own view preferences. It cannot replace or reset them."
-					: "The rooms, settings, and view preferences this browser keeps."}{" "}
-				Messages are kept separately, under Message history.
+					? canAdminister ? sessionDataSharedAdminLead : sessionDataSharedLead
+					: sessionDataLocalLead} {sessionDataMessagesApart}
 			</p>
-			<h3 className="well-title overline" id="stateExportLegend">
-				Export a copy
-			</h3>
+			<h3 className="well-title overline" id="stateExportLegend">{sessionDataExportTitle}</h3>
 			<div
 				className="group well"
 				role="group"
@@ -151,16 +177,14 @@ export function SessionDataModal(
 							}}
 						/>
 						<span>
-							<strong>Include remembered capabilities</strong>
-							The file will also hold the links that grant access to rooms, operations, moderation, and
-							any archive{sharedSession ? ", and this session's own capability" : ""}. Anyone with the
-							file could use them.
+							<strong>{sessionDataIncludeCapabilities}</strong>
+							{sessionDataIncludeCapabilitiesSaid(sharedSession)}
 						</span>
 					</label>
 				)}
 				<div className="actions">
 					<Button id="stateDownload" type="button" onClick={download}>
-						Export state
+						{sessionDataExport}
 					</Button>
 				</div>
 				{exported !== "" && <Said id="stateExported" kind="success">{exported}</Said>}
@@ -168,9 +192,7 @@ export function SessionDataModal(
 			</div>
 			{canAdminister && (
 				<>
-					<h3 className="well-title overline" id="stateImportLegend">
-						Replace from a file
-					</h3>
+					<h3 className="well-title overline" id="stateImportLegend">{sessionDataImportTitle}</h3>
 					<form
 						className="group well"
 						role="group"
@@ -182,10 +204,8 @@ export function SessionDataModal(
 					>
 						<Field
 							id="stateImport"
-							label="State file"
-							hint={sharedSession
-								? "Importing replaces the shared session's rooms and settings once the file checks out, and this browser stays attached. A file that carries capabilities grants every one of them."
-								: "Importing replaces this browser's rooms and settings once the file checks out. A file that carries capabilities grants every one of them."}
+							label={sessionStateFile}
+							hint={sharedSession ? sessionDataImportSharedHint : sessionDataImportLocalHint}
 							said={importError}
 						>
 							{(wiring) => (
@@ -207,12 +227,12 @@ export function SessionDataModal(
 								busy={busy === "import"}
 								disabled={file === null || busy !== null}
 							>
-								Import and reload
+								{sessionDataImport}
 							</Button>
 						</div>
 					</form>
 					<h3 className="well-title overline" id="stateClearLegend">
-						{sharedSession ? "Start the session over" : "Start over"}
+						{sharedSession ? sessionDataClearSharedTitle : sessionDataClearLocalTitle}
 					</h3>
 					<div
 						className="group well"
@@ -220,19 +240,15 @@ export function SessionDataModal(
 						aria-labelledby="stateClearLegend"
 					>
 						<p className="hint">
-							{sharedSession
-								? "Everyone attached starts again from no rooms and no settings. The session itself stays, and message archives are not erased."
-								: "This browser forgets its rooms, settings, and remembered capabilities, then goes back to choosing a session. Rooms on servers and archives elsewhere are not erased."}
+							{sharedSession ? sessionDataClearSharedHint : sessionDataClearLocalHint}
 						</p>
 						{confirming
 							? (
 								<Confirm
-									label={sharedSession ? "Reset the shared session" : "Delete this browser's session"}
-									say={sharedSession
-										? "Every attached browser sees an empty session the moment this goes through."
-										: "This browser's message archive goes with it."}
-									keep="Keep it"
-									commit={sharedSession ? "Reset shared session" : "Delete local session"}
+									label={sharedSession ? sessionDataClearSharedLabel : sessionDataClearLocalLabel}
+									say={sharedSession ? sessionDataClearSharedSay : sessionDataClearLocalSay}
+									keep={sessionConfirmKeep}
+									commit={sharedSession ? sessionDataClearSharedCommit : sessionDataClearLocalCommit}
 									busy={busy === "clear"}
 									keepId="stateClearKeep"
 									commitId="stateClear"
@@ -249,7 +265,7 @@ export function SessionDataModal(
 										disabled={busy !== null}
 										onClick={() => setConfirming(true)}
 									>
-										{sharedSession ? "Reset shared session…" : "Delete local session…"}
+										{sharedSession ? sessionDataClearSharedAsk : sessionDataClearLocalAsk}
 									</Button>
 								</div>
 							)}

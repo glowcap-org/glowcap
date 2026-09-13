@@ -3,6 +3,7 @@
 use super::{stewardship::Stewardship, *};
 use crate::Value;
 use rooms_application::room::{
+	carries::Carries,
 	inbox::{self, Notice},
 	membership::{self, Membership, Seat},
 	policy::{MembershipKind, RoomPolicy},
@@ -49,6 +50,9 @@ struct State {
 	membership: Membership<Ref>,
 	inbox: Option<Ref>,
 	listed: Option<bool>,
+	/// What the room said it carries, held by the time joining returns
+	/// because the room states it ahead of the arrival mark.
+	carries: Option<Carries>,
 	ended_reason: Option<String>,
 	arrival: Option<Waker>,
 }
@@ -114,8 +118,14 @@ impl<D: Deadline> Inner<D> {
 			}
 			Notice::Line(message) => {
 				let arrived = message.arrived();
-				if let Some(listed) = message.facts.as_ref().and_then(|f| f.listed) {
-					self.state.borrow_mut().listed = Some(listed);
+				if let Some(facts) = &message.facts {
+					let mut state = self.state.borrow_mut();
+					if let Some(listed) = facts.listed {
+						state.listed = Some(listed);
+					}
+					if let Some(carries) = facts.carries {
+						state.carries = Some(carries);
+					}
 				}
 				let (result, waker) = {
 					let mut d = self.messages.borrow_mut();
@@ -160,6 +170,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 				membership: Membership::new(),
 				inbox: None,
 				listed: None,
+				carries: None,
 				ended_reason: None,
 				arrival: None,
 			}),
@@ -240,6 +251,12 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 	pub fn listed(&self) -> Option<bool> {
 		self.inner.state.borrow().listed
 	}
+	/// What the room said it carries, or None from a room that never said.
+	/// A caller choosing a verb takes the plain one then, because a room
+	/// that has said nothing has promised nothing beyond it.
+	pub fn carries(&self) -> Option<Carries> {
+		self.inner.state.borrow().carries
+	}
 	pub fn kind(&self) -> Result<MembershipKind, Error> {
 		Ok(self.inner.state.borrow().membership.seat()?.kind)
 	}
@@ -258,6 +275,24 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 	}
 	fn seat(&self) -> Result<Ref, Error> {
 		Ok(self.inner.state.borrow().membership.seat()?.reference.clone())
+	}
+	/// The files facet `subscribe` handed over, which `attach` and
+	/// `postFiles` go to. Refused where the room withheld it: a room that
+	/// cannot hold bytes, or an observer seat.
+	fn files(&self) -> Result<Ref, Error> {
+		let state = self.inner.state.borrow();
+		let seat = state.membership.seat()?;
+		Ok(seat.files.clone().ok_or(membership::Error::NoFiles)?)
+	}
+	/// Whether this membership holds the files facet, independently of the
+	/// room's mode: what a composer draws its attach control from.
+	pub fn can_post_files(&self) -> bool {
+		self.inner
+			.state
+			.borrow()
+			.membership
+			.seat()
+			.is_ok_and(|seat| seat.files.is_some())
 	}
 	pub async fn away(&self, reason: &str) -> Result<(), Error> {
 		self.inner

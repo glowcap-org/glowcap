@@ -1,0 +1,235 @@
+---
+.title = "The Rooms protocol",
+.description = "Rooms has no API of its own. Everything a client does is a call on an object it holds, carried by glowcap over OCapN, starting from one published name. Here is every object, how you get it, and what it answers.",
+.date = .date("2026-09-12T00:00:00"),
+.layout = "page.shtml",
+.draft = false,
+---
+
+Rooms has no HTTP API and no message format of its own. Everything a client
+does is a call on an object it holds, carried by glowcap over
+[OCapN](https://github.com/ocapn/ocapn)'s CapTP. The server publishes
+exactly one object by name, `directory`. Every other reference a client ever
+uses was handed back by that object, or by an object it led to. This page
+lays the whole protocol out as it is: objects, the calls they answer, what
+comes back, and how long each thing lives.
+
+If OCapN is new to you, [Why OCapN]($link.page('why')) explains references,
+promises, and introductions from the ground up, and
+[Concepts]($link.page('concepts')) covers locators and durable links.
+
+# The objects
+
+Each card is one object: how you come to hold it, the calls it answers, and
+what it hands back. Everything it hands back is a card of its own, so the
+tiers read as a chain from the one published name down to a single line of
+text. Cool cards live on the server. Warm cards are handed to you and are
+yours to use or pass on. The inbox is the one you make yourself.
+
+```=html
+<div class="objects">
+<p class="objects-tier">Published by the server</p>
+<div class="objects-row">
+<article class="object" data-tone="cool">
+<p class="object-name">directory</p>
+<p class="object-from">Fetch it by name. The one published object.</p>
+<p class="object-calls"><code>open</code> <code>enter</code> <code>list</code> <code>watch</code> <code>register</code> <code>introduce</code> <code>offerInbox</code> <code>link</code></p>
+<p class="object-back">Hands back a <b>room</b>, a <b>name</b>, another member's <b>inbox</b>, or a room link.</p>
+</article>
+<article class="object" data-tone="cool">
+<p class="object-name">inspect and peering</p>
+<p class="object-from">Each is a secret the server prints when started with <code>--diagnostics</code> or <code>--peering</code>. Fetch it like the directory.</p>
+<p class="object-calls"><code>snapshot</code> <code>publishDurableRoom</code></p>
+<p class="object-back">Hands back what the server holds right now, or a lease that answers <code>ready</code> and <code>revoke</code>.</p>
+</article>
+</div>
+<p class="objects-tier">Handed back by the directory</p>
+<div class="objects-row">
+<article class="object" data-tone="cool">
+<p class="object-name">room</p>
+<p class="object-from"><code>open</code> or <code>enter</code>, or a room link.</p>
+<p class="object-calls"><code>subscribe</code> <code>called</code> <code>private</code> <code>roomPolicy</code> <code>managedRoomIdentity</code> <code>link</code></p>
+<p class="object-back">Hands back a <b>seat</b>, a <b>topic</b>, or a room link.</p>
+</article>
+<article class="object" data-tone="warm">
+<p class="object-name">name</p>
+<p class="object-from"><code>register</code>, with the name you want.</p>
+<p class="object-calls"><code>voucher</code></p>
+<p class="object-back">Hands back proof that you hold this name, for a second connection.</p>
+</article>
+<article class="object" data-tone="warm">
+<p class="object-name">manager</p>
+<p class="object-from">The management link <code>openManaged</code> hands you.</p>
+<p class="object-calls"><code>link</code> <code>giveSteward</code> <code>revokeSteward</code> <code>revokeRoomLink</code> <code>setRoomPolicy</code> <code>unregisterRoom</code> <code>managedRoomIdentity</code></p>
+<p class="object-back">Hands back a reissued room link or the room's <b>steward</b>.</p>
+</article>
+<article class="object" data-tone="warm">
+<p class="object-name">steward</p>
+<p class="object-from"><code>giveSteward</code> on the manager, or the operator's admin page. Minted once per room; asking again hands back the same one.</p>
+<p class="object-calls"><code>kick</code> <code>governs</code></p>
+<p class="object-back">Hands back nothing. A member is asked to leave.</p>
+</article>
+</div>
+<p class="objects-tier">Handed back by a room</p>
+<div class="objects-row">
+<article class="object" data-tone="warm">
+<p class="object-name">seat</p>
+<p class="object-from"><code>subscribe</code>, with your <b>inbox</b>.</p>
+<p class="object-calls"><code>post</code> <code>postFiles</code> <code>attach</code> <code>history</code> <code>typing</code> <code>away</code> <code>leave</code> <code>membershipKind</code> <code>mintInvitation</code></p>
+<p class="object-back">Hands back a <b>line</b>, an <b>upload</b>, an <b>invitation</b>, or the lines the room kept.</p>
+</article>
+<article class="object" data-tone="warm">
+<p class="object-name">topic</p>
+<p class="object-from">The third slot of <code>subscribe</code>'s answer, for participants.</p>
+<p class="object-calls"><code>setTopic</code></p>
+<p class="object-back">Hands back nothing. The room tells everyone.</p>
+</article>
+</div>
+<p class="objects-tier">Handed back by your seat</p>
+<div class="objects-row">
+<article class="object" data-tone="warm">
+<p class="object-name">line</p>
+<p class="object-from"><code>post</code>. The line you just said.</p>
+<p class="object-calls"><code>edit</code> <code>withdraw</code> <code>refile</code></p>
+<p class="object-back">Hands back nothing. The room tells everyone through their inbox.</p>
+</article>
+<article class="object" data-tone="warm">
+<p class="object-name">upload and blob</p>
+<p class="object-from"><code>attach</code> hands you one upload per file. The room hands everyone a blob for it.</p>
+<p class="object-calls"><code>write</code> <code>discard</code> <code>read</code></p>
+<p class="object-back">Bytes go in through the upload and come out of the blob, from an offset, up to a length.</p>
+</article>
+<article class="object" data-tone="warm">
+<p class="object-name">invitation</p>
+<p class="object-from"><code>mintInvitation</code> on a seat.</p>
+<p class="object-calls"><code>claimInvitation</code></p>
+<p class="object-back">Hands back the <b>room</b>, exactly once. Then <code>subscribe</code> for a seat.</p>
+</article>
+</div>
+<p class="objects-tier">Yours</p>
+<div class="objects-row">
+<article class="object" data-tone="own">
+<p class="object-name">inbox</p>
+<p class="object-from">You make it, and hand it to rooms and to the directory. Rooms call <code>notify</code> on it; other members call the rest.</p>
+<p class="object-calls"><code>notify</code> <code>dm</code> <code>directReady</code> <code>handRoom</code> <code>offerRoom</code> <code>handArchive</code> <code>offerArchive</code></p>
+<p class="object-back">Receives every line a room sends you, and whatever another member hands you directly.</p>
+</article>
+</div>
+</div>
+```
+
+Two things about these cards are the whole design. Nothing checks who is
+calling: a member without the line reference cannot form the `edit` at all,
+so there is nothing to check. And a reference can be handed on. Give your
+line's reference to someone and they can take the line down; give the topic
+reference to a bot and it can keep the topic, without the room learning what
+a bot is.
+
+# What the room tells you
+
+The room calls `notify` on your inbox. After the text, a line carries a tag
+that says what kind of thing it is. A client that does not know a tag skips
+it and draws the line anyway, so the room can say more over time without
+every client being rebuilt first.
+
+| Tag | Then | Meaning |
+| --- | --- | --- |
+| `line` | id, then any file records | An ordinary line, under the id this room knows it by |
+| `edited` | id | That line now reads as this text |
+| `refiled` | id, then the new file records | That line's files are now exactly these |
+| `withdrawn` | id | That line is taken back |
+| `roster` | names | Who is here, sent when you arrive |
+| `join`, `leave` | name | Someone came or went |
+| `typing` | name, on or off | Someone is typing, never stored |
+| `away` | name, reason | Someone stepped away; an empty reason means they are back |
+| `topic` | text | What the room is about; empty means taken down |
+| `line-bytes` | a number | The longest line this room will carry |
+| `listed`, `unlisted` | | Whether this room is on the public list, sent when you arrive |
+| `membershipEnded` | | This room no longer holds the seat behind your inbox |
+
+# How long each thing lives
+
+| What | Lives as long as | To get it again |
+| --- | --- | --- |
+| A room entrance reference | Your connection to the server | `enter` by name, or redeem the room's link |
+| A seat | Until you `leave`, are kicked, or disconnect | `subscribe` again |
+| A line reference | Your connection | It is not reissued; hand it on if someone else should hold it |
+| A room link | Until the manager releases it | It is a string; keep it |
+| An invitation | One use | `mintInvitation` again |
+| A direct connection | Until either side closes it | Ask the directory to introduce you again |
+| A steward | Until the room's authority is rotated | Ask the manager again; it hands back the same one |
+| An admin secret | Until the server restarts without a data directory | It is written into the data directory |
+
+A live reference dies with its connection. When room entry has to outlive that,
+Rooms asks the server for a durable link, an OCapN sturdyref. The link preserves
+the authority to enter and the room's stable identity. It does not preserve a
+live room or membership. Redeeming it answers a fresh entrance reference, and
+the first successful subscription reconstitutes the room after the last
+membership leaves or the server restarts. Nothing in a link says what it opens,
+so a private room's link says nothing about the room's label, and the label says
+nothing about the link.
+
+# An introduction, call by call
+
+A direct conversation is the introduction OCapN calls a three-party handoff.
+Here it is as the calls that make it, with Mira asking to message the lead
+bot:
+
+| Step | Who calls | Call | What happens |
+| --- | --- | --- | --- |
+| 1 | Both, earlier | `register` on the directory, then `offerInbox` | Each has a name and has offered the server an inbox for introductions |
+| 2 | Mira | `introduce` on the directory, naming the bot | The server hands Mira a reference to the inbox the bot offered |
+| 3 | Mira's peer | Redeems that reference with the bot's peer | A connection opens between the two peers. The server is not on it |
+| 4 | Mira | `dm` on the bot's inbox, with her own reply inbox alongside | The first line arrives, and the bot's replies come back to that inbox. When Mira's side cannot be dialed, `directReady` hands the reply inbox over instead |
+| 5 | Either | `handRoom`, `offerRoom`, `handArchive`, `offerArchive` | References move between them over the same connection, as live handoffs or as durable links |
+
+When the two peers are browsers, WebRTC's connection details travel through
+the directory as `offerSignaling`, `signalOffer`, `signalAnswer`, and
+`signalCandidate`, until the two are talking and the server drops out.
+
+# Files, call by call
+
+| Step | Call | On | What happens |
+| --- | --- | --- | --- |
+| 1 | `attach` | your seat | One **upload** reference per file |
+| 2 | `postFiles` | your seat | The line is posted with its file records, and every member gets a **blob** per file at once |
+| 3 | `write`, chunk by chunk | the upload | Bytes arrive at the room |
+| 4 | `read` with offset and length | the blob | A member reads; a read that reaches bytes still on their way in waits for them |
+
+In a direct conversation the sender hosts the blob on the direct connection
+and the other side reads it the same way. The room never sees those bytes.
+
+# What OCapN gives Rooms
+
+- **No ambient authority.** There is no account table and no permission
+  check by name anywhere in the tables above. If you can form the call, you
+  may make it, because forming it means holding the reference.
+- **Introductions across three parties.** The server can hand you a
+  reference to something another peer hosts, and your peer redeems it with
+  them directly. Direct messages, invitations, and shared archives are all
+  this one move.
+- **Promises.** A call answers a promise, so a client can keep sending to a
+  room while its `open` is still on the way back.
+- **Durable links.** A sturdyref names behavior that a Host can reconstitute
+  across restarts and connections. A room link reconstitutes an entrance, not
+  the prior live room or membership. Room links, invitations, and admin secrets
+  are all sturdyrefs.
+
+The vocabulary is written once and shared. `lib/protocol.ts` in the
+repository is the readable specification, `zig build gen-rooms-protocol`
+generates the core verbs into each client, and clients in Zig, Rust, Python,
+Racket, TypeScript, and the browser all speak it. So does a
+[Spritely Goblins](https://spritely.institute/) program: it can sit in a
+room and answer a direct message, with nothing in Goblins changed to allow
+it, because the protocol is only OCapN.
+
+Every verb above, with the reasoning behind it, lives beside the code:
+[`protocol.ts`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol.ts)
+for the directory, rooms, seats, lines, files, and introductions, and its
+siblings for
+[handover](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_handover.ts),
+[IRC](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_irc.ts),
+and the
+[admin objects](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_operator.ts).
+[How Rooms works]($link.page('rooms/architecture')) shows how the code that
+speaks it is divided.

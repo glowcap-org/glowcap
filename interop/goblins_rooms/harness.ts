@@ -21,7 +21,7 @@
 //      member subscribes names which member that session carries.
 //   4. The vat reports its own end of that session to the same stream, and the
 //      two ends name the session identically. The vat is pointed at the
-//      endpoint with `GLOWCAP_ROOMS_VIZ_URL`, so the wire it holds is described twice,
+//      endpoint with `GLOWCAP_ROOMS_TRACE_URL`, so the wire it holds is described twice,
 //      once from each side. A viewer draws one edge per OCapN Session ID, and
 //      neither end is ever told that name — each derives it from the two
 //      session keys the handshake exchanged. So this is where glowcap's
@@ -34,7 +34,7 @@
 import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
 import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
 import { CAPTP_VERSION_WIRE, type TraceEvent } from "@glowcap/runtime";
-import { connectVizViewer, vizUrlOf } from "../../apps/rooms/test/viz/viewer.ts";
+import { connectTraceViewer, traceUrlOf } from "../../apps/rooms/test/trace/viewer.ts";
 
 /** `--iroh` runs the same room over encrypted QUIC instead of cleartext TCP.
  *
@@ -75,7 +75,7 @@ function fail(message: string): never {
  * `readAnnouncedLocator`; this is the other announcement, and it is a sturdyref
  * rather than an address: a viewer enlivens it, and it names where the endpoint
  * listens for the producers that write to it. */
-async function awaitVizSturdyref(stream: ReadableStream<Uint8Array>): Promise<string> {
+async function awaitTraceSturdyref(stream: ReadableStream<Uint8Array>): Promise<string> {
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
 	let buf = "";
@@ -84,7 +84,7 @@ async function awaitVizSturdyref(stream: ReadableStream<Uint8Array>): Promise<st
 		const { value, done } = await reader.read();
 		if (done) break;
 		buf += decoder.decode(value, { stream: true });
-		const m = buf.match(/ROOMS-VIZ-LISTENING (\S+)/);
+		const m = buf.match(/ROOMS-TRACE-LISTENING (\S+)/);
 		if (m) {
 			drainToLog(reader, decoder).catch(() => {});
 			return m[1];
@@ -134,7 +134,7 @@ interface SessionRow {
  *
  * Records arrive through a capability rather than as frames off a socket: the
  * endpoint hands them to an inbox this viewer spawns, after enlivening the
- * sturdyref the server announced. `viz_viewer.ts` is the one place that
+ * sturdyref the server announced. `trace_viewer.ts` is the one place that
  * connection is made, so this harness reads the endpoint through exactly the
  * shape the browser proofs and production ocapnviz do.
  *
@@ -146,7 +146,7 @@ async function watchTrace(
 	sturdyref: string,
 ): Promise<{ rows: Map<string, SessionRow>; close: () => Promise<void> }> {
 	const rows = new Map<string, SessionRow>();
-	const viewer = await connectVizViewer(sturdyref, (record) => {
+	const viewer = await connectTraceViewer(sturdyref, (record) => {
 		const ev = record as unknown as TraceEvent;
 		const row = rows.get(ev.session) ?? {};
 		if (ev.kind === "ocapn.session-opened") {
@@ -231,8 +231,8 @@ const roomsServer = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") ??
 const server = new Deno.Command(roomsServer, {
 	// iroh addresses an endpoint by id, so there is no port to pin.
 	args: IROH
-		? ["--transport=iroh", "--reachability=direct", "--viz", "--viz-port=0"]
-		: ["--transport=tcp", "--port=0", "--viz", "--viz-port=0"],
+		? ["--transport=iroh", "--reachability=direct", "--trace", "--trace-port=0"]
+		: ["--transport=tcp", "--port=0", "--trace", "--trace-port=0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "piped",
@@ -243,18 +243,18 @@ let trace: { rows: Map<string, SessionRow>; close: () => void } | null = null;
 try {
 	// Both announcements come out before the first member dials: the trace URL on
 	// stderr, the room's own locator on stdout.
-	const vizRef = await awaitVizSturdyref(server.stderr);
+	const traceRef = await awaitTraceSturdyref(server.stderr);
 	const locator = await readAnnouncedLocator(server, ANNOUNCE_MS);
 	drainRest(server.stdout);
-	console.log(`${GATE}: rooms server at ${locator}, live trace at ${vizRef}`);
+	console.log(`${GATE}: rooms server at ${locator}, live trace at ${traceRef}`);
 
-	trace = await watchTrace(vizRef);
+	trace = await watchTrace(traceRef);
 	// The vat is a producer rather than a viewer, and the two halves of this
 	// endpoint are reached differently: a viewer enlivens the capability above,
 	// while a producer opens a socket and writes records to it. So the vat is
 	// told where the endpoint listens, which the endpoint itself names in the
 	// sturdyref it announced.
-	const publishUrl = vizUrlOf(vizRef);
+	const publishUrl = traceUrlOf(traceRef);
 
 	// Both members enter the same room and each waits to hear the other. The
 	// glowcap client posts once its whole roster is present; the Goblins vat
@@ -282,7 +282,7 @@ try {
 				GLOWCAP_NICK,
 			],
 			ROOT,
-			{ GLOWCAP_ROOMS_VIZ_URL: publishUrl },
+			{ GLOWCAP_ROOMS_TRACE_URL: publishUrl },
 		),
 	]);
 
@@ -323,7 +323,7 @@ try {
 	expectTransport(goblinsServerView, `${GOBLINS_NICK} at the room`);
 	expectTransport(glowcapServerView, `${GLOWCAP_NICK} at the room`);
 
-	// The vat is a PRODUCER here, not only a member: `GLOWCAP_ROOMS_VIZ_URL` above points
+	// The vat is a PRODUCER here, not only a member: `GLOWCAP_ROOMS_TRACE_URL` above points
 	// it at the same endpoint the server publishes to, so the wire it holds is
 	// reported from both of its ends. What has to hold is that the two reports
 	// name one wire and not two — a viewer draws one edge per OCapN Session ID,

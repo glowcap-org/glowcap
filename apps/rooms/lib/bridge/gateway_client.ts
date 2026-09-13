@@ -39,10 +39,12 @@ export async function snapshotBridgeGateway(session: Session, cap: Ref): Promise
 	return parseBridgeGateway(raw);
 }
 
-async function withConnection<T>(session: Session, connection: Ref, use: (connection: Ref) => Promise<T>): Promise<T> {
+/** `run` rather than `use`: React 19's hook of that name is what the
+ * hook-ordering lint matches on, and this is a resource bracket. */
+async function withConnection<T>(session: Session, connection: Ref, run: (connection: Ref) => Promise<T>): Promise<T> {
 	let answer: T;
 	try {
-		answer = await use(connection);
+		answer = await run(connection);
 	} catch (error) {
 		throw await retainCleanupFailures(error, [() => session.release(connection)]);
 	}

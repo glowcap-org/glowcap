@@ -9,9 +9,10 @@
 
 import type { ReactNode, Ref } from "react";
 import { IconButton } from "./IconButton.tsx";
+import { modalClose } from "../../lib/text/controls.ts";
 
 export function ModalHead(
-	{ titleId, title, closeId, closeLabel = "Close", closeRef, actions, onClose }: {
+	{ titleId, title, closeId, closeLabel = modalClose, closeRef, actions, onClose }: {
 		titleId?: string;
 		title: ReactNode;
 		closeId?: string;

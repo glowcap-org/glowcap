@@ -1,3 +1,4 @@
+// Two durable Rooms sessions restore and exchange one direct conversation across real peers.
 import { parseSturdyRef } from "@glowcap/runtime";
 import { RoomsSessionClient } from "../../lib/session/client.ts";
 import { loopbackTcpDesignator, roomsAddress, roomsHost, roomsLocator } from "../../lib/locator.ts";

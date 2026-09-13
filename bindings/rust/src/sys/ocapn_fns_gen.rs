@@ -17,7 +17,7 @@ use super::ocapn::{
 	GlowcapLocatorHintView, GlowcapLocatorView, GlowcapManagedFrame, GlowcapSturdyRef,
 };
 
-extern "C" {
+unsafe extern "C" {
 	pub fn glowcap_ocapn_archive_fingerprint() -> u64;
 	pub fn glowcap_abi_version(out_major: *mut u32, out_minor: *mut u32, out_patch: *mut u32);
 	pub fn glowcap_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;

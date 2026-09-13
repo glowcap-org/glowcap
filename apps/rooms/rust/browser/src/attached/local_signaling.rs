@@ -1,8 +1,8 @@
 //! Browser listeners follow the shared runtime's actual registrations. Name
 //! ownership, reconnect proofs and generation retirement stay in that runtime.
-use super::{retain, signaling::Signaling, Result};
+use super::{Result, TroubleReporter, retain, signaling::Signaling};
 use crate::{ice, platform::Platform, signaling::Listener};
-use rooms_runtime::directory_runtime::{DirectoryRuntime, RegisteredDirectory};
+use rooms_runtime::directories::runtime::{DirectoryRuntime, RegisteredDirectory};
 use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, rc::Rc};
 use tokio::{sync::watch, task::JoinSet};
 
@@ -18,17 +18,20 @@ impl Owner {
 		routes: Rc<Signaling>,
 		ice: ice::Source,
 		admission: super::peers::Admission,
+		trouble: TroubleReporter,
 	) -> Self {
 		let (stop, stopping) = watch::channel(false);
 		let (finished, ended) = watch::channel(None);
 		let shutdown = stop.clone();
 		tokio::task::spawn_local(async move {
-			finished.send_replace(Some(run(directories, routes, ice, stopping, shutdown, admission).await));
+			finished.send_replace(Some(
+				run(directories, routes, ice, stopping, shutdown, admission, trouble).await,
+			));
 		});
 		Self { stop, ended }
 	}
 	pub async fn ended(&self) -> Result<()> {
-		super::connections::terminal(&mut self.ended.clone()).await
+		super::connections::settled(&mut self.ended.clone()).await
 	}
 	pub async fn close(&self) -> Result<()> {
 		self.stop.send_replace(true);
@@ -45,9 +48,6 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
 		let _ = stop.changed().await;
 	}
 }
-fn report(error: &str) {
-	web_sys::console::error_1(&format!("Rooms WebRTC: {error}").into());
-}
 async fn run(
 	directories: DirectoryRuntime<Platform>,
 	routes: Rc<Signaling>,
@@ -55,6 +55,7 @@ async fn run(
 	mut stop: watch::Receiver<bool>,
 	shutdown: watch::Sender<bool>,
 	admission: super::peers::Admission,
+	trouble: TroubleReporter,
 ) -> Result<()> {
 	let mut changes = directories.changes();
 	let mut held = BTreeMap::<String, Lease>::new();
@@ -73,14 +74,20 @@ async fn run(
 				continue;
 			}
 			held.insert(key.clone(), lease.clone());
-			let (routes, ice, rejections, stop, admission) = (
+			let (routes, ice, rejections, stop, admission, trouble) = (
 				routes.clone(),
 				ice.clone(),
 				rejections.clone(),
 				stop.clone(),
 				admission.clone(),
+				trouble.clone(),
 			);
-			listeners.spawn_local(async move { (key, listen(lease, routes, ice, rejections, stop, admission).await) });
+			listeners.spawn_local(async move {
+				(
+					key,
+					listen(lease, routes, ice, rejections, stop, admission, trouble).await,
+				)
+			});
 		}
 		tokio::select! { biased;
 			() = stopped(&mut stop) => break,
@@ -88,12 +95,18 @@ async fn run(
 			ended = listeners.join_next(), if !listeners.is_empty() => {
 				match ended {
 					Some(Ok((key, result))) => { held.remove(&key); outcome = retain(outcome, result); },
-					Some(Err(error)) => { outcome = retain(outcome, Err(error.to_string())); break; },
+					Some(Err(error)) => {
+						trouble.report("WebRTC signaling", &error.to_string());
+						outcome = retain(outcome, Err(error.to_string()));
+						break;
+					},
 					None => unreachable!("nonempty listener set"),
 				}
 			},
 			Some(ended) = poll_fn(|cx| rejections.borrow_mut().poll_join_next(cx)) => {
-				if let Err(error) = ended.map_err(|e| e.to_string()).and_then(|result| result) { report(&error); }
+				if let Err(error) = ended.map_err(|e| e.to_string()).and_then(|result| result) {
+					trouble.report("WebRTC signaling", &error);
+				}
 			},
 		}
 	}
@@ -113,6 +126,7 @@ async fn listen(
 	rejections: Rejections,
 	mut stop: watch::Receiver<bool>,
 	admission: super::peers::Admission,
+	trouble: TroubleReporter,
 ) -> Result<()> {
 	let mut delay = 1_000;
 	while lease.current() && !*stop.borrow() {
@@ -124,6 +138,7 @@ async fn listen(
 				routes.member(lease.clone());
 				let (pressure, mut pressured) = watch::channel(false);
 				let accepting = rejections.clone();
+				let reporting = trouble.clone();
 				let admission = admission.clone();
 				let fresh = ice.clone();
 				let result = listener
@@ -143,7 +158,7 @@ async fn listen(
 							let session = match accepted {
 								Ok(session) => session,
 								Err(error) => {
-									report(&error.to_string());
+									reporting.report("WebRTC signaling", &error.to_string());
 									return;
 								}
 							};
@@ -151,7 +166,7 @@ async fn listen(
 								let session = refused.session;
 								pressure.send_replace(true);
 								if refused.capacity {
-									report("Incoming connection capacity is exhausted");
+									reporting.report("WebRTC signaling", "Incoming connection capacity is exhausted");
 								}
 								accepting.borrow_mut().spawn_local(async move {
 									session
@@ -174,7 +189,7 @@ async fn listen(
 			return result;
 		}
 		if let Err(error) = result {
-			report(&error);
+			trouble.report("WebRTC signaling", &error);
 		}
 		tokio::select! { biased;
 			() = stopped(&mut stop) => return Ok(()),

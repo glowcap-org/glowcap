@@ -6,9 +6,12 @@ import { NO_MEMBERS, type PageProjection, type State } from "./store.ts";
 import { mayObserve } from "../../lib/session/access_view.ts";
 import { useRoomsController } from "./controller/browser.ts";
 import { effectiveRoomsSessionAccess } from "./controller/access.ts";
-import type { Standing } from "./types.ts";
+import type { RoomConv, Standing } from "./types.ts";
+import type { RoomsPageContext } from "./page.ts";
+import { archiveShareBearer, roomBearer, type RoomBearerKind } from "./session/bearer.ts";
 
 const RoomsProjectionContext = createContext<PageProjection | null>(null);
+const RoomsPageReactContext = createContext<RoomsPageContext | null>(null);
 
 /** The page's presentation, for as long as the page. Every tree the page
  * renders stands in it, including the screen that runs before any session
@@ -16,12 +19,35 @@ const RoomsProjectionContext = createContext<PageProjection | null>(null);
  * established page opens. `PageSurface` in main.tsx is where it goes on. */
 export const RoomsProjectionProvider = RoomsProjectionContext.Provider;
 
+/** The page itself, beside its projection, for the few controls that read
+ * something the store deliberately does not hold: a bearer string. */
+export const RoomsPageProvider = RoomsPageReactContext.Provider;
+
 export function useRoomsProjection(): PageProjection {
 	const projection = useContext(RoomsProjectionContext);
 	if (projection == null) {
 		throw new Error("rooms: the page projection was requested outside its provider");
 	}
 	return projection;
+}
+
+export function useRoomsPage(): RoomsPageContext {
+	const page = useContext(RoomsPageReactContext);
+	if (page == null) throw new Error("rooms: the page was requested outside its provider");
+	return page;
+}
+
+/** The bearer string behind a room's authority token, read from the session
+ * snapshot as the control draws. The token on the conversation is what moves
+ * when the string does, so a control drawing from `conv` reads the current
+ * string every time it draws. */
+export function useRoomBearer(conv: RoomConv, kind: RoomBearerKind): string | null {
+	return roomBearer(useRoomsPage(), conv, kind);
+}
+
+/** The link behind a lasting archive share, read the same way. */
+export function useArchiveShareBearer(id: string): string | null {
+	return archiveShareBearer(useRoomsPage(), id);
 }
 
 /** Subscribe a component to the projection it renders. The selector result is

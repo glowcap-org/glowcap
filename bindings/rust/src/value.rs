@@ -1,7 +1,7 @@
 //! Host-scoped capability identities and Passable value projection.
 
 #[cfg(feature = "async")]
-use crate::{sys, Error, Result};
+use crate::{Error, Result, sys};
 
 /// An opaque capability identity in one Host. It is never a wire position and
 /// its shape does not reveal whether the target is local, remote, or routed
@@ -353,40 +353,45 @@ fn set_bytes(c: &mut sys::GlowcapArgument, kind: u32, b: &[u8]) {
 /// for the duration of the call.
 #[cfg(feature = "async")]
 pub(crate) unsafe fn arg_from_sys(c: &sys::GlowcapArgument) -> Result<Argument> {
-	Ok(match c.kind {
-		sys::ARG_INTEGER => Argument::Integer(c.integer),
-		sys::ARG_FLOAT64 => Argument::Float(c.float64),
-		sys::ARG_BOOLEAN => Argument::Boolean(c.boolean != 0),
-		sys::ARG_BYTES => Argument::Bytes(bytes_from_sys(c)),
-		sys::ARG_STRING => Argument::String(text_from_sys(c)),
-		sys::ARG_SYMBOL => Argument::Symbol(text_from_sys(c)),
-		sys::ARG_ERROR => Argument::Error(text_from_sys(c)),
-		sys::ARG_REFERENCE => Argument::Reference(Ref::from_sys(&c.reference)),
-		sys::ARG_LIST => Argument::List(args_from_sys(c.items, c.items_len)?),
-		sys::ARG_SET => Argument::Set(args_from_sys(c.items, c.items_len)?),
-		sys::ARG_TAGGED => Argument::Tagged {
-			tag: text_from_sys(c),
-			value: args_from_sys(c.items, c.items_len)?,
-		},
-		sys::ARG_KEYWORD => Argument::Keyword(text_from_sys(c)),
-		sys::ARG_VOID => Argument::Void,
-		sys::ARG_BIG_INTEGER => Argument::BigInteger {
-			negative: c.boolean != 0,
-			digits: text_from_sys(c),
-		},
-		sys::ARG_STRUCT => Argument::Struct(struct_from_sys(c.items, c.items_len)?),
-		other => {
-			return Err(Error::with_detail(
-				sys::ERR_INTERNAL,
-				format!("glowcap ABI returned unknown argument kind {other}"),
-			))
+	// SAFETY: every arm reads the view the caller's contract above declares
+	// live, so one block covers the whole projection rather than repeating that
+	// one sentence at a dozen leaves.
+	Ok(unsafe {
+		match c.kind {
+			sys::ARG_INTEGER => Argument::Integer(c.integer),
+			sys::ARG_FLOAT64 => Argument::Float(c.float64),
+			sys::ARG_BOOLEAN => Argument::Boolean(c.boolean != 0),
+			sys::ARG_BYTES => Argument::Bytes(bytes_from_sys(c)),
+			sys::ARG_STRING => Argument::String(text_from_sys(c)),
+			sys::ARG_SYMBOL => Argument::Symbol(text_from_sys(c)),
+			sys::ARG_ERROR => Argument::Error(text_from_sys(c)),
+			sys::ARG_REFERENCE => Argument::Reference(Ref::from_sys(&c.reference)),
+			sys::ARG_LIST => Argument::List(args_from_sys(c.items, c.items_len)?),
+			sys::ARG_SET => Argument::Set(args_from_sys(c.items, c.items_len)?),
+			sys::ARG_TAGGED => Argument::Tagged {
+				tag: text_from_sys(c),
+				value: args_from_sys(c.items, c.items_len)?,
+			},
+			sys::ARG_KEYWORD => Argument::Keyword(text_from_sys(c)),
+			sys::ARG_VOID => Argument::Void,
+			sys::ARG_BIG_INTEGER => Argument::BigInteger {
+				negative: c.boolean != 0,
+				digits: text_from_sys(c),
+			},
+			sys::ARG_STRUCT => Argument::Struct(struct_from_sys(c.items, c.items_len)?),
+			other => {
+				return Err(Error::with_detail(
+					sys::ERR_INTERNAL,
+					format!("glowcap ABI returned unknown argument kind {other}"),
+				));
+			}
 		}
 	})
 }
 
 #[cfg(feature = "async")]
 unsafe fn struct_from_sys(ptr: *const sys::GlowcapArgument, len: usize) -> Result<Vec<(String, Argument)>> {
-	if len % 2 != 0 {
+	if !len.is_multiple_of(2) {
 		return Err(Error::with_detail(
 			sys::ERR_INTERNAL,
 			"glowcap ABI returned an odd Struct item count".into(),
@@ -397,21 +402,25 @@ unsafe fn struct_from_sys(ptr: *const sys::GlowcapArgument, len: usize) -> Resul
 	}
 	let mut entries = Vec::with_capacity(len / 2);
 	for i in (0..len).step_by(2) {
-		let key = &*ptr.add(i);
+		// SAFETY: the caller declares `len` valid entries at `ptr`, and the
+		// odd-count and null refusals above have already run, so both indices
+		// are in range.
+		let key = unsafe { &*ptr.add(i) };
 		if key.kind != sys::ARG_STRING {
 			return Err(Error::with_detail(
 				sys::ERR_INTERNAL,
 				"glowcap ABI returned a non-String Struct key".into(),
 			));
 		}
-		entries.push((text_from_sys(key), arg_from_sys(&*ptr.add(i + 1))?));
+		entries.push(unsafe { (text_from_sys(key), arg_from_sys(&*ptr.add(i + 1))?) });
 	}
 	Ok(entries)
 }
 
 #[cfg(feature = "async")]
 unsafe fn bytes_from_sys(c: &sys::GlowcapArgument) -> Vec<u8> {
-	owned_from_view(c.bytes, c.bytes_len)
+	// SAFETY: the caller's live-view contract is exactly `owned_from_view`'s.
+	unsafe { owned_from_view(c.bytes, c.bytes_len) }
 }
 
 /// Lift a borrowed text view into one owned `String` with one copy. Going
@@ -428,7 +437,9 @@ unsafe fn text_from_sys(c: &sys::GlowcapArgument) -> String {
 	if c.bytes.is_null() || c.bytes_len == 0 {
 		return String::new();
 	}
-	String::from_utf8_lossy(core::slice::from_raw_parts(c.bytes, c.bytes_len)).into_owned()
+	// SAFETY: the caller declares the view live, and the guard above has already
+	// taken the null and empty cases `from_raw_parts` refuses.
+	String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(c.bytes, c.bytes_len) }).into_owned()
 }
 
 /// Copy a borrowed C byte view (`ptr`, `len`) into an owned `Vec`, guarding the
@@ -444,7 +455,9 @@ pub(crate) unsafe fn owned_from_view(ptr: *const u8, len: usize) -> Vec<u8> {
 	if ptr.is_null() || len == 0 {
 		Vec::new()
 	} else {
-		core::slice::from_raw_parts(ptr, len).to_vec()
+		// SAFETY: the caller declares `len` readable bytes at `ptr`, and the
+		// arm above has taken the null and zero-length cases the doc names.
+		unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec()
 	}
 }
 
@@ -458,7 +471,9 @@ pub(crate) unsafe fn args_from_sys(ptr: *const sys::GlowcapArgument, len: usize)
 	if ptr.is_null() {
 		return Ok(Vec::new());
 	}
-	(0..len).map(|i| arg_from_sys(&*ptr.add(i))).collect()
+	// SAFETY: the caller declares `len` valid arguments at `ptr`, and the null
+	// case returned above.
+	(0..len).map(|i| unsafe { arg_from_sys(&*ptr.add(i)) }).collect()
 }
 
 #[cfg(all(test, feature = "async"))]

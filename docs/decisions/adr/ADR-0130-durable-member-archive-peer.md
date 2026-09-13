@@ -104,5 +104,5 @@ TCP/direct-iroh restart and signal shutdown of the installed executable.
 restart, update continuity, torn-tail recovery, strict corruption refusal,
 resident and disk bounds, single-writer custody, the v1/Syrup wire profile, and
 redemption of the same sturdyref after a process restart. The Rooms server
-suite and `zig build check` include that step. ADR-0131 owns the browser
+suite and `zig build runtime-check` include that step. ADR-0131 owns the browser
 selection proof.

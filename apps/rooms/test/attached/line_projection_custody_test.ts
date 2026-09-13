@@ -1,3 +1,4 @@
+// Line projection releases every rejected or replaced capability occurrence it was handed.
 /// <reference lib="dom" />
 
 import type { Attachment } from "../../lib/attachment.ts";
@@ -37,6 +38,7 @@ function event(name: string, overrides: Partial<RoomsSessionLineEvent> = {}): Ro
 		editable: false,
 		history: null,
 		system: false,
+		previewUrls: [],
 		attachments: [attachment(name)],
 		...overrides,
 	};
@@ -76,7 +78,16 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 	const room = store.activeConv(page.projection);
 	if (room?.type !== "room") throw new Error("the line-custody fixture created no room");
 	store.patchDir(page.projection, room.dir, { nick: "ada", session: "connected" });
-	const optimistic = store.chatItem(page.projection, "ada", "pending words", true, "sending");
+	const optimistic = store.chatItem(
+		page.projection,
+		"ada",
+		"pending words",
+		true,
+		"sending",
+		undefined,
+		undefined,
+		["https://preview.example/"],
+	);
 	const optimisticAt = optimistic.at;
 	const optimisticHistory = { source: "archive", generation: "pending", id: "pending-line" };
 	store.deliver(page.projection, room.key, optimistic);
@@ -92,7 +103,14 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 	const confirmed = store.historyOf(page.projection, room.key).find((item) => item.id === optimistic.id);
 	assertEquals(
 		confirmed?.kind === "chat"
-			? [confirmed.state, confirmed.lineId, confirmed.held, confirmed.at, confirmed.history]
+			? [
+				confirmed.state,
+				confirmed.lineId,
+				confirmed.held,
+				confirmed.at,
+				confirmed.history,
+				confirmed.previewUrls,
+			]
 			: null,
 		[
 			undefined,
@@ -100,6 +118,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 			true,
 			optimisticAt,
 			optimisticHistory,
+			[],
 		],
 	);
 	assertEquals(
@@ -122,6 +141,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 		at: optimisticAt + 60_000,
 		order: 2,
 		state: "present",
+		previewUrls: [],
 		attachments: [],
 	}], files);
 	assertEquals(
@@ -181,6 +201,38 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 		"replaying one line replaced its settled attachment view",
 	);
 	assertEquals(released.at(-1), "live.txt", "the replayed capability occurrence was not released");
+
+	const firstPreview = "https://example.com/first";
+	const secondPreview = "https://example.com/second";
+	projection.line(event("previews", {
+		text: `${firstPreview} ${secondPreview}`,
+		lineId: 4,
+		previewUrls: [firstPreview, secondPreview],
+		attachments: [],
+	}));
+	const previewUrls = () => {
+		const item = store.historyOf(page.projection, room.key).find((candidate) =>
+			candidate.kind === "chat" && candidate.lineId === 4
+		);
+		return item?.kind === "chat" ? item.previewUrls : null;
+	};
+	assertEquals(previewUrls(), [firstPreview, secondPreview]);
+	projection.line(event("previews-edited", {
+		text: secondPreview,
+		lineId: 4,
+		change: "edited",
+		previewUrls: [secondPreview],
+		attachments: [],
+	}));
+	assertEquals(previewUrls(), [secondPreview]);
+	projection.line(event("previews-withdrawn", {
+		text: "",
+		lineId: 4,
+		change: "withdrawn",
+		previewUrls: [],
+		attachments: [],
+	}));
+	assertEquals(previewUrls(), undefined);
 	store.clearHistory(page.projection, room.key);
 	assertEquals(released.at(-1), "live.txt");
 	files.close();

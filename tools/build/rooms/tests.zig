@@ -1,13 +1,14 @@
 //! Rooms' self-contained Deno test inventory and build steps. The application
 //! build composes this subject; this module owns how the suite is cached,
-//! divided into bounded processes, and attached to `check`.
+//! divided into bounded processes, and attached to `runtime-check`.
 
 const std = @import("std");
 const common = @import("../common.zig");
+const execution = @import("../execution.zig");
 
 pub const Context = struct {
     b: *std.Build,
-    check_step: *std.Build.Step,
+    runtime_gate: *execution.SerialGate,
     ocapn_install: *std.Build.Step,
     host_install: *std.Build.Step,
     driver_install: *std.Build.Step,
@@ -55,6 +56,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/complete_test.ts",
         "apps/rooms/test/media_test.ts",
         "apps/rooms/test/store/attachments_test.ts",
+        "apps/rooms/test/store/link_preview_test.ts",
         "apps/rooms/test/store/directory_test.ts",
         "apps/rooms/test/directory_conversation_test.ts",
         "apps/rooms/test/composer_commit_test.ts",
@@ -63,6 +65,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/store/app_shell_test.ts",
         "apps/rooms/test/page_projection_test.ts",
         "apps/rooms/test/session/setup_projection_test.ts",
+        "apps/rooms/test/session/snapshot_reader_test.ts",
         "apps/rooms/test/store/room_access_test.ts",
         "apps/rooms/test/store/irc_test.ts",
         "apps/rooms/test/store/line_identity_test.ts",
@@ -70,6 +73,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/store/archive_sections_test.ts",
         "apps/rooms/test/store/room_identity_test.ts",
         "apps/rooms/test/attached/session_drafts_test.ts",
+        "apps/rooms/test/attached/shared_state_identity_test.ts",
         "apps/rooms/test/workspace_state_test.ts",
         "apps/rooms/test/checkpoint_redaction_test.ts",
         "apps/rooms/test/workspace_fanout_test.ts",
@@ -79,7 +83,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/session/hosted_hold_test.ts",
         "apps/rooms/test/directory_signal_test.ts",
         "apps/rooms/test/standalone_peer_test.ts",
-        "apps/rooms/test/attached/feed_test.ts",
+        "apps/rooms/test/attached/join_admission_test.ts",
         "apps/rooms/test/attached/state_test.ts",
         "apps/rooms/test/attached/session_semantics_test.ts",
         "apps/rooms/test/attached/authority_projection_test.ts",
@@ -87,6 +91,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/attached/line_custody_test.ts",
         "apps/rooms/test/attached/line_projection_custody_test.ts",
         "apps/rooms/test/attached/projection_test.ts",
+        "apps/rooms/test/attached/projection_media_test.ts",
         "apps/rooms/test/attached/draft_projection_test.ts",
         "apps/rooms/test/attached/archive_target_projection_test.ts",
         "apps/rooms/test/attached/direct_projection_test.ts",
@@ -99,6 +104,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/session/wire_client_custody_test.ts",
         "apps/rooms/test/toast_test.ts",
         "apps/rooms/test/richtext_test.ts",
+        "apps/rooms/test/writing_test.ts",
         "apps/rooms/test/room/facts_test.ts",
         "apps/rooms/test/room/client_custody_test.ts",
         "apps/rooms/test/room/message_stream_test.ts",
@@ -128,7 +134,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/web/serve_supervision_test.ts",
     },
     &.{
-        "apps/rooms/test/web/viz_proxy_test.ts",
+        "apps/rooms/test/web/trace_proxy_test.ts",
     },
     &.{
         "apps/rooms/test/browser_bundle_test.ts",
@@ -143,6 +149,7 @@ const batches: []const []const []const u8 = &.{
 const archive_files: []const []const u8 = &.{
     "apps/rooms/test/archive/merge_test.ts",
     "apps/rooms/test/archive/protocol_test.ts",
+    "apps/rooms/test/archive/record_document_test.ts",
     "apps/rooms/test/archive/wire_test.ts",
     "apps/rooms/test/archive/peer_test.ts",
 };
@@ -156,6 +163,7 @@ fn dependOnRuntimeArchives(step: *std.Build.Step, ctx: Context, relay: bool) voi
 }
 
 pub fn register(ctx: Context) *std.Build.Step {
+    const b = ctx.b;
     const lib_dir = common.rootPath(ctx.b, "zig-out/lib");
     const cache = common.addRootedSystemCommand(ctx.b, .build_tool, &.{ "deno", "test", "--no-run" });
     cache.addArgs(command[2..]);
@@ -164,7 +172,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     // UI imports include the generated production Rust application surface.
     cache.step.dependOn(ctx.wasm_install);
 
-    const server_step = ctx.b.step("rooms-server-test", "Run the hermetic Rooms server and UI contract tests (needs deno)");
+    const server_step = b.step("rooms-server-test", "Run the hermetic Rooms server and UI contract tests (needs deno)");
     const archive = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
     archive.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN=", .make_absolute = true });
     archive.addArgs(command);
@@ -203,7 +211,8 @@ pub fn register(ctx: Context) *std.Build.Step {
     }
 
     // Each deterministic Deno process owns a bounded subject rather than the
-    // whole application suite, while the complete family rides `check`.
-    ctx.check_step.dependOn(server_step);
+    // whole application suite. The serial runtime gate prevents this family
+    // from sharing ports or process artifacts with another process suite.
+    ctx.runtime_gate.add(server_step);
     return server_step;
 }

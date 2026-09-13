@@ -20,7 +20,7 @@ impl<D: Deadline> Blob<D> {
 			.client
 			.call(
 				&self.reference,
-				"read",
+				rooms_application::protocol_data::READ,
 				&[Argument::Integer(offset as i64), Argument::Integer(maximum as i64)],
 				"the archive did not answer reading file bytes",
 			)

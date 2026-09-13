@@ -1,7 +1,7 @@
 //! Client of a Rooms session capability. The attached browser and native
 //! consumers use the same protocol; transport acquisition stays with Runtime.
 use super::{Client, Deadline};
-use crate::{routes::CheckpointRoutes, Value};
+use crate::{Value, routes::CheckpointRoutes};
 use glowcap::{Argument, Ref};
 use rooms_application::{
 	grants::Access,

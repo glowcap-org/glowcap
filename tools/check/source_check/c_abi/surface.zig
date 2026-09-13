@@ -290,7 +290,6 @@ pub fn checkAbiExportsConsumed(
     defer consumed.deinit();
     const consumer_roots = [_][]const u8{ "bindings", "examples", "interop", "test" };
     const consumer_exts = [_][]const u8{ ".rs", ".ts", ".py", ".rkt", ".c", ".h", ".zig", ".scm" };
-    const skip_dirs = [_][]const u8{ "target", "node_modules", "__pycache__", "compiled", ".zig-cache", "zig-out" };
     for (consumer_roots) |dir_path| {
         var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to open for ABI consumer check with {s}", .{ dir_path, @errorName(err) });
@@ -301,11 +300,7 @@ pub fn checkAbiExportsConsumed(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                var skip = false;
-                for (skip_dirs) |sd| {
-                    if (std.mem.eql(u8, entry.basename, sd)) skip = true;
-                }
-                if (!skip) try walker.enter(io, entry);
+                try util.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
                 continue;
             }
             if (entry.kind != .file) continue;

@@ -1,6 +1,6 @@
 //! Bounded application work on one continuously polled local executor. The
 //! stop signal bypasses admission; dropping a JS observation retains its job.
-use super::{js_error, observation::Scope, rejected, Environment, Result};
+use super::{Environment, Result, TroubleReporter, js_error, observation::Scope, rejected};
 use std::{
 	cell::{Cell, RefCell},
 	future::Future,
@@ -22,7 +22,7 @@ type Start = Box<dyn FnOnce(Rc<Environment>) -> Work>;
 struct Budget {
 	tasks: Cell<usize>,
 	bytes: Cell<usize>,
-	stopped: Cell<bool>,
+	stopped: Rc<Cell<bool>>,
 	files: Cell<usize>,
 	metadata: Cell<usize>,
 	scopes: RefCell<Vec<Weak<Scope>>>,
@@ -119,20 +119,31 @@ impl Driver {
 			bytes,
 		})
 	}
-	pub fn start() -> Self {
-		Self::start_mode(None)
+	pub fn start(report_trouble: js_sys::Function) -> Self {
+		Self::start_mode(None, report_trouble)
 	}
-	pub fn start_local(checkpoint: rooms_application::session::checkpoint::Checkpoint) -> Self {
-		Self::start_mode(Some(checkpoint))
+	pub fn start_local(
+		checkpoint: rooms_application::session::checkpoint::Checkpoint,
+		report_trouble: js_sys::Function,
+	) -> Self {
+		Self::start_mode(Some(checkpoint), report_trouble)
 	}
-	fn start_mode(checkpoint: Option<rooms_application::session::checkpoint::Checkpoint>) -> Self {
+	fn start_mode(
+		checkpoint: Option<rooms_application::session::checkpoint::Checkpoint>,
+		report_trouble: js_sys::Function,
+	) -> Self {
 		let (jobs, incoming) = mpsc::channel(MAX_TASKS);
 		let (stop, stopping) = watch::channel(false);
 		let (ended, outcome) = watch::channel(None);
+		let stopped = Rc::new(Cell::new(false));
+		let trouble = TroubleReporter {
+			callback: report_trouble,
+			stopped: stopped.clone(),
+		};
 		let budget = Rc::new(Budget {
 			tasks: Cell::new(0),
 			bytes: Cell::new(0),
-			stopped: Cell::new(false),
+			stopped,
 			files: Cell::new(0),
 			metadata: Cell::new(0),
 			scopes: RefCell::default(),
@@ -142,7 +153,7 @@ impl Driver {
 		let running = local.clone();
 		wasm_bindgen_futures::spawn_local(async move {
 			let result = running
-				.run_until(run(incoming, stopping, owned_budget.clone(), checkpoint))
+				.run_until(run(incoming, stopping, owned_budget.clone(), checkpoint, trouble))
 				.await;
 			owned_budget.stop();
 			ended.send_replace(Some(result));
@@ -235,8 +246,9 @@ async fn run(
 	mut stop: watch::Receiver<bool>,
 	budget: Rc<Budget>,
 	checkpoint: Option<rooms_application::session::checkpoint::Checkpoint>,
+	trouble: TroubleReporter,
 ) -> Result<()> {
-	let environment = match Environment::open(checkpoint).await {
+	let environment = match Environment::open(checkpoint, trouble).await {
 		Ok(environment) => Rc::new(environment),
 		Err(error) => {
 			incoming.close();

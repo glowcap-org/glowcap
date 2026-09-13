@@ -7,15 +7,17 @@ impl<P: Platform> RoomWorker<P> {
 		before: &intent::Intent,
 		kind: Kind,
 		token: String,
-	) -> Result<(), String> {
+	) -> Result<(), Error> {
 		let kind = match kind {
 			Kind::Room => Authority::Room,
 			Kind::Manager => Authority::Manager,
 			Kind::Steward => Authority::Steward,
 		};
-		let conversation = Id::new(before.id.clone().into()).ok_or("room conversation id exceeds its field")?;
-		let token = FactText::new(token.into()).ok_or("room authority token exceeds its field")?;
-		let scope = crate::session_commands::FactScope::new();
+		let conversation = Id::new(before.id.clone().into())
+			.ok_or_else(|| Error::invalid("room conversation id exceeds its field"))?;
+		let token =
+			FactText::new(token.into()).ok_or_else(|| Error::invalid("room authority token exceeds its field"))?;
+		let scope = crate::session::commands::FactScope::new();
 		let expected = self
 			.commit_observation(before, &scope, |context| {
 				Ok(Fact::RoomAuthority {
@@ -27,14 +29,14 @@ impl<P: Platform> RoomWorker<P> {
 				})
 			})
 			.await?;
-		if let Some(expected) = expected {
-			if let Some(live) = self.shared.borrow_mut().rooms.get_mut(&before.id) {
-				live.intent = expected;
-			}
+		if let Some(expected) = expected
+			&& let Some(live) = self.shared.borrow_mut().rooms.get_mut(&before.id)
+		{
+			live.intent = expected;
 		}
 		Ok(())
 	}
-	pub(super) async fn reconcile_custody(&mut self, wanted: &Wanted) -> Result<(), String> {
+	pub(super) async fn reconcile_custody(&mut self, wanted: &Wanted) -> Result<(), Error> {
 		let room = {
 			let mut state = self.shared.borrow_mut();
 			let Some(live) = state.rooms.get_mut(&wanted.intent.id) else {
@@ -46,39 +48,37 @@ impl<P: Platform> RoomWorker<P> {
 			// Forget only authority removed by this checkpoint transition. A result
 			// command may already be acquiring its replacement on the same seat.
 			let custody = live.room.stewardship();
-			if live.intent.manager != wanted.intent.manager {
-				if let Some(link) = &live.intent.manager {
-					if custody.retains(Kind::Manager, link) {
-						custody.drop_manager();
-					}
-				}
+			if live.intent.manager != wanted.intent.manager
+				&& let Some(link) = &live.intent.manager
+				&& custody.retains(Kind::Manager, link)
+			{
+				custody.drop_manager();
 			}
-			if live.intent.steward != wanted.intent.steward {
-				if let Some(link) = &live.intent.steward {
-					if custody.retains(Kind::Steward, link) {
-						custody.drop_steward();
-					}
-				}
+			if live.intent.steward != wanted.intent.steward
+				&& let Some(link) = &live.intent.steward
+				&& custody.retains(Kind::Steward, link)
+			{
+				custody.drop_steward();
 			}
 			live.room.clone()
 		};
 		let acquire = async {
 			let custody = room.stewardship();
-			if let Some(link) = wanted.intent.manager.as_deref() {
-				if !custody.retains(Kind::Manager, link) {
-					custody
-						.take_manager(link)
-						.await
-						.map_err(|error| join::Failure::authority(Kind::Manager, link, error))?;
-				}
+			if let Some(link) = wanted.intent.manager.as_deref()
+				&& !custody.retains(Kind::Manager, link)
+			{
+				custody
+					.take_manager(link)
+					.await
+					.map_err(|error| join::Failure::authority(Kind::Manager, link, error))?;
 			}
-			if let Some(link) = wanted.intent.steward.as_deref() {
-				if !custody.retains(Kind::Steward, link) {
-					custody
-						.take(link)
-						.await
-						.map_err(|error| join::Failure::authority(Kind::Steward, link, error))?;
-				}
+			if let Some(link) = wanted.intent.steward.as_deref()
+				&& !custody.retains(Kind::Steward, link)
+			{
+				custody
+					.take(link)
+					.await
+					.map_err(|error| join::Failure::authority(Kind::Steward, link, error))?;
 			}
 			Ok::<_, join::Failure>(())
 		};

@@ -1,4 +1,4 @@
-use super::arguments::{text, Arg};
+use super::arguments::{Arg, text};
 use rooms_application::{
 	direct::{
 		event::{Content, Line as EventLine},
@@ -44,6 +44,7 @@ pub fn run() {
 			text: change.text.into(),
 			kind: change.kind,
 			files: change.files.to_vec(),
+			previews: Default::default(),
 		}),
 		Content::Typing { on: false },
 	];
@@ -87,7 +88,7 @@ fn record(name: &str, capability: Rc<Cell<usize>>) -> Vec<Arg> {
 }
 
 fn admission() {
-	use rooms_application::direct::line::{dispatch_with, AdmissionError};
+	use rooms_application::direct::line::{AdmissionError, dispatch_with};
 	let a = Rc::new(Cell::new(0));
 	let b = Rc::new(Cell::new(0));
 	let mut line = Line::new(
@@ -110,10 +111,12 @@ fn admission() {
 	assert_eq!(line.files().len(), 1);
 	assert!(!line.is_withdrawn());
 	let invalid = [text("invalid"), Arg::Integer(1)];
-	assert!(dispatch_with(&mut line, "refile", &invalid, |_| -> Result<(), ()> {
-		panic!("invalid selection cannot reserve")
-	})
-	.is_err());
+	assert!(
+		dispatch_with(&mut line, "refile", &invalid, |_| -> Result<(), ()> {
+			panic!("invalid selection cannot reserve")
+		})
+		.is_err()
+	);
 	let edit = [text("caption")];
 	let (receipt, change) = dispatch_with(&mut line, "edit", &edit, |proposal| {
 		assert!(Rc::ptr_eq(&proposal.files().next().unwrap().blob, &a));
@@ -132,22 +135,25 @@ fn admission() {
 		Ok(())
 	})
 	.unwrap();
-	assert!(dispatch_with::<Arg, (), ()>(&mut line, "withdraw", &[], |_| panic!(
-		"idempotent withdrawal cannot reserve"
-	))
-	.unwrap()
-	.is_none());
+	assert!(
+		dispatch_with::<Arg, (), ()>(&mut line, "withdraw", &[], |_| panic!(
+			"idempotent withdrawal cannot reserve"
+		))
+		.unwrap()
+		.is_none()
+	);
 	// Room-hosted staged custody follows the same admission transaction.
 	let mut room = Line::new(LineId::new(2).unwrap(), "alice".into(), vec![1]).unwrap();
 	let mut staged = vec![2];
-	assert!(room
-		.dispatch_with(
+	assert!(
+		room.dispatch_with(
 			"refile",
 			&[text("room"), Arg::Integer(0)],
 			&mut staged,
 			|_| Err::<(), _>("full")
 		)
-		.is_err());
+		.is_err()
+	);
 	assert_eq!(room.files(), &[1]);
 	assert_eq!(staged, [2]);
 }

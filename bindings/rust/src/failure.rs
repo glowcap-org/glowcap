@@ -4,7 +4,7 @@
 use crate::abi_constants;
 #[cfg(any(feature = "async", feature = "onion"))]
 use crate::abi_constants::BINDING_SECONDARY_FAILURE_CAP;
-use crate::{last_error, runtime_failure, sys, CarrierFailure, FailureEvent, FailureLayer};
+use crate::{CarrierFailure, FailureEvent, FailureLayer, last_error, runtime_failure, sys};
 
 /// Which layer of the session refused a frame: the codec (parsing), the session
 /// (authority and table validity), or a foreign failure surfaced through
@@ -121,7 +121,7 @@ pub enum ErrorKind {
 pub struct Error {
 	pub(crate) code: i32,
 	pub(crate) detail: Option<String>,
-	pub(crate) abort: Option<AbortInfo>,
+	pub(crate) abort: Option<Box<AbortInfo>>,
 	pub(crate) secondary: Vec<Error>,
 	pub(crate) secondary_count: u32,
 	pub(crate) carrier: Option<CarrierFailure>,
@@ -225,7 +225,7 @@ impl Error {
 	/// an inbound frame; `None` for other failures. The flat
 	/// [`code`](Error::code) names the failure family; this names the member.
 	pub fn abort(&self) -> Option<&AbortInfo> {
-		self.abort.as_ref()
+		self.abort.as_deref()
 	}
 
 	/// Cleanup and consequence failures retained without replacing this error.
@@ -319,7 +319,7 @@ impl Error {
 
 	#[cfg(feature = "async")]
 	pub(crate) fn with_abort(mut self, abort: Option<AbortInfo>) -> Error {
-		self.abort = abort;
+		self.abort = abort.map(Box::new);
 		self
 	}
 }
@@ -368,5 +368,15 @@ pub(crate) fn lifecycle_is_closed(raw: u32) -> Result<bool> {
 			sys::ERR_INTERNAL,
 			format!("glowcap ABI returned unknown lifecycle state {other}"),
 		)),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::Error;
+
+	#[test]
+	fn error_keeps_rare_abort_detail_out_of_every_result() {
+		assert!(core::mem::size_of::<Error>() <= 96);
 	}
 }

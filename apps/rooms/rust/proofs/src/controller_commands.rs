@@ -1,7 +1,7 @@
 //! The command owner runs unchanged in the native and portable Wasm contracts.
 use rooms_application::{
 	session::{
-		controller::{Authority, Commands, Error, Pending, Step, MAX_RETAINED_RESULTS},
+		controller::{Authority, Commands, Error, MAX_RETAINED_RESULTS, Pending, Step},
 		state::{self, OperationId},
 	},
 	text::DocumentText,
@@ -22,6 +22,33 @@ pub fn run() {
 	results();
 	managed();
 	bounds();
+	identities();
+}
+fn identities() {
+	let commands = Commands::default();
+	// A non-scalar operation id is retained exactly, not folded to a scalar.
+	let surrogate = OperationId::new(DocumentText::from_utf16(&[0xd800])).unwrap();
+	let operation = commands
+		.begin("setStanding", surrogate.clone(), |_| Ok(vec![]))
+		.unwrap();
+	assert_eq!(operation.id(), &surrogate);
+	drop(operation);
+	// A result-bearing command retains its first identity across an abandoned
+	// observation, and a later candidate answering the same intent inherits it.
+	let lost = id("lost");
+	drop(
+		commands
+			.begin("takeRoomModerator", lost.clone(), |_| {
+				Ok(vec!["room".into(), "manager".into()])
+			})
+			.unwrap(),
+	);
+	let candidate = commands
+		.begin("takeRoomModerator", id("candidate"), |_| {
+			Ok(vec!["room".into(), "manager".into()])
+		})
+		.unwrap();
+	assert_eq!(candidate.id(), &lost, "an abandoned result keeps its first identity");
 }
 fn retries() {
 	let commands = Commands::default();
@@ -36,9 +63,11 @@ fn retries() {
 		commands.begin("say", id("overlap"), |_| Ok(vec![])),
 		Err(Error::Busy)
 	));
-	assert!(operation
-		.refused(&format!("glowcap error -2: {}", state::Error::Revision))
-		.unwrap());
+	assert!(
+		operation
+			.refused(&format!("glowcap error -2: {}", state::Error::Revision))
+			.unwrap()
+	);
 	assert_eq!(operation.step(), Step::Refresh);
 	operation.refreshed([]).unwrap();
 	assert!(!operation.refused(&state::Error::Revision.to_string()).unwrap());

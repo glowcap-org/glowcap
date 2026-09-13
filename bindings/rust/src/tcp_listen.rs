@@ -9,6 +9,8 @@
 //! server's public locator authority. The constructor retains the physical bind
 //! address separately, before caller policy can advertise a different host.
 
+#[cfg(all(test, feature = "tcp"))]
+use crate::ConnectOptions;
 #[cfg(feature = "tcp")]
 use crate::abi_constants::{HINT_DIRECT_ADDRESSES, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP};
 #[cfg(feature = "tcp")]
@@ -19,8 +21,6 @@ use crate::server::LoopListener;
 use crate::session::Session;
 #[cfg(feature = "tcp")]
 use crate::session_shared::io_err;
-#[cfg(all(test, feature = "tcp"))]
-use crate::ConnectOptions;
 #[cfg(feature = "tcp")]
 use crate::{ListenerIdentity, Result};
 #[cfg(all(test, feature = "tcp"))]
@@ -215,7 +215,7 @@ pub(crate) async fn listen(
 					return Err(io_err(std::io::Error::new(
 						std::io::ErrorKind::InvalidInput,
 						"a wildcard bind has no dialable address; provide an advertised host",
-					)))
+					)));
 				}
 				None => bound_direct.clone(),
 			};

@@ -12,8 +12,20 @@
 [package]
 name = "glowcap-webrtc"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+license = "Apache-2.0"
 publish = false
+
+# The sidecar's whole surface is a C ABI over caller pointers, so every entry
+# point is an `unsafe fn`. At edition 2024 those bodies are not implicitly
+# unsafe, and Rust only warns when one has not caught up. Denied, so the
+# marking stays where the operation is instead of decaying back into a blanket
+# claim on the signature.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
 
 [lib]
 # The staticlib is named `glowcap_webrtc_sidecar` so it emits
@@ -35,7 +47,7 @@ path = "src/probe.rs"
 # The runtime owner, task barrier, and readiness channel both sidecars share
 # (transports/sidecar-common).
 glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0" }
-webrtc = "=0.20.0"
+webrtc = "=0.20.5"
 tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync", "time"] }
 async-trait = "0.1"
 serde_json = "1"

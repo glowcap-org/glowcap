@@ -1,161 +1,154 @@
-# Shared Rooms execution
+# rooms-runtime
 
-This crate orders the platform effects needed to execute Rooms policy. The
-native session binary uses it for initialization, checkpoint/effect commits,
-recovery, bounded command admission, ordered live-fact retries, directory
-supervision, room membership, media custody, direct messages, archives and grant
-publication and session capability dispatch. The same owners compile for browser Wasm.
+This crate runs a Rooms session. It takes the policy in `rooms-application`
+and the capability clients in `rooms-glowcap`, and it orders their effects on
+whatever platform the embedding supplies: storage, clocks, entropy, tasks, and
+transports. The native `rooms-session` binary and the browser page both embed
+it, and neither one carries a second copy of the session's logic.
 
-`DurableSession` takes exclusive `Documents` custody and an `Entropy` adapter.
-`SessionCommands::open` additionally takes a monotonic `Clock` and returns the
-command handle and its worker. Run the worker on the application's LocalSet.
-Dropping a reply abandons observation; admitted work remains owned. `stop`
-ends admission synchronously, while `close` also observes worker retirement.
+Read this page when you are embedding a session on a new platform, or when you
+need to know which module owns an effect before you change it.
 
-Storage adapters retain pending work across observer cancellation. Recovery
-must observe those completions before reloading, and an uncertain write must
-remain uncertain. Storage errors retain their concrete platform type. Borrowed
-`SessionView` access has its own errors and never depends on a storage backend.
-The adapters use static dispatch; this boundary adds no boxed I/O futures.
+## What the embedding supplies
 
-`VolatileDocuments` holds checkpoint/effects bytes only for its lifetime. It
-supports tab-hosted sessions with the same lifetime as their browser Host;
-workspace preferences and archive records have separate persistence owners.
-Writes transfer their bounded buffer directly into the document slot. Reads
-copy each stored document once so restoration cannot consume the committed
-source. Native files instead retain their directory lease in pending workers.
+Every effect the session needs arrives through a trait the platform implements.
+The crate never reaches for an OS or a browser API on its own.
 
-`DurableGrants` takes one fixed-role `Document`. The adapter owns bounded reads,
-atomic replacement and pending operation custody. `PublishedGrants` restores and
-reconciles durable names; held facets consult the committed ledger on every call.
-`GrantCommands` orders writes, publication and attached-view notifications before
-replying. Its handle and notification effects do not depend on the storage type.
-Native documents and tab-lifetime `VolatileDocument` use the same execution;
-uncertain writes require observed completion and restoration on either backend.
+| Trait | Module | What it supplies |
+| --- | --- | --- |
+| `Clock` | `clock` | Monotonic time and `sleep_until`, for deadlines and retries. |
+| `WallClock` | `wall_clock` | Unix milliseconds for message timestamps, kept separate so a deadline never depends on a wall clock that can jump. |
+| `Deadline`, `Tasks` | `rooms_glowcap::client` | A bounded wait and task custody. Dropping a task cancels it; detached background work is not allowed. |
+| `Entropy` | `entropy` | Cryptographic bytes for identifiers and keys. Cloning a runtime handle never clones a generator. |
+| `Documents`, `Document` | `documents` | Exclusive custody of the checkpoint and effects pair, and of single fixed-role documents such as grants and bridge secrets. |
+| `archive::Backend`, `archive::Source` | `archive` | Committed archive storage and bounded file reads. |
+| `Visualization` | `service` | The trace transport the session publishes its live picture through. |
 
-`connections` owns bounded acquisition per transport and peer identity. Clients
-share a weak cache and the same directory watch/name registry. Cancelled
-readiness leaves the dial owned until it finishes; an unobserved connection
-retires before a replacement starts. The binding closes a transport when its
-final owning client leaves.
+`platform::Platform` names the bundle a room or direct-message effect needs:
+`Clock`, `WallClock`, `Deadline`, and `Tasks` on one cloneable value. The
+native crate satisfies it with `rooms_platform::HostPlatform`, the browser
+crate with its own `platform::Platform`.
 
-`session_directory` owns connection attempts, discovery watches, registered
-names and reconnect vouchers. Its shared connection pool uses the binding's
-`Runtime` with native providers or browser connectors and a client scheduler. Dropped
-readiness observations retain the attempt; explicit close waits for retirement.
-Adoption transfers held authority without redialing. Intent is rechecked after
-durable reconciliation and registration, before exposing a live directory.
+Two rules hold across every adapter. A storage adapter keeps admitted work
+alive when its observer stops waiting, and recovery calls `finish_pending`
+before it reloads, so an uncertain write stays uncertain instead of being
+guessed. And storage errors keep their concrete platform type all the way up:
+the session's own errors for policy, admission, and CapTP causes stay distinct
+from them.
 
-`directory_runtime` supervises bounded connection attempts and reconnects with
-the supplied monotonic clock. Its event adapter retires obsolete generations
-synchronously with a committed checkpoint, before command acknowledgement.
-Direct acceptance, received room links, and handed room capabilities share
-that generation owner. Restoring identical intent cannot revive retired work.
-An exclusive entropy adapter supplies identifiers without cloning generator
-state. Hosted receivers hold weak runtime custody; retiring one owner releases
-its references and watches without closing a shared transport session.
+`documents::VolatileDocuments` is the one adapter this crate ships. It holds
+the checkpoint and effects bytes in memory for its own lifetime, which is the
+right owner for a tab-hosted session that lives exactly as long as its browser
+Host. Workspace preferences and archive records have their own persistence.
 
-The `takeRoomLink` result command resolves a pasted capability on its directory
-connection. Live reference identity selects an existing membership; a new
-membership is subscribed before its conversation row is committed. The room
-worker takes that prepared membership and its buffered messages. A foreign
-directory connection remains provisional until the same commit admits it.
-Failed admission retires the prepared membership and relinquishes the lookup's
-client without closing a sibling owner. The result ledger retains the chosen
-membership or returned name for recovery.
+## Opening a session
 
-`direct_routes`, `route_openings`, `direct_publications` and `direct_dispatch`
-own reciprocal routes, coalesced openings, bounded inbox publication and notice
-execution. They use the accepted context on every delivery and after awaited
-effects. The parent supplies the message receiver and owns message/history
-storage; hosted reply actors retain weak route custody. Reciprocal timeouts use
-the platform clock, and shutdown observes owned opening tasks before releasing
-publication state.
+The embedding assembles the owners in this order. The native binary's
+`session::peer` module is the worked example.
 
-`media_files` owns shared file capture and reader pins; `media` leases each
-line's selection from one pool. A selected file has one materialization even
-when views, edits and recordings read it together. Final selection retirement
-refuses new readers while admitted readers keep their bytes and budget charge.
-`command_files` freezes and hashes the same immutable storage used for delivery.
+1. Open the documents and take the grants and bridge-secret documents.
+2. `SessionCommands::open(documents, platform)` returns the command handle and
+   its worker. Run the worker on the application's `LocalSet`.
+3. Read the identity seed from the committed checkpoint and restore the Host
+   from it. The runtime adopts that Host; it never creates one.
+4. Open the transports and build `directories::connections::Connections`
+   around the dial.
+5. Open the archive backend.
+6. Call `service::Session::open` with `Inputs` (platform, connections,
+   locator, entropy, trace, report), the command pair, the grants document, the
+   bridge-secret document, the archive, and any checkpoint to start from.
 
-`direct_events`, `direct_outgoing` and `direct_commands` share message admission,
-delegated edits, typing, file delivery and durable command completion. The
-platform supplies wall time for timestamps separately from monotonic deadlines.
-`archive_recording::Recorder` admits recording synchronously and returns shared
-receipt types; `session_archive` owns capture, selection and erasure over a storage backend.
-Dropping an event or receipt abandons observation without cancelling admitted
-archive work.
+`Session::open` starts every worker, publishes the administrator capability,
+and returns the published link. `Session::open_local` does the same without
+publishing, for an embedding that prepares reachability first and calls
+`publish` itself. If startup fails part way, the partially opened owners close
+along the same path a full session does, and the error keeps both the primary
+cause and any cleanup failure.
 
-`rooms` realizes all intended memberships, joins by link/publication/name,
-installs newly acquired manager authority before exposing a membership, commits
-learned authority and policy, and owns message pumps, line capabilities and
-exclusive staged uploads. Attachment facts are bounded across all rooms; sparse
-edits preserve files even after preview admission refused an earlier selection.
-Authority rotation preserves the membership and its callbacks. Missing saved
-publications become generation-checked checkpoint retirements, including after
-restart. It retains one entropy source for recovery keys;
-cloning a runtime handle never clones a generator. Room and direct timestamps
-use the same explicit wall-clock boundary.
+Closing a session disables held views, removes its root publication, and
+drains its owners before joining the workers. The Host remains usable
+afterward; closing a session removes only that session's publications.
 
-Room recording reuses admitted media captures. If media admission refuses, it
-passes the original received capabilities to the archive's independent admission
-budget. Each membership pump bounds and polls its recording receipts directly;
-retirement drops observations without cancelling archive work. Room callbacks
-hold weak runtime custody. Membership retirement wakes pumps waiting on full
-view-event queues, pending line receipts or message streams.
+## What each module owns
 
-Hosted session facets use a weak handoff receiver to accept or dismiss live room
-offers. Acceptance stays in the handoff worker through durable completion, even
-when its caller abandons the reply; an exact retry returns the recorded revision.
+The modules are grouped by the effect they order. A reader should be able to
+name the owner of a behavior from this list before opening a file.
 
-`archive` hosts bounded record and file methods. `session_archive` orders local
-recording, peer selection and erasure, while file capture progresses independently.
-Both use `Backend` for committed storage and `Source` for bounded file reads.
-The native adapter retains the journal, blob directory and blocking disk jobs.
-Shares retain their source across selection changes and their revocation through
-narrowing. Shared facet budgets bound bytes and lifetime issuance; share replies
-stay in the serial worker through wire settlement.
+**Session state and commands.** `session::state` restores and reconciles the
+durable checkpoint. `session::commands` admits commands against a bounded
+budget, orders their durable writes, and hands the effect ledger to the
+platform; a caller that drops its reply abandons observation while the admitted
+work stays owned. `session::retention` erases history before it commits the
+checkpoint that disables it, so a recording cannot slip in between.
+`session::projection` builds the bounded snapshot the fronts read.
+`session::bridge_secrets` keeps IRC bridge secrets in their own document so
+they never ride a checkpoint. `cleanup`
+folds a cleanup failure onto the failure it followed, keeping the first cause
+first.
 
-`operations` and `peering` realize checkpoint credentials and publication leases
-with platform deadlines. Their retained capabilities must belong to the exact
-current directory connection. Peering rechecks source membership, destination
-connection and committed intent after awaiting publication. `room_offers` owns
-durable receipt acknowledgement; `archive_shares` retains received capabilities
-and one exclusive entropy source, refusing retired direct contexts.
-`session_projection` constructs the shared bounded snapshot from these owners;
-the native service adapts its errors and the browser can project the same data.
+**Directories.** `directories::connections` acquires one bounded connection
+per transport and peer identity and shares it between clients through a weak
+cache. `directories::session` owns connection attempts, discovery watches,
+registered names, and reconnect vouchers. `directories::runtime` supervises
+attempts and reconnects with the monotonic clock and retires an obsolete
+generation with the checkpoint that replaced it, before the command that
+caused it is acknowledged.
 
-The native session specializes these owners with its scheduler and OS entropy.
-Its archive-retention barrier also lives in the shared runtime. The Chromium
-proof exercises directory adoption, discovery, committed removal and shutdown
-through the shared supervisor. It also exercises shared media capture from a
-native room through late bytes, concurrent readers and selection retirement.
-The room runtime scenario drives two memberships, uploads, sparse edits,
-withdrawal and closure with a full event queue against the native directory.
-Dropping manager authority retains the exact membership and its editable line.
-Native direct scenarios exercise the shared route, message and command owners;
-the production browser uses the same application owners. The IndexedDB archive
-adapter has Chromium compatibility proofs and production page ownership.
+**Rooms.** `rooms` realizes every intended membership, joins by link,
+publication, or name, installs newly acquired manager authority before a
+membership becomes visible, and owns the message pumps, line capabilities, and
+staged uploads. `rooms::offers` acknowledges handed rooms durably.
+`rooms::peering` and `rooms::operations` realize publication leases and
+checkpoint credentials against the exact current directory connection.
+Operations fetches stop automatically retrying a refused or invalid credential
+and resume when it is replaced. Failures that can clear in peer state retain
+a one-second backoff; the session issue tells the member whether Rooms is
+retrying or needs a replacement capability. Each pass consumes elapsed retry
+deadlines before starting work. A late fetch outcome cannot override a held
+capability or affect a replacement directory connection.
 
-`session_service::Facet` dispatches the session protocol and owns attached views.
-Native `rooms-session` and the Wasm proof both construct it through
-`session_service::Session`. That owner starts, supervises and closes all session
-workers, including retention, grants and the root publication. Deferred replies, file reads and attachment acknowledgements have a
-256-task ceiling and retire when the facet closes. Reply admission precedes
-checkpoint submission; a full reply owner cannot commit that mutation. View
-snapshots still precede durable replies and follow current grant rights.
+**Direct messages.** `direct::{routes, openings, publications, dispatch}` own
+reciprocal routes, coalesced openings, the bounded inbox publication, and
+notice execution. `direct::{events, outgoing, commands}` share message
+admission, delegated edits, typing, file delivery, and durable command
+completion with the room path. A local reopening confirms a fresh inbox offer
+to the directory before reporting route readiness. A peer's fresh reciprocal
+capability replaces its previous route, including across connections; a
+concurrent outbound opening keeps the established route. The route owner
+retains responsibility for closing superseded exporter connections until no
+route uses them.
+A route retains exact unregister evidence when its partner leaves. Cleanup
+still waits for the binding's close budget and aborts an unanswered transport;
+a timeout alone is expected for that departed registration. Other failures,
+including a timeout without departure evidence, remain cleanup failures.
 
-Closing the session disables held views, removes its root and drains dependency
-owners before joining workers. Session commands finish their retention barrier
-before the archive closes. Partial startup follows the same cleanup path and
-retains primary and cleanup failures. The runtime belongs to the embedding and
-remains usable after application close.
+**Files.** `files::media_files` captures a selected file once and pins readers
+to it; `files::media` leases each line's selection from that pool, so a file
+read by a view, an edit, and a recording at the same time has one
+materialization. `files::command_files` freezes and hashes the same storage
+for delivery.
 
-Native process startup owns checkpoint file reading, listener readiness and
-operator reporting. Shared errors keep policy, admission, state access and CapTP
-causes distinct; the native adapter retains those causes beside its storage and
-listener failures. Visualization is an explicit composition interface: native
-publishing is supplied by `rooms-session`, while the Wasm facet proof uses a
-fixture. Browser visualization and production page composition remain migration
-work. Closing a facet stops visualization admission; native socket retirement is
-still owned by its bounded publisher loop.
+**Archive.** `archive` hosts the bounded record and file methods.
+`archive::session` orders local recording, peer selection, and erasure over a
+`Backend`. `archive::recording` admits a recording synchronously and returns a
+receipt. `archive::shares` retains received shares and refuses a retired direct
+context.
+
+**Grants.** `grants` restores durable names from a fixed-role `Document`;
+`grants::commands` orders a write, its publication, and the attached-view
+notification before replying; `grants::publications` keeps the published
+facets consulting the committed ledger on every call.
+
+**The service.** `service` dispatches the session protocol through `Facet`,
+owns attached views, and composes every worker above through `Session`.
+Deferred replies, file reads, and attachment acknowledgements share a ceiling
+of 256 tasks and retire when the facet closes.
+
+## Where the proofs live
+
+The native crate's tests drive these owners over real files and sockets. The
+browser proof drives the same owners over `VolatileDocuments` and the
+IndexedDB archive in Chromium, through `zig build rooms-rust-browser-test` and
+`zig build rooms-rust-browser-host-test`. `rooms-contract-proofs` replays the
+portable contract fixtures on both targets. The crate itself carries no
+platform-specific test, because it has no platform.

@@ -70,6 +70,7 @@ fn dogfoodIndex(comptime step_name: []const u8) comptime_int {
 pub const Registered = struct {
     bindings_step: *std.Build.Step,
     bindings_onion_step: *std.Build.Step,
+    rust_binding_lint_step: *std.Build.Step,
     dogfood_runs: [dogfoods.len]*std.Build.Step.Run,
 };
 
@@ -101,6 +102,16 @@ pub fn register(
     });
     rust_dogfood_compile.step.dependOn(b.getInstallStep());
     dogfood_runs[0].step.dependOn(&rust_dogfood_compile.step);
+    // The crate declares its Clippy floor so editors and direct Cargo use see
+    // the same contract. This leg supplies only the whole-target feature shape
+    // and promotes otherwise-unclassified rustc warnings to failures.
+    const rust_binding_lint = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo", "clippy", "--manifest-path", "bindings/rust/Cargo.toml", "--all-targets", "--features", "async", "--", "-D", "warnings",
+    });
+    rust_binding_lint.step.dependOn(b.getInstallStep());
+    const rust_binding_lint_step = b.step("rust-binding-lint", "Lint the Rust binding library, tests, and examples with Clippy (needs cargo)");
+    rust_binding_lint_step.dependOn(&rust_binding_lint.step);
+    dogfood_runs[0].step.dependOn(&rust_binding_lint.step);
     const deno_dogfood_cache = addRootedSystemCommand(b, .build_tool, &.{
         "deno", "cache", "bindings/ts/dogfood/zig_smoke.ts",
     });
@@ -117,14 +128,17 @@ pub fn register(
     const dogfood_lib_dir = common.rootPath(b, "zig-out/lib");
     dogfood_runs[0].setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
     rust_dogfood_compile.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
+    rust_binding_lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
     switch (builtin.os.tag) {
         .macos => {
             dogfood_runs[0].setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
             rust_dogfood_compile.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
+            rust_binding_lint.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
         },
         .linux, .freebsd, .netbsd, .openbsd, .dragonfly => {
             dogfood_runs[0].setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
             rust_dogfood_compile.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
+            rust_binding_lint.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
         },
         else => {},
     }
@@ -254,6 +268,7 @@ pub fn register(
     return .{
         .bindings_step = bindings_step,
         .bindings_onion_step = bindings_onion_step,
+        .rust_binding_lint_step = rust_binding_lint_step,
         .dogfood_runs = dogfood_runs,
     };
 }
@@ -312,13 +327,18 @@ pub fn registerChecks(
     b.step("fmt-check", "Check Zig formatting without writing (zig fmt --check)").dependOn(&fmt_check.step);
     check_step.dependOn(&fmt_check.step);
 
-    // Every Rust crate shares the root `rustfmt.toml` (hard tabs); rustfmt finds
-    // it by searching upward, so one config governs all of them.
+    // Every Rust manifest in the tree. They share the root `rustfmt.toml` (hard
+    // tabs); rustfmt finds it by searching upward, so one config governs all of
+    // them. Keep this list complete: a crate missing from it is not unformatted,
+    // it is formatted by whoever last edited a file in it, which is drift with
+    // nobody watching.
     const rust_manifests = [_][]const u8{
         "bindings/rust/Cargo.toml",
+        "bindings/rust/relay/Cargo.toml",
         "bench/langs/clients/rust_bench/Cargo.toml",
         "apps/tools/rust/Cargo.toml",
         "apps/tasks/rust/Cargo.toml",
+        "apps/rooms/rust/Cargo.toml",
         "apps/rooms/clients/rust/Cargo.toml",
         "transports/iroh/Cargo.toml",
         "transports/webrtc/Cargo.toml",
@@ -326,12 +346,38 @@ pub fn registerChecks(
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
     const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust and TypeScript formatting, the lint and type-check for every TypeScript scope, and ruff plus mypy over the Python binding (needs cargo + deno + uv)");
+    const rust_lint_step = b.step("rust-lint", "Lint every first-party Rust crate and target with Clippy (needs cargo)");
+    rust_lint_step.dependOn(reg.rust_binding_lint_step);
+    bindings_fmt_check_step.dependOn(rust_lint_step);
+    const rooms_lint = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo",       "clippy",        "--locked",   "--manifest-path",          "apps/rooms/rust/Cargo.toml",
+        "--workspace", "--all-targets", "--features", "rooms-services/processes", "--",
+        "-D",          "warnings",
+    });
+    rooms_lint.step.dependOn(b.getInstallStep());
+    rust_lint_step.dependOn(&rooms_lint.step);
+    // `--all` because a virtual workspace manifest declares no bin or lib target
+    // of its own: without it `cargo fmt` there reports "Failed to find targets"
+    // and formats nothing, which is the quietest way for a whole workspace to
+    // sit outside this check while appearing to be inside it.
     for (rust_manifests) |manifest| {
-        const write = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--manifest-path", manifest });
+        const write = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--all", "--manifest-path", manifest });
         write.has_side_effects = true;
         bindings_fmt_step.dependOn(&write.step);
-        const check = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--check", "--manifest-path", manifest });
+        const check = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--all", "--check", "--manifest-path", manifest });
         bindings_fmt_check_step.dependOn(&check.step);
+        // Rooms has its own feature-complete workspace lint step, and the
+        // binding has the async whole-target leg registered above. Every other
+        // standalone crate is fully represented by its default target set.
+        if (!std.mem.eql(u8, manifest, "apps/rooms/rust/Cargo.toml") and
+            !std.mem.eql(u8, manifest, "bindings/rust/Cargo.toml"))
+        {
+            const lint = addRootedSystemCommand(b, .build_tool, &.{
+                "cargo", "clippy", "--all-targets", "--manifest-path", manifest, "--", "-D", "warnings",
+            });
+            lint.step.dependOn(b.getInstallStep());
+            rust_lint_step.dependOn(&lint.step);
+        }
     }
     // The loose TypeScript under the root `deno.json` and the `bindings/ts` deno
     // workspace are separate config scopes, so each is formatted and linted from
@@ -340,7 +386,7 @@ pub fn registerChecks(
     // `async` with nothing to await, and seven copies of one pinned version.
     //
     // The root scope's two checks also ride `check`, because deno is already in
-    // `check_runtimes` and the toolchain reason for the sibling step never applied
+    // `in_tree_runtimes` and the toolchain reason for the sibling step never applied
     // to them. Leaving them out let three hundred unused imports ship past a green
     // `check`. The `bindings/ts` scope stays in the sibling step, beside the cargo
     // and uv checks that ship with it.

@@ -11,6 +11,7 @@ import { assertEquals } from "../assert.ts";
 import { registrationId } from "../support/registration.ts";
 import { roomsSessionSnapshot } from "../support/session_snapshot.ts";
 import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
+import { NICK_TAKEN, RoomsError } from "../../lib/error_codes.ts";
 import {
 	addActiveDm,
 	addDmDirectory,
@@ -115,7 +116,12 @@ Deno.test("attached room links remain room authority instead of directory locato
 	resetStore(page);
 	const controller = new FakeController();
 	const link = formatRoomsSturdyref(roomsLocator("127.0.0.1:4321"), "room-link");
-	assertEquals(await sessionFor(page, controller).join({ room: "backroom", locator: link }, "ada"), "");
+	assertEquals(
+		await sessionFor(page, controller).join({ room: "backroom", locator: link }, { kind: "exact", name: "ada" }),
+		{
+			ok: true,
+		},
+	);
 	assertEquals(controller.joinedRooms.length, 1);
 	assertEquals(controller.joinedRooms[0], {
 		room: {
@@ -277,7 +283,9 @@ Deno.test("attached public join submits one complete room intent", async () => {
 		{} as import("../../web/ui/session/attached_files.ts").AttachedSessionFiles,
 		{ defaultDirectoryLocator: "127.0.0.1:1" },
 	);
-	assertEquals(await session.join({ room: "general", locator: "", hidden: false }, "ada"), "");
+	assertEquals(await session.join({ room: "general", locator: "", hidden: false }, { kind: "exact", name: "ada" }), {
+		ok: true,
+	});
 	assertEquals(controller.joinedRooms.length, 1);
 	assertEquals(controller.joinedRooms[0].room.name, "general");
 	assertEquals(controller.joinedRooms[0].directory, { locator: "127.0.0.1:1", nick: "ada" });
@@ -286,6 +294,47 @@ Deno.test("attached public join submits one complete room intent", async () => {
 		conversation.type !== "directory" && conversation.persistId === controller.current.checkpoint.active
 	);
 	assertEquals(page.projection.get().activeKey, joined?.key);
+});
+
+Deno.test("attached joins preserve expected and unexpected failure identity", async () => {
+	class RefusingController extends ProjectingJoinController {
+		constructor(page: InstanceType<typeof RoomsPage>, readonly failure: unknown) {
+			super(snapshot(), page);
+		}
+
+		override joinDestination(): Promise<RoomsSessionSnapshot> {
+			return Promise.reject(this.failure);
+		}
+	}
+	const page = new RoomsPage();
+	resetStore(page);
+	const session = (failure: unknown) =>
+		createAttachedRoomsSession(
+			page,
+			{} as RoomsBrowserController,
+			new RefusingController(
+				page,
+				failure,
+			) as unknown as import("../../web/ui/session/attached.ts").AttachedRoomsController,
+			{} as import("../../web/ui/session/attached_files.ts").AttachedSessionFiles,
+		);
+	const taken = await session(new RoomsError(NICK_TAKEN, "alice")).join(
+		{ room: "general", locator: "" },
+		{ kind: "exact", name: "alice" },
+	);
+	assertEquals(taken.ok, false);
+	if (taken.ok) throw new Error("a refused join was reported as successful");
+	assertEquals(taken.code, NICK_TAKEN);
+	assertEquals(taken.text.includes("That name is taken"), true);
+	const unknown = await session(new Error("transport vanished")).join(
+		{ room: "general", locator: "" },
+		{ kind: "exact", name: "alice" },
+	);
+	assertEquals(unknown.ok, false);
+	if (unknown.ok) throw new Error("an unexpected join failure was reported as successful");
+	assertEquals(unknown.code, null);
+	assertEquals(unknown.text.includes("Rooms couldn't complete"), true);
+	assertEquals(unknown.text.includes("transport vanished"), true);
 });
 
 Deno.test("an attached room with retired authority opens its explicit recovery surface", async () => {

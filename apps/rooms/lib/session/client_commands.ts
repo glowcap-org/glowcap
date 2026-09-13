@@ -133,9 +133,9 @@ export class RoomsSessionCommandClient {
 		operationId: string,
 		baseRevision: number,
 		dmMode: RoomsSessionState["dmMode"],
-		vizOverride: string,
+		traceOverride: string,
 	): Promise<number> {
-		return this.command(operationId, baseRevision, "chooseConnection", [dmMode, vizOverride]);
+		return this.command(operationId, baseRevision, "chooseConnection", [dmMode, traceOverride]);
 	}
 
 	replaceOperationsCapabilities(
@@ -216,8 +216,14 @@ export class RoomsSessionCommandClient {
 		return this.command(operationId, baseRevision, "offerRoom", [roomConversationId, directConversationId]);
 	}
 
-	say(operationId: string, baseRevision: number, conversationId: string, text: string): Promise<number> {
-		return this.command(operationId, baseRevision, "say", [conversationId, text]);
+	say(
+		operationId: string,
+		baseRevision: number,
+		conversationId: string,
+		text: string,
+		previewUrls: readonly string[] = [],
+	): Promise<number> {
+		return this.command(operationId, baseRevision, "say", [conversationId, text, JSON.stringify(previewUrls)]);
 	}
 
 	editLine(

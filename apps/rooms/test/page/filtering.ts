@@ -151,8 +151,8 @@ export async function run(
 	 * written again: the panel below is only ever on screen inside this scene. */
 	descendersIntact: (where: string) => Promise<void>,
 ): Promise<void> {
-	// Four rooms and two directories, which is what it takes to ask an honest
-	// question about order. Two rooms cannot tell insertion order apart from
+	// Four rooms and two directories make the order question meaningful. Two
+	// rooms cannot tell insertion order apart from
 	// alphabetical, from directory order, or from how early a needle matched,
 	// and every one of those is a way a filter could quietly rearrange a list.
 	//
@@ -170,8 +170,8 @@ export async function run(
 	await makeRoom(tab, "council", false);
 	await makeRoom(tab, "orchard", true);
 
-	// One of them is left with something waiting on it, which is what gives the
-	// question about unread rows two answers to tell apart. A room being read
+	// One of them is left with something waiting on it, giving the unread-row
+	// question two answers to tell apart. A room being read
 	// counts nothing, so the room the line goes into has to be one this tab is
 	// not in. Naming which room that is rather than opening one, because the
 	// scene ends by opening the lobby and pressing the room you are already in
@@ -412,7 +412,7 @@ export async function run(
 	}
 
 	// Escape puts the panel away and hands the keyboard back to what opened it,
-	// which is what every other menu in this page does.
+	// matching every other menu on this page.
 	await tab.keyboard.press("Escape");
 	await tab.waitForSelector("#railFilterPanel", { state: "detached", timeout: 5_000 })
 		.catch(() => fail("Escape did not put the filter panel away"));

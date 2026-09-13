@@ -52,10 +52,14 @@ advanced_main=$(git -C "${repo}" rev-parse HEAD)
 # the shared ref. This is the clean-start operation: an agent can reach the
 # fixed tree before its own commit is ready to publish.
 before_sync_dev=$(git -C "${tree}" rev-parse dev)
-(
+sync_log=${scratch}/sync.log
+if ! (
 	cd "${tree}"
 	"${integrate}" --sync
-)
+) >"${sync_log}" 2>&1; then
+	cat "${sync_log}" >&2
+	exit 1
+fi
 [[ $(git -C "${tree}" rev-parse dev) == "${before_sync_dev}" ]]
 [[ $(git -C "${tree}" rev-parse main) == "${advanced_main}" ]]
 git -C "${tree}" merge-base --is-ancestor "${first_rival}" feature-work
@@ -76,14 +80,18 @@ exec "${GLOWCAP_TEST_REAL_GIT}" "$@"
 WRAPPER
 chmod +x "${scratch}/bin/git"
 
-(
+integrate_log=${scratch}/integrate.log
+if ! (
 	cd "${tree}"
 	PATH="${scratch}/bin:${PATH}" \
 		GLOWCAP_TEST_REAL_GIT="${real_git}" \
 		GLOWCAP_TEST_RACE_TIP="${race_tip}" \
 		GLOWCAP_TEST_RACE_MARKER="${scratch}/raced" \
 		"${integrate}"
-)
+) >"${integrate_log}" 2>&1; then
+	cat "${integrate_log}" >&2
+	exit 1
+fi
 
 feature_tip=$(git -C "${tree}" rev-parse feature-work)
 dev_tip=$(git -C "${tree}" rev-parse dev)

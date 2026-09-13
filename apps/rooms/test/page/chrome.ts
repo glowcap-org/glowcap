@@ -185,7 +185,7 @@ export async function runChrome(
 	else {
 		// Reported together rather than one at a time. These are one question asked
 		// three ways, and stopping at the first answer hides how far apart the two
-		// rails actually are — which is what decides whether the fix is a number or
+		// rails actually are. That distance decides whether the fix is a number or
 		// a shared rule.
 		const apart = [
 			(alike.lockupAir < 5 || alike.lockupAir > 14) &&

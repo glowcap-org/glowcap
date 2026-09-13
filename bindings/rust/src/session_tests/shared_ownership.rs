@@ -22,14 +22,8 @@ async fn host_first_network_work_reuses_exporters_and_releases_owned_occurrences
 							|host, locator, _, _, timeout| {
 								Box::pin(async move {
 									let stream = tokio::net::TcpStream::connect(&locator.designator).await?;
-									Session::dial_channel(
-										&host,
-										&locator,
-										crate::Channel::stream(stream),
-										timeout,
-										None,
-									)
-									.await
+									Session::dial_channel(&host, locator, crate::Channel::stream(stream), timeout, None)
+										.await
 								})
 							},
 						)

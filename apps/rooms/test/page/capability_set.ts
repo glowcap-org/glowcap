@@ -21,10 +21,10 @@ export async function saveCapabilitySet(tab: Page): Promise<void> {
 			const button = document.querySelector<HTMLButtonElement>("#opsCapabilitySetSave");
 			return {
 				url: location.href,
-				vizOverride: (() => {
+				traceOverride: (() => {
 					try {
 						return JSON.parse(localStorage.getItem("rooms.workspace-state") ?? "null")?.session
-							?.vizOverride;
+							?.traceOverride;
 					} catch {
 						return "invalid workspace";
 					}

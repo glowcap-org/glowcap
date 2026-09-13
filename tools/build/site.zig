@@ -276,7 +276,7 @@ pub fn register(ctx: Context) Registered {
         .name = "site-output-check-tests",
         .root_module = site_output_check_mod,
     });
-    const run_site_output_check_tests = execution.addZigTest(b, site_output_check_tests, .{ .deterministic = 30 });
+    const run_site_output_check_tests = execution.addZigTest(b, site_output_check_tests, .unit_test);
     check_step.dependOn(&run_site_output_check_tests.step);
 
     const site_step = b.step("site", "Build and validate the documentation site (Zine + autodoc) under zig-out/site/");

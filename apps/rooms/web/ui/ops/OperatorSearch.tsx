@@ -13,12 +13,21 @@
 // force.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	operatorCountsAll,
+	operatorCountsMatching,
+	operatorFilteredTo,
+	operatorSearching,
+	opsSearchLabel,
+	opsSearchPlaceholder,
+} from "../../../lib/text/ops.ts";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
 import { Said } from "../Said.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import type { OperatorReferenceKind } from "../../../lib/operator.ts";
 import { useOperatorActivity } from "./operator_activity.tsx";
+import { refusalText } from "../../../lib/text/failure.ts";
 
 /** How long the pane waits after the last keystroke. Long enough that a
  * typed word is one scan rather than five, short enough to feel like the page
@@ -49,7 +58,7 @@ export function OperatorSearch(
 			(error) => {
 				if (generation.current !== request) return;
 				setBusy(false);
-				setWhy(error instanceof Error ? error.message : String(error));
+				setWhy(refusalText(error));
 			},
 		);
 	}, [session]);
@@ -87,8 +96,8 @@ export function OperatorSearch(
 					autoComplete="off"
 					spellCheck={false}
 					disabled={activity.sweeping}
-					aria-label="Search everything this directory holds"
-					placeholder="Search rooms, names, connections, references…"
+					aria-label={opsSearchLabel}
+					placeholder={opsSearchPlaceholder}
 					onChange={(event) => setTyped(event.currentTarget.value)}
 				/>
 				{(typed !== "" || referenceKind !== null) && (
@@ -109,12 +118,12 @@ export function OperatorSearch(
 			</div>
 			<p className="hint" id="operatorSearchSaid" role="status">
 				{busy
-					? "Searching this directory…"
+					? operatorSearching
 					: referenceKind !== null
-					? `Retained references are filtered to the exact ${referenceKind} kind.`
+					? operatorFilteredTo(referenceKind)
 					: search === ""
-					? "Every inventory below counts what this directory holds."
-					: `Every inventory below counts what matches “${search}”.`}
+					? operatorCountsAll
+					: operatorCountsMatching(search)}
 			</p>
 			{why !== "" && <Said kind="failure">{why}</Said>}
 		</div>

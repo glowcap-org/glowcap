@@ -2,8 +2,8 @@
 //
 // This is the layer that knows about OCapN, and on the connection API it is
 // barely a layer at all: connect, fetch the directory by name, ask it to open or
-// enter a room (which hands back a live reference to that room), spawn an inbox
-// the room can call back, subscribe by handing it that capability, and surface
+// enter a room (which hands back an entrance reference), spawn an inbox the
+// room can call back, subscribe by handing it that capability, and surface
 // the room's callbacks as a stream. Everything above it — the terminal client,
 // the web UI — reads like an app, not like a protocol.
 //
@@ -17,8 +17,8 @@
 // `Directory.open` and `enter` mirror the wire one-to-one — strict, each errors
 // on the wrong precondition. The friendly "enter, opening it if new" behavior is
 // a CLI convenience and lives in the apps (`enter_room.ts`), not here. The room
-// name is the directory's lookup key; the room itself is the capability the
-// directory returns.
+// name is the directory's lookup key; the entrance is the capability the
+// directory returns, and the subscription answer carries the live membership.
 
 import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime";
 import type { BridgeAnswers, BridgeForm } from "../bridge/form.ts";
@@ -67,8 +67,9 @@ import { ask } from "../ask.ts";
 import { PostedLine } from "../posted_line.ts";
 import type { Message } from "./message.ts";
 
-/** What a room calls itself, asked of a live reference — including one just
- * enlivened from a link, before subscribe. Empty when it has no label to give. */
+/** What a room calls itself, asked of an entrance reference, including one
+ * just enlivened from a link before subscribe. Empty when it has no label to
+ * give. */
 export async function roomCalledAs(session: Session, room: Ref): Promise<string> {
 	const said = await ask(session, room, CALLED, [], "the room did not say what it is called");
 	return typeof said === "string" ? said : "";
@@ -79,9 +80,9 @@ export async function linkRoomReference(session: Session, room: Ref): Promise<st
 	return await new RoomStewardship(session, room).link();
 }
 
-/** Whether a live reference is to an unlisted room. A public room's link is
- * still that public room; guessing from the name would open a listed room that
- * merely shares a private room's label. */
+/** Whether an entrance reference names an unlisted room. A public room's link
+ * is still that public room; guessing from the name would open a listed room
+ * that merely shares a private room's label. */
 export async function roomIsPrivate(session: Session, room: Ref): Promise<boolean> {
 	const said = await ask(session, room, PRIVATE, [], "the room did not say whether it is listed");
 	if (said === true || said === "private") return true;
@@ -115,6 +116,10 @@ export class Room {
 	readonly #messageStream: RoomMessageStream;
 	/** The authority to say what the room is about, when it offered one. */
 	#topic: Ref | null = null;
+	/** The authority to put files in this room, when it offered one: what
+	 * `attach` and `postFiles` go to. A room that cannot hold bytes offers
+	 * none, and so does an observer seat. */
+	#files: Ref | null = null;
 	readonly #stewardship: RoomStewardship;
 	/** What subscribe's arrival said about this occupancy, when it said so. */
 	#listed: boolean | undefined;
@@ -209,6 +214,7 @@ export class Room {
 			self.#membership = membership.seat;
 			self.#membershipKind = membership.kind;
 			self.#topic = membership.topic;
+			self.#files = membership.files;
 			await answerWithin(self.#arrival, `the room did not announce ${nick} arriving`, REQUEST_TIMEOUT_MS);
 			if (self.#arrivalFailure !== null) throw self.#arrivalFailure;
 			return self;
@@ -317,6 +323,13 @@ export class Room {
 		return this.#topic !== null;
 	}
 
+	/** Whether this membership holds the authority to put files in the room.
+	 * False against a room that offers none: one that cannot hold bytes, or an
+	 * observer seat. A composer draws its attach control from this. */
+	get canPostFiles(): boolean {
+		return this.#files !== null;
+	}
+
 	/** Say this membership has stepped away, or `""` to say it is back.
 	 *
 	 * Nobody hands this over: a member's own standing is theirs to state, and
@@ -396,8 +409,8 @@ export class Room {
 	/** Say what the room is about, for everyone in it and everyone who arrives
 	 * after. An empty string takes the topic down.
 	 *
-	 * Throws when this membership holds no topic capability, which is what a
-	 * room that does not offer one leaves it with; ask `canSetTopic` first. */
+	 * Throws when this membership holds no topic capability. A room that does
+	 * not offer one leaves the membership in that state; ask `canSetTopic` first. */
 	async setTopic(text: string): Promise<void> {
 		if (this.#topic === null) throw new Error("this room did not offer a topic to set");
 		await ask(this.#session, this.#topic, SET_TOPIC, [text], "the room did not answer setting its topic");
@@ -461,7 +474,7 @@ export class Room {
 	 * client closes — and a client nothing on the network can dial, such as a
 	 * browser tab, can post one at all. */
 	stage(source: AttachmentSource): Promise<Ref> {
-		return beginUpload(this.#session, this.#membershipRef(), source);
+		return beginUpload(this.#session, this.#filesRef(), source);
 	}
 
 	/** Drive an admitted upload. Separate from `stage` so a message can become
@@ -487,7 +500,7 @@ export class Room {
 	 * captioned again, have its files changed, or be taken back. A room may grant
 	 * no such authority; absence is returned exactly as `say` returns it. */
 	async postFiles(text = ""): Promise<PostedLine | null> {
-		const line = await postStagedFiles(this.#session, this.#membershipRef(), text);
+		const line = await postStagedFiles(this.#session, this.#filesRef(), text);
 		return line instanceof Ref ? new PostedLine(this.#session, line) : null;
 	}
 
@@ -523,6 +536,7 @@ export class Room {
 	 * a typing signal is ephemeral, so a lost one costs nothing and never blocks a
 	 * keystroke. The room drops it silently if we are no longer subscribed. */
 	setTyping(on: boolean): Promise<void> {
+		// best-effort: a lost flag is the whole loss; the next keystroke sends another.
 		return this.#session.tell(this.#membershipRef(), TYPING, [on]).catch(() => {});
 	}
 
@@ -582,12 +596,13 @@ export class Room {
 
 	#releaseMembershipRefs(): unknown | null {
 		let failure: unknown | null = null;
-		const release = (field: "#inbox" | "#topic" | "#membership", ref: Ref | null) => {
+		const release = (field: "#inbox" | "#topic" | "#files" | "#membership", ref: Ref | null) => {
 			if (ref === null) return;
 			try {
 				this.#session.release(ref);
 				if (field === "#inbox") this.#inbox = null;
 				else if (field === "#topic") this.#topic = null;
+				else if (field === "#files") this.#files = null;
 				else this.#membership = null;
 			} catch (error) {
 				failure = failure === null ? error : retainSecondaryFailure(failure, error);
@@ -595,6 +610,7 @@ export class Room {
 		};
 		release("#inbox", this.#inbox);
 		release("#topic", this.#topic);
+		release("#files", this.#files);
 		release("#membership", this.#membership);
 		try {
 			this.#stewardship.release();
@@ -607,6 +623,12 @@ export class Room {
 	#membershipRef(): Ref {
 		if (this.#membership === null) throw new Error("this room membership has ended");
 		return this.#membership;
+	}
+
+	#filesRef(): Ref {
+		this.#membershipRef();
+		if (this.#files === null) throw new Error("this room does not carry files");
+		return this.#files;
 	}
 
 	#endStream(): void {

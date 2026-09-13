@@ -1,11 +1,11 @@
 //! The attachment supervises history reads; the page receives loading/results.
 //! Invalidation and topology are read from the canonical Rust session view.
-use super::{observation::call, owner::Owner, view, Result, RoomsBrowserSession};
+use super::{Result, RoomsBrowserSession, observation::call, owner::Owner, view};
 use rooms_application::{
 	archive::change::Change,
 	grants::Access,
 	session::{
-		controller::history::{History, Read, Target, CONCURRENCY},
+		controller::history::{CONCURRENCY, History, Read, Target},
 		snapshot::Snapshot,
 	},
 };

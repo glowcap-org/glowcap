@@ -1,3 +1,4 @@
+//! Operation transitions admit and retire durable session commands.
 use super::transaction::Candidate;
 use super::*;
 use crate::session::fields::Nullable;

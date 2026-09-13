@@ -53,9 +53,11 @@ async fn ended_precedes_physical_retirement_without_taking_close_ownership() {
 				.unwrap();
 			assert!(!session.is_open());
 			assert!(!shared.released.get());
-			assert!(tokio::time::timeout(Duration::from_millis(20), session.closed())
-				.await
-				.is_err());
+			assert!(
+				tokio::time::timeout(Duration::from_millis(20), session.closed())
+					.await
+					.is_err()
+			);
 
 			ready.set(true);
 			waker

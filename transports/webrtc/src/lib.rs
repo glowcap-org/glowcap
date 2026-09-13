@@ -37,7 +37,7 @@ use channel::*;
 
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 
@@ -77,11 +77,35 @@ const PEER_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1
 const OK: i32 = 0;
 const ERR: i32 = -1;
 
-fn teardown_status(f: impl FnOnce() -> Result<(), ()>) -> i32 {
+fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
 	match catch_unwind(AssertUnwindSafe(f)) {
 		Ok(Ok(())) => OK,
-		Ok(Err(())) | Err(_) => ERR,
+		Ok(Err(_)) | Err(_) => ERR,
 	}
+}
+
+/// Borrow a caller's handle for the length of one ABI call, answering `refused`
+/// both for a null pointer and for a panic, which may never cross the C frame.
+///
+/// This is the sidecar's one trust boundary. Every `glowcap_webrtc_*` entry
+/// point is handed a raw handle the C side got from the matching `*_new` and has
+/// not yet freed, and this is the single place that assumption becomes a Rust
+/// reference. Written once here, the argument for it is one thing to check
+/// rather than one per entry point, and each entry point is left saying what it
+/// does instead of restating who owns its pointer.
+///
+/// An out-parameter buffer is a separate assumption with its own guard, so it
+/// stays at the call site that checks its capacity.
+///
+/// # Safety
+/// `handle` is null, or points to a live value from the matching `*_new` that no
+/// other call is freeing for the duration of this one.
+unsafe fn borrowed<H, R: Copy>(handle: *const H, refused: R, body: impl FnOnce(&H) -> R) -> R {
+	catch_unwind(AssertUnwindSafe(|| match unsafe { handle.as_ref() } {
+		Some(handle) => body(handle),
+		None => refused,
+	}))
+	.unwrap_or(refused)
 }
 /// A non-blocking call that cannot make progress yet: no candidate has gathered,
 /// the channel is not open, or a bounded queue has no room. The resident re-arms
@@ -313,10 +337,10 @@ impl EndpointInner {
 
 	fn signal(&self, subject: usize, events: u32) {
 		self.readiness.signal(subject, events);
-		if let Ok(slot) = self.driver_readiness.lock() {
-			if let Some(readiness) = slot.as_ref() {
-				readiness.signal(subject, events);
-			}
+		if let Ok(slot) = self.driver_readiness.lock()
+			&& let Some(readiness) = slot.as_ref()
+		{
+			readiness.signal(subject, events);
 		}
 	}
 
@@ -339,7 +363,9 @@ unsafe fn view_text(view: GlowcapWebrtcStringView, max_len: usize) -> Option<Str
 	if view.ptr.is_null() {
 		return None;
 	}
-	std::str::from_utf8(std::slice::from_raw_parts(view.ptr, view.len))
+	// SAFETY: the caller lends the view for this call, and the empty, oversized,
+	// and null cases all returned above.
+	std::str::from_utf8(unsafe { std::slice::from_raw_parts(view.ptr, view.len) })
 		.ok()
 		.map(str::to_owned)
 }
@@ -370,25 +396,27 @@ unsafe fn ice_servers_from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<V
 	if cfg.ice_servers.is_null() {
 		return None;
 	}
-	let records = std::slice::from_raw_parts(cfg.ice_servers, cfg.ice_server_count);
+	// SAFETY: the caller lends the whole configuration tree for this call, and
+	// each count is bounded and each pointer null-checked before it is read.
+	let records = unsafe { std::slice::from_raw_parts(cfg.ice_servers, cfg.ice_server_count) };
 	let mut out = Vec::with_capacity(records.len());
 	for record in records {
 		if record.url_count == 0 || record.url_count > MAX_ICE_URLS_PER_SERVER || record.urls.is_null() {
 			return None;
 		}
-		let url_views = std::slice::from_raw_parts(record.urls, record.url_count);
+		let url_views = unsafe { std::slice::from_raw_parts(record.urls, record.url_count) };
 		let mut urls = Vec::with_capacity(url_views.len());
 		let mut has_turn = false;
 		for url in url_views {
-			let text = view_text(*url, MAX_ICE_URL_BYTES)?;
+			let text = unsafe { view_text(*url, MAX_ICE_URL_BYTES) }?;
 			if text.is_empty() {
 				return None;
 			}
 			has_turn |= ice_url_is_turn(&text)?;
 			urls.push(text);
 		}
-		let username = view_text(record.username, MAX_ICE_CREDENTIAL_BYTES)?;
-		let credential = view_text(record.credential, MAX_ICE_CREDENTIAL_BYTES)?;
+		let username = unsafe { view_text(record.username, MAX_ICE_CREDENTIAL_BYTES) }?;
+		let credential = unsafe { view_text(record.credential, MAX_ICE_CREDENTIAL_BYTES) }?;
 		let has_credentials = !username.is_empty() || !credential.is_empty();
 		if (!has_turn && has_credentials) || (has_turn && (username.is_empty() || credential.is_empty())) {
 			return None;
@@ -417,8 +445,12 @@ pub struct GlowcapWebrtcPeer {
 
 /// Create one endpoint: the runtime and readiness namespace shared by all peers
 /// a resident multiplexes. Returns null if either resource cannot be created.
-#[no_mangle]
-pub extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
+///
+/// # Safety
+/// `config` must point to a readable configuration whose nested ICE-server
+/// arrays satisfy their documented pointer and length contracts.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
 	config: *const GlowcapWebrtcEndpointConfig,
 ) -> *mut GlowcapWebrtcEndpoint {
 	catch_unwind(AssertUnwindSafe(|| {
@@ -466,67 +498,77 @@ pub extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
 }
 
 /// Borrow the endpoint's readiness fd. It remains valid until endpoint free.
-#[no_mangle]
+///
+/// # Safety
+/// `endpoint` must be a live endpoint handle.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const GlowcapWebrtcEndpoint) -> i32 {
-	catch_unwind(AssertUnwindSafe(|| {
-		endpoint
-			.as_ref()
-			.map(|endpoint| endpoint.inner.readiness.reader.as_raw_fd())
-			.unwrap_or(-1)
-	}))
-	.unwrap_or(-1)
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(endpoint, -1, |endpoint| endpoint.inner.readiness.reader.as_raw_fd()) }
 }
 
 /// Drain up to `out_cap` endpoint readiness records without allocation.
-#[no_mangle]
+///
+/// # Safety
+/// `endpoint` must be live. When `out_cap` is nonzero, `out` must address that
+/// many writable records.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_ready(
 	endpoint: *const GlowcapWebrtcEndpoint,
 	out: *mut GlowcapWebrtcReadyEvent,
 	out_cap: usize,
 ) -> isize {
-	catch_unwind(AssertUnwindSafe(|| {
-		let endpoint = match endpoint.as_ref() {
-			Some(endpoint) => endpoint,
-			None => return ERR as isize,
-		};
+	// Outside the `unsafe` block below, so the caller-buffer projection is still
+	// marked where it happens rather than absorbed into the handle's block.
+	let drain = |endpoint: &GlowcapWebrtcEndpoint| {
 		if out.is_null() || out_cap == 0 {
 			return 0;
 		}
-		let dest = std::slice::from_raw_parts_mut(out, out_cap);
+		// SAFETY: the caller declares `out_cap` writable records at `out`, and
+		// the null and zero-capacity cases went to the arm above.
+		let dest = unsafe { std::slice::from_raw_parts_mut(out, out_cap) };
 		endpoint.inner.readiness.drain(dest) as isize
-	}))
-	.unwrap_or(ERR as isize)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(endpoint, ERR as isize, drain) }
 }
 
 /// Borrow an independent readiness descriptor for a generic driver provider.
 /// The subscription is created lazily so raw-only endpoints pay no second
 /// queue. Events published after this call are copied into both subscriptions.
-#[no_mangle]
+///
+/// # Safety
+/// `endpoint` must be a live endpoint handle.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(
 	endpoint: *const GlowcapWebrtcEndpoint,
 ) -> i32 {
-	catch_unwind(AssertUnwindSafe(|| {
-		endpoint
-			.as_ref()
-			.and_then(|endpoint| endpoint.inner.driver_readiness())
-			.map(|readiness| readiness.reader.as_raw_fd())
-			.unwrap_or(-1)
-	}))
-	.unwrap_or(-1)
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe {
+		borrowed(endpoint, -1, |endpoint| {
+			endpoint
+				.inner
+				.driver_readiness()
+				.map(|readiness| readiness.reader.as_raw_fd())
+				.unwrap_or(-1)
+		})
+	}
 }
 
 /// Drain the generic driver's independent readiness subscription.
-#[no_mangle]
+///
+/// # Safety
+/// `endpoint` must be live. When `out_cap` is nonzero, `out` must address that
+/// many writable records.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(
 	endpoint: *const GlowcapWebrtcEndpoint,
 	out: *mut GlowcapWebrtcReadyEvent,
 	out_cap: usize,
 ) -> isize {
-	catch_unwind(AssertUnwindSafe(|| {
-		let endpoint = match endpoint.as_ref() {
-			Some(endpoint) => endpoint,
-			None => return ERR as isize,
-		};
+	// Outside the `unsafe` block below, so the caller-buffer projection is still
+	// marked where it happens rather than absorbed into the handle's block.
+	let drain = |endpoint: &GlowcapWebrtcEndpoint| {
 		if out.is_null() || out_cap == 0 {
 			return 0;
 		}
@@ -534,21 +576,29 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(
 			Some(readiness) => readiness,
 			None => return ERR as isize,
 		};
-		let dest = std::slice::from_raw_parts_mut(out, out_cap);
+		// SAFETY: the caller declares `out_cap` writable records at `out`, and
+		// the null and zero-capacity cases went to the arm above.
+		let dest = unsafe { std::slice::from_raw_parts_mut(out, out_cap) };
 		readiness.drain(dest) as isize
-	}))
-	.unwrap_or(ERR as isize)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(endpoint, ERR as isize, drain) }
 }
 
 /// Release an endpoint. Peers retain the runtime defensively, but callers must
 /// still release every peer first so no readiness can outlive its owner.
-#[no_mangle]
+///
+/// # Safety
+/// `endpoint` must be null or an owned endpoint handle not previously freed.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_free(endpoint: *mut GlowcapWebrtcEndpoint) -> i32 {
 	if endpoint.is_null() {
 		return OK;
 	}
 	teardown_status(|| {
-		let endpoint = Box::from_raw(endpoint);
+		// SAFETY: an unfreed handle from `endpoint_new`, with null refused
+		// above, so this frame is its last owner.
+		let endpoint = unsafe { Box::from_raw(endpoint) };
 		let close_result = endpoint.inner.close_tasks.wait();
 		drop(endpoint);
 		close_result

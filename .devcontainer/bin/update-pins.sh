@@ -10,7 +10,7 @@
 #
 # Versions and hashes come from each tool's own release channel (ziglang.org,
 # static.rust-lang.org, the GitHub releases API, registry.npmjs.org,
-# nodejs.org, pypi.org, download.racket-lang.org, codeberg.org,
+# nodejs.org, postgresql.org, pypi.org, download.racket-lang.org, codeberg.org,
 # registry-1.docker.io). Edits go through staged copies that are validated
 # whole (bash syntax, hash shape, anchored replacement) before they land, so a
 # bump that cannot rewrite one of its files changes none of them. pins.sh
@@ -19,10 +19,10 @@
 # Dockerfiles still name the release before it. Run it in the devcontainer,
 # where curl, jq, git, and uv are pinned.
 #
-# Every bump ends with a container rebuild; check prints which build gate
-# proves each outdated dep beyond that. racket and goblins are generation
-# moves (conformance authority), so bump prints their procedure instead of
-# editing.
+# Rebuild the container when a bump changes a tool installed there.
+# Deployment-only bumps name their own checks. check lists the build step for
+# each outdated dependency. racket and goblins are generation moves, so bump
+# prints their procedure instead of editing them.
 #
 # check exits 0 when everything is current, 1 when updates are available,
 # 2 when any upstream query failed.
@@ -130,7 +130,7 @@ run_check() {
 # ---------------------------------------------------------------------------
 
 run_bump() {
-    local dep var pinned latest class changed="" gates=""
+    local dep var pinned latest class changed="" gates="" rebuild=""
     # The staged paths stay global: the EXIT trap fires after this function's
     # locals are gone, and a moved file is a harmless rm -f no-op.
     staged_pins="$(mktemp -t glowcap-pins-XXXXXX)"
@@ -165,6 +165,7 @@ run_bump() {
             glowcap_pins_stage_zls_source "${staged_pins}" "${latest}"
             changed="${changed}${changed:+, }${dep} ${pinned} -> ${latest}"
             gates="${gates}  - $(glowcap_pins_dep_gate "${dep}")"$'\n'
+            rebuild=yes
             echo "${dep}: ${pinned} -> ${latest}"
             continue
         fi
@@ -173,6 +174,9 @@ run_bump() {
         glowcap_pins_refresh_hashes "${dep}" "${latest}" "${staged_sums}"
         changed="${changed}${changed:+, }${dep} ${pinned} -> ${latest}"
         gates="${gates}  - $(glowcap_pins_dep_gate "${dep}")"$'\n'
+        if glowcap_pins_dep_requires_devcontainer_rebuild "${dep}"; then
+            rebuild=yes
+        fi
         echo "${dep}: ${pinned} -> ${latest}"
     done
 
@@ -208,7 +212,11 @@ run_bump() {
 
     echo
     echo "pins updated: ${changed}"
-    echo "rebuild to adopt (bash .devcontainer/bin/up.sh --rebuild), then:"
+    if [[ -n "${rebuild}" ]]; then
+        echo "rebuild to install the updated development tools (bash .devcontainer/bin/up.sh --rebuild), then:"
+    else
+        echo "no development-image pin changed; run:"
+    fi
     printf '%s' "${gates}" | sort -u
 }
 

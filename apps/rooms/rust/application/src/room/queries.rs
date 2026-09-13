@@ -1,9 +1,7 @@
-//! Replies available from a room reference before any membership is acquired.
-use super::{authority::Reply, policy::RoomPolicy, ArgumentView};
+//! Replies available from a room entrance before any membership is acquired.
+use super::{ArgumentView, authority::Reply, policy::RoomPolicy};
 
-pub const CALLED: &str = "called";
-pub const PRIVATE: &str = "private";
-pub const POLICY: &str = "roomPolicy";
+pub use crate::protocol_data::{CALLED, PRIVATE, ROOM_POLICY as POLICY};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

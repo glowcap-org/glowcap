@@ -1,7 +1,6 @@
 //! Adapter actions and protocol refusals produced by the bridged room.
 use super::super::{relay, wire::Notice};
-use crate::failure::FailureCode;
-use alloc::{format, string::String, vec::Vec};
+use alloc::vec::Vec;
 
 /// One thing a bridged room asks the adapter to do.
 #[derive(Debug)]
@@ -39,29 +38,4 @@ impl<C, R> Effects<C, R> {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-	pub code: Option<FailureCode>,
-	pub detail: String,
-}
-
-impl Refusal {
-	pub(super) fn plain(detail: impl Into<String>) -> Self {
-		Self {
-			code: None,
-			detail: detail.into(),
-		}
-	}
-	pub(super) fn coded(code: FailureCode, detail: impl Into<String>) -> Self {
-		Self {
-			code: Some(code),
-			detail: detail.into(),
-		}
-	}
-	pub fn reason(&self) -> String {
-		match self.code {
-			Some(code) => format!("{}: {}", code.wire(), self.detail),
-			None => self.detail.clone(),
-		}
-	}
-}
+pub use crate::server::Refusal;

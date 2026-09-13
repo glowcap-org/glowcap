@@ -1,3 +1,4 @@
+// Attached archive projection preserves record identity, file custody, and bounded hydration across rereads.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {
@@ -20,6 +21,49 @@ const { dirId } = await import("../../web/ui/types.ts");
 const { assertEquals } = await import("../assert.ts");
 const { roomsSessionSnapshot } = await import("../support/session_snapshot.ts");
 const { reconcileAttachedHistory } = await import("../../web/ui/session/history_reconciliation.ts");
+
+Deno.test("archive rereads reconcile the exact retained link-preview selection", () => {
+	const page = new RoomsPage();
+	const conv = store.restoreDm(page.projection, dirId("directory"), "alice", "reg", "direct", false);
+	if (conv == null) throw new Error("the conversation was not restored");
+	const first = "https://example.com/first";
+	const second = "https://example.com/second";
+	const record: ArchiveLine = {
+		kind: "line",
+		source: "source",
+		generation: "generation",
+		id: "preview",
+		conversationKind: "direct",
+		directory: "directory",
+		conversation: "alice",
+		from: "alice",
+		text: `${first} ${second}`,
+		mine: false,
+		at: 1,
+		order: 1,
+		state: "present",
+		previewUrls: [first, second],
+		attachments: [],
+	};
+	const drawn = () => {
+		const item = store.historyOf(page.projection, conv.key).find((candidate) => candidate.kind === "chat");
+		if (item?.kind !== "chat") throw new Error("archive line missing");
+		return item;
+	};
+	try {
+		reconcileAttachedHistory(page, conv.key, [record], null);
+		const identity = drawn().id;
+		assertEquals(drawn().previewUrls, [first, second]);
+		reconcileAttachedHistory(page, conv.key, [{ ...record, state: "edited", previewUrls: [second] }], null);
+		assertEquals([drawn().id, drawn().edited, drawn().previewUrls], [identity, true, [second]]);
+		reconcileAttachedHistory(page, conv.key, [{ ...record, state: "edited", previewUrls: [] }], null);
+		assertEquals(drawn().previewUrls, undefined);
+		reconcileAttachedHistory(page, conv.key, [{ ...record, state: "withdrawn", text: "", previewUrls: [] }], null);
+		assertEquals([drawn().id, drawn().withdrawn, drawn().previewUrls], [identity, true, undefined]);
+	} finally {
+		store.forgetConv(page.projection, conv.key);
+	}
+});
 
 Deno.test("archive rereads replace same-metadata files by digest and preserve unchanged custody", async () => {
 	const page = new RoomsPage();
@@ -48,6 +92,7 @@ Deno.test("archive rereads replace same-metadata files by digest and preserve un
 		at: 1,
 		order: 1,
 		state: "edited",
+		previewUrls: [],
 		attachments: [{ name: "file.txt", mime: "text/plain", size: 1, width: 0, height: 0, blob: "a".repeat(64) }],
 	};
 	const drawn = () => {
@@ -140,6 +185,7 @@ Deno.test("archive hydration adopts content identity without replacing live file
 		at: 1,
 		order: 1,
 		state: "present",
+		previewUrls: [],
 		attachments: [{ name: "live.png", mime: "image/png", size: 1, width: 1, height: 1, blob: "a".repeat(64) }],
 	};
 	reconcileAttachedHistory(page, conv.key, [record], files);
@@ -219,6 +265,7 @@ Deno.test("attached hydration exposes loading, empty, shown, and unavailable his
 		at: 1,
 		order: 1,
 		state: "present",
+		previewUrls: [],
 		attachments: [{ name: "earlier.png", mime: "image/png", size: 80, width: 4, height: 2, blob: null }],
 	};
 	type AttachedSessionControllerListener = (
@@ -311,6 +358,7 @@ Deno.test("attached recovery reconciles missed rows and mutations into live hist
 		at,
 		order: Number(id) || 1,
 		state,
+		previewUrls: [],
 		attachments: [],
 	});
 	const controller = {
@@ -369,6 +417,7 @@ Deno.test("attached recovery reconciles missed rows and mutations into live hist
 		editable: false,
 		history: { source: "archive", generation: "generation", id: "live" },
 		system: false,
+		previewUrls: [],
 		attachments: [],
 	});
 	projection.line({
@@ -383,6 +432,7 @@ Deno.test("attached recovery reconciles missed rows and mutations into live hist
 		editable: false,
 		history: { source: "archive", generation: "generation", id: "gone" },
 		system: false,
+		previewUrls: [],
 		attachments: [],
 	});
 	onSnapshot!(view([{ subject: "session", reason: "the attached transport ended" }], []));
@@ -490,6 +540,7 @@ Deno.test("a replaced conversation cannot receive history from its previous iden
 		at: 1,
 		order: 1,
 		state: "present",
+		previewUrls: [],
 		attachments: [],
 	});
 	answers.get("new-directory")?.([archived("new-directory", "new history")]);

@@ -1,12 +1,15 @@
 //! Per-view draft custody and delayed persistence live with the attachment.
 //! Supersession wakes accepted timers; dropping a JS promise does not cancel a save.
-use super::{js_error, rejected, view, Result, RoomsBrowserSession};
-use rooms_application::{session::state::OperationId, text::DocumentText};
+use super::{Result, RoomsBrowserSession, js_error, rejected, view};
+use rooms_application::{
+	session::{controller::drafts::SAVE_DEBOUNCE_MS, state::OperationId},
+	text::DocumentText,
+};
 use rooms_glowcap::client::session::controller::{self, Observation};
 use wasm_bindgen::prelude::*;
 
 fn text(value: js_sys::JsString) -> Result<DocumentText> {
-	crate::commands::read_text(value, 65_536).map_err(|error| error.to_string())
+	crate::js_text::document(&value, 65_536).map_err(|error| error.to_string())
 }
 #[wasm_bindgen]
 impl RoomsBrowserSession {
@@ -106,7 +109,7 @@ impl RoomsBrowserSession {
 		self.driver
 			.submit(key.heap_bytes() + value.heap_bytes(), move |environment| async move {
 				let outcome = async {
-					let timer = gloo_timers::future::TimeoutFuture::new(if delayed { 150 } else { 0 });
+					let timer = gloo_timers::future::TimeoutFuture::new(if delayed { SAVE_DEBOUNCE_MS } else { 0 });
 					tokio::pin!(timer);
 					loop {
 						if owner.drafts.borrow().token(&key) != Some(token) {
@@ -123,7 +126,8 @@ impl RoomsBrowserSession {
 					if owner.drafts.borrow().token(&key) != Some(token) {
 						return view::snapshot(owner.current()?.as_ref());
 					}
-					let id = rooms_runtime::entropy::random_id(&mut environment.platform.clone(), "")?;
+					let id = rooms_runtime::entropy::random_id(&mut environment.platform.clone(), "")
+						.map_err(|e| e.to_string())?;
 					let id = OperationId::new(id.text().clone()).ok_or("Invalid Rooms operation identity")?;
 					let args = [
 						key.as_str()

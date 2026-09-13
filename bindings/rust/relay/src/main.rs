@@ -14,11 +14,10 @@
 //! Teardown is pair-atomic: whichever leg ends first aborts the other.
 //!
 //! Two transports, dispatched by what the WebSocket names:
-//!   - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
-//!                      glowcap dependency, the default build).
-//!   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the glowcap
-//!                      Rust binding's `Netlayer::connect_owned`, only with
-//!                      `--features iroh`.
+//! - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
+//!   glowcap dependency, the default build).
+//! - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the glowcap
+//!   Rust binding's `Netlayer::connect_owned`, only with `--features iroh`.
 //!
 //! Prints `RUST-RELAY-READY <port>` on stdout once listening.
 
@@ -30,11 +29,11 @@ use std::time::{Duration, Instant};
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 mod policy_gen;
 
@@ -140,7 +139,10 @@ async fn handle(stream: TcpStream) {
 	// Capture `?to=host:port` and `?locator=<ocapn-uri>` from the upgrade request.
 	let parsed: Arc<Mutex<(Option<String>, Option<String>)>> = Arc::new(Mutex::new((None, None)));
 	let parsed_cb = parsed.clone();
-	let callback = move |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
+	// tungstenite's callback trait fixes this error type to its full HTTP
+	// response, so the size is upstream API shape rather than our result layout.
+	#[allow(clippy::result_large_err)]
+	let callback = move |req: &Request, resp: Response| {
 		if let Some(query) = req.uri().query() {
 			for pair in query.split('&') {
 				if let Some(value) = pair.strip_prefix("to=") {
@@ -404,12 +406,13 @@ fn percent_decode(s: &str) -> String {
 	let mut out = Vec::with_capacity(bytes.len());
 	let mut i = 0;
 	while i < bytes.len() {
-		if bytes[i] == b'%' && i + 2 < bytes.len() {
-			if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-				out.push(hi << 4 | lo);
-				i += 3;
-				continue;
-			}
+		if bytes[i] == b'%'
+			&& i + 2 < bytes.len()
+			&& let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2]))
+		{
+			out.push(hi << 4 | lo);
+			i += 3;
+			continue;
 		}
 		out.push(bytes[i]);
 		i += 1;
@@ -419,7 +422,7 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-	use super::{percent_decode, RelayFailure};
+	use super::{RelayFailure, percent_decode};
 
 	#[test]
 	fn relay_failure_keeps_cleanup_after_the_primary() {

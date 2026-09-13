@@ -16,6 +16,7 @@ pub fn register(
     optimize: std.builtin.OptimizeMode,
     lib_mod: *std.Build.Module,
     check_step: *std.Build.Step,
+    runtime_gate: *execution.SerialGate,
     pin_port: ?u16,
     attach: bool,
     demo_usage_mod: *std.Build.Module,
@@ -48,7 +49,7 @@ pub fn register(
     tasks_app_test.has_side_effects = true;
     const tasks_app_test_step = b.step("tasks-app-test", "Run the task board's bounded-state and lifecycle tests (needs deno)");
     tasks_app_test_step.dependOn(&tasks_app_test.step);
-    check_step.dependOn(tasks_app_test_step);
+    runtime_gate.add(tasks_app_test_step);
 
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
     // coordinator hands an agent capabilities to tools — attenuated to read-only,
@@ -72,7 +73,7 @@ pub fn register(
     tools_app_test.has_side_effects = true;
     const tools_app_test_step = b.step("tools-app-test", "Pin the tools showcase's attenuation and revocation (needs deno)");
     tools_app_test_step.dependOn(&tools_app_test.step);
-    check_step.dependOn(tools_app_test_step);
+    runtime_gate.add(tools_app_test_step);
 
     const tools_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
@@ -92,8 +93,9 @@ pub fn register(
     // transparency-logged Episode attributing the attested caller. Identity
     // (KERI), Episodes, and the transparency log all live above glowcap, the app
     // imports the `glowcap` module and never reaches into the core. It needs no
-    // extra runtime, so it rides the gate as an application contract (below). The
-    // app source lives under `apps/accountability-on-glowcap/`, beside
+    // extra language runtime, but it owns a real process and loopback socket, so
+    // it rides `runtime-check` as an application contract below. The app source
+    // lives under `apps/accountability-on-glowcap/`, beside
     // the other worked applications.
     const accountability_exe = glowcapExecutable(b, lib_mod, target, optimize, "accountability-on-glowcap", "apps/accountability-on-glowcap/zig/main.zig");
     const run_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
@@ -101,16 +103,16 @@ pub fn register(
     run_accountability.has_side_effects = true;
     const accountability_step = b.step("accountability", "Run the accountability application on glowcap's own runtime over real TCP");
     accountability_step.dependOn(&run_accountability.step);
-    // The accountability application and its three-party attribution test are
-    // Zig-hermetic (both use loopback TCP), so they ride the
-    // gate: a runnable application is a contract the same way an example is. The
-    // check run writes generated state under `.zig-cache` instead of the public
-    // demo's `.data/` path, so the gate never dirties source files.
-    const check_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
-    check_accountability.setCwd(b.path("."));
-    check_accountability.has_side_effects = true;
-    check_accountability.setEnvironmentVariable("GLOWCAP_ACCOUNTABILITY_DATA_ROOT", ".zig-cache/glowcap-accountability/check");
-    check_step.dependOn(&check_accountability.step);
+    // A runnable application is a contract, and this one owns a real loopback
+    // socket, so `runtime-check` runs it. Its generated state stays under the
+    // cache instead of the public demo's `.data/` path. The separate
+    // three-party attribution proof below remains a self-contained Zig test in
+    // `check`.
+    const runtime_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
+    runtime_accountability.setCwd(b.path("."));
+    runtime_accountability.has_side_effects = true;
+    runtime_accountability.setEnvironmentVariable("GLOWCAP_ACCOUNTABILITY_DATA_ROOT", ".zig-cache/glowcap-accountability/runtime-check");
+    runtime_gate.add(&runtime_accountability.step);
 
     // The cross-language accountability demo: the standalone Zig host (listens
     // on an ephemeral port and serves one connection per caller) driven by the
@@ -141,7 +143,7 @@ pub fn register(
     accountability_blake3_test.has_side_effects = true;
     const accountability_blake3_step = b.step("accountability-blake3-test", "Pin the accountability app's Blake3 against known vectors (needs deno and python3)");
     accountability_blake3_step.dependOn(&accountability_blake3_test.step);
-    check_step.dependOn(accountability_blake3_step);
+    runtime_gate.add(accountability_blake3_step);
 
     // The Python caller hand-rolls the same Blake3, with the same byte-agreement
     // requirement and the same off-gate demo, so its vectors are pinned too. Pure
@@ -165,7 +167,7 @@ pub fn register(
         .name = "accountability-three-party",
         .root_module = three_party_mod,
     });
-    const run_three_party = execution.addZigTest(b, three_party_test, .{ .deterministic = 30 });
+    const run_three_party = execution.addZigTest(b, three_party_test, .unit_test);
     const three_party_step = b.step("accountability-three-party", "Run three-Host TCP handoff attribution");
     three_party_step.dependOn(&run_three_party.step);
     check_step.dependOn(&run_three_party.step);

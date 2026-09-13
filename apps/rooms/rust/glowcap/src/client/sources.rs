@@ -2,7 +2,7 @@
 //! The core owns retention and read budgets; this adapter owns hosted roots,
 //! asynchronous readers and their deferred answers.
 use super::*;
-use rooms_application::files::{sources as policy, FileDescription};
+use rooms_application::files::{FileDescription, sources as policy};
 use std::{
 	cell::{Cell, RefCell},
 	pin::Pin,
@@ -110,6 +110,10 @@ pub struct Sources<D: Tasks> {
 	state: Rc<State<D>>,
 	platform: D,
 }
+struct SendPolicy {
+	suffix: Vec<Argument>,
+	retain: bool,
+}
 impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 	/// Create once per application runtime and share by borrowing or Rc. The
 	/// owner must outlive delivered files; dropping it retires sources and tasks.
@@ -139,8 +143,37 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		leading: Vec<Argument>,
 		sources: Vec<Source>,
 	) -> Result<Argument, Error> {
-		self.send_with_retention(client, target, verb, leading, sources, true)
-			.await
+		self.send_with_policy(
+			client,
+			target,
+			verb,
+			leading,
+			sources,
+			SendPolicy {
+				suffix: Vec::new(),
+				retain: true,
+			},
+		)
+		.await
+	}
+	pub async fn send_appended(
+		&self,
+		client: &Client<D>,
+		target: &Ref,
+		verb: &'static str,
+		leading: Vec<Argument>,
+		sources: Vec<Source>,
+		suffix: Vec<Argument>,
+	) -> Result<Argument, Error> {
+		self.send_with_policy(
+			client,
+			target,
+			verb,
+			leading,
+			sources,
+			SendPolicy { suffix, retain: true },
+		)
+		.await
 	}
 	/// Sources expire when this call ends, including after a successful reply.
 	/// Use for an ingestion whose acknowledgement means it owns the bytes.
@@ -152,17 +185,27 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		leading: Vec<Argument>,
 		sources: Vec<Source>,
 	) -> Result<Argument, Error> {
-		self.send_with_retention(client, target, verb, leading, sources, false)
-			.await
+		self.send_with_policy(
+			client,
+			target,
+			verb,
+			leading,
+			sources,
+			SendPolicy {
+				suffix: Vec::new(),
+				retain: false,
+			},
+		)
+		.await
 	}
-	async fn send_with_retention(
+	async fn send_with_policy(
 		&self,
 		client: &Client<D>,
 		target: &Ref,
 		verb: &'static str,
 		mut leading: Vec<Argument>,
 		sources: Vec<Source>,
-		retain: bool,
+		policy: SendPolicy,
 	) -> Result<Argument, Error> {
 		let blobs = self
 			.state
@@ -179,6 +222,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 			super::files::append_attachment(&mut leading, blob.description(), &root);
 			prepared.roots.push(root);
 		}
+		leading.extend(policy.suffix);
 		let pending = client.call(
 			target,
 			verb,
@@ -187,7 +231,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		);
 		drop(leading);
 		let reply = pending.await?;
-		prepared.delivered = retain;
+		prepared.delivered = policy.retain;
 		Ok(reply.0)
 	}
 }

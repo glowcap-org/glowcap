@@ -11,7 +11,7 @@ use rooms_application::session::{
 	state::{OperationId, Outcome},
 };
 use rooms_glowcap::client::session::Session;
-use rooms_runtime::session_service::{Local, LocalObservation as Observation};
+use rooms_runtime::service::{Local, LocalObservation as Observation};
 use std::rc::Rc;
 
 #[derive(Clone)]

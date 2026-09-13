@@ -15,19 +15,22 @@ toolchain under `apps/ocapnviz/`.
 
 ## Quick start
 
+From the repository root:
+
 ```bash
-cd apps/ocapnviz
-bash dev.sh          # vite dev server (Ctrl-C-friendly)
-deno task test       # unit tests
-deno task typecheck  # app and maintenance scripts
+zig build ocapnviz-dev   # vite dev server; open the printed URL
 ```
 
+Inside `apps/ocapnviz/`, the same server is `bash dev.sh`, and the suite and
+type-check are `deno task test` and `deno task typecheck`.
+
 From the repository root, `zig build ocapnviz-test` runs the suite and is part
-of `zig build check`, skipping itself on a machine without deno. The step
-`zig build ocapnviz-check` adds the type-check, the formatter, and the linter,
-including the tools under `scripts/`, and needs deno outright. Static checks
-prove that each Playwright probe remains runnable; its browser claim is proved
-only when that probe runs against the app.
+of `zig build runtime-check`. Deno is part of the declared toolchain, so its
+absence is reported before the runtime families begin. The step `zig build
+ocapnviz-check` adds the type-check, formatter, linter, and production bundle,
+including the tools under `scripts/`. Static checks prove that each Playwright
+probe remains runnable. Its browser claim is proved only when that probe runs
+against the app.
 
 The dev server defaults to <http://127.0.0.1:5173> and answers only localhost
 Host headers, so a laptop run is not a LAN service. The devcontainer binds
@@ -37,16 +40,17 @@ Hit **Play** and watch Alice introduce Bob to Carol. The new Bob-to-Carol
 session lands on `syrup/v1_0` because Bob is Goblins-flavored, so codec and
 CapTP version negotiate per session.
 
-`dev.sh` supervises vite so that Ctrl-C and closing the terminal stop the dev
-server. A bare `deno run -A npm:vite` can outlive its terminal through deno's
+`dev.sh`, the body of `zig build ocapnviz-dev`, supervises vite so that Ctrl-C
+and closing the terminal stop the dev server. A bare `deno run -A npm:vite`
+can outlive its terminal through deno's
 npm-compat layer and keep holding the port. A vite process showing `PPID 1` in
 `ps` is one of those orphans; kill it and start fresh.
 
 ## Live mode
 
 Switch the top-bar mode to **Live** and give the left pane the trace sturdyref
-printed as `ROOMS-VIZ-LISTENING`. The rooms server publishes one when started
-with `--viz` (see
+printed as `ROOMS-TRACE-LISTENING`. The rooms server publishes one when started
+with `--trace` (see
 [rooms operating](../rooms/operating.md#watching-the-room-live)). ocapnviz lazily loads its wasm
 Host, enlivens that read capability, and grants the endpoint an inbox. The
 endpoint admits no socket without its capability; the sturdyref's swissnum is

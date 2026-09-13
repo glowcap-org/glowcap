@@ -1,0 +1,170 @@
+/* Help: the card, its three tabs, and what each tab lays out. Split from
+   settings.css by subject; the modal machinery the card stands on stays there.
+
+   A step wider than Settings, because the Writing tab is a table read across
+   one row, source beside result, and at the panel step each half is too
+   narrow for a line of Markdown to stay a line. The rows step is what the
+   other cards with a wide row take. */
+.help-card {
+	width: min(var(--card-rows), 100%);
+}
+/* One Help tab on screen at a time, laid out like the body it sits in. */
+.help-panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-group);
+}
+/* The one sentence that answers the screen, so it reads at the size the rest
+   of the answers do rather than as a caption above them. */
+.help-lead {
+	margin: 0;
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+	line-height: 1.45;
+}
+/* Writing a message. A table read across one row: the source in the left
+   cell, and in the right cell what the same parser a message goes through
+   made of it, dressed as a message. The two cells are the surfaces themselves,
+   so a pair is always the same height however its halves wrap. The gap between
+   them is a transparent border on the source cell, clipped out of its
+   background, because a table cell has no margin. */
+.help-writing {
+	width: 100%;
+	table-layout: fixed;
+	border-collapse: separate;
+	border-spacing: 0;
+}
+/* Child combinators throughout: a rendered example can itself hold a table,
+   and that one keeps the message styling. */
+.help-writing > * > tr > th,
+.help-writing > * > tr > td {
+	padding: 0;
+	text-align: left;
+	vertical-align: top;
+	font-weight: inherit;
+}
+.help-writing > thead > tr > th {
+	padding-bottom: var(--gap-line);
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+}
+.help-writing > tbody > tr > th {
+	padding: var(--gap-group) 0 var(--gap-line);
+	font-size: var(--type-ui);
+	font-weight: 700;
+	color: var(--ink);
+}
+.help-writing > tbody:first-of-type > tr > th {
+	padding-top: var(--gap-line);
+}
+.help-writing td.help-source {
+	padding: 7px 10px;
+	border: 0;
+	border-right: var(--gap-row) solid transparent;
+	border-radius: var(--radius-chip);
+	background: color-mix(in srgb, var(--ink) 6%, transparent);
+	background-clip: padding-box;
+}
+.help-source pre {
+	margin: 0;
+	font-family: var(--font-mono);
+	font-size: var(--type-caption);
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--ink);
+}
+.help-writing td.help-example {
+	padding: 7px 10px;
+	border-radius: var(--radius-chip);
+	font-size: var(--type-ui);
+	line-height: 1.45;
+}
+/* The bubble's own hover strip reaches into the margin for a mark this
+   example does not have. */
+.help-writing td.help-example::before {
+	content: none;
+}
+/* A phone has no room for two columns, so a pair stacks: source, then what it
+   becomes. The column heads go with the columns. */
+@media (max-width: 430px) {
+	.help-writing thead {
+		display: none;
+	}
+	.help-writing tbody,
+	.help-writing tr,
+	.help-writing th,
+	.help-writing td {
+		display: block;
+	}
+	.help-writing td.help-source {
+		border-right: 0;
+		margin-bottom: var(--gap-line);
+	}
+}
+.help-keys-title {
+	margin: var(--gap-row) 0 0;
+	font-size: var(--type-fine);
+	font-weight: 600;
+	letter-spacing: .1em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+}
+.help-keys {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: var(--gap-row) var(--gap-group);
+	align-items: baseline;
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+}
+.help-keys li {
+	display: contents;
+}
+.help-keys kbd {
+	font-family: var(--font-mono);
+	font-size: var(--type-caption);
+	color: var(--ink);
+	padding: 1px 6px;
+	border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+	white-space: nowrap;
+}
+.glossary {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-group);
+	margin: 0;
+}
+.glossary > div {
+	display: flex;
+	flex-direction: column;
+	gap: var(--gap-line);
+}
+.glossary dt {
+	font-size: var(--type-ui);
+	font-weight: 700;
+}
+.glossary dd {
+	margin: 0;
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+	line-height: 1.45;
+}
+/* The way into the parts catalog: the word "secret" in the glossary is the
+   door — tappable and focusable, and only the cursor gives it away. A
+   development surface earns an easter egg's affordance, not a button's. */
+.secret-door {
+	all: unset;
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+}
+/* The ring is the base rule's; this only rounds the corners it follows. */
+.secret-door:focus-visible {
+	border-radius: 4px;
+}

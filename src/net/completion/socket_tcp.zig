@@ -1,11 +1,12 @@
 //! Shared IPv4 TCP socket helpers for the platform completion backends.
 //!
-//! `kqueue` (Darwin) and `uring` (Linux) both open IPv4 listeners with
+//! `kqueue` (Darwin), `uring` (Linux), and `epoll` (Linux) open IPv4 listeners with
 //! `SO_REUSEADDR`, mint outbound stream sockets, and pack an `IpAddress` into a
 //! connect sockaddr. Those policies live here once. Platform differences stay
 //! explicit via comptime OS: Darwin marks fds nonblocking for readiness (and
-//! carries the BSD `sockaddr_in` len byte); Linux leaves fds blocking because
-//! io_uring's accept/connect are completion-based.
+//! carries the BSD `sockaddr_in` len byte). Linux leaves fds blocking by
+//! default because io_uring's accept/connect are completion-based. epoll marks
+//! its sockets nonblocking after these shared constructors return.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -66,8 +67,9 @@ pub fn loopbackIp4(port: u16) Ip4 {
 
 /// Open an outbound IPv4 TCP socket. Darwin sets `O_NONBLOCK` (kqueue readiness)
 /// and `SO_NOSIGPIPE` (no process-global signal on a torn-down peer); Linux
-/// does not because io_uring owns async connect and send SQEs do not raise
-/// SIGPIPE into the process.
+/// stays blocking by default because io_uring owns async connect and send SQEs
+/// do not raise SIGPIPE into the process. The epoll backend marks its socket
+/// nonblocking after this shared constructor returns.
 pub fn openSocket(comptime os: Os) !i32 {
     const fd = try openStream(os);
     errdefer closeFd(os, fd);
@@ -83,7 +85,7 @@ pub fn openSocket(comptime os: Os) !i32 {
 /// listener represents one identity-bearing OCapN Host, so concurrent address
 /// sharing would let the kernel route dials to different peers. Darwin also
 /// marks the listener nonblocking so stale readiness never parks the loop in
-/// `accept(2)`.
+/// `accept(2)`. The epoll backend does the same after construction.
 pub fn openListener(comptime os: Os, ip4: Ip4) !i32 {
     const fd = try openStream(os);
     errdefer closeFd(os, fd);
@@ -145,8 +147,15 @@ pub fn boundIp4(comptime os: Os, fd: i32) !Ip4 {
 /// Set `O_NONBLOCK` on an fd. Every fd the kqueue backend submits on must be
 /// nonblocking: readiness can go stale, and a blocking `send`/`accept` would
 /// park the whole loop. Accepted fds need this too (Darwin does not inherit
-/// the flag across `accept(2)`). Linux io_uring callers do not use this.
+/// the flag across `accept(2)`). Linux epoll uses it after the shared socket
+/// constructors. io_uring callers do not use it.
 pub fn setNonblocking(fd: i32) bool {
+    if (comptime builtin.os.tag == .linux) {
+        const flags = linux.fcntl(fd, linux.F.GETFL, 0);
+        if (linux.errno(flags) != .SUCCESS) return false;
+        const nonblocking: u32 = @bitCast(linux.O{ .NONBLOCK = true });
+        return linux.errno(linux.fcntl(fd, linux.F.SETFL, flags | nonblocking)) == .SUCCESS;
+    }
     const c = std.c;
     const flags = c.fcntl(fd, c.F.GETFL, @as(c_int, 0));
     if (flags < 0) return false;
@@ -360,3 +369,18 @@ fn checkLinux(rc: usize, comptime fallback: CheckError) CheckError!void {
         else => fallback,
     };
 }
+
+pub const white_box = if (builtin.is_test and builtin.os.tag == .linux) struct {
+    pub fn nodelayEnabled(fd: i32) bool {
+        var value: u32 = 0;
+        var len: u32 = @sizeOf(u32);
+        const rc = linux.getsockopt(
+            fd,
+            linux.IPPROTO.TCP,
+            std.posix.TCP.NODELAY,
+            std.mem.asBytes(&value),
+            &len,
+        );
+        return linux.errno(rc) == .SUCCESS and value != 0;
+    }
+} else struct {};

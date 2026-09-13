@@ -1,4 +1,5 @@
-use super::{FileCallError, FileError, FileLineError, CHUNK_BYTES};
+//! File-transfer failures preserve which bounded operation was refused.
+use super::{CHUNK_BYTES, FileCallError, FileError, FileLineError};
 use crate::failure::FailureCode;
 use core::fmt;
 

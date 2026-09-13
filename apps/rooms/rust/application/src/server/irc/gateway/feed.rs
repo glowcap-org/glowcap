@@ -2,7 +2,7 @@
 //! Roster projections are built only when the room actually asks for one.
 use super::*;
 use crate::server::irc::{
-	protocol::{fold, Message},
+	protocol::{Message, fold},
 	room::Effects,
 };
 

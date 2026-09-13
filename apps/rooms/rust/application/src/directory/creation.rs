@@ -1,14 +1,12 @@
+//! Room-creation verbs and caller-held retry keys.
 use super::Error;
+use crate::fields::lower_hex;
 use alloc::string::String;
 
-pub const OPEN: &str = "open";
-pub const OPEN_MANAGED: &str = "openManaged";
-pub const AUTHORITIES: &str = "roomAuthorities";
-pub const PRIVATE_LINK: &str = "openPrivateLink";
-pub const ENTER: &str = "enter";
-pub const ENTER_PUBLICATION: &str = "enterPublication";
-pub const LINK: &str = "link";
-pub const LOCATION: &str = "advertisedLocation";
+pub use crate::protocol_data::{
+	ADVERTISED_LOCATION as LOCATION, ENTER, ENTER_PUBLICATION, LINK, OPEN, OPEN_MANAGED,
+	OPEN_PRIVATE_LINK as PRIVATE_LINK, ROOM_AUTHORITIES as AUTHORITIES,
+};
 
 /// A caller-held recovery key must survive an uncertain creation result.
 /// Reusing it retries that creation; generating a new one requests a new room.
@@ -32,15 +30,10 @@ impl RecoveryKey {
 	pub fn from_entropy(entropy: [u8; 16]) -> Self {
 		let mut key = alloc::string::String::with_capacity(33);
 		key.push('~');
-		for byte in entropy {
-			key.push(HEX[(byte >> 4) as usize] as char);
-			key.push(HEX[(byte & 0x0f) as usize] as char);
-		}
+		key.push_str(&lower_hex(&entropy));
 		Self(key)
 	}
 	pub fn as_str(&self) -> &str {
 		&self.0
 	}
 }
-
-const HEX: &[u8; 16] = b"0123456789abcdef";

@@ -24,7 +24,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use glowcap_rust_dogfood::{tcp, Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session, tcp};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 

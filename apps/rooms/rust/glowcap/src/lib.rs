@@ -1,6 +1,5 @@
 //! Borrowed Rooms protocol views over the existing glowcap Rust binding.
 //! Shared by native services and browser Wasm; platform adapters own I/O.
-#![forbid(unsafe_code)]
 
 pub mod archive;
 pub mod client;
@@ -10,7 +9,7 @@ pub mod snapshot;
 use glowcap::{Argument, Ref};
 use rooms_application::{
 	files::FileArgument,
-	room::{attachment::AttachmentArgument, ArgumentView},
+	room::{ArgumentView, attachment::AttachmentArgument},
 };
 
 /// Rooms peers offer the native profile and full optional feature set. The

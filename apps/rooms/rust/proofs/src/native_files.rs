@@ -1,7 +1,7 @@
 //! Loopback integration fixtures, not a second Rooms server. Application
 //! methods run through real Host calls; publication and the pending-work queue
 //! are controlled here until the production room/session owner is migrated.
-use glowcap::{tcp, Argument, ConnectOptions, Host, PendingWork, Resolver, Runtime, RuntimeConfig, Session};
+use glowcap::{Argument, ConnectOptions, Host, PendingWork, Resolver, Runtime, RuntimeConfig, Session, tcp};
 use rooms_application::{
 	files::{FileDescription, FileMember, FileRoom, FileStore, ReadOutcome, ReadTicket},
 	room::{attachment, message::LineId},
@@ -210,18 +210,20 @@ async fn scenario() {
 	};
 	let (refusal, ()) = tokio::join!(read, withdraw);
 	assert!(refusal.unwrap_err().to_string().contains("blob-expired:"));
-	assert!(b
-		.send(&blob_a_other_connection, "read", &read_args)
-		.await
-		.unwrap_err()
-		.to_string()
-		.contains("blob-expired:"));
-	assert!(a
-		.send(&upload_a, "write", &[Argument::Bytes(b"cd".to_vec())])
-		.await
-		.unwrap_err()
-		.to_string()
-		.contains("upload-incomplete:"));
+	assert!(
+		b.send(&blob_a_other_connection, "read", &read_args)
+			.await
+			.unwrap_err()
+			.to_string()
+			.contains("blob-expired:")
+	);
+	assert!(
+		a.send(&upload_a, "write", &[Argument::Bytes(b"cd".to_vec())])
+			.await
+			.unwrap_err()
+			.to_string()
+			.contains("upload-incomplete:")
+	);
 	fixture.store.borrow_mut().close_room(&fixture.rooms[0]).unwrap();
 	assert_eq!(
 		b.send(&blob_b, "read", &read_args).await.unwrap().as_bytes(),
@@ -233,19 +235,21 @@ async fn scenario() {
 		negative: false,
 		digits: "9".repeat(80),
 	};
-	assert!(b
-		.send(&blob_b, "read", &[huge, 1.into()])
-		.await
-		.unwrap()
-		.as_bytes()
-		.unwrap()
-		.is_empty());
-	assert!(b
-		.send(&blob_b, "read", &[0.0.into(), 1.into()])
-		.await
-		.unwrap_err()
-		.to_string()
-		.contains("offset >= 0"));
+	assert!(
+		b.send(&blob_b, "read", &[huge, 1.into()])
+			.await
+			.unwrap()
+			.as_bytes()
+			.unwrap()
+			.is_empty()
+	);
+	assert!(
+		b.send(&blob_b, "read", &[0.0.into(), 1.into()])
+			.await
+			.unwrap_err()
+			.to_string()
+			.contains("offset >= 0")
+	);
 	a.close(PendingWork::Cancel).await.unwrap();
 	b.close(PendingWork::Cancel).await.unwrap();
 	serving_a.await.unwrap().unwrap();

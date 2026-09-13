@@ -13,6 +13,23 @@ the disagreement against the exact upstream revisions this repository pins, and
 fails if an observation stops matching its source. The
 [findings corpus](../conformance/ocapn-findings/README.md) has the details.
 
+## Session cryptography shape
+
+OCapN PR 288 changes `op:start-session` from four fields to five by adding a
+`crypto-version`. It also replaces the structured gcrypt public-key and
+signature records with 32-byte Ed25519 public keys and 64-byte signatures.
+That is a wire-breaking session change, not a routine specification refresh.
+
+The merged text currently names the required version as `Ed25519_SHA256` when
+describing the sender and `Ed25519` when describing the receiver. Keep the
+specification pin at `d05fd192be530b448e6d80c14714b9ff16644c4e` until that
+contract is consistent and glowcap can move its session codecs, fixtures, live
+Goblins checks, and both profiles together.
+
+The [transition plan](planning/ocapn-crypto-version-handshake.md) records the
+external readiness requirements and the implementation sequence after they
+are met.
+
 ## OCapN Null
 
 Goblins does not marshal Null and the upstream encoding is unsettled, so
@@ -90,15 +107,15 @@ that shape: every shortening edge names an import on the same session, so a
 retargeted deliver leaves on the same wire its predecessors left on. A test in
 `test/engine/peer/shortening_test.zig` pins the retargeting and same-wire emission.
 
-The receiver's half of that claim has no in-tree scenario, and it cannot get one
-between two glowcap peers. Shortening starts from a promise this peer imported,
-and `src/ocapn/engine/pipeline.zig` refuses a listen on a bare promise export,
-because glowcap mints no free-standing resolvable promise for a partner to
-listen on. The peer that shortens is therefore always some other implementation,
-so watching the arrival order is an interop question for a live Goblins vat
-rather than a scenario the oracle can drive. Watch the proposal, too, for a
-requirement that reaches across sessions, which this session-local forest cannot
-express.
+The receiver's half of that claim has no live outside-peer evidence. Automatic
+shortening listeners run only under `glowcap-next`; the pinned Goblins checks
+use CapTP 1.0. A Goblins test cannot exercise this path until an outside peer
+implements compatible shortening behavior. Two glowcap peers cannot supply
+the missing promise producer either: the engine refuses a listen on a bare
+promise export because glowcap mints no free-standing resolvable promise for
+a partner to listen on. Keep the existing in-tree sender-order scenario while
+that external support is absent. Watch the proposal for a requirement that
+reaches across sessions, which this session-local forest cannot express.
 
 ## Goblins Error interop
 

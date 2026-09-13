@@ -9,18 +9,20 @@
 // surface in `protocol_operator.ts`.
 //
 // The directory is the server's ordinary published capability. A client fetches it by
-// name and eventual-sends it `open` or `enter`, each of which *returns a room
-// capability* — a live reference to that specific room. The client sends the
-// room `subscribe`, then sends membership verbs such as `post` to the seat that
-// call answers with. When subscribing, the client hands the room a capability
-// to its own `inbox` actor; the room keeps that capability and calls the client
-// back with `notify` whenever anyone posts. That callback — the room holding a
-// live capability to the client and invoking it — is the shape everything here
-// builds on, and a method returning a fresh room capability is the move that
-// makes "rooms" plural.
+// name and eventual-sends it `open` or `enter`, each of which returns a room
+// entrance capability. The entrance identifies the room and can answer queries,
+// but it is not a membership or a promise that the live room is allocated. The
+// client sends the entrance `subscribe`, which reconstitutes the live room when
+// no live instance exists, then sends membership verbs such as `post` to the
+// seat that call answers with. When subscribing, the client supplies a
+// capability to its own `inbox` actor; the live room keeps that capability and
+// calls the client back with `notify` whenever anyone posts. That callback —
+// the room holding a live capability to the client and invoking it — is the
+// shape everything here builds on, and a method returning a fresh room
+// capability is the move that makes "rooms" plural.
 
 /** The name the server publishes the directory under and clients fetch it by. */
-export const DIRECTORY = "directory";
+export { DIRECTORY } from "./protocol_data.ts";
 
 /** What the operator inspect object answers.
  *
@@ -35,12 +37,13 @@ export const DIRECTORY = "directory";
  * directory holds, private ones by their label with their occupants: a private
  * room's privacy is absence from the user-facing `list` and `watch`, not from
  * the operator who runs the process. */
-export const SNAPSHOT = "snapshot";
+export { SNAPSHOT } from "./protocol_data.ts";
 
 /** Directory methods a client sends. `open(name, private?)` creates a room and
- * returns a reference to it, erroring if a public name is taken; `enter(name)`
- * returns the existing room, erroring if there is no such room. `list()` and
- * `watch(inbox)` retain the Goblins-compatible `[name, count|null]` records.
+ * returns its entrance, erroring if a public name is taken; `enter(name)`
+ * returns an entrance for the existing room, erroring if there is no such room.
+ * `list()` and `watch(inbox)` retain the Goblins-compatible
+ * `[name, count|null]` records.
  * `listPublications()` and `watchPublications(inbox)` are the rooms extension:
  * they add `[id, kind, origin, proof]`, and the exact `id` is accepted by
  * `enterPublication(id)`. Keeping this choice in the directory verb avoids
@@ -61,58 +64,66 @@ export const SNAPSHOT = "snapshot";
  * which is also why `open` cannot answer "that name is taken" for one. That
  * answer is itself the leak.
  *
- * An ordinary private `open` answers only a live room reference. Managed open
- * also supplies the authority that makes its entry durable. A durable session
- * may instead use `openPrivateLink`, which commits the opaque recovery key and
- * answers its sturdyref as one idempotent directory act, with no temporary
- * reference to strand if the answer is lost. */
-export const OPEN = "open";
+ * An ordinary private `open` answers only a room entrance reference. Managed
+ * open also supplies the authority that makes its entry durable. A durable
+ * session may instead use `openPrivateLink`, which commits the opaque recovery
+ * key and answers its sturdyref as one idempotent directory act, with no
+ * temporary reference to strand if the answer is lost. */
+export { OPEN } from "./protocol_data.ts";
 /** Rooms-native creation with explicit management authority. Baseline `open`
- * remains the room-only operation. This first answers a live room reference
- * and one-use bootstrap reference; `roomAuthorities` on the bootstrap returns
- * the durable room-entry and manager sturdyrefs as strings. */
-export const OPEN_MANAGED = "openManaged";
-export const ROOM_AUTHORITIES = "roomAuthorities";
+ * remains the room-only operation. This first answers a room entrance
+ * reference and one-use bootstrap reference; `roomAuthorities` on the
+ * bootstrap returns the durable room-entry and manager sturdyrefs as strings. */
+export { OPEN_MANAGED, ROOM_AUTHORITIES } from "./protocol_data.ts";
 /** Persist and return one private-room sturdyref from an opaque recovery key.
  * This is one directory act so a lost answer never strands a live room between
  * creation and link publication. */
-export const OPEN_PRIVATE_LINK = "openPrivateLink";
-export const ENTER = "enter";
+export { OPEN_PRIVATE_LINK } from "./protocol_data.ts";
+export { ENTER } from "./protocol_data.ts";
 /** Enter the exact public-room generation named by a list/watch record. */
-export const ENTER_PUBLICATION = "enterPublication";
-export const LIST = "list";
-export const LIST_PUBLICATIONS = "listPublications";
-export const WATCH = "watch";
-export const WATCH_PUBLICATIONS = "watchPublications";
+export { ENTER_PUBLICATION } from "./protocol_data.ts";
+export { LIST, LIST_PUBLICATIONS, WATCH, WATCH_PUBLICATIONS } from "./protocol_data.ts";
 export type RoomRecordShape = "baseline" | "publication";
 /** The directory's preferred durable location, derived from live listeners. */
-export const ADVERTISED_LOCATION = "advertisedLocation";
+export { ADVERTISED_LOCATION } from "./protocol_data.ts";
 
 /** The opt-in directory-peering capability and the exact lease it returns.
  * `publishDurableRoom(name, room)` adds one source-session-owned foreign room;
  * `revoke()` removes only that exact publication generation. */
-export const PUBLISH_DURABLE_ROOM = "publishDurableRoom";
+export { PUBLISH_DURABLE_ROOM } from "./protocol_data.ts";
 /** Wait until the publication's handed room has resolved to a live object. */
-export const PUBLICATION_READY = "ready";
-export const REVOKE = "revoke";
+export { PUBLICATION_READY, REVOKE } from "./protocol_data.ts";
 
 /** Mint the stable sturdyref for one existing room: `link(name)`. The Host
- * answers the complete link, composing its durable publication with the
- * location it authors for this exact session. */
-export const LINK = "link";
+ * answers the complete link, composing its durable entrance publication with
+ * the location it authors for this exact session. Redeeming the link answers
+ * an entrance; the first successful subscription reconstitutes the live room
+ * after it has emptied or the server has restarted. */
+export { LINK } from "./protocol_data.ts";
 
 /** Room and membership methods a client sends. `subscribe(nick, inboxCap,
- * voucher?)` returns `[seat, kind, topic]`. The client sends `post(text)`,
- * `typing(on)`, and `leave()` to that seat. A post broadcasts to every
- * subscriber; typing is ephemeral and never stored or echoed; leaving drops
- * this membership without closing the connection.
+ * voucher?)` returns `[seat, kind, topic, files]`. The client sends
+ * `post(text)`, `typing(on)`, and `leave()` to that seat. A post broadcasts
+ * to every subscriber; typing is ephemeral and never stored or echoed;
+ * leaving drops this membership without closing the connection.
+ *
+ * The last two slots are facets the room hands over or withholds, and a
+ * client draws its controls from holding them rather than from anything the
+ * room says about itself. `topic` is the authority to set what the room is
+ * about, handed to a participant in a room that lets members do that. `files`
+ * is the authority to stage files against the room's storage and publish
+ * them (`ATTACH`, `POST_FILES`), handed to a participant in a room that can
+ * hold bytes at all; a room bridged to a service with no way to carry a file
+ * answers null there, and a client that holds nothing draws no attach control.
+ * An observer seat holds neither. What a member can *do* is what they hold;
+ * what the room *keeps* of a message that no capability stands for, it states
+ * instead (`CARRIES`).
  *
  * The voucher is the third argument only a subscribe arriving on the wrong
  * connection needs: proof, minted by the name capability (`VOUCHER`), that the
  * caller is the held name's own holder. Without one, a name held elsewhere is
  * refused as it always was. */
-export const SUBSCRIBE = "subscribe";
-export const POST = "post";
+export { POST, SUBSCRIBE } from "./protocol_data.ts";
 /** Methods on the reference `post` answers with: the line it just made.
  *
  * Holding that reference is the authority to change or withdraw that one line,
@@ -124,8 +135,7 @@ export const POST = "post";
  * reference to somebody they want able to take it down, and a room can keep its
  * own copy to give whoever it wants moderating, without either party growing a
  * concept of a moderator. */
-export const EDIT = "edit";
-export const WITHDRAW = "withdraw";
+export { EDIT, WITHDRAW } from "./protocol_data.ts";
 /** Replace the files on a line already posted: `refile(caption, ...keep)`.
  *
  * `keep` is the indices of this line's current files, in the order the poster
@@ -138,56 +148,55 @@ export const WITHDRAW = "withdraw";
  * `edit` stays text-only on purpose, so a caption change leaves the files
  * alone; `refile` is the one verb that changes the set. Refiling a line down
  * to no files and no caption withdraws it, because an empty line is nothing. */
-export const REFILE = "refile";
+export { REFILE } from "./protocol_data.ts";
 
 /** The tags a room puts at the third argument of a line it sends. See the note
  * below for the whole set and why an unknown one is skipped rather than
  * refused. */
-export const LINE = "line";
+export { LINE } from "./protocol_data.ts";
 /** Ask a room what it kept of its own conversation. A server that keeps no
  * history refuses the optional verb, distinct from an enabled room answering
  * with an empty retained tail. */
-export const HISTORY = "history";
-export const EDITED = "edited";
-export const WITHDRAWN = "withdrawn";
+export { EDITED, HISTORY, WITHDRAWN } from "./protocol_data.ts";
 /** The tag a room puts on a line whose file set changed: `refiled`, id, then
  * the complete new run of file records. The client replaces that line's whole
  * set from the records, so a kept file arrives again (with a fresh blob) rather
  * than being named to keep. A client that predates this skips the tag and keeps
  * showing the files it already had, which is stale but never wrong. */
-export const REFILED = "refiled";
-export const TYPING = "typing";
-export const LEAVE = "leave";
-export const TOPIC = "topic";
-export const LINE_BYTES = "line-bytes";
+export { LEAVE, LINE_BYTES, REFILED, TOPIC, TYPING } from "./protocol_data.ts";
+/** What the room carries of a message beyond its text and files, stated at
+ * arrival as `notify("room", "", "carries", ...features)`, before the roster,
+ * so a client holds it by the time joining returns.
+ *
+ * This is description, not authority, which is why it is a fact the room
+ * states rather than a facet it hands over: nothing a member holds could say
+ * whether the room keeps the link previews a line names (`previews`) or
+ * relays the typing signal (`typing`). A room bridged to IRC does neither and
+ * says so; a native room says both. The vocabulary is positive and additive:
+ * a feature named is carried, one not named is not, and one a client does not
+ * know is skipped. A room that never states the fact has not said it lacks
+ * anything, and a client keeps every control it has. */
+export { CARRIES } from "./protocol_data.ts";
+export const ROOM_FEATURES = ["previews", "typing"] as const;
+export type RoomFeature = typeof ROOM_FEATURES[number];
 /** Arrival tags: whether this occupancy is a directory name. Additive; an older
  * client skips them. `/join` of a locator seats from this, not from a method
  * asked before subscribe. */
-export const LISTED = "listed";
-export const UNLISTED = "unlisted";
+export { LISTED, UNLISTED } from "./protocol_data.ts";
 /** Both the verb and the tag, the way `leave` is: `away(reason)` says this
  * membership has stepped away and `away("")` says it is back, and the room
  * states the same word about a member. Nothing is handed over for it, because a
  * member's own standing is theirs to state and the room already knows which
  * membership is calling. */
-export const AWAY = "away";
-/** Ask the room for its steward authority: the power to remove a member.
- *
- * The first successful answer is `[roomSwiss, roomIdentity, stewardSwiss]`.
- * The two swiss names are durable Host publications derived in separate
- * domains; `roomIdentity` is a public digest used to validate a handed-over
- * steward without revealing the room authority. The opener composes the swiss
- * names with the directory locator and enlivens the steward. Once issued, the
- * server never grants it again from a nickname or a new connection; later
- * stewards arrive by holding that sturdyref. */
-export const STEWARD = "steward";
-/** The steward's one verb: ask a member, by nick, to leave. */
-export const KICK = "kick";
+export { AWAY } from "./protocol_data.ts";
+/** The steward's one verb: ask a member, by nick, to leave. A steward is
+ * handed out by the room manager's `giveSteward` (`protocol_operator.ts`) or
+ * by the operator capability, never asked of the room by a nickname. */
+export { KICK } from "./protocol_data.ts";
 /** Ask a steward which room publication it governs. The answer is the room's
  * public identity digest, never its bearer swiss number, so a client can prove
  * a handed-over steward belongs to the room without gaining room authority. */
-export const GOVERNS = "governs";
-export const MANAGED_ROOM_IDENTITY = "managedRoomIdentity";
+export { GOVERNS, MANAGED_ROOM_IDENTITY } from "./protocol_data.ts";
 
 /** What this room calls itself: `called()`.
  *
@@ -197,21 +206,20 @@ export const MANAGED_ROOM_IDENTITY = "managedRoomIdentity";
  * a private room was reconstituted from a link and has no label left to give.
  * `/join` of a locator with nothing after it asks this rather than inventing
  * a name. */
-export const CALLED = "called";
+export { CALLED } from "./protocol_data.ts";
 
 /** Direct question: `private()`. Answers `"private"` or `"listed"`. Join does
  * not ask this — listed-ness arrives on subscribe as `LISTED` / `UNLISTED`. */
-export const PRIVATE = "private";
+export { PRIVATE } from "./protocol_data.ts";
 /** Exact room admission policy: `access()` answers `public`, `invite-only`, or
  * `private`. `private()` remains the coarse compatibility question. */
-export const ROOM_POLICY = "roomPolicy";
-export const ROOM_POLICY_CHANGED = "roomPolicyChanged";
+export { ROOM_POLICY, ROOM_POLICY_CHANGED } from "./protocol_data.ts";
 /** A live seat answers whether it is an observer or participant. */
-export const MEMBERSHIP_KIND = "membershipKind";
-/** Mint one consumable entrance from a participant membership or room manager. */
-export const MINT_INVITATION = "mintInvitation";
+export { MEMBERSHIP_KIND } from "./protocol_data.ts";
+/** Mint one consumable entrance from a participant membership. */
+export { MINT_INVITATION } from "./protocol_data.ts";
 /** Claim a one-shot entrance with a retry receipt chosen by the claimant. */
-export const CLAIM_INVITATION = "claimInvitation";
+export { CLAIM_INVITATION } from "./protocol_data.ts";
 
 /** The method on the topic reference in `subscribe`'s answer: what this room is
  * about. Participant answers carry this reference in their third slot;
@@ -222,14 +230,16 @@ export const CLAIM_INVITATION = "claimInvitation";
  * is a reference rather than a rank, a member can hand it to somebody who is
  * not even here, which is how a room lets a bot keep its own topic without
  * learning what a bot is. */
-export const SET_TOPIC = "setTopic";
+export { SET_TOPIC } from "./protocol_data.ts";
 
 /** Ask a room or its manager for the current durable entry link: `link()`.
  *
  * An ordinary room reference returns only a link that already exists. The
  * separate room manager capability may create or reissue one. What comes back
  * is a complete sturdyref, and whoever holds that string can redeem it into
- * the room over any channel, including after everybody has left.
+ * the room's entrance over any channel, including after everybody has left.
+ * The link retains admission authority and stable room identity, not a live
+ * room allocation or membership.
  *
  * A private room mints one from its own unguessable name rather than its
  * label, so the link says nothing about what the room is called and the label
@@ -243,8 +253,8 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
 // the whole set the `LINE` tag above points at, and it documents no one
 // declaration, so it is a standing note rather than a doc comment.
 //
-// A subscriber that does not know a tag skips it, which is what lets the room
-// say more over time without every client being rebuilt first: a client
+// A subscriber that does not know a tag skips it. The room can therefore say
+// more over time without requiring every client to be rebuilt first: a client
 // meeting a tag it cannot interpret still draws the line.
 //
 //   `"line"`, id            an ordinary line, and the id this room knows it by
@@ -266,8 +276,11 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
 
 /** Directory introduction methods (three-party handoff, gifter side).
  *
- * `register(nick, locator, inboxCap, reconnectVoucher?)` claims a name and answers
- * `notify("registered", nick, registrationId)`. The opaque registration ID identifies this exact
+ * `register(nick, locator, inboxCap, allocationMode?, reconnectVoucher?)` claims a name and answers
+ * `notify("registered", grantedNick, registrationId)`. Calls without a mode retain the original
+ * exact-name contract. `"automatic"` treats `nick` as a base and atomically grants its first free
+ * conventional spelling, such as `guest-2`; `"exact"` never changes the requested spelling. The
+ * opaque registration ID identifies this exact
  * live registration without granting authority. The locator is for the directory's own checks
  * (and nick identity); after ADR-0109, gift exporter location comes from the
  * member's signed hello, not from stamping this argument. A second `register` for the same nick replaces
@@ -293,7 +306,7 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
  * designator —
  * so this is not a property of the member's own transport, and keying the
  * directory's connections is what would close it. */
-export const REGISTER = "register";
+export { REGISTER } from "./protocol_data.ts";
 /** The one method on the name capability `register` answers with: `voucher()`.
  *
  * A registered name is held by a connection, and the capability is the
@@ -304,8 +317,7 @@ export const REGISTER = "register";
  * redeems in `subscribe` or a replacement `register` while the registration
  * stands and dies with it, so the name's lifetime is still the connection's;
  * nothing durable is minted here. */
-export const VOUCHER = "voucher";
-export const INTRODUCE = "introduce";
+export { INTRODUCE, VOUCHER } from "./protocol_data.ts";
 
 /** Offer the directory an inbox to introduce one registered peer to:
  * `offerInbox(forNick, forRegistrationId, inbox)`.
@@ -325,12 +337,12 @@ export const INTRODUCE = "introduce";
  * Offering again for the same peer replaces the previous inbox.
  *
  * The directory asks for one it needs with `notify("mintInboxFor", peer, registrationId)` on the
- * member's register inbox. A member may also offer unasked, which is what a client
- * watching the roster does as members appear.
+ * member's register inbox. A member may also offer unasked; a client watching
+ * the roster does so as members appear.
  *
  * Inbox ownership is keyed by registration ID. A reused nickname therefore
  * receives new authority rather than inheriting the prior holder's inbox. */
-export const OFFER_INBOX = "offerInbox";
+export { OFFER_INBOX } from "./protocol_data.ts";
 
 /** WebRTC signaling, carried by the directory (ADR-0089).
  *
@@ -360,21 +372,13 @@ export const OFFER_INBOX = "offerInbox";
  * resolves the direction from the calling session.
  * `signalDone(id)` retires that exact exchange after channel bring-up or
  * failure, so a late retirement cannot close a newer dial to the same peer. */
-export const OFFER_SIGNALING = "offerSignaling";
-export const SIGNAL_OFFER = "signalOffer";
-export const SIGNAL_ANSWER = "signalAnswer";
-export const SIGNAL_CANDIDATE = "signalCandidate";
-export const SIGNAL_DONE = "signalDone";
+export { OFFER_SIGNALING, SIGNAL_ANSWER, SIGNAL_CANDIDATE, SIGNAL_DONE, SIGNAL_OFFER } from "./protocol_data.ts";
 
 /** The verbs a signaling inbox and a signaling reply capability answer:
  * `offer(id, sdp)` and `candidate(id, ice)` on the member's filed inbox;
  * `accepted(id)`, `answer(sdp)`, `candidate(ice)`, and `reject(reason)` on the
  * offerer's `reply`. */
-export const SIG_OFFER = "offer";
-export const SIG_ACCEPTED = "accepted";
-export const SIG_ANSWER = "answer";
-export const SIG_CANDIDATE = "candidate";
-export const SIG_REJECT = "reject";
+export { SIG_ACCEPTED, SIG_ANSWER, SIG_CANDIDATE, SIG_OFFER, SIG_REJECT } from "./protocol_data.ts";
 
 /** Media in room messages. An attachment is uploaded to the room, and the room
  * hands every member a live reference to the blob it hosts. Direct messages
@@ -384,12 +388,15 @@ export const SIG_REJECT = "reject";
  * A file is staged into a message rather than posted on its own, the way a
  * person writes one: pick the files, write the line, send it once.
  *
- * `attach(name, mime, size, width, height)` on a room returns an **upload
+ * Both verbs go to the **files facet** `subscribe` answered with, never to
+ * the seat: holding that facet is the authority to put files in this room,
+ * and a room that cannot hold bytes answers null there instead of refusing
+ * later. `attach(name, mime, size, width, height)` on it returns an **upload
  * capability** for one file, held only by the member that asked for it, and
  * holding it is the authority to fill or throw away that file. The uploader
  * calls `discard()` if the writer changes its mind before sending.
  *
- * `postFiles(caption)` on the room publishes them: every upload this
+ * `postFiles(caption)` on the facet publishes them: every upload this
  * connection has staged, oldest first, as one message. The member's own
  * staged set is the room's pending set for that connection, so nothing has to
  * be named twice, and a message may carry up to `MAX_MESSAGE_FILES`. It
@@ -427,14 +434,12 @@ export const SIG_REJECT = "reject";
  * attachments reads the first two arguments and shows the caption, skipping the
  * tag and the records the way it already skips a presence change, so the shape
  * is additive on the wire. */
-export const ATTACH = "attach";
-export const POST_FILES = "postFiles";
+export { ATTACH, POST_FILES } from "./protocol_data.ts";
 
 /** Upload-capability verbs: `write(chunk)` appends bytes to the file being
  * uploaded after publication, and `discard()` throws it away — what removing
  * a file from a half-written message does. */
-export const WRITE = "write";
-export const DISCARD = "discard";
+export { DISCARD, WRITE } from "./protocol_data.ts";
 
 /** The one verb a blob capability answers: `read(offset, maxLen)` returns the
  * bytes at `offset`, at most `min(maxLen, BLOB_CHUNK)` of them, and an empty
@@ -443,7 +448,7 @@ export const DISCARD = "discard";
  *
  * A read past the arrived prefix waits until that file advances. Completion
  * answers the terminal empty slice; failure breaks the wait. */
-export const READ = "read";
+export { READ } from "./protocol_data.ts";
 
 /** The verb a member's exported inbox answers:
  * `dm(text, reply?, ...fileRecords)`.
@@ -475,24 +480,23 @@ export const READ = "read";
  * the receiver here, where for a room it was the room, and so is the bounding: a
  * direct line has no server, so the receiver refuses what the room would — an
  * edit or caption past the line cap, an index the line does not have or names
- * twice, and a kept-plus-added set past `MAX_MESSAGE_FILES`, which is what stops
- * a line's files compounding across refiles. A peer may answer nothing and
+ * twice, and a kept-plus-added set past `MAX_MESSAGE_FILES`. The final bound
+ * stops a line's files compounding across refiles. A peer may answer nothing and
  * grant no line-changing authority, exactly as a room may. */
-export const DM = "dm";
+export { DM } from "./protocol_data.ts";
 
 /** Establish the reply half of a direct line without inventing a chat message.
  * A peer that cannot dial the requester's advertised carrier may dial in the
  * other direction and hand this capability over; later messages and typing use
  * that direct route with the directory out of their path. */
-export const DIRECT_READY = "directReady";
+export { DIRECT_READY } from "./protocol_data.ts";
 
 /** Directory register-inbox notice that another member requested a direct
  * introduction. A target may answer by opening the reciprocal route. */
-export const DIRECT_REQUESTED = "directRequested";
-export const REQUEST_DIRECT = "requestDirect";
+export { DIRECT_REQUESTED, REQUEST_DIRECT } from "./protocol_data.ts";
 /** Resolve a nickname to the directory-issued identity of its current live
  * registration. The registration ID is comparison data, not bearer authority. */
-export const MEMBER_REGISTRATION = "memberRegistration";
+export { MEMBER_REGISTRATION } from "./protocol_data.ts";
 
 /** The one callback verb, on whatever inbox a client hands over.
  *
@@ -538,8 +542,8 @@ export const MEMBER_REGISTRATION = "memberRegistration";
  * `notify("room", "", "roomAuthorityChanged", kind, token, claimable)`
  * invalidates the exact room or steward generation. It is intentionally blank
  * line text, like the existing listed-status notification. */
-export const NOTIFY = "notify";
+export { NOTIFY } from "./protocol_data.ts";
 /** `notify` tag: this room no longer holds the membership behind the inbox. */
-export const MEMBERSHIP_ENDED = "membershipEnded";
+export { MEMBERSHIP_ENDED } from "./protocol_data.ts";
 /** `notify` tag: invalidate the room link alone or it and its moderator. */
-export const ROOM_AUTHORITY_CHANGED = "roomAuthorityChanged";
+export { ROOM_AUTHORITY_CHANGED } from "./protocol_data.ts";

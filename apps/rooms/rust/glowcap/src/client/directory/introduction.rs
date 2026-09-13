@@ -65,7 +65,7 @@ impl Notifications {
 struct Active(Notifications);
 impl Drop for Active {
 	fn drop(&mut self) {
-		self.0 .0.borrow_mut().active -= 1;
+		self.0.0.borrow_mut().active -= 1;
 	}
 }
 struct Wait {

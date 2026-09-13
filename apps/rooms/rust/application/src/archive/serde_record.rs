@@ -1,8 +1,8 @@
-//! Version-one archive JSON maps retain document text without serde's tagged
-//! enum buffering. Raw fields are consumed into the one validated Record owner.
+//! Archive JSON maps retain document text without serde's tagged-enum
+//! buffering. Raw fields are consumed into the one validated `Record` owner.
 use super::*;
-use crate::fields::{present, List, Nullable, SafeInteger, Text};
-use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
+use crate::fields::{List, Nullable, SafeInteger, Text, present};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Fields {
@@ -32,8 +32,10 @@ struct Fields {
 	state: Option<LineState>,
 	#[serde(default, deserialize_with = "present")]
 	attachments: Option<List<File, 8>>,
+	#[serde(rename = "previewUrls", default, deserialize_with = "present")]
+	previews: Option<List<Text<2048, true>, 5>>,
 }
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
@@ -57,6 +59,7 @@ impl TryFrom<Fields> for Record {
 					|| f.order.is_some()
 					|| f.state.is_some()
 					|| f.attachments.is_some()
+					|| f.previews.is_some()
 				{
 					return Err(Error::Record);
 				}
@@ -70,6 +73,20 @@ impl TryFrom<Fields> for Record {
 				if f.room.is_some() || f.nick.is_some() {
 					return Err(Error::Record);
 				}
+				let text = f.text.ok_or(Error::Record)?.0;
+				let preview_values = f.previews.map_or_else(Vec::new, |values| values.0);
+				let previews = if preview_values.is_empty() {
+					crate::open_graph::Selection::default()
+				} else {
+					crate::open_graph::Selection::new(
+						text.as_str().ok_or(Error::Record)?,
+						preview_values
+							.iter()
+							.map(|url| url.0.as_str().ok_or(Error::Record))
+							.collect::<Result<Vec<_>, _>>()?,
+					)
+					.map_err(|_| Error::Record)?
+				};
 				let conversation_kind = f.conversation_kind.ok_or(Error::Record)?;
 				let state = f.state.ok_or(Error::Record)?;
 				let attachments = f
@@ -95,11 +112,12 @@ impl TryFrom<Fields> for Record {
 					conversation_kind,
 					conversation: f.conversation.ok_or(Error::Record)?.0,
 					from: f.from.ok_or(Error::Record)?.0,
-					text: f.text.ok_or(Error::Record)?.0,
+					text,
 					mine: f.mine.ok_or(Error::Record)?,
 					at: f.at.get(),
 					order: f.order.ok_or(Error::Record)?.get(),
 					state,
+					previews,
 					attachments,
 				}
 			}
@@ -122,7 +140,7 @@ impl<'de> Deserialize<'de> for Record {
 }
 impl Serialize for Record {
 	fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-		let mut map = s.serialize_map(Some(if self.kind() == Kind::Standing { 8 } else { 14 }))?;
+		let mut map = s.serialize_map(Some(if self.kind() == Kind::Standing { 8 } else { 15 }))?;
 		map.serialize_entry(
 			"kind",
 			if self.kind() == Kind::Standing {
@@ -151,6 +169,7 @@ impl Serialize for Record {
 				at,
 				order,
 				state,
+				previews,
 				attachments,
 			} => {
 				map.serialize_entry(
@@ -174,6 +193,7 @@ impl Serialize for Record {
 						LineState::Withdrawn => "withdrawn",
 					},
 				)?;
+				map.serialize_entry("previewUrls", previews)?;
 				map.serialize_entry("attachments", attachments)?;
 			}
 		}
@@ -191,5 +211,25 @@ impl Serialize for Attachment {
 		map.serialize_entry("height", &height)?;
 		map.serialize_entry("blob", &self.blob())?;
 		map.end()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn archive_json_uses_the_shared_browser_preview_field() {
+		let input = r#"{
+			"kind":"line", "source":"source", "generation":"generation", "id":"line",
+			"directory":"directory", "conversationKind":"room", "conversation":"garden",
+			"from":"alice", "text":"https://example.com/story", "mine":false,
+			"at":1, "order":1, "state":"present",
+			"previewUrls":["https://example.com/story"], "attachments":[]
+		}"#;
+		let record: Record = serde_json::from_str(input).unwrap();
+		let output = serde_json::to_value(record).unwrap();
+		assert_eq!(output["previewUrls"][0], "https://example.com/story");
+		assert!(output.get("previews").is_none());
 	}
 }

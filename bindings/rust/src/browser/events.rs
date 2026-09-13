@@ -2,7 +2,7 @@ use super::{Shared, Socket};
 use crate::abi_constants::TRANSPORT_WEBRTC_MAX_PACKET_BYTES;
 use js_sys::{ArrayBuffer, Uint8Array};
 use std::{io, rc::Rc};
-use wasm_bindgen::{closure::Closure, JsCast};
+use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{CloseEvent, Event, MessageEvent};
 
 // Bytes alone do not bound empty messages or queue-node overhead. A stalled

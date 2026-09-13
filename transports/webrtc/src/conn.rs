@@ -5,55 +5,41 @@ use super::*;
 
 /// Stable endpoint-scoped identity carried by readiness records. Returns zero
 /// for an invalid handle; live peers are always nonzero.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_id(peer: *const GlowcapWebrtcPeer) -> usize {
-	catch_unwind(AssertUnwindSafe(|| {
-		peer.as_ref().map(|peer| peer.shared.id).unwrap_or(0)
-	}))
-	.unwrap_or(0)
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, 0, |peer| peer.shared.id) }
 }
 
 /// Non-blocking channel-open check: `OK` once open, `WOULD_BLOCK` while the
 /// signaling/ICE/DTLS/SCTP establishment is still in progress, `CLOSED` after
 /// clean close, or `ERR` after setup failure.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_is_open(peer: *const GlowcapWebrtcPeer) -> i32 {
-	catch_unwind(AssertUnwindSafe(|| {
-		let peer = match peer.as_ref() {
-			Some(peer) => peer,
-			None => return ERR,
-		};
-		let gate = peer.shared.open.lock().unwrap();
-		open_result(&gate)
-	}))
-	.unwrap_or(ERR)
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, ERR, |peer| open_result(&peer.shared.open.lock().unwrap())) }
 }
 
 pub(crate) fn open_result(gate: &OpenGate) -> i32 {
 	if gate.closed {
 		return if gate.failed { ERR } else { CLOSED };
 	}
-	if gate.open {
-		OK
-	} else {
-		WOULD_BLOCK
-	}
+	if gate.open { OK } else { WOULD_BLOCK }
 }
 
 /// Non-blocking receive for readiness owners. Returns one packet, zero at clean
 /// EOF, `WOULD_BLOCK` when no packet is buffered yet, `BUFFER_TOO_SMALL` when
 /// the packet remains queued for a larger buffer, or `ERR` on invalid input.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_receive_packet(
 	peer: *mut GlowcapWebrtcPeer,
 	buf: *mut u8,
 	len: usize,
 ) -> isize {
-	catch_unwind(AssertUnwindSafe(|| {
-		let peer = match peer.as_ref() {
-			Some(peer) => peer,
-			None => return ERR as isize,
-		};
+	// The body stays outside the `unsafe` block below so its own raw-buffer
+	// projection is still marked where it happens, rather than absorbed into
+	// the handle's block.
+	let receive = |peer: &GlowcapWebrtcPeer| {
 		if buf.is_null() || len == 0 {
 			return ERR as isize;
 		}
@@ -61,32 +47,33 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_receive_packet(
 		if guard.packets.is_empty() {
 			return terminal_read_result(&guard);
 		}
-		let dst = std::slice::from_raw_parts_mut(buf, len);
+		// SAFETY: the caller's contract is `len` writable bytes at `buf`, and
+		// the null and zero-length cases were refused above.
+		let dst = unsafe { std::slice::from_raw_parts_mut(buf, len) };
 		let n = take_inbound_packet(&mut guard, dst);
 		drop(guard);
 		if n > 0 {
 			peer.shared.drained.notify_one();
 		}
 		n
-	}))
-	.unwrap_or(ERR as isize)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, ERR as isize, receive) }
 }
 
 /// Non-blocking send for readiness owners. The call copies one whole packet
 /// into the bounded sidecar staging buffer and returns immediately, without
 /// entering the async runtime. `WOULD_BLOCK` means no sidecar capacity is
 /// available, so re-arm on `EV_WRITABLE` and retry the same packet.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 	peer: *mut GlowcapWebrtcPeer,
 	buf: *const u8,
 	len: usize,
 ) -> isize {
-	catch_unwind(AssertUnwindSafe(|| {
-		let peer = match peer.as_ref() {
-			Some(peer) => peer,
-			None => return ERR as isize,
-		};
+	// Outside the `unsafe` block below, so the caller-buffer projection is still
+	// marked where it happens rather than absorbed into the handle's block.
+	let send = |peer: &GlowcapWebrtcPeer| {
 		if buf.is_null() || len > isize::MAX as usize {
 			return ERR as isize;
 		}
@@ -99,7 +86,9 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 		if peer.shared.dc.lock().unwrap().is_none() {
 			return WOULD_BLOCK as isize;
 		}
-		let bytes = std::slice::from_raw_parts(buf, len);
+		// SAFETY: the caller's contract is `len` readable bytes at `buf`, and
+		// the null, oversized, and zero-length cases went to the arms above.
+		let bytes = unsafe { std::slice::from_raw_parts(buf, len) };
 		let accepted = {
 			let mut outbound = peer.shared.outbound.lock().unwrap();
 			enqueue_outbound(&mut outbound, bytes)
@@ -108,8 +97,9 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 			peer.shared.outbound_ready.notify_one();
 		}
 		accepted
-	}))
-	.unwrap_or(ERR as isize)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, ERR as isize, send) }
 }
 
 /// Close the channel, waking any packet receiver with end of stream.
@@ -117,9 +107,10 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 ///
 /// # Safety
 /// `peer` must be a live pointer from `peer_new`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_close(peer: *mut GlowcapWebrtcPeer) {
-	let peer = match peer.as_ref() {
+	// SAFETY: the caller's contract above — a live pointer from `peer_new`.
+	let peer = match unsafe { peer.as_ref() } {
 		Some(peer) => peer,
 		None => return,
 	};
@@ -142,14 +133,16 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_close(peer: *mut GlowcapWeb
 ///
 /// # Safety
 /// `peer` must have come from `peer_new` and not been freed; null is ignored.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_free(peer: *mut GlowcapWebrtcPeer) {
 	if peer.is_null() {
 		return;
 	}
-	let failures = peer.as_ref().unwrap().shared.endpoint.close_tasks.clone();
+	// SAFETY: the caller's contract above — an unfreed pointer from `peer_new`,
+	// with null already refused, so this frame is its last owner.
+	let failures = unsafe { peer.as_ref() }.unwrap().shared.endpoint.close_tasks.clone();
 	if catch_unwind(AssertUnwindSafe(|| {
-		let peer = Box::from_raw(peer);
+		let peer = unsafe { Box::from_raw(peer) };
 		// Same ordering as `conn_close`: free a parked poller before closing.
 		publish_peer_closed(&peer.shared);
 		close_peer_async(&peer);

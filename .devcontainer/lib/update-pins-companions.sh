@@ -27,10 +27,27 @@ glowcap_pins_companion_source() {
 glowcap_pins_companions() {
     local dep="$1" old="$2" new="$3"
     case "${dep}" in
+        zig)
+            printf '%s\t%s\t%s\n' \
+                build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\""
+            ;;
         debian)
             printf '%s\t%s\t%s\n' \
                 .devcontainer/Dockerfile "debian:${DEBIAN_BASE_TAG}@${old}" "debian:${DEBIAN_BASE_TAG}@${new}" \
                 apps/rooms/web/deploy/rooms.Dockerfile "debian:${DEBIAN_BASE_TAG}@${old}" "debian:${DEBIAN_BASE_TAG}@${new}"
+            ;;
+        postgres)
+            printf '%s\t%s\t%s\n' \
+                apps/rooms/web/deploy/docker-compose.yml "postgres:${old}" "postgres:${new}"
+            ;;
+        python)
+            printf '%s\t%s\t%s\n' \
+                conformance/ocapn-conformance/pyproject.toml \
+                "requires-python = \"==${old%.*}.*\"" \
+                "requires-python = \"==${new%.*}.*\"" \
+                conformance/keri-conformance/run.sh \
+                "--python ${old%.*}" \
+                "--python ${new%.*}"
             ;;
         playwright)
             # Every Deno scope that drives a browser resolves its playwright

@@ -20,13 +20,14 @@ pub(crate) fn mint_peer_id(endpoint: &EndpointInner) -> Option<usize> {
 /// # Safety
 /// The returned pointer is owned by the caller and must be freed exactly once
 /// with `glowcap_webrtc_sidecar_peer_free`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_new(
 	endpoint: *mut GlowcapWebrtcEndpoint,
 	is_offerer: i32,
 ) -> *mut GlowcapWebrtcPeer {
 	catch_unwind(AssertUnwindSafe(|| {
-		let endpoint = match endpoint.as_ref() {
+		// SAFETY: `endpoint` is a live handle from `endpoint_new`.
+		let endpoint = match unsafe { endpoint.as_ref() } {
 			Some(endpoint) => endpoint.inner.clone(),
 			None => return std::ptr::null_mut(),
 		};
@@ -105,64 +106,87 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_new(
 	.unwrap_or(std::ptr::null_mut())
 }
 
-/// Copy `text` into the `(out, cap)` buffer, always writing the required length
-/// to `*out_len`. Returns `OK` when it fit, `BUFFER_TOO_SMALL` when the caller
-/// must retry with a larger buffer.
+/// A caller's string out-parameter: `cap` bytes at `out`, plus the optional
+/// `out_len` word that always receives the length the text needs, so a refused
+/// write tells the caller what buffer to come back with.
 ///
-/// # Safety
-/// `out` must point to `cap` writable bytes. `out_len` may be null; when
-/// non-null it receives the required byte count.
-unsafe fn write_out(text: &str, out: *mut u8, cap: usize, out_len: *mut usize) -> i32 {
-	let bytes = text.as_bytes();
-	if !out_len.is_null() {
-		*out_len = bytes.len();
+/// Building one is the unsafe act, and it happens once per entry point. After
+/// that the buffer's bounds are this value's own, so writing through it is
+/// ordinary safe code — which is the difference between stating the caller's
+/// contract once and restating it at every write.
+pub(crate) struct OutText {
+	out: *mut u8,
+	cap: usize,
+	out_len: *mut usize,
+}
+
+impl OutText {
+	/// # Safety
+	/// `out` is null or points to `cap` writable bytes, and `out_len` is null or
+	/// points to one writable `usize`. Both stay valid while this value lives.
+	pub(crate) unsafe fn new(out: *mut u8, cap: usize, out_len: *mut usize) -> Self {
+		Self { out, cap, out_len }
 	}
-	if bytes.len() > cap || out.is_null() {
-		return BUFFER_TOO_SMALL;
+
+	fn report_len(&self, len: usize) {
+		if !self.out_len.is_null() {
+			// SAFETY: `new`'s contract — a non-null `out_len` is one writable word.
+			unsafe { *self.out_len = len };
+		}
 	}
-	std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len());
-	OK
+
+	/// Copy `text` in. `OK` when it fit, `BUFFER_TOO_SMALL` when the caller must
+	/// retry with the length now reported.
+	pub(crate) fn write(&self, text: &str) -> i32 {
+		let bytes = text.as_bytes();
+		self.report_len(bytes.len());
+		if bytes.len() > self.cap || self.out.is_null() {
+			return BUFFER_TOO_SMALL;
+		}
+		// SAFETY: `new`'s contract gives `cap` writable bytes at `out`, and the
+		// arm above refused both a null `out` and a text longer than `cap`.
+		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.out, bytes.len()) };
+		OK
+	}
+
+	/// True when `text` is past the hard signaling cap, so no caller buffer can
+	/// make the call succeed. Reports the length anyway, for the diagnostic.
+	pub(crate) fn too_large_to_signal(&self, text: &str) -> bool {
+		if signal_output_fits(text) {
+			return false;
+		}
+		self.report_len(text.len());
+		true
+	}
 }
 
 pub(crate) fn signal_output_fits(text: &str) -> bool {
 	text.len() <= MAX_SIGNAL_BYTES
 }
 
-pub(crate) unsafe fn signal_output_too_large(text: &str, out_len: *mut usize) -> bool {
-	if signal_output_fits(text) {
-		return false;
-	}
-	if !out_len.is_null() {
-		*out_len = text.len();
-	}
-	true
-}
-
 pub(crate) unsafe fn signal_text<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
 	if ptr.is_null() || len > MAX_SIGNAL_BYTES {
 		return None;
 	}
-	std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).ok()
+	// SAFETY: the caller lends `len` readable bytes at `ptr` for this call, and
+	// the null and oversized cases returned above.
+	std::str::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }).ok()
 }
 
 pub(crate) unsafe fn candidate_text<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
 	if ptr.is_null() || len > MAX_ICE_CANDIDATE_BYTES {
 		return None;
 	}
-	std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).ok()
+	// SAFETY: as `signal_text`, under the candidate bound.
+	std::str::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }).ok()
 }
 
-pub(crate) unsafe fn write_local_candidate(
-	queue: &mut LocalCandidates,
-	out: *mut u8,
-	cap: usize,
-	out_len: *mut usize,
-) -> i32 {
+pub(crate) fn write_local_candidate(queue: &mut LocalCandidates, out: &OutText) -> i32 {
 	let text = match queue.items.front() {
 		Some(text) => text.as_str(),
 		None => return WOULD_BLOCK,
 	};
-	let rc = write_out(text, out, cap, out_len);
+	let rc = out.write(text);
 	if rc == OK {
 		queue.release_front();
 	}
@@ -173,24 +197,22 @@ pub(crate) unsafe fn write_local_candidate(
 /// writing the offer SDP into `(out, cap)`. Offerer only.
 ///
 /// # Safety
-/// `peer` must be a live pointer from `peer_new`; `out`/`out_len` per `write_out`.
-#[no_mangle]
+/// `peer` per `borrowed`; `out`/`out_len` per `OutText::new`.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_offer(
 	peer: *mut GlowcapWebrtcPeer,
 	out: *mut u8,
 	cap: usize,
 	out_len: *mut usize,
 ) -> i32 {
-	catch_unwind(AssertUnwindSafe(|| {
-		let peer = match peer.as_ref() {
-			Some(peer) => peer,
-			None => return ERR,
-		};
+	// SAFETY: the out-parameter contract this function's own doc states.
+	let out = unsafe { OutText::new(out, cap, out_len) };
+	let offer = |peer: &GlowcapWebrtcPeer| {
 		let offer = match peer.shared.endpoint.runtime().block_on(peer.pc.create_offer(None)) {
 			Ok(offer) => offer,
 			Err(_) => return ERR,
 		};
-		if signal_output_too_large(&offer.sdp, out_len) {
+		if out.too_large_to_signal(&offer.sdp) {
 			return SIGNAL_TOO_LARGE;
 		}
 		if peer
@@ -202,9 +224,10 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_offer(
 		{
 			return ERR;
 		}
-		write_out(&offer.sdp, out, cap, out_len)
-	}))
-	.unwrap_or(ERR)
+		out.write(&offer.sdp)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, ERR, offer) }
 }
 
 /// Produce this peer's SDP answer: `create_answer` then `set_local_description`,
@@ -212,24 +235,22 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_offer(
 /// offer is set.
 ///
 /// # Safety
-/// `peer` must be a live pointer from `peer_new`; `out`/`out_len` per `write_out`.
-#[no_mangle]
+/// `peer` per `borrowed`; `out`/`out_len` per `OutText::new`.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_answer(
 	peer: *mut GlowcapWebrtcPeer,
 	out: *mut u8,
 	cap: usize,
 	out_len: *mut usize,
 ) -> i32 {
-	catch_unwind(AssertUnwindSafe(|| {
-		let peer = match peer.as_ref() {
-			Some(peer) => peer,
-			None => return ERR,
-		};
+	// SAFETY: the out-parameter contract this function's own doc states.
+	let out = unsafe { OutText::new(out, cap, out_len) };
+	let answer = |peer: &GlowcapWebrtcPeer| {
 		let answer = match peer.shared.endpoint.runtime().block_on(peer.pc.create_answer(None)) {
 			Ok(answer) => answer,
 			Err(_) => return ERR,
 		};
-		if signal_output_too_large(&answer.sdp, out_len) {
+		if out.too_large_to_signal(&answer.sdp) {
 			return SIGNAL_TOO_LARGE;
 		}
 		if peer
@@ -241,9 +262,10 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_answer(
 		{
 			return ERR;
 		}
-		write_out(&answer.sdp, out, cap, out_len)
-	}))
-	.unwrap_or(ERR)
+		out.write(&answer.sdp)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, ERR, answer) }
 }
 
 /// Set the remote peer's SDP. `is_offer` picks the description type: nonzero for
@@ -253,22 +275,19 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_answer(
 /// # Safety
 /// `peer` live; `sdp` points to `sdp_len` readable bytes of UTF-8, with
 /// `sdp_len <= MAX_SIGNAL_BYTES`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
 	peer: *mut GlowcapWebrtcPeer,
 	sdp: *const u8,
 	sdp_len: usize,
 	is_offer: i32,
 ) -> i32 {
-	catch_unwind(AssertUnwindSafe(|| {
-		let peer = match peer.as_ref() {
-			Some(peer) => peer,
-			None => return ERR,
-		};
-		let text = match signal_text(sdp, sdp_len) {
-			Some(text) => text.to_string(),
-			None => return ERR,
-		};
+	// SAFETY: the `sdp` view is live for this call per the contract above.
+	let text = match unsafe { signal_text(sdp, sdp_len) } {
+		Some(text) => text.to_string(),
+		None => return ERR,
+	};
+	let set_remote = |peer: &GlowcapWebrtcPeer| {
 		let desc = if is_offer != 0 {
 			RTCSessionDescription::offer(text)
 		} else {
@@ -288,8 +307,9 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
 			return ERR;
 		}
 		OK
-	}))
-	.unwrap_or(ERR)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, ERR, set_remote) }
 }
 
 /// Add one remote ICE candidate, as the JSON the far peer's
@@ -298,21 +318,18 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
 /// # Safety
 /// `peer` live; `cand` points to `cand_len` readable bytes of UTF-8 JSON, with
 /// `cand_len <= MAX_ICE_CANDIDATE_BYTES`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_add_remote_candidate(
 	peer: *mut GlowcapWebrtcPeer,
 	cand: *const u8,
 	cand_len: usize,
 ) -> i32 {
-	catch_unwind(AssertUnwindSafe(|| {
-		let peer = match peer.as_ref() {
-			Some(peer) => peer,
-			None => return ERR,
-		};
-		let text = match candidate_text(cand, cand_len) {
-			Some(text) => text,
-			None => return ERR,
-		};
+	// SAFETY: the `cand` view is live for this call per the contract above.
+	let text = match unsafe { candidate_text(cand, cand_len) } {
+		Some(text) => text,
+		None => return ERR,
+	};
+	let add_candidate = |peer: &GlowcapWebrtcPeer| {
 		let init: RTCIceCandidateInit = match serde_json::from_str(text) {
 			Ok(init) => init,
 			Err(_) => return ERR,
@@ -327,8 +344,9 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_add_remote_candidate(
 			return ERR;
 		}
 		OK
-	}))
-	.unwrap_or(ERR)
+	};
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, ERR, add_candidate) }
 }
 
 /// Drain the next locally gathered ICE candidate into `(out, cap)` as JSON.
@@ -336,20 +354,18 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_add_remote_candidate(
 /// `BUFFER_TOO_SMALL` (the candidate stays queued for the retry).
 ///
 /// # Safety
-/// `peer` live; `out`/`out_len` per `write_out`.
-#[no_mangle]
+/// `peer` per `borrowed`; `out`/`out_len` per `OutText::new`.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_next_local_candidate(
 	peer: *mut GlowcapWebrtcPeer,
 	out: *mut u8,
 	cap: usize,
 	out_len: *mut usize,
 ) -> i32 {
-	catch_unwind(AssertUnwindSafe(|| {
-		let peer = match peer.as_ref() {
-			Some(peer) => peer,
-			None => return ERR,
-		};
-		write_local_candidate(&mut peer.shared.local_candidates.lock().unwrap(), out, cap, out_len)
-	}))
-	.unwrap_or(ERR)
+	// SAFETY: the out-parameter contract this function's own doc states.
+	let out = unsafe { OutText::new(out, cap, out_len) };
+	let next =
+		|peer: &GlowcapWebrtcPeer| write_local_candidate(&mut peer.shared.local_candidates.lock().unwrap(), &out);
+	// SAFETY: the handle contract `borrowed` states.
+	unsafe { borrowed(peer, ERR, next) }
 }

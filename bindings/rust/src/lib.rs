@@ -67,8 +67,8 @@ mod session;
 mod session_shared;
 #[cfg(feature = "async")]
 pub use session::{
-	AcceptedTransport, ChannelDesignator, DurableProvenance, PartnerIdentity, SendRedeemingResult, Session,
-	HANDSHAKE_TIMEOUT,
+	AcceptedTransport, ChannelDesignator, DurableProvenance, HANDSHAKE_TIMEOUT, PartnerIdentity, SendRedeemingResult,
+	Session,
 };
 #[cfg(feature = "async")]
 pub use session_shared::Caretaker;
@@ -87,7 +87,7 @@ pub use host::{Host, HostOptions, ListenerIdentity, Resolver, SessionLimitOption
 #[cfg(feature = "async")]
 pub use lifecycle::PendingWork;
 #[cfg(feature = "async")]
-pub use trace::{annotate_session, enable_trace, PayloadSummary, SessionMeta, TraceEvent, TraceKind, TraceSink};
+pub use trace::{PayloadSummary, SessionMeta, TraceEvent, TraceKind, TraceSink, annotate_session, enable_trace};
 #[cfg(feature = "async")]
 mod trampoline;
 // Byte-fed embedder pump: feed / flush / serve-loop / feed-refusal (crate-private).
@@ -175,8 +175,8 @@ pub mod webrtc;
 // their generic model and explicit URI conversion.
 mod uri;
 pub use uri::{
-	designator_host_port, encode_peer_locator, format_locator_uri, format_peer_uri, format_sturdyref, parse_locator,
-	parse_sturdyref, HintValue, HintWireForm, Locator, SturdyRef,
+	HintValue, HintWireForm, Locator, SturdyRef, designator_host_port, encode_peer_locator, format_locator_uri,
+	format_peer_uri, format_sturdyref, parse_locator, parse_sturdyref,
 };
 
 /// OCapN transport / hint vocabulary; mirrors `model.transport.*`.
@@ -188,7 +188,7 @@ pub use abi_constants::{
 
 /// Browser ICE configuration envelopes, generated from the transport ABI.
 pub use abi_constants::{
-	WEBRTC_MAX_ICE_CREDENTIAL_BYTES, WEBRTC_MAX_ICE_SERVERS, WEBRTC_MAX_ICE_URLS_PER_SERVER, WEBRTC_MAX_ICE_URL_BYTES,
+	WEBRTC_MAX_ICE_CREDENTIAL_BYTES, WEBRTC_MAX_ICE_SERVERS, WEBRTC_MAX_ICE_URL_BYTES, WEBRTC_MAX_ICE_URLS_PER_SERVER,
 };
 
 /// Shared admission budgets for hosts forwarding opaque relay traffic.
@@ -201,7 +201,7 @@ mod runtime_failure;
 #[cfg(all(test, feature = "async"))]
 pub(crate) use runtime_failure::RUNTIME_FAILURE_TEST_LOCK;
 #[cfg(test)]
-pub(crate) use runtime_failure::{RuntimeFailureJournal, FAILURE_PAYLOAD_CAP, RUNTIME_FAILURE_CAP};
+pub(crate) use runtime_failure::{FAILURE_PAYLOAD_CAP, RUNTIME_FAILURE_CAP, RuntimeFailureJournal};
 
 /// An actor behavior: handle a `(verb, args)` call, returning a reply or an
 /// error message (which becomes a broken answer carrying those words). This is
@@ -211,25 +211,25 @@ pub type Behavior = Box<dyn FnMut(&str, &[Argument]) -> std::result::Result<Argu
 
 mod failure;
 pub(crate) use failure::require_archive_fingerprint;
+pub use failure::{AbortDomain, AbortInfo, Error, ErrorKind, Result, take_runtime_failures};
 #[cfg(feature = "async")]
 pub(crate) use failure::{lifecycle_is_closed, retain_cleanup_failure};
 pub(crate) use failure::{panic_message, record_runtime_failure};
-pub use failure::{take_runtime_failures, AbortDomain, AbortInfo, Error, ErrorKind, Result};
 mod diagnostic;
 pub use diagnostic::{FailureEvent, FailureLayer, FailureScope};
 mod context;
-pub(crate) use context::check;
 #[cfg(feature = "async")]
 pub(crate) use context::ContextInner;
-pub use context::{abi_version, last_error, Context, ContextAllocator};
+pub(crate) use context::check;
+pub use context::{Context, ContextAllocator, abi_version, last_error};
 #[cfg(test)]
 pub(crate) use context::{alloc_trampoline, free_trampoline};
 mod value;
 #[cfg(any(feature = "async", feature = "tcp", feature = "inproc", feature = "onion"))]
 pub(crate) use value::owned_from_view;
-#[cfg(feature = "async")]
-pub(crate) use value::{arg_from_sys, args_from_sys, SendArena};
 pub use value::{Argument, Ref};
+#[cfg(feature = "async")]
+pub(crate) use value::{SendArena, arg_from_sys, args_from_sys};
 mod profile;
 pub use profile::{CaptpVersion, Codec, FeatureSet, HostProfile, SessionProfile};
 #[cfg(test)]
@@ -248,8 +248,8 @@ mod tests {
 	#[cfg(feature = "async")]
 	#[test]
 	fn unknown_native_classifications_are_returned_failures() {
-		assert_eq!(lifecycle_is_closed(sys::LIFECYCLE_ACTIVE).unwrap(), false);
-		assert_eq!(lifecycle_is_closed(sys::LIFECYCLE_CLOSED).unwrap(), true);
+		assert!(!lifecycle_is_closed(sys::LIFECYCLE_ACTIVE).unwrap());
+		assert!(lifecycle_is_closed(sys::LIFECYCLE_CLOSED).unwrap());
 		assert_eq!(lifecycle_is_closed(u32::MAX).unwrap_err().kind(), ErrorKind::Internal);
 		assert_eq!(AbortDomain::from_abi(u32::MAX).unwrap_err().kind(), ErrorKind::Internal);
 		assert_eq!(

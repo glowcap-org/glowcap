@@ -1,24 +1,25 @@
 //! The Linux io_uring completion backend for `completion.Loop`.
 //!
-//! This file is one implementation of the completion-backend interface documented
-//! in `completion.Loop` (`loop.zig`): it provides the platform completion
-//! primitive (io_uring) and the native TCP socket primitives, and nothing else. All
-//! the portable connection orchestration lives in `completion.Loop`, which is
-//! generic over this backend. The kqueue (Darwin) sibling is a separate file
-//! implementing the same interface (a Windows IOCP backend is not implemented);
-//! the portable server does not change when a backend is added.
+//! This file implements the completion-backend interface documented in
+//! `completion.Loop` (`loop.zig`). It provides the io_uring primitive and native
+//! TCP socket operations. All portable connection orchestration lives in
+//! `completion.Loop`, which is generic over this backend. Linux reaches this
+//! backend through `linux.zig`. That selector uses the epoll sibling when the
+//! host cannot supply the required io_uring facilities. The kqueue (Darwin)
+//! sibling implements the same interface. A Windows IOCP backend is not
+//! implemented. The portable server does not change when a backend is added.
 //!
 //! io_uring is a true completion (proactor) model: operations are submitted to a
 //! ring and the kernel posts a completion when each finishes. `submit*` queues an
-//! SQE; `poll` flushes the queue, waits for at least one completion, and hands the
-//! results back to the server.
+//! SQE. `poll` flushes the queue, waits for at least one completion, and hands
+//! the results back to the server.
 //!
 //! The shared read-buffer pool (ADR-0054) is a kernel provided-buffer ring: one
 //! buffer group is registered at init, recvs are submitted with buffer select
 //! (no caller buffer), the kernel picks a buffer when data arrives and names it
 //! on the CQE, and `recycleBorrowed` returns it to the ring. A recv that finds the
 //! ring empty completes with `ENOBUFS`, which surfaces to the loop as
-//! `Completion.recv_no_buffer` — pool contention, never a connection error.
+//! `Completion.recv_no_buffer`: pool contention, never a connection error.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -36,6 +37,21 @@ comptime {
 }
 
 const tcp_os = socket_tcp.Os.linux;
+
+fn classifyInitFailure(err: anyerror) anyerror {
+    return switch (err) {
+        error.SystemOutdated => error.IoUringSystemOutdated,
+        error.PermissionDenied => error.IoUringInitDenied,
+        else => err,
+    };
+}
+
+fn classifyBufferRingFailure(err: anyerror) anyerror {
+    return switch (err) {
+        error.ArgumentsInvalid => error.ProvidedBufferRingUnsupported,
+        else => err,
+    };
+}
 
 pub const Backend = struct {
     pub const Fd = linux.fd_t;
@@ -107,15 +123,29 @@ pub const Backend = struct {
         listener_ip4: [4]u8,
     ) !Backend {
         if (read_buffer_bytes == 0) return error.InvalidReadBufferBytes;
-        var ring = try IoUring.init(queue_entries, 0);
+        // Translate generic std errors at the call that owns their meaning.
+        // Later constructor work can return the same names without selecting
+        // a different Linux backend.
+        var ring = IoUring.init(queue_entries, 0) catch |err| return classifyInitFailure(err);
         errdefer ring.deinit();
 
         // The kernel requires a power-of-two ring; round the requested pool up.
         const count = try std.math.ceilPowerOfTwo(u16, @max(read_buffers, 1));
+        const buf_ring = IoUring.setup_buf_ring(ring.fd, count, buf_group_id, .{ .inc = false }) catch |err| {
+            // The arguments above are locally validated and fixed. EINVAL from
+            // REGISTER_PBUF_RING therefore means this kernel exposes io_uring
+            // without the provided-buffer facility this backend requires.
+            // Name that capability miss so the Linux selector can fall back.
+            // Unrelated setup failures remain fatal.
+            return classifyBufferRingFailure(err);
+        };
+        errdefer IoUring.free_buf_ring(ring.fd, buf_ring, count, buf_group_id);
+
+        // Allocate backing bytes only after the kernel accepts the ring. A
+        // fallback host should never allocate the io_uring pool it cannot use.
         const buffers = try allocator.alloc(u8, @as(usize, count) * read_buffer_bytes);
         errdefer allocator.free(buffers);
 
-        const buf_ring = try IoUring.setup_buf_ring(ring.fd, count, buf_group_id, .{ .inc = false });
         IoUring.buf_ring_init(buf_ring);
         const mask = IoUring.buf_ring_mask(count);
         var id: u16 = 0;
@@ -283,12 +313,7 @@ pub const Backend = struct {
                 else => return err,
             };
             if (try self.drainCompletions(out)) |n| return n;
-            var fds = [_]std.posix.pollfd{.{
-                .fd = self.ring.fd,
-                .events = std.posix.POLL.IN,
-                .revents = 0,
-            }};
-            const ready = poll_wait.wait(&fds, timeout_ms) catch |err| return err;
+            const ready = try waitForCompletion(self.ring.fd, timeout_ms);
             if (ready == 0) return 0;
         } else {
             _ = self.ring.submit_and_wait(1) catch |err| switch (err) {
@@ -429,6 +454,18 @@ pub const Backend = struct {
     }
 };
 
+fn waitForCompletion(fd: linux.fd_t, timeout_ms: i32) !usize {
+    var fds = [_]std.posix.pollfd{.{
+        .fd = fd,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }};
+    return poll_wait.waitInterruptible(&fds, timeout_ms) catch |err| switch (err) {
+        error.SignalInterrupt => 0,
+        else => return err,
+    };
+}
+
 const ListenerCancelDisposition = enum { resolved, wait_for_target };
 
 /// An exact async-cancel either retires the target, finds it already retired,
@@ -445,8 +482,20 @@ fn classifyListenerCancel(result: i32) ListenerCancelDisposition {
 /// Narrow test seam for the listener-cancel race classifier. Empty in every
 /// production build so platform internals do not become library surface.
 pub const white_box = if (builtin.is_test) struct {
+    pub fn initFailureFor(err: anyerror) anyerror {
+        return classifyInitFailure(err);
+    }
+
+    pub fn bufferRingFailureFor(err: anyerror) anyerror {
+        return classifyBufferRingFailure(err);
+    }
+
     pub fn cancelResolved(result: i32) bool {
         return classifyListenerCancel(result) == .resolved;
+    }
+
+    pub fn waitForCompletionOnce(fd: linux.fd_t, timeout_ms: i32) !usize {
+        return waitForCompletion(fd, timeout_ms);
     }
 
     /// Drive one real loopback dial-and-accept through the backend and report
@@ -485,19 +534,7 @@ pub const white_box = if (builtin.is_test) struct {
             };
         }
         if (accepted == null or !connected) return error.HandshakeIncomplete;
-        return nodelayEnabled(dial_fd) and nodelayEnabled(accepted.?);
-    }
-
-    fn nodelayEnabled(fd: Backend.Fd) bool {
-        var value: u32 = 0;
-        var len: u32 = @sizeOf(u32);
-        const rc = linux.getsockopt(
-            fd,
-            linux.IPPROTO.TCP,
-            std.posix.TCP.NODELAY,
-            std.mem.asBytes(&value),
-            &len,
-        );
-        return linux.errno(rc) == .SUCCESS and value != 0;
+        return socket_tcp.white_box.nodelayEnabled(dial_fd) and
+            socket_tcp.white_box.nodelayEnabled(accepted.?);
     }
 } else struct {};

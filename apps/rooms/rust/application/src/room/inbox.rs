@@ -1,25 +1,24 @@
 //! Room membership callbacks above CapTP. Only admitted attachments retain
 //! capabilities; the binding retains custody of every original argument.
 use super::{
+	ArgumentView,
 	attachment::{self, Attachment, AttachmentArgument},
 	line::MAX_LINE_BYTES,
 	message::LineMarker,
 	policy::RoomPolicy,
 	stewardship::Kind,
-	ArgumentView,
 };
 use alloc::{string::String, vec::Vec};
 pub mod metadata;
 pub mod queue;
 use metadata::{Facts, Presence};
 
-pub const NOTIFY: &str = "notify";
+pub use crate::protocol_data::{
+	MEMBERSHIP_ENDED as ENDED, NOTIFY, ROOM_AUTHORITY_CHANGED as AUTHORITY_CHANGED,
+	ROOM_POLICY_CHANGED as POLICY_CHANGED, ROOM_SENDER as ROOM,
+};
 /// The sender name of a line the room itself says: an announcement, never a
 /// member's message, and drawn as a system line.
-pub const ROOM: &str = "room";
-pub const ENDED: &str = "membershipEnded";
-pub const AUTHORITY_CHANGED: &str = "roomAuthorityChanged";
-pub const POLICY_CHANGED: &str = "roomPolicyChanged";
 pub const MAX_NICK: usize = 32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -91,6 +90,7 @@ pub struct Message<T, C> {
 	pub presence: Option<Presence<T>>,
 	pub facts: Option<Facts<T>>,
 	pub marker: Option<LineMarker>,
+	pub previews: crate::open_graph::Selection,
 	pub attachments: Vec<Attachment<C>>,
 }
 impl<T, C> Message<T, C> {
@@ -101,6 +101,7 @@ impl<T, C> Message<T, C> {
 			presence: self.presence.map(|p| p.map(&mut f)),
 			facts: self.facts.map(|p| p.map(f)),
 			marker: self.marker,
+			previews: self.previews,
 			attachments: self.attachments,
 		}
 	}
@@ -172,7 +173,7 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 			};
 			Ok(Notice::Policy(RoomPolicy::parse(&[a, b, c]).ok_or(Refusal::Policy)?))
 		}
-		Some("typing") => {
+		Some(crate::protocol_data::TYPING) => {
 			if args.len() != 5 || !prefix() {
 				return Err(Refusal::Typing);
 			}
@@ -186,22 +187,25 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 			let text = text(1).filter(|s| s.len() <= MAX_LINE_BYTES).ok_or(Refusal::Line)?;
 			let facts = metadata::facts(args);
 			let presence = metadata::presence(args);
-			if text.is_empty() && presence.is_none() {
-				if let Some(listed) = facts.as_ref().and_then(|f| f.listed) {
-					return Ok(Notice::Occupancy {
-						listed,
-						claimable: boolean(3),
-					});
-				}
+			if text.is_empty()
+				&& presence.is_none()
+				&& let Some(listed) = facts.as_ref().and_then(|f| f.listed)
+			{
+				return Ok(Notice::Occupancy {
+					listed,
+					claimable: boolean(3),
+				});
 			}
 			let marker = LineMarker::read(args);
-			let attachments = attachment::read_prefix(args, if marker.is_some() { 4 } else { 2 });
+			let (attachments, extension) = attachment::read_prefix_with_end(args, if marker.is_some() { 4 } else { 2 });
+			let previews = crate::open_graph::Selection::read_suffix(text, args, extension);
 			Ok(Notice::Line(Message {
 				from,
 				text,
 				presence,
 				facts,
 				marker,
+				previews,
 				attachments,
 			}))
 		}

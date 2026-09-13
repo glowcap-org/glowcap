@@ -9,12 +9,48 @@
 // where messages are kept is a page describing someone else's session.
 
 import { useState } from "react";
+import {
+	historyArchivePeerLabel,
+	historyArchivePeerTitle,
+	historyBuiltInBrowser,
+	historyBuiltInSession,
+	historyKeepLabel,
+	historyOffLocal,
+	historyOffShared,
+	historyOnLocal,
+	historyOnShared,
+	historyPeerDurable,
+	historyPeerLead,
+	historyPeerLive,
+	historyPeerReconnect,
+	historyPeerSaved,
+	historyPeerSession,
+	historyPeerUnavailable,
+} from "../../../lib/text/settings.ts";
+import {
+	historyArchiveTitle,
+	historyChangePeerAsk,
+	historyKeptBy,
+	historyOwnedBrowser,
+	historyOwnedSession,
+	historyPeerCommit,
+	historyPeerModalLead,
+	historyPeerRemember,
+	historyPeerRememberSaid,
+	historyPeerSessionRetains,
+	historyPeerTaken,
+	historyPeerUnavailableSaid,
+	historyTitle,
+	historyUseBrowser,
+	historyUsePeerAsk,
+	historyUseSessionArchive,
+} from "../../../lib/text/session_settings.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { Button } from "../Button.tsx";
 import { Checkbox } from "../Checkbox.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
-import { locatorRefusal } from "../error_text.ts";
+import { actionRefusal, locatorRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
 import { Said } from "../Said.tsx";
 import { Switch } from "../Switch.tsx";
@@ -22,6 +58,8 @@ import { useRoomsSession } from "../controller/session.ts";
 import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
 import type { ArchiveOwner } from "../archive_model.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 
 /** Where history is written now, said once under the switch. */
 function historySaid(
@@ -30,19 +68,15 @@ function historySaid(
 ): string {
 	const sharedSession = archiveTarget.owner === "session";
 	if (!keepHistory) {
-		return sharedSession
-			? "Nothing is being kept. Room and direct messages arrive in the windows that are open and are not saved for later."
-			: "Nothing is being kept. Room and direct messages arrive in this window and are not saved for later.";
+		return sharedSession ? historyOffShared : historyOffLocal;
 	}
 	if (archiveTarget.kind === "owned") {
-		return sharedSession
-			? "New room and direct messages are kept by this durable Rooms session. Turning this off stops new writes."
-			: "New room and direct messages are kept in this browser. Turning this off erases this browser's message archive.";
+		return sharedSession ? historyOnShared : historyOnLocal;
 	}
 	if (archiveTarget.status === "connected") {
-		return `New room and direct messages are kept by ${archiveTarget.label}. Turning this off stops new writes. It cannot erase the session.`;
+		return historyKeptBy(archiveTarget.label);
 	}
-	return `The selected ${archiveTarget.label} is unavailable. New messages are not silently copied into this browser.`;
+	return historyPeerUnavailableSaid(archiveTarget.label);
 }
 
 export function HistorySettings(
@@ -60,7 +94,7 @@ export function HistorySettings(
 		try {
 			await session.setKeepHistory(!keepHistory);
 		} catch (error) {
-			setWhy(error instanceof Error ? error.message : String(error));
+			setWhy(refusalText(error));
 		} finally {
 			setBusy(false);
 		}
@@ -68,14 +102,14 @@ export function HistorySettings(
 
 	return (
 		<>
-			<h3 className="well-title overline" id="historyLegend">Message history</h3>
+			<h3 className="well-title overline" id="historyLegend">{historyTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="historyLegend">
 				<div className="switch-row">
-					<p className="group-label" id="keepHistoryLegend">Keep message history</p>
+					<p className="group-label" id="keepHistoryLegend">{historyKeepLabel}</p>
 					<Switch
 						id="keepHistoryToggle"
 						checked={keepHistory}
-						label="Keep message history"
+						label={historyKeepLabel}
 						busy={busy}
 						aria-labelledby="keepHistoryLegend"
 						onClick={() => void toggle()}
@@ -102,35 +136,37 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 			const answer = await request();
 			if (typeof answer === "string" && answer !== "") setWhy(answer);
 		} catch (error) {
-			setWhy(error instanceof Error ? error.message : String(error));
+			setWhy(refusalText(error));
 		} finally {
 			setBusy(false);
 		}
 	};
 	return (
 		<>
-			<h3 className="well-title overline" id="archiveHoldingLegend">Archive capability</h3>
+			<h3 className="well-title overline" id="archiveHoldingLegend">{historyArchiveTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="archiveHoldingLegend">
 				<div className="entry-head">
 					<span className="entry-name">
 						{onPeer
 							? archiveTarget.label
 							: archiveTarget.owner === "session"
-							? "Built-in session archive"
-							: "Built-in browser archive"}
+							? historyBuiltInSession
+							: historyBuiltInBrowser}
 					</span>
-					{onPeer && <span className="tag">{archiveTarget.remembered ? "Saved" : "Live"}</span>}
+					{onPeer && (
+						<span className="tag">{archiveTarget.remembered ? historyPeerSaved : historyPeerLive}</span>
+					)}
 				</div>
 				<p className="hint">
 					{onPeer
 						? archiveTarget.status === "unavailable"
-							? "The selected archive peer is unavailable."
+							? historyPeerUnavailable
 							: archiveTarget.remembered
-							? "Connected. Its saved bearer lets this session reconnect."
-							: "Connected for this session only."
+							? historyPeerDurable
+							: historyPeerSession
 						: archiveTarget.owner === "session"
-						? "Keeps this shared session's message history."
-						: "Keeps message history in this browser."}
+						? historyOwnedSession
+						: historyOwnedBrowser}
 				</p>
 				<div className="actions" data-stack-narrow>
 					{onPeer && (
@@ -141,7 +177,7 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 							disabled={busy}
 							onClick={() => void act(() => session.useOwnedArchive())}
 						>
-							{archiveTarget.owner === "session" ? "Use session archive" : "Use this browser"}
+							{archiveTarget.owner === "session" ? historyUseSessionArchive : historyUseBrowser}
 						</Button>
 					)}
 					{onPeer && archiveTarget.status === "unavailable" && (
@@ -152,7 +188,7 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 							disabled={busy}
 							onClick={() => void act(() => session.retryArchivePeer())}
 						>
-							Reconnect
+							{historyPeerReconnect}
 						</Button>
 					)}
 					<Button
@@ -161,7 +197,7 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 						variant="quiet"
 						onClick={(event) => openModalFrom(event.currentTarget, () => setPeerOpen(true))}
 					>
-						{onPeer ? "Change archive peer…" : "Use an archive peer…"}
+						{onPeer ? historyChangePeerAsk : historyUsePeerAsk}
 					</Button>
 				</div>
 				{why !== "" && <Said kind="failure">{why}</Said>}
@@ -203,12 +239,15 @@ function ArchivePeerModal(
 		setWhy("");
 		setTaken("");
 		try {
-			const refused = locatorRefusal(await session.takeArchivePeer(link, remember), "archive peer link");
+			const refused = locatorRefusal(
+				await actionRefusal(() => session.takeArchivePeer(link, remember)),
+				"archive peer link",
+			);
 			setWhy(refused);
 			if (refused === "") {
 				setLink("");
 				setRemember(false);
-				setTaken("This archive peer keeps new history now.");
+				setTaken(historyPeerTaken);
 			}
 		} finally {
 			setBusy(false);
@@ -217,15 +256,13 @@ function ArchivePeerModal(
 	};
 	return (
 		<Submodal
-			title="Archive peer"
+			title={historyArchivePeerTitle}
 			titleId="archivePeerTitle"
 			className="archive-peer-modal"
 			open={open}
 			onClose={() => commitments.request(onClose, { only: ["settings-archive-peer"] })}
 		>
-			<p className="lead">
-				A separate glowcap peer keeps your history. Rooms and message recipients never receive it.
-			</p>
+			<p className="lead">{historyPeerModalLead}</p>
 			<form
 				id="archivePeerForm"
 				className="group well"
@@ -236,8 +273,8 @@ function ArchivePeerModal(
 			>
 				<Field
 					id="archivePeerLink"
-					label="Archive peer capability"
-					hint="Bearer authority to read and write the archive. A new peer keeps future messages. It does not copy old history."
+					label={historyArchivePeerLabel}
+					hint={historyPeerLead}
 					said={why}
 				>
 					{(wiring) => (
@@ -255,12 +292,12 @@ function ArchivePeerModal(
 								setWhy("");
 								setTaken("");
 							}}
-							placeholder="ocapn://…/s/…"
+							placeholder={sturdyrefPlaceholder}
 						/>
 					)}
 				</Field>
 				{owner === "session"
-					? <p className="hint">The shared session retains this for every attached view.</p>
+					? <p className="hint">{historyPeerSessionRetains}</p>
 					: (
 						<label className="check-row">
 							<Checkbox
@@ -269,14 +306,14 @@ function ArchivePeerModal(
 								onChange={(event) => setRemember(event.currentTarget.checked)}
 							/>
 							<span>
-								<strong>Remember in this browser</strong>
-								Stores its bearer and reconnects after reload. Clear means this page only.
+								<strong>{historyPeerRemember}</strong>
+								{historyPeerRememberSaid}
 							</span>
 						</label>
 					)}
 				<div className="actions" data-fill>
 					<Button type="submit" size="large" busy={busy} disabled={busy || link.trim() === ""}>
-						Use archive peer
+						{historyPeerCommit}
 					</Button>
 				</div>
 				{taken !== "" && <Said id="archivePeerTaken" kind="success">{taken}</Said>}

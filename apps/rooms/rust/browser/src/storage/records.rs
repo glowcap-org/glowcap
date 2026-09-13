@@ -1,14 +1,14 @@
 //! Native IndexedDB indices own lookup and ordering. Each mutation of records,
 //! attachment positions, byte accounting and revision is one transaction.
 use super::{Database, Error, Operation};
-use rooms_application::archive::{index::Page, Filter, Record};
+use rooms_application::archive::{Filter, Record, index::Page};
 use rooms_application::text::DocumentText;
 pub(super) mod codec;
 mod read;
 mod write;
 use read::page;
 pub(super) use read::reader;
-use write::{put, Put};
+use write::{Put, put};
 pub(super) const RECORDS: &str = "archive-records";
 pub(super) const BLOBS: &str = "archive-blobs";
 pub(super) const META: &str = "archive-meta";

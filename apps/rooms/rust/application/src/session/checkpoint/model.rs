@@ -1,3 +1,4 @@
+//! The durable session checkpoint stores reconstructible user intent.
 use super::fields::*;
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +19,7 @@ pub(super) struct State {
 	#[serde(deserialize_with = "crate::fields::object")]
 	pub join: Join,
 	pub dm_mode: DmMode,
-	pub viz_override: Field,
+	pub trace_override: Field,
 	#[serde(deserialize_with = "crate::fields::object")]
 	pub capabilities: Capabilities,
 	#[serde(deserialize_with = "crate::fields::object_list")]
@@ -33,7 +34,16 @@ pub(super) struct Directory {
 	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
 	pub reached: Option<bool>,
 	pub nick: Field,
+	#[serde(
+		default,
+		rename = "nickAllocation",
+		skip_serializing_if = "nickname_allocation_is_exact"
+	)]
+	pub nick_allocation: crate::directory::registration::NicknameAllocation,
 	pub standing: Nullable<Field>,
+}
+fn nickname_allocation_is_exact(value: &crate::directory::registration::NicknameAllocation) -> bool {
+	*value == crate::directory::registration::NicknameAllocation::Exact
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
@@ -205,7 +215,7 @@ pub(super) enum Operation {
 	Irc,
 	Operator,
 	Peering,
-	Viz,
+	Trace,
 }
 impl Operation {
 	pub fn wire(self) -> &'static str {
@@ -215,7 +225,7 @@ impl Operation {
 			Self::Irc => "irc",
 			Self::Operator => "operator",
 			Self::Peering => "peering",
-			Self::Viz => "viz",
+			Self::Trace => "trace",
 		}
 	}
 }
@@ -237,7 +247,7 @@ impl State {
 				nick: Text("".into()),
 			},
 			dm_mode: DmMode::Webrtc,
-			viz_override: Text("".into()),
+			trace_override: Text("".into()),
 			capabilities: Capabilities {
 				operations: List(alloc::vec::Vec::new()),
 				archive_peer: Nullable::Null,

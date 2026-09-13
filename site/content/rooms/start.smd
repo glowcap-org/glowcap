@@ -1,0 +1,146 @@
+---
+.title = "Run Rooms",
+.description = "Start Rooms on your machine, join a room as two people, talk to someone directly with the room out of it, and open your session on your phone.",
+.date = .date("2026-09-12T00:00:00"),
+.layout = "page.shtml",
+.draft = false,
+---
+
+This walkthrough starts Rooms on your machine and joins it as two people.
+You will watch a room carry a conversation, then open a direct conversation
+the room is not part of, and finally open your whole session somewhere else
+entirely.
+
+# Start Rooms
+
+From the glowcap checkout, run:
+
+```sh
+zig build rooms-web
+```
+
+This builds the services, the browser's WebAssembly, and the interface, then
+serves the page at `http://localhost:8000`. Peers reach the server over
+encrypted iroh, so the build needs Zig, Cargo, and Deno.
+
+To stay on your own machine with no iroh at all, use:
+
+```sh
+zig build rooms-web -Dtransport=tcp
+```
+
+That sends everything over plain TCP, with no encryption and no proof of who
+is on the other end. Use it to look around, never to put Rooms on a network.
+
+# Choose where your session lives
+
+Open the page. The first time, Rooms asks where to keep your session: the
+rooms you join, your direct conversations, your drafts, and your history
+settings. Choose **Use this browser** for now.
+
+[The first-run choice. Keep your session in this browser, or open one that another device or a server is already keeping.]($image.siteAsset('rooms-session-dark.webp'))
+
+[The first-run choice. Keep your session in this browser, or open one that another device or a server is already keeping.]($image.siteAsset('rooms-session-light.webp'))
+
+The choice is about who keeps your session, not what you can do with it.
+Keep it here and it lives on this device. Share it and whoever runs it, this
+page or a server, keeps the one copy, and wherever you open it, you are
+looking at that copy. You can change your mind later. Settings can share
+your session, open another, export it, or clear the one you are using. The
+last section of this page shares one.
+
+# Join a room
+
+The join card already points at the server that gave you the page. Type a
+room name such as `workshop`. If no room has that name yet, joining creates
+it. You can leave your name empty: the grey suggestion is a name the server
+can give you right now, and joining with the field empty takes it.
+
+[The join card, pointed at the server that gave you the page, with a room name typed. The display name can stay empty.]($image.siteAsset('rooms-join-dark.webp'))
+
+[The join card, pointed at the server that gave you the page, with a room name typed. The display name can stay empty.]($image.siteAsset('rooms-join-light.webp'))
+
+If the name you type is taken, the card shows the next free one as you type
+and will not let you send a join it knows would fail. Taking the suggestion
+is up to you. Rooms never quietly changes a name you typed.
+
+Now open the same address as somebody else, a private window is the quickest
+way, keep that session where it is too, and join `workshop` under another
+name. Each session is its own peer, with its own seat in the room and its
+own history. A bot makes a fine partner as well: the
+[CapTP CLI]($link.page('cli')) joins a room from a terminal as
+`glowcap app rooms-peer`, which is how the bots on the
+[Rooms]($link.page('rooms')) page got there.
+
+# Talk in the room
+
+Type into the box at the bottom and press Enter. Shift+Enter starts a new
+line. You can attach files and use simple formatting, and the command menu
+lists what you can do in this conversation.
+
+A line you send shows as pending until the room confirms it. If the room
+refused it before anything happened, Rooms puts your text back in the box.
+If nobody can say whether it went through, Rooms tells you that instead of
+inviting you to send it twice.
+
+Hover one of your own lines to edit or delete it. You can, because the room
+handed you the reference for that line when you posted it, not because your
+name matches an account.
+
+# Open a direct conversation
+
+In the member list, press the message button beside the other member. The
+server introduces you, and the new conversation appears under
+**Direct messages**. From here on, your messages go straight between the two
+of you, and the room sees none of them.
+
+[A direct conversation, opened from the member list. The header says what this connection is, and the card above the first message says who can read it.]($image.siteAsset('rooms-direct-dark.webp'))
+
+[A direct conversation, opened from the member list. The header says what this connection is, and the card above the first message says who can read it.]($image.siteAsset('rooms-direct-light.webp'))
+
+By default the connection is WebRTC. It goes straight between you when it
+can find a route, and uses STUN and TURN servers when the network needs
+them. If it cannot connect where you are, open Settings and pick the relay
+under **Direct message connection**. That setting only changes direct
+messages. It does not change how your session is shared.
+
+[WebRTC signaling]($link.page('transports/webrtc')) explains offers,
+candidates, STUN, and TURN. [Operate Rooms]($link.page('rooms/operations'))
+shows where a host supplies TURN credentials and the relay.
+
+# Open your session somewhere else
+
+Back in the first session, open Settings and go to the **Session** tab.
+**Share** publishes it and shows you its link right there. Open the page
+somewhere else, your phone is the natural choice, choose **Shared session**
+on the first screen, paste the link, and attach.
+
+[The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-dark.webp'))
+
+[The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-light.webp'))
+
+The phone shows the same rooms, the same direct conversation, and the same
+history settings, and a line posted from either side shows up in both.
+The page that shared it is the one keeping it, so reloading that page ends
+the share. For a session that is always on, run the session service from
+[Operate Rooms]($link.page('rooms/operations')) and open it the same way.
+
+# Keep and share history
+
+Rooms can keep room and direct-message history in your session. A host can
+also keep room history on the server, run an archive service, or hand
+someone a read-only link to an archive. These stay separate, and you choose
+which one new messages go to.
+
+Files stay with their messages, and only whoever actually stored the bytes
+claims to have them. A history entry can describe an attachment without
+pretending to hold a file the archive never saved. The
+[operations guide]($link.page('rooms/operations')) covers history on the
+server, its limits, and repair.
+
+# Continue
+
+[How Rooms works]($link.page('rooms/architecture')) explains what a click
+promises and how the code is divided. To host Rooms or put it behind HTTPS,
+continue with [Operate Rooms]($link.page('rooms/operations')). To connect an
+IRC network or client, use [IRC and Rooms]($link.page('rooms/irc')).

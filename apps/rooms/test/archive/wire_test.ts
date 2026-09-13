@@ -48,6 +48,7 @@ roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", 
 						at: revision,
 						order: revision,
 						state: "present",
+						previewUrls: [],
 						attachments: [],
 					};
 					return [BigInt(revision), ...archiveRecordRow(record)];
@@ -72,6 +73,7 @@ roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", 
 						at: revision,
 						order: revision,
 						state: revision === 1 ? "present" : "edited",
+						previewUrls: [],
 						attachments: [],
 					};
 					return [BigInt(revision), ...archiveRecordRow(record)];
@@ -116,6 +118,7 @@ roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", 
 			at: 1,
 			order: 1,
 			state: "present",
+			previewUrls: [],
 			attachments: [],
 		};
 		assert(await putArchive(session, archive, record) === 1, "archive put did not allocate its first revision");

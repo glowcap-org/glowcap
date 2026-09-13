@@ -1,5 +1,5 @@
 use rooms_application::directory::{
-	introduction::{Error, Notices, MAX_OUTSTANDING},
+	introduction::{Error, MAX_OUTSTANDING, Notices},
 	registration::Id,
 };
 fn id(n: usize) -> Id {
@@ -66,10 +66,10 @@ fn captured() {
 			match step["kind"].as_str().unwrap() {
 				"notify" => {
 					notices.notify(&Id::parse(step["id"].as_str().unwrap()).unwrap());
-					if let Some(ticket) = waiting.as_ref() {
-						if notices.observe(ticket, ()).unwrap() {
-							waiting = None;
-						}
+					if let Some(ticket) = waiting.as_ref()
+						&& notices.observe(ticket, ()).unwrap()
+					{
+						waiting = None;
 					}
 				}
 				"call" => {

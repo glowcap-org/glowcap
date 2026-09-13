@@ -10,8 +10,14 @@
 // Render one only when there is something to say. An empty one shows nothing,
 // but it is still a child of whatever holds it: it takes its share of a flex
 // parent's gap, and it takes real height from any rule that reserves it a line.
-// A reply nobody made is worth neither. The composer's availability line is the
-// one that stays mounted while empty, because it is out of flow and fades in.
+// A reply nobody made is worth neither.
+//
+// The composer's availability line is the one exception, and it pays for itself
+// by hand: it stays mounted while empty so the row beneath the field always has
+// it to compare against and to measure, and `composer.css` drops every child of
+// that row that has nothing in it, so an empty one costs no width and no gap.
+// An exception that did not do that would sit in the row as a blank holding its
+// place, which is the thing this paragraph is about.
 //
 // A short one is the whole of it. A long one is held to two lines here and
 // the rest opens on a card — but only when the two lines actually cut it. The
@@ -24,6 +30,7 @@ import { useOpenModal } from "./modal.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { errorDetailTitle } from "./error_text.ts";
 import { Icon } from "./icons.tsx";
+import { toastShow } from "../../lib/text/controls.ts";
 
 /** Failure stays with a field that would not take the value. Warning stays with
  * a control whose standing condition the reader can still act on. Success says
@@ -101,7 +108,7 @@ export function Said(
 						)}
 				>
 					<span ref={ref} className="said-clamp" role={role}>{text}</span>
-					<span className="said-show">Show</span>
+					<span className="said-show">{toastShow}</span>
 				</button>
 			);
 		}

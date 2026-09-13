@@ -1,7 +1,7 @@
 use glowcap::Ref;
 use rooms_application::room::inbox::{
-	queue::{Error, Queue},
 	Message,
+	queue::{Error, Queue},
 };
 use std::{
 	cell::RefCell,

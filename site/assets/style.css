@@ -58,6 +58,8 @@
        different colours into one and change the light artwork. */
     --dia-card: #33281b;
     --dia-danger: #e07a5f;
+    --dia-danger-fill: #33221d;
+    --dia-danger-rule: #5c3a31;
     --dia-green: #7fbf8c;
     --dia-muted: #9c8b70;
     --dia-warm-fill: #2a2016;
@@ -249,6 +251,16 @@ a:focus-visible,
 
 .mark-shaded > .icon-mark {
   display: none;
+}
+
+/* Where the script runs, the still waits for the verdict rather than
+   showing first: a drawing that flashes and is then replaced by the shader
+   spoils the arrival the shader exists for. `.mark-still` is the verdict
+   that no device could be had, and only then does the drawing show. A page
+   without the script never stamps `js` on the root and keeps the drawing
+   from the first paint, and the box keeps its size either way. */
+html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
+  visibility: hidden;
 }
 
 .top-nav {

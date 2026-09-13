@@ -14,14 +14,14 @@ private `libglowcap_*` calls.
   accountability above glowcap's runtime (`zig build accountability`).
 - [`ocapnviz/`](ocapnviz/): the OCapN topology visualizer. It runs on its own
   Deno toolchain (see its README). `zig build ocapnviz-test` runs the suite and
-  is part of `zig build check` when deno is present; `zig build ocapnviz-check`
-  also type-checks, formats, and lints. `scripts/griddle-import.ts` converts a
+  is part of `zig build runtime-check`. `zig build ocapnviz-check` also
+  type-checks, formats, and lints. `scripts/griddle-import.ts` converts a
   `glowcap griddle run` timeline into a document its Play mode replays.
 - `_demo/`: plumbing the demo steps share.
 
-Each app has its own build step. The accountability app runs in
-`zig build check`; demos run separately because they need other language
-runtimes. [`examples/README.md`](../examples/README.md) explains what each
+Each app has its own build step. The accountability application and the
+bounded Deno application suites run in `zig build runtime-check`. Demos run
+separately. [`examples/README.md`](../examples/README.md) explains what each
 one demonstrates.
 
 ## How the cross-language demos run

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Icon } from "./icons.tsx";
 import type { RoomPreset } from "./room_policy.ts";
+import { markModeratedRoom, markPrivateRoom } from "../../lib/text/conversation.ts";
 
 /** The mark for a room in this standing: the hash for a public name, the eye
  * for a room that is listed but offers only watching, the lock for one the
@@ -25,10 +26,10 @@ export function roomMarkGlyph(standing: RoomPreset, size: number): ReactNode {
  * it. Public names need no gloss: the hash is the name's own punctuation. */
 export function roomMarkTitle(standing: RoomPreset): string | undefined {
 	if (standing === "private") {
-		return "A private room: it is not listed, and only people it was handed to are here";
+		return markPrivateRoom;
 	}
 	if (standing === "moderated") {
-		return "A moderated room: it is listed, and its public name offers watching rather than speaking";
+		return markModeratedRoom;
 	}
 	return undefined;
 }

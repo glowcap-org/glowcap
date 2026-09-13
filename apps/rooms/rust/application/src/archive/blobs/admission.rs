@@ -1,9 +1,10 @@
+//! Attachment-byte admission reserves bounded archive capacity before reads.
 use super::*;
 use crate::{
 	archive::protocol,
 	room::{
-		attachment::{self, AttachmentArgument},
 		ListArgument,
+		attachment::{self, AttachmentArgument},
 	},
 };
 use alloc::vec::Vec;

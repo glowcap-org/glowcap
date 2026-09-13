@@ -4,8 +4,8 @@
 // A real 4x2 PNG, written out as bytes rather than base64 so the file that
 // reaches the room is the file this test can name byte for byte. Its chunk
 // CRCs are correct, which matters more than it looks: an `<img>` will draw
-// a PNG with a broken CRC, and `createImageBitmap` — which is what the page
-// measures a picture with before posting it — will not. A fixture that only
+// a PNG with a broken CRC, but the page measures pictures with
+// `createImageBitmap`, which will not. A fixture that only
 // the lenient path accepts tests the lenient path.
 //
 // Four by two rather than square, so asserting the reserved shape asserts

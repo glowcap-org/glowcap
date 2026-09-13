@@ -27,8 +27,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use glowcap_rust_dogfood::{
-	parse_locator, tcp, Argument, ConnectOptions, Error, PendingWork, Ref, RemotePromise, Runtime, RuntimeConfig,
-	Session,
+	Argument, ConnectOptions, Error, PendingWork, Ref, RemotePromise, Runtime, RuntimeConfig, Session, parse_locator,
+	tcp,
 };
 use tokio::task::LocalSet;
 

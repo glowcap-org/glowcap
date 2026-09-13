@@ -200,9 +200,13 @@ pub fn checkDurablePinWriters(
         };
         defer dir.close(io);
 
-        var walker = try dir.walk(gpa);
+        var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
+            if (entry.kind == .directory) {
+                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                continue;
+            }
             if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
             // Vendored trees carry no glowcap rule; skipping by name keeps the
             // walk from reading a dependency's sources.

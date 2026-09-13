@@ -1,11 +1,11 @@
 //! One live room's message stream, folded into its view and forwarded to the
 //! session's event stream until the room ends it.
 use super::{
+	LiveRooms, PENDING_LINES, Platform,
 	events::ConversationEvent,
 	worker::{Notice, Recorder},
-	LiveRooms, Platform, PENDING_LINES,
 };
-use crate::session_commands::SessionCommands;
+use crate::session::commands::SessionCommands;
 use rooms_application::room::{inbox::Message, message::ChangeKind};
 use rooms_glowcap::client::room::Messages;
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
@@ -117,16 +117,16 @@ pub(super) async fn pump<P: Platform>(
 						issues.remove(&subject);
 					}
 					Err(error) => {
-						issues.insert(subject, error);
+						issues.insert(subject, error.to_string());
 					}
 				}
 			}
 			if let Some(recorder) = &recorder {
 				let subject = format!("archive:{id}");
 				let files = if retained {
-					crate::archive_recording::Files::Retained(event.files.clone())
+					crate::archive::recording::Files::Retained(event.files.clone())
 				} else {
-					crate::archive_recording::Files::Received {
+					crate::archive::recording::Files::Received {
 						session: live.room.client().session().borrowed(),
 						attachments: message.attachments.clone(),
 					}
@@ -149,7 +149,7 @@ pub(super) async fn pump<P: Platform>(
 						issues.remove(&subject);
 					}
 					Err(error) => {
-						issues.insert(subject, error);
+						issues.insert(subject, error.to_string());
 					}
 				}
 			}
@@ -211,6 +211,7 @@ mod tests {
 				kind,
 			}),
 			attachments: vec![],
+			previews: Default::default(),
 		}
 	}
 

@@ -9,13 +9,13 @@ pub use connector::connector;
 pub use error::Error;
 
 use glowcap::{
-	browser::{RtcPeer, RtcRole},
 	Host, Locator, Session,
+	browser::{RtcPeer, RtcRole},
 };
 use rooms_application::signaling as policy;
 use rooms_glowcap::client::{
-	directory::{signaling::Exchange, Directory},
 	Deadline, Tasks,
+	directory::{Directory, signaling::Exchange},
 };
 use std::time::Duration;
 use web_sys::RtcConfiguration;
@@ -47,7 +47,11 @@ pub async fn dial<D: Deadline + Tasks + Clone + 'static>(
 		.await
 		.unwrap_or(Err(Error::Timeout));
 	if let Err(error) = result {
-		let error = error.retain(peer.close().await.map_err(Error::from));
+		let cleanup = match error.channel() {
+			Some(primary) => peer.retire_after_error(primary).await,
+			None => peer.close().await,
+		};
+		let error = error.retain(cleanup.map_err(Error::from));
 		return Err(error.retain(exchange.close().map_err(Error::from)));
 	}
 	let result: Result<Session, Error> = async {

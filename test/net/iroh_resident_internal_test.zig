@@ -233,6 +233,35 @@ const ScriptPlatform = struct {
     }
 };
 
+test "iroh loop preserves the selected Linux TCP backend" {
+    resetSidecar();
+    var transport = resident(undefined);
+    const platform = try net.Backend.init(std.testing.allocator, 1, 1, 64);
+    const expected = platform.tcpBackendStatus();
+    const backend = try iroh.Backend.initBoundWithPlatform(
+        std.testing.allocator,
+        &transport,
+        platform,
+        1,
+        64,
+    );
+    const IrohLoop = net.completion.Loop(iroh.Backend, iroh.DialResolver);
+    var loop = try IrohLoop.initWithBackend(
+        std.testing.allocator,
+        backend,
+        unusedMakePeer,
+        null,
+        .{ .max_conns = 0 },
+    );
+    defer loop.deinit();
+
+    try std.testing.expectEqualDeep(expected, net.tcpBackendStatus(&loop));
+}
+
+fn unusedMakePeer(_: ?*anyopaque, _: std.mem.Allocator) anyerror!engine.Peer {
+    return error.Unused;
+}
+
 test "accept readiness uses the endpoint reservation before later settlement" {
     resetSidecar();
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});

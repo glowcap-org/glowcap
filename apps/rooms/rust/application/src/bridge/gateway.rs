@@ -1,6 +1,6 @@
 //! The gateway a bridge declares to an operator. Forms, words and connection
 //! descriptions are independent of the protocol the bridge serves.
-use super::Form;
+use super::{Form, MAX_FORM_LABEL, MAX_FORM_SAID, MAX_FORM_TITLE, MAX_FORM_VALUE};
 use crate::{
 	fields::{List, Text},
 	server::operations::MAX_OPERATIONS_ROWS,
@@ -11,8 +11,6 @@ pub const MAX_NAME: usize = 128;
 
 /// The longest description a snapshot may carry.
 pub const MAX_GATEWAY_JSON: usize = 256 * 1024;
-pub(crate) const MAX_FORM_SAID: usize = 240;
-pub(crate) const MAX_FORM_VALUE: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "lowercase")]
@@ -26,15 +24,15 @@ pub enum StatusTone {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Status {
-	pub label: Text<60, true>,
+	pub label: Text<MAX_FORM_LABEL, true>,
 	pub tone: StatusTone,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Fact {
-	pub label: Text<60, true>,
-	pub value: Text<512, true>,
+	pub label: Text<MAX_FORM_LABEL, true>,
+	pub value: Text<MAX_FORM_VALUE, true>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,22 +65,22 @@ pub struct Connection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LeaseRemoval {
-	pub label: Text<60, true>,
-	pub say: Text<240, true>,
-	pub keep: Text<60, true>,
-	pub commit: Text<60, true>,
+	pub label: Text<MAX_FORM_LABEL, true>,
+	pub say: Text<MAX_FORM_SAID, true>,
+	pub keep: Text<MAX_FORM_LABEL, true>,
+	pub commit: Text<MAX_FORM_LABEL, true>,
 }
 
 /// The whole gateway as its bridge describes it right now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Description {
-	pub title: Text<60, true>,
-	pub description: Text<240>,
-	pub connection_noun: Text<60, true>,
-	pub connection_noun_plural: Text<60, true>,
-	pub lease_noun: Text<60, true>,
-	pub lease_noun_plural: Text<60, true>,
+	pub title: Text<MAX_FORM_TITLE, true>,
+	pub description: Text<MAX_FORM_SAID>,
+	pub connection_noun: Text<MAX_FORM_LABEL, true>,
+	pub connection_noun_plural: Text<MAX_FORM_LABEL, true>,
+	pub lease_noun: Text<MAX_FORM_LABEL, true>,
+	pub lease_noun_plural: Text<MAX_FORM_LABEL, true>,
 	#[serde(deserialize_with = "crate::fields::object")]
 	pub lease_removal: LeaseRemoval,
 	#[serde(deserialize_with = "crate::fields::object")]

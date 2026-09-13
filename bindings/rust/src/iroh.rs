@@ -25,13 +25,13 @@ use std::task::{Context, Poll, Waker};
 
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::{Notify, oneshot};
 
 use crate::abi_constants::{
 	BINDING_READINESS_DRAIN_CAP, DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS, IROH_NODE_ID_BYTES,
 };
 use crate::sys::iroh as ffi;
-use crate::{sys, Error, HintValue, HintWireForm, Host, Locator, Result, Session};
+use crate::{Error, HintValue, HintWireForm, Host, Locator, Result, Session, sys};
 
 pub use crate::ListenerIdentity;
 
@@ -69,8 +69,8 @@ pub fn locator(node_id: &str, direct_addresses: Option<&str>) -> Locator {
 }
 
 use ffi::{
-	GlowcapIrohConn, GlowcapIrohNetlayer, GlowcapIrohReadyEvent, GLOWCAP_IROH_EV_ACCEPT, GLOWCAP_IROH_EV_CLOSED,
-	GLOWCAP_IROH_EV_CONNECT, GLOWCAP_IROH_EV_READABLE, GLOWCAP_IROH_EV_WRITABLE,
+	GLOWCAP_IROH_EV_ACCEPT, GLOWCAP_IROH_EV_CLOSED, GLOWCAP_IROH_EV_CONNECT, GLOWCAP_IROH_EV_READABLE,
+	GLOWCAP_IROH_EV_WRITABLE, GlowcapIrohConn, GlowcapIrohNetlayer, GlowcapIrohReadyEvent,
 };
 
 const DRAIN_READY_CAP: usize = BINDING_READINESS_DRAIN_CAP;

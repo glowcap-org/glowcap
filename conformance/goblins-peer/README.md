@@ -38,13 +38,14 @@ wrappers and small Racket programs around that API.
 | `racket/goblins-iroh-host.rkt`    | The same echo host over iroh: a vat reachable at an `iroh` locator, announcing its endpoint id and direct addresses (`goblins-iroh`). |
 | `racket/glowcap-iroh-caller.rkt`  | Goblins client over iroh: dials a glowcap peer by endpoint id, calls its actor, and prints what its netlayer proved about the partner (`goblins-iroh`). |
 | `racket/gc-echo-host.rkt`         | Echo host with a background collect loop, so `op:gc-exports` fires within `goblins-gc`'s deadline. |
+| `racket/gc-probe.rkt` | Shared Goblins object factory for Zig and all four binding clients. A weak reference observes reclamation after both capability occurrences and their answer are released, with the client session still open. |
 | `racket/glowcap-actor-call.rkt`   | Goblins client: settle-call a glowcap-hosted actor.                                          |
 | `racket/goblins-tap-dialer.rkt`   | Goblins client: pipelined enliven-and-call against glowcap.                                  |
 | `racket/glowcap-break-call.rkt`   | Goblins client: unknown-swiss fetch, asserts glowcap's break reason.                         |
 | `racket/glowcap-export-listen.rkt` | Goblins client: `listen` on a live glowcap object export, asserts the fulfill.              |
 | `racket/glowcap-projection-asker.rkt` | Goblins client: writes canonical `op:get` / `op:index` at glowcap's responders, sends `op:listen` for each projected answer, and observes glowcap's resolver-callback fulfillments. Goblins 0.18.0 has no application-level outbound projection send, so it marshals records Goblins already defines through the live session. |
 | `racket/captp-projection-wire.rkt` | The projection records and marshallers `glowcap-projection-asker.rkt` writes with.          |
-| `racket/handoff-introducer-host.rkt` | Goblins Alice+Bob for recipient-side handoff (`goblins-handoff` / `*-goblins-handoff`).   |
+| `racket/handoff-introducer-host.rkt` | Goblins Alice+Bob for recipient-side handoff over TCP and iroh (`goblins-handoff`, `goblins-handoff-iroh`, and binding checks).   |
 | `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for glowcap-as-gifter (`*-goblins-gift`).                                  |
 | `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a glowcap-minted give (`*-goblins-gift`).             |
 | `racket/exporter-gifter-host.rkt` | Goblins Alice (gifter) over a greeter glowcap exports, so a Goblins pair deposits into and withdraws from glowcap's gift registry (`goblins-exporter`). |
@@ -54,7 +55,7 @@ wrappers and small Racket programs around that API.
 | `racket/rooms-dm.rkt`             | The direct-message half of that protocol: claim a name, mint one inbox per peer and offer it to the room, receive a message off-room and answer over the connection it arrived on. |
 | `racket/rooms-member.rkt`         | Goblins vat joining the rooms chat as an ordinary member, scripted: it enters a room, subscribes, posts one line, waits to hear what it came for, and exits (`goblins-rooms`). |
 | `racket/rooms-dm-member.rkt`      | Goblins vat sitting in the room and reachable by direct message, scripted: it narrates each message it receives and answers it, starts a direct message of its own with `--dm`, and stays up until killed (`goblins-rooms-dm`). |
-| `racket/rooms-chat.rkt`           | The same member, interactive: a terminal you talk in as a real Goblins vat, with `/list`, `/open`, `/enter`, `/leave`, `/dms`, and `/dm`. Run it beside `zig build rooms-web-tcp`, the cleartext transport the vat speaks, to chat with browser members, in the room and privately. |
+| `racket/rooms-chat.rkt`           | The same member, interactive: a terminal you talk in as a real Goblins vat, with `/list`, `/open`, `/enter`, `/leave`, `/dms`, and `/dm`. Run it beside `zig build rooms-web -Dtransport=tcp`, the cleartext transport the vat speaks, to chat with browser members, in the room and privately. |
 
 ## Running
 

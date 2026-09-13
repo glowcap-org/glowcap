@@ -432,9 +432,9 @@ export async function proveObserveGrantIsAttenuatedThenRevoked(
 		.catch(() => fail("a browser handed an already-paused link was not told why it has nothing"));
 	await arrivingContext.close();
 
-	// And letting it back in restores what it was issued with, without anyone
-	// having to remember what that was — and hands back the session as it stands
-	// now, which is what makes the emptiness above a refusal rather than a
+	// Letting it back in restores what it was issued with, without anyone having
+	// to remember what that was, and hands back the session as it stands now.
+	// That makes the emptiness above a refusal rather than a
 	// browser that had lost the session for good.
 	await administering.click("#settingsBtn");
 	await administering.click("#holdingsTab");

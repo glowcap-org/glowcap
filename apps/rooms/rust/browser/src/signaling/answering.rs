@@ -2,7 +2,7 @@ use super::*;
 use glowcap::{AcceptedTransport, ChannelDesignator};
 use std::{collections::BTreeMap, future::Future, sync::Arc};
 use tokio::{
-	sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore},
+	sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch},
 	task::JoinSet,
 };
 
@@ -226,7 +226,10 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 	};
 	if let Err(error) = prepared {
 		let cleanup = match peer.as_mut() {
-			Some(peer) => peer.close().await.map_err(Error::from),
+			Some(peer) => match error.channel() {
+				Some(primary) => peer.retire_after_error(primary).await.map_err(Error::from),
+				None => peer.close().await.map_err(Error::from),
+			},
 			None => Ok(()),
 		};
 		return match error {

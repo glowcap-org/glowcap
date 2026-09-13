@@ -22,7 +22,7 @@ import type { ComponentPropsWithRef, ReactNode } from "react";
 
 /** One answer this control offers. */
 export interface SegmentedChoice {
-	/** What this answer is, which is what a press reports back. */
+	/** The value a press reports back. */
 	value: string;
 	/** What the cell draws. Anything a caller wants to put there, which is how
 	 * an answer gets an icon without this control knowing what an icon is: a

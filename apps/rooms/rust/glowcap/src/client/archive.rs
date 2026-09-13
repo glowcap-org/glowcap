@@ -1,17 +1,17 @@
 //! Archive calls retain their actual capability and validate returned rows before
 //! exposing records. Storage and facet authority stay with the hosted archive.
 use super::*;
-use crate::{archive as wire, Value};
+use crate::{Value, archive as wire};
 use rooms_application::{
-	archive::{self, index::Page, protocol, Access, Filter, Record},
+	archive::{self, Access, Filter, Record, index::Page, protocol},
 	fields::SafeInteger,
 };
 use std::sync::Arc;
 mod blobs;
 mod shares;
 pub use blobs::Blob;
-pub(crate) use shares::read_share_views;
 pub use shares::ShareView;
+pub(crate) use shares::read_share_views;
 pub struct Archive<D> {
 	client: Client<D>,
 	reference: Ref,

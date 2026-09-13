@@ -8,8 +8,8 @@ use rooms_application::{
 	room::policy::RoomPolicy,
 };
 
-/// The room capability, and the durable authority acquired on the way when
-/// this session opened the room itself.
+/// The room entrance capability, and the durable authority acquired on the way
+/// when this session opened the room itself.
 pub struct Reached {
 	pub reference: Ref,
 	pub acquired: Option<Acquired>,
@@ -30,7 +30,7 @@ pub async fn enter_or_open<D: Deadline>(
 			return Ok(Reached {
 				reference,
 				acquired: None,
-			})
+			});
 		}
 		Err(error) if code(&error) == Some(FailureCode::NoSuchRoom) => {}
 		Err(error) => return Err(error.to_string()),
@@ -50,7 +50,7 @@ pub async fn enter_or_open<D: Deadline>(
 					room_link: managed.room_link,
 					manager_link: managed.manager_link,
 				}),
-			})
+			});
 		}
 		Err(error) if code(&error) == Some(FailureCode::NoRoomManagers) => {}
 		Err(error) if code(&error) == Some(FailureCode::RoomExists) => return entered(directory, name).await,
@@ -75,5 +75,9 @@ async fn entered<D: Deadline>(directory: &Directory<D>, name: &str) -> Result<Re
 }
 
 fn code(error: &Error) -> Option<FailureCode> {
-	WireFailure::parse(&error.to_string()).map(|failure| failure.code)
+	let Error::Binding(error) = error else { return None };
+	if error.kind() != glowcap::ErrorKind::Broken {
+		return None;
+	}
+	error.message().and_then(WireFailure::parse).map(|failure| failure.code)
 }

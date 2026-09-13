@@ -1,6 +1,6 @@
 use super::*;
 use rooms_application::{
-	server::operations::operator::{view, Category, ReferenceKind},
+	server::operations::operator::{Category, ReferenceKind, view},
 	session::operations,
 };
 impl Endpoint {

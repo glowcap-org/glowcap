@@ -10,9 +10,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use crate::host::{Host, HostShared};
-use crate::session::{Session, HANDSHAKE_TIMEOUT};
+use crate::session::{HANDSHAKE_TIMEOUT, Session};
 use crate::uri::{Locator, OwnedLocator};
-use crate::{sys, Connector, DialOrigin, Error, Result, TransportOperationOptions};
+use crate::{Connector, DialOrigin, Error, Result, TransportOperationOptions, sys};
 
 pub(crate) async fn dial_with_connector(
 	connector: Connector,
@@ -150,10 +150,10 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 	match result {
 		Ok(()) => Ok(()),
 		Err(error) => {
-			if let Some(session) = opened.take() {
-				if let Err(cleanup) = session.close(crate::PendingWork::Cancel).await {
-					host.record_background_failure(error.clone().with_secondary(cleanup));
-				}
+			if let Some(session) = opened.take()
+				&& let Err(cleanup) = session.close(crate::PendingWork::Cancel).await
+			{
+				host.record_background_failure(error.clone().with_secondary(cleanup));
 			}
 			if host.closing() {
 				return Ok(());

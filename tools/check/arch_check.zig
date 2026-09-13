@@ -272,12 +272,14 @@ pub fn check(
         // `std.posix` / `std.crypto`, which select the platform underneath; a
         // direct `std.os.linux` / `std.os.windows` reference compiles on one OS
         // and breaks every other build. Only a platform-gated completion
-        // backend (or its shared socket helpers) may name its own OS —
-        // `net/completion/uring.zig` is imported behind an `os.tag == .linux`
-        // check; `socket_tcp.zig` is the shared helper both backends call.
+        // backend (or its shared socket helpers) may name its own OS.
+        // `net/completion/uring.zig` and `net/completion/epoll.zig` are imported
+        // behind an `os.tag == .linux` check. `socket_tcp.zig` is their shared
+        // helper.
         // A new platform backend allowlists itself here in the same change
         // that gates its import.
-        const platform_gated = std.mem.endsWith(u8, file_path, "net/completion/uring.zig") or
+        const platform_gated = std.mem.endsWith(u8, file_path, "net/completion/epoll.zig") or
+            std.mem.endsWith(u8, file_path, "net/completion/uring.zig") or
             std.mem.endsWith(u8, file_path, "net/completion/socket_tcp.zig") or
             std.mem.endsWith(u8, file_path, "net/wake_channel.zig") or
             std.mem.endsWith(u8, file_path, "net/readiness.zig");

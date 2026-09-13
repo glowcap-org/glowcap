@@ -1,5 +1,5 @@
 use super::*;
-use rooms_application::server::operations::operator::{self, view, Category, ReferenceKind};
+use rooms_application::server::operations::operator::{self, Category, ReferenceKind, view};
 
 impl<D: Deadline> Session<D> {
 	pub async fn operations_snapshot(

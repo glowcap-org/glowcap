@@ -1,14 +1,12 @@
 //! The bytes a room holds for the files posted in it. The store is the
 //! owner; these verbs name the upload or blob an actor stands for and hand
 //! the call through, so admission, budgets, and eviction live in one place.
-use super::{entrance::LossyString, Refusal, Rooms, UploadKey};
+use super::{Refusal, Rooms, UploadKey};
 use crate::files::{Blob, FileArgument, FileCallError, ReadOutcome};
 
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	pub(super) fn file_time(&mut self, monotonic_ms: u64) -> Result<(), Refusal> {
-		self.files
-			.observe_time(monotonic_ms)
-			.map_err(|error| Refusal::plain(error.to_string_lossy()))
+		self.files.observe_time(monotonic_ms).map_err(Refusal::plain)
 	}
 
 	/// `write` and `discard` on an upload in flight.
@@ -33,7 +31,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			Err(FileCallError::UnknownMethod(verb)) => {
 				Err(Refusal::plain(alloc::format!("upload has no method {verb}")))
 			}
-			Err(error) => Err(Refusal::plain(error.to_string_lossy())),
+			Err(error) => Err(Refusal::plain(error)),
 		}
 	}
 	/// `read` on a blob: bytes now, or a ticket the adapter polls until the
@@ -46,9 +44,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		monotonic_ms: u64,
 	) -> Result<ReadOutcome<'_>, Refusal> {
 		self.file_time(monotonic_ms)?;
-		self.files
-			.blob_call(blob, verb, args)
-			.map_err(|error| Refusal::plain(error.to_string_lossy()))
+		self.files.blob_call(blob, verb, args).map_err(Refusal::plain)
 	}
 	/// Uploads that went quiet past their idle window are reclaimed here.
 	pub fn advance(&mut self, now: u64) {

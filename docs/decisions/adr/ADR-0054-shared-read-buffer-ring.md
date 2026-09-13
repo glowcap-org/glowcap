@@ -6,6 +6,8 @@ tags: [net, runtime, memory, performance, resilience]
 decision: "Completion-loop connections hold no per-connection read buffer. The backend owns one shared pool of `BackendOptions.read_buffers` buffers (io_uring: a kernel provided-buffer ring; kqueue: a poll-time scratch pool), a recv completion lends the loop a borrowed view of the selected buffer, and the loop recycles it exactly once after consuming: whole frames apply zero-copy from the view, a partial tail absorbs into the bounded spill (ADR-0041). A recv that finds the pool empty parks the connection buffer-starved and resumes on recycle; it is never dropped. Idle read-buffer memory no longer scales with connection count."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0152]
 ---
 
 # ADR-0054 Shared read-buffer ring for the completion loop

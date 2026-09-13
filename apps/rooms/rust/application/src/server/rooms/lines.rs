@@ -1,18 +1,22 @@
 //! What holding a line's reference lets somebody do to it, and the same one
 //! level up for the room's topic. Neither asks who is calling: possession
-//! already answered the question, which is what makes the authority passable.
-use super::{entrance::LossyString, notice::Notice, Effects, LineKey, Refusal, RoomKey, Rooms, MAX_TOPIC};
+//! already answered the question, so the authority can be passed on.
+use super::{Effects, LineKey, MAX_TOPIC, Refusal, RoomKey, Rooms, notice::Notice};
 use crate::{
 	files::FileLineError,
-	room::{message::ChangeKind, ArgumentView},
-	server::{history::Persist, links::Authority},
+	room::{ArgumentView, message::ChangeKind},
+	server::{
+		history::{KeptLine, Persist},
+		links::Authority,
+	},
 };
-use alloc::{format, string::String, vec::Vec};
+use alloc::{format, sync::Arc, vec::Vec};
 
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	/// Dispatch a line verb. The staged files a refile adds are the calling
 	/// connection's own in the line's room, even when the line was handed to
-	/// that connection by somebody else.
+	/// that connection by somebody else. A line whose row is gone, withdrawn
+	/// or past the window the room keeps, answers every verb the same way.
 	pub fn line_verb<A: ArgumentView>(
 		&mut self,
 		connection: C,
@@ -23,7 +27,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	) -> Result<super::Mutation<C, R>, Refusal> {
 		self.file_time(monotonic_ms)?;
 		let Some(line) = self.lines.get_mut(&key) else {
-			return Err(Refusal::plain("that line was withdrawn"));
+			return Err(Refusal::plain("that line can no longer be changed"));
 		};
 		let member = self
 			.rooms
@@ -34,39 +38,50 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			.files
 			.dispatch_line(member, &mut line.line, verb, args)
 			.map_err(|error| match error {
-				FileLineError::Line(error) => Refusal::plain(error.to_string_lossy()),
-				FileLineError::Files(error) => Refusal::plain(error.to_string_lossy()),
+				FileLineError::Line(error) => Refusal::plain(error),
+				FileLineError::Files(error) => Refusal::plain(error),
 			})?;
 		let Some(change) = change else {
 			return Ok(super::Mutation::default());
 		};
-		let (room, from, id, kind, text) = (
-			line.room.clone(),
-			String::from(change.from),
-			change.id,
-			change.kind,
-			String::from(change.text),
-		);
+		let (room, id, kind) = (line.room.clone(), change.id, change.kind);
+		let previews = if kind == ChangeKind::Withdrawn {
+			crate::open_graph::Selection::default()
+		} else {
+			line.shown.previews.retained_for(change.text)
+		};
+		// The changed line's one body, shared the way the said line's was.
+		let shown = Arc::new(KeptLine {
+			from: change.from.into(),
+			text: change.text.into(),
+			previews,
+			at: line.shown.at,
+		});
 		let blobs: Vec<_> = change.files.iter().map(|file| file.blob()).collect();
 		let kept = line.kept;
+		line.shown = shown.clone();
 		let mut effects = Effects::default();
 		let mut mutation = super::Mutation::default();
 		if let (Some(history), Some(token)) = (self.history.as_mut(), kept) {
 			let persist: Option<Persist> = match kind {
-				ChangeKind::Withdrawn => history.forget(&room, token),
+				ChangeKind::Withdrawn => history.forget(room.as_str(), token),
 				ChangeKind::Edited | ChangeKind::Refiled => history
-					.update(&room, token, &text)
-					.map_err(|error| Refusal::plain(error.to_string_lossy()))?,
+					.replace(room.as_str(), token, shown.clone())
+					.map_err(Refusal::plain)?,
 				ChangeKind::Said => None,
 			};
 			mutation.persist = persist;
+		}
+		if kind == ChangeKind::Withdrawn {
+			// A withdrawn line has no history row and nothing left to change,
+			// so its row goes with the text.
+			self.retire_line(key);
 		}
 		self.broadcast(
 			&room,
 			&mut effects,
 			Notice::Line {
-				from,
-				text,
+				line: shown,
 				marker: Some((kind, id)),
 				files: blobs,
 			},
@@ -76,10 +91,10 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		Ok(mutation)
 	}
 
-	/// Whether a line still answers: a withdrawn line refuses an edit rather
-	/// than putting text back its author took down.
-	pub fn line_withdrawn(&self, key: LineKey) -> bool {
-		self.lines.get(&key).is_none_or(|line| line.line.is_withdrawn())
+	/// Whether a line still answers its holders: a withdrawn line, or one
+	/// past the window the room keeps, refuses every change.
+	pub fn line_answers(&self, key: LineKey) -> bool {
+		self.lines.contains_key(&key)
 	}
 
 	/// The authority successor a topic change persists first, when the room

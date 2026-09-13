@@ -2,7 +2,7 @@
 /** Production-bundle proof for capability-native Live mode.
  *
  * The Vite build happens in the owning task. This process serves only `dist/`,
- * starts the real native viz endpoint, and drives an actual Chromium tab. */
+ * starts the real native trace endpoint, and drives an actual Chromium tab. */
 
 import { chromium, type Page } from "playwright";
 
@@ -11,8 +11,8 @@ const UI_TIMEOUT_MS = 10_000;
 const MAX_ANNOUNCEMENT_BYTES = 8 * 1024;
 const distRoot = new URL("../dist/", import.meta.url);
 const repositoryRoot = new URL("../../../", import.meta.url);
-const vizHostScript = new URL(
-	"../../rooms/test/viz/browser_host.ts",
+const traceHostScript = new URL(
+	"../../rooms/test/trace/browser_host.ts",
 	import.meta.url,
 );
 const requiredAssets = [
@@ -28,7 +28,7 @@ type WorldSnapshot = {
 	sessions: string[];
 };
 
-type VizAnnouncement = {
+type TraceAnnouncement = {
 	port: number;
 	sturdyref: string;
 	/** Ready to open: the endpoint admits no producer that presents no
@@ -46,19 +46,19 @@ function liveFeedSessionOpen(page: Page) {
 	return page.getByTitle(/^The live feed is connected/);
 }
 
-async function readVizAnnouncement(
+async function readTraceAnnouncement(
 	stdout: ReadableStream<Uint8Array>,
-): Promise<VizAnnouncement> {
+): Promise<TraceAnnouncement> {
 	const reader = stdout.getReader();
 	const decoder = new TextDecoder();
 	let line = "";
 	try {
 		while (!line.includes("\n")) {
 			const { value, done } = await reader.read();
-			if (done) fail("viz host exited before announcing its endpoint");
+			if (done) fail("trace host exited before announcing its endpoint");
 			line += decoder.decode(value, { stream: true });
 			if (line.length > MAX_ANNOUNCEMENT_BYTES) {
-				fail("viz host announcement exceeded its bound");
+				fail("trace host announcement exceeded its bound");
 			}
 		}
 	} finally {
@@ -75,7 +75,7 @@ async function readVizAnnouncement(
 		!("publish" in parsed) || typeof parsed.publish !== "string" ||
 		parsed.publish.length === 0
 	) {
-		fail(`invalid viz host announcement: ${JSON.stringify(parsed)}`);
+		fail(`invalid trace host announcement: ${JSON.stringify(parsed)}`);
 	}
 	return {
 		port: parsed.port as number,
@@ -84,7 +84,7 @@ async function readVizAnnouncement(
 	};
 }
 
-async function stopVizHost(process: Deno.ChildProcess): Promise<void> {
+async function stopTraceHost(process: Deno.ChildProcess): Promise<void> {
 	try {
 		process.kill("SIGTERM");
 	} catch (error) {
@@ -293,23 +293,23 @@ const staticServer = Deno.serve(
 	},
 );
 
-let vizHost: Deno.ChildProcess | null = null;
+let traceHost: Deno.ChildProcess | null = null;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 let publisher: WebSocket | null = null;
 
 try {
-	vizHost = new Deno.Command(Deno.execPath(), {
-		args: ["run", "-A", vizHostScript.pathname],
+	traceHost = new Deno.Command(Deno.execPath(), {
+		args: ["run", "-A", traceHostScript.pathname],
 		cwd: repositoryRoot.pathname,
 		stdout: "piped",
 		stderr: "inherit",
 	}).spawn();
-	const [httpPort, viz] = await Promise.all([
+	const [httpPort, trace] = await Promise.all([
 		httpReady,
-		readVizAnnouncement(vizHost.stdout),
+		readTraceAnnouncement(traceHost.stdout),
 	]);
-	const { sturdyref } = viz;
-	publisher = await openPublisher(viz.publish);
+	const { sturdyref } = trace;
+	publisher = await openPublisher(trace.publish);
 
 	browser = await chromium.launch({
 		headless: true,
@@ -423,8 +423,8 @@ try {
 	clearTimeout(deadline);
 	publisher?.close();
 	if (browser !== null) await browser.close();
-	if (vizHost !== null) {
-		await stopVizHost(vizHost);
+	if (traceHost !== null) {
+		await stopTraceHost(traceHost);
 	}
 	staticAbort.abort();
 	await staticServer.finished.catch(() => {});

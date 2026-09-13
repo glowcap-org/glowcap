@@ -28,6 +28,7 @@ export class EdgeStrokeBatch {
 	/** Paint order — later ids draw on top (high session z last). */
 	#order: string[] = [];
 	#dirty = true;
+	#membershipDirty = true;
 
 	constructor() {
 		this.gfx = new Graphics();
@@ -58,8 +59,17 @@ export class EdgeStrokeBatch {
 		) {
 			return;
 		}
-		// Copy the curve: the engine rebuilds `sessionCurves` each stage
-		// pass; flush reads what upsert stored, not the live map.
+		// Retain one owned curve per wire. Playback updates its coordinates;
+		// it does not allocate another stroke record on every moving frame.
+		if (prev) {
+			prev.color = spec.color;
+			prev.width = spec.width;
+			prev.lineStyle = spec.lineStyle;
+			Object.assign(prev.curve, c);
+			this.#dirty = true;
+			return;
+		}
+		this.#membershipDirty = true;
 		this.#entries.set(id, {
 			color: spec.color,
 			width: spec.width,
@@ -80,18 +90,22 @@ export class EdgeStrokeBatch {
 	remove(id: string): void {
 		if (!this.#entries.delete(id)) return;
 		this.#dirty = true;
+		this.#membershipDirty = true;
 	}
 
 	/** Authoritative paint order for this frame. Entries not listed are
 	 *  dropped — the order is the set of body-visible wires. */
 	setOrder(ids: readonly string[]): void {
+		const unchanged = sameOrder(this.#order, ids);
+		if (unchanged && !this.#membershipDirty) return;
 		const keep = new Set(ids);
 		for (const id of this.#entries.keys()) {
 			if (keep.has(id)) continue;
 			this.#entries.delete(id);
 			this.#dirty = true;
 		}
-		if (sameOrder(this.#order, ids)) return;
+		this.#membershipDirty = false;
+		if (unchanged) return;
 		this.#order = ids.slice();
 		this.#dirty = true;
 	}
@@ -114,6 +128,7 @@ export class EdgeStrokeBatch {
 		this.#entries.clear();
 		this.#order = [];
 		this.#dirty = true;
+		this.#membershipDirty = true;
 	}
 }
 

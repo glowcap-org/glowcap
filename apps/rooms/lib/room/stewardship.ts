@@ -5,7 +5,7 @@ import { settleCapabilityCleanup } from "../capability_cleanup.ts";
 import type { Argument, Session } from "@glowcap/runtime";
 import { roomAuthorityIdentity } from "../authority_identity.ts";
 import { ask } from "../ask.ts";
-import { NOT_STEWARD, RoomError, roomErrorOf } from "../errors.ts";
+import { NOT_STEWARD, RoomsError, roomsErrorOf } from "../errors.ts";
 import { GOVERNS, KICK, LINK } from "../protocol.ts";
 import { parseRoomsSturdyref } from "../locator.ts";
 import { type RoomAuthorityChange, roomAuthorityToken } from "./authority.ts";
@@ -75,7 +75,7 @@ export class RoomStewardship {
 			await this.#acceptSteward(await manager.giveModerator());
 			return true;
 		} catch (error) {
-			if (roomErrorOf(error)?.code === NOT_STEWARD) return false;
+			if (roomsErrorOf(error)?.code === NOT_STEWARD) return false;
 			throw error;
 		}
 	}
@@ -139,7 +139,7 @@ export class RoomStewardship {
 			candidate = await this.#session.enliven(stewardLink);
 		} catch (error) {
 			if (error instanceof PublicationNotFound) {
-				throw new RoomError(NOT_STEWARD, "this moderator capability was retired");
+				throw new RoomsError(NOT_STEWARD, "this moderator capability was retired");
 			}
 			throw error;
 		}
@@ -251,7 +251,7 @@ export class RoomStewardship {
 
 	async kick(nick: string): Promise<void> {
 		if (this.#steward === null) {
-			if (this.#stewardRetired) throw new RoomError(NOT_STEWARD, "this moderator capability was retired");
+			if (this.#stewardRetired) throw new RoomsError(NOT_STEWARD, "this moderator capability was retired");
 			throw new Error("this room did not hand over its steward");
 		}
 		await ask(this.#session, this.#steward, KICK, [nick], "the steward did not answer the kick");

@@ -4,7 +4,7 @@
 //! and network dispatch are proved by the browser-host scenarios rather than
 //! duplicated in this focused artifact.
 use std::{
-	alloc::{alloc, dealloc, Layout},
+	alloc::{Layout, alloc, dealloc},
 	ffi::c_void,
 	ptr::null_mut,
 };
@@ -19,7 +19,7 @@ struct Allocator {
 	user_data: *mut c_void,
 }
 
-extern "C" {
+unsafe extern "C" {
 	fn glowcap_context_new_with_allocator(allocator: *const Allocator, out: *mut *mut c_void) -> i32;
 	fn glowcap_context_release(context: *mut c_void);
 	fn glowcap_host_new_in(
@@ -57,19 +57,28 @@ unsafe extern "C" fn allocate(ctx: *mut c_void, size: usize, alignment: usize) -
 	let Ok(layout) = Layout::from_size_align(size, alignment) else {
 		return null_mut();
 	};
-	let ptr = alloc(layout);
-	if !ptr.is_null() {
-		let counts = &mut *ctx.cast::<Counts>();
-		counts.live_bytes += size;
-		counts.allocations += 1;
+	// SAFETY: `layout` came from the size and alignment the host asked for, and
+	// `ctx` is the `Counts` this proof handed the context at construction and
+	// keeps alive past every host using it.
+	unsafe {
+		let ptr = alloc(layout);
+		if !ptr.is_null() {
+			let counts = &mut *ctx.cast::<Counts>();
+			counts.live_bytes += size;
+			counts.allocations += 1;
+		}
+		ptr.cast()
 	}
-	ptr.cast()
 }
 
 unsafe extern "C" fn free(ctx: *mut c_void, ptr: *mut c_void, size: usize, alignment: usize) {
-	let counts = &mut *ctx.cast::<Counts>();
-	counts.live_bytes -= size;
-	dealloc(ptr.cast(), Layout::from_size_align(size, alignment).unwrap());
+	// SAFETY: the same `Counts`, and the block coming back is one `allocate`
+	// gave the host under the size and alignment it repeats here.
+	unsafe {
+		let counts = &mut *ctx.cast::<Counts>();
+		counts.live_bytes -= size;
+		dealloc(ptr.cast(), Layout::from_size_align(size, alignment).unwrap());
+	}
 }
 
 unsafe extern "C" fn behavior(
@@ -85,7 +94,8 @@ unsafe extern "C" fn behavior(
 }
 
 unsafe extern "C" fn retire(ctx: *mut c_void) {
-	(*ctx.cast::<Counts>()).retired += 1;
+	// SAFETY: the same `Counts` the allocator callbacks carry.
+	unsafe { (*ctx.cast::<Counts>()).retired += 1 };
 }
 
 pub fn run() {

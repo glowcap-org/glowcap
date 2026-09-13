@@ -159,7 +159,11 @@ fn renderArchive(
     try out.appendSlice(gpa, archive_note);
     try out.appendSlice(gpa, "#![allow(dead_code)]\n\n");
     try out.appendSlice(gpa, uses);
-    try out.appendSlice(gpa, "\nextern \"C\" {\n");
+    // `unsafe extern` is the Rust 2024 form: declaring a foreign signature is
+    // itself the unsafe act, because nothing checks the declaration against the
+    // archive. Every crate here is edition 2024, so the bare `extern` a 2021
+    // parser wants would not compile.
+    try out.appendSlice(gpa, "\nunsafe extern \"C\" {\n");
 
     inline for (M.symbols.symbols) |row| {
         if (row.rust_omit == null) {
@@ -195,15 +199,20 @@ fn renderArchive(
                 }
             } else if (width == 120 and ret.len != 0) {
                 // At exactly the boundary rustfmt keeps the parameters on one
-                // line and moves only the return arrow. Emit that canonical
-                // shape so generation and formatting cannot alternate forever.
+                // line and moves only the return arrow, indented one tab from
+                // the signature. Emit that canonical shape so generation and
+                // formatting cannot alternate forever. (The 2021 style edition
+                // indented the arrow two tabs; `bindings-fmt-check` and
+                // `gen-binding-rust-ffi-check` pin the pair from both sides, so
+                // a future rustfmt that moves it again is caught rather than
+                // becoming a silent alternation.)
                 try out.print(gpa, "\tpub fn {s}(", .{row.name});
                 inline for (info.param_types, 0..) |param_type, i| {
                     if (i != 0) try out.appendSlice(gpa, ", ");
                     try appendRustParamName(&out, gpa, names[i]);
                     try out.print(gpa, ": {s}", .{comptime rustParamType(param_type.?, specials)});
                 }
-                try out.print(gpa, ")\n\t\t-> {s};\n", .{ret});
+                try out.print(gpa, ")\n\t-> {s};\n", .{ret});
             } else {
                 try out.print(gpa, "\tpub fn {s}(\n", .{row.name});
                 inline for (info.param_types, 0..) |param_type, i| {
@@ -337,8 +346,8 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
     ,
         \\use core::ffi::{c_int, c_uchar};
         \\
-        \\use super::iroh::{GlowcapIrohConfig, GlowcapIrohConn, GlowcapIrohNetlayer, GlowcapIrohReadyEvent};
         \\use super::GlowcapTransportProvider;
+        \\use super::iroh::{GlowcapIrohConfig, GlowcapIrohConn, GlowcapIrohNetlayer, GlowcapIrohReadyEvent};
         \\
     , &.{});
 }
@@ -352,8 +361,8 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\
     , "use core::ffi::{c_int, c_uchar};\n\n" ++
-        "use super::webrtc::{GlowcapWebrtcConfig, GlowcapWebrtcNetlayer, GlowcapWebrtcPeer, GlowcapWebrtcReadyEvent};\n" ++
-        "use super::GlowcapTransportProvider;\n", &.{});
+        "use super::GlowcapTransportProvider;\n" ++
+        "use super::webrtc::{GlowcapWebrtcConfig, GlowcapWebrtcNetlayer, GlowcapWebrtcPeer, GlowcapWebrtcReadyEvent};\n", &.{});
 }
 
 fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
@@ -364,7 +373,7 @@ fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\
     , "use core::ffi::{c_int, c_uchar};\n\n" ++
+        "use super::GlowcapTransportProvider;\n" ++
         "use super::ocapn::GlowcapContext;\n" ++
-        "use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime};\n" ++
-        "use super::GlowcapTransportProvider;\n", &.{});
+        "use super::relay::{GlowcapRelayConfig, GlowcapRelayRuntime};\n", &.{});
 }

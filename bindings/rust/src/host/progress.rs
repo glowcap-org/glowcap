@@ -126,10 +126,10 @@ impl HostShared {
 				// the actions behind it belong to other, live sessions. The
 				// failed session tears itself down through its own serve loop
 				// (a DIAL failure is reported to the core inside the arm).
-				if let Err(error) = crate::action::run(self, action).await {
-					if first_failure.is_none() {
-						first_failure = Some(error);
-					}
+				if let Err(error) = crate::action::run(self, action).await
+					&& first_failure.is_none()
+				{
+					first_failure = Some(error);
 				}
 			}
 			// This pass did work that can advance close-relevant state; wake

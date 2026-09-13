@@ -1,27 +1,73 @@
 //! What one live room holds, and the keys the adapter's actors are named by.
 use super::MAX_ROOM_MEMBERS;
 use crate::{
-	directory::{registration::Id, OriginProof, PublicationKind, RoomInfo},
+	directory::{OriginProof, PublicationKind, RoomInfo, registration::Id},
 	fields::{Nullable, SafeInteger, Text},
 	files::{FileMember, FileRoom},
 	room::{
 		line::MAX_LINE_BYTES,
 		policy::{MembershipKind, RoomPolicy},
 	},
-	server::history::Token,
+	server::history::{KeptLine, Token},
 };
-use alloc::{collections::BTreeSet, string::String, vec::Vec};
+use alloc::{collections::BTreeSet, string::String, sync::Arc, vec::Vec};
 
-/// The key a room lives under: a public name folded and prefixed with `#`,
-/// or a managed room's opaque `~` id. Two namespaces in one table have to be
-/// told apart by construction rather than by hoping the shapes never meet.
-pub type RoomKey = String;
+/// The key a room lives under. Two namespaces share one table, a listed
+/// room's public name and a managed or private room's opaque id, and the
+/// variant is what tells them apart. The text inside carries the same
+/// mark, `#` before a folded public name and the `~` a recovery key
+/// already starts with, so a history file names the room by `as_str` with
+/// no second form to keep aligned.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RoomKey {
+	/// A listed room's public name, folded so `Garden` and `garden` are one
+	/// room, behind a `#`.
+	Public(String),
+	/// A managed room's id or a private room's recovery key, exactly as the
+	/// authority or the opener issued it, in the form `RecoveryKey::accepts`.
+	Managed(String),
+}
 
-pub fn public_key(name: &str) -> RoomKey {
-	let mut key = String::with_capacity(name.len() + 1);
-	key.push('#');
-	key.push_str(&name.to_lowercase());
-	key
+impl RoomKey {
+	pub fn public(name: &str) -> Self {
+		let mut key = String::with_capacity(name.len() + 1);
+		key.push('#');
+		key.push_str(&folded(name));
+		Self::Public(key)
+	}
+	pub fn managed(id: &str) -> Self {
+		Self::Managed(id.into())
+	}
+	/// The key a history row names, read back: the text `as_str` gave when
+	/// the room was recorded, so the mark says which namespace it is.
+	pub(super) fn from_text(text: &str) -> Self {
+		if text.starts_with('#') {
+			Self::Public(text.into())
+		} else {
+			Self::Managed(text.into())
+		}
+	}
+	pub fn is_public(&self) -> bool {
+		matches!(self, Self::Public(_))
+	}
+	/// The key's text, what the history index files the room under.
+	pub fn as_str(&self) -> &str {
+		match self {
+			Self::Public(key) | Self::Managed(key) => key,
+		}
+	}
+}
+
+impl core::fmt::Display for RoomKey {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.write_str(self.as_str())
+	}
+}
+
+/// A public name as the listing index holds it: case folded, so one name
+/// is one listed room.
+pub(super) fn folded(name: &str) -> String {
+	name.to_lowercase()
 }
 
 macro_rules! key {
@@ -62,6 +108,9 @@ pub(super) struct Room<C, R> {
 	pub policy: RoomPolicy,
 	pub members: Vec<Member<C, R>>,
 	pub invitations: BTreeSet<super::InvitationKey>,
+	/// The lines this generation still answers edits on, oldest first, so
+	/// the editable window closes from its oldest end.
+	pub lines: BTreeSet<super::LineKey>,
 	/// The connection that opened the room; an empty room it opened goes
 	/// with it.
 	pub lifetime_owner: C,
@@ -75,10 +124,10 @@ impl<C: Copy + PartialEq, R> Room<C, R> {
 	/// The name durable authority files this room under: a managed room's
 	/// opaque key, or a public room's display name.
 	pub fn durable_name(&self) -> &str {
-		if self.key.starts_with('#') {
+		if self.key.is_public() {
 			&self.name
 		} else {
-			&self.key
+			self.key.as_str()
 		}
 	}
 	pub fn member_of(&self, connection: C) -> Option<&Member<C, R>> {
@@ -145,9 +194,13 @@ pub fn roster_said(names: &[String]) -> String {
 	said
 }
 
+/// One line a room still answers edits on. `shown` is the line as members
+/// last heard it, the same row the history index keeps when the server
+/// keeps any, so an edit reads its previews and time from one place.
 pub(super) struct Line {
 	pub room: RoomKey,
 	pub line: crate::files::HostedLine,
+	pub shown: Arc<KeptLine>,
 	pub kept: Option<Token>,
 }
 
@@ -157,11 +210,12 @@ pub(super) struct Upload<C> {
 	pub uploader: C,
 }
 
+/// One live invitation. A retired invitation has no row: absence is the
+/// same fact, and every reader treats it so.
 pub(super) struct Invitation<C> {
 	pub room: RoomKey,
 	pub generation: Id,
 	pub minter: C,
 	pub kind: MembershipKind,
-	pub active: bool,
 	pub admission: crate::server::invitation::Admission,
 }

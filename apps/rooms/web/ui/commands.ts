@@ -57,7 +57,7 @@
 // the tab holds no handle for that line, and `/edit` there says it has no
 // message it can still change rather than failing strangely.
 
-import { mentionsYou } from "./text.ts";
+import { messageMentions } from "./markdown.ts";
 export type {
 	Command,
 	CommandHere,
@@ -69,13 +69,14 @@ export type {
 export { held, hereOf, known } from "./commands/catalog.ts";
 export { inviteWhy } from "./commands/targets.ts";
 import type { Command, CommandPowers } from "./commands/types.ts";
+import type { LineCarried } from "./types.ts";
 import { known } from "./commands/catalog.ts";
 import { applicationModule } from "./application.ts";
 
 /** The action a line carries, or null when it carries none.
  *
  * The reading half of the `line` kind. A `/me` travels as text, so this is how
- * every client — including ones that have never heard of this registry — meets
+ * every client, including ones that have never heard of this registry, meets
  * one that somebody else sent. It lives beside the writing half so the two
  * cannot drift into disagreeing about what an action looks like on the wire. */
 export function actionIn(text: string): string | null {
@@ -89,12 +90,28 @@ export function actionIn(text: string): string | null {
  *
  * The other reading half, beside `actionIn`. A notice is somebody speaking
  * rather than something happening, so unlike an action it keeps its author's
- * name; what it gives up is the notification, which is why a reader sends one. */
+ * name; what it gives up is the notification, so that is why a reader sends
+ * one. */
 export function noticeIn(text: string): string | null {
 	const named = commandIn(text);
 	if (named === null || named.command.name !== "notice") return null;
 	const outcome = named.command.run(named.rest, NO_POWERS, null);
 	return outcome.kind === "say" ? outcome.text.replace(/^\/notice /, "") : null;
+}
+
+/** What a chat line carries besides ordinary words, read once where the line
+ * enters the store and stamped on it.
+ *
+ * The log draws thousands of lines and is laid out again on every arrival, so
+ * it reads this field instead of parsing. A line that carries nothing gets no
+ * field at all, which is almost every line, and the slash guard in `commandIn`
+ * means those cost no Wasm call either. */
+export function lineCarried(text: string): LineCarried | undefined {
+	const action = actionIn(text);
+	if (action !== null) return { kind: "action", text: action };
+	const notice = noticeIn(text);
+	if (notice !== null) return { kind: "notice", text: notice };
+	return undefined;
 }
 
 /** Whether a line arriving in a room should pull a reader back to it.
@@ -105,7 +122,7 @@ export function noticeIn(text: string): string | null {
  * compiled and still passed, which is why it is a function with a test rather
  * than two conditions somebody has to keep remembering to write together. */
 export function notifiesYou(text: string, nick: string): boolean {
-	return noticeIn(text) === null && mentionsYou(text, nick);
+	return noticeIn(text) === null && messageMentions(text, nick);
 }
 
 /** A command read off the wire acts on nothing: reading a line must not join a
@@ -151,6 +168,10 @@ function reading(): never {
  * A line that opens with a slash and no command anybody knows is ordinary text:
  * a reader typing about `/etc/hosts` is not issuing an order. */
 export function commandIn(text: string): { command: Command; rest: string } | null {
+	// The Rust reader answers null for anything that does not open with a
+	// slash, so asking it about an ordinary sentence is a Wasm call that
+	// returns nothing. Almost every line is an ordinary sentence.
+	if (text[0] !== "/") return null;
 	const encoded = applicationModule().readSlashCommand(text);
 	if (encoded == null) return null;
 	const parsed = JSON.parse(encoded) as { name: string; restStart: number };

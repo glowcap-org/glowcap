@@ -16,7 +16,7 @@ zig build accountability
 ```
 
 It needs no additional runtime. The command creates signed records and Merkle
-roots under `.data/`; that directory is generated and gitignored.
+roots under `.data/`. That directory is generated and gitignored.
 
 ## What happens
 
@@ -26,14 +26,14 @@ roots under `.data/`; that directory is generated and gitignored.
    key-event history needed to check it.
 3. The host derives the claimed identity from that history, validates each key
    change, and requires the request to use the current key.
-4. An accepted call produces a signed outcome record—an *Episode*—and appends
-   its hash to a Merkle transparency log.
+4. An accepted call produces a signed outcome record called an *Episode*, then
+   appends its hash to a Merkle transparency log.
 5. The run audits the records, then confirms that a tampered signature and a
    retired key are both refused.
 
 The identity scheme follows a small KERI-shaped model. Its
 self-certifying identifier is called an AID. The service being invoked is
-called an Affordance. Both concepts belong to this application; glowcap only
+called an Affordance. Both concepts belong to this application. glowcap only
 carries the capability call and its result.
 
 ## Cross-language callers
@@ -59,12 +59,12 @@ zig build accountability-three-party
 ```
 
 This scenario runs three glowcap Hosts over loopback TCP. A fetches C's
-Affordance and introduces B to it; B's ordinary call redeems the handoff by
+Affordance and introduces B to it. B's ordinary call redeems the handoff by
 opening a direct session to C. When B invokes the introduced capability, C's
-record attributes B—the caller—not A, the introducer. The proof uses the same
-owning Host and application-shaped capability surface as the bindings, with no
-test-side handoff routing. Bare TCP is appropriate here as isolated loopback
-test transport; deployments should choose an authenticated transport.
+record attributes B, the caller, rather than A, the introducer. The proof uses
+the same owning Host and application-shaped capability surface as the bindings,
+with no test-side handoff routing. Bare TCP is appropriate for an isolated
+loopback test. Deployments should choose an authenticated transport.
 
 ## Limits
 

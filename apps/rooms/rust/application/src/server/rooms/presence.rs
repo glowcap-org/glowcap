@@ -2,7 +2,7 @@
 //! room's own word: a membership is granted by subscribing and ends with the
 //! connection or a leave, and everything below states that word to the
 //! members and to the watchers following the live list.
-use super::{entrance::Departure, notice::Notice, state::public_key, Effects, MembershipKey, RoomKey, Rooms};
+use super::{Effects, MembershipKey, RoomKey, Rooms, entrance::Departure, notice::Notice, state::folded};
 use crate::{
 	directory::{Event, RoomChange},
 	room::stewardship::Kind,
@@ -100,27 +100,27 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			.collect();
 		for invitation in retired {
 			room.invitations.remove(&invitation);
-			if let Some(row) = self.invitations.get_mut(&invitation) {
-				row.active = false;
-			}
+			self.invitations.remove(&invitation);
 		}
 	}
 
-	/// Take a room out of the index: its invitations end, its files go, and
-	/// its public name frees. Announcing the closure is the caller's.
+	/// Take a room out of the index: its invitations end, its lines stop
+	/// answering, its files go, and its public name frees. Announcing the
+	/// closure is the caller's.
 	pub(super) fn forget_room(&mut self, key: &RoomKey) -> Effects<C, R> {
 		let mut effects = Effects::default();
 		let Some(room) = self.rooms.remove(key) else {
 			return effects;
 		};
 		for invitation in &room.invitations {
-			if let Some(row) = self.invitations.get_mut(invitation) {
-				row.active = false;
-			}
+			self.invitations.remove(invitation);
+		}
+		for line in &room.lines {
+			self.retire_line(*line);
 		}
 		let _ = self.files.close_room(&room.files);
 		if room.policy.is_listed() {
-			let public = public_key(&room.name);
+			let public = folded(&room.name);
 			if self.public.get(&public) == Some(key) {
 				self.public.remove(&public);
 			}
@@ -136,11 +136,22 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			effects.presence.push(member.connection);
 			effects.release(member.connection, member.inbox);
 		}
-		// The lines this generation made keep answering their holders as
-		// withdrawn; their history rows have no room to update.
-		self.lines.retain(|_, line| &line.room != key);
 		self.uploads.retain(|_, upload| &upload.room != key);
 		effects
+	}
+
+	/// A line stops answering its holders: its row goes, and the history
+	/// row it named, if any, is no longer editable from here.
+	pub(super) fn retire_line(&mut self, key: super::LineKey) {
+		let Some(line) = self.lines.remove(&key) else {
+			return;
+		};
+		if let Some(token) = line.kept {
+			self.kept_lines.remove(&token);
+		}
+		if let Some(room) = self.rooms.get_mut(&line.room) {
+			room.lines.remove(&key);
+		}
 	}
 
 	/// The connection ended: every membership it held goes as a leave would,
@@ -234,7 +245,8 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		let Some(managed) = authority.managed_room(id) else {
 			return Ok(effects);
 		};
-		let Some(room) = self.rooms.get(id) else {
+		let key = RoomKey::managed(id);
+		let Some(room) = self.rooms.get(&key) else {
 			return Ok(effects);
 		};
 		let (old_name, was_listed, old_entry) = (room.name.clone(), room.policy.is_listed(), room.info());
@@ -246,22 +258,22 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			));
 		}
 		if was_listed {
-			let public = public_key(&old_name);
-			if self.public.get(&public).map(String::as_str) == Some(id) {
+			let public = folded(&old_name);
+			if self.public.get(&public) == Some(&key) {
 				self.public.remove(&public);
 			}
 		}
-		let room = self.rooms.get_mut(id).expect("checked above");
+		let room = self.rooms.get_mut(&key).expect("checked above");
 		room.name = managed.name.clone();
 		room.policy = managed.policy;
 		let entry_id = String::from(room.entry_id.as_str());
 		if listed {
-			self.public.insert(public_key(&managed.name), id.into());
-			self.by_entry.insert(entry_id, id.into());
+			self.public.insert(folded(&managed.name), key.clone());
+			self.by_entry.insert(entry_id, key.clone());
 		} else {
 			self.by_entry.remove(&entry_id);
 		}
-		self.broadcast(&id.into(), &mut effects, Notice::PolicyChanged(managed.policy), None);
+		self.broadcast(&key, &mut effects, Notice::PolicyChanged(managed.policy), None);
 		let renamed = old_name.to_lowercase() != managed.name.to_lowercase();
 		if was_listed && (!listed || renamed) {
 			effects.events.push(Event::Room {
@@ -272,14 +284,14 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				},
 			});
 		}
-		if listed && !self.rooms[id].members.is_empty() {
+		if listed && !self.rooms[&key].members.is_empty() {
 			effects.events.push(Event::Room {
 				kind: if was_listed && !renamed {
 					RoomChange::Count
 				} else {
 					RoomChange::Opened
 				},
-				entry: self.rooms[id].info(),
+				entry: self.rooms[&key].info(),
 			});
 		}
 		Ok(effects)

@@ -1,4 +1,5 @@
-// The site's one shader mark: the home page's hero.
+// The site's shader marks: the heroes of the front door and the Rooms front
+// door.
 //
 // The mark is drawn three ways across this project, and which one a place gets
 // is decided by what the mark is doing there. As an object, saying whose page
@@ -6,7 +7,7 @@
 // lockups. As a glyph among other glyphs, it is the line drawing. As a
 // performance it is the shader, and the shader runs only where it is large
 // enough to be worth a device and where arriving is the point. On this site
-// that is one place.
+// that is the two pages a reader arrives at.
 //
 // The hero arrives: the whole cycle once as the page opens, and then a lockup
 // that answers the pointer. The still artwork in the template is what every
@@ -25,7 +26,12 @@ for (const home of document.querySelectorAll<HTMLElement>(".hero-mark")) {
 	// The template names the play, so a second home can ask for a different
 	// one without this file learning about it.
 	const play = (home.dataset.markPlay as MarkPlay | undefined) ?? "arrive";
-	void start(host, play).then((mark) => {
-		if (mark !== null) home.classList.add("mark-shaded");
-	});
+	// The still artwork waits for this verdict (style.css hides it under
+	// `html.js` until one of the two classes lands), so a browser that can
+	// draw the shader never sees the drawing flash first, and one that cannot
+	// gets the drawing as soon as that is known rather than never.
+	void start(host, play).then(
+		(mark) => home.classList.add(mark !== null ? "mark-shaded" : "mark-still"),
+		() => home.classList.add("mark-still"),
+	);
 }

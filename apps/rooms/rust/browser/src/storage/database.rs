@@ -6,7 +6,7 @@ use std::{
 	rc::Rc,
 };
 use tokio::sync::Notify;
-use wasm_bindgen::{closure::Closure, JsCast};
+use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{Event, IdbDatabase, IdbFactory, IdbOpenDbRequest, IdbTransaction, IdbTransactionMode};
 mod schema;
 type EventCallback = Closure<dyn FnMut(Event)>;
@@ -49,12 +49,11 @@ impl Database {
 		while !opening.answered.get() {
 			opening.changed.notified().await;
 		}
-		let result = opening
+		opening
 			.result
 			.borrow_mut()
 			.take()
-			.ok_or(Error::Invalid("browser open completed without a result"))?;
-		result
+			.ok_or(Error::Invalid("browser open completed without a result"))?
 	}
 	fn adopt(database: IdbDatabase) -> Result<Self, Error> {
 		if let Err(error) = schema::validate(&database) {

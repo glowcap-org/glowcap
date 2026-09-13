@@ -1,6 +1,6 @@
 //! Rooms' stable peer authority over the binding's existing locator grammar.
 use glowcap::{
-	CaptpVersion, HintValue, HintWireForm, Locator, HINT_ALT_LOCATORS, HINT_VIA, TRANSPORT_ID, TRANSPORT_IROH,
+	CaptpVersion, HINT_ALT_LOCATORS, HINT_VIA, HintValue, HintWireForm, Locator, TRANSPORT_ID, TRANSPORT_IROH,
 	TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_ONION,
 	TRANSPORT_TCP,
 };

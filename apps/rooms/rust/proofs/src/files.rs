@@ -1,8 +1,8 @@
 use rooms_application::files::*;
 use std::{
 	sync::{
-		atomic::{AtomicUsize, Ordering},
 		Arc,
+		atomic::{AtomicUsize, Ordering},
 	},
 	task::{Context, Poll, Wake, Waker},
 };
@@ -57,7 +57,7 @@ pub fn run() {
 }
 
 fn file_calls() {
-	use crate::arguments::{text, Arg};
+	use crate::arguments::{Arg, text};
 	use std::{cell::Cell, rc::Rc};
 	let mut store = FileStore::default();
 	let room = store.room().unwrap();
@@ -113,7 +113,7 @@ fn file_calls() {
 fn current_attachment_fixtures() {
 	use crate::arguments::from_fixture;
 	use rooms_application::room::attachment::{read_exact, read_prefix};
-	use serde_json::{json, Value};
+	use serde_json::{Value, json};
 	let fixture: Value = serde_json::from_str(include_str!("../fixtures/files-protocol.json")).unwrap();
 	let defaults = FileLimits::default();
 	assert_eq!(
@@ -122,7 +122,11 @@ fn current_attachment_fixtures() {
 	);
 	for row in fixture["fixtures"].as_array().unwrap() {
 		let args: Vec<_> = row["args"].as_array().unwrap().iter().map(from_fixture).collect();
-		assert_eq!(read_exact(&args, 0).is_ok(), row["exact"].as_bool().unwrap());
+		assert_eq!(
+			read_exact(&args, 0).is_ok(),
+			row["exact"].as_bool().unwrap(),
+			"attachment fixture: {row}"
+		);
 		let received: Vec<_> = read_prefix(&args, 0)
 			.into_iter()
 			.map(|file| {
@@ -136,8 +140,8 @@ fn current_attachment_fixtures() {
 }
 
 fn attachment_custody() {
-	use crate::arguments::{text, Arg};
-	use rooms_application::room::attachment::{read_exact, read_prefix, AttachmentError};
+	use crate::arguments::{Arg, text};
+	use rooms_application::room::attachment::{AttachmentError, read_exact, read_prefix};
 	use std::{cell::Cell, rc::Rc};
 	let kept = Rc::new(Cell::new(0));
 	let unexpected = Rc::new(Cell::new(0));
@@ -190,16 +194,14 @@ fn attachment_custody() {
 		Err(AttachmentError::IncompleteRecords)
 	));
 	args.truncate(5);
-	// Legacy display tolerates missing dimensions; mutation admission requires
-	// all seven slots. Both paths share the same field validation.
-	assert_eq!(read_prefix(&args, 0)[0].description.dimensions(), (0, 0));
+	assert!(read_prefix(&args, 0).is_empty());
 	assert!(matches!(read_exact(&args, 0), Err(AttachmentError::IncompleteRecords)));
 	args[3] = Arg::Float(0.0);
 	assert!(read_prefix(&args, 0).is_empty());
 }
 
 fn line_mutations() {
-	use crate::arguments::{text, Arg};
+	use crate::arguments::{Arg, text};
 	use rooms_application::room::{line::LineError, message::LineId};
 	let mut store = FileStore::new(limits());
 	let room = store.room().unwrap();
@@ -258,10 +260,12 @@ fn line_mutations() {
 	expired(&mut store, &replacement_blob);
 	assert_eq!(store.usage().held_files, 0);
 	assert_eq!(store.usage().pending_bytes, 1);
-	assert!(store
-		.dispatch_line::<Arg>(None, &mut line, "withdraw", &[])
-		.unwrap()
-		.is_none());
+	assert!(
+		store
+			.dispatch_line::<Arg>(None, &mut line, "withdraw", &[])
+			.unwrap()
+			.is_none()
+	);
 }
 
 fn multiple_rooms() {

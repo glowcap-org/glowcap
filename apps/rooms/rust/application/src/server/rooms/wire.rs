@@ -63,19 +63,15 @@ pub trait Encoder: DataEncoder {
 }
 
 /// The arguments one notice carries: the display line first, its tag and
-/// structured fields after.
+/// structured fields after. A line copies its sender and text once each,
+/// straight from the shared body into the wire value; the room notices
+/// render their sentence through `Notice::said`.
 pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>, E::Error> {
-	let said = notice.said();
 	let mut out = Vec::new();
 	match notice {
-		Notice::Line {
-			from,
-			text,
-			marker,
-			files,
-		} => {
-			out.push(e.text(from.clone()));
-			out.push(e.text(text.clone()));
+		Notice::Line { line, marker, files } => {
+			out.push(e.text(line.from.clone()));
+			out.push(e.text(line.text.clone()));
 			if let Some((kind, id)) = marker {
 				out.push(e.text(kind.wire_tag().into()));
 				out.push(e.integer(id.get()));
@@ -93,25 +89,27 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 					out.push(e.integer(height as u64));
 				}
 			}
+			out.push(e.text(crate::open_graph::WIRE_TAG.into()));
+			out.push(e.text(line.previews.encode()));
 			return Ok(out);
 		}
 		Notice::Roster(names) => {
 			out.push(e.text(ROOM.into()));
-			out.push(e.text(said));
-			out.push(e.text("roster".into()));
+			out.push(e.text(notice.said().into_owned()));
+			out.push(e.text(crate::protocol_data::ROSTER.into()));
 			for name in names {
 				out.push(e.text(name.clone()));
 			}
 		}
 		Notice::Join { nick, .. } | Notice::Leave { nick, .. } => {
 			out.push(e.text(ROOM.into()));
-			out.push(e.text(said));
+			out.push(e.text(notice.said().into_owned()));
 			out.push(
 				e.text(
 					if matches!(notice, Notice::Join { .. }) {
-						"join"
+						crate::protocol_data::JOIN
 					} else {
-						"leave"
+						crate::protocol_data::LEAVE
 					}
 					.into(),
 				),
@@ -120,37 +118,54 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 		}
 		Notice::Away { nick, why } => {
 			out.push(e.text(ROOM.into()));
-			out.push(e.text(said));
-			out.push(e.text("away".into()));
+			out.push(e.text(notice.said().into_owned()));
+			out.push(e.text(crate::protocol_data::AWAY.into()));
 			out.push(e.text(nick.clone()));
 			out.push(e.text(why.clone()));
 		}
 		Notice::Topic { text, .. } => {
 			out.push(e.text(ROOM.into()));
-			out.push(e.text(said));
-			out.push(e.text("topic".into()));
+			out.push(e.text(notice.said().into_owned()));
+			out.push(e.text(crate::protocol_data::TOPIC.into()));
 			out.push(e.text(text.clone()));
 		}
 		Notice::Listed(listed) => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(String::new()));
-			out.push(e.text(if *listed { "listed" } else { "unlisted" }.into()));
+			out.push(
+				e.text(
+					if *listed {
+						crate::protocol_data::LISTED
+					} else {
+						crate::protocol_data::UNLISTED
+					}
+					.into(),
+				),
+			);
 			out.push(e.boolean(false));
+		}
+		Notice::Carries(carries) => {
+			out.push(e.text(ROOM.into()));
+			out.push(e.text(String::new()));
+			out.push(e.text(crate::room::carries::TAG.into()));
+			for word in carries.words() {
+				out.push(e.text(word));
+			}
 		}
 		Notice::Typing { nick, on } => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(String::new()));
-			out.push(e.text("typing".into()));
+			out.push(e.text(crate::protocol_data::TYPING.into()));
 			out.push(e.text(nick.clone()));
 			out.push(e.boolean(*on));
 		}
 		Notice::Said(_) => {
 			out.push(e.text(ROOM.into()));
-			out.push(e.text(said));
+			out.push(e.text(notice.said().into_owned()));
 		}
 		Notice::Ended(_) => {
 			out.push(e.text(ROOM.into()));
-			out.push(e.text(said));
+			out.push(e.text(notice.said().into_owned()));
 			out.push(e.text(ENDED.into()));
 		}
 		Notice::AuthorityChanged { kind, token } => {

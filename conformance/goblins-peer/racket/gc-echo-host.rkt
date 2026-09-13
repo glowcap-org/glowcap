@@ -17,7 +17,8 @@
          goblins/vat
          goblins/ocapn/captp
          goblins/ocapn/structs-urls
-         "tcp-netlayer.rkt")
+         "tcp-netlayer.rkt"
+         "gc-probe.rkt")
 
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
@@ -56,6 +57,7 @@
    (define tcp-netlayer (spawn ^tcp-netlayer listen-host listen-port))
    (define mycapn (spawn-mycapn tcp-netlayer))
    (define nonce-registry ($ mycapn 'get-registry))
+   (register-gc-probe! nonce-registry)
    (define echo (spawn ^echo))
    ($ nonce-registry 'register echo ECHO-SWISS-NUM)
    (on (<- tcp-netlayer 'our-location)

@@ -14,7 +14,7 @@ use crate::host::check_host;
 use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
 use crate::trampoline::DeliverGuard;
-use crate::{sys, Argument, Error, Ref, Result, SendArena};
+use crate::{Argument, Error, Ref, Result, SendArena, sys};
 
 /// Shared fetch/enliven wait: the mint already registered the vow; kick the
 /// drain so the deliver leaves now, and await the drain-routed outcome.
@@ -150,7 +150,7 @@ pub(crate) fn send_promise(
 					"this promise is await-only or refused and has no pipeline target".to_string(),
 				),
 				shared,
-			)
+			);
 		}
 		CmdTargetKind::Pipeline {
 			vow: Some(source),
@@ -196,13 +196,11 @@ pub(crate) fn send_promise(
 pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &str, args: &[Argument]) -> Result<()> {
 	let _arrival = DeliverGuard::enter(shared);
 	match &target.0 {
-		CmdTargetKind::Ref(reference) => return shared.tell(reference, verb, args),
-		CmdTargetKind::Pipeline { vow: None, .. } => {
-			return Err(Error::with_detail(
-				sys::ERR_INVALID_ARGUMENT,
-				"this promise is await-only or refused and has no pipeline target".to_string(),
-			))
-		}
+		CmdTargetKind::Ref(reference) => shared.tell(reference, verb, args),
+		CmdTargetKind::Pipeline { vow: None, .. } => Err(Error::with_detail(
+			sys::ERR_INVALID_ARGUMENT,
+			"this promise is await-only or refused and has no pipeline target".to_string(),
+		)),
 		CmdTargetKind::Pipeline {
 			vow: Some(source),
 			host,
@@ -387,7 +385,7 @@ impl RemotePromise {
 						"this promise is await-only and cannot be projected".to_string(),
 					),
 					Rc::clone(&self.session),
-				)
+				);
 			}
 		};
 		let mut vow: u64 = 0;

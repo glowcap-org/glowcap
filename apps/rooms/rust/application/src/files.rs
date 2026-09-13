@@ -27,6 +27,9 @@ pub use store::FileStore;
 
 pub const CHUNK_BYTES: usize = 64 * 1024;
 pub const MAX_FILE_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_FILE_NAME_UNITS: usize = 160;
+pub const MAX_MIME_UNITS: usize = 80;
+pub const MAX_IMAGE_DIMENSION: u32 = 65_535;
 pub const UPLOAD_IDLE_MS: u64 = 30_000;
 pub const MAX_BLOB_READERS: usize = 256;
 
@@ -79,14 +82,20 @@ impl FileDescription {
 	}
 	fn validate(name: &str, mime: &str, size: u64) -> Result<(), FileError> {
 		validate_description(
-			name.encode_utf16().take(161).count(),
-			mime.encode_utf16().take(81).count(),
+			name.encode_utf16().take(MAX_FILE_NAME_UNITS + 1).count(),
+			mime.encode_utf16().take(MAX_MIME_UNITS + 1).count(),
 			size,
 		)
 	}
 
 	fn validated(name: String, mime: String, size: u64, width: u64, height: u64) -> Self {
-		let pixels = |value| if value <= 65_535 { value as u32 } else { 0 };
+		let pixels = |value| {
+			if value <= u64::from(MAX_IMAGE_DIMENSION) {
+				value as u32
+			} else {
+				0
+			}
+		};
 		Self {
 			name,
 			mime,
@@ -280,7 +289,7 @@ impl Drop for Record {
 }
 
 pub(crate) fn validate_description(name_units: usize, mime_units: usize, size: u64) -> Result<(), FileError> {
-	if name_units == 0 || name_units > 160 || mime_units > 80 {
+	if name_units == 0 || name_units > MAX_FILE_NAME_UNITS || mime_units > MAX_MIME_UNITS {
 		return Err(FileError::Description);
 	}
 	if size > MAX_FILE_BYTES as u64 {

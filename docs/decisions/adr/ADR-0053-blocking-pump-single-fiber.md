@@ -42,8 +42,10 @@ duplex runtime, not two.
   poll-`POLLOUT` deadline could convert an out-of-contract deadlock into a typed
   error, but deadlines are host policy above glowcap (resilience rule), and the
   mechanism would guard only callers the contract already routes to the loop.
-- **The shared read-buffer ring and the wall-clock gate** are unchanged roadmap
-  items.
+- **The shared read-buffer ring and wall-clock checks** landed separately.
+  [ADR-0054](ADR-0054-shared-read-buffer-ring.md) owns the ring, and
+  [the performance milestone](../../ladder.md#2-performance-at-scale) records
+  the checked latency budgets.
 
 ## Alternatives Considered
 

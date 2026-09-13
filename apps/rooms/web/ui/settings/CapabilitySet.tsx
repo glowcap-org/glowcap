@@ -1,6 +1,15 @@
 // One saved operations-capability bundle, projected as switches or text.
 
 import { Button } from "../Button.tsx";
+import {
+	capabilitySetEditSwiss,
+	capabilitySetInclude,
+	capabilitySetPlaceholder,
+	capabilitySetRetry,
+	capabilitySetSave,
+	capabilitySetTitle,
+} from "../../../lib/text/settings.ts";
+import { holdingsEditAsControls, holdingsEditAsText } from "../../../lib/text/ops.ts";
 import { IconButton } from "../IconButton.tsx";
 import { OPS_CATALOG } from "../ops/catalog.ts";
 import { formatOpsBundle, OPS_BUNDLE_CAPABILITIES, opsBundleReady, parseOpsBundleDraft } from "../ops/bundle.ts";
@@ -54,11 +63,11 @@ export function CapabilitySetForm() {
 			}}
 		>
 			<div className="capability-set-head">
-				<p className="field-label" id="opsCapabilitySetLabel">Capability set</p>
+				<p className="field-label" id="opsCapabilitySetLabel">{capabilitySetTitle}</p>
 				<IconButton
 					id={mode === "controls" ? "opsCapabilitySetEditText" : "opsCapabilitySetEditControls"}
 					icon={mode === "controls" ? "pencil" : "check"}
-					label={mode === "controls" ? "Edit capability set as text" : "Edit capability set as controls"}
+					label={mode === "controls" ? holdingsEditAsText : holdingsEditAsControls}
 					size="small"
 					variant="ghost"
 					disabled={model.busy || !model.loaded}
@@ -79,7 +88,7 @@ export function CapabilitySetForm() {
 							setText(event.currentTarget.value);
 							model.setError("");
 						}}
-						placeholder="ROOMS-ADMIN-LISTENERS …"
+						placeholder={capabilitySetPlaceholder}
 						spellCheck={false}
 					/>
 				)
@@ -99,7 +108,7 @@ export function CapabilitySetForm() {
 												{enabled && (
 													<IconButton
 														icon="pencil"
-														label={`Edit ${face.label} swiss number`}
+														label={capabilitySetEditSwiss(face.label)}
 														size="small"
 														variant="ghost"
 														onClick={() => model.edit(capability)}
@@ -110,7 +119,7 @@ export function CapabilitySetForm() {
 										<Switch
 											id={face.toggleId}
 											checked={enabled}
-											label={`Include ${face.label}`}
+											label={capabilitySetInclude(face.label)}
 											aria-labelledby={`opsCapabilitySet-${capability}-label`}
 											disabled={model.busy || !model.loaded}
 											onClick={() => {
@@ -141,7 +150,7 @@ export function CapabilitySetForm() {
 					Discard
 				</Button>
 				<Button id="opsCapabilitySetSave" type="submit" busy={model.busy} disabled={!actionable || model.busy}>
-					{!dirty && model.retryPending ? "Retry" : "Save changes"}
+					{!dirty && model.retryPending ? capabilitySetRetry : capabilitySetSave}
 				</Button>
 			</div>
 			{model.notice !== "" && <Said id="opsCapabilitySetSaved" kind="success">{model.notice}</Said>}

@@ -7,6 +7,8 @@ source "${dir}/lib/mod.sh"
 glowcap_devcontainer_init "${dir}"
 glowcap_require_devcontainer "image/claude-code"
 
-npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+npm install -g --no-fund --no-audit \
+    --allow-scripts=@anthropic-ai/claude-code \
+    "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 ln -sf /opt/node/bin/claude /usr/local/bin/claude
 claude --version

@@ -21,6 +21,7 @@ import { useSessionPaused } from "../hooks.ts";
 import { dirRow, inviteRow, type RailRow, roomRow, unreadCount } from "./filter.ts";
 import { Empty, EmptyDirRow, heldBack, InviteRow, nothingMatches, RoomRow } from "./rows.tsx";
 import { bridgedOrigin } from "../store.ts";
+import { railReachingDirectory, railRoomsAppearHere } from "../../../lib/text/rail.ts";
 
 /** The rooms this tab is in, across every directory, in the order it entered
  * them, and under them the directories it is on with nothing open.
@@ -89,11 +90,7 @@ export function YourRooms(
 	if (total === 0) {
 		return (
 			<Empty
-				text={paused
-					? nothingWhilePaused
-					: dirs.size === 0
-					? "Reaching a directory…"
-					: "Rooms you join appear here."}
+				text={paused ? nothingWhilePaused : dirs.size === 0 ? railReachingDirectory : railRoomsAppearHere}
 			/>
 		);
 	}

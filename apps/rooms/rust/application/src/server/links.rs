@@ -8,20 +8,16 @@
 //! Sturdyref entropy is derived, never drawn: a MAC over the room name under
 //! the stored secret rebuilds the same durable name on every start, and a
 //! generation folded into the message retires an old link for good.
-use super::document::{self, Document, DurableName, Generation, ManagedRoom, Steward, Topic, KEY_BYTES};
+use super::document::{self, Document, DurableName, Generation, KEY_BYTES, ManagedRoom, Steward, Topic};
 use crate::{
 	directory::creation::RecoveryKey,
 	failure::FailureCode,
-	fields::{Hex, List, SafeInteger, Text},
+	fields::{Hex, List, SafeInteger, Text, lower_hex},
 	room::policy::RoomPolicy,
 	text::DocumentText,
 };
-use alloc::{
-	collections::BTreeMap,
-	format,
-	string::{String, ToString},
-};
-use hmac::{Hmac, Mac};
+use alloc::{collections::BTreeMap, format, string::String};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 /// The Host derives a durable swiss name from this many embedder bytes.
@@ -32,44 +28,7 @@ const MANAGER_DOMAIN: &str = "manager\0";
 const MANAGED_ROOM_DOMAIN: &str = "managed-room\0";
 const ROOM_GENERATION_DOMAIN: &str = "room-generation\0";
 
-/// Why an authority change is refused. A coded refusal is one a client acts
-/// on; a plain one is the operator's or a caller's mistake, read as text.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-	pub code: Option<FailureCode>,
-	pub detail: String,
-}
-impl Refusal {
-	fn coded(code: FailureCode, detail: impl Into<String>) -> Self {
-		Self {
-			code: Some(code),
-			detail: detail.into(),
-		}
-	}
-	fn plain(detail: impl Into<String>) -> Self {
-		Self {
-			code: None,
-			detail: detail.into(),
-		}
-	}
-	pub fn reason(&self) -> String {
-		match self.code {
-			Some(code) => format!("{}: {}", code.wire(), self.detail),
-			None => self.detail.clone(),
-		}
-	}
-}
-impl core::fmt::Display for Refusal {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.write_str(&self.reason())
-	}
-}
-/// The break reason a caller hears.
-impl From<Refusal> for String {
-	fn from(refusal: Refusal) -> Self {
-		refusal.reason()
-	}
-}
+pub use super::Refusal;
 
 /// One issued or revoked steward or manager generation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,8 +87,8 @@ fn positive(value: u64) -> SafeInteger<true> {
 }
 
 impl Authority {
-	/// Read the document. A name that is not UTF-8 is refused: the derivations
-	/// below hash bytes, and the TypeScript owner writes UTF-8 names.
+	/// Read the document. The derivations below hash the UTF-8 bytes of a
+	/// name, so a name carrying an isolated surrogate is refused here.
 	pub fn read(document: &Document) -> Result<Self, document::Error> {
 		document.validate()?;
 		let mut authority = Self {
@@ -251,8 +210,8 @@ impl Authority {
 		&self.identity_seed
 	}
 
-	/// A successor stands only if its document holds the relations the
-	/// TypeScript owner validates before every write.
+	/// A successor stands only if its document still holds the relations
+	/// `Document::validate` checks.
 	fn admitted(next: Self) -> Result<Self, Refusal> {
 		next.document()
 			.validate()
@@ -389,18 +348,8 @@ impl Authority {
 	/// A stable, public correlator for a room's management, as lowercase hex.
 	pub fn manager_identity(&self, name: &str) -> String {
 		let entropy = self.entropy_for(&format!("{MANAGED_ROOM_DOMAIN}{}", fold(name)));
-		hex(&entropy)
+		lower_hex(&entropy)
 	}
-}
-
-fn hex(bytes: &[u8]) -> String {
-	const DIGITS: &[u8; 16] = b"0123456789abcdef";
-	let mut text = String::with_capacity(bytes.len() * 2);
-	for byte in bytes {
-		text.push(DIGITS[(byte >> 4) as usize] as char);
-		text.push(DIGITS[(byte & 15) as usize] as char);
-	}
-	text
 }
 
 impl Managed {
@@ -421,13 +370,6 @@ impl core::fmt::Display for Issue {
 			self.generation,
 			if self.issued { "issued" } else { "revoked" }
 		)
-	}
-}
-
-impl Refusal {
-	/// The refusal's text without a code, for adapters that render plainly.
-	pub fn detail(&self) -> String {
-		self.detail.to_string()
 	}
 }
 

@@ -5,12 +5,17 @@
 // pins that incompatibility directly.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed, vizUrlOf } from "../../apps/rooms/test/viz/viewer.ts";
-import { confirmTitleLeave } from "../../apps/rooms/test/support/page.ts";
+import {
+	connectTraceViewer,
+	scrapeTraceSturdyref,
+	traceMemorySeed,
+	traceUrlOf,
+} from "../../apps/rooms/test/trace/viewer.ts";
+import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
 import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-import { WEB } from "../../apps/rooms/test/support/web_binary.ts";
+import { WEB } from "../../apps/rooms/test/support/paths.ts";
 const CHAT = new URL("../../conformance/goblins-peer/racket/rooms-chat.rkt", import.meta.url)
 	.pathname;
 const RACKET_DIR = new URL("../../conformance/goblins-peer/racket/", import.meta.url).pathname;
@@ -70,7 +75,7 @@ class ChatPeer {
 	readonly #drains: Promise<void>[];
 	#compiledRoot: string | null;
 
-	constructor(readonly nick: string, locator: string, room: string, vizUrl: string) {
+	constructor(readonly nick: string, locator: string, room: string, traceUrl: string) {
 		// Concurrent Racket processes must not replace one shared .zo while its
 		// sibling is opening it. A private compiled root keeps startup parallel
 		// and leaves the checkout untouched.
@@ -79,7 +84,7 @@ class ChatPeer {
 			args: ["-y", CHAT, locator, room, nick],
 			cwd: RACKET_DIR,
 			env: {
-				GLOWCAP_ROOMS_VIZ_URL: vizUrl,
+				GLOWCAP_ROOMS_TRACE_URL: traceUrl,
 				// The trailing empty path is Racket's `same` fallback: reuse
 				// installed package bytecode, but write checkout-local bytecode only
 				// into this peer's private first root.
@@ -235,7 +240,7 @@ async function watchTimeline(sturdyref: string): Promise<{
 	close: () => Promise<void>;
 }> {
 	const records: TimelineRecord[] = [];
-	const viewer = await connectVizViewer(sturdyref, (record) => {
+	const viewer = await connectTraceViewer(sturdyref, (record) => {
 		records.push(record as TimelineRecord);
 	});
 	return { records, close: () => viewer.close() };
@@ -246,7 +251,7 @@ async function joinWeb(
 	port: number,
 	nick: string,
 	room: string,
-	seed: ReturnType<typeof vizMemorySeed>,
+	seed: ReturnType<typeof traceMemorySeed>,
 ): Promise<WebPeer> {
 	const context = await browser.newContext({ viewport: { width: 1100, height: 760 } });
 	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), seed);
@@ -386,7 +391,7 @@ async function reopenBrowserDm(
 
 const httpPort = freePort();
 const roomPort = freePort();
-const vizPort = freePort();
+const tracePort = freePort();
 const web = new Deno.Command(WEB, {
 	args: [
 		"--transport=tcp",
@@ -395,10 +400,10 @@ const web = new Deno.Command(WEB, {
 		String(roomPort),
 	],
 	cwd: ROOT,
-	env: { GLOWCAP_ROOMS_VIZ: "1", GLOWCAP_ROOMS_VIZ_PORT: String(vizPort) },
+	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
 	stdout: "null",
 	// Read rather than inherited, because the trace capability is announced on
-	// this stream and a viewer needs it. `scrapeVizSturdyref` tees it onward, so
+	// this stream and a viewer needs it. `scrapeTraceSturdyref` tees it onward, so
 	// nothing the server says is lost by reading it here.
 	stderr: "piped",
 }).spawn();
@@ -418,16 +423,16 @@ let gobB: ChatPeer | null = null;
 let timeline: { records: TimelineRecord[]; close: () => void } | null = null;
 try {
 	const locator = await locatorAt(httpPort);
-	const vizRef = await scrapeVizSturdyref(web.stderr);
-	const vizUrl = vizUrlOf(vizRef);
-	const vizSeed = vizMemorySeed(httpPort, vizRef);
-	timeline = await watchTimeline(vizRef);
-	gobA = new ChatPeer(GOB_A, locator, FULL, vizUrl);
-	gobB = new ChatPeer(GOB_B, locator, FULL, vizUrl);
+	const traceRef = await scrapeTraceSturdyref(web.stderr);
+	const traceUrl = traceUrlOf(traceRef);
+	const traceSeed = traceMemorySeed(httpPort, traceRef);
+	timeline = await watchTimeline(traceRef);
+	gobA = new ChatPeer(GOB_A, locator, FULL, traceUrl);
+	gobB = new ChatPeer(GOB_B, locator, FULL, traceUrl);
 	await Promise.all([gobA.ready(FULL), gobB.ready(FULL)]);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const webA = await joinWeb(browser, httpPort, WEB_A, FULL, vizSeed);
-	const webB = await joinWeb(browser, httpPort, WEB_B, FULL, vizSeed);
+	const webA = await joinWeb(browser, httpPort, WEB_A, FULL, traceSeed);
+	const webB = await joinWeb(browser, httpPort, WEB_B, FULL, traceSeed);
 
 	if (phase === "count-discrepancy") {
 		await browserDm(webA, gobA, "first independent receiver");
@@ -508,7 +513,7 @@ try {
 			},
 			`${GOB_A}'s sessions to close after restart`,
 		);
-		gobA = new ChatPeer(GOB_A, locator, FULL, vizUrl);
+		gobA = new ChatPeer(GOB_A, locator, FULL, traceUrl);
 		await gobA.ready(FULL);
 		await goblinsDm(gobB, gobA, "dm gob-b restarted gob-a");
 		await goblinsDm(gobA, gobB, "dm restarted gob-a gob-b");

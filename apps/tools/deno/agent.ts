@@ -39,7 +39,12 @@ async function broke(call: Promise<unknown>): Promise<boolean> {
 
 await using runtime = await Runtime.open({ providers: [tcp.provider()] });
 const session = await runtime.connect(tcp.locator(host, Number(portStr)));
-session.serve().catch(() => {});
+// A transport fault fails the next call on this session; say why it did.
+session.serve().catch((error: unknown) => {
+	console.error(
+		`tools agent: the coordinator session ended with a fault: ${error instanceof Error ? error.message : error}`,
+	);
+});
 const tools = await session.fetch(TOOLS);
 
 // 1. Delegation: get a clock capability and call it.

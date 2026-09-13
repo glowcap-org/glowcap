@@ -7,7 +7,7 @@ use super::{Bridge, FeedStatus, Gateway, Network};
 use crate::{
 	bridge::{Action, Answers, Field, Form, Leaf, SecretField, TextField, TextOptions, ToggleField, Tone},
 	fields::{List, Text},
-	server::irc::model::{NetworkChoice, Sasl, MAX_NAME},
+	server::irc::model::{MAX_NAME, MAX_NETWORK_NAME, NetworkChoice, Sasl},
 };
 use alloc::{
 	format,
@@ -21,17 +21,19 @@ pub const NAME: &str = "name";
 pub const HOST: &str = "host";
 pub const PORT: &str = "port";
 pub const NICK: &str = "nick";
+pub const REALNAME: &str = "realname";
 pub const TLS: &str = "tls";
 pub const ACCOUNT: &str = "account";
 pub const PASSWORD: &str = "password";
 pub const CHANNEL: &str = "channel";
+pub const OPERATOR_PERMISSION: &str = "permission";
 pub const OPEN_ACTION: &str = "open";
 pub const ADD_ACTION: &str = "add";
 
 pub use crate::bridge::gateway::{
-	Connection, Description, Fact, Lease, LeaseRemoval, Status, StatusTone, MAX_GATEWAY_JSON,
+	Connection, Description, Fact, Lease, LeaseRemoval, MAX_GATEWAY_JSON, Status, StatusTone,
 };
-use crate::bridge::gateway::{MAX_FORM_SAID, MAX_FORM_VALUE};
+use crate::bridge::{MAX_FORM_SAID, MAX_FORM_VALUE};
 
 fn text<const N: usize, const E: bool>(value: &str) -> Text<N, E> {
 	Text::new(value.into()).expect("a bounded gateway text")
@@ -79,6 +81,13 @@ pub fn connection_form() -> Result<Form, crate::bridge::Error> {
 			text_field(HOST, "Server", "irc.libera.chat", None, true)?,
 			text_field(PORT, "Port", "6697", Some("6697 with TLS, 6667 without"), false)?,
 			text_field(NICK, "Feed nick", "glowcap-rooms", None, true)?,
+			text_field(
+				REALNAME,
+				"Bot real name",
+				"glowcap Rooms bridge bot; admin: your Libera nick",
+				Some("Identify this as a bot and name an administrator reachable on IRC."),
+				true,
+			)?,
 			text_field(ACCOUNT, "Account", "optional", None, false)?,
 			Field::Leaf(Leaf::Secret(SecretField::new(
 				PASSWORD,
@@ -86,7 +95,7 @@ pub fn connection_form() -> Result<Form, crate::bridge::Error> {
 				false,
 				Some("sent to your server"),
 			)?)),
-			Field::Toggle(ToggleField::new(TLS, "TLS", true, Vec::new())?),
+			Field::Toggle(ToggleField::new(TLS, "TLS", None, true, Vec::new())?),
 		],
 		alloc::vec![Action::new(
 			OPEN_ACTION,
@@ -105,16 +114,25 @@ pub fn lease_form() -> Result<Form, crate::bridge::Error> {
 		"lease",
 		"Add channel",
 		"",
-		alloc::vec![Field::Leaf(Leaf::Text(TextField::new(
-			CHANNEL,
-			"Channel",
-			true,
-			TextOptions {
-				prefix: Some("#"),
-				placeholder: Some("nowhere"),
-				..Default::default()
-			},
-		)?))],
+		alloc::vec![
+			Field::Leaf(Leaf::Text(TextField::new(
+				CHANNEL,
+				"Channel",
+				true,
+				TextOptions {
+					prefix: Some("#"),
+					placeholder: Some("nowhere"),
+					..Default::default()
+				},
+			)?)),
+			Field::Toggle(ToggleField::new(
+				OPERATOR_PERMISSION,
+				"The channel's operators permit this bridge",
+				Some("They have explicitly allowed the bridge and the history it makes visible."),
+				false,
+				Vec::new(),
+			)?),
+		],
 		alloc::vec![Action::new(ADD_ACTION, "Join", "Joining…", Tone::Primary, false, None)?],
 	)
 }
@@ -158,6 +176,10 @@ fn connection_row<C: Copy + Ord, R: Clone>(network: &Network, leases: Vec<&Bridg
 		Fact {
 			label: text("Nick"),
 			value: text(&shown(&choice.nick, MAX_FORM_VALUE)),
+		},
+		Fact {
+			label: text("Real name"),
+			value: text(&shown(&choice.realname, MAX_FORM_VALUE)),
 		},
 	];
 	if let Some(sasl) = &choice.sasl {
@@ -237,20 +259,19 @@ pub fn connection_choice(raw: &str) -> Result<NetworkChoice, String> {
 	let name = answer(&answers, NAME).trim().to_string();
 	let host = answer(&answers, HOST).trim().to_string();
 	let nick = answer(&answers, NICK).trim().to_string();
-	if name.is_empty() || host.is_empty() || nick.is_empty() {
-		return Err("a connection needs a name, a server, and a nick".into());
+	let realname = answer(&answers, REALNAME).trim().to_string();
+	if name.is_empty() || host.is_empty() || nick.is_empty() || realname.is_empty() {
+		return Err("a connection needs a name, a server, a nick, and a bot real name".into());
 	}
-	if name.encode_utf16().count() > MAX_NAME {
-		return Err(format!("a connection name stays within {MAX_NAME} characters"));
+	if name.encode_utf16().count() > MAX_NETWORK_NAME {
+		return Err(format!(
+			"a connection name stays within {MAX_NETWORK_NAME} characters so its channel room names fit"
+		));
 	}
 	let tls = answer(&answers, TLS) == "on";
 	let port_text = answer(&answers, PORT).trim().to_string();
 	let port = if port_text.is_empty() {
-		if tls {
-			6697
-		} else {
-			6667
-		}
+		if tls { 6697 } else { 6667 }
 	} else {
 		port_text
 			.parse::<u16>()
@@ -273,6 +294,7 @@ pub fn connection_choice(raw: &str) -> Result<NetworkChoice, String> {
 		port,
 		tls,
 		nick,
+		realname,
 		sasl: if account.is_empty() {
 			None
 		} else {
@@ -286,6 +308,9 @@ pub fn connection_choice(raw: &str) -> Result<NetworkChoice, String> {
 /// the reader left it off and the typed characters are otherwise kept.
 pub fn lease_channel(raw: &str) -> Result<String, String> {
 	let answers = Answers::decode(raw).map_err(|e| e.to_string())?;
+	if answer(&answers, OPERATOR_PERMISSION) != "on" {
+		return Err("joining an IRC channel requires explicit permission from its operators".into());
+	}
 	let typed = answer(&answers, CHANNEL).trim().to_string();
 	if typed.is_empty() || typed.trim_start_matches('#').is_empty() {
 		return Err("a channel name is required".into());
@@ -309,19 +334,34 @@ mod tests {
 	#[test]
 	fn answers_are_read_back_against_the_forms() {
 		let choice = connection_choice(
-			r#"{"name":"net","host":"irc.example","port":"","nick":"feed","tls":"on","account":"a","password":"p"}"#,
+			r#"{"name":"net","host":"irc.example","port":"","nick":"feed","realname":"bridge bot; admin: alice","tls":"on","account":"a","password":"p"}"#,
 		)
 		.unwrap();
 		assert_eq!(choice.port, 6697);
 		assert!(choice.tls);
+		assert_eq!(choice.realname, "bridge bot; admin: alice");
 		assert_eq!(choice.sasl.unwrap().account, "a");
 		assert!(connection_choice("{").is_err());
 		assert!(connection_choice(r#"{}"#).is_err());
 		assert!(connection_choice(r#"{"name":"n","host":"h","nick":"f","port":"not-a-port"}"#).is_err());
 		assert!(connection_choice(r#"{"name":"n","host":"h","nick":"f","password":"p"}"#).is_err());
-		assert_eq!(lease_channel(r#"{"channel":"linux"}"#).unwrap(), "#linux");
-		assert_eq!(lease_channel(r###"{"channel":"##linux"}"###).unwrap(), "##linux");
-		assert!(lease_channel(r###"{"channel":"#"}"###).is_err());
+		assert!(
+			connection_choice(&format!(
+				r#"{{"name":"{}","host":"h","nick":"f","realname":"bot; admin: alice"}}"#,
+				"n".repeat(MAX_NETWORK_NAME + 1)
+			))
+			.is_err()
+		);
+		assert!(lease_channel(r#"{"channel":"linux"}"#).is_err());
+		assert_eq!(
+			lease_channel(r#"{"channel":"linux","permission":"on"}"#).unwrap(),
+			"#linux"
+		);
+		assert_eq!(
+			lease_channel(r###"{"channel":"##linux","permission":"on"}"###).unwrap(),
+			"##linux"
+		);
+		assert!(lease_channel(r###"{"channel":"#","permission":"on"}"###).is_err());
 	}
 
 	#[test]
@@ -334,6 +374,7 @@ mod tests {
 				port: 6697,
 				tls: true,
 				nick: "feed".into(),
+				realname: "bridge bot; admin: alice".into(),
 				sasl: Some(Sasl {
 					account: "acct".into(),
 					password: "hunter2".into(),

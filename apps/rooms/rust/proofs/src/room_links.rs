@@ -1,9 +1,9 @@
 use rooms_application::{
 	grants::Access,
 	session::checkpoint::{
+		Checkpoint, Routes,
 		commands::{self, Command, CommandRoutes},
 		invitations::{RoomLink, RoomLinkInput},
-		Checkpoint, Routes,
 	},
 };
 
@@ -47,9 +47,11 @@ pub fn run() {
 		wire.encode_for(Access::Admin).unwrap()
 	);
 	assert!(invite.present(&received));
-	assert!(RoomLink::new(input("duplicate", link), &routes)
-		.unwrap()
-		.present(&received));
+	assert!(
+		RoomLink::new(input("duplicate", link), &routes)
+			.unwrap()
+			.present(&received)
+	);
 	assert!(
 		RoomLink::new(input("received", "ocapn://directory.id/s/cm9vbS1saW5r"), &routes)
 			.unwrap()

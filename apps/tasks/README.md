@@ -65,7 +65,7 @@ contain matching Python, Racket, Rust, and Zig clients; [`demo.ts`](demo.ts)
 coordinates the cross-language run.
 
 The bounded board state, latest-snapshot stream, watcher retirement, and failed
-join cleanup run under the main check and can be exercised alone:
+join cleanup run under `zig build runtime-check` and can be exercised alone:
 
 ```sh
 zig build tasks-app-test

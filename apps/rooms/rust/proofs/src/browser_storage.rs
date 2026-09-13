@@ -30,10 +30,12 @@ pub async fn rooms_browser_storage_contract() -> String {
 	);
 	let exact = DocumentText::from_utf16(&[0x0061, 0xd800, 0x0062]);
 	let mut unobserved = Box::pin(left.set_retention_epoch(exact.clone(), true));
-	assert!(unobserved
-		.as_mut()
-		.poll(&mut Context::from_waker(Waker::noop()))
-		.is_pending());
+	assert!(
+		unobserved
+			.as_mut()
+			.poll(&mut Context::from_waker(Waker::noop()))
+			.is_pending()
+	);
 	drop(unobserved);
 	left.close().await;
 	assert!(left.is_closed());

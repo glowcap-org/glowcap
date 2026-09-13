@@ -1,6 +1,6 @@
 //! The site's own contracts: content links and heading fragments, the
 //! generated transport tabs, nav parity, ASCII-only SVG, the reduced-motion
-//! guard, and per-page metadata.
+//! guard, diagram theme tokens, and per-page metadata.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -424,6 +424,66 @@ pub fn checkSitePageMetadata(
 /// The value of one `.field = "…"` line in an `.smd` frontmatter block, or null
 /// when the field is absent. Frontmatter is the leading `---`-delimited section,
 /// so the search stops at the closing fence rather than matching body prose.
+/// A hand-drawn diagram paints its dark face through `var(--dia-<name>, #light)`
+/// tokens that only `site/assets/style.css` defines, in the block that carries
+/// the dark theme. A token the diagram names and the stylesheet does not
+/// define falls back to its light literal on the dark page, so one box turns
+/// cream while its neighbors stay roast, and nothing else fails: the SVG is
+/// valid, the page renders, and only a reader in the dark theme sees it. This
+/// holds every `--dia-*` name in `site/assets/diagram-*.svg` to a declaration
+/// in `site/assets/style.css`.
+pub fn checkSiteDiagramTokens(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const sheet = root.readFileAlloc(io, "site/assets/style.css", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "site/assets/style.css: failed to read for diagram token check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(sheet);
+
+    var dir = root.openDir(io, "site/assets", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "site/assets: failed to open for diagram token check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.startsWith(u8, entry.name, "diagram-") or !std.mem.endsWith(u8, entry.name, ".svg")) continue;
+
+        const svg = dir.readFileAlloc(io, entry.name, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "site/assets/{s}: failed to read for diagram token check with {s}", .{ entry.name, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(svg);
+
+        // One report per missing name, however many times the drawing uses it.
+        var reported: std.StringHashMapUnmanaged(void) = .empty;
+        defer reported.deinit(gpa);
+
+        const needle = "var(--dia-";
+        var search: usize = 0;
+        while (std.mem.indexOfPos(u8, svg, search, needle)) |at| {
+            const name_start = at + "var(".len;
+            var name_end = name_start;
+            while (name_end < svg.len and (std.ascii.isAlphanumeric(svg[name_end]) or svg[name_end] == '-')) : (name_end += 1) {}
+            search = name_end;
+            const name = svg[name_start..name_end];
+            if (reported.contains(name)) continue;
+
+            const declaration = try std.fmt.allocPrint(gpa, "{s}:", .{name});
+            defer gpa.free(declaration);
+            if (std.mem.indexOf(u8, sheet, declaration) != null) continue;
+            try reported.put(gpa, name, {});
+            try appendViolation(gpa, violations, "site/assets/{s}: names `{s}`, which site/assets/style.css never declares, so the dark theme paints that part in the light literal", .{ entry.name, name });
+        }
+    }
+}
+
 fn frontmatterField(body: []const u8, needle: []const u8) ?[]const u8 {
     if (!std.mem.startsWith(u8, body, "---\n")) return null;
     const end = std.mem.indexOfPos(u8, body, 4, "\n---") orelse return null;

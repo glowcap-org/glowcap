@@ -97,7 +97,7 @@ export function standAtFrontOfPrivilegedAddress(): void {
 }
 
 /** A session that is over must not reopen on a room or `/ops`. Search and hash
- * still name this tab's dm/viz configuration. */
+ * still name this tab's dm/trace configuration. */
 function standAtFront(): void {
 	if (typeof location === "undefined" || typeof history === "undefined") return;
 	const url = new URL(location.href);
@@ -226,8 +226,8 @@ function onceAssembled(fn: () => void): void {
  * its complete initial snapshot; unlike local reconstruction, that snapshot
  * may correctly contain no directory whose attempt could settle the store.
  *
- * Called at the end of the entry module, which is what moves the page out of
- * the opening state page.html stamped, and so out of the reach of its watcher:
+ * The entry module calls this last to move the page out of the opening state
+ * stamped by page.html, and therefore out of the reach of its watcher:
  * an error before this point is a page that never started and gets the
  * explanation, and an error after it belongs to the running page. */
 export function handOffWhenReady(

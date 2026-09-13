@@ -13,6 +13,7 @@ import {
 	tooLong,
 } from "../web/ui/text.ts";
 import { composerLineRefusal } from "../web/ui/composer/send.ts";
+import { reachDirect, reachPublicRoom, reachRoomHeld, reachRoomLink } from "../lib/text/conversation.ts";
 import { lineCost, MAX_LINE } from "../lib/limits.ts";
 import { type Conv, type DirId, dirId, type DirView } from "../web/ui/types.ts";
 
@@ -83,25 +84,18 @@ Deno.test("direct messages on a directory that is not live use the same connecti
 	assertEquals(directoryDmBlocked("connected"), "");
 });
 
-Deno.test("a conversation card says why it copies the directory's locator", () => {
+Deno.test("a conversation card says which address the reader is looking at", () => {
+	// Asserted against the catalog, because the wording belongs to the voice and
+	// what this proves is that each kind of conversation gets its own answer. A
+	// needle copied out of the copy turns a rewording into a red test that has
+	// caught nothing.
+	assertEquals(conversationReach({ type: "room", held: false, id: "lobby" }), reachPublicRoom("#lobby"));
+	assertEquals(conversationReach({ type: "room", held: true, id: "secret" }), reachRoomHeld);
 	assertEquals(
-		conversationReach({ type: "room", held: false, id: "lobby" }).includes("not a separate address for #lobby"),
-		true,
+		conversationReach({ type: "room", held: true, id: "secret", link: "ocapn://peer.tcp/s/swiss" }),
+		reachRoomLink,
 	);
-	assertEquals(
-		conversationReach({ type: "room", held: true, id: "secret" }).includes("live reference"),
-		true,
-	);
-	assertEquals(
-		conversationReach({ type: "room", held: true, id: "secret", link: "ocapn://peer.tcp/s/swiss" }).includes(
-			"sturdyref",
-		),
-		true,
-	);
-	assertEquals(
-		conversationReach({ type: "dm" }).includes("no room address"),
-		true,
-	);
+	assertEquals(conversationReach({ type: "dm" }), reachDirect);
 });
 
 // A limit says which measure it is held to, because two of them are in use and

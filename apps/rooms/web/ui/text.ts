@@ -1,6 +1,6 @@
-// Text the interface derives from a name or a message, with no DOM in sight.
-// The data layer reads `mentionsYou` from here, which is why the pieces that
-// build elements live next door in `RichText.tsx` instead.
+// Text the interface derives from a name or message, with no DOM in sight.
+// Markdown structure and mention effects live in the shared application path;
+// this module retains presentation vocabulary such as emoji and IRC runs.
 
 import {
 	type Conv,
@@ -11,7 +11,26 @@ import {
 	type PeeringSource,
 	type SessionPhase,
 } from "./types.ts";
-import { lineCost, MAX_LINE, MAX_NICK, ROOM_MENTIONS } from "./limits.ts";
+import { lineCost, MAX_LINE, MAX_NICK } from "./limits.ts";
+import { reachDirect, reachPublicRoom, reachRoomHeld, reachRoomLink } from "../../lib/text/conversation.ts";
+import { messageTimeAm, messageTimePm } from "../../lib/text/conversation.ts";
+import {
+	bytesLeft,
+	bytesOver,
+	dayToday,
+	dayYesterday,
+	dmBlockedWhile,
+	footHere,
+	lineFromNameTooLong,
+	lineTooLong,
+	peerFallback,
+	phaseConnected,
+	phaseConnecting,
+	phaseDisconnected,
+	phaseReconnecting,
+	thisDirectoryName,
+	tooLongSaid,
+} from "../../lib/text/directory.ts";
 
 /** What a surface says while this browser's access to the session is paused and
  * there is consequently nothing in it to show.
@@ -25,7 +44,7 @@ import { lineCost, MAX_LINE, MAX_NICK, ROOM_MENTIONS } from "./limits.ts";
  * Said the same way by every surface that goes empty at once, and by none of
  * them said why: the reason and whatever note came with it stand on the bar
  * above the conversation, so a page in this state explains itself once. */
-export const nothingWhilePaused = "Not shown while your access is paused.";
+export { nothingWhilePaused } from "../../lib/text/directory.ts";
 
 /** How a directory's connection reads in words. The dot beside it carries the
  * same fact in shape and color; this is what a reader who has neither gets.
@@ -39,10 +58,10 @@ export const nothingWhilePaused = "Not shown while your access is paused.";
  * it, and the card that caption opens. A phase that carried the name would say
  * it twice wherever it is said at all. */
 export const PHASE_SAID: Record<SessionPhase, string> = {
-	connected: "Connected",
-	connecting: "Connecting…",
-	reconnecting: "Reconnecting…",
-	disconnected: "Not connected",
+	connected: phaseConnected,
+	connecting: phaseConnecting,
+	reconnecting: phaseReconnecting,
+	disconnected: phaseDisconnected,
 };
 
 /** The same phase inside a sentence, where a capital would start a new one:
@@ -58,7 +77,7 @@ export function phaseWord(session: SessionPhase): string {
  * a card cannot say the directory is "away" — which is how a person steps
  * out — while the row beside it says reconnecting. */
 export function directoryDmBlocked(session: SessionPhase): string {
-	return session === "connected" ? "" : "Not while this directory is " + phaseWord(session);
+	return session === "connected" ? "" : dmBlockedWhile(phaseWord(session));
 }
 
 /** What one directory's connection is saying: the phase in words, and the
@@ -178,7 +197,7 @@ export function footState(
 ): FootState {
 	if (session !== "connected") return { said: phaseWord(session), away: false };
 	if (standing !== "") return { said: standing, away: true };
-	return { said: named ? "here" : phaseWord("connected"), away: false };
+	return { said: named ? footHere : phaseWord("connected"), away: false };
 }
 
 /** A locator is escaped for a wire, and what comes back out of one is not a name:
@@ -205,16 +224,16 @@ function readable(text: string): string {
  * reader never chose: showing them its address answers a question they did not
  * ask, and the address bar already says where the page came from. */
 export function directoryName(id: DirId, home: DirId | null): string {
-	if (home !== null && id === home) return "this directory";
+	if (home !== null && id === home) return thisDirectoryName;
 	const locator = id as string;
-	if (locator === "") return "this directory";
+	if (locator === "") return thisDirectoryName;
 	if (!locator.includes("://")) return readable(locator);
 	const authority = readable(locator.slice(locator.indexOf("://") + 3).split("/")[0]);
 	const dot = authority.lastIndexOf(".");
 	const designator = dot < 0 ? authority : authority.slice(0, dot);
 	const transport = dot < 0 ? "" : authority.slice(dot + 1);
 	if (designator.length <= 24) return designator;
-	return (transport || "peer") + " " + designator.slice(0, 4);
+	return (transport || peerFallback) + " " + designator.slice(0, 4);
 }
 
 /** How a room is named in speech and in the tab title. A public room is its
@@ -234,18 +253,10 @@ export function roomCalled(id: string, held: boolean): string {
 export function conversationReach(
 	conv: { type: "room"; held: boolean; id: string; link?: string } | { type: "dm" },
 ): string {
-	if (conv.type === "dm") {
-		return "This line was introduced on the directory named above. It has no room address of its own.";
-	}
-	if (conv.held && conv.link !== undefined) {
-		return "This is the room's own locator, a sturdyref. /join it to be here. It is not the directory named above.";
-	}
-	if (conv.held) {
-		return "You are in this room by a live reference, for this session only. The locator is the directory's, not the room's. A manager can create a durable entry link from Capabilities.";
-	}
-	return "A public room is a name on a directory, so this is that directory's locator, not a separate address for " +
-		roomCalled(conv.id, false) +
-		". Anyone who can reach the directory can join by that name.";
+	if (conv.type === "dm") return reachDirect;
+	if (conv.held && conv.link !== undefined) return reachRoomLink;
+	if (conv.held) return reachRoomHeld;
+	return reachPublicRoom(roomCalled(conv.id, false));
 }
 
 /** The rooms this tab could publish into the home directory: joined rooms on
@@ -268,7 +279,7 @@ export function peeringSourcesOf(
 
 export function fmtTime(d: Date): string {
 	let h = d.getHours();
-	const ampm = h >= 12 ? "PM" : "AM";
+	const ampm = h >= 12 ? messageTimePm : messageTimeAm;
 	h = h % 12 || 12;
 	return h + ":" + String(d.getMinutes()).padStart(2, "0") + " " + ampm;
 }
@@ -285,8 +296,8 @@ export function dayLabel(at: number): string {
 	const today = Date.now();
 	const yesterday = new Date();
 	yesterday.setDate(yesterday.getDate() - 1);
-	if (dayKey(at) === dayKey(today)) return "Today";
-	if (dayKey(at) === dayKey(yesterday.getTime())) return "Yesterday";
+	if (dayKey(at) === dayKey(today)) return dayToday;
+	if (dayKey(at) === dayKey(yesterday.getTime())) return dayYesterday;
 	return new Date(at).toLocaleDateString(undefined, {
 		weekday: "long",
 		month: "long",
@@ -308,7 +319,7 @@ export function dayLabel(at: number): string {
  * has no default: a new limit is measured one way or the other, and which one
  * is not a thing to inherit by accident. */
 export function tooLong(noun: string, max: number, unit: "characters" | "bytes"): string {
-	return `${noun} too long (max ${max} ${unit})`;
+	return tooLongSaid(noun, max, unit);
 }
 
 /** Why a line from somebody else cannot be shown, or null when it can.
@@ -322,12 +333,8 @@ export function tooLong(noun: string, max: number, unit: "characters" | "bytes")
  * Refused rather than cut. A sentence cut in half can say the opposite of what
  * it said, and this app would be the one saying it. */
 export function lineNotShowable(from: string, text: string): string | null {
-	if (from.length > MAX_NICK) {
-		return "A line arrived under a name longer than any this app grants, so it is not here.";
-	}
-	if (lineCost(text) > MAX_LINE) {
-		return `${from} sent a line longer than this app will show, so it is not here.`;
-	}
+	if (from.length > MAX_NICK) return lineFromNameTooLong;
+	if (lineCost(text) > MAX_LINE) return lineTooLong(from);
 	return null;
 }
 
@@ -397,7 +404,6 @@ const NAME_CHARS = String.raw`\w\[\]\\\`^{|}-`;
  * second, narrower expression in the composer used to make names such as
  * `some[nick]` readable after arrival but impossible to complete while typing. */
 export const MENTION_QUERY = new RegExp(String.raw`^[${NAME_CHARS}]*$`);
-const MENTION = new RegExp(String.raw`@([${NAME_CHARS}]*[\w\[\]\\\`^{|}])`, "g");
 
 /** The names that reach a whole room rather than one person.
  *
@@ -466,8 +472,8 @@ export function lineCapSaid(
 	const cost = lineCost(draft);
 	if (cost <= cap * 0.8) return null;
 	const over = cost - cap;
-	if (over > 0) return { over: true, said: `${over} bytes too long${cap < MAX_LINE ? " for this room" : ""}` };
-	return { over: false, said: `${cap - cost} bytes left` };
+	if (over > 0) return { over: true, said: bytesOver(over, cap < MAX_LINE) };
+	return { over: false, said: bytesLeft(cap - cost) };
 }
 
 // ── IRC formatting, as it arrives over a bridge ───────────────────────────
@@ -589,19 +595,4 @@ export function ircRuns(text: string): IrcRun[] {
 	}
 	cut();
 	return runs;
-}
-
-/** Whether a line reaches this reader: by their name, or by naming the room.
- *
- * The one answer both the highlight in the log and the desktop notification
- * read, so a line cannot light up without notifying or the other way round. */
-export function mentionsYou(text: string, nick: string): boolean {
-	const re = new RegExp(MENTION.source, "g");
-	let m: RegExpExecArray | null;
-	while ((m = re.exec(text)) !== null) {
-		const named = m[1].toLowerCase();
-		if (ROOM_MENTIONS.includes(named)) return true;
-		if (nick && named === nick.toLowerCase()) return true;
-	}
-	return false;
 }

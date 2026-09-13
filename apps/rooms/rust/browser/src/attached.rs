@@ -33,10 +33,31 @@ mod view;
 use crate::{ice, platform::Platform, transport};
 use driver::Driver;
 use glowcap::{Host, PendingWork, Runtime};
+use rooms_runtime::cleanup::combine as retain;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
 type Result<T> = std::result::Result<T, String>;
+
+#[derive(Clone)]
+struct TroubleReporter {
+	callback: js_sys::Function,
+	stopped: Rc<std::cell::Cell<bool>>,
+}
+impl TroubleReporter {
+	fn report(&self, source: &str, reason: &str) {
+		if self.stopped.get() {
+			return;
+		}
+		if self
+			.callback
+			.call2(&JsValue::UNDEFINED, &source.into(), &reason.into())
+			.is_err()
+		{
+			web_sys::console::error_1(&"Rooms trouble reporter failed".into());
+		}
+	}
+}
 
 struct Environment {
 	runtime: Rc<Runtime>,
@@ -50,9 +71,13 @@ struct Environment {
 	displays: rooms_application::files::receiving::Budget,
 	ice: ice::Source,
 	signaling: Rc<signaling::Signaling>,
+	trouble: TroubleReporter,
 }
 impl Environment {
-	async fn open(checkpoint: Option<rooms_application::session::checkpoint::Checkpoint>) -> Result<Self> {
+	async fn open(
+		checkpoint: Option<rooms_application::session::checkpoint::Checkpoint>,
+		trouble: TroubleReporter,
+	) -> Result<Self> {
 		let platform = Platform::new().map_err(|e| e.to_string())?;
 		let prepared = if checkpoint.is_some() {
 			Some(local::Prepared::open(platform.clone()).await?)
@@ -107,6 +132,7 @@ impl Environment {
 			platform,
 			ice,
 			signaling,
+			trouble,
 		};
 		if let Some((locator, register)) = relay_route {
 			match relay::Relay::start(
@@ -157,27 +183,31 @@ pub struct RoomsBrowserApplication {
 #[wasm_bindgen]
 impl RoomsBrowserApplication {
 	#[wasm_bindgen(constructor)]
-	pub fn new() -> Self {
+	pub fn new(report_trouble: js_sys::Function) -> Self {
 		Self {
-			driver: Driver::start(),
+			driver: Driver::start(report_trouble),
 		}
 	}
 
 	#[wasm_bindgen(js_name = local)]
-	pub fn local(checkpoint: js_sys::JsString) -> std::result::Result<RoomsBrowserApplication, JsValue> {
+	pub fn local(
+		checkpoint: js_sys::JsString,
+		report_trouble: js_sys::Function,
+	) -> std::result::Result<RoomsBrowserApplication, JsValue> {
 		let raw = scalar(checkpoint, rooms_application::session::checkpoint::MAX_CHECKPOINT_UNITS)
 			.map_err(|e| js_error(&e))?;
 		let checkpoint =
 			rooms_application::session::checkpoint::Checkpoint::decode(&raw, &rooms_glowcap::routes::CheckpointRoutes)
 				.map_err(|e| js_error(&e.to_string()))?;
 		Ok(Self {
-			driver: Driver::start_local(checkpoint),
+			driver: Driver::start_local(checkpoint, report_trouble),
 		})
 	}
 	#[wasm_bindgen(js_name = localWorkspace)]
 	pub fn local_workspace(
 		workspace: Option<js_sys::JsString>,
 		page_directory: js_sys::JsString,
+		report_trouble: js_sys::Function,
 	) -> std::result::Result<RoomsBrowserApplication, JsValue> {
 		let checkpoint = (|| -> Result<_> {
 			let locator = scalar(page_directory, 65_536)?;
@@ -195,7 +225,7 @@ impl RoomsBrowserApplication {
 			}
 		})();
 		Ok(Self {
-			driver: Driver::start_local(checkpoint.map_err(|e| js_error(&e))?),
+			driver: Driver::start_local(checkpoint.map_err(|e| js_error(&e))?, report_trouble),
 		})
 	}
 	#[wasm_bindgen(js_name = localSession)]
@@ -208,21 +238,6 @@ impl RoomsBrowserApplication {
 		self.driver.submit(0, move |environment| async move {
 			let owner = owner::Owner::open_local(environment, driver.clone(), scope.clone())?;
 			Ok(RoomsBrowserSession { driver, owner, scope }.into())
-		})
-	}
-	#[wasm_bindgen(js_name = localSnapshot)]
-	pub fn local_snapshot(&self) -> js_sys::Promise {
-		self.driver.submit(0, |environment| async move {
-			let local = environment
-				.local
-				.as_ref()
-				.ok_or("this application has no local Rooms session")?;
-			let snapshot = local.access.snapshot().map_err(|e| e.to_string())?;
-			let result = view::snapshot(&snapshot)?;
-			if let Some(reason) = &local.durability {
-				view::set(&result, "storageUnavailable", reason.clone().into())?;
-			}
-			Ok(result)
 		})
 	}
 	/// The page prepares reachability before requesting publication.
@@ -241,10 +256,11 @@ impl RoomsBrowserApplication {
 			}
 			if let Some(link) = local.published().await? {
 				let parsed = glowcap::parse_sturdyref(&link, glowcap::CaptpVersion::V1_0).map_err(|e| e.to_string())?;
-				environment
+				let route = environment
 					.signaling
 					.prepare(&environment, &driver, &parsed.locator, None)
 					.await?;
+				local.hold_publication_route(route);
 				return Ok(link.into());
 			}
 			let snapshot = local.access.snapshot().map_err(|e| e.to_string())?;
@@ -257,11 +273,13 @@ impl RoomsBrowserApplication {
 			let designator = environment.runtime.host().designator().map_err(|e| e.to_string())?;
 			let locator = glowcap::Locator::bare(glowcap::TRANSPORT_WEBRTC, &designator)
 				.with_hint("signaling-directory", glowcap::HintValue::String(home.into()));
-			environment
+			let route = environment
 				.signaling
 				.prepare(&environment, &driver, &locator, Some(home))
 				.await?;
-			Ok(local.publish(locator).await?.into())
+			let link = local.publish(locator).await?;
+			local.hold_publication_route(route);
+			Ok(link.into())
 		})
 	}
 
@@ -293,11 +311,6 @@ impl RoomsBrowserApplication {
 		self.driver.close()
 	}
 }
-impl Default for RoomsBrowserApplication {
-	fn default() -> Self {
-		Self::new()
-	}
-}
 impl Drop for RoomsBrowserApplication {
 	fn drop(&mut self) {
 		self.driver.stop();
@@ -315,7 +328,6 @@ impl RoomsBrowserSession {
 	pub fn watch(
 		&self,
 		changed: js_sys::Function,
-		event: Option<js_sys::Function>,
 		operations: js_sys::Function,
 		history: js_sys::Function,
 	) -> js_sys::Promise {
@@ -327,7 +339,6 @@ impl RoomsBrowserSession {
 					driver,
 					owner::Observers {
 						changed,
-						event,
 						operations,
 						history,
 					},
@@ -402,7 +413,7 @@ impl RoomsBrowserSession {
 	pub fn ended(&self) -> js_sys::Promise {
 		let mut ended = self.owner.ended.clone();
 		wasm_bindgen_futures::future_to_promise(async move {
-			connections::terminal(&mut ended)
+			connections::settled(&mut ended)
 				.await
 				.map(|()| JsValue::UNDEFINED)
 				.map_err(|error| js_error(&error))
@@ -416,29 +427,13 @@ impl Drop for RoomsBrowserSession {
 }
 
 fn scalar(value: js_sys::JsString, maximum: usize) -> Result<String> {
-	if value.length() as usize > maximum {
-		return Err("Rooms text exceeds its input limit".into());
-	}
-	let text = value.as_string().ok_or("Rooms requires text")?;
-	// Compare JS strings: the str comparison would itself lose surrogates.
-	let round_trip = js_sys::JsString::from(text.as_str());
-	if round_trip != value {
-		return Err("Rooms protocol text must contain Unicode scalar values".into());
-	}
-	Ok(text)
+	crate::js_text::scalar(&value, maximum).map_err(|error| error.to_string())
 }
 fn safe_integer(value: f64) -> Result<u64> {
 	if !value.is_finite() || !(0.0..=9_007_199_254_740_991.0).contains(&value) || value.fract() != 0.0 {
 		Err("Rooms revision is outside the safe integer range".into())
 	} else {
 		Ok(value as u64)
-	}
-}
-fn retain(first: Result<()>, second: Result<()>) -> Result<()> {
-	match (first, second) {
-		(Err(first), Err(second)) => Err(format!("{first}; cleanup: {second}")),
-		(Err(error), _) | (_, Err(error)) => Err(error),
-		_ => Ok(()),
 	}
 }
 fn js_error(error: &str) -> JsValue {

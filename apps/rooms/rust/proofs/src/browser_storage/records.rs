@@ -1,7 +1,7 @@
-//! Compatibility with JS-authored rows, atomic replacements and stale recorders.
+//! Current IndexedDB rows, atomic replacements, and stale recorders.
 use rooms_application::{
-	archive::{blobs, Access, Attachment, Body, ConversationKind, Coordinates, Facet, Filter, LineState, Record},
-	files::{FileDescription, CHUNK_BYTES},
+	archive::{Access, Attachment, Body, ConversationKind, Coordinates, Facet, Filter, LineState, Record, blobs},
+	files::{CHUNK_BYTES, FileDescription},
 	text::DocumentText,
 };
 use rooms_browser::{
@@ -20,7 +20,7 @@ fn facet() -> Facet {
 fn line(id: &str, text: DocumentText, attachments: Vec<Attachment>) -> Record {
 	Record::new(
 		Coordinates {
-			source: "legacy".into(),
+			source: "browser".into(),
 			generation: "generation".into(),
 			id: id.into(),
 		},
@@ -35,6 +35,7 @@ fn line(id: &str, text: DocumentText, attachments: Vec<Attachment>) -> Record {
 			order: 999,
 			state: LineState::Edited,
 			attachments,
+			previews: Default::default(),
 		},
 	)
 	.unwrap()
@@ -67,7 +68,7 @@ pub async fn rooms_browser_storage_records() {
 	assert_eq!(initial.records.len(), 1);
 	let record = &initial.records[0].record;
 	let Body::Line { text, at, order, .. } = record.body() else {
-		panic!("legacy line")
+		panic!("seeded line")
 	};
 	let exact = DocumentText::from_utf16(&[0x0061, 0xd800, 0x0062, 0xd83c, 0xdf31]);
 	assert_eq!(*text, exact);
@@ -84,7 +85,7 @@ pub async fn rooms_browser_storage_records() {
 	assert_eq!(access.read(found, 0, 3).await.unwrap(), vec![0, 1, 2]);
 	assert_eq!(
 		archive
-			.put(line("legacy-line", exact.clone(), attachments))
+			.put(line("seeded-line", exact.clone(), attachments))
 			.await
 			.unwrap(),
 		8
@@ -116,7 +117,7 @@ pub async fn rooms_browser_storage_records() {
 		Some("f".repeat(64)),
 	)
 	.unwrap();
-	let changed = line("legacy-line", exact.clone(), vec![changed]);
+	let changed = line("seeded-line", exact.clone(), vec![changed]);
 	archive.put(changed.clone()).await.unwrap();
 	assert!(access.read(reader.clone(), 0, 3).await.is_err());
 	assert_eq!(
@@ -130,11 +131,13 @@ pub async fn rooms_browser_storage_records() {
 	);
 	assert!(access.read(reader.clone(), 0, CHUNK_BYTES + 1).await.is_err());
 	assert!(access.read(reader.clone(), 0, 0).await.is_err());
-	assert!(access
-		.read(reader.clone(), (CHUNK_BYTES + 3) as u64, 1)
-		.await
-		.unwrap()
-		.is_empty());
+	assert!(
+		access
+			.read(reader.clone(), (CHUNK_BYTES + 3) as u64, 1)
+			.await
+			.unwrap()
+			.is_empty()
+	);
 
 	let (a, b) = tokio::join!(
 		archive.put(line("a", "first".into(), vec![])),
@@ -163,16 +166,20 @@ pub async fn rooms_browser_storage_records() {
 	assert!(empty.records.is_empty());
 	assert_eq!(empty.next, a.max(b));
 	assert_eq!(db.source(&mut platform).await.unwrap(), source);
-	assert!(archive
-		.put_retained(line("kept", exact.clone(), vec![]), "fenced".into())
-		.await
-		.unwrap()
-		.is_some());
+	assert!(
+		archive
+			.put_retained(line("kept", exact.clone(), vec![]), "fenced".into())
+			.await
+			.unwrap()
+			.is_some()
+	);
 	let mut abandoned = Box::pin(archive.put(line("abandoned", "committed".into(), vec![])));
-	assert!(abandoned
-		.as_mut()
-		.poll(&mut Context::from_waker(Waker::noop()))
-		.is_pending());
+	assert!(
+		abandoned
+			.as_mut()
+			.poll(&mut Context::from_waker(Waker::noop()))
+			.is_pending()
+	);
 	drop(abandoned);
 	assert_eq!(archive.read(&all, 0, 128).await.unwrap().records.len(), 2);
 	archive.close().await.unwrap();
@@ -192,10 +199,12 @@ pub async fn rooms_browser_storage_failed_write() {
 		line("must-not-commit", "invalid revision".into(), vec![attachment]),
 		&files,
 	));
-	assert!(abandoned
-		.as_mut()
-		.poll(&mut Context::from_waker(Waker::noop()))
-		.is_pending());
+	assert!(
+		abandoned
+			.as_mut()
+			.poll(&mut Context::from_waker(Waker::noop()))
+			.is_pending()
+	);
 	drop(abandoned);
 	// The next operation observes the failed abandoned write before acting.
 	assert!(archive.read(&Filter::default(), 0, 128).await.is_err());

@@ -1,7 +1,7 @@
 //! Shared multi-room execution against the native directory in Chromium.
 use rooms_application::{
 	documents::SessionDocument,
-	files::{FileDescription, CHUNK_BYTES},
+	files::{CHUNK_BYTES, FileDescription},
 	session::checkpoint::{
 		commands::{Command, CommandRoutes},
 		reconciliation::Id,
@@ -10,11 +10,10 @@ use rooms_application::{
 use rooms_browser::platform::Platform;
 use rooms_glowcap::client::sources::Source;
 use rooms_runtime::{
-	bridge_secrets::BridgeSecrets,
-	directory_runtime::DirectoryRuntime,
+	directories::runtime::DirectoryRuntime,
 	documents::VolatileDocument,
 	rooms::{ConversationEvent, Events, RoomRuntime},
-	session_commands::SessionCommands,
+	session::{bridge_secrets::BridgeSecrets, commands::SessionCommands},
 };
 
 pub async fn exercise(
@@ -42,14 +41,16 @@ pub async fn exercise(
 				&commands,
 				name,
 				Command::JoinRoom,
-				vec![serde_json::json!({
-					"locator":location,"nick":"shared-runtime","conversation":{
-						"kind":"room","id":name,"directory":directory.text().as_str().unwrap(),
-						"name":name,"held":false,"standing":null,"draft":""
-					}
-				})
-				.to_string()
-				.into()],
+				vec![
+					serde_json::json!({
+						"locator":location,"nick":"shared-runtime","conversation":{
+							"kind":"room","id":name,"directory":directory.text().as_str().unwrap(),
+							"name":name,"held":false,"standing":null,"draft":""
+						}
+					})
+					.to_string()
+					.into(),
+				],
 			)
 			.await;
 		}
@@ -66,7 +67,7 @@ pub async fn exercise(
 			rooms.live("wasm-runtime-alpha").unwrap().reference(),
 			rooms.live("wasm-runtime-beta").unwrap().reference()
 		);
-		let snapshot = rooms_runtime::session_projection::current(
+		let snapshot = rooms_runtime::session::projection::current(
 			&commands.view(),
 			location,
 			&directories.read(),
@@ -88,10 +89,10 @@ pub async fn exercise(
 		.unwrap();
 		assert_eq!(projected.access, rooms_application::grants::Access::Observe);
 		assert_eq!(projected.room_views.as_slice().len(), 2);
-		let operations = rooms_runtime::operations::Operations::new(platform.clone());
-		operations.reconcile(&commands, &directories).await;
-		let peering = rooms_runtime::peering::Peering::new(platform.clone());
-		peering.reconcile(&commands, &directories, &rooms).await;
+		let operations = rooms_runtime::rooms::operations::Operations::new(platform.clone());
+		operations.reconcile(&commands, &directories);
+		let peering = rooms_runtime::rooms::peering::Peering::new(platform.clone());
+		peering.reconcile(&commands, &directories, &rooms);
 		let alpha = rooms.live("wasm-runtime-alpha").unwrap();
 		assert!(alpha.stewardship().claim().await.unwrap());
 		let bytes = vec![41u8; CHUNK_BYTES + 17];
@@ -107,10 +108,12 @@ pub async fn exercise(
 			bytes.clone(),
 		)
 		.unwrap();
-		assert!(rooms
-			.send_files("wasm-runtime-alpha", "first shared room file", vec![source])
-			.await
-			.is_ok());
+		assert!(
+			rooms
+				.send_files("wasm-runtime-alpha", "first shared room file", vec![source])
+				.await
+				.is_ok()
+		);
 		let first = message(&mut events, "first shared room file").await;
 		assert_eq!(first.conversation_id, "wasm-runtime-alpha");
 		assert!(first.editable);
@@ -143,20 +146,24 @@ pub async fn exercise(
 			}
 			changes.changed().await.unwrap();
 		}
-		assert!(rooms
-			.edit("wasm-runtime-alpha", first.line_id.unwrap(), "edited shared room file")
-			.await
-			.is_ok());
+		assert!(
+			rooms
+				.edit("wasm-runtime-alpha", first.line_id.unwrap(), "edited shared room file")
+				.await
+				.is_ok()
+		);
 		let edited = message(&mut events, "edited shared room file").await;
 		let same = edited.files[0].materialize().await.unwrap();
 		assert_eq!(
 			file.span(0, 3).unwrap().as_ref().as_ptr(),
 			same.span(0, 3).unwrap().as_ref().as_ptr()
 		);
-		assert!(rooms
-			.withdraw("wasm-runtime-alpha", first.line_id.unwrap())
-			.await
-			.is_ok());
+		assert!(
+			rooms
+				.withdraw("wasm-runtime-alpha", first.line_id.unwrap())
+				.await
+				.is_ok()
+		);
 		command(
 			&commands,
 			"leave-shared-alpha",

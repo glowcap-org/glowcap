@@ -15,7 +15,7 @@ use core::ffi::{c_int, c_uchar, c_uint};
 use super::tcp::{GlowcapTcpConfig, GlowcapTcpConn, GlowcapTcpListener, GlowcapTcpNetlayer, GlowcapTcpStreamOptions};
 use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
 
-extern "C" {
+unsafe extern "C" {
 	pub fn glowcap_tcp_archive_fingerprint() -> u64;
 	pub fn glowcap_tcp_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn glowcap_tcp_netlayer_new(

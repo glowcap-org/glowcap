@@ -3,16 +3,14 @@ pub mod creation;
 mod discovery;
 pub mod introduction;
 mod publication;
-pub use discovery::{event, event_fields, rooms, snapshot, Event, MemberChange, RoomChange, Snapshot};
+pub use discovery::{Event, MemberChange, RoomChange, Snapshot, event, event_fields, rooms, snapshot};
 pub use publication::{Member, OriginProof, PublicationKind, RoomInfo};
 pub mod queue;
 pub mod registration;
 pub mod wire;
 pub use wire::Shape;
 
-pub const NAME: &str = "directory";
-pub const LIST: &str = "listPublications";
-pub const WATCH: &str = "watchPublications";
+pub use crate::protocol_data::{DIRECTORY as NAME, LIST_PUBLICATIONS as LIST, WATCH_PUBLICATIONS as WATCH};
 pub const MAX_ROWS: usize = 256;
 
 pub use crate::room::ListArgument as Argument;

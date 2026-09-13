@@ -21,3 +21,31 @@ pub fn line_bytes(text: &str) -> usize {
 pub fn visualizer_override_refusal(text: &str) -> Option<String> {
 	rooms_application::session::visualizer::override_refusal(text).map(str::to_owned)
 }
+
+/// A browser receives only Rooms' inert document projection. Authored source
+/// remains the wire and archive value; parsing failure is represented inside
+/// the document as literal text rather than crossing this boundary as a lost
+/// message.
+#[wasm_bindgen(js_name = markdownDocument)]
+pub fn markdown_document(text: &str) -> Result<String, JsValue> {
+	serde_json::to_string(&rooms_application::markdown::Document::read(text))
+		.map_err(|error| js_sys::Error::new(&error.to_string()).into())
+}
+
+#[wasm_bindgen(js_name = openGraphTargets)]
+pub fn open_graph_targets(text: &str) -> Result<String, JsValue> {
+	serde_json::to_string(&rooms_application::markdown::Document::read(text).preview_targets())
+		.map_err(|error| js_sys::Error::new(&error.to_string()).into())
+}
+
+#[wasm_bindgen(js_name = openGraphSelection)]
+pub fn open_graph_selection(text: &str, encoded: &str) -> Option<String> {
+	rooms_application::open_graph::Selection::decode(text, encoded)
+		.ok()
+		.map(|selection| selection.encode())
+}
+
+#[wasm_bindgen(js_name = openGraphMetadata)]
+pub fn open_graph_metadata(encoded: &str) -> Option<String> {
+	rooms_application::open_graph::Metadata::decode(encoded).and_then(|metadata| serde_json::to_string(&metadata).ok())
+}

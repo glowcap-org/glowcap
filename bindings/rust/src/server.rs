@@ -8,9 +8,9 @@ use std::rc::Rc;
 
 use crate::abi_constants::{DRIVER_DEFAULT_HANDSHAKE_MS, DRIVER_DEFAULT_SETTLE_MS};
 use crate::driver_loop::LoopShared;
-use crate::host::try_spawn_local_handle;
 use crate::host::Host;
 use crate::host::HostShared;
+use crate::host::try_spawn_local_handle;
 use crate::session::Session;
 use crate::{ListenerIdentity, Result};
 

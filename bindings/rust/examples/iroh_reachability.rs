@@ -22,7 +22,7 @@
 use std::rc::Rc;
 
 use glowcap_rust_dogfood::iroh::Reachability;
-use glowcap_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session};
+use glowcap_rust_dogfood::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;

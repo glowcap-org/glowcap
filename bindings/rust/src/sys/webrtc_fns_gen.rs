@@ -13,10 +13,10 @@
 
 use core::ffi::{c_int, c_uchar};
 
-use super::webrtc::{GlowcapWebrtcConfig, GlowcapWebrtcNetlayer, GlowcapWebrtcPeer, GlowcapWebrtcReadyEvent};
 use super::GlowcapTransportProvider;
+use super::webrtc::{GlowcapWebrtcConfig, GlowcapWebrtcNetlayer, GlowcapWebrtcPeer, GlowcapWebrtcReadyEvent};
 
-extern "C" {
+unsafe extern "C" {
 	pub fn glowcap_webrtc_archive_fingerprint() -> u64;
 	pub fn glowcap_webrtc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn glowcap_webrtc_netlayer_new(

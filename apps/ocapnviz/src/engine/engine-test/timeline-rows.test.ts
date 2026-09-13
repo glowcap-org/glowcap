@@ -2,6 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 import { TimelineDocument } from "../timeline.ts";
 import { Engine } from "../engine.ts";
 import { findPeer } from "../world.ts";
+import { observationsOf } from "../temporal/recording-access.ts";
 import { engineTest } from "./harness.ts";
 import { doc } from "./fixtures.ts";
 
@@ -403,12 +404,12 @@ engineTest(
 );
 
 engineTest(
-	"add-peer populates doc.entities.peers alongside the peer-joined event",
+	"add-peer writes the peer definition without inventing an observation",
 	() => {
-		// The entities map is the identity source of truth; events
-		// still carry the payload (for fixture back-compat) but the
-		// entities-map write is what makes eternal-start possible.
+		// Build-mode edits write the identity source directly; capture events are
+		// reserved for facts a source actually observed.
 		const e = new Engine(structuredClone(doc));
+		const observationsBefore = observationsOf(e.doc).length;
 		const peerId = e.dispatch({
 			kind: "add-peer",
 			profile: "glowcap",
@@ -419,6 +420,7 @@ engineTest(
 		assertEquals(def?.profile, "glowcap");
 		assertEquals(def?.label, "Carol");
 		assertEquals(def?.position, { x: 10, y: 20 });
+		assertEquals(observationsOf(e.doc).length, observationsBefore);
 	},
 );
 

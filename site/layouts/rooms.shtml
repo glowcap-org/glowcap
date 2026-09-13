@@ -1,0 +1,54 @@
+<extend template="base.shtml">
+<head id="head">
+</head>
+<main id="content">
+	<header class="hero">
+		<!-- The mark, live, as on the front door: brand_mark.ts runs the shader
+		     in every .hero-mark, the whole cycle once as the page opens and
+		     then a lockup that answers the pointer. The still artwork stands
+		     in where no device can be had. -->
+		<span class="hero-mark" data-mark-play="arrive">
+			<span class="mark-live" aria-hidden="true"></span>
+			<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-rim"></i><i class="mark-piece mark-flesh"></i><i class="mark-piece mark-shade"></i><i class="mark-piece mark-windows"></i></span>
+		</span>
+		<div class="hero-copy">
+			<p class="hero-eyebrow">A chat application built on glowcap</p>
+			<!-- The app's own lockup at hero scale: the logotype and its small
+			     caps keep the proportion the rail draws them at. -->
+			<h1 class="hero-lockup"><span>glowcap</span><small>rooms</small></h1>
+			<p class="hero-tagline">Everyone in a room is a peer, bots included. Talk to any of them directly, and take your session with you wherever you go.</p>
+			<div class="hero-actions">
+				<a class="btn btn-primary" href="$site.page('rooms/start').link()">Run Rooms <svg class="btn-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></a>
+				<a class="btn btn-secondary" href="$site.page('rooms/architecture').link()">How it works</a>
+			</div>
+		</div>
+	</header>
+	<article class="prose">
+		<div :html="$page.content()"></div>
+	</article>
+	<nav class="cards" aria-label="Learn and run Rooms">
+		<a class="card card-lead" href="$site.page('rooms/start').link()">
+			<span class="card-lead-mark" aria-hidden="true"></span>
+			<div>
+				<h2>Run your first room</h2>
+				<p>Start Rooms on your machine, join as two people, talk to someone with the room out of it, and open your session on your phone.</p>
+			</div>
+		</a>
+		<a class="card" href="$site.page('rooms/architecture').link()">
+			<h2>How Rooms works</h2>
+			<p>Why a room is something you hold, what a click promises, how your browser is a peer, and how the code is divided.</p>
+		</a>
+		<a class="card" href="$site.page('rooms/protocol').link()">
+			<h2>The protocol</h2>
+			<p>One published name, and every other reference handed back from it. Rooms, seats, lines, files, and introductions, all as OCapN objects.</p>
+		</a>
+		<a class="card" href="$site.page('rooms/operations').link()">
+			<h2>Operate Rooms</h2>
+			<p>How people reach it, where history and sessions live, admin links, and what happens when something fails.</p>
+		</a>
+		<a class="card" href="$site.page('rooms/irc').link()">
+			<h2>Use it from IRC</h2>
+			<p>Follow an IRC channel as a room, or join Rooms from an ordinary IRC client.</p>
+		</a>
+	</nav>
+</main>

@@ -146,6 +146,20 @@ The backend reports the kernel-bound IPv4 address and resolved port together;
 the embedding remains responsible for publishing a dialable locator when it
 binds a wildcard address.
 
+On Linux, `net.Backend` tries io_uring first. If the kernel or host policy
+cannot support glowcap's io_uring backend, it uses epoll with the same bounded
+pool and completion ownership rules. Applications can call
+`net.tcpBackendStatus(&loop)` after constructing a TCP, onion, keyed-relay,
+Noise, or iroh loop. A non-null `fallback_reason` explains why epoll was
+selected. On an iroh loop, this names the wrapped Linux platform layer, not the
+iroh transport. The many-sessions example and Rooms peer report this through
+their own diagnostic streams. The library does not print it because the
+embedding owns its logs and operator interface. The 500,000-session measurement
+used io_uring. Epoll passes the completion-loop behavior tests but has no
+equivalent scale result.
+[ADR-0152](decisions/adr/ADR-0152-linux-completion-backend-selection.md) records
+the selection boundary and evidence.
+
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
 security and reachability of the transports.
 
@@ -324,11 +338,11 @@ First-party applications live under [`apps/`](../apps/). Compilable teaching
 programs live under [`examples/`](../examples/README.md). Build checks and code
 generators live under [`tools/`](../tools/README.md).
 
-Rooms' [Rust migration boundary](decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
+Rooms' [Rust application boundary](decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
 places the shared Rooms protocol and application policy above the Zig Host,
 which continues to own CapTP. Rendering and platform I/O remain in adapters.
-The running application remains TypeScript; the
-[migration plan](planning/rooms-rust.md) records the implementation and evidence.
+The running presentation remains TypeScript; recurring Rooms gates record the
+implementation evidence.
 
 CapTP and OCapN claims are checked against the upstream OCapN suite, live Goblins
 peers, and the in-tree reference corpus. [Community review](community-review.md)

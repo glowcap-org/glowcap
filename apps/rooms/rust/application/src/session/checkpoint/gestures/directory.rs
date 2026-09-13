@@ -13,6 +13,7 @@ impl Checkpoint {
 		id: &str,
 		locator: &str,
 		nick: &str,
+		nick_allocation: crate::directory::registration::NicknameAllocation,
 		prepare: bool,
 	) -> Result<(Directory, Option<RoomGesture>), &'static str> {
 		let prior = self.gesture_directory(id).ok();
@@ -25,21 +26,23 @@ impl Checkpoint {
 				home: self.0.directories.0.is_empty(),
 				reached: Some(false),
 				nick: Field::new(nick.into()).ok_or("Invalid nickname")?,
+				nick_allocation,
 				standing: Nullable::Null,
 			}
 		};
 		directory.nick = Field::new(nick.into()).ok_or("Invalid nickname")?;
+		directory.nick_allocation = nick_allocation;
 		let preparation = if !prepare {
 			None
 		} else if let Some(prior) = prior {
-			if prior.nick == directory.nick {
+			if prior.nick == directory.nick && prior.nick_allocation == directory.nick_allocation {
 				None
 			} else {
 				Some(RoomGesture {
 					name: "setDirectoryNick",
-					arguments: alloc::vec![id.into(), nick.into()],
+					arguments: alloc::vec![id.into(), nick.into(), nick_allocation.wire().into()],
 					directory: directory.id.clone(),
-					expected: Some((prior.locator.clone(), prior.nick.clone())),
+					expected: Some(super::expected(prior)),
 				})
 			}
 		} else {
@@ -53,10 +56,24 @@ impl Checkpoint {
 		Ok((directory, preparation))
 	}
 	pub fn reach_directory(&self, id: &str, locator: &str, nick: &str) -> Result<Reach, &'static str> {
+		self.reach_directory_with_allocation(
+			id,
+			locator,
+			nick,
+			crate::directory::registration::NicknameAllocation::Exact,
+		)
+	}
+	pub fn reach_directory_with_allocation(
+		&self,
+		id: &str,
+		locator: &str,
+		nick: &str,
+		nick_allocation: crate::directory::registration::NicknameAllocation,
+	) -> Result<Reach, &'static str> {
 		let standing = self
 			.gesture_directory(id)
 			.is_ok_and(|prior| prior.home || prior.reached == Some(true));
-		let (directory, preparation) = self.prepare_directory(id, locator, nick, true)?;
+		let (directory, preparation) = self.prepare_directory(id, locator, nick, nick_allocation, true)?;
 		Ok(Reach {
 			preparation,
 			directory,

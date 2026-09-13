@@ -1,201 +1,25 @@
-// The rooms failure taxonomy.
+// Reading a rooms failure out of whatever carried it.
 //
-// A broken OCapN promise carries a *string* reason — a thrown error's message — so a
-// stable code rides at the front of it and a peer branches on the code, never on the
-// prose of a message. The directory and rooms throw a `RoomError` with one of the
-// codes below; callers extract the reason string and reconstruct the typed error
-// with `RoomError.from()`. Change the human wording freely; the code is the contract.
-//
-// `roomErrorOf` is the reader. What varies per binding is the carrier: here an
-// awaited send breaks as a `VowBroken` holding the wire's reason, so this is
-// where that reason is unwrapped before the portable `RoomError.from` parses the
-// code out of it. Other client languages mirror the codes below and read them
-// through their own binding's carrier.
-//
-// Only the failures an app actually reacts to are typed. A plain `Error` (a missing
-// capability, a bad verb) is an invariant violation nobody branches on — those stay
-// untyped, and `RoomError.from()` returns null for them.
+// The taxonomy itself is `error_codes.ts` and imports nothing. This module is
+// the native half: what varies per binding is the carrier, and here an awaited
+// send breaks as a `VowBroken` holding the wire's reason, so this is where that
+// reason is unwrapped before the portable `RoomsError.from` parses the code out
+// of it. Other client languages mirror the codes and read them through their
+// own binding's carrier; a browser has no `VowBroken` and reads the message
+// directly, which is why the split exists.
 
 import { VowBroken } from "@glowcap/runtime";
+import { RoomsError } from "./error_codes.ts";
 
-/** A room subscribe whose nick is already claimed in that room. */
-export const NICK_TAKEN = "nick-taken";
-/** `enter` on a room that is not open. */
-export const NO_SUCH_ROOM = "no-such-room";
-/** `open` on a room that already exists. */
-export const ROOM_EXISTS = "room-exists";
-/** `open` with a room name longer than `MAX_ROOM`. */
-export const ROOM_TOO_LONG = "room-too-long";
-/** `open` from a connection that already holds `MAX_ROOMS_PER_CREATOR` rooms. */
-export const TOO_MANY_ROOMS = "too-many-rooms";
-/** A room already holds its live membership ceiling, or another member would
- * make its exact roster notification exceed the line byte contract. */
-export const ROOM_FULL = "room-full";
-/** A peering source or the destination directory reached its retained foreign
- * room ceiling. */
-export const TOO_MANY_PEERED_ROOMS = "too-many-peered-rooms";
-/** A `link` that would make one more room name durable after the server has
- * reached `MAX_ROOM_LINKS`. Existing linked rooms still return their links. */
-export const ROOM_LINKS_FULL = "room-links-full";
-/** A request for a room's steward from a connection that did not open it, an
- * operator revoke where none is issued, or any call through a revoked steward
- * generation. */
-export const NOT_STEWARD = "not-steward";
-/** An introduction to a member the directory has no registration for. */
-export const PEER_OFFLINE = "peer-offline";
-/** An introduction the member has not minted an inbox for. The directory has
- * asked them; retry when the register inbox hears `notify("introducible", peer)`
- * (see `protocol.ts`). */
-export const INTRODUCTION_PENDING = "introduction-pending";
-/** A direct inbox no longer has an open conversation for the exact sender
- * registration. The sender must retire that thread rather than retry it. */
-export const DIRECT_NOT_ACCEPTED = "direct-not-accepted";
-/** A verb that needs the caller's own registered name, from a connection holding
- * none. `register` first. */
-export const NOT_REGISTERED = "not-registered";
-/** A room verb that requires the caller's current membership after that
- * membership ended or was replaced. */
-export const NOT_ROOM_MEMBER = "not-room-member";
-export const READ_ONLY_MEMBERSHIP = "read-only-membership";
-/** A retained room capability whose exact room publication has been retired.
- * Retrying it must not target a later publication with the same display name. */
-export const ROOM_RETIRED = "room-retired";
-/** A register whose nick is longer than `MAX_NICK`. The nick is the key every
- * member files an inbox under, so the directory caps it rather than passing an
- * arbitrary-length name on to them. */
-export const NICK_TOO_LONG = "nick-too-long";
-/** A register whose locator names somewhere other than the registrant. The
- * directory hands that locator to everyone it introduces, who dial it — so a
- * locator it cannot tie to the caller is a dial it would be aiming on their
- * behalf at an address of the caller's choosing. */
-export const NOT_YOUR_LOCATOR = "not-your-locator";
-/** A `post` carrying trailing arguments. The room composes what rides after a
- * line's text — presence, typing, and the file record it builds for an
- * attachment — so a member that supplies its own is refused rather than
- * relayed, since members read those positions as the room's word. */
-export const BAD_ATTACHMENT = "bad-attachment";
-/** An `attach` the room will not take: a file over `MAX_ATTACHMENT_BYTES`, a
- * name or type over its cap, or a member already holding
- * `MAX_MESSAGE_FILES` unposted uploads. */
-export const ATTACHMENT_REFUSED = "attachment-refused";
-/** A `write` before publication or past the size declared at `attach`. */
-export const UPLOAD_INCOMPLETE = "upload-incomplete";
-/** A `read` on a file the room has dropped to stay under its media ceiling.
- * The reference stays valid and says so plainly; it does not answer an empty
- * file, which a reader could not tell from a real one. */
-export const BLOB_EXPIRED = "blob-expired";
-/** An `up` for a transport this server process cannot realize: the archive was
- * not built in, or the environment it needs (a running Tor) was not named at
- * start. The detail says which. */
-export const LISTENER_UNSUPPORTED = "listener-unsupported";
-/** A `down` on the listener whose locator this server announced. The web relay
- * dials that locator, so taking it down would cut off every browser tab —
- * including the admin session asking. */
-export const LISTENER_SERVING = "listener-serving";
-/** An `up` for a transport whose one listener seat this runtime already
- * holds. The native runtime admits one live listener per transport symbol
- * (`HostRuntime.reserveListenerProfile`), so a second tcp listener needs the
- * first taken down. */
-export const LISTENER_TRANSPORT_HELD = "listener-transport-held";
-/** A `down` naming no live listener. */
-export const NO_SUCH_LISTENER = "no-such-listener";
-/** An `openManaged` on a directory that publishes no room managers, so there is
- * no authority for it to hand back. Typed because it is the one refusal a
- * caller answers by opening the room the plain way rather than by giving up:
- * see `enterOrOpenResult`. */
-export const NO_ROOM_MANAGERS = "no-room-managers";
+export * from "./error_codes.ts";
 
-export type RoomErrorCode =
-	| typeof NICK_TAKEN
-	| typeof NO_SUCH_ROOM
-	| typeof ROOM_EXISTS
-	| typeof ROOM_TOO_LONG
-	| typeof TOO_MANY_ROOMS
-	| typeof ROOM_FULL
-	| typeof TOO_MANY_PEERED_ROOMS
-	| typeof ROOM_LINKS_FULL
-	| typeof NOT_STEWARD
-	| typeof PEER_OFFLINE
-	| typeof INTRODUCTION_PENDING
-	| typeof DIRECT_NOT_ACCEPTED
-	| typeof NOT_REGISTERED
-	| typeof NOT_ROOM_MEMBER
-	| typeof READ_ONLY_MEMBERSHIP
-	| typeof ROOM_RETIRED
-	| typeof NICK_TOO_LONG
-	| typeof NOT_YOUR_LOCATOR
-	| typeof BAD_ATTACHMENT
-	| typeof ATTACHMENT_REFUSED
-	| typeof UPLOAD_INCOMPLETE
-	| typeof BLOB_EXPIRED
-	| typeof LISTENER_UNSUPPORTED
-	| typeof LISTENER_SERVING
-	| typeof LISTENER_TRANSPORT_HELD
-	| typeof NO_SUCH_LISTENER
-	| typeof NO_ROOM_MANAGERS;
-
-const CODES = new Set<string>([
-	NICK_TAKEN,
-	NO_SUCH_ROOM,
-	ROOM_EXISTS,
-	ROOM_TOO_LONG,
-	TOO_MANY_ROOMS,
-	ROOM_FULL,
-	TOO_MANY_PEERED_ROOMS,
-	ROOM_LINKS_FULL,
-	NOT_STEWARD,
-	PEER_OFFLINE,
-	INTRODUCTION_PENDING,
-	DIRECT_NOT_ACCEPTED,
-	NOT_REGISTERED,
-	NOT_ROOM_MEMBER,
-	READ_ONLY_MEMBERSHIP,
-	ROOM_RETIRED,
-	NICK_TOO_LONG,
-	NOT_YOUR_LOCATOR,
-	BAD_ATTACHMENT,
-	ATTACHMENT_REFUSED,
-	UPLOAD_INCOMPLETE,
-	BLOB_EXPIRED,
-	LISTENER_UNSUPPORTED,
-	LISTENER_SERVING,
-	LISTENER_TRANSPORT_HELD,
-	NO_SUCH_LISTENER,
-	NO_ROOM_MANAGERS,
-]);
-
-/** A failure with a machine-readable code. The message the wire carries is
- * `"<code>: <detail>"`, so a peer can reconstruct the code with `RoomError.from`. */
-export class RoomError extends Error {
-	constructor(readonly code: RoomErrorCode, readonly detail: string) {
-		super(`${code}: ${detail}`);
-		this.name = "RoomError";
-	}
-
-	/** Reconstruct the typed error from a break reason, or null if the reason carries
-	 * no known code (an anonymous failure). */
-	static from(reason: string): RoomError | null {
-		// A break reason reaches a caller as the message of a thrown error, and the
-		// binding may have said something of its own first ("glowcap error -14: ").
-		// The code is a segment of that message, not necessarily its head, so look
-		// for it across the colons rather than only at the front.
-		const parts = reason.split(": ");
-		for (let i = 0; i < parts.length; i += 1) {
-			if (CODES.has(parts[i])) {
-				return new RoomError(parts[i] as RoomErrorCode, parts.slice(i + 1).join(": "));
-			}
-		}
-		return null;
-	}
-}
-
-/** The typed `RoomError` a caught failure carries, or null. Reads the
+/** The typed `RoomsError` a caught failure carries, or null. Reads the
  * broken-promise reason (a `VowBroken` from an awaited send) or a plain error
  * message, then parses the code out of it. */
-export function roomErrorOf(err: unknown): RoomError | null {
-	if (err instanceof RoomError) return err;
+export function roomsErrorOf(err: unknown): RoomsError | null {
+	if (err instanceof RoomsError) return err;
 	const reason = err instanceof VowBroken ? err.reason : err instanceof Error ? err.message : String(err);
-	return RoomError.from(reason);
+	return RoomsError.from(reason);
 }
 
 /** Whether `code` is a status no version of this defines.

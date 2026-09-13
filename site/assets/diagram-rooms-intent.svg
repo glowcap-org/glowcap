@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" width="760" height="250" role="img" aria-label="A click becomes a saved request, Rooms does the work, the result is confirmed, and the screen shows what actually happened. A refused or unconfirmed request stays beside the same note and stays in view.">
+  <style>
+    text { font-family: var(--font-sans, system-ui, sans-serif); fill: var(--ink, #3a3027); paint-order: stroke; stroke: var(--paper-raised, #fff9ee); stroke-width: 3px; stroke-linejoin: round; }
+    .title { font-size: 14px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink-soft, #6b5d4d); }
+    .note { font-size: 11px; fill: var(--dia-danger, #b3403a); }
+    .bead { visibility: hidden; }
+    @supports (offset-path: path("M0 0 L1 1")) { .bead { visibility: visible; } }
+    /* One 8s loop: a bead rides the happy path left to right, the screen
+       settles, then a second bead takes the refusal lane back to the request. */
+    .forward { offset-path: path("M76 75 L676 75"); animation: ri-forward 8s ease-in-out infinite; }
+    .refusal { offset-path: path("M376 110 L376 168 M266 202 L226 202 L226 118"); animation: ri-refusal 8s ease-in-out infinite; }
+    .view { animation: ri-view 8s ease-in-out infinite; transform-origin: 676px 75px; }
+    @keyframes ri-forward {
+      0%, 4% { offset-distance: 0%; opacity: 0; }
+      8% { opacity: 1; }
+      52% { offset-distance: 100%; opacity: 1; }
+      56%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    @keyframes ri-refusal {
+      0%, 62% { offset-distance: 0%; opacity: 0; }
+      66% { opacity: 1; }
+      90% { offset-distance: 100%; opacity: 1; }
+      94%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    @keyframes ri-view {
+      0%, 48% { transform: scale(1); }
+      54% { transform: scale(1.05); }
+      60%, 100% { transform: scale(1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .bead { visibility: hidden !important; }
+    }
+  </style>
+  <defs>
+    <marker id="ri-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent, #c76f18)"/>
+    </marker>
+    <marker id="ri-back" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--dia-danger, #b3403a)"/>
+    </marker>
+  </defs>
+
+  <!-- One row, five equal boxes on a 150-unit pitch, 116 wide, so each
+       arrow between them has a clear 30 units. Reading order is the order,
+       so nothing is numbered. -->
+  <g>
+    <rect x="18" y="40" width="116" height="70" rx="12" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+    <text x="76" y="70" text-anchor="middle" class="title">click</text>
+    <text x="76" y="90" text-anchor="middle" class="sub">tap, type, paste</text>
+  </g>
+  <g>
+    <rect x="168" y="40" width="116" height="70" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
+    <text x="226" y="70" text-anchor="middle" class="title" fill="var(--accent-deep, #9d5209)">request</text>
+    <text x="226" y="90" text-anchor="middle" class="sub">written down</text>
+  </g>
+  <g>
+    <rect x="318" y="40" width="116" height="70" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <text x="376" y="70" text-anchor="middle" class="title" fill="var(--teal-deep, #1b5f66)">work</text>
+    <text x="376" y="90" text-anchor="middle" class="sub">disk or network</text>
+  </g>
+  <g>
+    <rect x="468" y="40" width="116" height="70" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <text x="526" y="70" text-anchor="middle" class="title" fill="var(--teal-deep, #1b5f66)">result</text>
+    <text x="526" y="90" text-anchor="middle" class="sub">confirmed</text>
+  </g>
+  <g class="view">
+    <rect x="618" y="40" width="116" height="70" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--accent, #c76f18)" stroke-width="2"/>
+    <text x="676" y="70" text-anchor="middle" class="title">screen</text>
+    <text x="676" y="90" text-anchor="middle" class="sub">what you see</text>
+  </g>
+
+  <path d="M134 75 L164 75" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#ri-arrow)"/>
+  <path d="M284 75 L314 75" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#ri-arrow)"/>
+  <path d="M434 75 L464 75" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#ri-arrow)"/>
+  <path d="M584 75 L614 75" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#ri-arrow)"/>
+
+  <!-- The refusal lane: straight down from the work, then square corners
+       back to the request it belongs to and across to the screen that shows it. -->
+  <path d="M376 110 L376 164" stroke="var(--dia-danger, #b3403a)" stroke-width="2" marker-end="url(#ri-back)"/>
+  <rect x="266" y="170" width="220" height="64" rx="12" fill="var(--dia-danger-fill, #faece7)" stroke="var(--dia-danger-rule, #edc9bd)"/>
+  <text x="376" y="197" text-anchor="middle" class="title" fill="var(--dia-danger, #b3403a)">refused or unconfirmed</text>
+  <text x="376" y="217" text-anchor="middle" class="sub">code, cause, next step</text>
+  <!-- The two return lanes, with their notes beside the vertical runs, in the
+       clear space under the boxes they climb back into. -->
+  <path d="M266 202 L226 202 L226 118" fill="none" stroke="var(--dia-danger, #b3403a)" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#ri-back)"/>
+  <text x="218" y="150" text-anchor="end" class="note">same request</text>
+  <path d="M486 202 L676 202 L676 118" fill="none" stroke="var(--dia-danger, #b3403a)" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#ri-back)"/>
+  <text x="668" y="150" text-anchor="end" class="note">stays in view</text>
+
+  <circle class="bead forward" r="5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"/>
+  <circle class="bead refusal" r="5" fill="var(--dia-danger, #b3403a)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"/>
+</svg>

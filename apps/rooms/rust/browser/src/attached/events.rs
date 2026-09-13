@@ -1,10 +1,11 @@
 //! One native event queue owns incoming file occurrences until one page listener
 //! accepts them. Sequence admission precedes JS projection and file delivery.
 use super::{
+	Result, RoomsBrowserSession,
 	driver::Driver,
 	files::{self, RoomsBrowserFile},
-	observation::{call, Scope},
-	view, Result, RoomsBrowserSession,
+	observation::{Scope, call},
+	view,
 };
 use rooms_application::session::{
 	controller::events::{Admission, Events},

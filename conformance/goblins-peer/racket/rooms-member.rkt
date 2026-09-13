@@ -23,7 +23,7 @@
 ;; exiting 1. Every `notify` it hears is printed as it arrives, so a person
 ;; watching the terminal sees the room.
 ;;
-;; Set `GLOWCAP_ROOMS_VIZ_URL` to a live timeline endpoint and this vat publishes its own
+;; Set `GLOWCAP_ROOMS_TRACE_URL` to a live timeline endpoint and this vat publishes its own
 ;; trace there, so the session it holds appears beside every other peer's. With
 ;; the variable unset it holds no publishing socket and sends nothing.
 
@@ -96,14 +96,18 @@
           (settle-when-both-done)))))
 
    ;; The room answers subscribe with the membership seat, its kind, and the
-   ;; topic authority; the line is posted on the seat, never on the room.
+   ;; topic and files facets; the line is posted on the seat, never on the room.
    (define (join room)
      (on (<- room 'subscribe nick inbox)
          (lambda (answer)
            (printf "~a subscribed to ~a~n" nick room-name)
            (define seat
              (match answer
-               [(list (? live-refr? seat) (or "observer" "participant") (or (? void?) (? live-refr?))) seat]
+               [(list (? live-refr? seat)
+                      (or "observer" "participant")
+                      (or (? void?) (? live-refr?))
+                      (or (? void?) (? live-refr?)))
+                seat]
                [_ #f]))
            (if seat
                (on (<- seat 'post line)

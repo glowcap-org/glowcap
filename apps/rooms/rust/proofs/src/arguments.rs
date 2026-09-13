@@ -1,5 +1,5 @@
-use rooms_application::room::attachment::AttachmentArgument;
 use rooms_application::room::ArgumentView;
+use rooms_application::room::attachment::AttachmentArgument;
 use serde_json::Value;
 use std::{cell::Cell, rc::Rc};
 

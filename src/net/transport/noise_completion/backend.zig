@@ -73,6 +73,11 @@ pub fn Backend(comptime Inner: type) type {
             self.inner.deinit();
         }
 
+        /// Delegate the wrapped Linux TCP backend selection.
+        pub fn tcpBackendStatus(self: *const Self) @TypeOf(self.inner.tcpBackendStatus()) {
+            return self.inner.tcpBackendStatus();
+        }
+
         pub fn openListener(self: *Self, port: u16) !Fd {
             return self.inner.openListener(port);
         }

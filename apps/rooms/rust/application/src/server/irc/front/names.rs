@@ -1,3 +1,4 @@
+//! IRC nick leases preserve RFC casemapping and one holder per name.
 use super::{
 	super::{
 		protocol::fold,

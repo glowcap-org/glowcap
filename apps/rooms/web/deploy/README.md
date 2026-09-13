@@ -1,17 +1,19 @@
 # Deploy the Rooms browser app
 
-This Compose stack runs the Rooms browser UI, an iroh room server, and one
-durable shared workspace session as native Rust services. The tracked base
-publishes no host port. An ignored `docker-compose.override.yml` says how this
-machine reaches the page, so a host's ports and network names never enter the
-repository.
+This Compose stack runs the Rooms browser UI, an iroh Rooms server, one
+durable shared workspace session, and a PostgreSQL database for kept room
+lines, the first three as native Rust services. The tracked base publishes no
+host port. An ignored `docker-compose.override.yml` says how this machine
+reaches the page, so a host's ports and network names never enter the
+repository, and the database password lives in an ignored `secrets/` file
+that `./ops up` mints on first use.
 
 Build artifacts stay outside the image. Each container mounts `zig-out` at
 `/runtime` read-only, including native executables, their shared libraries,
 and the complete browser artifact. Serving needs no source tree or compiler.
 
 This is the source distribution described in the Rooms
-[prerelease scope](../../README.md#prerelease-distribution), not a standalone
+[prerelease scope](../../README.md#prerelease), not a standalone
 application image. Check out the announced commit and run `rooms-deploy-prep`
 from that same checkout before recreating the containers.
 
@@ -30,23 +32,21 @@ From the repository root, build everything the container mounts:
 zig build rooms-deploy-prep
 ```
 
-Create the external network shared with the glowcap devcontainer if it does not
-already exist:
-
-```sh
-docker network create rooms-net
-```
-
-If Docker reports that a network already exists, continue.
-
-Create the local override from its tracked example, then bring the deployment
-up:
+Then, on the machine that runs Docker, bring it up through this directory's
+operations front:
 
 ```sh
 cd apps/rooms/web/deploy
-cp docker-compose.override.yml.example docker-compose.override.yml
-./up.sh
+./ops up
 ```
+
+The first `up` creates the `rooms-net` network shared with the glowcap
+devcontainer, seeds `docker-compose.override.yml` from its tracked example,
+mints the database password, builds, recreates the containers, waits for each
+to serve, and prints one handoff block with the room locator, browser
+interface build, and every capability. The same short Git revision appears at
+the bottom of Help in the browser. An override already in place is left
+exactly as written.
 
 The example override publishes the page on this host's loopback. Its comments
 carry the other way in: joining the Docker network that a reverse proxy or
@@ -54,21 +54,35 @@ tunnel container already runs on. That neighbor reaches
 `http://glowcap-rooms:8000` over the network and needs no published port. A
 host may use either way, or both.
 
-`./up.sh` is the front door. It builds, recreates both containers, waits for
-each to serve, and prints one handoff block with the room locator, browser
-interface build, and every capability. The same short Git revision appears at
-the bottom of Help in the browser. Underneath it, `./compose.sh` is the front
-for everything else. It always selects `docker-compose.yml`, explicitly adds
-the ignored override when it exists, and disables Compose's implicit `.env`
-loading, so operator values come from the exported process environment unless
-an explicit `--env-file` is passed:
+`ops` is plain `sh`, so it runs on a Docker host that has none of the
+devcontainer's toolchain. Every verb checks the tool it needs and says which
+machine to go to when one is missing:
+
+| Verb | Does |
+| --- | --- |
+| `./ops doctor` | Which tools are here, what is prepared, what runs. Touches nothing |
+| `./ops up` | The first-time setup above, then the strict start: refuse a dirty checkout or a stale preparation, mint, build, recreate, wait, hand off |
+| `./ops redeploy` | `zig build rooms-deploy-prep` where Zig is, then `up` where Docker is |
+| `./ops status` | Container and volume state |
+| `./ops logs [service...]` | Follow the deployment's logs |
+| `./ops down` | Stop the deployment and keep every volume |
+| `./ops reset <what> [--yes]` | Destroy one custody unit and bring the stack back; see Operations capabilities below |
+| `./ops compose <args...>` | Docker Compose with this deployment's files selected, for everything else |
+
+`ops` calls `zig build` for the toolchain half and never the reverse: the
+build graph does not know this front exists. `./ops compose` always selects
+`docker-compose.yml`, explicitly adds the ignored override when it exists, and
+disables Compose's implicit `.env` loading, so operator values come from the
+exported process environment unless an explicit `--env-file` is passed:
 
 ```sh
-./compose.sh logs -f rooms
+./ops compose logs -f rooms
 ```
 
 Open `http://127.0.0.1:8000`. The `glowcap-rooms` container serves the browser
-page, its same-origin `/relay` WebSocket, and `GET /locator`. The Compose port
+page, its same-origin `/relay` WebSocket, `GET /locator`, and `GET /llms.txt`,
+a plain-text description of the deployment for a program that was handed the
+address (the shape https://llmstxt.org/ describes). The Compose port
 mapping names host loopback explicitly, so no other machine reaches this HTTP
 surface through a host LAN address. Reaching further than this machine is the
 separate, deliberate choice of attaching a site network above. Containers on
@@ -81,18 +95,19 @@ port available as host localhost. Change the host side only when port 8000 is
 already occupied, for example `127.0.0.1:18000:8000`, then open
 `http://127.0.0.1:18000`.
 
-`./compose.sh ps` shows whether it is *serving*, which is not the same as
+`./ops status` shows whether it is *serving*, which is not the same as
 running: the health probe asks `/locator`, and that answers only once the page
-is being served and the room server it supervises has announced itself. A
+is being served and the Rooms server it supervises has announced itself. A
 container stuck at `starting` or turning `unhealthy` is telling you the room
-server is not coming up, and `./compose.sh logs rooms` says why.
+server is not coming up, and `./ops logs rooms` says why.
 
-After pulling new work, `./up.sh` refuses a dirty checkout or a completed
-deployment revision from another commit. Run `zig build rooms-deploy-prep`
-again in the devcontainer. Its revision is written only after the shared
-libraries, iroh transport, Wasm Host, browser bundle, and native session peer
-all finish, so a
-failed or partial preparation cannot authorize the new checkout.
+After pulling new work, `./ops up` refuses a dirty checkout or a completed
+deployment revision from another commit. `./ops redeploy` runs
+`zig build rooms-deploy-prep` again where Zig is and, when Docker is not on
+the same machine, names the command to finish with on the host. The
+preparation's revision is written only after the shared libraries, iroh
+transport, Wasm Host, browser bundle, and native session peer all finish, so
+a failed or partial preparation cannot authorize the new checkout.
 
 ## Your shared workspace
 
@@ -104,7 +119,7 @@ passwords answered to bridge forms all live in the separate
 same session capability and reconciles that saved intent; unreachable peers
 remain visible as disconnected until they return.
 
-Run `./up.sh`. After both peers are ready, its single capability handoff block
+Run `./ops up`. After both peers are ready, its single capability handoff block
 includes a **shared-session administrator capability**. Open the page and paste
 that sturdyref into **Choose a session**, then **Shared session**, then press **Attach**.
 A new empty session adopts the workspace saved in that browser; otherwise its
@@ -120,7 +135,7 @@ The page therefore does not fetch it from a public endpoint and Compose does
 not inject it into HTML. Read it again from the operator side with:
 
 ```sh
-./compose.sh exec -T rooms-session \
+./ops compose exec -T rooms-session \
   /runtime/bin/rooms-session --check-ready=/run/rooms-session/admin.sturdyref
 ```
 
@@ -155,36 +170,33 @@ Every operator capability is on in `docker-compose.yml`: inspect
 (`GLOWCAP_ROOMS_DIAGNOSTICS`), listener administration
 (`GLOWCAP_ROOMS_ADMIN_LISTENERS`), room-steward operation
 (`GLOWCAP_ROOMS_OPERATOR`), directory peering
-(`GLOWCAP_ROOMS_PEERING`), the live timeline (`GLOWCAP_ROOMS_VIZ`, serving
-port 9300 unless `GLOWCAP_ROOMS_VIZ_PORT` says otherwise), and the IRC
+(`GLOWCAP_ROOMS_PEERING`), the live timeline (`GLOWCAP_ROOMS_TRACE`, serving
+port 9300 unless `GLOWCAP_ROOMS_TRACE_PORT` says otherwise), and the IRC
 gateway (`GLOWCAP_ROOMS_IRC`). Each is the same as the matching `--flag` on a
 local start; comment a line out to withhold that authority from the
-deployment. The viz endpoint requires its capability of every socket, so
+deployment. The trace endpoint requires its capability of every socket, so
 reaching the port neither reads the timeline nor writes traces into it.
 
-`./up.sh` is the one-step restart: it runs
-`compose.sh up -d --build --force-recreate`, waits for the room server and
+`./ops up` is the one-step restart: it runs
+`compose up -d --build --force-recreate`, waits for the Rooms server and
 shared session to become ready, and prints one handoff block containing the
 room's operator capabilities, room locator, and session administrator
 capability.
 
 A build that replaced a prerelease state schema refuses the files a volume
 holds from the previous one, says which schema wrote them, and keeps
-restarting until the operator resets. The session's durable files are one
-custody unit, so reset the whole volume rather than one file:
+restarting until the operator resets. Each durable volume is one custody
+unit, so a reset removes a whole volume and never one file. `./ops reset`
+stops the stack, asks before it destroys anything, removes only what was
+named, and brings the stack back up through the same handoff; `--yes`
+answers for an unattended run:
 
-```sh
-./compose.sh down
-docker volume ls --filter name=rooms-session-state   # shows the project-prefixed name
-docker volume rm <that name>
-./up.sh
-```
-
-The same applies to `rooms-state`. To start the whole deployment fresh,
-`./compose.sh down -v` removes every volume the stack declares, state and
-caches alike, and `./up.sh` rebuilds from nothing. Resetting the session
-volume mints a new session identity, so the page's shared session must be
-attached again from the new handoff block.
+| Command | Destroys |
+| --- | --- |
+| `./ops reset session` | The shared workspace. Its administrator capability is minted fresh, so the page must attach again from the new handoff block |
+| `./ops reset state` | The room server's state: its identity, the operator capability swiss numbers, and every issued room link |
+| `./ops reset storage` | The history database. Every kept room line goes with it, so dump it first (Storage below) if it matters |
+| `./ops reset all` | Every volume the stack declares, state, session, history, and caches alike |
 
 Each capability's swiss number is minted once and persists in the
 `rooms-state` volume, so a restart republishes the same one. Three ways to
@@ -192,13 +204,13 @@ read them, any time:
 
 ```sh
 # The capability printer reads the state volume and prints the token lines:
-./compose.sh exec rooms /runtime/bin/rooms-server --capabilities
+./ops compose exec rooms /runtime/bin/rooms-server --capabilities
 
 # The startup logs carry the same lines:
-./compose.sh logs rooms | grep 'ROOMS-'
+./ops compose logs rooms | grep 'ROOMS-'
 
 # Or read a single one straight from the volume:
-./compose.sh exec rooms cat /state/diagnostics
+./ops compose exec rooms cat /state/diagnostics
 ```
 
 Whoever can read the room volume or logs holds those directory-operation
@@ -234,7 +246,7 @@ Then restart the service from a shell with Docker access, at the repository
 root:
 
 ```sh
-apps/rooms/web/deploy/compose.sh restart rooms
+apps/rooms/web/deploy/ops compose restart rooms
 ```
 
 Browser-to-browser WebRTC uses the application's public STUN default. Set
@@ -251,7 +263,7 @@ the bounded ICE-server credential document:
 export GLOWCAP_ROOMS_TURN_CREDENTIALS_URL="https://turn.example/credentials"
 export GLOWCAP_ROOMS_TURN_BEARER_TOKEN="<issuer bearer token>"
 export GLOWCAP_ROOMS_TURN_TTL_SECONDS=86400
-./compose.sh up -d
+./ops compose up -d
 ```
 
 The URL and token must be present together, the issuer must use HTTPS, and the
@@ -277,7 +289,7 @@ executables; the iroh sidecar is already linked into
 - `zig-out/rooms-deployment.version`, written last with the checkout revision
   and the selected browser generation's source identity.
 
-`up.sh` requires a clean checkout and checks both identities before recreating
+`./ops up` requires a clean checkout and checks both identities before recreating
 either service. The native web front loads the selected generation as a whole;
 `--prepared` never invokes a compiler or inspects a source checkout. Readiness
 checks both the directory and browser assets through `rooms-web --check-ready`.
@@ -345,19 +357,41 @@ mount it at `/runtime`. Keep the sibling `bin`, `lib` and `rooms-web` paths.
 
 ## Storage
 
-Kept room lines live in the state volume by default. To keep them in a managed
-database instead, bring up the optional service and point the server at it:
+Kept room lines live in the `rooms-storage-db` PostgreSQL service, in the
+`rooms-storage-db` volume. The room server names it as
+`postgres://rooms@rooms-storage-db:5432/rooms?sslmode=disable` and reads the
+password from the Docker secret `storage-db-password`, so the password is in
+no environment, command line, or `docker inspect` output. The database is
+reachable only on the private compose network, TLS is off on that leg for
+that reason, and a destination that cannot be opened stops the server at
+startup with the reason, so a misconfiguration is a loud boot failure rather
+than quiet forgetting. The room server waits for the database's health check
+before it is started at all.
+
+The password is one file, `secrets/storage-db-password`, which `./ops up` mints
+from the kernel's randomness on first use and never rewrites. Git ignores the
+directory. Keep that file with your backups: a restored data volume is only
+readable with the password it was created under.
+
+Back up the database while it runs, and restore into an empty volume:
 
 ```sh
-export STORAGE_DB_PASSWORD='<a long secret>'
-export GLOWCAP_ROOMS_STORAGE='postgres://rooms:<that secret>@rooms-storage-db:5432/rooms'
-./compose.sh --profile storage-db up -d
-./up.sh
+./ops compose exec -T rooms-storage-db pg_dump -U rooms -Fc rooms >rooms-$(date +%Y%m%d).dump
+./ops compose exec -T rooms-storage-db pg_restore -U rooms -d rooms --clean --if-exists <rooms-20260912.dump
 ```
 
-The database is reachable only on the private compose network. A destination
-that cannot be opened stops the server at startup with the reason, so a typo
-here is a loud boot failure rather than quiet forgetting.
+Never change the PostgreSQL major version in place: dump with the old service,
+recreate the volume, restore with the new one. The image is pinned by digest
+so a rebuild cannot move it by accident.
+
+To keep lines in the state volume's files instead, which suits a machine you
+are only trying things on, export both storage values empty before bringing
+it up; the database service still runs, idle:
+
+```sh
+export GLOWCAP_ROOMS_STORAGE= GLOWCAP_ROOMS_STORAGE_PASSWORD_FILE=
+./ops up
+```
 
 Project provenance and upstream-contact policy live in
 [`PROVENANCE.md`](../../../../PROVENANCE.md).

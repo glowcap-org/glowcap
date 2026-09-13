@@ -67,11 +67,7 @@ impl core::error::Error for Error {}
 pub struct Attempt(Rc<Cell<bool>>);
 impl Attempt {
 	pub fn check(&self) -> Result<(), Error> {
-		if self.0.get() {
-			Ok(())
-		} else {
-			Err(Error::Retired)
-		}
+		if self.0.get() { Ok(()) } else { Err(Error::Retired) }
 	}
 }
 pub enum Acquisition<R> {

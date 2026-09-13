@@ -35,9 +35,9 @@ use serde_json::json;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::peer_connection::{
-	register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler,
-	RTCConfigurationBuilder, RTCIceCandidateInit, RTCPeerConnectionIceEvent, RTCSessionDescription, Registry,
-	SettingEngine,
+	MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
+	RTCIceCandidateInit, RTCPeerConnectionIceEvent, RTCSessionDescription, Registry, SettingEngine,
+	register_default_interceptors,
 };
 use webrtc::runtime::TokioRuntime;
 
@@ -62,10 +62,10 @@ struct ProbeHandler {
 #[async_trait::async_trait]
 impl PeerConnectionEventHandler for ProbeHandler {
 	async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
-		if let Ok(init) = event.candidate.to_json() {
-			if !init.candidate.is_empty() {
-				emit(&json!({ "type": "candidate", "candidate": init }));
-			}
+		if let Ok(init) = event.candidate.to_json()
+			&& !init.candidate.is_empty()
+		{
+			emit(&json!({ "type": "candidate", "candidate": init }));
 		}
 	}
 

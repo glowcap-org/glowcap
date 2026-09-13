@@ -1,5 +1,4 @@
 {
-  "authority": "apps/rooms/archive/storage.ts",
   "cases": [
     {
       "input": "{\"archive\":\"glowcap-rooms-member-archive\",\"version\":1,\"revision\":0}\n",

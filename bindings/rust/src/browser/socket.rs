@@ -1,6 +1,6 @@
 use crate::abi_constants::*;
 use std::io;
-use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
+use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 use web_sys::{BinaryType, RtcDataChannel, RtcDataChannelState, RtcDataChannelType, WebSocket};
 
 pub(super) enum Socket {

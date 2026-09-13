@@ -21,6 +21,19 @@ import type { RoomsPageContext } from "../page.ts";
 import { coverForReload, finishCoveredReload, uncoverReload } from "../boot.ts";
 import { persistCurrentWorkspace } from "../workspace_state.ts";
 import { writeSearch } from "../prefs.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import {
+	archiveOwnDurable,
+	connectionChoiceSaveRefused,
+	joinDirectoryFirst,
+	roomNoLongerInSession,
+	roomNoLongerOpen,
+	roomRecoveryFailed,
+	roomRecoveryInProgress,
+	roomRecoveryNeedsLink,
+	roomStillUnavailable,
+} from "../../../lib/text/attached.ts";
+import { roomsErrorInMessage } from "../../../lib/error_codes.ts";
 
 function settleTransientTypingFailure(_error: unknown): void {
 	// Connection state owns the visible failure. Typing is presence, not a
@@ -41,8 +54,7 @@ export function createAttachedRoomsSession(
 ): RoomsSessionController {
 	const projection = page.projection;
 	const defaultDirectoryLocator = options.defaultDirectoryLocator ?? null;
-	const failure = (error: unknown) =>
-		store.toast(projection, "failure", error instanceof Error ? error.message : String(error));
+	const failure = (error: unknown) => store.toast(projection, "failure", refusalText(error));
 	const powers = attachedCommandPowers(projection, controller, browser);
 	const active = () => store.activeConv(projection);
 	const readOnly = () => controller.current?.access !== "interact" && controller.current?.access !== "admin";
@@ -138,117 +150,117 @@ export function createAttachedRoomsSession(
 		},
 		submitBridgeForm: async (key, scope, action, answers, secrets) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.submitRoomBridgeForm(conversation.persistId, scope, action, answers, secrets);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		stewardRoom: async (key, link) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.takeRoomModerator(conversation.persistId, link?.trim() || undefined);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		managerRoom: async (key, link) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.takeRoomManager(conversation.persistId, link.trim());
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		recoverRoomManager: async (key) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.recoverRoomManager(conversation.persistId);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		dropRoomManager: async (key, token) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.dropRoomManager(conversation.persistId, token);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		revokeManagedRoomAuthority: async (key, kind, token) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.revokeManagedRoomAuthority(conversation.persistId, kind, token);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		unregisterManagedRoom: async (key) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.unregisterManagedRoom(conversation.persistId);
 				store.setRoomPolicy(projection, key, privateRoomPolicy());
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		setManagedRoomPolicy: async (key, policy) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.setManagedRoomPolicy(conversation.persistId, policy);
 				store.setRoomPolicy(projection, key, policy);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		dropRoomModerator: async (key, token) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.dropRoomModerator(conversation.persistId, token);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		createRoomLink: async (key) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.ensureRoomLink(conversation.persistId);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		recoverRoom: async (key, link) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			const intended = controller.current?.checkpoint.conversations.find((entry) =>
 				entry.kind === "room" && entry.id === conversation.persistId
 			);
-			if (intended?.kind !== "room") return "That room is no longer in this shared session.";
-			if (intended.reconnect === "requested") return "This room recovery is already in progress.";
+			if (intended?.kind !== "room") return roomNoLongerInSession;
+			if (intended.reconnect === "requested") return roomRecoveryInProgress;
 			const currentLink = link?.trim() ?? "";
 			if (intended.held && currentLink === "" && intended.link == null) {
-				return "Paste a current link for this private room.";
+				return roomRecoveryNeedsLink;
 			}
 			try {
 				await controller.joinRoom({
@@ -261,27 +273,27 @@ export function createAttachedRoomsSession(
 					return snapshot.issues.find((issue) =>
 						issue.subject === `room:${intended.directory}:${intended.id}`
 					)
-						?.reason ?? "That room could not be recovered. It still needs an explicit rejoin.";
+						?.reason ?? roomRecoveryFailed;
 				}
 				if (!snapshot.roomViews.some((view) => view.conversationId === intended.id)) {
 					return snapshot.issues.find((issue) =>
 						issue.subject === `room:${intended.directory}:${intended.id}`
 					)
-						?.reason ?? "That room is still unavailable.";
+						?.reason ?? roomStillUnavailable;
 				}
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		askRoomMemberOut: async (key, name) => {
 			const conversation = store.getConv(projection, key);
-			if (conversation?.type !== "room") return "That room is no longer open.";
+			if (conversation?.type !== "room") return roomNoLongerOpen;
 			try {
 				await controller.kickRoomMember(conversation.persistId, name);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		pickRoom: (directory, name, key) => {
@@ -338,7 +350,7 @@ export function createAttachedRoomsSession(
 				await controller.preferences.setDirectoryNick(directory, "");
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		setDirStanding: (directory, standing) =>
@@ -376,15 +388,13 @@ export function createAttachedRoomsSession(
 			try {
 				const selected = await controller.chooseConnection(
 					next.dm ?? checkpoint.dmMode,
-					next.viz ?? checkpoint.vizOverride,
+					next.trace ?? checkpoint.traceOverride,
 				);
 				if (!persistCurrentWorkspace(page)) {
-					throw new Error(
-						"The session changed its connection choice, but this browser refused to save it. Retry Save before reloading.",
-					);
+					throw new Error(connectionChoiceSaveRefused);
 				}
 				const url = new URL(location.href);
-				writeSearch(url, { dm: selected.checkpoint.dmMode, viz: selected.checkpoint.vizOverride });
+				writeSearch(url, { dm: selected.checkpoint.dmMode, trace: selected.checkpoint.traceOverride });
 				history.replaceState(null, "", url);
 				if (!hosting) finishCoveredReload();
 				return true;
@@ -402,17 +412,17 @@ export function createAttachedRoomsSession(
 				await controller.selectArchive(sturdyref.trim());
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		retryArchivePeer: async () => {
 			const sturdyref = controller.current?.checkpoint.capabilities.archivePeer;
-			if (sturdyref == null) return "The shared session is using its own durable archive.";
+			if (sturdyref == null) return archiveOwnDurable;
 			try {
 				await controller.selectArchive(sturdyref);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		useOwnedArchive: async () => {
@@ -436,7 +446,7 @@ export function createAttachedRoomsSession(
 				await operations.refreshOperator();
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		resolveSessionEffect: async (id, outcome) => {
@@ -445,7 +455,7 @@ export function createAttachedRoomsSession(
 				await operations.refreshOperator();
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		issueSessionGrant: async (id, rights, label, history) => {
@@ -453,7 +463,7 @@ export function createAttachedRoomsSession(
 				await controller.issueGrant(id, rights, label, history);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		revokeSessionGrant: async (id) => {
@@ -461,7 +471,7 @@ export function createAttachedRoomsSession(
 				await controller.revokeGrant(id);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		changeSessionGrant: async (id, patch) => {
@@ -469,7 +479,7 @@ export function createAttachedRoomsSession(
 				await controller.changeGrant(id, patch);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		selfLocator: () => controller.current?.memberLocator ?? null,
@@ -484,15 +494,11 @@ export function createAttachedRoomsSession(
 			const directory = active()?.dir ??
 				controller.current?.checkpoint.directories.find((candidate) => candidate.home)?.id;
 			if (directory == null) {
-				store.toast(projection, "failure", "Join a directory before starting a direct conversation.");
+				store.toast(projection, "failure", joinDirectoryFirst);
 				return;
 			}
 			void controller.chooseDirect(directory, who, true).catch(failure);
 		},
-		// File cancellation is local custody that the attached facade does not yet
-		// expose. Keep the verb harmless if a stale caller invokes it during a
-		// controller transition.
-		stopSend: () => {},
 		setTyping: (on) => {
 			const conversation = active();
 			if (conversation == null || conversation.type === "directory") return;
@@ -506,11 +512,11 @@ export function createAttachedRoomsSession(
 				await controller.reachDirectory(locator, nick, defaultDirectoryLocator ?? "", signal);
 				return "";
 			} catch (error) {
-				return error instanceof Error ? error.message : String(error);
+				return refusalText(error);
 			}
 		},
 		join: async (destination, nick, signal) => {
-			if (signal?.aborted) return "";
+			if (signal?.aborted) return { ok: true };
 			try {
 				const snapshot = await controller.joinDestination(
 					destination,
@@ -519,10 +525,10 @@ export function createAttachedRoomsSession(
 					signal,
 				);
 				if (!signal?.aborted) showSnapshotSelection(snapshot);
-				return "";
+				return { ok: true };
 			} catch (error) {
-				if (signal?.aborted) return "";
-				return error instanceof Error ? error.message : String(error);
+				if (signal?.aborted) return { ok: true };
+				return { ok: false, code: roomsErrorInMessage(error)?.code ?? null, text: refusalText(error) };
 			}
 		},
 	};

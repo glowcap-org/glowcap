@@ -6,6 +6,8 @@ use alloc::collections::BTreeMap;
 
 const MAX_DRAFTS: usize = 256;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
+/// Delay after the latest edit before a durable draft save starts.
+pub const SAVE_DEBOUNCE_MS: u32 = 150;
 struct Draft {
 	token: u64,
 	text: DocumentText,

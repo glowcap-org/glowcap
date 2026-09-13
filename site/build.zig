@@ -1,4 +1,5 @@
 const std = @import("std");
+const zine = @import("zine");
 
 /// The glowcap documentation site is its own build so the heavyweight Zine
 /// generator never enters the root `glowcap` build graph. The root build drives
@@ -17,7 +18,10 @@ pub fn build(b: *std.Build) void {
     const site_step = b.step("site", "Render the documentation site under the install prefix");
     const install_prefix = b.graph.path(.install_prefix, "");
     const site_source_root = b.path(".");
-    const render = addZineRelease(b);
+    const render = zine.website(b, .{
+        .output_path = "site",
+        .force = true,
+    });
     // Zine's force flag suppresses its confirmation prompt but does not replace
     // existing files. Own the generated directory at this boundary so a second
     // `zig build site` is as reliable as the first.
@@ -39,7 +43,7 @@ pub fn build(b: *std.Build) void {
     mark.step.dependOn(&render.step);
     site_step.dependOn(&mark.step);
 
-    const serve = addZineServe(b);
+    const serve = zine.serve(b, .{});
     serve.addArgs(&.{ "--host", host });
     if (port) |p| serve.addArgs(&.{ "--port", b.fmt("{d}", .{p}) });
     const serve_step = b.step("docs-serve", "Serve the documentation site with Zine's development server");
@@ -56,27 +60,4 @@ fn siteOutputOwner(b: *std.Build) *std.Build.Step.Compile {
         .name = "site-output-owner",
         .root_module = mod,
     });
-}
-
-fn addZineRelease(b: *std.Build) *std.Build.Step.Run {
-    const run = b.addRunArtifact(zineArtifact(b));
-    run.setCwd(b.path("."));
-    run.addArg("release");
-    run.addArg("--force");
-    run.addDirectoryArg2(b.graph.path(.install_prefix, "site"), .{ .prefix = "--output=", .make_absolute = true });
-    return run;
-}
-
-fn addZineServe(b: *std.Build) *std.Build.Step.Run {
-    const run = b.addRunArtifact(zineArtifact(b));
-    run.setCwd(b.path("."));
-    return run;
-}
-
-fn zineArtifact(b: *std.Build) *std.Build.Step.Compile {
-    const zine = b.dependency("zine", .{
-        .optimize = .ReleaseFast,
-        .@"no-git-version" = true,
-    });
-    return zine.artifact("zine");
 }

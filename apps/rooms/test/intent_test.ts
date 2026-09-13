@@ -20,8 +20,15 @@
 
 /// <reference lib="dom" />
 
+const { initializeApplication } = await import("./support/application.ts");
+await initializeApplication();
 const intent = await import("../web/ui/intent.ts");
 const joining = await import("../web/ui/joining.ts");
+const joinNick = await import("../web/ui/join_nick.ts");
+// Asserted against the catalog rather than against a string spelled here: what
+// these prove is which lead the card reaches for, and a needle copied out of
+// the copy turns every wording change into a red test that has caught nothing.
+const text = await import("../lib/text/join.ts");
 const types = await import("../web/ui/types.ts");
 const { dirId } = types;
 const { implied, named, settle } = intent;
@@ -94,17 +101,16 @@ Deno.test("a link that names a directory is answered there, whatever was used la
 	assert(answers.locator.from === "named", "a directory the link named did not read as named");
 });
 
-Deno.test("what an act says nothing about falls through to what was used last", () => {
-	// A link names a room and says nothing about who the reader is, so their
-	// name is still offered. This is the half that has to keep working: the
-	// fix for a field answered too eagerly must not empty the fields that were
-	// right all along.
+Deno.test("effective nicknames are offers, not prefilled exact intent", () => {
+	// A link names a room and says nothing about who the reader will be. The
+	// last successful nickname is an outcome, not a new answer: the connected
+	// directory may offer it as a placeholder, while the value remains empty.
 	const answers = card({ source: "link", room: named("arrivals"), locator: implied("") }, {
 		nick: "alice",
 		room: "lobby",
 	});
-	assert(answers.nick.value === "alice", "a returning reader lost their name to a room link");
-	assert(answers.nick.from === "recent", "an offered name did not say it was an offer");
+	assert(answers.nick.value === "", "a successful nickname outcome returned as exact intent");
+	assert(answers.nick.from === "default", "an empty nickname field claimed the outcome was its answer");
 	assert(answers.room.value === "arrivals", "the link's room lost to a remembered one");
 });
 
@@ -116,6 +122,156 @@ Deno.test("the application's own defaults are not offered back as choices", () =
 	assert(answers.room.value === "" && answers.room.from === "default", "a default room came back as a preference");
 	assert(answers.nick.value === "" && answers.nick.from === "default", "a default name came back as a preference");
 	assert(intent.keepable(" alice ", "guest") === " alice ", "a remembered name was silently trimmed");
+});
+
+Deno.test("an empty nickname means the granted name on the aimed connected directory", () => {
+	const away = dirId(AWAY);
+	const directory = (
+		id: import("../web/ui/types.ts").DirId,
+		nick: string,
+		session: import("../web/ui/types.ts").SessionPhase,
+	) => ({ id, nick, session }) as import("../web/ui/types.ts").DirView;
+	const dirs = new Map([
+		[HOME, directory(HOME, "home-name", "connected")],
+		[away, directory(away, "away-name", "connected")],
+	]);
+	const resolve = (locator: string) => locator === AWAY ? away : null;
+	assert(
+		joining.suggestedJoinNick("", dirs, HOME_CONTEXT, resolve) === "home-name",
+		"an empty home join did not reuse the name home actually granted",
+	);
+	const attached = { home: null, defaultDirectory: { id: away, locator: AWAY } };
+	assert(
+		joining.suggestedJoinNick("", dirs, attached, resolve) === "away-name",
+		"an attached session's empty locator ignored its connected default directory",
+	);
+	assert(
+		joining.suggestedJoinNick(AWAY, dirs, HOME_CONTEXT, resolve) === "away-name",
+		"a join aimed elsewhere reused the wrong directory's name",
+	);
+	const offered = joining.suggestedJoinNick(AWAY, dirs, HOME_CONTEXT, resolve);
+	const empty = joinNick.answerJoinNick("", offered, null, null, null, new Map(), new Map());
+	assert(empty.request === empty.placeholder, "an empty submission did not request its placeholder");
+	const chosen = joinNick.answerJoinNick("chosen-name", offered, null, null, null, new Map(), new Map());
+	assert(chosen.request === "chosen-name", "an explicit nickname lost to the directory's suggestion");
+	dirs.set(away, directory(away, "stale-name", "reconnecting"));
+	assert(
+		joining.suggestedJoinNick(AWAY, dirs, HOME_CONTEXT, resolve) === joining.JOIN_DEFAULT_NICK,
+		"a disconnected directory's stale grant was offered as current",
+	);
+	assert(
+		joining.suggestedJoinNick("ocapn://new.iroh", dirs, HOME_CONTEXT, () => null) === joining.JOIN_DEFAULT_NICK,
+		"an unreached directory lost the guest fallback",
+	);
+});
+
+Deno.test("room nickname availability uses only live registration or exact roster evidence", () => {
+	const room = {
+		type: "room",
+		key: "home/general",
+		id: "general",
+		dir: HOME,
+		membership: "joined",
+		held: false,
+	} as import("../web/ui/types.ts").RoomConv;
+	const conversations = new Map([[room.key, room]]);
+	const standing: import("../web/ui/types.ts").Standing = { online: true, away: "" };
+	const members = new Map([[
+		room.key,
+		new Map([
+			["home-name", standing],
+			["Alice", standing],
+			["alice-2", standing],
+		]),
+	]]);
+	const target = { directory: HOME, link: null, room: "GENERAL" };
+	assert(
+		joinNick.joinNickAvailability("alice", target, "home-name", null, conversations, members).kind === "taken",
+		"a folded roster collision was not known to be taken",
+	);
+	const taken = joinNick.joinNickAvailability("Alice", target, "home-name", null, conversations, members);
+	assert(
+		taken.kind === "taken" && taken.source === "room" && taken.suggestion === "Alice-3",
+		"the room collision did not skip an occupied suffix",
+	);
+	assert(
+		joinNick.joinNickAvailability("home-name", target, "home-name", null, conversations, members).kind ===
+			"available",
+		"the reader's own granted room seat was called a collision",
+	);
+	assert(
+		joinNick.joinNickAvailability("new-name", target, "home-name", null, conversations, members).kind ===
+			"available",
+		"an absent name in a received roster was not known to be available",
+	);
+	assert(
+		joinNick.joinNickAvailability(
+			"alice",
+			{ ...target, room: "elsewhere" },
+			"home-name",
+			null,
+			conversations,
+			members,
+		)
+			.kind === "unknown",
+		"one room's roster claimed knowledge about another room",
+	);
+	assert(
+		joinNick.joinNickAvailability("alice", target, "home-name", null, conversations, new Map()).kind === "unknown",
+		"a missing roster was mistaken for an empty authoritative one",
+	);
+	const directoryTaken = joinNick.joinNickAvailability(
+		"alice",
+		{ ...target, room: "a room this tab has never joined" },
+		"home-name",
+		["Alice", "alice-2"],
+		new Map(),
+		new Map(),
+	);
+	assert(
+		directoryTaken.kind === "taken" && directoryTaken.source === "directory" &&
+			directoryTaken.suggestion === "alice-3",
+		"a live directory registration did not reserve its name or skip its occupied suffix",
+	);
+});
+
+Deno.test("an occupied default nickname advances the placeholder and empty request together", () => {
+	const target = { directory: HOME, link: null, room: "general" };
+	const answer = joinNick.answerJoinNick(
+		"",
+		joining.JOIN_DEFAULT_NICK,
+		target,
+		null,
+		["guest", "guest-2"],
+		new Map(),
+		new Map(),
+	);
+	assert(answer.placeholder === "guest-3", "the empty field did not offer the first available guest name");
+	assert(answer.request === "guest-3", "the empty field submitted a different name than it displayed");
+	assert(answer.availability.kind === "unknown", "an unobserved room was called available");
+	const afterRefusal = joinNick.answerJoinNick(
+		"",
+		joining.JOIN_DEFAULT_NICK,
+		target,
+		null,
+		null,
+		new Map(),
+		new Map(),
+		{ suggestion: "guest-2" },
+	);
+	assert(afterRefusal.placeholder === "guest-2", "a refused default did not advance the empty placeholder");
+	assert(afterRefusal.request === "guest-2", "the next empty submission ignored the refused default's suggestion");
+	const explicit = joinNick.answerJoinNick(
+		"guest",
+		joining.JOIN_DEFAULT_NICK,
+		target,
+		null,
+		null,
+		new Map(),
+		new Map(),
+		{ suggestion: "guest-2" },
+	);
+	assert(explicit.request === "guest", "a refusal silently replaced an explicitly typed nickname");
 });
 
 Deno.test("a lock is never offered from a past visit", () => {
@@ -233,10 +389,10 @@ Deno.test("a room link pasted into the join card is a link, not a directory", ()
 	const answers = card({ source: "press" }, {}, { seq: 1, locator: link, room: "plans" });
 	const lead = joining.joinLead(answers, "this page's directory");
 	assert(
-		lead.includes("This is a room entry link"),
+		lead.includes(text.joinLeadLink),
 		"pasting a room entry link did not change what the card said it was for",
 	);
-	assert(!lead.includes("does not exist yet"), "a room link was described as opening a room that does not exist yet");
+	assert(!lead.includes(text.joinLeadPlain), "a room link was offered the lead for a room the reader might create");
 });
 
 Deno.test("a private room cannot impersonate a live room label in the join UI", () => {
@@ -253,33 +409,37 @@ Deno.test("a private room cannot impersonate a live room label in the join UI", 
 Deno.test("the card says what it is for once, and only an address gets to say it", () => {
 	const gate = card({ source: "link", room: named("arrivals"), locator: implied("") });
 	assert(
-		joining.joinLead(gate, "this page's directory").includes("#arrivals in this page's directory"),
+		joining.joinLead(gate, "this page's directory").includes(
+			text.joinLeadNamedRoom("arrivals", "this page's directory"),
+		),
 		"a link's gate did not say what it was gating",
 	);
 	// A directory named with no room is still an address worth stating, and it
 	// asks for the one thing it is missing.
 	const toADirectory = card({ source: "link", locator: named(AWAY) });
 	assert(
-		joining.joinLead(toADirectory, "elsewhere").includes("Name a room to enter there"),
+		joining.joinLead(toADirectory, "elsewhere").includes(text.joinLeadNamedDirectory("elsewhere")),
 		"a link naming only a directory did not ask for a room",
 	);
 	// A press that already named the room is a gate on that room: say so, and
 	// ask for the name, without talking like an address they followed.
 	const pressed = card({ source: "press", room: named("arrivals"), locator: implied("") });
 	assert(
-		!joining.joinLead(pressed, "this page's directory").includes("This address"),
+		!joining.joinLead(pressed, "this page's directory").includes(
+			text.joinLeadNamedRoom("arrivals", "this page's directory"),
+		),
 		"a room the reader just typed was described as an address they followed",
 	);
 	assert(
 		joining.joinLead(pressed, "this page's directory").includes(
-			"This is #arrivals in this page's directory. Choose your name.",
+			text.joinLeadPressedRoom("arrivals", "this page's directory"),
 		),
 		"a pressed room gate did not ask for a name",
 	);
 	// And what this browser merely remembers is an offer, never a destination.
 	const cold = card({ source: "restore" }, { room: "lobby", locator: AWAY });
 	assert(
-		!joining.joinLead(cold, "elsewhere").includes("This address"),
+		!joining.joinLead(cold, "elsewhere").includes(text.joinLeadNamedDirectory("elsewhere")),
 		"what was used last was described as somewhere the reader was going",
 	);
 });

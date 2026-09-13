@@ -16,6 +16,13 @@
 // lands in the row that asked, as the server's own sentence.
 
 import { useState } from "react";
+import {
+	listenerBringUp,
+	listenerCopyLocator,
+	listenersLead,
+	listenerTakeDown,
+	opsListenerServingThisPage,
+} from "../../../lib/text/ops.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { CopyField } from "../Copy.tsx";
 import { Field } from "../Field.tsx";
@@ -24,6 +31,7 @@ import { Switch } from "../Switch.tsx";
 import { identifierField } from "../field.ts";
 import type { ListenerRow } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
+import { actionRefusal } from "../error_text.ts";
 
 /** This page's own relay endpoint, which registers rendezvous peers at
  * `/register` beside it — the natural relay for this server to ride, so a
@@ -61,9 +69,14 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 
 	const flip = (row: ListenerRow) => {
 		setRefused((prior) => ({ ...prior, [row.transport]: undefined }));
-		if (row.id !== null) {
+		// The id the row carried when this was pressed, not whatever the row
+		// carries when the call actually runs. Reading `row.id` inside the
+		// callback would follow a later refresh to a different listener, or to
+		// null; a type-check refusal is how that showed up.
+		const id = row.id;
+		if (id !== null) {
 			setBusyOn((prior) => new Set(prior).add(row.transport));
-			void session.listenerDown(row.id).then((why) => {
+			void actionRefusal(() => session.listenerDown(id)).then((why) => {
 				setBusyOn((prior) => {
 					const next = new Set(prior);
 					next.delete(row.transport);
@@ -93,7 +106,9 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 			}
 		}
 		setBusyOn((prior) => new Set(prior).add(row.transport));
-		void session.listenerUp(row.transport, Object.keys(options).length === 0 ? undefined : options)
+		void actionRefusal(() =>
+			session.listenerUp(row.transport, Object.keys(options).length === 0 ? undefined : options)
+		)
 			.then((why) => {
 				setBusyOn((prior) => {
 					const next = new Set(prior);
@@ -106,9 +121,7 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 
 	return (
 		<div className="ops-pane">
-			<OpsHead refresh={() => session.refreshOpsCap("listeners")}>
-				Where this server accepts connections: one listener per transport, switched here.
-			</OpsHead>
+			<OpsHead refresh={() => session.refreshOpsCap("listeners")}>{listenersLead}</OpsHead>
 			<ul id="listenersList" className="entries ops-tiles">
 				{rows.map((row) => {
 					const up = row.id !== null;
@@ -135,7 +148,7 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 									<span
 										className="ops-serving"
 										data-serving="true"
-										title="This listener is serving this page"
+										title={opsListenerServingThisPage}
 									>
 										this page
 									</span>
@@ -143,13 +156,11 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 								<Switch
 									id={`listenerSwitch-${row.transport}`}
 									checked={up}
-									label={up
-										? `Take the ${row.transport} listener down`
-										: `Bring the ${row.transport} listener up`}
+									label={up ? listenerTakeDown(row.transport) : listenerBringUp(row.transport)}
 									disabled={row.serving || idle}
 									busy={busyOn.has(row.transport)}
 									title={row.serving
-										? "This listener is serving this page"
+										? opsListenerServingThisPage
 										: idle
 										? row.unavailable
 										: undefined}
@@ -171,7 +182,7 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 							{up && row.locator !== null && (
 								<CopyField
 									text={row.locator}
-									label={`Copy the ${row.transport} listener's locator`}
+									label={listenerCopyLocator(row.transport)}
 								/>
 							)}
 							{!up && !idle && row.takes.map((knob) => (

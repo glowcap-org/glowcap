@@ -1,3 +1,4 @@
+//! Peering commands update durable directory and direct-conversation intent.
 use super::*;
 
 pub(super) fn apply(state: &mut State, command: Command, arg: &DocumentText) -> Result<(), Error> {
@@ -84,18 +85,18 @@ pub(super) fn replace_bundle(state: &mut State, raw: &DocumentText, advertised: 
 		.id
 		.0
 		.clone();
-	let viz = state
+	let trace = state
 		.capabilities
 		.operations
 		.0
 		.iter()
-		.find(|credential| credential.capability == Operation::Viz)
+		.find(|credential| credential.capability == Operation::Trace)
 		.map(|credential| credential.scope.0.clone())
 		.unwrap_or_else(|| {
-			if state.viz_override.0.as_str() == Some("") {
+			if state.trace_override.0.as_str() == Some("") {
 				advertised.clone()
 			} else {
-				state.viz_override.0.clone()
+				state.trace_override.0.clone()
 			}
 		});
 	let mut credentials: alloc::vec::Vec<_> = state
@@ -103,7 +104,7 @@ pub(super) fn replace_bundle(state: &mut State, raw: &DocumentText, advertised: 
 		.operations
 		.0
 		.iter()
-		.filter(|credential| credential.capability != Operation::Viz && credential.scope.0 != home)
+		.filter(|credential| credential.capability != Operation::Trace && credential.scope.0 != home)
 		.cloned()
 		.collect();
 	for (capability, swiss) in draft.entries() {
@@ -111,7 +112,7 @@ pub(super) fn replace_bundle(state: &mut State, raw: &DocumentText, advertised: 
 			serde::de::value::Error,
 		>::new(capability))
 		.map_err(|_| Error::Arguments)?;
-		let scope = if capability == Operation::Viz { &viz } else { &home };
+		let scope = if capability == Operation::Trace { &trace } else { &home };
 		credentials.push(Credential {
 			capability,
 			scope: Text::new(scope.clone()).ok_or(Error::Arguments)?,

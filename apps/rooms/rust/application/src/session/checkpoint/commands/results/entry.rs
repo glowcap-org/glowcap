@@ -20,10 +20,9 @@ pub(super) fn prepare(current: &Checkpoint, intent: Intent, routes: &impl Routes
 		.0
 		.iter()
 		.find(|d| d.id == intent.conversation.directory)
+		&& (directory.locator.0 != intent.locator.0 || directory.nick != intent.nick)
 	{
-		if directory.locator.0 != intent.locator.0 || directory.nick != intent.nick {
-			return Err(Error::Conflict);
-		}
+		return Err(Error::Conflict);
 	}
 	let mut candidate = current.0.clone();
 	join::apply(&mut candidate, intent.clone(), routes, &())?;

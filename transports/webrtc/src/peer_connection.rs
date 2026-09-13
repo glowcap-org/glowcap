@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use webrtc::error::{Error as WebrtcError, Result as WebrtcResult};
 use webrtc::peer_connection::{
-	register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler,
-	RTCConfigurationBuilder, RTCIceServer, Registry, SettingEngine,
+	MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
+	RTCIceServer, Registry, SettingEngine, register_default_interceptors,
 };
 use webrtc::runtime::TokioRuntime;
 

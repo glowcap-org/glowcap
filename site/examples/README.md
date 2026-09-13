@@ -4,7 +4,7 @@ Author CapTP first-call snippets here once; `zig build gen-site-examples`
 assembles them into SuperMD `code-tabs` blocks on the binding, Start, and
 transport pages. The numbered Zig chapters and C programs live under
 [`examples/`](../../examples/README.md); this directory is only the
-per-transport first-call matrix. The site's Rooms & examples page is the
+per-transport first-call matrix. The site's Examples page is the
 runnable inventory: rooms, chapters, C, and the demo apps.
 
 A binding page already names the language, so its tabs name transports. The
@@ -41,11 +41,11 @@ and direction.
 
 Start building and the binding pages share one CapTP Session dial/listen tab
 set. The managed binding pages retain only the combinations they support.
-Those shared tabs are:
+The available tabs are:
 
 | Tab | Why it earns a place |
 | --- | --- |
-| `iroh` | Node-id URI + discovery reachability; optional archive |
+| `iroh` | Managed C and language-binding providers; native Zig uses the completion backend |
 | `noise-tcp` | Same sockets as keyed; Noise_XK seals CapTP |
 | `keyed-tcp` | Key designator, cleartext; restart-stable identity |
 | `tcp` | Cleartext address dial; testing and the Goblins TCP suite |

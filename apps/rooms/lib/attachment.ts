@@ -14,6 +14,7 @@ import { ATTACH, DISCARD, POST_FILES, READ, WRITE } from "./protocol.ts";
 import { answerWithin } from "./deadline.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 import {
+	attachmentRefusal,
 	BLOB_CHUNK,
 	MAX_ATTACHMENT_BYTES,
 	MAX_DIRECT_ATTACHMENT_BYTES,
@@ -179,30 +180,7 @@ export function readRefileChange(
 	return { caption, keep, records };
 }
 
-/** Why a room will not take a file described this way, or null when it will.
- *
- * Both sides ask: a sender so it fails before a byte moves, and the room because
- * it cannot trust a sender. The checks belong in both places; the sentences do
- * not, and they were written out twice — the same three, word for word, in the
- * client and in the room, which is two authorities for one answer and a drift
- * waiting to happen.
- *
- * Each one names the file it is about, because a message may carry several and a
- * reader looking at eight chips cannot act on a rule stated in the abstract. */
-export function attachmentRefusal(name: string, mime: string, size: number): string | null {
-	const shown = name.length > 60 ? name.slice(0, 57) + "…" : name;
-	if (name.length === 0) return "a file needs a name";
-	if (name.length > MAX_FILE_NAME) {
-		return `a file name may be at most ${MAX_FILE_NAME} characters, and this one is ${name.length}`;
-	}
-	if (mime.length > MAX_MIME) return `"${shown}" declares a media type longer than ${MAX_MIME} characters`;
-	if (!Number.isSafeInteger(size) || size < 0) return `"${shown}" declares a size that is not a file size`;
-	if (size > MAX_ATTACHMENT_BYTES) {
-		const cap = MAX_ATTACHMENT_BYTES / (1024 * 1024);
-		return `a file may be at most ${cap} MB, and "${shown}" is ${(size / (1024 * 1024)).toFixed(1)} MB`;
-	}
-	return null;
-}
+export { attachmentRefusal };
 
 /** Validate a source before minting an actor for it. A direct-message sender is
  * its file host, so this is the same admission boundary the room server owns
@@ -468,8 +446,7 @@ export async function fillUpload(
 	}
 }
 
-/** Throw one staged file away, which is what removing it from a half-written
- * message does. */
+/** Throw away the staged file removed from a half-written message. */
 export function discardUpload(session: Session, upload: Ref): Promise<unknown> {
 	return answerWithin(
 		session.send(upload, DISCARD, []),

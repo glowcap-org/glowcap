@@ -3,7 +3,7 @@
 #[cfg(feature = "async")]
 use crate::abi_constants_gen;
 use crate::{
-	error_slot, panic_message, record_runtime_failure, sys, Error, FailureEvent, FailureLayer, FailureScope, Result,
+	Error, FailureEvent, FailureLayer, FailureScope, Result, error_slot, panic_message, record_runtime_failure, sys,
 };
 
 error_slot::error_slot!(
@@ -49,7 +49,10 @@ pub(crate) unsafe extern "C" fn alloc_trampoline(
 	alignment: usize,
 ) -> *mut core::ffi::c_void {
 	match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-		let allocator = &*(user_data as *const Box<dyn ContextAllocator>);
+		// SAFETY: `user_data` is the pointer this context handed the C side at
+		// construction, and the C side keeps the boxed allocator alive for the
+		// context's whole life.
+		let allocator = unsafe { &*(user_data as *const Box<dyn ContextAllocator>) };
 		allocator.alloc(size, alignment) as *mut core::ffi::c_void
 	})) {
 		Ok(ptr) => ptr,
@@ -71,8 +74,13 @@ pub(crate) unsafe extern "C" fn free_trampoline(
 	alignment: usize,
 ) {
 	if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-		let allocator = &*(user_data as *const Box<dyn ContextAllocator>);
-		allocator.free(ptr as *mut u8, size, alignment);
+		// SAFETY: as `alloc_trampoline` for the allocator itself, alive for the
+		// context's whole life; the block coming back is one this same
+		// allocator gave the C side, under the size and alignment it repeats.
+		unsafe {
+			let allocator = &*(user_data as *const Box<dyn ContextAllocator>);
+			allocator.free(ptr as *mut u8, size, alignment);
+		}
 	})) {
 		record_runtime_failure(
 			FailureLayer::Binding,
@@ -347,9 +355,13 @@ impl ContextAllocator for RustAllocator {
 		}
 	}
 	unsafe fn free(&self, ptr: *mut u8, size: usize, alignment: usize) {
-		std::alloc::dealloc(
-			ptr,
-			std::alloc::Layout::from_size_align(size.max(1), alignment).unwrap(),
-		);
+		// SAFETY: the trait's contract — `ptr` came from this allocator's
+		// `alloc` under the same size and alignment, including its `max(1)`.
+		unsafe {
+			std::alloc::dealloc(
+				ptr,
+				std::alloc::Layout::from_size_align(size.max(1), alignment).unwrap(),
+			);
+		}
 	}
 }

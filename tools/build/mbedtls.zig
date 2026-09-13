@@ -400,7 +400,7 @@ pub fn addFamily(
     live.addFileArg(b.path("tools/check/native-tls-relay-live.sh"));
     live.addArtifactArg(live_client);
     const secure_check = b.step("native-tls-build", "Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)");
-    secure_check.dependOn(&execution.addZigTest(b, tests, .{ .deterministic = 30 }).step);
+    secure_check.dependOn(&execution.addZigTest(b, tests, .unit_test).step);
     secure_check.dependOn(&live.step);
     return .{
         .tls = native_tls,

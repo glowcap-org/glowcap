@@ -1,6 +1,6 @@
-use super::{actions::text, safe_integer, view, Result, RoomsBrowserSession};
+use super::{Result, RoomsBrowserSession, actions::text, safe_integer, view};
 use rooms_application::{
-	server::operations::operator::{view::PageRows, Category, ReferenceKind},
+	server::operations::operator::{Category, ReferenceKind, view::PageRows},
 	session::operations::{Capability, Snapshot},
 };
 use wasm_bindgen::prelude::*;
@@ -19,7 +19,7 @@ impl RoomsBrowserSession {
 			let capability = match text(capability)?.as_str() {
 				"listeners" => Capability::Listeners,
 				"diagnostics" => Capability::Diagnostics,
-				"viz" => Capability::Viz,
+				"trace" => Capability::Trace,
 				"peering" => Capability::Peering,
 				"irc" => Capability::Irc,
 				_ => return Err("Invalid Rooms operations capability".into()),
@@ -145,7 +145,7 @@ impl RoomsBrowserSession {
 
 pub(super) fn snapshot_view(snapshot: Snapshot, capability: Capability) -> Result<JsValue> {
 	let output = match &snapshot {
-		Snapshot::Viz(value) => view::json(value)?,
+		Snapshot::Trace(value) => view::json(value)?,
 		_ => js_sys::Object::new().into(),
 	};
 	view::set(&output, "capability", capability.name().into())?;
@@ -154,7 +154,7 @@ pub(super) fn snapshot_view(snapshot: Snapshot, capability: Capability) -> Resul
 		Snapshot::Diagnostics(rows) => view::set(&output, "rows", view::json(&rows)?)?,
 		Snapshot::Peering(rows) => view::set(&output, "rows", view::json(&rows)?)?,
 		Snapshot::Irc(gateway) => view::set(&output, "gateway", view::json(&gateway)?)?,
-		Snapshot::Viz(_) => {}
+		Snapshot::Trace(_) => {}
 	}
 	Ok(output)
 }

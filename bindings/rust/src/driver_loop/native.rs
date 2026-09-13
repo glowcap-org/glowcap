@@ -9,9 +9,9 @@ use std::cell::Cell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use crate::driver_event::{decode as decode_event, LoopEvent};
-use crate::sys::driver::{self as ffi, GlowcapDriverEvent, GlowcapDriverLoop, GlowcapDriverOptions};
+use crate::driver_event::{LoopEvent, decode as decode_event};
 use crate::sys::GlowcapTransportProvider;
+use crate::sys::driver::{self as ffi, GlowcapDriverEvent, GlowcapDriverLoop, GlowcapDriverOptions};
 use crate::sys::{self, host as ffi_host};
 use crate::uri::OwnedLocator;
 use crate::{ContextInner, Error, Locator, PendingWork, Result};
@@ -304,11 +304,11 @@ impl DriverLoop {
 		}
 	}
 
-	pub fn session_release(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
+	pub(super) fn session_release(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
 		check(unsafe { ffi::glowcap_driver_session_release(self.raw, session) })
 	}
 
-	pub fn session_serve(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
+	pub(super) fn session_serve(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
 		check(unsafe { ffi::glowcap_driver_session_serve(self.raw, session) })
 	}
 

@@ -6,9 +6,11 @@ use rooms_application::{documents::SessionDocument, session::checkpoint::Checkpo
 use rooms_runtime::{
 	documents::{VolatileDocument, VolatileDocuments},
 	grants::DurableGrants,
-	session_commands::{SessionCommands, SessionWorker},
-	session_service::{Inputs, Local, Session},
-	session_state::DurableSession,
+	service::{Inputs, Local, Session},
+	session::{
+		commands::{SessionCommands, SessionWorker},
+		state::DurableSession,
+	},
 };
 use std::rc::Rc;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -38,11 +40,11 @@ impl Prepared {
 }
 pub(super) struct Owner {
 	pub access: Local<Platform>,
-	pub durability: Option<String>,
 	pub control: Control,
 	pub publication: tokio::sync::Mutex<()>,
 	eraser: crate::storage::Eraser,
-	erased_pause: std::cell::RefCell<Option<rooms_runtime::session_archive::RecordingPause>>,
+	erased_pause: std::cell::RefCell<Option<rooms_runtime::archive::session::RecordingPause>>,
+	publication_route: Rc<std::cell::RefCell<Option<super::signaling::RouteLease>>>,
 	stop: watch::Sender<bool>,
 	pub ended: watch::Receiver<Option<Result<()>>>,
 }
@@ -71,7 +73,6 @@ impl Owner {
 			.map_err(|e| e.to_string())?;
 		let source = archive.source().clone();
 		let eraser = archive.eraser();
-		let durability = archive.unavailable().map(str::to_owned);
 		let designator = environment.runtime.host().designator().map_err(|e| e.to_string())?;
 		let locator = environment.relay.as_ref().map_or_else(
 			|| glowcap::Locator::bare(glowcap::TRANSPORT_WEBRTC, &designator),
@@ -90,7 +91,7 @@ impl Owner {
 				locator,
 				recording_source: Some(source),
 				entropy: || platform.clone(),
-				viz: Rc::new(rooms_runtime::session_service::viz::Viz::new(platform.clone())),
+				trace: Rc::new(rooms_runtime::service::trace::Trace::new(platform.clone())),
 				report: Rc::new(|notice| web_sys::console::error_1(&format!("Rooms session: {notice:?}").into())),
 			},
 			(prepared.commands, prepared.worker),
@@ -109,11 +110,14 @@ impl Owner {
 				environment.signaling.clone(),
 				environment.ice.clone(),
 				environment.incoming.admission(),
+				environment.trouble.clone(),
 			)
 		});
 		let (control, mut requests) = mpsc::channel::<Request>(16);
 		let (stop, mut stopping) = watch::channel(false);
 		let (finished, ended) = watch::channel(None);
+		let publication_route = Rc::new(std::cell::RefCell::new(None));
+		let retiring_route = publication_route.clone();
 		// The terminal signal is retained by the parent through final close.
 		tokio::task::spawn_local(async move {
 			let failure = loop {
@@ -133,6 +137,7 @@ impl Owner {
 					},
 				}
 			};
+			retiring_route.borrow_mut().take();
 			requests.close();
 			while let Some(request) = requests.recv().await {
 				match request {
@@ -159,11 +164,11 @@ impl Owner {
 		});
 		Ok(Self {
 			access,
-			durability,
 			control: Control(control),
 			publication: Default::default(),
 			eraser,
 			erased_pause: Default::default(),
+			publication_route,
 			stop,
 			ended,
 		})
@@ -190,7 +195,11 @@ impl Owner {
 			.map_err(|_| "local Rooms publication queue unavailable")?;
 		answer.await.map_err(|_| "local Rooms publication owner closed")?
 	}
+	pub fn hold_publication_route(&self, route: Option<super::signaling::RouteLease>) {
+		*self.publication_route.borrow_mut() = route;
+	}
 	pub async fn close(&self) -> Result<()> {
+		self.publication_route.borrow_mut().take();
 		self.stop.send_replace(true);
 		let mut ended = self.ended.clone();
 		loop {
@@ -212,6 +221,7 @@ async fn signaling_ended(incoming: &Option<super::local_signaling::Owner>) -> Re
 }
 impl Drop for Owner {
 	fn drop(&mut self) {
+		self.publication_route.borrow_mut().take();
 		self.stop.send_replace(true);
 	}
 }

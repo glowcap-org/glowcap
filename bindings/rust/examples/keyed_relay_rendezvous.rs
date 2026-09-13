@@ -8,7 +8,7 @@
 //! `<locator>` after `--`).
 
 use glowcap_rust_dogfood::{
-	parse_locator, relay, Argument, CarrierPhase, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig,
+	Argument, CarrierPhase, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig, parse_locator, relay,
 };
 use tokio::task::LocalSet;
 

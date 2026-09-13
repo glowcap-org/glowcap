@@ -13,6 +13,7 @@
 // under the sweep is not a reason to leave the rest.
 
 import { useEffect, useRef, useState } from "react";
+import { opsSweepKeep, sweepDone, sweepRefused, sweepStopped } from "../../../lib/text/ops.ts";
 import type { OperatorCategory } from "../types.ts";
 import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
@@ -20,6 +21,7 @@ import { Said } from "../Said.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import type { OperatorReferenceKind } from "../../../lib/operator.ts";
 import { useOperatorActivity } from "./operator_activity.tsx";
+import { refusalText } from "../../../lib/text/failure.ts";
 
 /** How many rows one call retires. The directory bounds this too; asking for
  * its whole allowance keeps the number of round trips down while leaving each
@@ -95,16 +97,12 @@ export function OperatorSweep(
 			if (refreshFailure !== "" && firstRefusal === "") firstRefusal = refreshFailure;
 			setRunning(false);
 			if (firstRefusal === "") {
-				setSaid(
-					stopped.current
-						? `Stopped after ${retired} of ${total} ${subject}.`
-						: `${past} ${retired} ${subject}.`,
-				);
+				setSaid(stopped.current ? sweepStopped(retired, total, subject) : sweepDone(past, retired, subject));
 			} else {
-				setWhy(`${firstRefusal} ${past} ${retired} ${subject} before the refusal.`);
+				setWhy(sweepRefused(firstRefusal, past, retired, subject));
 			}
 		} catch (error) {
-			setWhy(error instanceof Error ? error.message : String(error));
+			setWhy(refusalText(error));
 		} finally {
 			setRunning(false);
 			activity.endSweep();
@@ -121,7 +119,7 @@ export function OperatorSweep(
 						say={`${total} ${subject} match ${
 							referenceKind === null ? `“${search}”` : `the ${referenceKind} kind`
 						}. ${effect} Rows that come to match while this runs go too.`}
-						keep="Keep them"
+						keep={opsSweepKeep}
 						commit={`${act} ${total}`}
 						commitId={`operatorSweepGo-${category}`}
 						onKeep={() => setAsking(false)}

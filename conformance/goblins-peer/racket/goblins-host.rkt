@@ -38,7 +38,8 @@
          goblins/ocapn/captp
          goblins/ocapn/structs-urls
          goblins/utils/url-base64
-         "tcp-netlayer.rkt")
+         "tcp-netlayer.rkt"
+         "gc-probe.rkt")
 
 ;; Line-buffer stdout so the bridge plugin sees the readiness lines
 ;; immediately, not block-buffered until exit. Same reason
@@ -160,6 +161,7 @@
      (define tcp-netlayer (spawn ^tcp-netlayer host port))
      (define mycapn (spawn-mycapn tcp-netlayer))
      (define nonce-registry ($ mycapn 'get-registry))
+     (register-gc-probe! nonce-registry)
      (define echo (spawn ^echo))
      ($ nonce-registry 'register echo ECHO-SWISS-NUM)
      (define record (spawn ^record))

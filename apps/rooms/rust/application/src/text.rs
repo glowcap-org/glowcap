@@ -5,8 +5,8 @@
 use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Write};
 use serde::{
-	de::{Error, Visitor},
 	Deserialize, Deserializer, Serialize, Serializer,
+	de::{Error, Visitor},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

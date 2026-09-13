@@ -78,60 +78,11 @@ impl Session {
 				return Err(crate::retain_cleanup_failure(
 					primary,
 					channel.close().await.map_err(crate::session_shared::io_err),
-				))
+				));
 			}
 		};
 		let session = Session::owning(SessionShared::new_channel(ptr, host, channel));
 		session.establish(handshake_timeout, verified_channel_key).await
-	}
-
-	/// Mint the accepting half over a connection the caller's own listener
-	/// produced. `server_designator` is the listener's signing designator (key
-	/// for keyed-tcp/iroh; unused for tcp); `accepted_local_addr` is what
-	/// accept reported. The host resolves what this accept signs and retains
-	/// it without displacing an explicitly selected advertised locator
-	/// (ADR-0078); no locator policy lives in this binding. The handshake is bounded by
-	/// `handshake_timeout` ([`HANDSHAKE_TIMEOUT`] in every accept loop here;
-	/// `None` or a zero budget waits unbounded, which a caller with no inline
-	/// accept loop of its own may want), and overrunning it fails with
-	/// [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut), which an accept loop
-	/// skips like any other bad partner. Binding-internal.
-	#[cfg(any(test, feature = "async"))]
-	pub(crate) async fn establish_accepted<S>(
-		host: Rc<HostShared>,
-		transport_name: &str,
-		designator_scheme: DesignatorScheme,
-		server_designator: &str,
-		stream: S,
-		accepted_local_addr: &str,
-		handshake_timeout: Option<Duration>,
-		verified_channel_key: Option<&str>,
-	) -> Result<Session>
-	where
-		S: AsyncRead + AsyncWrite + Unpin + 'static,
-	{
-		let designator = match designator_scheme {
-			sys::DESIGNATOR_SCHEME_ADDRESS => ChannelDesignator::Address(server_designator),
-			sys::DESIGNATOR_SCHEME_KEY => ChannelDesignator::Key(server_designator),
-			_ => {
-				return Err(Error::with_detail(
-					sys::ERR_INVALID_ARGUMENT,
-					"unknown accepted designator scheme".into(),
-				))
-			}
-		};
-		Self::accept_channel(
-			&Host::from_shared(host),
-			AcceptedTransport {
-				transport: transport_name,
-				designator,
-				local_address: accepted_local_addr,
-				verified_channel_key,
-			},
-			crate::Channel::stream(stream),
-			handshake_timeout,
-		)
-		.await
 	}
 
 	/// Admit one accepted channel with the provider's identity facts. Any
@@ -172,7 +123,7 @@ impl Session {
 				return Err(crate::retain_cleanup_failure(
 					primary,
 					channel.close().await.map_err(crate::session_shared::io_err),
-				))
+				));
 			}
 		};
 		let verified_channel_key = transport.verified_channel_key;
@@ -289,15 +240,16 @@ impl Session {
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
-		Self::establish_accepted(
-			host.shared(),
-			transport,
-			crate::abi_constants::DESIGNATOR_SCHEME_ADDRESS,
-			server_designator,
-			stream,
-			accepted_local_addr,
+		Self::accept_channel(
+			host,
+			AcceptedTransport {
+				transport,
+				designator: ChannelDesignator::Address(server_designator),
+				local_address: accepted_local_addr,
+				verified_channel_key: None,
+			},
+			crate::Channel::stream(stream),
 			handshake_timeout,
-			None,
 		)
 		.await
 	}

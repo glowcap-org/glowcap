@@ -15,6 +15,9 @@ interface Probe {
 	current: RoomsSessionSnapshot | null;
 	file: RoomsBrowserFile | null;
 	callbacks: number;
+	/** Every line event this view was told, by attachment names, so a missing
+	 * file can be told apart from a missing event. */
+	events: string[];
 }
 declare global {
 	var __rustAttached: Probe | undefined;
@@ -31,26 +34,29 @@ export async function openRustAttachedView(browser: Browser, httpPort: number, s
 				.find((entry) => new URL(entry.name).pathname.startsWith("/rooms_browser-"))?.name;
 			if (source == null) throw new Error("production Rust module was not loaded");
 			const binding: typeof import("../../../../zig-out/wasm/rooms/rooms_browser.js") = await import(source);
-			const app = new binding.RoomsBrowserApplication();
+			const app = new binding.RoomsBrowserApplication(() => {});
 			const session = await app.attach(link);
-			const state: Probe = { app, session, current: null, file: null, callbacks: 0 };
+			const state: Probe = { app, session, current: null, file: null, callbacks: 0, events: [] };
 			globalThis.__rustAttached = state;
 			state.current = await session.watch(
 				(snapshot: RoomsSessionSnapshot) => {
 					state.current = snapshot;
 					state.callbacks++;
 				},
-				(event: { attachments: RoomsBrowserFile[] }) => {
-					for (const file of event.attachments) {
-						if (file.name === "shared-session.png") {
-							state.file?.release();
-							state.file = file;
-						} else file.release();
-					}
-				},
 				() => {},
 				() => {},
 			);
+			// Lines reach a view through its line listener, not the snapshot
+			// watch; a view that never listens receives no attachment.
+			session.listenLines((event: { attachments: RoomsBrowserFile[] }) => {
+				state.events.push(event.attachments.map((file) => file.name).join(",") || "-");
+				for (const file of event.attachments) {
+					if (file.name === "shared-session.png") {
+						state.file?.release();
+						state.file = file;
+					} else file.release();
+				}
+			});
 			if (typeof state.current!.revision !== "number" || state.current!.checkpoint.conversations.length !== 2) {
 				throw new Error("Rust snapshot did not preserve the multiple-room workspace");
 			}
@@ -71,7 +77,13 @@ export async function openRustAttachedView(browser: Browser, httpPort: number, s
 	}
 	return {
 		async expectFile(expected: Uint8Array) {
-			await page.waitForFunction(() => globalThis.__rustAttached!.file != null);
+			await page.waitForFunction(() => globalThis.__rustAttached!.file != null).catch(async () => {
+				const seen = await page.evaluate(() => ({
+					snapshots: globalThis.__rustAttached!.callbacks,
+					events: globalThis.__rustAttached!.events,
+				}));
+				fail(`the Rust attached view never received the shared image: ${JSON.stringify(seen)}`);
+			});
 			const bytes = await page.evaluate(async () => {
 				const state = globalThis.__rustAttached!;
 				const file = state.file!;

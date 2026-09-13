@@ -1,8 +1,11 @@
 // Presentation-resource cleanup. Rust file holders already settle session closure.
-export function settleViewCleanup(label: string, cleanup: () => void): void {
+import type { PageProjection } from "../store/core.ts";
+import { noteTrouble } from "../store/trouble.ts";
+
+export function settleViewCleanup(projection: PageProjection, label: string, cleanup: () => void): void {
 	try {
 		cleanup();
 	} catch (error) {
-		console.error(`rooms: ${label}: ${error instanceof Error ? error.message : error}`);
+		noteTrouble(projection, label, error instanceof Error ? error.message : String(error));
 	}
 }

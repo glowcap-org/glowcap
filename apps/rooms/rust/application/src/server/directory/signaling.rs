@@ -2,7 +2,7 @@
 //! routed between two members the directory already reaches, parsed by
 //! nobody. An exchange lives from an offer until it is done, dropped, timed
 //! out, or evicted by a newer one past the ceiling.
-use super::{Dropped, Refusal, MAX_SIGNAL_EXCHANGES, SIGNAL_EXCHANGE_TIMEOUT_MS};
+use super::{Dropped, MAX_SIGNAL_EXCHANGES, Refusal, SIGNAL_EXCHANGE_TIMEOUT_MS};
 use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
 
 /// Where one relayed message goes: a capability on a connection.

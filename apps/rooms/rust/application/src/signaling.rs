@@ -10,11 +10,10 @@ pub const MAX_ID: usize = 128;
 pub const MAX_DESCRIPTION: usize = 16_384;
 pub const MAX_CANDIDATE: usize = 4096;
 pub const TIMEOUT_MS: u64 = 30_000;
-pub const OFFER_INBOX: &str = "offerSignaling";
-pub const OFFER: &str = "signalOffer";
-pub const ANSWER: &str = "signalAnswer";
-pub const CANDIDATE: &str = "signalCandidate";
-pub const DONE: &str = "signalDone";
+pub use crate::protocol_data::{
+	OFFER_SIGNALING as OFFER_INBOX, SIGNAL_ANSWER as ANSWER, SIGNAL_CANDIDATE as CANDIDATE, SIGNAL_DONE as DONE,
+	SIGNAL_OFFER as OFFER,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -78,10 +77,10 @@ pub fn reply<A: ArgumentView>(verb: &str, len: usize, at: impl Fn(usize) -> Opti
 	let arg = at(0).ok_or(Error::Reply)?;
 	let text = arg.text().ok_or(Error::Reply)?;
 	match verb {
-		"accepted" => Ok(Reply::Accepted(Id::parse(text)?)),
-		"answer" => Ok(Reply::Answer(Description::parse(text)?)),
-		"candidate" => Ok(Reply::Candidate(Candidate::parse(text)?)),
-		"reject" => Ok(Reply::Rejected(Description::parse(text)?)),
+		crate::protocol_data::SIG_ACCEPTED => Ok(Reply::Accepted(Id::parse(text)?)),
+		crate::protocol_data::SIG_ANSWER => Ok(Reply::Answer(Description::parse(text)?)),
+		crate::protocol_data::SIG_CANDIDATE => Ok(Reply::Candidate(Candidate::parse(text)?)),
+		crate::protocol_data::SIG_REJECT => Ok(Reply::Rejected(Description::parse(text)?)),
 		_ => Err(Error::Reply),
 	}
 }
@@ -98,11 +97,11 @@ pub fn incoming<A: ArgumentView>(verb: &str, len: usize, at: impl Fn(usize) -> O
 	let id = Id::parse(id.text().ok_or(Error::Inbox)?)?;
 	let payload = payload.text().ok_or(Error::Inbox)?;
 	match verb {
-		"offer" => Ok(Incoming::Offer {
+		crate::protocol_data::SIG_OFFER => Ok(Incoming::Offer {
 			id,
 			description: Description::parse(payload)?,
 		}),
-		"candidate" => Ok(Incoming::Candidate {
+		crate::protocol_data::SIG_CANDIDATE => Ok(Incoming::Candidate {
 			id,
 			candidate: Candidate::parse(payload)?,
 		}),

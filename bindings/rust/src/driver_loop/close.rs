@@ -10,20 +10,6 @@ fn retain_release_failure(close_code: i32, release: Error) -> Error {
 	}
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn close_timeout_remains_primary_when_driver_release_also_fails() {
-		let release = Error::with_detail(sys::ERR_IO, "provider release failed".to_string());
-		let terminal = retain_release_failure(sys::ERR_TIMEOUT, release.clone());
-		assert_eq!(terminal.code(), sys::ERR_TIMEOUT);
-		assert_eq!(terminal.message(), Some("finish close exhausted its grace period"));
-		assert_eq!(terminal.secondary_errors(), &[release]);
-	}
-}
-
 impl LoopShared {
 	pub(super) fn fail_close_or_record(&self, error: Error) {
 		if let Some(host) = self.wrapper.borrow().as_ref().and_then(Weak::upgrade) {
@@ -156,5 +142,19 @@ impl LoopShared {
 			self.released.set(true);
 			self.fail_close_or_record(terminal);
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn close_timeout_remains_primary_when_driver_release_also_fails() {
+		let release = Error::with_detail(sys::ERR_IO, "provider release failed".to_string());
+		let terminal = retain_release_failure(sys::ERR_TIMEOUT, release.clone());
+		assert_eq!(terminal.code(), sys::ERR_TIMEOUT);
+		assert_eq!(terminal.message(), Some("finish close exhausted its grace period"));
+		assert_eq!(terminal.secondary_errors(), &[release]);
 	}
 }

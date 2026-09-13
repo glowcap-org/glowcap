@@ -69,12 +69,12 @@ export interface PeeringSource {
 }
 
 /** What this session knows about timeline publishing while it holds the
- * viz capability: where it publishes, whether the socket is up, and the
+ * trace capability: where it publishes, whether the socket is up, and the
  * endpoint's sentence when that swiss is dead. Unlike its two siblings this
  * capability is presented to the timeline endpoint rather than fetched on the
  * directory session, so it survives a directory reconnect and dies only by
  * the reader's drop or the endpoint's refusal. */
-export interface VizPublishState {
+export interface TracePublishState {
 	/** The endpoint this session publishes to: Settings' URL, or the page's own. */
 	readonly url: string;
 	/** Whether the publish socket is connected. False while it redials, and
@@ -144,7 +144,7 @@ export interface OpsHeld {
 	readonly irc: boolean;
 	readonly operator: boolean;
 	readonly peering: boolean;
-	readonly viz: boolean;
+	readonly trace: boolean;
 }
 
 /** Derive possession from the four row fields. */
@@ -154,7 +154,7 @@ export function opsHeldOf(
 	irc: IrcGatewayState | null,
 	operator: RoomsOperatorState | null,
 	peering: PeeringState | null,
-	viz: VizPublishState | null,
+	trace: TracePublishState | null,
 ): OpsHeld {
 	return {
 		listeners: listeners !== null,
@@ -162,12 +162,12 @@ export function opsHeldOf(
 		irc: irc !== null,
 		operator: operator !== null,
 		peering: peering !== null,
-		viz: viz !== null,
+		trace: trace !== null,
 	};
 }
 
-/** Whether any operations capability is held, which is what makes the
- * Operations control appear. One reader for the head, the modal, and App. */
+/** Whether any operations capability is held. This one answer controls its
+ * appearance in the head, the modal, and App. */
 export function anyOpsHeld(held: OpsHeld): boolean {
 	return OPS_CAPS.some((cap) => held[cap]);
 }

@@ -176,8 +176,10 @@ test "rooms-peer inbox.watermark hides scrollback from scanInbox" {
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
-    const line1 = "{\"kind\":\"msg\",\"channel\":\"room\",\"author\":\"Jim\",\"text\":\"old\"}\n";
-    const line2 = "{\"kind\":\"msg\",\"channel\":\"room\",\"author\":\"Jim\",\"text\":\"new\"}\n";
+    // Another member's lines: scanInbox drops the scanning peer's own author,
+    // so the author here must not be the "alice" that scans below.
+    const line1 = "{\"kind\":\"msg\",\"channel\":\"room\",\"author\":\"Bob\",\"text\":\"old\"}\n";
+    const line2 = "{\"kind\":\"msg\",\"channel\":\"room\",\"author\":\"Bob\",\"text\":\"new\"}\n";
     try cli.rooms_peer_files.overwriteFile(io, dir, "inbox.jsonl", line1 ++ line2);
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
@@ -229,13 +231,13 @@ test "rooms-peer first-contact DM queues durably for introduction" {
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
-    try cli.rooms_peer_harness.appendOutbox(io, gpa, dir, "hello", "Jim");
+    try cli.rooms_peer_harness.appendOutbox(io, gpa, dir, "hello", "Alice");
     const raw = try cli.rooms_peer_files.readFile(io, gpa, dir, "outbox.jsonl");
     defer gpa.free(raw);
     const parsed = try cli.rooms_peer_harness.parseOutboxLine(gpa, std.mem.trimEnd(u8, raw, "\n"));
     defer parsed.deinit(gpa);
     try std.testing.expect(parsed.is_dm);
-    try std.testing.expectEqualStrings("Jim", parsed.peer);
+    try std.testing.expectEqualStrings("Alice", parsed.peer);
     try std.testing.expectEqualStrings("hello", parsed.text);
     try std.testing.expectEqual(@as(usize, 0), try cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
     try std.testing.expectEqual(raw.len, try cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
@@ -256,8 +258,8 @@ test "rooms-peer one-wake both-surfaces: DM ranks before human room" {
 
     // Room line first in the file; sort must still put DM first.
     const inbox =
-        \\{"kind":"msg","channel":"room","author":"Jim","text":"are you getting general?"}
-        \\{"kind":"msg","channel":"dm","author":"Jim","text":"hello","peer":"Jim"}
+        \\{"kind":"msg","channel":"room","author":"Alice","text":"are you getting general?"}
+        \\{"kind":"msg","channel":"dm","author":"Alice","text":"hello","peer":"Alice"}
         \\
     ;
     try cli.rooms_peer_files.overwriteFile(io, dir, "inbox.jsonl", inbox);
@@ -280,8 +282,8 @@ test "rooms-peer sortPending is DM then @mention then room (one-wake order)" {
     // was empty. Order is owned by harness.sortPending (verbs.zig uses it).
     var items = [_]cli.rooms_peer_ledger.Pending{
         .{ .id = "c", .channel = "room", .author = "peer", .text = "chatter", .peer = "", .mention = false },
-        .{ .id = "a", .channel = "dm", .author = "Jim", .text = "hi", .peer = "Jim", .mention = false },
-        .{ .id = "b", .channel = "room", .author = "Jim", .text = "@you", .peer = "", .mention = true },
+        .{ .id = "a", .channel = "dm", .author = "Alice", .text = "hi", .peer = "Alice", .mention = false },
+        .{ .id = "b", .channel = "room", .author = "Alice", .text = "@you", .peer = "", .mention = true },
     };
     cli.rooms_peer_ledger.sortPending(&items);
     try std.testing.expectEqualStrings("dm", items[0].channel);
@@ -306,9 +308,9 @@ test "rooms-peer one-wake clears DM and human room together" {
 
     try cli.rooms_peer_files.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"agentic-lead\",\"fresh-eyes\"]}\n");
     const inbox =
-        \\{"kind":"msg","channel":"room","author":"Jim","text":"general?"}
+        \\{"kind":"msg","channel":"room","author":"Alice","text":"general?"}
     ++ "\n" ++
-        \\{"kind":"msg","channel":"dm","author":"Jim","peer":"Jim","text":"psst"}
+        \\{"kind":"msg","channel":"dm","author":"Alice","peer":"Alice","text":"psst"}
     ++ "\n";
     try cli.rooms_peer_files.overwriteFile(io, dir, "inbox.jsonl", inbox);
 
@@ -360,7 +362,7 @@ test "rooms-peer humanRoomPending needs roster; peer chatter is not human" {
     const human_line = cli.rooms_peer_ledger.Pending{
         .id = "2",
         .channel = "room",
-        .author = "Jim",
+        .author = "Alice",
         .text = "hi",
         .peer = "",
         .mention = false,
@@ -393,8 +395,8 @@ test "rooms-peer pending inbox offers survive a failed drain and clear on succes
         table.deinit(gpa);
     }
 
-    _ = cli.rooms_peer.schedulePendingOffer(gpa, &table, "Jim", 1);
-    _ = cli.rooms_peer.schedulePendingOffer(gpa, &table, "Jim", 1);
+    _ = cli.rooms_peer.schedulePendingOffer(gpa, &table, "Alice", 1);
+    _ = cli.rooms_peer.schedulePendingOffer(gpa, &table, "Alice", 1);
     _ = cli.rooms_peer.schedulePendingOffer(gpa, &table, "unbounded", 1);
     try std.testing.expectEqual(@as(usize, 1), table.count());
 
@@ -404,11 +406,11 @@ test "rooms-peer pending inbox offers survive a failed drain and clear on succes
         }
     };
     cli.rooms_peer.drainPendingOffers(gpa, &table, {}, Fail.offer);
-    try std.testing.expect(table.contains("Jim"));
+    try std.testing.expect(table.contains("Alice"));
 
     const Ok = struct {
         fn offer(_: void, peer: []const u8) bool {
-            return std.mem.eql(u8, peer, "Jim");
+            return std.mem.eql(u8, peer, "Alice");
         }
     };
     cli.rooms_peer.drainPendingOffers(gpa, &table, {}, Ok.offer);

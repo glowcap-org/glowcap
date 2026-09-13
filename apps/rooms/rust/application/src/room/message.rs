@@ -45,10 +45,10 @@ impl ChangeKind {
 	/// The marker word on the room inbox wire, where a fresh line is `line`.
 	pub const fn wire_tag(self) -> &'static str {
 		match self {
-			Self::Said => "line",
-			Self::Edited => "edited",
-			Self::Refiled => "refiled",
-			Self::Withdrawn => "withdrawn",
+			Self::Said => crate::protocol_data::LINE,
+			Self::Edited => crate::protocol_data::EDITED,
+			Self::Refiled => crate::protocol_data::REFILED,
+			Self::Withdrawn => crate::protocol_data::WITHDRAWN,
 		}
 	}
 	/// The change word in an attached view's `event` notification. It is a
@@ -57,17 +57,17 @@ impl ChangeKind {
 	pub const fn event_change(self) -> &'static str {
 		match self {
 			Self::Said => "said",
-			Self::Edited => "edited",
-			Self::Refiled => "refiled",
-			Self::Withdrawn => "withdrawn",
+			Self::Edited => crate::protocol_data::EDITED,
+			Self::Refiled => crate::protocol_data::REFILED,
+			Self::Withdrawn => crate::protocol_data::WITHDRAWN,
 		}
 	}
 	pub fn parse(tag: &str) -> Option<Self> {
 		match tag {
-			"line" => Some(Self::Said),
-			"edited" => Some(Self::Edited),
-			"refiled" => Some(Self::Refiled),
-			"withdrawn" => Some(Self::Withdrawn),
+			crate::protocol_data::LINE => Some(Self::Said),
+			crate::protocol_data::EDITED => Some(Self::Edited),
+			crate::protocol_data::REFILED => Some(Self::Refiled),
+			crate::protocol_data::WITHDRAWN => Some(Self::Withdrawn),
 			_ => None,
 		}
 	}

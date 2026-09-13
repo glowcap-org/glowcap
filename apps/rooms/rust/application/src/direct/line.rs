@@ -2,7 +2,7 @@
 //! selection remain owned by the same Line used by room-hosted lines.
 use crate::room::{
 	attachment::{self, Attachment, AttachmentArgument, AttachmentError},
-	line::{DispatchError, Line, LineChange, LineError, Proposal, MAX_MESSAGE_FILES},
+	line::{DispatchError, Line, LineChange, LineError, MAX_MESSAGE_FILES, Proposal},
 };
 use alloc::vec::Vec;
 pub const MAX_ARGUMENTS: usize = 1 + MAX_MESSAGE_FILES * attachment::RECORD_SPAN;
@@ -65,7 +65,7 @@ pub fn dispatch_with<'line, 'call, A: AttachmentArgument, R, E>(
 		return Err(AdmissionError::Protocol(Error::Arguments));
 	}
 	let mut additions = Vec::new();
-	let command = if verb == "refile" {
+	let command = if verb == crate::protocol_data::REFILE {
 		let record_at = 1 + args.iter().skip(1).take_while(|arg| arg.integer().is_some()).count();
 		additions = attachment::read_exact(args, record_at)
 			.map_err(|error| AdmissionError::Protocol(Error::Attachments(error)))?;

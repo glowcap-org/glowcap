@@ -21,13 +21,13 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::host::{check_host, Host};
+use crate::Ref;
+use crate::host::{Host, check_host};
 use crate::session_shared::{Caretaker, SessionShared};
 use crate::sys::host as ffi;
 use crate::trampoline::outcome_behavior;
 use crate::uri::OwnedLocator;
-use crate::Ref;
-use crate::{sys, Argument, Error, Locator, Result};
+use crate::{Argument, Error, Locator, Result, sys};
 
 use crate::promise::{AsSendTarget, RemotePromise};
 
@@ -39,9 +39,6 @@ mod profile;
 
 pub(crate) use close::session_close_result;
 pub use identity::{DurableProvenance, PartnerIdentity};
-
-#[cfg(any(test, feature = "async"))]
-pub(crate) type DesignatorScheme = u32;
 
 /// How long a partner has to finish the keyed handshake once the byte channel
 /// is open, on both halves: what [`Runtime::connect`](crate::Runtime::connect) allows a dialed
@@ -421,7 +418,17 @@ impl Session {
 	/// observation while delivery continues. Keep the
 	/// `Session` handle alive while serving, because dropping it closes the
 	/// connection under the partner.
-	pub fn serve(&self) -> impl std::future::Future<Output = Result<()>> {
+	///
+	/// `use<>` says the future captures nothing from this call: admission, the
+	/// serve handle, and the close observer are all taken out of the shared
+	/// state before the `async move`, so the future outlives the borrow. Rust
+	/// 2024 would otherwise capture `&self` implicitly, and a caller that
+	/// starts serving and then moves the `Session` into its client — which is
+	/// the ordinary shape, because the handle must stay alive — would be
+	/// refused for a borrow the future does not hold. Keeping the handle alive
+	/// is a contract the sentence above states, not one the borrow checker is
+	/// asked to carry.
+	pub fn serve(&self) -> impl std::future::Future<Output = Result<()>> + use<> {
 		// A loop-backed session's inbound is held until its embedder serves;
 		// announce readiness before parking on closure, the byte-fed
 		// serve-resume contract spoken at the loop tier.

@@ -2,11 +2,11 @@
 //! membership; no nickname or calling connection authorizes an act, and an
 //! observer seat may watch but not speak.
 use super::{
-	entrance::{Departure, Entrance, Gate, LossyString},
+	Effects, HISTORY_ANSWERED, InvitationKey, LineKey, MAX_AWAY, MAX_ROOM_INVITATIONS, MembershipKey, Refusal, RoomKey,
+	Rooms, UploadKey,
+	entrance::{Departure, Entrance, Gate},
 	notice::Notice,
 	state::{Invitation, Line, Upload},
-	Effects, InvitationKey, LineKey, MembershipKey, Refusal, RoomKey, Rooms, UploadKey, HISTORY_ANSWERED, MAX_AWAY,
-	MAX_ROOM_INVITATIONS,
 };
 use crate::{
 	failure::FailureCode,
@@ -16,9 +16,9 @@ use crate::{
 		message::{ChangeKind, LineId},
 		policy::MembershipKind,
 	},
-	server::history::KeptLine,
+	server::history::{self, KeptLine, LINES_KEPT},
 };
-use alloc::{format, string::String, vec::Vec};
+use alloc::{format, string::String, sync::Arc, vec::Vec};
 
 type Members<C, R> = alloc::collections::BTreeMap<RoomKey, super::state::Room<C, R>>;
 
@@ -69,12 +69,23 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		text: &str,
 		now: u64,
 	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
+		self.post_with_previews(room, membership, text, crate::open_graph::Selection::default(), now)
+	}
+
+	pub fn post_with_previews(
+		&mut self,
+		room: &RoomKey,
+		membership: MembershipKey,
+		text: &str,
+		previews: crate::open_graph::Selection,
+		now: u64,
+	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
 		let member = participant(&self.rooms, room, membership)?;
 		if text.len() > MAX_LINE_BYTES {
 			return Err(Refusal::plain(format!("a line may be at most {MAX_LINE_BYTES} bytes")));
 		}
 		let nick = member.nick.clone();
-		self.said(room, nick, text, now, Vec::new())
+		self.said(room, nick, text, previews, now, Vec::new())
 	}
 
 	/// Publish every file staged by this membership as one line. Wall time
@@ -87,6 +98,25 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		wall_ms: u64,
 		monotonic_ms: u64,
 	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
+		self.post_files_with_previews(
+			room,
+			membership,
+			caption,
+			crate::open_graph::Selection::default(),
+			wall_ms,
+			monotonic_ms,
+		)
+	}
+
+	pub fn post_files_with_previews(
+		&mut self,
+		room: &RoomKey,
+		membership: MembershipKey,
+		caption: &str,
+		previews: crate::open_graph::Selection,
+		wall_ms: u64,
+		monotonic_ms: u64,
+	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
 		self.file_time(monotonic_ms)?;
 		let member = participant(&self.rooms, room, membership)?;
 		if caption.len() > MAX_LINE_BYTES {
@@ -95,10 +125,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			)));
 		}
 		let nick = member.nick.clone();
-		let files = self
-			.files
-			.post(&member.files)
-			.map_err(|error| Refusal::plain(error.to_string_lossy()))?;
+		let files = self.files.post(&member.files).map_err(Refusal::plain)?;
 		if files.is_empty() {
 			return Err(Refusal::coded(FailureCode::UploadIncomplete, "no files are staged"));
 		}
@@ -110,7 +137,8 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		} else {
 			caption.into()
 		};
-		self.said(room, nick, &caption, wall_ms, files)
+		let previews = previews.retained_for(&caption);
+		self.said(room, nick, &caption, previews, wall_ms, files)
 	}
 
 	fn said(
@@ -118,6 +146,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		room: &RoomKey,
 		nick: String,
 		text: &str,
+		previews: crate::open_graph::Selection,
 		now: u64,
 		mut files: Vec<crate::files::HostedFile>,
 	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
@@ -127,26 +156,58 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			let held = &self.rooms[room];
 			self.files
 				.line(&held.files, id, nick.clone(), &mut files)
-				.map_err(|error| Refusal::plain(error.to_string_lossy()))?
+				.map_err(Refusal::plain)?
 		};
+		// The line's one body: the history row, the editable row, and every
+		// member's notice share it, so a room of members costs one copy.
+		let shown = Arc::new(KeptLine {
+			from: nick,
+			text: text.into(),
+			previews,
+			at: now,
+		});
 		let mut effects = Effects::default();
 		let mut mutation = super::Mutation::default();
 		let kept = match self.history.as_mut() {
 			Some(history) => {
-				let (token, persist) = history
-					.record(
-						room,
-						KeptLine {
-							from: nick.clone(),
-							text: text.into(),
-							at: now,
-						},
-					)
-					.map_err(|error| Refusal::plain(error.to_string_lossy()))?;
-				mutation.persist = Some(persist);
-				Some(token)
+				let recorded = history.record(room.as_str(), shown.clone()).map_err(Refusal::plain)?;
+				// The editable window is the history the room keeps: a row
+				// leaving the index takes its line with it, and a room
+				// evicted whole takes every line it still answered.
+				if let Some(retired) = recorded.retired
+					&& let Some(line) = self.kept_lines.get(&retired).copied()
+				{
+					self.retire_line(line);
+				}
+				if let history::Persist::Append {
+					evicted: Some(evicted), ..
+				} = &recorded.persist
+				{
+					let lines: Vec<LineKey> = self
+						.rooms
+						.get(&RoomKey::from_text(evicted))
+						.map(|room| room.lines.iter().copied().collect())
+						.unwrap_or_default();
+					for line in lines {
+						self.retire_line(line);
+					}
+				}
+				mutation.persist = Some(recorded.persist);
+				Some(recorded.token)
 			}
-			None => None,
+			None => {
+				// Without history the window closes on its own count, oldest
+				// first, at the size a kept room's would.
+				let oldest = self.rooms[room]
+					.lines
+					.first()
+					.copied()
+					.filter(|_| self.rooms[room].lines.len() >= LINES_KEPT);
+				if let Some(oldest) = oldest {
+					self.retire_line(oldest);
+				}
+				None
+			}
 		};
 		let key = LineKey(self.next_id());
 		self.lines.insert(
@@ -154,15 +215,23 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			Line {
 				room: room.clone(),
 				line,
+				shown: shown.clone(),
 				kept,
 			},
 		);
+		if let Some(token) = kept {
+			self.kept_lines.insert(token, key);
+		}
+		self.rooms
+			.get_mut(room)
+			.expect("a seated room is live")
+			.lines
+			.insert(key);
 		self.broadcast(
 			room,
 			&mut effects,
 			Notice::Line {
-				from: nick,
-				text: text.into(),
+				line: shown,
 				marker: Some((ChangeKind::Said, id)),
 				files: blobs,
 			},
@@ -183,10 +252,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		self.file_time(monotonic_ms)?;
 		let member = participant(&self.rooms, room, membership)?;
 		let uploader = member.connection;
-		let upload = self
-			.files
-			.attach(&member.files, description)
-			.map_err(|error| Refusal::plain(error.to_string_lossy()))?;
+		let upload = self.files.attach(&member.files, description).map_err(Refusal::plain)?;
 		let key = UploadKey(self.next_id());
 		self.uploads.insert(
 			key,
@@ -214,13 +280,18 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		Ok(effects)
 	}
 
-	/// The last lines the server kept for this room, oldest first.
-	pub fn history(&self, room: &RoomKey, membership: MembershipKey) -> Result<Vec<KeptLine>, Refusal> {
+	/// The last lines the server kept for this room, oldest first, borrowed
+	/// so the adapter encodes each straight from the row the index shares.
+	pub fn history(
+		&self,
+		room: &RoomKey,
+		membership: MembershipKey,
+	) -> Result<impl Iterator<Item = &KeptLine> + '_, Refusal> {
 		seated(&self.rooms, room, membership)?;
 		let Some(history) = &self.history else {
 			return Err(Refusal::plain("room membership has no method history"));
 		};
-		Ok(history.read(room, HISTORY_ANSWERED))
+		Ok(history.read(room.as_str(), HISTORY_ANSWERED))
 	}
 
 	pub fn away(&mut self, room: &RoomKey, membership: MembershipKey, why: &str) -> Result<Effects<C, R>, Refusal> {
@@ -272,7 +343,6 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				generation,
 				minter,
 				kind,
-				active: true,
 				admission: Default::default(),
 			},
 		);
@@ -289,7 +359,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			.rooms
 			.get(&invitation.room)
 			.is_some_and(|room| room.entry_id == invitation.generation);
-		if !invitation.active || !current {
+		if !current {
 			return Err(ended());
 		}
 		invitation.admission.claim(receipt).map_err(Refusal::plain)?;

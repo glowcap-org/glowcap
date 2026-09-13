@@ -1,3 +1,4 @@
+// Directory presentation treats home identity, locator spelling, naming, and color as one coherent destination.
 import "../support/browser_application.ts";
 // How this page names and colors directories, and how a locator field treats
 // this directory as the empty destination rather than a second address.

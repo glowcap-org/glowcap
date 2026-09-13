@@ -1,6 +1,28 @@
 //! Product advice for opening an existing shared session. Unknown diagnostics
 //! retain their original meaning; these recognizers grant no retry authority.
+use crate::failure::FailureCode;
 use alloc::{format, string::String};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Advice {
+	pub code: &'static str,
+	pub subject: &'static str,
+	pub retry: &'static str,
+	pub summary: &'static str,
+	pub action: &'static str,
+}
+
+fn advice(code: FailureCode) -> Advice {
+	let definition = code.definition();
+	Advice {
+		code: definition.code.wire(),
+		subject: definition.subject,
+		retry: definition.retry.wire(),
+		summary: definition.summary,
+		action: definition.action.expect("session failure advice has a repair action"),
+	}
+}
 
 enum ConnectionFailure {
 	Unreachable,
@@ -32,23 +54,32 @@ pub fn directory(reason: &str) -> Option<&'static str> {
 	}
 }
 
-pub fn attachment(reason: &str) -> Option<&'static str> {
+pub fn attachment(reason: &str) -> Option<Advice> {
 	match connection_failure(reason) {
-		Some(ConnectionFailure::Unreachable) => return Some("The shared session peer could not be reached. Make sure it is running and retry the capability it currently announces. An iroh session needs either a reachable advertised address or working iroh discovery and relay access."),
-		Some(ConnectionFailure::Handshake) => return Some("The session peer was reached, but it did not finish the OCapN handshake. Check that the Rooms session peer is running compatible code, then retry."),
+		Some(ConnectionFailure::Unreachable) => {
+			return Some(advice(FailureCode::SessionUnreachable));
+		}
+		Some(ConnectionFailure::Handshake) => {
+			return Some(advice(FailureCode::SessionHandshakeIncomplete));
+		}
 		None => {}
 	}
 	if reason.contains("unknown swissnum") {
-		return Some("The session peer does not know this capability. It was probably revoked, or belongs to a session that no longer exists. Use one the session shows now.");
+		return Some(advice(FailureCode::SessionCapabilityGone));
 	}
 	if reason.contains("no signaling inbox for that designator") {
-		return Some("The hosting tab is not answering WebRTC on the directory this capability names. On that tab, Share the session and leave it open. Reloading it ends sharing.");
+		return Some(advice(FailureCode::SessionSignalingHostOffline));
 	}
 	if reason.contains("signalOffer needs a registered name") {
-		return Some("This browser could not signal through the directory the capability names. Retry after that directory is reachable from here.");
+		return Some(advice(FailureCode::SessionSignalingUnavailable));
+	}
+	if reason.contains("WebRTC could not establish or retain a route")
+		|| reason.contains("peers found no route to each other")
+	{
+		return Some(advice(FailureCode::SessionWebrtcNoRoute));
 	}
 	if reason.contains("PeerIdentityUnverified") {
-		return Some("The session peer answered, but this browser could not authenticate that it is the peer the capability names. Retry with a capability the session shows now.");
+		return Some(advice(FailureCode::SessionPeerUnverified));
 	}
 	None
 }
@@ -82,6 +113,10 @@ mod tests {
 				"could not signal through the directory",
 			),
 			(
+				"glowcap error -8: WebRTC could not establish or retain a route; cleanup failed: WebRTC could not establish or retain a route",
+				"WebRTC found no route",
+			),
+			(
 				"glowcap error -3: host: PeerIdentityUnverified",
 				"could not authenticate",
 			),
@@ -90,12 +125,17 @@ mod tests {
 			("peer did not finish the OCapN handshake", "compatible code"),
 		] {
 			let advice = attachment(reason).unwrap();
-			assert!(advice.contains(subject), "{advice}");
+			let rendered = format!("{} {}", advice.summary, advice.action);
+			assert!(rendered.contains(subject), "{rendered}");
 			// The presentation's locator refusal reader must not reinterpret these
 			// peer facts as a damaged paste of a capability.
-			assert!(!advice.starts_with("glowcap error"));
-			assert!(!advice.contains("Check that you pasted"));
+			assert!(!rendered.starts_with("glowcap error"));
+			assert!(!rendered.contains("Check that you pasted"));
 		}
+		assert_eq!(
+			attachment("peers found no route to each other").unwrap().code,
+			"session-webrtc-no-route"
+		);
 		assert_eq!(attachment("unexpected observer failure"), None);
 	}
 

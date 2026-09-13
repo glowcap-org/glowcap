@@ -17,6 +17,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 });
 
 const store = await import("../../web/ui/store.ts");
+const { authorityToken } = await import("../../web/ui/store/rooms.ts");
 const projection = new store.PageProjection();
 const types = await import("../../web/ui/types.ts");
 const { canRetry, dirId, isUnsent, sendControlsFor } = types;
@@ -150,27 +151,27 @@ Deno.test("an authoritative withdrawal settles only the matching edit intent", (
 });
 
 Deno.test("an unsent message offers a retry only where one could work", () => {
-	// The interface must never offer an action that cannot succeed. A line lost
-	// with a session may go the moment one comes back; a line typed into a
-	// conversation whose member has left never can, because the room has the name
-	// back and the next holder is somebody else.
+	// The interface must never offer an action that could do harm. A line lost
+	// with a session may go the moment one comes back; a line the runtime could
+	// not confirm may already have reached the other side, so sending it again
+	// could land it twice, and the page offers no retry for it.
 	assert(!isUnsent("sending"), "a line still going is not unsent");
 	assert(!isUnsent(undefined), "a line that went is not unsent");
 	assert(isUnsent("failed"), "a line that failed is unsent");
-	assert(isUnsent("refused"), "a line that was refused is unsent");
+	assert(isUnsent("unconfirmed"), "a line nobody confirmed is drawn as unsent");
 	assert(canRetry("failed"), "a line that failed may be sent again");
-	assert(!canRetry("refused"), "a line that can never go must offer no retry");
+	assert(!canRetry("unconfirmed"), "a line that may have landed must offer no blind retry");
 	assert(!canRetry("sending"), "a line still going needs no retry");
 	assert(!canRetry(undefined), "a line that went needs no retry");
 });
 
-Deno.test("message controls belong to the controller that owns the send", () => {
+Deno.test("message retry belongs only to the controller that can repeat safely", () => {
 	const local = sendControlsFor("local");
-	assert(local.retry && local.stop, "local sends lost their recovery controls");
+	assert(local.retry, "local sends lost their recovery control");
 	const shared = sendControlsFor("attached");
-	assert(!shared.retry && !shared.stop, "attached sends exposed controls they cannot own");
+	assert(!shared.retry, "attached sends exposed a retry they cannot own");
 	const hosted = sendControlsFor("hosted");
-	assert(!hosted.retry && !hosted.stop, "hosted sends exposed controls they cannot own");
+	assert(!hosted.retry, "hosted sends exposed a retry they cannot own");
 });
 
 Deno.test("a connection ending takes what its lines could be told, not what they said", () => {
@@ -213,9 +214,9 @@ Deno.test("room management is retained authority, never creator-connection state
 	const dir = dirId("test-dir-room-manager");
 	const manager = "ocapn://127.0.0.1%3A1.tcp/s/bWFuYWdlcg";
 	const room = store.ensureRoom(projection, dir, "harbor", { manager });
-	assert(room.manager === manager, "the room did not retain its manager capability");
+	assert(room.managerToken === authorityToken(manager), "the room did not retain its manager capability");
 	assert(
-		store.ensureRoom(projection, dir, "harbor").manager === manager,
+		store.ensureRoom(projection, dir, "harbor").managerToken === authorityToken(manager),
 		"an ordinary room update erased management",
 	);
 	assert(
@@ -223,7 +224,7 @@ Deno.test("room management is retained authority, never creator-connection state
 		"the exact manager could not be discarded",
 	);
 	const dropped = store.getConv(projection, room.key);
-	assert(dropped?.type === "room" && dropped.manager == null, "manager drop lingered");
+	assert(dropped?.type === "room" && dropped.managerToken == null, "manager drop lingered");
 });
 
 Deno.test("a delayed authority retirement cannot clear a newer room grant", () => {
@@ -242,7 +243,10 @@ Deno.test("a delayed authority retirement cannot clear a newer room grant", () =
 		"a stale retirement claimed the current authority",
 	);
 	const retained = store.getConv(projection, room.key);
-	assert(retained?.type === "room" && retained.link === newRoom, "a delayed retirement erased the reissued link");
+	assert(
+		retained?.type === "room" && retained.linkToken === authorityToken(newRoom),
+		"a delayed retirement erased the reissued link",
+	);
 });
 
 Deno.test("room history progress says what the membership actually learned", () => {
@@ -333,32 +337,32 @@ Deno.test("an ignored line does not count at the reader, and their own always do
 	// because a badge lighting for a line that will never draw teaches a reader
 	// to stop trusting the badge.
 	const { silencedByIgnore } = types;
-	const ignored = new Set(["jim"]);
-	const theirs = store.chatItem(projection, "Jim", "from the other jim", false);
-	const mine = store.chatItem(projection, "Jim", "my own line", true);
+	const ignored = new Set(["alice"]);
+	const theirs = store.chatItem(projection, "Alice", "from the other alice", false);
+	const mine = store.chatItem(projection, "Alice", "my own line", true);
 	assert(silencedByIgnore(theirs, ignored), "a stranger's line under an ignored name is heard");
 	assert(!silencedByIgnore(mine, ignored), "the reader's own line is silenced by their own ignore");
 	assert(
-		!silencedByIgnore(store.sysItem(projection, "jim joined"), ignored),
+		!silencedByIgnore(store.sysItem(projection, "alice joined"), ignored),
 		"a system line is silenced by an ignore",
 	);
 
 	// And the unread count follows the same answer. The conversation is not the
 	// active one, so a counted line would light its badge.
-	store.ignore(projection, "jim");
+	store.ignore(projection, "alice");
 	const room = store.ensureRoom(projection, dirId("test-dir"), "ignored-count");
 	store.switchTo(projection, store.ensureRoom(projection, dirId("test-dir"), "elsewhere").key);
-	store.deliver(projection, room.key, store.chatItem(projection, "Jim", "never drawn", false));
+	store.deliver(projection, room.key, store.chatItem(projection, "Alice", "never drawn", false));
 	assert(
 		store.unreadOf(projection, room.key).kind === "caught-up",
 		"a line the reader will never see lit the unread badge",
 	);
-	store.deliver(projection, room.key, store.chatItem(projection, "Jim", "my own, echoed back", true));
+	store.deliver(projection, room.key, store.chatItem(projection, "Alice", "my own, echoed back", true));
 	assert(
 		store.unreadOf(projection, room.key).kind === "unread",
 		"the reader's own line stopped counting because their name is on their ignore list",
 	);
-	store.unignore(projection, "jim");
+	store.unignore(projection, "alice");
 });
 
 Deno.test("clearing a conversation hands back what its lines were holding", () => {
@@ -502,10 +506,10 @@ Deno.test("only a confirmed optimistic line reaches the history recorder", () =>
 	const recorded: number[] = [];
 	projection.setLineRecorder((_conv, item) => recorded.push(item.id));
 	try {
-		const refused = store.chatItem(projection, "ada", "not sent", true, "sending");
-		store.deliver(projection, room.key, refused);
-		store.updateItem(projection, room.key, refused.id, { state: "refused" });
-		assert(recorded.length === 0, "a refused optimistic line reached history");
+		const unconfirmed = store.chatItem(projection, "ada", "not sent", true, "sending");
+		store.deliver(projection, room.key, unconfirmed);
+		store.updateItem(projection, room.key, unconfirmed.id, { state: "unconfirmed" });
+		assert(recorded.length === 0, "an unconfirmed optimistic line reached history");
 		const accepted = store.chatItem(projection, "ada", "sent", true, "sending");
 		store.deliver(projection, room.key, accepted);
 		store.updateItem(projection, room.key, accepted.id, { state: undefined });

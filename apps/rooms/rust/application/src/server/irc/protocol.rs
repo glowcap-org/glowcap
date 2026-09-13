@@ -206,10 +206,10 @@ pub fn encode_message(command: &str, params: &[&str], prefix: Option<&str>) -> R
 	if !valid_command(&upper) {
 		return Err(Error::Command);
 	}
-	if let Some(prefix) = prefix {
-		if prefix.is_empty() || prefix.bytes().any(|b| matches!(b, 0 | b'\r' | b'\n' | b' ')) {
-			return Err(Error::Prefix);
-		}
+	if let Some(prefix) = prefix
+		&& (prefix.is_empty() || prefix.bytes().any(|b| matches!(b, 0 | b'\r' | b'\n' | b' ')))
+	{
+		return Err(Error::Prefix);
 	}
 	if params.len() > MAX_PARAMS {
 		return Err(Error::TooManyParams);

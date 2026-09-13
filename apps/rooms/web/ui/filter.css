@@ -24,8 +24,8 @@
    move, the two rails' headings stay level, and the ground the press takes
    reaches the same left edge a room's pill below it reaches.
 
-   The funnel follows the words rather than leading them, which is what lets
-   this heading and the direct-message heading start at one left edge. Leading
+   The funnel follows the words rather than leading them, so this heading and
+   the direct-message heading start at one left edge. Leading
    it built the heading like one of the rows under it, sigil then name, but that
    only worked for this list: a direct line leads with a face rather than a
    sigil, so following the rule in both places would have set the two headings
@@ -111,8 +111,8 @@
 	   agree. Each control spends it differently: the field has a border to fit
 	   inside it and the rows sit hairline to hairline in their well. */
 	--filter-row-h: 28px;
-	/* Answers speak a rung below the rest of the page's controls, which is what
-	   lets a directory named after the address it was reached by fit its row
+	/* Answers speak a rung below the rest of the page's controls, so a directory
+	   named after the address it was reached by can fit its row
 	   whole instead of ending in an ellipsis. Two addresses cut at the same
 	   prefix are the same row to read, and telling them apart is the row's whole
 	   job. It stays a rung above the labels, so a question is still larger than
@@ -199,8 +199,8 @@
 	overflow: hidden;
 }
 /* One answer. The whole row is the label, so a press anywhere on the line is a
-   press on the box, which is what the page's other labelled checkbox rows
-   already promise. Quiet until it is in view, and then the row's own ink comes
+   press on the box, matching the page's other labeled checkbox rows. Quiet
+   until it is in view, and then the row's own ink comes
    up with the mark: the mark is the answer and the ink follows it, so a reader
    who cannot use either colour still has the drawn check. */
 .filter-choice {

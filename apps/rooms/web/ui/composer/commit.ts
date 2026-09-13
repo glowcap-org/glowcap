@@ -7,6 +7,7 @@ import type { Conv } from "../types.ts";
 import type { PageProjection } from "../store/core.ts";
 import { type ComposerDraft, prepareComposerSend, type PreparedComposerSend } from "./send.ts";
 import { PHASE_SAID } from "../text.ts";
+import { composerNotConnected } from "../../../lib/text/controls.ts";
 
 export type CommittedComposerSend = Extract<PreparedComposerSend, { kind: "handled" | "send" }>;
 
@@ -27,7 +28,7 @@ export function interpretComposerSend(
 }
 
 /** A disconnected session cannot send chat. */
-export const COMPOSER_NOT_CONNECTED = PHASE_SAID.disconnected + ". Your message was not sent.";
+export const COMPOSER_NOT_CONNECTED = composerNotConnected(PHASE_SAID.disconnected);
 
 /** Empty the conversation that was just composed. A command that has already
  * left or dismissed that conversation is a no-op: last sent and the draft

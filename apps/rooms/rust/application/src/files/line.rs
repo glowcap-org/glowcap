@@ -1,9 +1,9 @@
 //! Commit line mutation and staged-upload ownership as one synchronous act.
 use super::*;
 use crate::room::{
+	ArgumentView,
 	line::{Line, LineChange, LineError},
 	message::LineId,
-	ArgumentView,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -76,7 +76,7 @@ impl FileStore {
 				return Err(FileLineError::Files(FileError::WrongRoom));
 			}
 		}
-		let mut staged = if verb == "refile" {
+		let mut staged = if verb == crate::protocol_data::REFILE {
 			match member {
 				Some(member) => self.prepare_post(member).map_err(FileLineError::Files)?,
 				None => Vec::new(),

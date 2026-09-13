@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use crate::context::ContextInner;
-use crate::host::{check_host, HostShared};
+use crate::host::{HostShared, check_host};
 use crate::session_shared::SessionShared;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::sys::driver::GlowcapDriverLoop;
@@ -162,18 +162,17 @@ pub(crate) fn drain() {
 			} => {
 				crate::trace::detach_host(raw);
 				let rc = unsafe { ffi_host::glowcap_host_release(raw) };
-				if rc != sys::OK {
-					if let Err(error) = check_host(rc) {
-						if crate::lifecycle::release_consumed(rc) || !refusal_reported {
-							record(
-								context.as_ref(),
-								FailureLayer::Binding,
-								"host-finalizer.release",
-								&error,
-							);
-							refusal_reported = true;
-						}
-					}
+				if rc != sys::OK
+					&& let Err(error) = check_host(rc)
+					&& (crate::lifecycle::release_consumed(rc) || !refusal_reported)
+				{
+					record(
+						context.as_ref(),
+						FailureLayer::Binding,
+						"host-finalizer.release",
+						&error,
+					);
+					refusal_reported = true;
 				}
 				if !crate::lifecycle::release_consumed(rc) {
 					PENDING.with(|pending| {
@@ -194,18 +193,18 @@ pub(crate) fn drain() {
 			} => {
 				let (rc, outcome) = crate::driver_failure::release(raw);
 				let consumed = crate::lifecycle::release_consumed(rc);
-				if let Err(error) = outcome.as_ref() {
-					if crate::lifecycle::release_consumed(rc) || !refusal_reported {
-						if completion.is_none() {
-							record(
-								context.as_ref(),
-								FailureLayer::Driver,
-								"driver-loop.finalizer.release",
-								error,
-							);
-						}
-						refusal_reported = true;
+				if let Err(error) = outcome.as_ref()
+					&& (crate::lifecycle::release_consumed(rc) || !refusal_reported)
+				{
+					if completion.is_none() {
+						record(
+							context.as_ref(),
+							FailureLayer::Driver,
+							"driver-loop.finalizer.release",
+							error,
+						);
 					}
+					refusal_reported = true;
 				}
 				if !consumed {
 					PENDING.with(|pending| {

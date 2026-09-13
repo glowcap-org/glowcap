@@ -1,6 +1,6 @@
 //! Browser realization of keyed-relay and noise-relay. Locator hints select
 //! the rendezvous endpoint; the Host owns framing, Noise and peer admission.
-use crate::{abi_constants::*, AcceptedTransport, ChannelDesignator, Connector, Error, Host, Locator, Result, Session};
+use crate::{AcceptedTransport, ChannelDesignator, Connector, Error, Host, Locator, Result, Session, abi_constants::*};
 use std::time::Duration;
 use web_sys::Url;
 

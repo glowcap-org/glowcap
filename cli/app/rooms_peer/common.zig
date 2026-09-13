@@ -96,6 +96,7 @@ pub const max_nick: usize = 32;
 /// How many direct-message inboxes this peer will hold, matching
 /// `MAX_DM_INBOXES` in `apps/rooms/lib/limits.ts`.
 pub const max_dm_inboxes: usize = 256;
+const max_locator_bootstrap_bytes: usize = 4 * 1024;
 
 /// Resolve a CapTP dial target. An `http(s)://…/locator` bootstrap is fetched
 /// and its first line taken as the `ocapn://` URI (the rooms web UI serves it);
@@ -106,13 +107,13 @@ pub fn resolveLocator(io: Io, gpa: Allocator, locator: []const u8) ![]u8 {
 
     var client = std.http.Client{ .allocator = gpa, .io = io };
     defer client.deinit();
-    var body = std.Io.Writer.Allocating.init(gpa);
-    defer body.deinit();
-    const result = client.fetch(.{ .location = .{ .url = locator }, .response_writer = &body.writer }) catch {
+    var storage: [max_locator_bootstrap_bytes]u8 = undefined;
+    var body = std.Io.Writer.fixed(&storage);
+    const result = client.fetch(.{ .location = .{ .url = locator }, .response_writer = &body }) catch {
         return error.BootstrapFailed;
     };
     if (result.status != .ok) return error.BootstrapFailed;
-    const text = body.writer.buffered();
+    const text = body.buffered();
     var lines = std.mem.splitScalar(u8, text, '\n');
     const first = std.mem.trim(u8, lines.next() orelse "", " \t\r\n");
     if (first.len == 0) return error.BootstrapEmpty;

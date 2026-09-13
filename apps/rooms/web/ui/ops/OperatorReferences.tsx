@@ -5,7 +5,7 @@
 // part — who owns it, which room, which member — pushed to the side. An
 // operator arrives asking about a kind ("what is holding lines open?"), so the
 // kind is the heading and the row is free to lead with its owner. A kind with
-// nothing in it is not drawn at all, which is what keeps this page short on a
+// nothing in it is not drawn, so this page stays short on a
 // quiet directory and long only where there is something to answer for.
 //
 // A kind heading is also the way to ask for only that kind, because grouping a
@@ -23,20 +23,40 @@ import type { OperatorActs } from "./operator_acts.tsx";
 import { SectionTitle } from "./Section.tsx";
 import { OperatorSweep } from "./OperatorSweep.tsx";
 import { useOperatorActivity } from "./operator_activity.tsx";
+import {
+	referenceRelease,
+	referenceReleaseEffect,
+	referencesEmpty,
+	referencesForeignRoom,
+	referencesLead,
+	referencesLine,
+	referencesMembership,
+	referencesOfferedInbox,
+	referencesPendingPeering,
+	referencesRegistration,
+	referencesSearchFor,
+	referencesSignalExchange,
+	referencesSignaling,
+	referencesSweepEffect,
+	referencesSweepSubject,
+	referencesTitle,
+	referencesUpload,
+} from "../../../lib/text/ops.ts";
+import { operatorSweepRelease, operatorSweepReleased } from "../../../lib/text/operator.ts";
 
 /** Every kind the directory can hold, in the order an operator reads them:
  * what people are in, what they are talking through, then the plumbing that
  * carries names and connections. */
 const REFERENCE_KINDS: readonly { kind: OperatorReferenceRow["kind"]; label: string }[] = [
-	{ kind: "membership", label: "Room memberships" },
-	{ kind: "line", label: "Direct lines" },
-	{ kind: "upload", label: "Uploads in flight" },
-	{ kind: "foreign-room", label: "Peered rooms" },
-	{ kind: "pending-peering", label: "Peerings being set up" },
-	{ kind: "registration", label: "Nickname registrations" },
-	{ kind: "offered-inbox", label: "Offered inboxes" },
-	{ kind: "signaling", label: "Signaling routes" },
-	{ kind: "signal-exchange", label: "Signaling exchanges" },
+	{ kind: "membership", label: referencesMembership },
+	{ kind: "line", label: referencesLine },
+	{ kind: "upload", label: referencesUpload },
+	{ kind: "foreign-room", label: referencesForeignRoom },
+	{ kind: "pending-peering", label: referencesPendingPeering },
+	{ kind: "registration", label: referencesRegistration },
+	{ kind: "offered-inbox", label: referencesOfferedInbox },
+	{ kind: "signaling", label: referencesSignaling },
+	{ kind: "signal-exchange", label: referencesSignalExchange },
 ];
 
 /** The key the kind filter's wait and refusal are kept under. Named here, where
@@ -60,15 +80,12 @@ export function OperatorReferences(
 	const activity = useOperatorActivity();
 	return (
 		<section className="ops-section" id="operatorReferences">
-			<SectionTitle count={total}>Retained references</SectionTitle>
+			<SectionTitle count={total}>{referencesTitle}</SectionTitle>
 			<div className="group well">
-				<p className="hint">
-					These are capability occurrences this server currently holds. Releasing one updates its owning
-					aggregate here. It does not revoke copies already held by remote peers.
-				</p>
+				<p className="hint">{referencesLead}</p>
 				{acts.why[referencesFilterKey] != null && <Said kind="failure">{acts.why[referencesFilterKey]}</Said>}
 				{rows.length === 0
-					? <p className="empty">This server holds no independently releasable references.</p>
+					? <p className="empty">{referencesEmpty}</p>
 					: REFERENCE_KINDS.map(({ kind, label }) => {
 						const whole = rows.length === total;
 						const held = rows.filter((row) => row.kind === kind);
@@ -80,7 +97,7 @@ export function OperatorReferences(
 										variant="link"
 										busy={acts.busy(referencesFilterKey)}
 										disabled={activity.sweeping}
-										title={`Search this directory for ${label.toLowerCase()}`}
+										title={referencesSearchFor(label.toLowerCase())}
 										onClick={() => onFilter(kind)}
 									>
 										{label}
@@ -124,8 +141,8 @@ export function OperatorReferences(
 												<p className="hint">{row.detail}</p>
 												{acts.confirm(
 													key,
-													"Only this server's retained occurrence is released. Remote holders keep their copies and their authority.",
-													"Release retained reference",
+													referenceReleaseEffect,
+													referenceRelease,
 													() => acts.session.releaseOperatorReference(row.id),
 												)}
 												{acts.why[key] != null && <Said kind="failure">{acts.why[key]}</Said>}
@@ -139,10 +156,10 @@ export function OperatorReferences(
 				{more}
 				<OperatorSweep
 					category="references"
-					act="Release"
-					past="Released"
-					subject="references"
-					effect="Only this server's retained occurrences are released. Remote holders keep their copies and their authority."
+					act={operatorSweepRelease}
+					past={operatorSweepReleased}
+					subject={referencesSweepSubject}
+					effect={referencesSweepEffect}
 					search={search}
 					total={total}
 					referenceKind={referenceKind}

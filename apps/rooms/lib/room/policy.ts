@@ -51,8 +51,8 @@ export function roomPreset(policy: RoomPolicy): RoomPreset {
  *
  * `participant` is the open name. `observer` is the moderated one: the room is
  * listed and its name offers watching rather than speaking. A listed room that
- * offers nothing publicly is moderated too, because it is listed and does not
- * offer participation, which is what moderated means here.
+ * offers nothing publicly is moderated too, because it is listed without an
+ * offer to participate.
  *
  * No answer is `private`: a private room is not listed, so nothing that reaches
  * a directory listing can be in that standing. A name absent from the listing

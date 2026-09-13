@@ -2,16 +2,13 @@
 //! subscribe reply are independent; both must finish before exposing a member.
 use super::{attachment::AttachmentArgument, policy::MembershipKind};
 
-pub const SUBSCRIBE: &str = "subscribe";
-pub const LEAVE: &str = "leave";
-pub const AWAY: &str = "away";
-pub const TYPING: &str = "typing";
-pub const SET_TOPIC: &str = "setTopic";
+pub use crate::protocol_data::{AWAY, LEAVE, SET_TOPIC, SUBSCRIBE, TYPING};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
 	Answer,
 	Ended,
 	NoTopic,
+	NoFiles,
 	GoodbyeUnobserved,
 }
 impl core::fmt::Display for Error {
@@ -20,31 +17,42 @@ impl core::fmt::Display for Error {
 			Self::Answer => "the room answered subscribe without one membership capability",
 			Self::Ended => "this room membership has ended",
 			Self::NoTopic => "this room did not hand over its topic authority",
+			Self::NoFiles => "this room does not carry files",
 			Self::GoodbyeUnobserved => "membership retired after the goodbye observation was cancelled",
 		})
 	}
 }
 impl core::error::Error for Error {}
+/// What `subscribe` answers: the seat every membership verb goes to, which
+/// kind of seat it is, and two facets the room hands over or withholds. A
+/// facet withheld is a null in its slot, and a client that holds nothing
+/// there draws no control for it: the topic authority for a participant in
+/// a room that lets members set one, and the files facet, which `attach`
+/// and `postFiles` go to, for a room that can hold the bytes at all.
 pub struct Seat<C> {
 	pub reference: C,
 	pub kind: MembershipKind,
 	pub topic: Option<C>,
+	pub files: Option<C>,
 }
 pub fn read_answer<A: AttachmentArgument>(args: &[A]) -> Result<Seat<A::Capability>, Error> {
-	if args.len() != 3 {
+	if args.len() != 4 {
 		return Err(Error::Answer);
 	}
 	let reference = args[0].capability().ok_or(Error::Answer)?;
 	let kind = args[1].text().and_then(MembershipKind::parse).ok_or(Error::Answer)?;
-	let topic = if args[2].is_null() {
-		None
-	} else {
-		Some(args[2].capability().ok_or(Error::Answer)?)
+	let facet = |at: usize| {
+		if args[at].is_null() {
+			Ok(None)
+		} else {
+			args[at].capability().map(|c| Some(c.clone())).ok_or(Error::Answer)
+		}
 	};
 	Ok(Seat {
 		reference: reference.clone(),
 		kind,
-		topic: topic.cloned(),
+		topic: facet(2)?,
+		files: facet(3)?,
 	})
 }
 pub struct Membership<C> {

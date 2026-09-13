@@ -12,6 +12,6 @@ export UV_TOOL_BIN_DIR="${UV_TOOL_BIN_DIR}"
 export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR}"
 
 mkdir -p "${UV_TOOL_DIR}" "${UV_PYTHON_INSTALL_DIR}"
-uv tool install -p "${SERENA_PYTHON}" "serena-agent==${SERENA_AGENT_VERSION}"
+uv tool install -p "${PYTHON_VERSION}" "serena-agent==${SERENA_AGENT_VERSION}"
 chmod -R a+rX /usr/local/uv
 serena --version

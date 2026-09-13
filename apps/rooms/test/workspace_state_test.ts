@@ -1,6 +1,7 @@
+// Workspace persistence admits only reconstructible, bounded, bearer-safe state under its current schema.
 /// <reference lib="dom" />
 import "./support/browser_application.ts";
-import { workspaceStorageKey } from "../web/ui/application.ts";
+import { roomAuthorityToken, workspaceStorageKey } from "../web/ui/application.ts";
 
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
@@ -258,8 +259,8 @@ Deno.test("workspace projection restores room and moderator capabilities togethe
 	const restored = store.getConv(page.projection, room.key);
 	assert(restored?.type === "room", "the room record was not restored");
 	assert(restored.membership === "unavailable", "workspace reconstruction invented a live membership");
-	assert(restored.link === roomLink, "the room capability was not restored");
-	assert(restored.steward === moderatorLink, "the moderator capability was not restored");
+	assert(restored.linkToken === roomAuthorityToken(roomLink), "the room capability was not restored");
+	assert(restored.stewardToken === roomAuthorityToken(moderatorLink), "the moderator capability was not restored");
 	assert(restored.bridgeIntent?.answers["nick"] === "glowcap", "the room IRC identity intent was lost");
 	assert(
 		page.projection.get().dirs.get(directory)?.requestedNick === "ada",

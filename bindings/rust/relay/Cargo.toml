@@ -5,8 +5,15 @@
 [package]
 name = "glowcap-relay"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+license = "Apache-2.0"
 publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
 
 [[bin]]
 name = "glowcap-relay"

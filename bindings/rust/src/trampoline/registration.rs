@@ -1,5 +1,5 @@
 //! Exactly-once foreign context transfer, independent of refusal status.
-use super::{drop_actor_cell, sys, ActorCell, Cell, Error, Result};
+use super::{ActorCell, Cell, Error, Result, drop_actor_cell, sys};
 
 struct Receipt<'a> {
 	cell: *mut ActorCell,
@@ -32,7 +32,9 @@ pub(crate) unsafe fn register_actor_cell(
 	accepted: impl FnOnce(i32) -> bool,
 ) -> Result<i32> {
 	let retired = Cell::new(false);
-	(*cell).registration.set(&retired);
+	// SAFETY: the caller declares `cell` fresh and unregistered, so nothing else
+	// holds it while this frame installs the receipt.
+	unsafe { (*cell).registration.set(&retired) };
 	let _receipt = Receipt {
 		cell,
 		retired: &retired,
@@ -47,7 +49,9 @@ pub(crate) unsafe fn register_actor_cell(
 		let cleanup = if code >= 0 || retired.replace(true) {
 			Ok(())
 		} else {
-			drop_actor_cell(Box::from_raw(cell))
+			// SAFETY: a negative code with the receipt unset means the Host
+			// never took the cell, so this frame is still its only owner.
+			drop_actor_cell(unsafe { Box::from_raw(cell) })
 		};
 		return Err(crate::retain_cleanup_failure(primary, cleanup));
 	}

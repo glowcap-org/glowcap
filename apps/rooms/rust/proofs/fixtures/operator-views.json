@@ -3741,14 +3741,14 @@
       "accepted": false
     },
     {
-      "name": "viz",
-      "capability": "viz",
+      "name": "trace",
+      "capability": "trace",
       "raw": "{\"url\":\"ws://localhost\",\"connected\":false,\"refusal\":null}",
       "accepted": true
     },
     {
-      "name": "viz-missing",
-      "capability": "viz",
+      "name": "trace-missing",
+      "capability": "trace",
       "raw": "{\"url\":\"ws://localhost\",\"connected\":false}",
       "accepted": false
     },

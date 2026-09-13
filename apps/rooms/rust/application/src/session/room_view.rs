@@ -1,8 +1,8 @@
 //! Presence and room facts reduce into one bounded session view. Both native
 //! and browser-hosted sessions project this state; widgets never replay it.
 use super::snapshot::{
-	views::{Bridge, Member, RoomView, Seat, SeatPhase},
 	Nullable, Presence as FieldPresence, SafeInteger, Text,
+	views::{Bridge, Member, RoomView, Seat, SeatPhase},
 };
 use crate::room::inbox::metadata::{Facts, Presence};
 use alloc::vec::Vec;
@@ -57,6 +57,9 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 		}
 		if let Some(bridge) = facts.bridge.as_ref().and_then(|bridge| bridge_view(bridge)) {
 			view.bridge = FieldPresence::Value(bridge);
+		}
+		if let Some(carries) = facts.carries {
+			view.carries = Some(carries);
 		}
 	}
 }

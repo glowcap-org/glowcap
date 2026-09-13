@@ -13,8 +13,14 @@ const curve = {
 	cy: 40,
 };
 
-Deno.test("edge stroke batch uploads once for many dirty wires", () => {
+Deno.test("edge stroke batch restrokes once for many dirty wires and never for a quiet frame", () => {
 	const batch = new EdgeStrokeBatch();
+	let clears = 0;
+	const clear = batch.gfx.clear.bind(batch.gfx);
+	batch.gfx.clear = () => {
+		clears += 1;
+		return clear();
+	};
 	try {
 		batch.upsert("a", {
 			curve,
@@ -29,11 +35,12 @@ Deno.test("edge stroke batch uploads once for many dirty wires", () => {
 			lineStyle: "dashed",
 		});
 		batch.setOrder(["a", "b"]);
+		assertEquals(clears, 0, "upserts do not rebuild the shared stroke");
 		batch.flush();
+		assertEquals(clears, 1, "one rebuild serves every dirty wire");
 		assert(batch.gfx.getLocalBounds().width > 0, "stroked wires");
 
 		// Idempotent: unchanged upserts leave the Graphics alone.
-		const before = batch.gfx.context;
 		batch.upsert("a", {
 			curve,
 			color: 0xff0000,
@@ -43,10 +50,23 @@ Deno.test("edge stroke batch uploads once for many dirty wires", () => {
 		batch.setOrder(["a", "b"]);
 		batch.flush();
 		assertEquals(
-			batch.gfx.context,
-			before,
+			clears,
+			1,
 			"a quiet frame must not clear and re-tessellate",
 		);
+		batch.upsert("a", { curve: { ...curve, cx: 80 }, color: 0xff0000, width: 2, lineStyle: "solid" });
+		batch.upsert("b", { curve: { ...curve, cy: 80 }, color: 0x00ff00, width: 4, lineStyle: "dashed" });
+		batch.setOrder(["a", "b"]);
+		batch.flush();
+		assertEquals(clears, 2, "moving both retained wires still rebuilds only once");
+
+		// Membership can change without changing the count or the paint order.
+		batch.remove("a");
+		batch.upsert("ghost", { curve, color: 1, width: 2, lineStyle: "solid" });
+		batch.setOrder(["a", "b"]);
+		batch.setOrder(["ghost"]);
+		batch.flush();
+		assertEquals(batch.gfx.getLocalBounds().width, 0, "pruned entries cannot reappear through order alone");
 
 		batch.remove("a");
 		batch.remove("b");

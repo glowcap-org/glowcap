@@ -8,6 +8,15 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# post-create supplies the host-path bind for linked worktrees. Resolve Git's
+# administrative directory through that alias, never the container-only mount.
+checkout="${GLOWCAP_CHECKOUT_DIR:-$(pwd -P)}"
+if [[ ! ${checkout} -ef . ]]; then
+    echo "bootstrap-submodules: GLOWCAP_CHECKOUT_DIR must name this checkout" >&2
+    exit 1
+fi
+cd "${checkout}"
+
 paths=(
     conformance/ocapn-conformance/upstream
     conformance/ocapn-spec/upstream
@@ -15,43 +24,32 @@ paths=(
     conformance/spritely-goblins/upstream
 )
 
-# A linked worktree keeps each submodule's repository under its own
-# `<git-dir>/modules/<path>`, and the checked-out submodule's `.git` file
-# names that directory by absolute path. Moving or renaming the primary
-# checkout leaves those pointers naming the old location, and `git submodule
-# update` then refuses the checkout as "not a git repository". Repoint a
-# pointer whose target is gone at the store this worktree's git-dir holds.
+# Normalize both directions before Git reads existing submodules and after it
+# initializes new ones. A primary clone carries its stores with it, so relative
+# links survive relocation and either container mount. Linked worktree stores
+# live outside the checkout and use Compose's identical host-path binds.
 git_dir=$(git rev-parse --path-format=absolute --git-dir)
-for path in "${paths[@]}"; do
-    pointer="${path}/.git"
-    [[ -f ${pointer} ]] || continue
-    target=$(sed -n 's/^gitdir: //p' "${pointer}")
-    case ${target} in
-        /*) resolved=${target} ;;
-        *) resolved="${path}/${target}" ;;
-    esac
-    [[ -d ${resolved} ]] && continue
-    store="${git_dir}/modules/${path}"
-    [[ -d ${store} ]] || continue
-    printf 'gitdir: %s\n' "${store}" >"${pointer}"
-    echo "repointed ${pointer} at ${store}"
-done
+normalize_submodule_links() {
+    local path store target worktree
+    for path in "${paths[@]}"; do
+        store="${git_dir}/modules/${path}"
+        [[ -f ${store}/config && -f ${path}/.git ]] || continue
+        if [[ -d .git ]]; then
+            # All upstreams are conformance/<name>/upstream; their stores are
+            # .git/modules/conformance/<name>/upstream.
+            target="../../../.git/modules/${path}"
+            worktree="../../../../../${path}"
+        else
+            target="${store}"
+            worktree="${checkout}/${path}"
+        fi
+        git config --file "${store}/config" core.worktree "${worktree}"
+        printf 'gitdir: %s\n' "${target}" > "${path}/.git"
+    done
+}
 
+normalize_submodule_links
 git submodule update --init --recursive "${paths[@]}"
-
-# Git writes core.worktree relative to the submodule repository. A linked
-# worktree's repository lives under the primary checkout's common Git directory,
-# while the checkout itself is mounted at /workspaces/glowcap in the
-# devcontainer. The generated relative path consequently resolves on only one
-# side of that boundary. The devcontainer mounts the checkout at its host path
-# as a second alias; record that stable absolute path so Git status works from
-# both the host and the container.
-checkout="${GLOWCAP_CHECKOUT_DIR:-$(pwd -P)}"
-for path in "${paths[@]}"; do
-    store="${git_dir}/modules/${path}"
-    [[ -d ${store} ]] || continue
-    git config --file "${store}/config" core.worktree "${checkout}/${path}"
-    printf 'gitdir: %s\n' "${store}" > "${path}/.git"
-done
+normalize_submodule_links
 
 echo "conformance submodules initialized."

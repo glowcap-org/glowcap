@@ -45,7 +45,7 @@ impl ListenerIdentity {
 /// its partner, falling back to v1.0/Syrup when needed, and runs only the
 /// intersection of the two offered feature sets. Selective session limits stay
 /// on [`Host::set_session_limits`] (ADR-0124).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct HostOptions {
 	pub codec: Codec,
 	/// The CapTP profile this Host prefers; see
@@ -56,17 +56,6 @@ pub struct HostOptions {
 	/// `0` = unbounded (default); nonzero caps local-turn amplification per drive
 	/// (ADR-0076).
 	pub local_turn_budget: u32,
-}
-
-impl Default for HostOptions {
-	fn default() -> Self {
-		Self {
-			codec: Codec::default(),
-			captp_version: crate::CaptpVersion::default(),
-			features: crate::FeatureSet::default(),
-			local_turn_budget: 0,
-		}
-	}
 }
 
 impl HostOptions {
@@ -416,12 +405,18 @@ impl Host {
 		make: impl FnOnce() -> Behavior,
 	) -> Result<String> {
 		self.shared.guard_handle()?;
+		let expected_len = i32::try_from(crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN).map_err(|_| {
+			Error::with_detail(
+				sys::ERR_INTERNAL,
+				"durable swiss length exceeds the C ABI result range".into(),
+			)
+		})?;
 		let mut behavior = make();
 		let cell = self
 			.shared
 			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
 		let mut swiss = [0u8; crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN];
-		let rc = unsafe {
+		unsafe {
 			register_actor_cell(
 				cell,
 				|| {
@@ -436,10 +431,10 @@ impl Host {
 						swiss.len(),
 					)
 				},
-				|code| code == crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN as i32,
+				|code| code == expected_len,
 			)?
 		};
-		let name = String::from_utf8_lossy(&swiss[..rc as usize]).into_owned();
+		let name = String::from_utf8_lossy(&swiss).into_owned();
 		Ok(name)
 	}
 
@@ -544,11 +539,11 @@ impl Resolver {
 // finalizers, park its native operation for the Host's safe progress boundary.
 impl Drop for Resolver {
 	fn drop(&mut self) {
-		if let Some(id) = self.id.take() {
-			if !self.shared.raw().is_null() {
-				self.shared.resolver_abandon_pending.borrow_mut().push_back(id);
-				self.shared.schedule_kick_or_record();
-			}
+		if let Some(id) = self.id.take()
+			&& !self.shared.raw().is_null()
+		{
+			self.shared.resolver_abandon_pending.borrow_mut().push_back(id);
+			self.shared.schedule_kick_or_record();
 		}
 	}
 }

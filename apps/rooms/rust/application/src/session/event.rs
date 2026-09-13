@@ -5,6 +5,8 @@ use crate::{
 	fields::{List, SafeInteger, Text},
 	room::{
 		attachment::{self, Attachment, AttachmentArgument},
+		carries::Carries,
+		inbox::metadata::{MAX_SEAT_BADGE, MAX_SEAT_SAID},
 		line::MAX_LINE_BYTES,
 		message::ChangeKind,
 	},
@@ -14,7 +16,7 @@ use alloc::{borrow::Cow, string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
 
 const MAX_FIELD_UNITS: usize = 65536;
-pub const HEADER_FIELDS: usize = 15;
+pub const HEADER_FIELDS: usize = 16;
 pub const MAX_FIELDS: usize = HEADER_FIELDS + attachment::RECORD_SPAN * crate::room::line::MAX_MESSAGE_FILES;
 
 #[derive(Clone, Debug, Serialize)]
@@ -42,8 +44,8 @@ pub enum Presence {
 		state: SeatPhase,
 		nick: Text<32, true>,
 		network: Text<32, true>,
-		badge: Text<12, true>,
-		said: Text<120, true>,
+		badge: Text<MAX_SEAT_BADGE, true>,
+		said: Text<MAX_SEAT_SAID, true>,
 	},
 }
 // Read each record from its raw JSON. Serde's internally tagged buffering
@@ -61,7 +63,7 @@ impl<'de> Deserialize<'de> for Presence {
 			serde_json::from_str(raw).map_err(E::custom)
 		}
 		match tag.kind.as_ref() {
-			"typing" => {
+			crate::protocol_data::TYPING => {
 				#[derive(Deserialize)]
 				#[serde(deny_unknown_fields)]
 				struct Record {
@@ -73,7 +75,7 @@ impl<'de> Deserialize<'de> for Presence {
 				let r: Record = read(raw.get())?;
 				Ok(Self::Typing { name: r.name, on: r.on })
 			}
-			"roster" => {
+			crate::protocol_data::ROSTER => {
 				#[derive(Deserialize)]
 				#[serde(deny_unknown_fields)]
 				struct Record {
@@ -84,7 +86,7 @@ impl<'de> Deserialize<'de> for Presence {
 				let r: Record = read(raw.get())?;
 				Ok(Self::Roster { names: r.names })
 			}
-			"join" | "leave" => {
+			crate::protocol_data::JOIN | crate::protocol_data::LEAVE => {
 				#[derive(Deserialize)]
 				#[serde(deny_unknown_fields)]
 				struct Record {
@@ -93,13 +95,13 @@ impl<'de> Deserialize<'de> for Presence {
 					name: Text<32, true>,
 				}
 				let r: Record = read(raw.get())?;
-				Ok(if tag.kind == "join" {
+				Ok(if tag.kind == crate::protocol_data::JOIN {
 					Self::Join { name: r.name }
 				} else {
 					Self::Leave { name: r.name }
 				})
 			}
-			"away" => {
+			crate::protocol_data::AWAY => {
 				#[derive(Deserialize)]
 				#[serde(deny_unknown_fields)]
 				struct Record {
@@ -114,7 +116,7 @@ impl<'de> Deserialize<'de> for Presence {
 					reason: r.reason,
 				})
 			}
-			"seat" => {
+			crate::protocol_data::SEAT => {
 				#[derive(Deserialize)]
 				#[serde(deny_unknown_fields)]
 				struct Record {
@@ -124,8 +126,8 @@ impl<'de> Deserialize<'de> for Presence {
 					state: SeatPhase,
 					nick: Text<32, true>,
 					network: Text<32, true>,
-					badge: Text<12, true>,
-					said: Text<120, true>,
+					badge: Text<MAX_SEAT_BADGE, true>,
+					said: Text<MAX_SEAT_SAID, true>,
 				}
 				let r: Record = read(raw.get())?;
 				Ok(Self::Seat {
@@ -168,6 +170,13 @@ pub struct Facts {
 		skip_serializing_if = "Option::is_none"
 	)]
 	pub bridge: Option<Bridge>,
+	/// See `crate::room::carries`. What a membership in this room can use.
+	#[serde(
+		default,
+		deserialize_with = "crate::fields::present_object",
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub carries: Option<Carries>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -207,6 +216,7 @@ pub struct Event<C> {
 	pub system: bool,
 	pub presence: Option<Presence>,
 	pub facts: Option<Facts>,
+	pub previews: crate::open_graph::Selection,
 	pub attachments: Vec<Attachment<C>>,
 }
 
@@ -227,6 +237,7 @@ impl<C> Event<C> {
 			system: self.system,
 			presence: self.presence,
 			facts: self.facts,
+			previews: self.previews,
 			attachments: Vec::new(),
 		};
 		(metadata, self.attachments)
@@ -280,6 +291,7 @@ impl<C> Event<C> {
 			+ self.text.capacity()
 			+ history + presence
 			+ facts + self.attachments.capacity() * core::mem::size_of::<Attachment<C>>()
+			+ self.previews.retained_bytes()
 			+ self
 				.attachments
 				.iter()
@@ -324,9 +336,9 @@ impl<C: Clone> Event<C> {
 		} else {
 			Some(match args[7].text() {
 				Some("said") => ChangeKind::Said,
-				Some("edited") => ChangeKind::Edited,
-				Some("refiled") => ChangeKind::Refiled,
-				Some("withdrawn") => ChangeKind::Withdrawn,
+				Some(crate::protocol_data::EDITED) => ChangeKind::Edited,
+				Some(crate::protocol_data::REFILED) => ChangeKind::Refiled,
+				Some(crate::protocol_data::WITHDRAWN) => ChangeKind::Withdrawn,
 				_ => return Err(Refusal::Mutation),
 			})
 		};
@@ -346,6 +358,10 @@ impl<C: Clone> Event<C> {
 		let system = args[12].boolean().ok_or(Refusal::Shape)?;
 		let presence = metadata(&args[13], |raw| serde_json::from_str::<Presence>(raw))?;
 		let facts = metadata(&args[14], Facts::decode)?;
+		let previews = args[15]
+			.text()
+			.and_then(|raw| crate::open_graph::Selection::decode(line, raw).ok())
+			.ok_or(Refusal::Metadata)?;
 		if line_id.is_none()
 			&& matches!(
 				change,
@@ -373,6 +389,7 @@ impl<C: Clone> Event<C> {
 			system,
 			presence,
 			facts,
+			previews,
 			attachments,
 		})
 	}

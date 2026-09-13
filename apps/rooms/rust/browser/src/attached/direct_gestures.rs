@@ -1,5 +1,5 @@
 //! Outgoing direct intent selection from Rust's authoritative observation.
-use super::{view, RoomsBrowserSession};
+use super::{RoomsBrowserSession, view};
 use rooms_application::session::{checkpoint::gestures::DirectGesture, state::OperationId};
 use rooms_glowcap::client::session::controller::{self, Observation};
 use wasm_bindgen::prelude::*;

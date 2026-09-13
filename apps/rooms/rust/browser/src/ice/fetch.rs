@@ -1,6 +1,6 @@
 use super::*;
-use js_sys::{futures::JsFuture, Promise, Reflect, Uint8Array};
-use wasm_bindgen::{prelude::wasm_bindgen, JsCast};
+use js_sys::{Promise, Reflect, Uint8Array, futures::JsFuture};
+use wasm_bindgen::{JsCast, prelude::wasm_bindgen};
 use web_sys::{
 	AbortController, ReadableStreamDefaultReader, RequestCache, RequestCredentials, RequestInit, RequestMode,
 	RequestRedirect, Response,

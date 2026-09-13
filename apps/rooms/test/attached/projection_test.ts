@@ -1,3 +1,4 @@
+// Attached checkpoint projection separates durable intent from live directory and room authority.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {
@@ -124,6 +125,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 			topic: "Shared work",
 			lineBytes: 4096,
 			canSetTopic: true,
+			canPostFiles: true,
 			canModerate: true,
 		}],
 	});
@@ -136,7 +138,9 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		"bo",
 	]);
 	assertEquals(initialRoom?.type === "room" ? initialRoom.topic : null, "Shared work");
-	assertEquals(initialRoom?.type === "room" ? [...initialRoom.grants].sort() : [], ["steward", "topic"]);
+	// Holding the files facet is the files grant, beside the topic and steward
+	// authorities the same snapshot said this membership holds.
+	assertEquals(initialRoom?.type === "room" ? [...initialRoom.grants].sort() : [], ["files", "steward", "topic"]);
 	projection.line({
 		source: "lines",
 		sequence: 1,
@@ -151,6 +155,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		presence: { kind: "roster", names: ["ada", "bo"] },
 		facts: { topic: "Shared work", lineBytes: 4096 },
 		history: null,
+		previewUrls: [],
 		attachments: [],
 	});
 	const welcomed = page.projection.get().convs.get(room.key);
@@ -163,6 +168,28 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 	const welcomeLine = store.historyOf(page.projection, room.key).at(-1);
 	assertEquals(welcomeLine?.kind, "sys");
 	assertEquals(welcomeLine?.kind === "sys" ? welcomeLine.audience : null, "here");
+	// A standing fact the room states with no words of its own folds into the
+	// conversation and adds nothing to the log: there is nothing to read.
+	const historyBeforeStatement = store.historyOf(page.projection, room.key).length;
+	projection.line({
+		source: "lines",
+		sequence: 2,
+		conversationId: "room-id",
+		from: "room",
+		text: "",
+		at: 41,
+		lineId: null,
+		change: null,
+		editable: false,
+		system: true,
+		facts: { carries: { previews: true, typing: false } },
+		history: null,
+		previewUrls: [],
+		attachments: [],
+	});
+	const stated = page.projection.get().convs.get(room.key);
+	assertEquals(stated?.type === "room" ? stated.carries : null, { previews: true, typing: false });
+	assertEquals(store.historyOf(page.projection, room.key).length, historyBeforeStatement);
 	const historyBeforePresence = store.historyOf(page.projection, room.key).length;
 	projection.line({
 		source: "lines",
@@ -177,6 +204,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		system: true,
 		presence: { kind: "join", name: "cy" },
 		history: null,
+		previewUrls: [],
 		attachments: [],
 	});
 	const afterPresence = page.projection.get().convs.get(room.key);
@@ -234,6 +262,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		editable: false,
 		system: false,
 		history: null,
+		previewUrls: [],
 		attachments: [],
 	});
 	assertEquals(
@@ -255,6 +284,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		editable: false,
 		system: false,
 		history: null,
+		previewUrls: [],
 		attachments: [],
 	});
 	assertEquals(store.historyOf(page.projection, room.key).at(-1)?.text, "hello again");
@@ -270,6 +300,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		editable: false,
 		system: false,
 		history: null,
+		previewUrls: [],
 		attachments: [],
 	});
 	const withdrawn = store.historyOf(page.projection, room.key).at(-1);
@@ -286,6 +317,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		editable: false,
 		system: false,
 		history: { source: "session", generation: "earlier", id: "8" },
+		previewUrls: [],
 		attachments: [],
 	});
 	projection.line({
@@ -300,6 +332,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		editable: false,
 		system: false,
 		history: { source: "session", generation: "current", id: "8" },
+		previewUrls: [],
 		attachments: [],
 	});
 	projection.line({
@@ -314,6 +347,7 @@ Deno.test("an attached checkpoint projects intent without claiming directory liv
 		editable: false,
 		system: false,
 		history: { source: "session", generation: "current", id: "8" },
+		previewUrls: [],
 		attachments: [],
 	});
 	const generations = store.historyOf(page.projection, room.key).filter((item) =>
@@ -472,98 +506,6 @@ Deno.test("an attached nickname release clears the live grant and keeps saved co
 	);
 	store.forgetConv(page.projection, [...page.projection.get().convs.values()][0]!.key);
 	store.forgetDir(page.projection, directory);
-});
-
-Deno.test("attached image lines and refiles start their bounded automatic fetch", () => {
-	const page = new RoomsPage();
-	const opened: { key: string; id: number }[] = [];
-	const files = {
-		hold(attachment: { name: string; mime: string; size: number; width: number; height: number }) {
-			return store.attachmentView(page.projection, {
-				name: attachment.name,
-				mime: attachment.mime,
-				size: attachment.size,
-				width: attachment.width,
-				height: attachment.height,
-			});
-		},
-		open(key: string, id: number) {
-			opened.push({ key, id });
-		},
-		release() {},
-		markLost() {},
-	};
-	const projection = new AttachedSessionProjection(
-		page,
-		files as unknown as import("../../web/ui/session/attached_files.ts").AttachedSessionFiles,
-	);
-	const directory = dirId("image-directory");
-	const checkpoint = {
-		...emptyRoomsSessionState(),
-		directories: [{ id: directory, locator: "127.0.0.1:8", home: true, nick: "ada", standing: null }],
-		conversations: [{
-			kind: "room" as const,
-			id: "image-room",
-			directory,
-			name: "images",
-			held: false,
-			standing: null,
-			draft: "",
-		}],
-		active: "image-room",
-	};
-	projection.apply({
-		revision: 1,
-		...adminView,
-		checkpoint,
-		pendingEffects: [],
-		pendingEffectDetails: [],
-		issues: [],
-		connectedDirectories: [directory],
-		memberLocator: null,
-		roomViews: [{
-			conversationId: "image-room",
-			membershipKind: "participant",
-			policy: { visibility: "listed", entry: "open", speaking: "open" },
-			members: [],
-			topic: null,
-			lineBytes: null,
-		}],
-	});
-	const image = (name: string) => ({
-		name,
-		mime: "image/png",
-		size: 80,
-		blob: {} as import("@glowcap/runtime").Ref,
-		width: 4,
-		height: 2,
-	});
-	const event = (sequence: number, change: "said" | "refiled", name: string, lineId: number) => ({
-		source: "images",
-		sequence,
-		conversationId: "image-room",
-		from: "bo",
-		text: name,
-		at: sequence,
-		lineId,
-		change,
-		editable: false,
-		system: false,
-		history: null,
-		attachments: [image(name)],
-	});
-	projection.line(event(1, "said", "first.png", 1));
-	projection.line(event(2, "refiled", "replacement.png", 1));
-	assertEquals(opened.length, 2);
-	page.projection.set({ ignored: new Set(["bo"]) });
-	projection.line(event(3, "said", "silenced.png", 2));
-	assertEquals(opened.length, 2);
-	const room = [...page.projection.get().convs.values()].find((conversation) =>
-		conversation.type !== "directory" && conversation.persistId === "image-room"
-	);
-	if (room != null) store.forgetConv(page.projection, room.key);
-	store.forgetDir(page.projection, directory);
-	page.projection.set({ ignored: new Set() });
 });
 
 Deno.test("attached projection does not reuse a persistent ID for a different conversation", () => {

@@ -14,15 +14,16 @@
 DEBIAN_BASE_TAG="trixie-slim"
 DEBIAN_BASE_DIGEST="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
 
+# --- Production service images ---
+# The complete tag + digest is one pin because both identify the exact image
+# Compose runs. update-pins.sh selects PostgreSQL's newest stable release.
+POSTGRES_IMAGE_PIN="18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2"
+
 # --- Zig ---
-ZIG_VERSION="0.17.0-dev.2085+5e36170b5"
-# ZLS currently refuses the pinned Zig 0.17 compiler. Keep its upstream source
-# pin recorded for update checks, but do not build or advertise it until
-# upstream supports this compiler generation.
-ZLS_ENABLED="false"
+ZIG_VERSION="0.17.0-dev.2127+e90365cd5"
 ZLS_VERSION="0.17.0-dev"
-ZLS_SOURCE_REVISION="3df042851351abdcfcdab9e133f3e144fe37b783"
-ZLS_SOURCE_SHA256="b4de1b4f28dcfdf473dfad1f5ce2e1b106b07bb8d6f4113a7bd91c41d935dde5"
+ZLS_SOURCE_REVISION="0ea69abdd8f50d81989c00b6a3b9cf8ced7f9522"
+ZLS_SOURCE_SHA256="1abfd6c1f4c5d6d09c069e80682d62340e2d27bbb1d49ef81eb68a409a8ccbe9"
 
 # --- Rust (C ABI dogfood) ---
 RUST_VERSION="1.98.1"
@@ -31,6 +32,7 @@ RUSTUP_INIT_VERSION="1.29.1"
 # --- JavaScript / TypeScript dogfood ---
 DENO_VERSION="2.9.6"
 NODE_VERSION="26.8.2"
+NPM_VERSION="12.0.2"
 BUN_VERSION="1.4.2"
 
 # --- Playwright (the browser proofs' Chromium) ---
@@ -41,17 +43,16 @@ BUN_VERSION="1.4.2"
 PLAYWRIGHT_VERSION="1.63.0"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.12.12"
-OCAPN_CONFORMANCE_PYTHON="3.12.14"
+UV_VERSION="0.12.13"
+PYTHON_VERSION="3.14.7"
 SERENA_AGENT_VERSION="1.7.0"
-SERENA_PYTHON="3.13"
-CLAUDE_CODE_VERSION="2.1.267"
+CLAUDE_CODE_VERSION="2.1.270"
 OPENCODE_VERSION="1.18.30"
 CODEX_VERSION="0.154.0"
 # Cursor publishes the agent CLI as one dated build per platform. The version
 # string is the whole path segment (date and commit), so it is copied verbatim
 # into the download URL rather than composed from parts.
-CURSOR_AGENT_VERSION="2026.09.08-6caf4ff"
+CURSOR_AGENT_VERSION="2026.09.10-fd3934a"
 
 # --- Host side (not in the image; used by up.sh when no CLI is installed) ---
 DEVCONTAINER_CLI_VERSION="0.89.0"

@@ -1,8 +1,8 @@
 //! Version-one JSONL snapshots and committed tails. Recovery produces a fresh
 //! index; the caller decides when a torn-tail repair becomes durable.
 use super::{
+	Error, MAX_RECORDS, Record,
 	index::{Entry, Index},
-	Error, Record, MAX_RECORDS,
 };
 use crate::fields::SafeInteger;
 use alloc::{string::String, sync::Arc, vec::Vec};
@@ -50,8 +50,10 @@ impl core::fmt::Display for RecoveryError {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
 			Self::Header => f.write_str("invalid archive header"),
-			Self::Unsupported { format, version } => write!(f,
-				"archive written as {format} version {version}; this build reads {FORMAT} version 1; use a compatible build to recover the archive, or remove its state directory to start empty"),
+			Self::Unsupported { format, version } => write!(
+				f,
+				"archive written as {format} version {version}; this build reads {FORMAT} version 1; use a compatible build to recover the archive, or remove its state directory to start empty"
+			),
 			Self::Data(error) => error.fmt(f),
 		}
 	}

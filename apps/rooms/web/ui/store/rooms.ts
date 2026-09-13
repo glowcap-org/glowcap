@@ -110,59 +110,75 @@ export function setRoomMembership(
 	put(projection, { ...conv, membership, membershipIssue: membership === "unavailable" ? issue : "" });
 }
 
-/** Remember a room link this tab already holds, so the conversation card can
- * copy it. Does not mint: a mint is `/link`, and looking at a room is not that. */
+/** The token a bearer string is kept as here. The store never holds the
+ * string itself: a token says an authority is held and tells one from
+ * another, and that is all a row needs to draw. */
+export function authorityToken(bearer: string): string {
+	return roomAuthorityToken(bearer);
+}
+
+/** Note a room link this tab already holds, so the conversation card can
+ * offer to copy it. Does not make one: that is `/link`, and looking at a room
+ * is not that. */
 export function noteRoomLink(projection: PageProjection, key: string, link: string): void {
 	const conv = getConv(projection, key);
-	if (conv?.type !== "room" || conv.link === link) return;
-	put(projection, { ...conv, link });
+	if (conv?.type !== "room") return;
+	const linkToken = authorityToken(link);
+	if (conv.linkToken === linkToken) return;
+	put(projection, { ...conv, linkToken });
 }
 
 export function noteRoomManager(projection: PageProjection, key: string, manager: string): void {
 	const conv = getConv(projection, key);
-	if (conv?.type !== "room" || conv.manager === manager) return;
-	put(projection, { ...conv, manager });
+	if (conv?.type !== "room") return;
+	const managerToken = authorityToken(manager);
+	if (conv.managerToken === managerToken) return;
+	put(projection, { ...conv, managerToken });
 }
 
 export function dropRoomManager(projection: PageProjection, key: string, token: string): boolean {
 	const conv = getConv(projection, key);
-	if (conv?.type !== "room" || conv.manager == null || roomAuthorityToken(conv.manager) !== token) return false;
-	const { manager: _manager, ...withoutManager } = conv;
+	if (conv?.type !== "room" || conv.managerToken == null || conv.managerToken !== token) return false;
+	const { managerToken: _manager, ...withoutManager } = conv;
 	put(projection, withoutManager);
 	return true;
 }
 
-/** Remember the matching room and steward authorities after a claim or
- * handover has been validated. They move together because the steward was
- * accepted specifically for this room; recording only one would discard the
- * evidence the operation just established. */
+/** Note the matching room and moderator authorities after a claim or handover
+ * has been validated. They move together because the moderator was accepted
+ * for this exact room; recording only one would discard the evidence the
+ * operation just established. */
 export function noteRoomSteward(projection: PageProjection, key: string, roomLink: string, steward: string): void {
 	const conv = getConv(projection, key);
-	if (
-		conv?.type !== "room" ||
-		(conv.link === roomLink && conv.steward === steward)
-	) return;
-	put(projection, { ...conv, link: roomLink, steward });
+	if (conv?.type !== "room") return;
+	const linkToken = authorityToken(roomLink);
+	const stewardToken = authorityToken(steward);
+	if (conv.linkToken === linkToken && conv.stewardToken === stewardToken) return;
+	put(projection, { ...conv, linkToken, stewardToken });
 }
 
 export function clearRoomAuthority(projection: PageProjection, key: string, change: RoomAuthorityChange): boolean {
 	const conv = getConv(projection, key);
 	if (conv?.type !== "room") return false;
-	const bearer = change.kind === "room" ? conv.link : change.kind === "manager" ? conv.manager : conv.steward;
-	if (bearer != null && roomAuthorityToken(bearer) !== change.token) return false;
+	const held = change.kind === "room"
+		? conv.linkToken
+		: change.kind === "manager"
+		? conv.managerToken
+		: conv.stewardToken;
+	if (held != null && held !== change.token) return false;
 	if (change.kind === "manager") {
-		const { manager: _manager, ...withoutManager } = conv;
+		const { managerToken: _manager, ...withoutManager } = conv;
 		put(projection, withoutManager);
 		return true;
 	}
 	const grants = new Set(conv.grants);
 	grants.delete("steward");
-	const { steward: _steward, ...withoutSteward } = conv;
+	const { stewardToken: _steward, ...withoutSteward } = conv;
 	if (change.kind === "steward") {
 		put(projection, { ...withoutSteward, grants });
 		return true;
 	}
-	const { link: _link, ...withoutLink } = withoutSteward;
+	const { linkToken: _link, ...withoutLink } = withoutSteward;
 	put(projection, { ...withoutLink, grants });
 	return true;
 }

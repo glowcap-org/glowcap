@@ -1,6 +1,6 @@
 //! Storage owns commitment; this index applies committed revisions and preserves
 //! chronology. Its two ordered maps share immutable records without copying keys.
-use super::{records::safe, ConversationKind, Error, Filter, Kind, Record, MAX_READ, MAX_RECORDS};
+use super::{ConversationKind, Error, Filter, Kind, MAX_READ, MAX_RECORDS, Record, records::safe};
 use crate::text::DocumentText;
 use alloc::{borrow::Borrow, collections::BTreeMap, sync::Arc, vec::Vec};
 use core::cmp::Ordering;

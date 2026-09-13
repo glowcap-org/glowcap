@@ -17,6 +17,7 @@
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -380,6 +381,17 @@ pub fn main(init: std.process.Init) !void {
         gifter_options,
     );
     defer loop.deinit();
+    if (comptime builtin.os.tag == .linux) {
+        const backend_status = net.tcpBackendStatus(&loop);
+        if (backend_status.fallback_reason) |reason| {
+            std.debug.print("many-sessions: Linux backend={s} because {s}\n", .{
+                @tagName(backend_status.implementation),
+                reason.message(),
+            });
+        } else {
+            std.debug.print("many-sessions: Linux backend={s}\n", .{@tagName(backend_status.implementation)});
+        }
+    }
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const gifter_designator = tcp.locatorFromAddress(&designator_buf, gifter_designator_addr).designator;

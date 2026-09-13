@@ -1,7 +1,7 @@
 //! Fair, bounded history reconciliation. Invalidating an in-flight read makes
 //! its result stale and schedules one successor; failures retry on observation.
 use crate::{
-	archive::{change::Change, ConversationKind},
+	archive::{ConversationKind, change::Change},
 	session::checkpoint::Checkpoint,
 	text::DocumentText,
 };
@@ -199,8 +199,8 @@ impl History {
 mod tests {
 	use super::*;
 	use crate::session::checkpoint::{
-		commands::{Command, CommandRoutes},
 		Routes,
+		commands::{Command, CommandRoutes},
 	};
 	use alloc::string::String;
 

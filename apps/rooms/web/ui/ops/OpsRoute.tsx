@@ -13,7 +13,8 @@ import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsProjection, useRoomsState } from "../hooks.ts";
 import { OPS_CAPS, opsHeldOf } from "../types.ts";
-import { paneCapsHeld, paneForCap, paneOf } from "./panes.ts";
+import { opsAddress, paneCapsHeld, paneForCap, paneOf } from "./panes.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
 
 export function OpsRoute() {
 	const browser = useRoomsBrowser();
@@ -25,7 +26,7 @@ export function OpsRoute() {
 		irc: state.irc,
 		operator: state.operator,
 		peering: state.peering,
-		viz: state.viz,
+		trace: state.trace,
 		opsPane: state.opsPane,
 	})));
 	const navigate = useNavigate();
@@ -36,7 +37,7 @@ export function OpsRoute() {
 	useEffect(() => {
 		if (projection.get().activeKey !== null) store.clearConv(projection);
 	}, [projection]);
-	const held = opsHeldOf(s.listeners, s.diagnostics, s.irc, s.operator, s.peering, s.viz);
+	const held = opsHeldOf(s.listeners, s.diagnostics, s.irc, s.operator, s.peering, s.trace);
 	const pane = segment === undefined ? null : paneOf(segment);
 	const heldCaps = OPS_CAPS.filter((c) => held[c]);
 	const heldKey = heldCaps.join(",");
@@ -47,7 +48,7 @@ export function OpsRoute() {
 		if (segment !== undefined) return;
 		const remembered = held[s.opsPane] ? s.opsPane : undefined;
 		const landing = remembered ?? heldCaps[0];
-		if (landing !== undefined) navigate(`/ops/${paneForCap(landing).path}`, { replace: true });
+		if (landing !== undefined) navigate(opsAddress(paneForCap(landing)), { replace: true });
 		// heldKey stands in for the array it derives from.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [segment, heldKey, s.opsPane, navigate]);
@@ -56,13 +57,15 @@ export function OpsRoute() {
 	// directory pane lands on the pane that draws it rather than nowhere.
 	useEffect(() => {
 		if (segment === undefined || pane === null || pane.path === segment) return;
-		navigate(`/ops/${pane.path}`, { replace: true });
+		navigate(opsAddress(pane), { replace: true });
 	}, [segment, pane, navigate]);
 
 	useEffect(() => {
 		if (paneCaps.length === 0) return;
 		browser.setOpsPane(paneCaps[0]);
-		for (const cap of paneCaps) void session.refreshOpsCap(cap);
+		for (const cap of paneCaps) {
+			void session.refreshOpsCap(cap).catch((error) => browser.toast("failure", refusalText(error)));
+		}
 		// paneKey stands in for the array it derives from.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [browser, paneKey, session]);

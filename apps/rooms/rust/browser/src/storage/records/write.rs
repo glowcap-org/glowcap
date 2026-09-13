@@ -1,8 +1,8 @@
-use super::super::{blobs::Staged, metadata, value, Steps};
+use super::super::{Steps, blobs::Staged, metadata, value};
 use super::*;
 use rooms_application::archive::{
-	blobs::{self, Address, MAX_BLOB_BYTES},
 	MAX_RECORDS,
+	blobs::{self, Address, MAX_BLOB_BYTES},
 };
 use std::sync::Arc;
 use wasm_bindgen::JsCast;

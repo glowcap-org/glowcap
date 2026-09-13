@@ -2,7 +2,7 @@
 
 Saved ocapnviz documents kept for testing rather than for teaching. The
 scenarios the app ships in its picker live in
-[`../src/fixtures/`](../src/fixtures/) and are TypeScript modules; these are
+[`../src/fixtures/`](../src/fixtures/) and are TypeScript modules. These are
 plain saved documents, the same JSON the Build mode writes, and the app opens
 them through its ordinary load path.
 
@@ -31,20 +31,20 @@ It validates against `TimelineDocument` in
 
 Written by `deno task stress-tests`, which grows the kids' document by
 whole-number factors so how the visualizer scales can be measured rather than
-guessed. The standard set is 4x, 8x, 16x, 32x and 64x; naming factors writes
+guessed. The standard set is 4x, 8x, 16x, 32x and 64x. Naming factors writes
 only those.
 
 They land beside this file so the app's Open dialog can reach them, and
-`stress-*x.json` is gitignored — a fixed seed reproduces any factor byte for
-byte, so the generator is the artifact worth keeping and eight megabytes of
+`stress-*x.json` is gitignored. A fixed seed reproduces any factor byte for
+byte, so the generator is worth keeping while eight megabytes of
 derived JSON are not. Each one says in its own About what it is and carries
 PROV-O provenance back to the document it grew from.
 
 The factor multiplies peers, sessions and messages, keeps every profile, codec
 and CapTP version the source used, and holds the stage area fixed, so density
-rises with the count. Density is the point: the expensive work is what
-neighbours do to each other — labels dodging, edge chips walking their
-corridors, curves bundling between one pair of peers — and spreading the copies
+rises with the count. Density is the point because nearby entities create the
+cost: labels dodge, edge chips walk their corridors, and curves bundle between
+pairs of peers. Spreading the copies
 over a proportionally larger stage would leave every neighbourhood looking as it
 did.
 

@@ -12,8 +12,12 @@ import * as tcp from "@glowcap/tcp";
 // (cache hit, no second bootstrap). Needs `racket` + `goblins` on PATH;
 // `zig build deno-goblins-interop`.
 
-import { formatLocatorUri, Runtime } from "@glowcap/runtime";
+import { formatLocatorUri, Ref, Runtime } from "@glowcap/runtime";
 import { fail, readSturdyrefPath } from "../_common/deno/helpers.ts";
+
+// The build enables V8's collector, as the binding's GC smoke does. Native
+// answer lifetime follows the promise wrapper even after its value settles.
+declare const gc: () => void;
 
 const HOST = "127.0.0.1";
 // The Goblins vat's fixed port; `--port=N` (from
@@ -105,11 +109,33 @@ try {
 		"deno-goblins-interop: repeat enliven same import (dedup), second call resolved",
 	);
 
+	const probe = await session.fetch("glowcapGcProbeSwissnumABCDEF1234");
+	const made = await session.send(probe, "make", []);
+	if (!Array.isArray(made) || made.length !== 2 || !(made[0] instanceof Ref) || !(made[1] instanceof Ref)) {
+		fail("deno-goblins-interop", "GC probe did not return two capabilities");
+	}
+	const [first, second] = made as [Ref, Ref];
+	session.release(first);
+	if (
+		await session.send(second, "read", []) !== "still held" || await session.send(probe, "collected?", []) !== false
+	) {
+		fail("deno-goblins-interop", "releasing one occurrence lost the held capability");
+	}
+	session.release(second);
+	const deadline = performance.now() + 5_000;
+	while (await session.send(probe, "collected?", []) !== true) {
+		if (performance.now() >= deadline) fail("deno-goblins-interop", "Goblins retained the released object");
+		gc();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	session.release(probe);
+	console.log("deno-goblins-interop: Goblins reclaimed the released object with the session open");
+
 	ok = true;
 	console.log(
 		"deno-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins",
 	);
-	session.close();
+	await session.close();
 } finally {
 	try {
 		await stdoutReader.cancel();

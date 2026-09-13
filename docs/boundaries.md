@@ -64,6 +64,12 @@ tested. The [roadmap](roadmap.md) lists future work.
   address. A live Goblins-over-iroh session does have one, `goblins-iroh`, over
   the iroh netlayer this repository wrote for Goblins; it runs on loopback with
   direct dial (no relay), so it adds no reachability evidence.
+- **Native Zig Session setup accepts stream netlayers.** iroh's connections
+  share one endpoint readiness descriptor, so passing `iroh.Resident.netlayer()`
+  to `driver.connect` refuses with `TransportNotPollable`. Native applications
+  use `driver.Bridge` with the iroh completion backend; the C and managed
+  language providers already own multiplexed dial and listen. The native
+  Session/Server convenience adapter remains planned.
 - **A `webrtc` dial needs configured signaling authority.** On TypeScript, a
   runtime composed with `webrtc.connector(signaling)` dials a bare `webrtc`
   locator: the connector runs the offer, answer, and candidate exchange and
@@ -108,10 +114,10 @@ not ship a native Zig QUIC or WebRTC stack.
   (`glowcap_host_turn_defer` and its settle verbs). A TypeScript or
   Python behavior that returns a promise defers this way automatically, and
   the Rust and Racket bindings expose the resolver pair directly. A native
-  worker thread hands its settle back through `driver.SettleMailbox`: the
-  post wakes the owning thread's wait — `driver.HostRuntime` polls the mailbox's fd
-  beside its wires, and the completion loop arms a recv on it — and the
-  settle applies there. Off-thread settles carry plain data only; a
+  worker thread hands its settle back through `driver.SettleMailbox`. The
+  post wakes the owning thread because `driver.HostRuntime` polls the mailbox's
+  fd beside its wires and the completion loop arms a receive on it. The settle
+  applies there. Off-thread settles carry plain data only. A
   capability never crosses threads.
 - **The simplest blocking pump serves one connection on one fiber.** Use a
   completion loop (TCP, iroh, onion, or keyed-relay outbound) for a partner that
@@ -189,18 +195,13 @@ not ship a native Zig QUIC or WebRTC stack.
 
 ## API gaps
 
-- **Rooms' Rust application migration is complete, not a portability claim.**
-  Rust owns every Rooms server and session-peer process plus the local, hosted,
-  and attached browser application. The production page uses Rust for Host and
-  transport execution, supervision and reconnect, workspace intent, bounded
-  command and outcome custody, drafts, files, persistence, and archives.
-  TypeScript remains the React presentation and browser-effect adapter, plus
-  protocol-consumer dogfoods and tests. `source-check` rejects resurrection of
-  the retired TypeScript server and IRC owner paths. The historical
-  [migration record](planning/rooms-rust.md) names the ownership and evidence.
-  This does not establish Windows support, non-Linux native file-lock behavior,
-  public Tor circuit reachability, or a performance improvement. Those remain
-  separate product and platform boundaries.
+- **Rooms runs on Linux and macOS hosts and in Chromium-class browsers.**
+  One Rust implementation owns every Rooms service and the browser
+  application; TypeScript renders the page and drives the Deno client, the
+  demos, and the tests, and `zig build source-check` refuses a second server
+  or IRC owner in TypeScript. That establishes neither Windows support,
+  file-lock behavior on other filesystems, nor public Tor circuit
+  reachability, and no throughput or latency figure is claimed for it.
 
 - **A Rooms message consumer has a bounded unread queue.** `Room.messages`
   hands a line directly to a pending read and otherwise retains at most 256
@@ -259,7 +260,7 @@ not ship a native Zig QUIC or WebRTC stack.
   resolution.
 
 - **Room durability is separate authority from membership.** Ordinary
-  `open`/`enter` and a live room reference grant no right to create durable
+  `open`/`enter` and a room entrance reference grant no right to create durable
   entry authority. Rooms-native managed creation separately returns a passable
   manager for that room's registered public name, entry-link, and moderator
   generations. The live room still disappears when empty; its registration

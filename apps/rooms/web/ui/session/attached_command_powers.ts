@@ -9,6 +9,8 @@ import type { PageProjection } from "../store/core.ts";
 import type { CommandPowers } from "../commands.ts";
 import type { WorkspaceDirectConversation as DirectConversation } from "../../../lib/rooms_state.ts";
 import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY, thatLinkDidNotOpen } from "../commands/targets.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { alreadyInRoom, offeredRoom, roomLinkSaid } from "../../../lib/text/attached.ts";
 
 const NO_GRANTS: ReadonlySet<string> = new Set();
 
@@ -46,11 +48,11 @@ export function attachedCommandPowers(
 			const key = active()?.key ?? null;
 			return controller.takeRoomLink(link, label ?? "").then((already) => {
 				if (already && key != null) {
-					store.deliver(projection, key, store.sysItem(projection, "You are already in this room."));
+					store.deliver(projection, key, store.sysItem(projection, alreadyInRoom));
 				}
 				return null;
 			}, (error) => {
-				throw new Error(thatLinkDidNotOpen(error instanceof Error ? error.message : String(error)), {
+				throw new Error(thatLinkDidNotOpen(refusalText(error)), {
 					cause: error,
 				});
 			});
@@ -118,7 +120,7 @@ export function attachedCommandPowers(
 				store.deliver(
 					projection,
 					conversation.key,
-					store.sysItem(projection, `${name} has been offered this room.`),
+					store.sysItem(projection, offeredRoom(name)),
 				);
 				return true;
 			});
@@ -142,7 +144,7 @@ export function attachedCommandPowers(
 					conversation.key,
 					store.sysItem(
 						projection,
-						`Anybody who holds this link can be in ${roomCalled(room.name, room.held)}:\n  ${room.link}`,
+						roomLinkSaid(roomCalled(room.name, room.held), room.link),
 					),
 				);
 				return true;

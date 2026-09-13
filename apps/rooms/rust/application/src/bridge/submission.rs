@@ -1,4 +1,5 @@
-use super::{form::LeafRef, Answers, Error, Field, Form, Tone};
+//! Bridge submissions bind answers to the form declaration that admitted them.
+use super::{Answers, Error, Field, Form, Tone, form::LeafRef};
 
 /// Public answers and transient secrets have separate accessors. The combined
 /// submission cannot be serialized or formatted accidentally as stored intent.

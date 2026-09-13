@@ -42,12 +42,12 @@
 ;; watching while you type is that this member is not a glowcap peer: the room
 ;; settles this one session on the OCapN v1.0 Syrup baseline while every glowcap
 ;; member on the same server keeps glowcap's native profile. Start the server
-;; with `--viz` and the ocapnviz viewer draws that split live.
+;; with `--trace` and the ocapnviz viewer draws that split live.
 ;;
-;; Set `GLOWCAP_ROOMS_VIZ_URL` to that endpoint's address and this vat publishes its own
+;; Set `GLOWCAP_ROOMS_TRACE_URL` to that endpoint's address and this vat publishes its own
 ;; trace there too, so the sessions it holds appear beside every other peer's:
 ;;
-;;   GLOWCAP_ROOMS_VIZ_URL=ws://127.0.0.1:9300/ racket -y rooms-chat.rkt \
+;;   GLOWCAP_ROOMS_TRACE_URL=ws://127.0.0.1:9300/ racket -y rooms-chat.rkt \
 ;;     127.0.0.1:9099 general goblins-carol
 ;;
 ;; With the variable unset the vat holds no publishing socket and sends nothing.
@@ -126,15 +126,19 @@
     [else (say "<~a> ~a" from text)]))
 
 ;; Subscribe to `room` and make its membership the current seat. The room
-;; answers `subscribe` with the seat, its kind, and the topic authority; every
-;; later membership verb (post, leave) goes to the seat, and the welcome and
-;; the roster arrive on the inbox.
+;; answers `subscribe` with the seat, its kind, and the topic and files facets;
+;; every later membership verb (post, leave) goes to the seat, and the welcome
+;; and the roster arrive on the inbox.
 (define (enter-room room name #:then [then void])
   (on (<- room 'subscribe nick (unbox inbox-box))
       (lambda (answer)
         (cond
           [(match answer
-             [(list (? live-refr? seat) (or "observer" "participant") (or (? void?) (? live-refr?))) seat]
+             [(list (? live-refr? seat)
+                    (or "observer" "participant")
+                    (or (? void?) (? live-refr?))
+                    (or (? void?) (? live-refr?)))
+              seat]
              [_ #f])
            => (lambda (seat)
                 (set-box! seat-box seat)

@@ -84,10 +84,10 @@ export async function run(tab: Page): Promise<void> {
 	});
 
 	// And the destination is changed from here rather than by sending the reader
-	// to the card to change it. The line opens the directories this tab holds —
-	// the same rows, in the same box, that the card's own directory mark opens —
-	// and picking one writes the card's locator, which is what makes the two
-	// agree without either copying the other.
+	// to the card to change it. The line opens the directories this tab holds:
+	// the same rows, in the same box, that the card's own directory mark opens.
+	// Picking one writes the card's locator, so the two agree without either
+	// copying the other.
 	//
 	// A pick is an edit and files no act, so every other answer stands. Filing
 	// one would supersede the act the reader is answering and take the room name

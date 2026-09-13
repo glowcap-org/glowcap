@@ -1,7 +1,7 @@
 //! Observation generations and typed file custody share the attachment's
 //! lifetime. The callback keeps only a weak scope, so retiring a view cannot
 //! retain itself through the published observer.
-use super::{driver::Driver, files, view, Result};
+use super::{Result, driver::Driver, files, view};
 use crate::platform::Platform;
 use rooms_application::{
 	archive::change::Change,
@@ -20,7 +20,7 @@ pub(super) struct Scope {
 	stopping: tokio::sync::Notify,
 	generation: Cell<u64>,
 	watch: RefCell<Option<Watch<Platform>>>,
-	local_watch: RefCell<Option<Rc<rooms_runtime::session_service::LocalObservation>>>,
+	local_watch: RefCell<Option<Rc<rooms_runtime::service::LocalObservation>>>,
 	files: RefCell<Vec<Weak<files::Held>>>,
 }
 impl Scope {
@@ -91,16 +91,12 @@ impl Scope {
 		*self.watch.borrow_mut() = Some(watch);
 		Ok(())
 	}
-	pub fn install_local(
-		&self,
-		generation: u64,
-		watch: Rc<rooms_runtime::session_service::LocalObservation>,
-	) -> Result<()> {
+	pub fn install_local(&self, generation: u64, watch: Rc<rooms_runtime::service::LocalObservation>) -> Result<()> {
 		self.current(generation)?;
 		*self.local_watch.borrow_mut() = Some(watch);
 		Ok(())
 	}
-	pub fn local_observation(&self) -> Result<Rc<rooms_runtime::session_service::LocalObservation>> {
+	pub fn local_observation(&self) -> Result<Rc<rooms_runtime::service::LocalObservation>> {
 		self.open()?;
 		self.local_watch
 			.borrow()
@@ -203,46 +199,45 @@ impl Observer for RemoteCallbacks {
 }
 pub(super) struct LocalCallbacks {
 	pub callbacks: Callbacks,
-	pub session: rooms_runtime::session_service::Local<Platform>,
+	pub session: rooms_runtime::service::Local<Platform>,
 	pub source: String,
 	pub sequence: Cell<u64>,
 }
-impl rooms_runtime::session_service::LocalObserver for LocalCallbacks {
-	fn changed(&self) -> std::result::Result<(), rooms_runtime::session_service::error::Error> {
-		self.callbacks
-			.changed(self.session.snapshot()?)
-			.map_err(rooms_runtime::session_service::error::Error::runtime)
+/// A notice this page's callbacks could not take. The runtime retires an
+/// observer that fails, so the view really is gone by the time anyone reads
+/// this; the page's own sentence rides along for whoever shows it.
+fn unobservable(reason: impl Into<String>) -> rooms_runtime::Error {
+	rooms_runtime::Error::closed(reason.into())
+}
+
+impl rooms_runtime::service::LocalObserver for LocalCallbacks {
+	fn changed(&self) -> std::result::Result<(), rooms_runtime::service::error::Error> {
+		self.callbacks.changed(self.session.snapshot()?).map_err(unobservable)
 	}
 	fn event(
 		&self,
 		event: &rooms_runtime::rooms::ConversationEvent,
-	) -> std::result::Result<(), rooms_runtime::session_service::error::Error> {
-		use rooms_runtime::session_service::error::Error;
+	) -> std::result::Result<(), rooms_runtime::service::error::Error> {
+		use rooms_runtime::service::error::Error;
 		let sequence = self
 			.sequence
 			.get()
 			.checked_add(1)
 			.filter(|n| *n < (1 << 53))
-			.ok_or_else(|| Error::runtime("Local Rooms event sequence exhausted"))?;
+			.ok_or_else(|| Error::exhausted("Local Rooms event sequence exhausted"))?;
 		self.sequence.set(sequence);
 		self.callbacks
-			.event(event.project(&self.source, sequence).map_err(Error::runtime)?, |file| {
-				file.blob.into()
-			})
-			.map_err(Error::runtime)
+			.event(
+				event.project(&self.source, sequence).map_err(Error::invalid_by)?,
+				|file| file.blob.into(),
+			)
+			.map_err(unobservable)
 	}
-	fn operations_changed(&self, scope: &str) -> std::result::Result<(), rooms_runtime::session_service::error::Error> {
-		self.callbacks
-			.operations_changed(scope)
-			.map_err(rooms_runtime::session_service::error::Error::runtime)
+	fn operations_changed(&self, scope: &str) -> std::result::Result<(), rooms_runtime::service::error::Error> {
+		self.callbacks.operations_changed(scope).map_err(unobservable)
 	}
-	fn history_changed(
-		&self,
-		change: &Change,
-	) -> std::result::Result<(), rooms_runtime::session_service::error::Error> {
-		self.callbacks
-			.history_changed(change.clone())
-			.map_err(rooms_runtime::session_service::error::Error::runtime)
+	fn history_changed(&self, change: &Change) -> std::result::Result<(), rooms_runtime::service::error::Error> {
+		self.callbacks.history_changed(change.clone()).map_err(unobservable)
 	}
 	fn closed(&self) {
 		if let Some(scope) = self.callbacks.scope.upgrade() {

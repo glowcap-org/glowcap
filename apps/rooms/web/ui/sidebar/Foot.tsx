@@ -12,6 +12,13 @@ import { type DirId, dirMarkIn, type DirView, type SessionPhase } from "../types
 import { directoryName, footState } from "../text.ts";
 import { Avatar } from "../Avatar.tsx";
 import { StandingMenu } from "../Standing.tsx";
+import {
+	footAboutYou,
+	footOtherNames,
+	footReleasedName,
+	footReleaseName,
+	footStandingLabel,
+} from "../../../lib/text/rail.ts";
 
 /** The rail's foot: one lockup saying who this reader is and how they stand,
  * and pressing it opens the standing menu — the roster's two-row shape, worn by
@@ -69,18 +76,18 @@ export function Foot(
 	// still has a door in that case, because a roster row opens the same card for
 	// anyone including themselves, and that row is ungated.
 	const aboutAction = {
-		label: "About you…",
+		label: footAboutYou,
 		onPick: () => browser.aboutMember({ conv: null, name: primary }),
 	};
 	const releaseActions = canInteract
 		? grants.map((grant) => {
 			const where = directoryName(grant.id, home);
 			return {
-				label: `Release ${grant.nick} on ${where}`,
+				label: footReleaseName(grant.nick, where),
 				onPick: () => {
 					void rooms.releaseNick(grant.id).then((why) => {
 						if (why !== "") browser.toast("failure", why);
-						else browser.toast("success", `Released ${grant.nick} on ${where}.`);
+						else browser.toast("success", footReleasedName(grant.nick, where));
 					});
 				},
 			};
@@ -102,7 +109,7 @@ export function Foot(
 				about="you"
 				up
 				faceClass="foot-lockup"
-				label={primary === "" ? undefined : `${whoSaid} — where you are: ${foot.said}`}
+				label={primary === "" ? undefined : footStandingLabel(whoSaid, foot.said)}
 				onSay={(said) => rooms.setStanding(said ?? "")}
 				actions={[aboutAction, ...releaseActions]}
 				disabled={!canInteract}
@@ -123,7 +130,7 @@ export function Foot(
 									<span className="name">{primary}</span>
 									{others > 0 && (
 										<span className="foot-more">
-											+{others} {others === 1 ? "name" : "names"}
+											+{footOtherNames(others)}
 										</span>
 									)}
 								</span>

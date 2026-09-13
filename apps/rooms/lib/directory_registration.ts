@@ -50,8 +50,9 @@ export class DirectoryRegistration {
 	): Promise<string> {
 		const { onMintInboxFor, onDirectRequested, reconnectVoucher } = options;
 		const acknowledgement = Promise.withResolvers<string>();
-		// Capability ownership settles before this is awaited below. Observe an
-		// earlier refusal now without changing the later caller-visible answer.
+		// tolerant: the caller awaits this promise below and receives any
+		// refusal there. Observing it now only keeps an early refusal from
+		// surfacing as an unhandled rejection while ownership settles.
 		void acknowledgement.promise.catch(() => {});
 		let settled = false;
 		const settle = (complete: () => void) => {

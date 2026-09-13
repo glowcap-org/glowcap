@@ -1,3 +1,4 @@
+// Archive-target projection follows shared session authority without needless identity changes.
 /// <reference lib="dom" />
 
 Object.defineProperty(globalThis, "matchMedia", {

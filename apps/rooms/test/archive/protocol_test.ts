@@ -38,6 +38,7 @@ function line(fields: Partial<ArchiveLine> = {}): ArchiveLine {
 		at: 100,
 		order: 1,
 		state: "present",
+		previewUrls: [],
 		attachments: [],
 		...fields,
 	};

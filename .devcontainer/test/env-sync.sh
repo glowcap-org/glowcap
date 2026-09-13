@@ -100,11 +100,7 @@ require_literal "${devcontainer_json}" "\"PLAYWRIGHT_BROWSERS_PATH\": \"${PLAYWR
 require_literal "${devcontainer_json}" "\"CLAUDE_CONFIG_DIR\": \"${CLAUDE_CONFIG_DIR}\"" "devcontainer.json CLAUDE_CONFIG_DIR"
 require_literal "${devcontainer_json}" "\"CURSOR_CONFIG_DIR\": \"${CURSOR_STATE_DIR}\"" "devcontainer.json CURSOR_CONFIG_DIR"
 require_literal "${devcontainer_json}" "\"CURSOR_DATA_DIR\": \"${CURSOR_STATE_DIR}\"" "devcontainer.json CURSOR_DATA_DIR"
-if glowcap_devcontainer_zls_enabled; then
-    require_literal "${devcontainer_json}" '"zls.enable": true' "devcontainer.json zls.enable follows ZLS_ENABLED"
-else
-    require_literal "${devcontainer_json}" '"zls.enable": false' "devcontainer.json zls.enable follows ZLS_ENABLED"
-fi
+require_literal "${devcontainer_json}" '"zls.enable": true' "devcontainer.json enables the installed ZLS"
 
 require_literal "${dockerfile}" "npm_config_cache=${NPM_CACHE_DIR}" "Dockerfile npm_config_cache"
 require_literal "${dockerfile}" "PIP_CACHE_DIR=${PIP_CACHE_DIR}" "Dockerfile PIP_CACHE_DIR"
@@ -227,7 +223,6 @@ require_literal "${compose_file}" "target: \${GLOWCAP_CHECKOUT_DIR:?" "docker-co
 require_literal "${compose_file}" "source: \${GLOWCAP_GIT_COMMON_DIR:?" "docker-compose.yml Git common-dir source"
 require_literal "${compose_file}" "target: \${GLOWCAP_GIT_COMMON_DIR:?" "docker-compose.yml Git common-dir target"
 require_literal "${env_example}" "GLOWCAP_GIT_COMMON_DIR=" ".env.example Git common directory"
-require_literal "${dir}/../conformance/bootstrap-submodules.sh" "git config --file \"\${store}/config\" core.worktree \"\${checkout}/\${path}\"" "submodule bootstrap records one cross-boundary worktree path"
 require_literal "${dir}/hooks/initialize.sh" "bash \"\${dir}/bin/configure.sh\"" "hooks/initialize.sh bootstraps the checkout environment"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_WEB_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:8000" "docker-compose.yml web host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_CAPTP_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9099" "docker-compose.yml CapTP host port"

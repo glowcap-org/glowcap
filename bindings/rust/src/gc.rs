@@ -8,11 +8,11 @@
 use std::cell::Cell;
 use std::rc::{Rc, Weak};
 
+use crate::Argument;
+use crate::Ref;
 use crate::host::HostShared;
 use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
-use crate::Argument;
-use crate::Ref;
 
 /// Drops to one parked `glowcap_host_ref_release` delta of 1 for a Host id.
 /// The drop only parks the id and schedules the Host action drain —
@@ -56,14 +56,14 @@ impl Drop for VowGuard {
 
 impl Drop for CapabilityGuard {
 	fn drop(&mut self) {
-		if self.armed.get() {
-			if let Some(host) = self.host.upgrade() {
-				if host.raw().is_null() {
-					return;
-				}
-				host.gc_pending.borrow_mut().push_back(self.token);
-				host.schedule_kick_or_record();
+		if self.armed.get()
+			&& let Some(host) = self.host.upgrade()
+		{
+			if host.raw().is_null() {
+				return;
 			}
+			host.gc_pending.borrow_mut().push_back(self.token);
+			host.schedule_kick_or_record();
 		}
 	}
 }

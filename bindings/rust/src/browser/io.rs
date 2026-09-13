@@ -1,5 +1,5 @@
-use super::{events::Events, Shared};
-use crate::{abi_constants::*, ChannelClose, PacketRead, PacketWrite};
+use super::{Shared, events::Events};
+use crate::{ChannelClose, PacketRead, PacketWrite, abi_constants::*};
 use gloo_timers::future::TimeoutFuture;
 use std::{
 	future::Future,

@@ -5,7 +5,7 @@ mod promise;
 mod signal;
 mod state;
 
-use super::{data_channel_status, Failure, Shared};
+use super::{Failure, Shared, data_channel_status};
 use crate::{Channel, ChannelClose, Host};
 use state::{Inner, Remote, State};
 use std::{
@@ -208,7 +208,7 @@ impl RtcPeer {
 		if let Err(primary) = result {
 			// Refusing the transfer still owns physical retirement. Drop alone
 			// would request cleanup but return before its Host jobs finish.
-			return match self.close().await {
+			return match self.retire_after_error(&primary).await {
 				Ok(()) => Err(primary),
 				Err(cleanup) => Err(io::Error::new(
 					primary.kind(),
@@ -259,6 +259,26 @@ impl RtcPeer {
 		self.inner.close();
 		poll_fn(|cx| self.inner.poll_retired(cx)).await;
 		self.inner.state.borrow().result()
+	}
+
+	/// Retire this peer after one of its operations returned `primary`. Suppress
+	/// the peer's stored failure only when it is that exact observed outcome;
+	/// preserve a distinct failure as the cleanup result.
+	pub async fn retire_after_error(&mut self, primary: &io::Error) -> io::Result<()> {
+		let primary_is_peer_failure = self
+			.inner
+			.state
+			.borrow()
+			.failure
+			.as_ref()
+			.is_some_and(|failure| failure.0 == primary.kind() && failure.1 == primary.to_string());
+		self.inner.close();
+		poll_fn(|cx| self.inner.poll_retired(cx)).await;
+		if primary_is_peer_failure {
+			Ok(())
+		} else {
+			self.inner.state.borrow().result()
+		}
 	}
 }
 impl Drop for RtcPeer {

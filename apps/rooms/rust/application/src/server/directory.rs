@@ -13,10 +13,10 @@ mod watchers;
 
 use crate::{
 	directory::{
-		registration::{Id, Kind},
 		Event,
+		registration::{Id, Kind},
 	},
-	failure::{Failure, FailureCode},
+	failure::FailureCode,
 	room::inbox::nick_refusal,
 };
 use alloc::{string::String, vec::Vec};
@@ -37,53 +37,7 @@ pub use crate::signaling::{
 	MAX_ID as MAX_SIGNAL_ID, TIMEOUT_MS as SIGNAL_EXCHANGE_TIMEOUT_MS,
 };
 
-/// A refusal the caller hears as a break. One with a Rooms failure code is a
-/// condition a client acts on, in the one form every client parses; a plain
-/// one is a malformed or over-limit call the client reads as text.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-	pub code: Option<FailureCode>,
-	pub detail: String,
-}
-impl Refusal {
-	fn new(code: FailureCode, detail: impl Into<String>) -> Self {
-		Self {
-			code: Some(code),
-			detail: detail.into(),
-		}
-	}
-	fn plain(detail: impl Into<String>) -> Self {
-		Self {
-			code: None,
-			detail: detail.into(),
-		}
-	}
-	/// The break reason: `code: detail`, or the detail alone.
-	pub fn reason(&self) -> String {
-		match self.code {
-			Some(code) => alloc::format!(
-				"{}",
-				Failure {
-					code,
-					detail: &self.detail
-				}
-			),
-			None => self.detail.clone(),
-		}
-	}
-}
-impl core::fmt::Display for Refusal {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.write_str(&self.reason())
-	}
-}
-
-/// A capability the adapter gives back on the connection it lives on.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Release<C, R> {
-	pub connection: C,
-	pub capability: R,
-}
+pub use super::{Refusal, Release};
 
 /// What a member's register inbox is told.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -203,10 +157,10 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 		now: u64,
 	) -> Result<Effects<C, R>, Refusal> {
 		if let Some(refusal) = nick_refusal(&request.nick) {
-			return Err(Refusal::new(FailureCode::NickTooLong, refusal));
+			return Err(Refusal::coded(FailureCode::NickTooLong, refusal));
 		}
 		if !request.own_locator {
-			return Err(Refusal::new(
+			return Err(Refusal::coded(
 				FailureCode::NotYourLocator,
 				alloc::format!(
 					"the locator \"{}\" does not name the connection registering it",
@@ -360,7 +314,7 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 		now: u64,
 	) -> Result<signaling::Offered<C, R>, Refusal> {
 		if self.registry.nick_of(connection).is_none() {
-			return Err(Refusal::new(
+			return Err(Refusal::coded(
 				FailureCode::NotRegistered,
 				"signalOffer needs a registered name",
 			));
@@ -368,7 +322,7 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 		let (target_key, target) = self
 			.registry
 			.signaling_target(designator)
-			.ok_or_else(|| Refusal::new(FailureCode::PeerOffline, "no signaling inbox for that designator"))?;
+			.ok_or_else(|| Refusal::coded(FailureCode::PeerOffline, "no signaling inbox for that designator"))?;
 		Ok(self.exchanges.offer(connection, reply, target_key, target, now))
 	}
 	pub fn signal_answer(&self, connection: C, id: &str) -> Result<Option<Route<C, R>>, Refusal> {

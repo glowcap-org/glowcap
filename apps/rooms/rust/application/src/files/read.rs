@@ -1,3 +1,4 @@
+//! File reads validate metadata and expose bounded chunk requests.
 use super::*;
 use core::{
 	ops::Range,

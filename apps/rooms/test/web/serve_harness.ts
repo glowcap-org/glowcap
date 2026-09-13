@@ -1,14 +1,15 @@
+// Starting the installed `rooms-web` front for a test, and reaching the room
+// it supervises the way the page does, through its `/relay`.
+
 import { bareLocator, Session, webSocketChannel } from "@glowcap/runtime";
 import { roomsHost } from "../../lib/locator.ts";
 import { DIRECTORY, LIST } from "../../lib/protocol.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { freePort, within } from "../support/rooms_server.ts";
+import { ROOT, WEB } from "../support/paths.ts";
+import { freePort } from "../support/ports.ts";
+import { delay, within } from "../support/wait.ts";
 
-export const ROOT = new URL("../../../../", import.meta.url).pathname;
-import { WEB } from "../support/web_binary.ts";
-export { WEB };
-
-export const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+export { delay, ROOT, WEB };
 
 function remaining(deadline: number, what: string): number {
 	const ms = deadline - Date.now();
@@ -62,7 +63,7 @@ export async function withWeb(
 }
 
 /** Reach the room server the way the page does: dial its tcp locator through
- * serve.ts's `/relay` and list the directory. Resolves the room count on
+ * `rooms-web`'s `/relay` and list the directory. Resolves the room count on
  * success, throws otherwise. */
 export async function reachRoomThroughRelay(
 	httpPort: number,
@@ -75,6 +76,9 @@ export async function reachRoomThroughRelay(
 	let host: ReturnType<typeof roomsHost> | null = null;
 	let session: Session | null = null;
 	let serving: Promise<void> | null = null;
+	// A wire fault the inbound loop ends with, kept until the cleanup below
+	// can report it as this call's failure rather than as a stray rejection.
+	let servedFault: unknown = null;
 	let outcome: { ok: true; roomCount: number } | { ok: false; error: unknown };
 	try {
 		await before(
@@ -99,7 +103,9 @@ export async function reachRoomThroughRelay(
 			deadline,
 		);
 		session = openedSession;
-		serving = openedSession.serve().catch(() => {});
+		serving = openedSession.serve().catch((error: unknown) => {
+			servedFault = error;
+		});
 		const directory = await before(() => openedSession.fetch(DIRECTORY), "relay directory fetch", deadline);
 		const rooms = await before(
 			() => openedSession.send(directory, LIST, []) as Promise<unknown[]>,
@@ -142,5 +148,6 @@ export async function reachRoomThroughRelay(
 	}
 	if (!outcome.ok) throw outcome.error;
 	if (cleanupFailure !== null) throw cleanupFailure;
+	if (servedFault !== null) throw servedFault;
 	return outcome.roomCount;
 }

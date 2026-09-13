@@ -3,7 +3,7 @@ use rooms_application::{
 	bridge::{self, Answers, Form},
 	text::DocumentText,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub fn run() {
 	let fixture: Value = serde_json::from_str(include_str!("../fixtures/bridge-client.json")).unwrap();

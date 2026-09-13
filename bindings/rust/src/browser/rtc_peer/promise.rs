@@ -2,7 +2,7 @@
 //! unsettled when its connection closes. Race with a private cancellation
 //! promise so JsFuture's Rust callbacks always settle and release their state.
 //! The operation's original promise retains only JavaScript race reactions.
-use js_sys::{futures::JsFuture, Array, Function, Promise};
+use js_sys::{Array, Function, Promise, futures::JsFuture};
 use wasm_bindgen::JsValue;
 
 pub(super) struct Observation {

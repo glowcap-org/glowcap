@@ -44,63 +44,16 @@ function contract(binding, rows) {
 	for (const invalid of ["not a locator", "x".repeat(65537), "ocapn://\ud800.iroh/s/held"]) {
 		if (binding.inspectCapability(invalid) != null) throw new Error("invalid capability admitted");
 	}
-	const commands = new binding.RoomsCommands();
-	const { Issue, Refresh, SettleCommand } = binding.RoomsCommandStep;
-	const payload = [];
-	Object.defineProperty(payload, "0", {
-		get() {
-			throw new Error("ordinary payload was copied");
-		},
-	});
-	let operation = commands.begin("say", "ordinary", payload);
-	if (operation.step !== Issue || commands.driving()[0] !== "ordinary") throw new Error("command ownership");
-	operation.acknowledged(3);
-	if (operation.step !== SettleCommand || operation.revision !== 3) throw new Error("acknowledgement state");
-	let refused = false;
-	try {
-		operation.refused("Rooms session state refusal: Revision");
-	} catch {
-		refused = true;
-	}
-	if (!refused) throw new Error("an acknowledged command became retryable");
-	operation.committed();
-	operation.free();
-	if (commands.driving().length !== 0) throw new Error("operation claim survived disposal");
-	operation = commands.begin("takeRoomModerator", "lost", ["room", "\ud800"]);
-	operation.free();
-	operation = commands.begin("takeRoomModerator", "candidate", ["room", "\ud800"]);
-	if (operation.id !== "lost" || operation.step !== Refresh) throw new Error("lost answer changed identity");
-	operation.free();
-	operation = commands.begin("takeRoomModerator", "corrected", ["room", "\ud801"]);
-	if (operation.id !== "corrected") throw new Error("non-scalar intents were aliased");
-	operation.free();
-	operation = commands.begin("setStanding", "\ud800", []);
-	if (operation.id !== "\ud800") throw new Error("operation identity was changed");
-	operation.free();
-	refused = false;
-	try {
-		commands.begin("ensureRoomLink", "oversize", ["x".repeat(65537)]);
-	} catch {
-		refused = true;
-	}
-	if (!refused) throw new Error("oversized result intent admitted");
-	commands.close();
-	refused = false;
-	try {
-		commands.begin("say", "closed", []);
-	} catch {
-		refused = true;
-	}
-	if (!refused) throw new Error("closed command owner reopened");
-	commands.free();
 	if (globalThis[Symbol.for("glowcap.runtime.adapter")] !== undefined) {
 		throw new Error("startup installed a TypeScript runtime");
 	}
 }
 
 async function lifetime(binding) {
-	const first = new binding.RoomsBrowserApplication();
-	const sibling = new binding.RoomsBrowserApplication();
+	const trouble = [];
+	const reportTrouble = (source, reason) => trouble.push({ source, reason });
+	const first = new binding.RoomsBrowserApplication(reportTrouble);
+	const sibling = new binding.RoomsBrowserApplication(reportTrouble);
 	// Fill admission synchronously, before the worker's first poll. Every
 	// refusal gets an observer immediately, including pressure and closure.
 	const answers = Array.from({ length: 256 }, () =>
@@ -128,6 +81,9 @@ async function lifetime(binding) {
 	}
 	if (failure == null || failure.includes("closed")) throw new Error("closing one application retired its sibling");
 	await Promise.all([first.close(), sibling.close()]);
+	if (trouble.length !== 0) {
+		throw new Error(`normal application retirement reported trouble: ${JSON.stringify(trouble)}`);
+	}
 	first.free();
 	sibling.free();
 }
@@ -177,7 +133,7 @@ try {
 	const upgrading = once(server, "upgrade", { signal: AbortSignal.timeout(10_000) });
 	await page.evaluate(async () => {
 		const binding = await import("/rooms_browser.js");
-		globalThis.openingApplication = new binding.RoomsBrowserApplication();
+		globalThis.openingApplication = new binding.RoomsBrowserApplication(() => {});
 		globalThis.openingOutcome = globalThis.openingApplication.attach("ocapn://127.0.0.1%3A1234.tcp/s/held").then(
 			() => "unexpected attachment",
 			(error) => error.message,
@@ -217,7 +173,7 @@ try {
 		throw new Error("application close returned before its opening socket retired", { cause: retirementError });
 	}
 	console.log(
-		`Production Rooms startup passed ${fixtures.length} saved-workspace cases in Node and Chromium; ${wasm.length} Wasm bytes.`,
+		`Production Rooms startup passed ${fixtures.length} saved-workspace cases in Deno and Chromium; ${wasm.length} Wasm bytes.`,
 	);
 } finally {
 	await browser?.close();

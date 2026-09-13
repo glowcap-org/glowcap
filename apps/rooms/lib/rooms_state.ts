@@ -8,7 +8,7 @@ import { RegistrationIdSchema } from "./directory_publications.ts";
 import { parseRoomsSturdyref, roomsLocator } from "./locator.ts";
 import { roomsPeerAuthority } from "./routes.ts";
 import { boundedText as boundedSchemaText, nonemptyText as nonemptySchemaText } from "./schema.ts";
-import { vizOverrideRefusal } from "./viz_publish.ts";
+import { traceOverrideRefusal } from "./trace_publish.ts";
 
 export const WORKSPACE_STATE_KEY = "rooms.workspace-state";
 export const WORKSPACE_STATE_VERSION = 1;
@@ -66,6 +66,7 @@ export const WorkspaceDirectorySchema = z.strictObject({
 	 * Absent is the conservative value for pre-field persisted documents. */
 	reached: z.optional(z.boolean()),
 	nick: nickText,
+	nickAllocation: z.optional(z.enum(["exact", "automatic"])),
 	standing: nullableText,
 });
 
@@ -158,6 +159,7 @@ export const WorkspaceConversationSchema = z.union([
 export const RoomsRoomJoinIntentSchema = z.strictObject({
 	locator: nonemptyText(MAX_BEARER_CHARS),
 	nick: nickText,
+	nickAllocation: z.optional(z.enum(["exact", "automatic"])),
 	conversation: WorkspaceRoomConversationSchema,
 });
 
@@ -198,7 +200,7 @@ const RoomsSessionStateShapeSchema = z.strictObject({
 	keepHistory: z.boolean(),
 	join: z.strictObject({ room: boundedText(), locator: boundedText(), nick: boundedText() }),
 	dmMode: z.enum(["webrtc", "relay"]),
-	vizOverride: boundedText(),
+	traceOverride: boundedText(),
 	capabilities: z.strictObject({
 		operations: WorkspaceOperationCredentialsSchema,
 		archivePeer: z.nullable(sturdyrefText),
@@ -210,7 +212,7 @@ type RoomsSessionStateShape = z.infer<typeof RoomsSessionStateShapeSchema>;
 
 export const RoomsSessionStateSchema = RoomsSessionStateShapeSchema.check(
 	z.refine(hasValidSessionRelations),
-	z.refine((state) => vizOverrideRefusal(state.vizOverride) == null),
+	z.refine((state) => traceOverrideRefusal(state.traceOverride) == null),
 );
 
 export const RoomsViewStateSchema = z.strictObject({
@@ -232,7 +234,7 @@ const RoomsWorkspaceStateShapeSchema = z.strictObject({
 	view: RoomsViewStateSchema,
 });
 
-function isVizScope(scope: string): boolean {
+function isTraceScope(scope: string): boolean {
 	try {
 		const url = new URL(scope);
 		return (url.protocol === "ws:" || url.protocol === "wss:") && url.href === scope;
@@ -306,10 +308,10 @@ function hasValidSessionRelations(session: RoomsSessionStateShape): boolean {
 	for (const credential of session.capabilities.operations) {
 		const key = `${credential.capability}\u0000${credential.scope}`;
 		if (operationKeys.has(key)) return false;
-		if (credential.capability === "viz" ? !isVizScope(credential.scope) : !directories.has(credential.scope)) {
+		if (credential.capability === "trace" ? !isTraceScope(credential.scope) : !directories.has(credential.scope)) {
 			return false;
 		}
-		if (credential.capability === "viz" && ++visualizers > 1) return false;
+		if (credential.capability === "trace" && ++visualizers > 1) return false;
 		operationKeys.add(key);
 	}
 	const peeringIds = new Set<string>();
@@ -416,7 +418,7 @@ export function emptyRoomsSessionState(): RoomsSessionState {
 		keepHistory: true,
 		join: { room: "", locator: "", nick: "" },
 		dmMode: "webrtc",
-		vizOverride: "",
+		traceOverride: "",
 		capabilities: { operations: [], archivePeer: null },
 		peering: [],
 	};

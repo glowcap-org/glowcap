@@ -1,10 +1,10 @@
-use super::arguments::{from_fixture, Arg};
+use super::arguments::{Arg, from_fixture};
 use rooms_application::{
 	grants::Access,
 	room::ArgumentView,
 	session::{
 		checkpoint::Routes,
-		snapshot::{self, views::*, BuildArguments, Snapshot, SnapshotArgument},
+		snapshot::{self, BuildArguments, Snapshot, SnapshotArgument, views::*},
 	},
 };
 use serde_json::Value;

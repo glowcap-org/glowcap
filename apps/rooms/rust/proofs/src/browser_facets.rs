@@ -7,16 +7,18 @@ use rooms_application::{
 };
 use rooms_browser::platform::Platform;
 use rooms_glowcap::client::{
-	session::{Event, Observer, Session as Attached},
 	Client,
+	session::{Event, Observer, Session as Attached},
 };
 use rooms_runtime::{
 	documents::{VolatileDocument, VolatileDocuments},
 	entropy::{Entropy, EntropyUnavailable},
 	grants::DurableGrants,
-	session_commands::{SessionCommands, SessionWorker},
-	session_service::{error::Error, Inputs, Session as Application, Visualization},
-	session_state::DurableSession,
+	service::{Inputs, Session as Application, Visualization, error::Error},
+	session::{
+		commands::{SessionCommands, SessionWorker},
+		state::DurableSession,
+	},
 };
 use std::{cell::Cell, rc::Rc};
 use tokio::sync::watch;
@@ -43,18 +45,18 @@ async fn state(platform: Platform) -> (SessionCommands, SessionWorker<VolatileDo
 fn inputs<F>(platform: Platform, runtime: Rc<Runtime>, locator: &Locator, entropy: F) -> Inputs<Platform, F> {
 	Inputs {
 		recording_source: None,
-		connections: rooms_runtime::connections::Connections::new(runtime, platform.clone()),
+		connections: rooms_runtime::directories::connections::Connections::new(runtime, platform.clone()),
 		platform,
 		locator: locator.clone(),
 		entropy,
-		viz: Rc::new(FixtureViz(watch::channel(()).0)),
+		trace: Rc::new(FixtureTrace(watch::channel(()).0)),
 		report: Rc::new(|notice| panic!("session notice: {notice:?}")),
 	}
 }
 fn grants() -> DurableGrants<VolatileDocument> {
 	DurableGrants::new(VolatileDocument::new(SessionDocument::Grants))
 }
-struct FixtureViz(watch::Sender<()>);
+struct FixtureTrace(watch::Sender<()>);
 struct Views {
 	changed: Rc<Cell<u64>>,
 	retired: Rc<Cell<bool>>,
@@ -79,7 +81,7 @@ impl Observer for Views {
 		Ok(())
 	}
 }
-impl Visualization for FixtureViz {
+impl Visualization for FixtureTrace {
 	fn on_invalidated(&self, _: Rc<dyn Fn(&str)>) {}
 	fn stop(&self) {}
 	fn close(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + '_>> {
@@ -211,11 +213,13 @@ pub async fn exercise(platform: Platform) {
 			facet.session.snapshot().await.unwrap().access,
 			rooms_application::grants::Access::Observe
 		);
-		assert!(facet
-			.session
-			.command("not-authorized", 1, "setStanding", &["quiet".into()])
-			.await
-			.is_err());
+		assert!(
+			facet
+				.session
+				.command("not-authorized", 1, "setStanding", &["quiet".into()])
+				.await
+				.is_err()
+		);
 		facet.revoke().await.unwrap();
 		assert!(
 			facet.session.snapshot().await.is_err(),

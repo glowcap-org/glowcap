@@ -1,5 +1,5 @@
 // Equality of archive row identities in a presentation projection.
-import type { ArchiveCoordinates } from "./protocol.ts";
+import type { ArchiveCoordinates } from "./record.ts";
 
 export function sameArchiveCoordinates(
 	left: ArchiveCoordinates | null | undefined,

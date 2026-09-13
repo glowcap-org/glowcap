@@ -1,6 +1,6 @@
 //! Exhaustive row destructuring makes added fields require a budget decision.
 use super::rows::*;
-use crate::fields::{footprint::HeapBytes, SafeInteger};
+use crate::fields::{SafeInteger, footprint::HeapBytes};
 impl<const NONZERO: bool> HeapBytes for SafeInteger<NONZERO> {
 	fn heap_bytes(&self) -> usize {
 		0

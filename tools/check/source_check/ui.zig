@@ -151,6 +151,23 @@ pub fn checkUiCore(
         try appendViolation(gpa, violations, "ui/fonts/OFL.txt is missing; the licence these faces ship under requires each copy of them to carry it", .{});
     };
     try checkOnlyDeclared(io, gpa, root, violations, "ui/fonts", declared.items, &.{"OFL.txt"});
+
+    // OCapNviz carries its own face rather than one from the shared UI core,
+    // but the OFL has the same distribution requirement: the complete license
+    // stays beside the font. Holding the two-file directory closed also makes a
+    // new face bring its notice into the same change.
+    root.access(io, "apps/ocapnviz/public/fonts/DepartureMono-OFL.txt", .{}) catch {
+        try appendViolation(gpa, violations, "apps/ocapnviz/public/fonts/DepartureMono-OFL.txt is missing; the license must travel with DepartureMono-Regular.woff2", .{});
+    };
+    try checkOnlyDeclared(
+        io,
+        gpa,
+        root,
+        violations,
+        "apps/ocapnviz/public/fonts",
+        &.{"DepartureMono-Regular.woff2"},
+        &.{"DepartureMono-OFL.txt"},
+    );
 }
 
 /// Every entry in `dir` is one of the faces the core declares, or one of the

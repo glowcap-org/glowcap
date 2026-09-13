@@ -1,24 +1,26 @@
 //! The room worker: joins the rooms the checkpoint intends, pumps each one's
 //! messages into the session's event stream, folds what the room says about
 //! itself back into durable intent, and retires rooms the checkpoint drops
-//! or that end their membership.
+//! or that end their membership. This file is the loop and the notices it
+//! hears; the diff, the joins, the facts, and the bridges each have a file.
 mod bridge;
 mod custody;
 mod facts;
 pub(super) mod joining;
+mod reconcile;
 mod retirement;
 use super::{pump::pump, *};
-use crate::{cleanup::combine, session_commands::SessionCommands};
-use joining::Finished;
+use crate::session::commands::SessionCommands;
 pub(super) use joining::Wanted;
+use joining::{Finished, Joined};
 use rooms_application::{
 	room::{policy::RoomPolicy, stewardship::Kind},
 	session::{
 		checkpoint::{
-			reconciliation::{Authority, Bearer, Fact, RoomContext, Text as FactText},
 			RoomReconnect,
+			reconciliation::{Authority, Bearer, Fact, RoomContext, Text as FactText},
 		},
-		snapshot::{views::RoomView, Field, Id, List, Nullable, Presence},
+		snapshot::{Field, Id, List, Nullable, Presence, views::RoomView},
 	},
 	text::DocumentText,
 };
@@ -35,15 +37,15 @@ const REJOIN_DELAY: Duration = Duration::from_secs(2);
 pub struct RoomWorker<P: Platform> {
 	platform: P,
 	entropy: EntropySource,
-	directories: crate::directory_runtime::DirectoryRuntime<P>,
+	directories: crate::directories::runtime::DirectoryRuntime<P>,
 	commands: SessionCommands,
-	bridge_secrets: crate::bridge_secrets::BridgeSecrets,
+	bridge_secrets: crate::session::bridge_secrets::BridgeSecrets,
 	shared: Rc<RefCell<LiveRooms<P>>>,
 	events: mpsc::Sender<ConversationEvent>,
 	notices: mpsc::Sender<Notice>,
 	notice_inbox: mpsc::Receiver<Notice>,
 	stopping: watch::Receiver<bool>,
-	finished: watch::Sender<Option<Result<(), String>>>,
+	finished: watch::Sender<Option<Result<(), Error>>>,
 	changed: watch::Sender<()>,
 	completed: JoinSet<Finished<P>>,
 	bridges: JoinSet<bridge::Finished>,
@@ -56,22 +58,22 @@ pub struct RoomWorker<P: Platform> {
 pub(super) struct Parts<P: Platform> {
 	pub platform: P,
 	pub entropy: EntropySource,
-	pub directories: crate::directory_runtime::DirectoryRuntime<P>,
+	pub directories: crate::directories::runtime::DirectoryRuntime<P>,
 	pub commands: SessionCommands,
-	pub bridge_secrets: crate::bridge_secrets::BridgeSecrets,
+	pub bridge_secrets: crate::session::bridge_secrets::BridgeSecrets,
 	pub shared: Rc<RefCell<LiveRooms<P>>>,
 	pub events: mpsc::Sender<ConversationEvent>,
 	pub notices: mpsc::Sender<Notice>,
 	pub notice_inbox: mpsc::Receiver<Notice>,
 	pub stopping: watch::Receiver<bool>,
-	pub finished: watch::Sender<Option<Result<(), String>>>,
+	pub finished: watch::Sender<Option<Result<(), Error>>>,
 	pub changed: watch::Sender<()>,
 	pub recorder: Option<Recorder>,
 }
 
 #[derive(Clone)]
 pub(super) struct Recorder {
-	pub archive: Rc<dyn crate::archive_recording::Recorder>,
+	pub archive: Rc<dyn crate::archive::recording::Recorder>,
 	pub source: DocumentText,
 	pub generation: DocumentText,
 }
@@ -122,17 +124,17 @@ impl<P: Platform> RoomWorker<P> {
 			retry_at: None,
 		}
 	}
-	pub async fn run(mut self) -> Result<(), String> {
+	pub async fn run(mut self) -> Result<(), Error> {
 		let mut result = self.drive().await;
-		result = combine(result, self.retire_all().await);
+		result = Error::fold(result, self.retire_all().await);
 		let staged = self.shared.borrow_mut().entry.take();
 		if let Some(staged) = staged {
-			result = combine(result, staged.room.leave().await.map_err(|e| e.to_string()));
+			result = Error::fold(result, staged.room.leave().await.map_err(Error::peer));
 		}
 		self.finished.send_replace(Some(result.clone()));
 		result
 	}
-	async fn drive(&mut self) -> Result<(), String> {
+	async fn drive(&mut self) -> Result<(), Error> {
 		self.reconcile().await?;
 		let mut directory_changes = self.directories.changes();
 		// Keep one receiver and mark it seen. Cloning the runtime's unread
@@ -149,15 +151,15 @@ impl<P: Platform> RoomWorker<P> {
 				_ = self.stopping.changed() => return Ok(()),
 				_ = directory_changes.changed() => self.reconcile().await?,
 				Some(finished) = self.completed.join_next(), if !self.completed.is_empty() => {
-					self.install(finished.map_err(|e| format!("room join ended: {e}"))?).await?;
+					self.install(finished.map_err(|e| Error::closed(format!("room join ended: {e}")))?).await?;
 				}
 				Some(finished) = self.bridges.join_next(), if !self.bridges.is_empty() => {
-					self.finish_bridge(finished.map_err(|e| format!("room bridge operation ended: {e}"))?).await;
+					self.finish_bridge(finished.map_err(|e| Error::closed(format!("room bridge operation ended: {e}")))?).await;
 				}
 				// A pump ends with its room's stream; a pump that panicked is
 				// this worker's failure, because its room is now unwatched.
 				Some(ended) = self.pumps.join_next(), if !self.pumps.is_empty() => {
-					ended.map_err(|e| format!("a room pump ended: {e}"))?;
+					ended.map_err(|e| Error::closed(format!("a room pump ended: {e}")))?;
 				}
 				Some(notice) = self.notice_inbox.recv() => self.notice(notice).await?,
 				_ = platform.sleep_until(retry.unwrap_or_else(|| platform.now())), if retry.is_some() => {
@@ -168,183 +170,9 @@ impl<P: Platform> RoomWorker<P> {
 			self.resynchronize().await;
 		}
 	}
-	async fn reconcile(&mut self) -> Result<(), String> {
-		let wanted = self.wanted()?;
-		let retired_entry = {
-			let mut state = self.shared.borrow_mut();
-			if state.entry.as_ref().is_some_and(|entry| {
-				entry.committed
-					&& wanted
-						.get(&entry.wanted.intent.id)
-						.is_none_or(|want| want.intent != entry.wanted.intent)
-			}) {
-				state.entry.take()
-			} else {
-				None
-			}
-		};
-		if let Some(entry) = retired_entry {
-			entry.room.leave().await.map_err(|e| e.to_string())?;
-		}
-		let (stale, start) = {
-			let mut state = self.shared.borrow_mut();
-			state
-				.joining
-				.retain(|id, attempt| wanted.get(id).is_some_and(|want| want.intent == attempt.intent));
-			state
-				.terminal
-				.retain(|id, ended| wanted.get(id).is_some_and(|want| want.intent.remains_terminal(ended)));
-			let mut stale = Vec::new();
-			for id in state.rooms.keys().cloned().collect::<Vec<_>>() {
-				let keep = wanted.get(&id).is_some_and(|want| {
-					state.rooms.get(&id).is_some_and(|live| {
-						live.scope.current()
-							&& live.intent.same_membership(&want.intent)
-							&& self
-								.directories
-								.connected(&want.intent.directory)
-								.is_some_and(|(directory, nick)| {
-									nick == live.nick
-										&& directory.client().session().same_session(live.room.client().session())
-								})
-					}) && want.intent.reconnect != Some(RoomReconnect::Requested)
-				});
-				if !keep {
-					if let Some(live) = state.rooms.remove(&id) {
-						stale.push(live);
-					}
-				}
-			}
-			let mut start = Vec::new();
-			for (id, want) in &wanted {
-				if state.rooms.contains_key(id)
-					|| state.joining.contains_key(id)
-					|| state
-						.terminal
-						.get(id)
-						.is_some_and(|ended| want.intent.remains_terminal(ended))
-				{
-					continue;
-				}
-				// Keep the already-subscribed stream buffered until its directory
-				// registration is installed. Installing earlier would give the live
-				// membership an empty nick and retire it on the next directory tick.
-				if state
-					.entry
-					.as_ref()
-					.is_some_and(|entry| entry.wanted.intent == want.intent)
-					&& self.directories.connected(&want.intent.directory).is_none()
-				{
-					continue;
-				}
-				match want.blocked() {
-					Ok(()) => {
-						state.issues.remove(&want.intent.subject);
-						let mut want = want.clone();
-						if self.completed.len() + start.len() >= 32 {
-							self.retry_at = Some(self.platform.now() + REJOIN_DELAY);
-							continue;
-						}
-						if let Some(entry) = state.entry.as_ref().filter(|entry| entry.wanted.intent == want.intent) {
-							want.epoch = entry.wanted.epoch;
-						} else {
-							want.epoch = state.next_epoch;
-							state.next_epoch = state
-								.next_epoch
-								.checked_add(1)
-								.ok_or("room membership epoch exhausted")?;
-						}
-						state.joining.insert(id.clone(), want.clone());
-						start.push(want);
-					}
-					Err(error) => {
-						state.issues.insert(want.intent.subject.clone(), error);
-					}
-				}
-			}
-			(stale, start)
-		};
-		for live in stale {
-			self.retire_live(live).await;
-		}
-		for want in wanted.values() {
-			self.reconcile_custody(want).await?;
-		}
-		for want in start {
-			let staged = {
-				let mut state = self.shared.borrow_mut();
-				if state
-					.entry
-					.as_ref()
-					.is_some_and(|entry| entry.wanted.intent == want.intent)
-				{
-					state.entry.take()
-				} else {
-					None
-				}
-			};
-			if let Some(staged) = staged {
-				self.completed
-					.spawn_local(async move { Finished::Ready(Box::new(staged)) });
-				continue;
-			}
-			let directories = self.directories.clone();
-			let events = self.events.clone();
-			let notices = self.notices.clone();
-			let shared = self.shared.clone();
-			self.completed.spawn_local(joining::join(
-				self.entropy.clone(),
-				directories,
-				events,
-				notices,
-				shared,
-				want,
-			));
-		}
-		self.reconcile_bridges().await;
-		self.changed.send_replace(());
-		Ok(())
-	}
-	fn wanted(&self) -> Result<HashMap<String, Wanted>, String> {
-		self.commands
-			.view()
-			.read(|state| {
-				Ok(state
-					.checkpoint()
-					.map_err(|e| e.to_string())?
-					.rooms()
-					.filter_map(intent::Intent::read)
-					.map(|intent| (intent.id.clone(), Wanted { intent, epoch: 0 }))
-					.collect())
-			})
-			.map_err(|e| e.to_string())?
-	}
-	fn accepts(&self, wanted: &Wanted) -> Result<bool, String> {
-		let state = self.shared.borrow();
-		if state.rooms.contains_key(&wanted.intent.id)
-			|| !state
-				.joining
-				.get(&wanted.intent.id)
-				.is_some_and(|attempt| attempt.epoch == wanted.epoch)
-		{
-			return Ok(false);
-		}
-		Ok(self
-			.wanted()?
-			.get(&wanted.intent.id)
-			.is_some_and(|current| current.intent == wanted.intent))
-	}
-	fn clear_attempt(&self, wanted: &Wanted) {
-		let mut state = self.shared.borrow_mut();
-		if state
-			.joining
-			.get(&wanted.intent.id)
-			.is_some_and(|attempt| attempt.epoch == wanted.epoch)
-		{
-			state.joining.remove(&wanted.intent.id);
-		}
-	}
-	async fn install(&mut self, finished: Finished<P>) -> Result<(), String> {
+	/// Take a finished join: seat the membership, start its pump, and commit
+	/// what the join learned. A join the checkpoint no longer wants is left.
+	async fn install(&mut self, finished: Finished<P>) -> Result<(), Error> {
 		match finished {
 			Finished::Failed { wanted, error } => {
 				if !self.accepts(&wanted)? {
@@ -353,7 +181,7 @@ impl<P: Platform> RoomWorker<P> {
 					return Ok(());
 				}
 				let reason = match error {
-					join::Failure::Unavailable(reason) => reason,
+					join::Failure::Unavailable(reason) => reason.to_string(),
 					join::Failure::Retired { kind, token } => {
 						self.retired_authority(&wanted.intent, kind, token).await?;
 						"the saved room authority was retired".into()
@@ -366,24 +194,26 @@ impl<P: Platform> RoomWorker<P> {
 				self.schedule_retry();
 			}
 			Finished::Ready(joined) => {
-				let joined = *joined;
-				if !self.accepts(&joined.wanted)? {
-					self.clear_attempt(&joined.wanted);
-					let _ = joined.room.leave().await;
+				let Joined {
+					wanted,
+					room,
+					messages,
+					view,
+					acquired,
+					..
+				} = *joined;
+				if !self.accepts(&wanted)? {
+					self.clear_attempt(&wanted);
+					// tolerant: a leave the room refuses still ends this session's
+					// side of a membership the checkpoint no longer wants.
+					let _ = room.leave().await;
 					self.schedule_retry();
 					return Ok(());
 				}
-				let wanted = &joined.wanted;
-				let reconnect = wanted.intent.reconnect == Some(RoomReconnect::Requested);
-				let conversation =
-					Id::new(wanted.intent.id.clone().into()).ok_or("room conversation id exceeds its field")?;
-				let expected = wanted.intent.publication.clone();
-				let directory = wanted.intent.directory.clone();
-				let name = wanted.intent.name.clone();
 				let id = wanted.intent.id.clone();
 				let epoch = wanted.epoch;
-				let scope = Rc::new(crate::session_commands::FactScope::new());
-				let room = Rc::new(joined.room);
+				let scope = Rc::new(crate::session::commands::FactScope::new());
+				let room = Rc::new(room);
 				let standing = super::standing::maintain(
 					room.clone(),
 					wanted.intent.clone(),
@@ -409,7 +239,7 @@ impl<P: Platform> RoomWorker<P> {
 								.map(|(_, nick)| nick)
 								.unwrap_or_default(),
 							room,
-							view: joined.view,
+							view,
 							bridge_scope: None,
 							bridge_scope_known: false,
 							bridge_scope_pending: false,
@@ -429,7 +259,7 @@ impl<P: Platform> RoomWorker<P> {
 					self.platform.clone(),
 					id.clone(),
 					epoch,
-					joined.messages,
+					messages,
 					self.shared.clone(),
 					self.events.clone(),
 					self.notices.clone(),
@@ -443,53 +273,14 @@ impl<P: Platform> RoomWorker<P> {
 					tokio::select! { biased; _ = scope.retired() => {}, () = pumping => {}, () = standing => {} }
 				});
 				self.reconcile_bridges().await;
-				if reconnect {
-					self.commit(&id, epoch, |context| {
-						Ok(Fact::RoomReconnect {
-							context,
-							conversation: conversation.clone(),
-							connected: true,
-						})
-					})
-					.await?;
-				}
-				if let Some(acquired) = joined.acquired {
-					self.commit(&id, epoch, |context| {
-						Ok(Fact::RoomAuthorityAcquired {
-							context,
-							conversation: conversation.clone(),
-							room_link: Bearer::new(acquired.room_link.into()).ok_or("room link exceeds its field")?,
-							manager_link: Bearer::new(acquired.manager_link.into())
-								.ok_or("manager link exceeds its field")?,
-						})
-					})
-					.await?;
-				}
-				// The listing's id for this room is recorded only when the one
-				// the checkpoint holds is gone from the listing. A room the
-				// directory still lists under the held id has not moved; and a
-				// room joined by name records its id once, from the listing.
-				if let Some(found) = self.publication(&directory, &name) {
-					let held_still_listed = expected.as_deref().is_some_and(|held| self.listed(&directory, held));
-					if expected.as_deref() != Some(found.as_str()) && !held_still_listed {
-						self.commit(&id, epoch, |context| {
-							Ok(Fact::RoomPublication {
-								context,
-								conversation,
-								expected: expected.and_then(|value| Field::new(value.into())),
-								publication: Field::new(found.into()).ok_or("room publication id exceeds its field")?,
-							})
-						})
-						.await?;
-					}
-				}
+				self.commit_joined(&id, epoch, &wanted.intent, acquired).await?;
 			}
 		}
 		self.changed.send_replace(());
 		Ok(())
 	}
 	/// Fold a room's notice into durable intent or the live view.
-	async fn notice(&mut self, notice: Notice) -> Result<(), String> {
+	async fn notice(&mut self, notice: Notice) -> Result<(), Error> {
 		match notice {
 			Notice::Authority {
 				id,
@@ -501,13 +292,15 @@ impl<P: Platform> RoomWorker<P> {
 				if !self.current(&id, epoch) {
 					return Ok(());
 				}
-				let conversation = Id::new(id.clone().into()).ok_or("room conversation id exceeds its field")?;
+				let conversation = Id::new(id.clone().into())
+					.ok_or_else(|| Error::invalid("room conversation id exceeds its field"))?;
 				let kind = match kind {
 					Kind::Room => Authority::Room,
 					Kind::Manager => Authority::Manager,
 					Kind::Steward => Authority::Steward,
 				};
-				let token = FactText::new(token.into()).ok_or("authority token exceeds its field")?;
+				let token =
+					FactText::new(token.into()).ok_or_else(|| Error::invalid("authority token exceeds its field"))?;
 				self.commit(&id, epoch, |context| {
 					Ok(Fact::RoomAuthority {
 						context,
@@ -569,27 +362,7 @@ impl<P: Platform> RoomWorker<P> {
 		let at = self.platform.now() + REJOIN_DELAY;
 		self.retry_at = Some(self.retry_at.map_or(at, |held| held.min(at)));
 	}
-	fn publication(&self, directory: &Id, name: &str) -> Option<String> {
-		use rooms_application::session::checkpoint::commands::Facts;
-		self.directories
-			.read()
-			.room_publication(directory.text(), &DocumentText::from(name))?
-			.as_str()
-			.map(str::to_owned)
-	}
-
-	/// Whether the directory still lists a room under this publication id.
-	fn listed(&self, directory: &Id, id: &str) -> bool {
-		let id = DocumentText::from(id);
-		let state = self.directories.read();
-		state
-			.rows()
-			.iter()
-			.find(|row| row.id() == directory)
-			.and_then(|row| row.live())
-			.is_some_and(|live| live.view().room(&id).is_some())
-	}
-	async fn retire_all(&mut self) -> Result<(), String> {
+	async fn retire_all(&mut self) -> Result<(), Error> {
 		// Joins use deadline-bound client calls. Observe their completion so a
 		// successfully subscribed obsolete seat is explicitly left.
 		let mut joins = Ok(());
@@ -599,7 +372,12 @@ impl<P: Platform> RoomWorker<P> {
 					let _ = joined.room.leave().await;
 				}
 				Ok(Finished::Failed { .. }) => {}
-				Err(error) => joins = combine(joins, Err(format!("room join ended during shutdown: {error}"))),
+				Err(error) => {
+					joins = Error::fold(
+						joins,
+						Err(Error::closed(format!("room join ended during shutdown: {error}"))),
+					)
+				}
 			}
 		}
 		let bridges = self.shutdown_bridges().await;
@@ -611,15 +389,15 @@ impl<P: Platform> RoomWorker<P> {
 		let mut pumps = Ok(());
 		while let Some(ended) = self.pumps.join_next().await {
 			if let Err(error) = ended {
-				pumps = combine(pumps, Err(format!("a room pump ended: {error}")));
+				pumps = Error::fold(pumps, Err(Error::closed(format!("a room pump ended: {error}"))));
 			}
 		}
 		self.shared.borrow_mut().joining.clear();
 		let mut media = std::mem::replace(
 			&mut self.shared.borrow_mut().media,
-			crate::media::Media::new(self.platform.clone()),
+			crate::files::media::Media::new(self.platform.clone()),
 		);
-		combine(combine(combine(joins, bridges), pumps), media.close().await)
+		Error::fold(Error::fold(Error::fold(joins, bridges), pumps), media.close().await)
 	}
 	/// Leave a room and release the media its lines were holding.
 	async fn retire_live(&self, live: LiveRoom<P>) {

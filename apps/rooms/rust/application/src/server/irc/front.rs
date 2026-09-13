@@ -3,7 +3,7 @@
 mod names;
 use super::protocol::{self, Error};
 use alloc::{format, string::String, vec::Vec};
-pub use names::{channel, room_name, Names};
+pub use names::{Names, channel, room_name};
 pub const CLIENTS: usize = 256;
 pub const ROOMS: usize = 32;
 pub const DIRECTS: usize = 32;

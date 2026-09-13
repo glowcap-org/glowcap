@@ -1,6 +1,6 @@
 //! Room gestures become command material from the authoritative checkpoint.
 //! The directory identity captured here is checked again before every retry.
-use super::{fields::*, model::*, Checkpoint};
+use super::{Checkpoint, fields::*, model::*};
 use crate::{directory::creation::RecoveryKey, room::policy::RoomPolicy};
 use alloc::{string::String, vec::Vec};
 use serde::Serialize;
@@ -15,7 +15,14 @@ pub struct RoomGesture {
 	name: &'static str,
 	arguments: Vec<String>,
 	directory: Id,
-	expected: Option<(Id, Field)>,
+	expected: Option<(Id, Field, crate::directory::registration::NicknameAllocation)>,
+}
+fn expected(directory: &Directory) -> (Id, Field, crate::directory::registration::NicknameAllocation) {
+	(
+		directory.locator.clone(),
+		directory.nick.clone(),
+		directory.nick_allocation,
+	)
 }
 impl RoomGesture {
 	pub fn retained_bytes(&self) -> usize {
@@ -27,7 +34,7 @@ impl RoomGesture {
 			+ self
 				.expected
 				.as_ref()
-				.map_or(0, |(locator, nick)| locator.heap_bytes() + nick.heap_bytes())
+				.map_or(0, |(locator, nick, _)| locator.heap_bytes() + nick.heap_bytes())
 	}
 	pub fn name(&self) -> &'static str {
 		self.name
@@ -44,7 +51,9 @@ impl RoomGesture {
 			.find(|directory| directory.id == self.directory);
 		let stable = match (actual, &self.expected) {
 			(None, None) => true,
-			(Some(actual), Some(expected)) => actual.locator == expected.0 && actual.nick == expected.1,
+			(Some(actual), Some(expected)) => {
+				actual.locator == expected.0 && actual.nick == expected.1 && actual.nick_allocation == expected.2
+			}
 			_ => false,
 		};
 		if stable {
@@ -58,13 +67,19 @@ impl RoomGesture {
 struct Join<'a> {
 	locator: &'a Id,
 	nick: &'a Field,
+	#[serde(rename = "nickAllocation", skip_serializing_if = "allocation_is_exact")]
+	nick_allocation: crate::directory::registration::NicknameAllocation,
 	conversation: Room,
+}
+fn allocation_is_exact(value: &crate::directory::registration::NicknameAllocation) -> bool {
+	*value == crate::directory::registration::NicknameAllocation::Exact
 }
 pub struct Destination<'a> {
 	pub directory: &'a str,
 	pub locator: &'a str,
 	pub name: &'a str,
 	pub nick: &'a str,
+	pub nick_allocation: crate::directory::registration::NicknameAllocation,
 	pub link: Option<&'a str>,
 	pub policy: RoomPolicy,
 }
@@ -123,19 +138,20 @@ impl Checkpoint {
 				name: "select",
 				arguments: alloc::vec![room.id.text().as_str().ok_or("Invalid conversation identity")?.into()],
 				directory: directory.id.clone(),
-				expected: Some((directory.locator.clone(), directory.nick.clone())),
+				expected: Some(expected(directory)),
 			});
 		}
 		let intent = Join {
 			locator: &directory.locator,
 			nick: &directory.nick,
+			nick_allocation: directory.nick_allocation,
 			conversation: room(directory, name, id, false)?,
 		};
 		Ok(RoomGesture {
 			name: "joinRoom",
 			arguments: alloc::vec![encode(&intent)?],
 			directory: directory.id.clone(),
-			expected: Some((directory.locator.clone(), directory.nick.clone())),
+			expected: Some(expected(directory)),
 		})
 	}
 	pub fn take_room_link(
@@ -161,6 +177,7 @@ impl Checkpoint {
 			directory,
 			locator,
 			source.nick.text().as_str().ok_or("Invalid nickname")?,
+			crate::directory::registration::NicknameAllocation::Exact,
 			false,
 		)?;
 		let mut conversation = room(&directory, name, id, true)?;
@@ -168,13 +185,14 @@ impl Checkpoint {
 		let intent = Join {
 			locator: &directory.locator,
 			nick: &directory.nick,
+			nick_allocation: directory.nick_allocation,
 			conversation,
 		};
 		Ok(RoomGesture {
 			name: "takeRoomLink",
 			arguments: alloc::vec![encode(&intent)?],
 			directory: directory.id.clone(),
-			expected: prior.map(|d| (d.locator.clone(), d.nick.clone())),
+			expected: prior.map(expected),
 		})
 	}
 	pub fn create_managed_room(
@@ -193,7 +211,7 @@ impl Checkpoint {
 			name: "openManagedRoom",
 			arguments,
 			directory: directory.id.clone(),
-			expected: Some((directory.locator.clone(), directory.nick.clone())),
+			expected: Some(expected(directory)),
 		})
 	}
 	pub fn join_destination(
@@ -207,8 +225,13 @@ impl Checkpoint {
 		}
 		let prior = self.gesture_directory(destination.directory).ok();
 		let managed = destination.link.is_none() && destination.policy != RoomPolicy::Open;
-		let (mut directory, preparation) =
-			self.prepare_directory(destination.directory, destination.locator, destination.nick, managed)?;
+		let (mut directory, preparation) = self.prepare_directory(
+			destination.directory,
+			destination.locator,
+			destination.nick,
+			destination.nick_allocation,
+			managed,
+		)?;
 
 		if !managed {
 			directory.locator = Id::new(destination.locator.into()).ok_or("Invalid directory locator")?;
@@ -220,6 +243,7 @@ impl Checkpoint {
 			let intent = Join {
 				locator: &directory.locator,
 				nick: &directory.nick,
+				nick_allocation: directory.nick_allocation,
 				conversation,
 			};
 			return Ok(JoinPlan {
@@ -229,7 +253,7 @@ impl Checkpoint {
 					name: "joinRoom",
 					arguments: alloc::vec![encode(&intent)?],
 					directory: directory.id.clone(),
-					expected: prior.map(|prior| (prior.locator.clone(), prior.nick.clone())),
+					expected: prior.map(expected),
 				},
 			});
 		}
@@ -243,7 +267,7 @@ impl Checkpoint {
 			admission: RoomGesture {
 				name: "openManagedRoom",
 				arguments,
-				expected: Some((directory.locator.clone(), directory.nick.clone())),
+				expected: Some(expected(&directory)),
 				directory: directory.id,
 			},
 		})

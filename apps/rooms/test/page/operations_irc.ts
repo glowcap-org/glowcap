@@ -31,6 +31,7 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	await tab.fill("#gatewayConnection-host", "127.0.0.1");
 	await tab.fill("#gatewayConnection-port", "1");
 	await tab.fill("#gatewayConnection-nick", "proofbot");
+	await tab.fill("#gatewayConnection-realname", "Rooms proof bridge bot; admin: fixture-admin");
 	await tab.click("#gatewayConnection-tls");
 	await tab.click("#gatewayConnectionAct-open");
 	const connection = tab.locator('.irc-connection[data-network="deadnet"]');
@@ -40,10 +41,14 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	if (!(await connection.textContent())?.includes("cleartext")) {
 		fail("the connection did not carry the TLS toggle's off state to the gateway");
 	}
+	if (!(await connection.textContent())?.includes("Rooms proof bridge bot; admin: fixture-admin")) {
+		fail("the connection did not retain the public bot real name");
+	}
 	if (!(await connection.textContent())?.includes("No channels")) {
 		fail("an opened IRC connection did not exist independently of a channel");
 	}
-	await connection.locator(".irc-channel-add input").fill("nowhere");
+	await connection.locator('.irc-channel-add input[type="text"]').fill("nowhere");
+	await connection.getByLabel("The channel's operators permit this bridge").check();
 	await connection.locator('.irc-channel-add button:has-text("Join")').click();
 	await connection.locator('.irc-channel-list li:has-text("#nowhere")').waitFor({ timeout: 10_000 });
 	await connection.locator(':scope > .said:has-text("Connection refused")').waitFor({ timeout: 10_000 })
@@ -246,6 +251,7 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	await tab.fill("#gatewayConnection-host", "127.0.0.1");
 	await tab.fill("#gatewayConnection-port", "1");
 	await tab.fill("#gatewayConnection-nick", "proofbot");
+	await tab.fill("#gatewayConnection-realname", "Rooms proof bridge bot; admin: fixture-admin");
 	// This time leave TLS on. A checked TLS box has to reach the gateway, or a
 	// registered account is refused and its per-member login never appears — the
 	// exact break a reader hit with the box selected.
@@ -254,7 +260,8 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	if (!(await connection.textContent())?.includes("TLS")) {
 		fail("a TLS connection reported itself cleartext; the TLS toggle's on state was lost");
 	}
-	await connection.locator(".irc-channel-add input").fill("#nowhere");
+	await connection.locator('.irc-channel-add input[type="text"]').fill("#nowhere");
+	await connection.getByLabel("The channel's operators permit this bridge").check();
 	await connection.locator('.irc-channel-add button:has-text("Join")').click();
 	const replacement = connection.locator('.irc-channel-list li:has-text("#nowhere")');
 	await replacement.waitFor({ timeout: 10_000 });

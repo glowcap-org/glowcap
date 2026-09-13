@@ -7,6 +7,8 @@
 // nothing is process-global, and a non-modal surface can render its own prompt
 // over the same context.
 
+import { discardChangesTitle } from "../../lib/text/controls.ts";
+import { unsavedDiscard, unsavedKeep, unsavedLead } from "../../lib/text/page.ts";
 import {
 	createContext,
 	type ReactNode,
@@ -225,7 +227,11 @@ export function useCommitSettling(): {
 /** Register one form-owned draft. The getter stays current without replacing
  * the provider registry or coupling sibling forms to one combined state. */
 export function useChangeGroup(key: string, group: ChangeGroupInput): void {
-	const boundary = useCommitments();
+	// The two verbs, not the registry they came from. These effects depend on
+	// being able to call them and on nothing else about the boundary, and taking
+	// them out here says so in the dependency lists below instead of leaving
+	// `boundary.register` there as a path a reader has to trust is stable.
+	const { register, unregister } = useCommitments();
 	const token = useRef(Symbol(key));
 	const dirty = useRef(group.dirty);
 	const discard = useRef(group.discard);
@@ -237,17 +243,17 @@ export function useChangeGroup(key: string, group: ChangeGroupInput): void {
 	}, [group.discard, group.settling]);
 	useLayoutEffect(() => {
 		const owned = token.current;
-		return () => boundary.unregister(key, owned);
-	}, [boundary.unregister, key]);
+		return () => unregister(key, owned);
+	}, [unregister, key]);
 	useLayoutEffect(
 		() => {
-			boundary.register(key, token.current, {
+			register(key, token.current, {
 				dirty: () => dirty.current,
 				discard: () => discard.current(),
 				settling: () => settling.current?.() ?? null,
 			});
 		},
-		[boundary.register, key],
+		[register, key],
 	);
 }
 
@@ -266,14 +272,12 @@ export function CommitmentPrompt() {
 			<div className="modal-card card-plane">
 				<div className="modal-body">
 					<ModalHead
-						title="Discard unsaved changes?"
+						title={discardChangesTitle}
 						titleId="settingsUnsavedTitle"
 						closeRef={close}
 						onClose={commitments.keep}
 					/>
-					<p className="lead" id="settingsUnsavedMessage">
-						Your unsaved changes will be lost. Keep editing, or discard them to continue.
-					</p>
+					<p className="lead" id="settingsUnsavedMessage">{unsavedLead}</p>
 					{commitments.error !== "" && <Said kind="failure">{commitments.error}</Said>}
 					<div className="actions">
 						<Button
@@ -283,7 +287,7 @@ export function CommitmentPrompt() {
 							disabled={commitments.busy}
 							onClick={commitments.keep}
 						>
-							Keep editing
+							{unsavedKeep}
 						</Button>
 						<Button
 							id="settingsUnsavedDiscard"
@@ -292,7 +296,7 @@ export function CommitmentPrompt() {
 							busy={commitments.busy}
 							onClick={() => void commitments.discard()}
 						>
-							Discard changes
+							{unsavedDiscard}
 						</Button>
 					</div>
 				</div>

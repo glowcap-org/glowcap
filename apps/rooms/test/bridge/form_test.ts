@@ -148,8 +148,8 @@ Deno.test("a submission splits by the form's own declaration, not by the caller'
 	// declaration makes one. It stays with the rest rather than being guessed at
 	// by its name.
 	assertEquals(splitBridgeSubmission(bridgeFormSecretIds(declared), { passphrase: "x" }).secrets, {});
-	// A form that asks for nothing secret splits to nothing secret, which is what
-	// lets a reconnect replay it with no custody at all.
+	// A form that asks for nothing secret splits to nothing secret, so a
+	// reconnect can replay it with no custody at all.
 	assertEquals(splitBridgeSubmission(bridgeFormSecretIds(z.parse(BridgeFormSchema, form())), { nick: "ada" }), {
 		answers: { nick: "ada" },
 		secrets: {},

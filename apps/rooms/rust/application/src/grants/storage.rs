@@ -1,3 +1,4 @@
+//! Grant storage transitions stage, commit, and recover durable policy changes.
 use super::{Change, Error};
 use crate::documents::WriteFailure;
 use alloc::vec::Vec;

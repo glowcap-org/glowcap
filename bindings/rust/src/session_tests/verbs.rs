@@ -272,15 +272,16 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 					Err(_) => crate::tcp::address_designator("127.0.0.1", 0),
 				};
 				let captp = Host::new_host();
-				let session = Session::establish_accepted(
-					captp.shared(),
-					crate::abi_constants::TRANSPORT_TCP,
-					sys::DESIGNATOR_SCHEME_ADDRESS,
-					"",
-					stream,
-					&designator,
+				let session = Session::accept_channel(
+					&captp,
+					AcceptedTransport {
+						transport: crate::abi_constants::TRANSPORT_TCP,
+						designator: ChannelDesignator::Address(""),
+						local_address: &designator,
+						verified_channel_key: None,
+					},
+					crate::Channel::stream(stream),
 					Some(HANDSHAKE_TIMEOUT),
-					None,
 				)
 				.await
 				.unwrap();

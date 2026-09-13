@@ -3,6 +3,16 @@
 // the thing itself, an answer in the log, and the four words for a connection.
 
 import { Button } from "./Button.tsx";
+import {
+	kitchenBesideControl,
+	kitchenInTheLog,
+	kitchenNotifyMention,
+	kitchenOnThing,
+	kitchenPageNotice,
+	kitchenRetryFailed,
+	kitchenRetryPicture,
+	kitchenTryPictureAgain,
+} from "../../lib/text/kitchen.ts";
 import { CrashCard } from "./ErrorBoundary.tsx";
 import { Icon } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
@@ -27,7 +37,7 @@ export function KitchenAnswers() {
 	return (
 		<>
 			<Sample
-				label="Page notice"
+				label={kitchenPageNotice}
 				note="A refusal with nowhere on the control to live. It leaves on its own. Press to see one live, above this card."
 			>
 				<div className="kitchen-toasts">
@@ -54,7 +64,7 @@ export function KitchenAnswers() {
 				</Row>
 			</Sample>
 			<Sample
-				label="Beside the control"
+				label={kitchenBesideControl}
 				note="The field, the bell, or the meter still owns the answer. Danger marks a refusal. Warning marks a standing condition the reader can fix. A long reason stays two lines here. Show opens the rest."
 			>
 				<div className="kitchen-stack">
@@ -91,7 +101,7 @@ export function KitchenAnswers() {
 				<div className="kitchen-stack">
 					<p className="kitchen-note">A standing condition on a control that stays</p>
 					<Row>
-						<IconButton icon="bell" label="Notify me when I'm mentioned" aria-pressed="true" />
+						<IconButton icon="bell" label={kitchenNotifyMention} aria-pressed="true" />
 					</Row>
 					<Said kind="warning">
 						Notifications are on here, but this browser is blocking them.
@@ -122,7 +132,7 @@ export function KitchenAnswers() {
 				</div>
 			</Sample>
 			<Sample
-				label="On the thing"
+				label={kitchenOnThing}
 				note="The message, the file, or the pane that failed. Retry sits on it. A render that threw replaces only that pane."
 			>
 				<div className="kitchen-log">
@@ -134,7 +144,7 @@ export function KitchenAnswers() {
 									<span>Not sent</span>
 									<IconButton
 										icon="retry"
-										label="Retry failed message"
+										label={kitchenRetryFailed}
 										size="small"
 										variant="ghost"
 										tone="on-accent"
@@ -145,7 +155,7 @@ export function KitchenAnswers() {
 					</div>
 				</div>
 				<div className="attach attach-media pending kitchen-tile" style={{ aspectRatio: "4 / 3" }}>
-					<button type="button" className="act" aria-label="Retry the sample picture">
+					<button type="button" className="act" aria-label={kitchenRetryPicture}>
 						<Icon name="retry" />
 						<span>Retry</span>
 					</button>
@@ -156,7 +166,7 @@ export function KitchenAnswers() {
 						The peer closed before those bytes arrived.
 						<IconButton
 							icon="retry"
-							label="Try the sample picture again"
+							label={kitchenTryPictureAgain}
 							variant="ghost"
 							tone="inverse"
 						/>
@@ -169,7 +179,7 @@ export function KitchenAnswers() {
 				/>
 			</Sample>
 			<Sample
-				label="In the log"
+				label={kitchenInTheLog}
 				note="A conversation-local answer: a send that never left, a command this tab ran. Shared joins stay a centered pill. This tab's own answers sit in the dashed well."
 			>
 				<div className="kitchen-log">

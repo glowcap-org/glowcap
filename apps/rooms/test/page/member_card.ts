@@ -66,8 +66,8 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#members .member-face", { timeout: 30_000 })
 		.catch(() => fail("no roster to open a person from after returning to a room"));
 
-	// The reader is first in the roster, by `rosterOf`. Opening their own row is
-	// the case both doors can answer, which is what makes the comparison possible.
+	// The reader is first in the roster, by `rosterOf`. Both doors can answer
+	// their own row, giving the comparison a shared case.
 	const own = tab.locator("#members .member-face").first();
 	const rowName = (await own.locator(".name").textContent() ?? "").replace(" (you)", "").trim();
 	await own.click();

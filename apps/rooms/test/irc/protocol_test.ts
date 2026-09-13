@@ -1,3 +1,4 @@
+// IRC parsing and encoding share one bounded grammar for framing, tags, prefixes, commands, and case mapping.
 import { assertEquals } from "../assert.ts";
 import {
 	encodeIrc,

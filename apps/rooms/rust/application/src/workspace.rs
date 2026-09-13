@@ -3,7 +3,7 @@
 //! and presentation preferences without acquiring any live authority.
 use crate::{
 	fields::{self, Text},
-	session::checkpoint::{Checkpoint, Refusal, Routes, MAX_CHECKPOINT_UNITS},
+	session::checkpoint::{Checkpoint, MAX_CHECKPOINT_UNITS, Refusal, Routes},
 };
 use alloc::{rc::Rc, string::String};
 use serde::{Deserialize, Serialize};

@@ -4,14 +4,14 @@
 // The address bar wins when it names a value, so a test or a shared link keeps
 // doing what it says. When the URL is silent, the last choice this browser
 // remembered is used. A save writes and then reloads — Settings the DM
-// transport, the Visualizer pane the viz endpoint — because both are decided
+// transport, the Visualizer pane the trace endpoint — because both are decided
 // when the peer opens, not mid-session.
 
 import { TRANSPORT_NOISE_RELAY, TRANSPORT_WEBRTC } from "@glowcap/abi";
-import { originVizUrl } from "./viz_endpoint.ts";
+import { originTraceUrl } from "./trace_endpoint.ts";
 import { workspaceConnectionSettings } from "./workspace_state.ts";
 
-export { originVizUrl } from "./viz_endpoint.ts";
+export { originTraceUrl } from "./trace_endpoint.ts";
 
 export type DmMode = "webrtc" | "relay";
 export type DmTransport = typeof TRANSPORT_WEBRTC | typeof TRANSPORT_NOISE_RELAY;
@@ -30,10 +30,10 @@ export function dmFrom(search: URLSearchParams, stored: string | null): DmMode {
 	return stored === "relay" ? "relay" : "webrtc";
 }
 
-/** Resolve the viz override. `null` means "ask this page's server". An empty
- * `?viz=` is an explicit blank, not "use storage". */
-export function vizFrom(search: URLSearchParams, stored: string | null): string | null {
-	if (search.has("viz")) return search.get("viz");
+/** Resolve the trace override. `null` means "ask this page's server". An empty
+ * `?trace=` is an explicit blank, not "use storage". */
+export function traceFrom(search: URLSearchParams, stored: string | null): string | null {
+	if (search.has("trace")) return search.get("trace");
 	return stored;
 }
 
@@ -45,24 +45,24 @@ export function dmTransport(): DmTransport {
 	return dmTransportFor(dmMode());
 }
 
-export function vizOverride(): string | null {
-	return vizFrom(new URLSearchParams(location.search), workspaceConnectionSettings().vizOverride || null);
+export function traceOverride(): string | null {
+	return traceFrom(new URLSearchParams(location.search), workspaceConnectionSettings().traceOverride || null);
 }
 
-export function current(): { dm: DmMode; viz: string } {
-	return { dm: dmMode(), viz: vizOverride() ?? "" };
+export function current(): { dm: DmMode; trace: string } {
+	return { dm: dmMode(), trace: traceOverride() ?? "" };
 }
 
-/** What a blank viz field means: this page's own endpoint through its
+/** What a blank trace field means: this page's own endpoint through its
  * origin, or null when the server has none. */
-export async function advertisedViz(): Promise<string | null> {
+export async function advertisedTrace(): Promise<string | null> {
 	try {
-		const res = await fetch("/viz");
+		const res = await fetch("/trace");
 		await res.body?.cancel();
 		// Only a 200 names an endpoint: a server with the visualizer off
 		// answers 204, which is "nothing here" rather than a failure.
 		if (res.status !== 200) return null;
-		return originVizUrl(location);
+		return originTraceUrl(location);
 	} catch {
 		return null;
 	}
@@ -80,11 +80,11 @@ export async function directoryLocator(): Promise<string | null> {
 	}
 }
 
-/** Write `dm` / `viz` onto `url`, leaving any other query alone. WebRTC is the
+/** Write `dm` / `trace` onto `url`, leaving any other query alone. WebRTC is the
  * default, so it comes off the address rather than sitting there as `?dm=webrtc`. */
-export function writeSearch(url: URL, next: { dm: DmMode; viz: string }): void {
+export function writeSearch(url: URL, next: { dm: DmMode; trace: string }): void {
 	if (next.dm === "relay") url.searchParams.set("dm", "relay");
 	else url.searchParams.delete("dm");
-	if (next.viz !== "") url.searchParams.set("viz", next.viz);
-	else url.searchParams.delete("viz");
+	if (next.trace !== "") url.searchParams.set("trace", next.trace);
+	else url.searchParams.delete("trace");
 }

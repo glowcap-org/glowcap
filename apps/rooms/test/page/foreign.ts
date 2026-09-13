@@ -27,9 +27,8 @@ export async function run(
 	// The room being named is drawn as one of the rooms already named: a mark, a
 	// name, and under it the line saying where it will land. That line is a
 	// target of its own, so it is measured as one — a glyph and its words as a
-	// single piece in the middle of a rectangle the panel draws at rest, rather
-	// than two entries placed by the columns above, which is what it stopped
-	// being.
+	// single piece in the middle of a rectangle the panel draws at rest. It is no
+	// longer two entries placed by the columns above.
 	const panel = await tab.evaluate(() => {
 		const box = document.querySelector("#newRoom");
 		const line = box?.querySelector(".rwhere");
