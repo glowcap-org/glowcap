@@ -104,6 +104,7 @@ export function HistorySettings(
 		<>
 			<h3 className="well-title overline" id="historyLegend">{historyTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="historyLegend">
+				{why !== "" && <Said kind="failure">{why}</Said>}
 				<div className="switch-row">
 					<p className="group-label" id="keepHistoryLegend">{historyKeepLabel}</p>
 					<Switch
@@ -116,7 +117,6 @@ export function HistorySettings(
 					/>
 				</div>
 				<p className="hint" id="historyWhere">{historySaid(keepHistory, archiveTarget)}</p>
-				{why !== "" && <Said kind="failure">{why}</Said>}
 			</div>
 		</>
 	);

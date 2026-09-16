@@ -347,6 +347,11 @@ pub const Port = port_mod.Port;
 /// allocator and arenas, freed in `deinit`.
 pub const Vat = struct {
     allocator: std.mem.Allocator,
+    /// Destructors may release capabilities to sibling actors. Once teardown
+    /// owns every actor, those root updates are redundant and the actor table
+    /// may already be draining; make them terminal no-ops instead of mutating
+    /// the table under its own deinitialization walk.
+    tearing_down: bool = false,
     actors: std.AutoHashMapUnmanaged(u64, Cell) = .{},
     queue_limits: QueueLimits = .{},
     local_ingress: IngressState = .{ .id = .local },
@@ -442,6 +447,7 @@ pub const Vat = struct {
     }
 
     pub fn deinit(self: *Vat) void {
+        self.tearing_down = true;
         var it = self.actors.valueIterator();
         while (it.next()) |cell| {
             // A become promoted by the last frame but never installed (a vat torn
@@ -535,6 +541,7 @@ pub const Vat = struct {
     /// absent row: a rooting relationship can outlive a row `restore` removed,
     /// and its bookkeeping then fails closed instead of crashing.
     pub fn retainActor(self: *Vat, id: u64) void {
+        if (self.tearing_down) return;
         if (self.actors.getPtr(id)) |cell| cell.roots += 1;
     }
 
@@ -543,6 +550,7 @@ pub const Vat = struct {
     /// and parks the box until the next outermost-turn boundary, the borrowed
     /// reply's lifetime. Tolerant of an absent row, like `retainActor`.
     pub fn releaseActor(self: *Vat, id: u64) void {
+        if (self.tearing_down) return;
         const cell = self.actors.getPtr(id) orelse return;
         std.debug.assert(cell.roots > 0);
         cell.roots -= 1;
@@ -579,6 +587,7 @@ pub const Vat = struct {
     pub const cancelIngress = ingress_mod.cancelIngress;
     pub const send = ingress_mod.send;
     pub const sendFromIngress = ingress_mod.sendFromIngress;
+    pub const sendObservedFromIngress = ingress_mod.sendObservedFromIngress;
     pub const tell = ingress_mod.tell;
     pub const tellFromIngress = ingress_mod.tellFromIngress;
     pub const drive = ingress_mod.drive;

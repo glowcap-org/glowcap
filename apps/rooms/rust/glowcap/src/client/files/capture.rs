@@ -12,7 +12,9 @@ pub struct Captured {
 }
 #[derive(Clone)]
 enum Storage {
-	Chunks(Vec<Arc<Box<[u8]>>>),
+	// One shared chunk index per capture. Observers clone one Arc rather than
+	// walking the file and incrementing every chunk's reference count.
+	Chunks(Arc<Vec<Arc<Box<[u8]>>>>),
 	Contiguous(Arc<Box<[u8]>>),
 }
 impl Captured {
@@ -55,7 +57,7 @@ impl Captured {
 		}
 		Ok(Self {
 			description,
-			storage: Storage::Chunks(chunks),
+			storage: Storage::Chunks(Arc::new(chunks)),
 		})
 	}
 	pub fn span(&self, offset: u64, maximum: usize) -> Result<Chunk, String> {
@@ -89,12 +91,18 @@ mod tests {
 		let size = CHUNK_BYTES + 3;
 		let captured = Captured {
 			description: FileDescription::new("file".into(), "text/plain".into(), size as u64, 0, 0).unwrap(),
-			storage: Storage::Chunks(vec![
+			storage: Storage::Chunks(Arc::new(vec![
 				Arc::new(vec![1; CHUNK_BYTES].into_boxed_slice()),
 				Arc::new(vec![2, 3, 4].into_boxed_slice()),
-			]),
+			])),
 		};
 		let aligned = captured.span(0, CHUNK_BYTES).unwrap();
+		let clone = captured.clone();
+		match (&captured.storage, &clone.storage) {
+			(Storage::Chunks(original), Storage::Chunks(copy)) => assert!(Arc::ptr_eq(original, copy)),
+			_ => unreachable!(),
+		}
+		drop(clone);
 		assert_eq!(
 			aligned.as_ref().as_ptr(),
 			match &captured.storage {

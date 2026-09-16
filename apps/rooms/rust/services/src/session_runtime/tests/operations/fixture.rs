@@ -9,7 +9,7 @@ pub(super) struct Fixture {
 	transport: Rc<Runtime>,
 	pub(super) runtime: DirectoryRuntime<ControlledPlatform>,
 	runtime_task: tokio::task::JoinHandle<Result<(), rooms_runtime::Error>>,
-	peer: peers::Peer,
+	pub(super) peer: peers::Peer,
 	pub(super) arrival: peers::Arrival,
 	pub(super) arrivals: mpsc::Receiver<peers::Arrival>,
 	pub(super) id: String,

@@ -88,13 +88,6 @@
 					<span class="nav-heading">Understand</span>
 					<a class="$site.page('why').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('why').link()">Why OCapN</a>
 					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
-					<span class="nav-heading">Rooms</span>
-					<a class="$site.page('rooms').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms').link()">Overview</a>
-					<a class="$site.page('rooms/start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/start').link()">Run Rooms</a>
-					<a class="$site.page('rooms/architecture').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/architecture').link()">How it works</a>
-					<a class="$site.page('rooms/protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/protocol').link()">The protocol</a>
-					<a class="$site.page('rooms/operations').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/operations').link()">Operate Rooms</a>
-					<a class="$site.page('rooms/irc').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/irc').link()">IRC</a>
 					<span class="nav-heading">Build</span>
 					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
 					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Choose an API</a>
@@ -130,6 +123,13 @@
 					<div class="nav-sub">
 						<a class="$site.page('reference/api').isCurrent().then('is-current', '')" href="$site.page('reference/api').link()">Zig API (autodoc)</a>
 					</div>
+					<span class="nav-heading">Rooms</span>
+					<a class="$site.page('rooms').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms').link()">Overview</a>
+					<a class="$site.page('rooms/start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/start').link()">Run Rooms</a>
+					<a class="$site.page('rooms/architecture').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/architecture').link()">How it works</a>
+					<a class="$site.page('rooms/protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/protocol').link()">The protocol</a>
+					<a class="$site.page('rooms/operations').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/operations').link()">Operate Rooms</a>
+					<a class="$site.page('rooms/irc').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/irc').link()">IRC</a>
 				</nav>
 			</aside>
 			<main id="content">

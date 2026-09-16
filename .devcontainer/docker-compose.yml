@@ -27,6 +27,10 @@ services:
       # Submodule repositories use this same-path checkout alias for core.worktree;
       # /workspaces/glowcap remains the editor and shell workspace.
       GLOWCAP_CHECKOUT_DIR: ${GLOWCAP_CHECKOUT_DIR:?Run bash .devcontainer/bin/configure.sh}
+      # rooms-dev keeps loopback as its host-shell default. In the container,
+      # Vite binds wide so this worktree's loopback-only published port reaches
+      # it. The native Rooms backend remains on an ephemeral loopback port.
+      GLOWCAP_ROOMS_DEV_HOST: 0.0.0.0
       # The ocapnviz Vite dev server keeps loopback as its bare-host default;
       # inside the container it must bind wide or the published port above
       # reaches nothing. The config reads this variable and opens Vite's

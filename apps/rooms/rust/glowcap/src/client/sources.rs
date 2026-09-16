@@ -27,6 +27,14 @@ struct SourceData {
 	backing: Backing,
 }
 impl Source {
+	/// Immutable local storage can be retained after upload without reading a
+	/// mutable source again. Reader-backed sources retain their streaming path.
+	pub fn capture(&self) -> Option<super::files::capture::Captured> {
+		match &self.0.backing {
+			Backing::Frozen(captured) => Some(captured.clone()),
+			Backing::Reader(_) => None,
+		}
+	}
 	pub fn description(&self) -> &FileDescription {
 		&self.0.description
 	}

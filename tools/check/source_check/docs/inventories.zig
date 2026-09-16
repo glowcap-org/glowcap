@@ -139,19 +139,22 @@ pub fn checkStabilityGateList(
         }
     }
 
+    const macos_command = "zig build test loam-lmdb-test";
     const macos_markers = [_][]const u8{
         "\n  macos-runtime:",
         "runs-on: macos-",
         "ZIG_INSTALL_DIR=\"$RUNNER_TEMP/zig\" bash .devcontainer/image/zig.sh",
-        "run: zig build test",
+        "run: " ++ macos_command,
     };
     for (macos_markers) |marker| {
         if (std.mem.indexOf(u8, workflow, marker) == null) {
             try appendViolation(gpa, violations, "{s}: macOS runtime evidence requires `{s}`", .{ workflow_path, marker });
         }
     }
-    if (std.mem.indexOf(u8, doc, "| macOS | Recurring `zig build test`") == null) {
-        try appendViolation(gpa, violations, "{s}: the macOS evidence row must name the recurring `zig build test` job pinned by {s}", .{ doc_path, workflow_path });
+    const macos_row_start = std.mem.indexOf(u8, doc, "| macOS |") orelse doc.len;
+    const macos_row_end = std.mem.indexOfScalarPos(u8, doc, macos_row_start, '\n') orelse doc.len;
+    if (std.mem.indexOf(u8, doc[macos_row_start..macos_row_end], "`" ++ macos_command ++ "`") == null) {
+        try appendViolation(gpa, violations, "{s}: the macOS evidence row must name `{s}` as configured by {s}", .{ doc_path, macos_command, workflow_path });
     }
 }
 

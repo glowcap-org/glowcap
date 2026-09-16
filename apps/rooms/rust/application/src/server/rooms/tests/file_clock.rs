@@ -3,6 +3,35 @@ use super::*;
 use crate::files::{FileDescription, ReadOutcome, UPLOAD_IDLE_MS};
 
 #[test]
+fn failed_adapter_publication_releases_only_its_reservation_without_a_timer() {
+	let mut world = World::new(false);
+	let entrance = world.open(1, "Garden", RoomPolicy::Open);
+	let alice = world.join(1, &entrance, "Alice").membership;
+	let before = world.rooms.files().usage();
+	let make = |name| FileDescription::parse(name, "", 3, 0, 0).unwrap();
+	let kept = world.rooms.attach(&entrance.room, alice, make("kept"), 0).unwrap();
+	let failed = world
+		.rooms
+		.attach(&entrance.room, alice, make("unpublished"), 0)
+		.unwrap();
+	let failed_blob = world.rooms.upload_blob(failed).unwrap();
+	world.rooms.cancel_upload(failed, 0).unwrap();
+	assert!(world.rooms.upload_blob(failed).is_none());
+	assert!(!world.rooms.files().contains(&failed_blob));
+	let usage = world.rooms.files().usage();
+	assert_eq!(usage.pending_files, before.pending_files + 1);
+	assert_eq!(usage.pending_bytes, before.pending_bytes + 3);
+	let (_, mutation) = world.rooms.post_files(&entrance.room, alice, "", 1, 0).unwrap();
+	assert!(
+		matches!(&mutation.effects.tells[0].notice, Notice::Line { files, .. } if files.len() == 1 && files[0].description().name() == "kept")
+	);
+	world
+		.rooms
+		.upload_verb(kept, "write", &[Value::Bytes(&[1, 2, 3])], 0)
+		.unwrap();
+}
+
+#[test]
 fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 	let mut world = World::new(true);
 	let entrance = world.open(1, "Garden", RoomPolicy::Open);

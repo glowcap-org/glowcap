@@ -3,6 +3,7 @@ use glowcap::Argument;
 use rooms_runtime::rooms::operations::Operations;
 mod fixture;
 mod platform;
+mod room_cancellation;
 use fixture::Fixture;
 use platform::ControlledPlatform;
 

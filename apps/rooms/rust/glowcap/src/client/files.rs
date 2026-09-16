@@ -16,9 +16,15 @@ pub struct Upload<D> {
 	reference: Ref,
 	description: FileDescription,
 	progress: UploadProgress,
+	blob: Option<Ref>,
 }
 impl<D: Deadline> Upload<D> {
-	pub(super) async fn stage(client: Client<D>, member: &Ref, description: FileDescription) -> Result<Self, Error> {
+	pub(super) async fn stage(
+		client: Client<D>,
+		member: &Ref,
+		description: FileDescription,
+		retained: bool,
+	) -> Result<Self, Error> {
 		let reply = {
 			let (width, height) = description.dimensions();
 			let args = [
@@ -30,14 +36,26 @@ impl<D: Deadline> Upload<D> {
 			];
 			client.call(
 				member,
-				rooms_application::protocol_data::ATTACH,
+				if retained {
+					rooms_application::room::receipt::ATTACH
+				} else {
+					rooms_application::protocol_data::ATTACH
+				},
 				&args,
 				"the room did not answer taking the file",
 			)
 		}
 		.await?;
-		let Argument::Reference(reference) = reply.0 else {
-			return Err(transfer::Error::UploadReply.into());
+		let (reference, blob) = match reply.0 {
+			Argument::Reference(reference) if !retained => (reference, None),
+			Argument::List(mut pair) if retained && pair.len() == 2 => {
+				let (Some(Argument::Reference(blob)), Some(Argument::Reference(upload))) = (pair.pop(), pair.pop())
+				else {
+					return Err(transfer::Error::UploadReply.into());
+				};
+				(upload, Some(blob))
+			}
+			_ => return Err(transfer::Error::UploadReply.into()),
 		};
 		let progress = UploadProgress::new(description.size())?;
 		Ok(Self {
@@ -45,7 +63,12 @@ impl<D: Deadline> Upload<D> {
 			reference,
 			description,
 			progress,
+			blob,
 		})
+	}
+	/// Read-only identity minted by the same file owner as the write authority.
+	pub fn blob(&self) -> Option<&Ref> {
+		self.blob.as_ref()
 	}
 	pub fn description(&self) -> &FileDescription {
 		&self.description

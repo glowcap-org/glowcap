@@ -35,6 +35,21 @@ const Probe = struct {
     }
 };
 
+const SiblingReleaser = struct {
+    vat: *actors.Vat,
+    sibling: actors.Ref,
+    freed: *bool,
+
+    pub fn handle(_: *SiblingReleaser, _: *actors.Turn, _: actors.Message) !model.Argument {
+        return .{ .void = {} };
+    }
+
+    pub fn deinit(self: *SiblingReleaser, _: std.mem.Allocator) void {
+        self.vat.releaseActor(self.sibling.local);
+        self.freed.* = true;
+    }
+};
+
 test "releasing the spawn root reclaims an idle actor at the outermost-turn boundary" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
@@ -60,6 +75,29 @@ test "releasing the spawn root reclaims an idle actor at the outermost-turn boun
     const keeper = try vat.spawn(Probe, .{ .freed = &keep_freed });
     _ = try vat.near(keeper, .{ .verb = "ping" });
     try std.testing.expect(freed);
+}
+
+test "a retiring actor destructor drains a sibling it releases at the same boundary" {
+    var vat = actors.Vat.init(std.testing.allocator);
+    defer vat.deinit();
+
+    var sibling_freed = false;
+    const sibling = try vat.spawn(Probe, .{ .freed = &sibling_freed });
+    var releaser_freed = false;
+    const releaser = try vat.spawn(SiblingReleaser, .{
+        .vat = &vat,
+        .sibling = sibling,
+        .freed = &releaser_freed,
+    });
+    vat.releaseActor(releaser.local);
+
+    var keeper_freed = false;
+    const keeper = try vat.spawn(Probe, .{ .freed = &keeper_freed });
+    _ = try vat.near(keeper, .{ .verb = "ping" });
+    try std.testing.expect(releaser_freed);
+    try std.testing.expect(sibling_freed);
+    try std.testing.expect(!vat.hasActor(sibling.local));
+    try std.testing.expectEqual(@as(usize, 0), vat.retired_boxes.items.len);
 }
 
 test "last-root release consumes registration escrow with allocation refused" {

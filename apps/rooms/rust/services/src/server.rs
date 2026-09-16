@@ -20,6 +20,7 @@ mod notice;
 mod operations;
 mod peer;
 pub(crate) mod readiness;
+mod receipts;
 mod registration;
 mod rooms;
 mod seat;

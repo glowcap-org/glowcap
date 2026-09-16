@@ -160,8 +160,9 @@ export { LINE } from "./protocol_data.ts";
 export { EDITED, HISTORY, WITHDRAWN } from "./protocol_data.ts";
 /** The tag a room puts on a line whose file set changed: `refiled`, id, then
  * the complete new run of file records. The client replaces that line's whole
- * set from the records, so a kept file arrives again (with a fresh blob) rather
- * than being named to keep. A client that predates this skips the tag and keeps
+ * set from the records. Native rooms reuse each live blob reference on the
+ * receiving connection, so retaining a file does not require downloading it
+ * again. A client that predates this skips the tag and keeps
  * showing the files it already had, which is stale but never wrong. */
 export { LEAVE, LINE_BYTES, REFILED, TOPIC, TYPING } from "./protocol_data.ts";
 /** What the room carries of a message beyond its text and files, stated at
@@ -172,13 +173,41 @@ export { LEAVE, LINE_BYTES, REFILED, TOPIC, TYPING } from "./protocol_data.ts";
  * states rather than a facet it hands over: nothing a member holds could say
  * whether the room keeps the link previews a line names (`previews`) or
  * relays the typing signal (`typing`). A room bridged to IRC does neither and
- * says so; a native room says both. The vocabulary is positive and additive:
+ * says so; a native room also advertises `retained` for correlated delivery
+ * and upload reuse. The vocabulary is positive and additive:
  * a feature named is carried, one not named is not, and one a client does not
  * know is skipped. A room that never states the fact has not said it lacks
  * anything, and a client keeps every control it has. */
 export { CARRIES } from "./protocol_data.ts";
+/** Displayed features; `retained` is negotiated by the Rust membership client. */
 export const ROOM_FEATURES = ["previews", "typing"] as const;
 export type RoomFeature = typeof ROOM_FEATURES[number];
+
+/* A client that received `retained` may send `postRetained(text, previews,
+ * request)` to its seat or `postFilesRetained(caption, previews, request)` to
+ * its files facet. `previews` is false for none or the encoded selection, and
+ * `request` is a unique membership-local integer from 0 through 2^53 - 1.
+ * These verbs reject before committing and answer with ordinary line authority.
+ *
+ * On the subscribing connection, the ordered callback is
+ * `receipt(request, lineId, from, canonicalText, previews, ...fileRecords)`.
+ * False `canonicalText` means use the retained request text; a string replaces
+ * it, including the server's default file caption. False `previews` means none.
+ * Rejection sends `receiptRejected(request)` to that same inbox, independently
+ * of the call's broken answer. It releases text even if awaiting was cancelled.
+ * The caller retains text until either inbox completion or membership
+ * close. Cancellation and uncertain delivery do not release it. Other members
+ * receive ordinary complete notifications. A call delegated to another
+ * connection also leaves the subscribing member's complete notification intact.
+ *
+ * `attachRetained` takes the same arguments as `attach` and returns
+ * `[uploadCapability, readCapability]`. A client can associate an immutable
+ * local upload capture with that read capability, making it available only
+ * after the upload is acknowledged. The server uses that same live reference
+ * when notifying this connection. Receipt vocabulary and validation are owned
+ * by `rust/application/src/room/receipt.rs`.
+ */
+
 /** Arrival tags: whether this occupancy is a directory name. Additive; an older
  * client skips them. `/join` of a locator seats from this, not from a method
  * asked before subscribe. */

@@ -9,3 +9,5 @@ mod batch_tests;
 mod local_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod upload_tests;

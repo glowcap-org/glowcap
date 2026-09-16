@@ -8,7 +8,7 @@ const execution = @import("../execution.zig");
 
 pub const Context = struct {
     b: *std.Build,
-    runtime_gate: *execution.SerialGate,
+    runtime_gate: *execution.RuntimeGate,
     ocapn_install: *std.Build.Step,
     host_install: *std.Build.Step,
     driver_install: *std.Build.Step,
@@ -172,7 +172,13 @@ pub fn register(ctx: Context) *std.Build.Step {
     // UI imports include the generated production Rust application surface.
     cache.step.dependOn(ctx.wasm_install);
 
-    const server_step = b.step("rooms-server-test", "Run the hermetic Rooms server and UI contract tests (needs deno)");
+    const server_step = b.step("rooms-server-test", "Run the hermetic Rooms server and UI contract tests (needs cargo + deno)");
+    const web_tooling = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{
+        "deno", "task", "--config", "apps/rooms/web/deno.json", "check",
+    });
+    web_tooling.step.dependOn(ctx.wasm_install);
+    web_tooling.has_side_effects = true;
+    server_step.dependOn(&web_tooling.step);
     const archive = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
     archive.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN=", .make_absolute = true });
     archive.addArgs(command);
@@ -186,7 +192,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     archive_step.dependOn(&archive.step);
     server_step.dependOn(archive_step);
 
-    var previous: ?*std.Build.Step = null;
+    var previous: ?*std.Build.Step = &web_tooling.step;
     for (batches) |files| {
         const batch = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
         batch.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
@@ -211,8 +217,8 @@ pub fn register(ctx: Context) *std.Build.Step {
     }
 
     // Each deterministic Deno process owns a bounded subject rather than the
-    // whole application suite. The serial runtime gate prevents this family
-    // from sharing ports or process artifacts with another process suite.
+    // whole application suite. The runtime gate gives side-effecting commands
+    // exclusive execution without making focused checks depend on one another.
     ctx.runtime_gate.add(server_step);
     return server_step;
 }

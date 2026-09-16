@@ -119,8 +119,10 @@ fn apply(state: &State, key: &str, mut effects: Effects<u64, Ref>) -> Result<(),
 	};
 	for (connection, inbox, notice) in effects.tells {
 		if let Some(session) = state.session(connection) {
-			let args =
-				rooms_application::server::irc::wire::arguments(&notice, &mut super::files::Minter { state, session });
+			let args = rooms_application::server::irc::wire::arguments(
+				&notice,
+				&mut super::files::Minter::new(state, session),
+			);
 			state.tell(connection, &inbox, rooms_application::room::inbox::NOTIFY, &args);
 		}
 	}

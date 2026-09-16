@@ -66,6 +66,18 @@ struct Retained {
 struct Completion {
 	entry: Weak<Entry>,
 }
+/// Sender custody completes only when the peer acknowledges all upload bytes.
+/// Dropping an unfinished upload makes its already-published views fail.
+pub struct UploadCapture {
+	answer: tokio::sync::oneshot::Sender<Captured>,
+	bytes: Captured,
+}
+impl UploadCapture {
+	pub fn complete(self) {
+		// tolerant: the line or media owner may have retired during upload.
+		let _ = self.answer.send(self.bytes);
+	}
+}
 impl Drop for Completion {
 	fn drop(&mut self) {
 		if let Some(entry) = self.entry.upgrade() {
@@ -231,6 +243,65 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 	}
 }
 impl<P: Deadline + Clone + 'static> MediaFiles<P> {
+	/// Retain a whole immutable upload batch under the receiver's ordinary
+	/// eviction policy. Kept files and admitted readers survive; a refusal
+	/// leaves prior custody intact, like outgoing direct-source admission.
+	pub fn uploads(
+		&self,
+		session: &Session,
+		uploads: Vec<(Ref, Captured)>,
+		protected: &[Ref],
+	) -> Result<Vec<UploadCapture>, Error> {
+		if self.closed.get() {
+			return Err(Error::closed("media file owner is closed"));
+		}
+		if !rooms_application::files::receiving::selection_fits(uploads.iter().map(|(_, bytes)| bytes.description())) {
+			return Err(Error::invalid(
+				"upload selection exceeds its file count or byte ceiling",
+			));
+		}
+		let mut rows = self.rows.borrow_mut();
+		let host = session.host();
+		for (at, (blob, _)) in uploads.iter().enumerate() {
+			if uploads[..at].iter().any(|(old, _)| old == blob)
+				|| rows.iter().any(|row| {
+					row.identity
+						.borrow()
+						.as_ref()
+						.is_some_and(|(owner, held)| owner.same_host(&host) && held == blob)
+				}) {
+				return Err(Error::invalid("upload identity is already admitted"));
+			}
+		}
+		let bytes = uploads.iter().map(|(_, bytes)| bytes.description().size()).sum();
+		let selected: Vec<_> = rows
+			.iter()
+			.filter(|row| {
+				row.identity
+					.borrow()
+					.as_ref()
+					.is_some_and(|(owner, blob)| owner.same_host(&host) && protected.contains(blob))
+			})
+			.map(|row| row.entry.clone())
+			.collect();
+		self.make_space(&mut rows, uploads.len(), bytes, &selected)?;
+		Ok(uploads
+			.into_iter()
+			.map(|(blob, bytes)| {
+				let (answer, result) = tokio::sync::oneshot::channel();
+				rows.push_back(self.capture_with(
+					bytes.description().clone(),
+					Some((host.clone(), blob)),
+					async move {
+						result
+							.await
+							.map_err(|_| "the local upload ended without acknowledging every byte".to_owned())
+					},
+				));
+				UploadCapture { answer, bytes }
+			})
+			.collect())
+	}
 	pub fn usage(&self) -> Usage {
 		self.budget.usage()
 	}

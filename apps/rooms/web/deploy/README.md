@@ -296,15 +296,20 @@ checks both the directory and browser assets through `rooms-web --check-ready`.
 
 For a separate browser artifact, run `rooms-web --prepare=<output-directory>`
 from the repository root, then serve `<output-directory>/current` with
-`--prepared --assets=<output-directory>/current`. Preparation uses Deno only as
-the browser compiler. The source identity covers its configuration, source
-files, fonts and Wasm bytes. An unchanged graph reuses its validated generation;
-a failed build leaves the previous publication in place. Generated generations
-remain under the output directory until that build output is cleaned.
+`--prepared --assets=<output-directory>/current`. Preparation uses the app's
+[compiler recipe](../../developing.md#browser-compiler-boundary) through the
+pinned Deno toolchain. The source identity covers that recipe, its configuration
+inputs, lockfile, source files, fonts and Wasm bytes. An unchanged graph reuses its
+validated generation. A failed build leaves the previous publication in place.
+Generated generations remain under the output directory until that build output
+is cleaned.
 
-Both development refresh and deployment preparation use the same minified
-compiler contract. The UI revision identifies the actual source digest, while
-the separate deployment marker ties all mounted artifacts to the checkout.
+Development and deployment share one Vite configuration but not one artifact.
+Development serves source modules with React Fast Refresh and keeps its native
+backend free of browser assets. Deployment receives minified scripts and a
+self-contained immutable generation. The UI revision identifies the production
+source digest, while the separate deployment marker ties all mounted artifacts
+to the checkout.
 
 ## Network and transport reference
 

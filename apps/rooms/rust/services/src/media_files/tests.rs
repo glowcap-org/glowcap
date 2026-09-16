@@ -142,6 +142,7 @@ async fn scenario() {
 	std::fs::remove_dir_all(path).unwrap();
 	pressure(client.session()).await;
 	super::batch_tests::run(client.session()).await;
+	super::upload_tests::run(client.session(), &peer).await;
 	pending_lifetime(client.session(), false).await;
 	pending_lifetime(client.session(), true).await;
 	peer.release(root).unwrap();

@@ -46,6 +46,42 @@ pub const Value = union(enum) {
         key: []const u8,
         value: Value,
     };
+
+    /// Visit every capability in this value without allocation. Composite
+    /// values are bounded to the same depth as owning-tier copy and retention.
+    pub fn forEachCapability(
+        self: Value,
+        ctx: anytype,
+        comptime visit: *const fn (@TypeOf(ctx), Capability) anyerror!void,
+    ) !void {
+        return self.forEachCapabilityAt(ctx, visit, 0);
+    }
+
+    fn forEachCapabilityAt(
+        self: Value,
+        ctx: anytype,
+        comptime visit: *const fn (@TypeOf(ctx), Capability) anyerror!void,
+        depth: usize,
+    ) !void {
+        if (depth > 64) return error.ValueTooDeep;
+        switch (self) {
+            .capability => |ref| try visit(ctx, ref),
+            .list, .set => |items| for (items) |item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
+            .tagged => |tag| for (tag.value) |item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
+            .@"struct" => |items| for (items) |item| try item.value.forEachCapabilityAt(ctx, visit, depth + 1),
+            .bytes,
+            .symbol,
+            .@"error",
+            .string,
+            .integer,
+            .boolean,
+            .void,
+            .float64,
+            .keyword,
+            .big_integer,
+            => {},
+        }
+    }
 };
 
 /// How an owning-tier `call` / `fetchSettled` / `listenSettled` settled. Both

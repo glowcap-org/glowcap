@@ -32,14 +32,14 @@ pub fn checkBrowserFfiResolver(
     try expectFileContains(io, gpa, root, violations, "bindings/ts/web/browser-bundle.json", &.{
         "\"@glowcap/runtime/ffi\": \"./browser_ffi.ts\"",
     });
-    try expectFileContains(io, gpa, root, violations, "apps/rooms/web/browser-bundle.json", &.{
+    try expectFileContains(io, gpa, root, violations, "apps/rooms/web/deno.json", &.{
         "\"@glowcap/abi\": \"../../../bindings/ts/abi/constants.ts\"",
         "\"@glowcap/runtime/cleanup\": \"../../../bindings/ts/runtime/cleanup.ts\"",
         "\"react\": \"npm:react@",
         "\"zustand\": \"npm:zustand@",
         "\"zod/mini\": \"npm:zod@",
     });
-    const rooms_path = "apps/rooms/web/browser-bundle.json";
+    const rooms_path = "apps/rooms/web/deno.json";
     const rooms_bundle = try root.readFileAlloc(io, rooms_path, gpa, .limited(1 << 20));
     defer gpa.free(rooms_bundle);
     for ([_][]const u8{ "\"@glowcap/runtime\"", "@glowcap/runtime/ffi", "@glowcap/runtime/transport", "@glowcap/web\"", "@glowcap/webrtc", "@glowcap/relay", "@glowcap/tcp", "@glowcap/iroh", "node:net", "bun:ffi" }) |retired| {

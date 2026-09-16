@@ -13,6 +13,7 @@ pub mod message;
 pub mod operation;
 pub mod policy;
 pub mod queries;
+pub mod receipt;
 pub mod stewardship;
 
 /// A borrowed view of an already decoded protocol argument. The binding adapter

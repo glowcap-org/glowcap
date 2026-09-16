@@ -33,7 +33,7 @@ export async function run(tab: Page): Promise<void> {
 		fail("Help did not open the parts catalog for the long refusal")
 	);
 	const boxed = await tab.evaluate(() => {
-		const why = document.getElementById("kitchenLongWhy");
+		const why = document.getElementById("kitchenLongSaid");
 		const sample = why?.closest(".kitchen-sample");
 		if (!(why instanceof HTMLElement) || sample == null) return null;
 		const a = why.getBoundingClientRect();
@@ -51,7 +51,7 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#kitchenDynamicRefusal.said-more").catch(() =>
 		fail("a long refusal that arrived after mount did not become the Show control")
 	);
-	await tab.click("#kitchenLongWhy");
+	await tab.click("#kitchenLongSaid");
 	await tab.waitForSelector("#errorTitle").catch(() => fail("Show did not open the rest of the refusal"));
 	const rest = await tab.evaluate(() => {
 		const body = document.getElementById("errorBody");
@@ -76,7 +76,7 @@ export async function run(tab: Page): Promise<void> {
 	await tab.keyboard.press("Escape");
 	await tab.waitForFunction(() => document.getElementById("errorTitle") === null)
 		.catch(() => fail("Escape did not put the catalog back"));
-	await tab.waitForFunction(() => document.activeElement?.id === "kitchenLongWhy")
+	await tab.waitForFunction(() => document.activeElement?.id === "kitchenLongSaid")
 		.catch(() => fail("closing the error card did not return focus to Show"));
 	if (await tab.locator("#kitchenSink").count() === 0) {
 		fail("reading the rest of a refusal threw the catalog away");

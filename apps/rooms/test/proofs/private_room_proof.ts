@@ -354,6 +354,7 @@ try {
 
 	// Two ways a link can be no good, and they are not the same news. This one
 	// names a peer that is not there, so it fails on the way to the room.
+	// The relay closes before CapTP connects; the notice must keep that cause.
 	const nowhere = elsewhere.replace(`%3A${foreignRoomPort}.`, `%3A${deadPort}.`);
 	if (nowhere === elsewhere) fail("could not aim a link at a port nothing is holding");
 	await say(cy, `/join ${nowhere} nowhere`);
@@ -361,7 +362,7 @@ try {
 		() =>
 			[...document.querySelectorAll("#log .sys")].some((row) =>
 				(row.textContent ?? "").includes("That link did not open a room") &&
-				(row.textContent ?? "").includes("could not reach")
+				(row.textContent ?? "").includes("connection closed during the OCapN handshake")
 			),
 		undefined,
 		{ timeout: 60_000 },
@@ -377,7 +378,8 @@ try {
 	}
 
 	// This one names the right peer and the wrong room, so it fails at the
-	// directory. The reader is told which of the two happened.
+	// directory. The notice must keep the fetch refusal distinct from a failed
+	// connection, without claiming that an unknown secret identifies a room.
 	const parsedLink = parseRoomsSturdyref(elsewhere);
 	const wrongSwiss = parsedLink.swissnum.slice();
 	wrongSwiss[wrongSwiss.length - 1] ^= 1;
@@ -386,7 +388,8 @@ try {
 	await cy.waitForFunction(
 		() =>
 			[...document.querySelectorAll("#log .sys")].some((row) =>
-				(row.textContent ?? "").includes("has no room by that link")
+				(row.textContent ?? "").includes("That link did not open a room") &&
+				(row.textContent ?? "").includes("unknown swissnum")
 			),
 		undefined,
 		{ timeout: 60_000 },

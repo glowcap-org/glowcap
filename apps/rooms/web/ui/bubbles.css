@@ -317,6 +317,14 @@
 		display: flex;
 	}
 }
+/* While its own menu is open the strip stays, whatever the pointer is doing.
+   The menu is drawn in the top layer rather than inside the bubble, so opening
+   one takes the focus out of `:focus-within` and walking into it takes the
+   pointer out of `:hover`: the mark a reader just pressed would go away under
+   them, and the menu standing over it would lose the box it is placed against. */
+.line-acts.open {
+	display: flex;
+}
 /* Where there is no pointer to hover with, the mark is simply there. Quiet
    until it is aimed at, because it sits beside every message and a row of them
    down the log would read as decoration. */

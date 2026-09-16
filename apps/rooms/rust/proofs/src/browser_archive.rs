@@ -26,34 +26,38 @@ impl Memory {
 	}
 }
 impl Backend for Memory {
-	async fn put(&mut self, record: Record) -> Result<u64, String> {
+	async fn put(&mut self, record: Record) -> Result<u64, rooms_runtime::Error> {
 		let revision = self.index.revision() + 1;
-		self.index.apply(revision, record).map_err(|e| e.to_string())?;
+		self.index
+			.apply(revision, record)
+			.map_err(|e| rooms_runtime::Error::invalid(e.to_string()))?;
 		Ok(revision)
 	}
-	async fn read(&mut self, filter: &Filter, after: u64, limit: usize) -> Result<Page, String> {
-		self.index.read(filter, after, limit).map_err(|e| e.to_string())
+	async fn read(&mut self, filter: &Filter, after: u64, limit: usize) -> Result<Page, rooms_runtime::Error> {
+		self.index
+			.read(filter, after, limit)
+			.map_err(|e| rooms_runtime::Error::invalid(e.to_string()))
 	}
-	async fn clear(&mut self) -> Result<(), String> {
+	async fn clear(&mut self) -> Result<(), rooms_runtime::Error> {
 		self.index.clear();
 		Ok(())
 	}
 	fn durable_shares(&self) -> bool {
 		true
 	}
-	async fn active_shares(&mut self) -> Result<Vec<shares::Share>, String> {
+	async fn active_shares(&mut self) -> Result<Vec<shares::Share>, rooms_runtime::Error> {
 		Ok(self
 			.shares
 			.records()
-			.map_err(|e| e.to_string())?
+			.map_err(|e| rooms_runtime::Error::invalid(e.to_string()))?
 			.filter(|s| !s.revoked())
 			.cloned()
 			.collect())
 	}
-	async fn change_share(&mut self, command: shares::Command) -> Result<shares::Change, String> {
+	async fn change_share(&mut self, command: shares::Command) -> Result<shares::Change, rooms_runtime::Error> {
 		self.shares
 			.apply::<String>(command, |_| Ok(()))
-			.map_err(|e| format!("{e:?}"))
+			.map_err(|e| rooms_runtime::Error::invalid(format!("{e:?}")))
 	}
 }
 fn record() -> Record {

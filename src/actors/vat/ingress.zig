@@ -235,6 +235,15 @@ pub fn send(self: *Vat, target: Ref, msg: Message) Error!Vow {
     return sendFromIngress(self, .local, target, msg);
 }
 
+/// Admit a queued call and its completion observer atomically. Cancellation
+/// invokes the same observer, so an external continuation can retire its pins.
+pub fn sendObservedFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message, listener: vat_mod.Listener) Error!Vow {
+    try vows_mod.reserveLocalListener(self);
+    const vow = try sendFromIngress(self, ingress, target, msg);
+    vows_mod.onReservedLocal(self, vow.local, listener);
+    return vow;
+}
+
 pub fn sendFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!Vow {
     _ = try ingressState(self, ingress);
     switch (target) {

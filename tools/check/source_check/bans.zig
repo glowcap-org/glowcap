@@ -227,7 +227,7 @@ const deno_dependency_reproducibility = [_]Ban{
             "deno.json",
             "bindings/ts/deno.json",
             "apps/ocapnviz/deno.json",
-            "apps/rooms/web/browser-bundle.json",
+            "apps/rooms/web/deno.json",
         } },
         .kind = .require,
         .needles = &.{"\"frozen\": true"},

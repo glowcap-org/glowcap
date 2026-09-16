@@ -45,8 +45,16 @@ the state kept between runs:
 zig build rooms-dev
 ```
 
-It keeps its identity, room links, and capability swiss numbers under
-`.local/.state/rooms`, so a restart brings back the same server.
+Vite serves source modules with React Fast Refresh and proxies Rooms traffic to the
+real native web front. The browser still exercises the native relay, link
+preview, ICE, and directory services. It keeps its identity, room links, and
+capability swiss numbers under `.local/.state/rooms`, so a restart brings back
+the same server. Ctrl-C retires both development processes.
+
+Use `zig build rooms-dev -Dhot-reload=false` to serve compiled browser
+generations through the native front with the same state and operator grants.
+The [development guide](developing.md#browser-compiler-boundary) explains the
+compiler boundary and how to switch bundlers.
 
 ## Other ways in
 
@@ -87,10 +95,12 @@ proxy with Docker Compose.
 
 ## How it is built
 
-Rooms is written in Rust, with the browser page in TypeScript and React. The
-same Rust crates run as services and in the browser as WebAssembly, linked
-with glowcap's Zig protocol core in one module, so joining, sending, and
-recovering mean the same thing in both places.
+Rooms is written in Rust, with the browser page in TypeScript and React. Vite
+builds the production scripts and serves source modules during development.
+Deno supplies its pinned runtime and lockfile. The same Rust crates run as
+services and in the browser as WebAssembly, linked with glowcap's Zig protocol
+core in one module, so joining, sending, and recovering mean the same thing in
+both places.
 
 | Path | Owns |
 | --- | --- |

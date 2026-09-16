@@ -89,41 +89,53 @@ pub(super) fn seat(
 					.map_err(|e| e.to_string())?;
 				Ok(Argument::Reference(invitation))
 			}
-			POST => {
-				if args.len() > 1 {
-					return Err(format!(
-						"{}: post carries trailing args; attach a file with attach()",
-						FailureCode::BadAttachment.wire()
-					));
-				}
-				let (Some(said), 1) = (text(0), args.len()) else {
-					return Err("post needs exactly one text line".into());
-				};
-				let key = Rc::new(Cell::new(None));
-				let actor = session
-					.spawn_owned(lines::line(shared.clone(), key.clone()))
-					.map_err(|e| e.to_string())?;
-				let line = history::mutate(&mut state, |rooms| {
-					rooms.post(&room, membership, said, State::wall_clock())
-				})?;
-				key.set(Some(line));
-				Ok(Argument::Reference(actor))
-			}
-			rooms_application::open_graph::ROOM_POST_VERB => {
-				let (Some(said), Some(encoded), 2) = (text(0), text(1), args.len()) else {
-					return Err("postWithPreviews needs text and one preview selection".into());
-				};
-				let previews = rooms_application::open_graph::Selection::decode(said, encoded)
-					.map_err(|error| error.to_string())?;
-				let key = Rc::new(Cell::new(None));
-				let actor = session
-					.spawn_owned(lines::line(shared.clone(), key.clone()))
-					.map_err(|e| e.to_string())?;
-				let line = history::mutate(&mut state, |rooms| {
-					rooms.post_with_previews(&room, membership, said, previews, State::wall_clock())
-				})?;
-				key.set(Some(line));
-				Ok(Argument::Reference(actor))
+			POST | rooms_application::open_graph::ROOM_POST_VERB | rooms_application::room::receipt::POST => {
+				let retained = verb == rooms_application::room::receipt::POST;
+				super::receipts::post(
+					&mut state,
+					&room,
+					membership,
+					&session,
+					args,
+					retained,
+					|state, delivery| {
+						let previews = verb != POST;
+						if verb == POST && args.len() > 1 {
+							return Err(format!(
+								"{}: post carries trailing args; attach a file with attach()",
+								FailureCode::BadAttachment.wire()
+							));
+						}
+						let expected = if retained {
+							3
+						} else if previews {
+							2
+						} else {
+							1
+						};
+						let said = text(0)
+							.filter(|_| args.len() == expected)
+							.ok_or("post needs text and the selected delivery fields")?;
+						let previews = if previews && !(retained && matches!(args[1], Argument::Boolean(false))) {
+							rooms_application::open_graph::Selection::decode(
+								said,
+								text(1).ok_or("post needs one preview selection")?,
+							)
+							.map_err(|e| e.to_string())?
+						} else {
+							Default::default()
+						};
+						let key = Rc::new(Cell::new(None));
+						let actor = session
+							.spawn_owned(lines::line(shared.clone(), key.clone()))
+							.map_err(|e| e.to_string())?;
+						let line = history::mutate(state, |rooms| {
+							rooms.post_delivered(&room, membership, said, previews, State::wall_clock(), delivery)
+						})?;
+						key.set(Some(line));
+						Ok(Argument::Reference(actor))
+					},
+				)
 			}
 			TYPING => {
 				let (Some(on), 1) = (args.first().and_then(Argument::as_bool), args.len()) else {

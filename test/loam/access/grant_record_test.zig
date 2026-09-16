@@ -1,0 +1,156 @@
+//! Persistent grants retain exact terms; allocation, shape, and event grammar
+//! are bounded independently of current graph and policy interpretation.
+const std = @import("std");
+const access = @import("glowcap").loam.access;
+const core = access.core;
+const Record = access.records.GrantRecord;
+const Change = access.records.ChangeRecord;
+const a = std.testing.allocator;
+const wide = "0123456789abcdef";
+const owner: core.OwnerId = @fromBackingInt(std.mem.readInt(u128, wide, .big));
+const resource: core.ResourceId = .{ .owner = owner, .slot = 3, .generation = 1 };
+const terms: core.Terms = .{ .scope = .{ .object = resource }, .policy = .{
+    .schema = @fromBackingInt(std.mem.readInt(u128, wide, .big)),
+    .permissions = 1,
+    .bounds = @splat(null),
+} };
+const sample: Record = .{ .grant = .{
+    .id = .{ .owner = owner, .slot = 0, .generation = 1 },
+    .revision = @fromBackingInt(2),
+    .parent = null,
+    .ceiling = terms,
+    .configured = terms,
+    .status = .active,
+    .delegation_depth = 2,
+    .child_count = 0,
+} };
+const term_bytes = "[[6'object16:0123456789abcdef3+1+]16:0123456789abcdef1+[ffffffffffffffff]]";
+const golden = "<12'access:grant1+16:0123456789abcdef0+1+2+f" ++ term_bytes ++ term_bytes ++ "6'active2+0+>";
+
+test "access grant record canonical scalar grammar has no decode allocations" {
+    const encoded = try sample.encodeAlloc(a);
+    defer a.free(encoded);
+    try std.testing.expectEqualStrings(golden, encoded);
+    var failing = std.testing.FailingAllocator.init(a, .{ .fail_index = 0 });
+    var decoded = try Record.decodeOwned(failing.allocator(), encoded);
+    defer decoded.deinit(failing.allocator());
+    try std.testing.expectEqualDeep(sample, decoded.value);
+    try std.testing.expectEqual(@as(usize, 0), failing.alloc_index);
+    for (0..golden.len) |length| {
+        try std.testing.expectError(error.MalformedRecord, Record.decodeOwned(a, golden[0..length]));
+    }
+    try std.testing.expectError(error.MalformedRecord, Record.decodeOwned(a, golden ++ "f"));
+    try std.testing.expectError(error.UnsupportedVersion, Record.decodeOwned(a, "<12'access:grant2+>"));
+    try std.testing.expectError(error.MalformedRecord, Record.decodeOwned(a, "<12'access:grant01+>"));
+    var oversized: [Record.max_encoded_bytes + 1]u8 = undefined;
+    @memset(&oversized, 0);
+    try std.testing.expectError(error.RecordTooLarge, Record.decodeOwned(a, &oversized));
+}
+
+fn selectedRoundTrip(allocator: std.mem.Allocator) !void {
+    var selected = sample;
+    selected.grant.ceiling.scope = .{ .objects = &.{resource} };
+    selected.grant.configured.scope = .{ .objects = &.{resource} };
+    const encoded = try selected.encodeAlloc(allocator);
+    defer allocator.free(encoded);
+    var decoded = try Record.decodeOwned(allocator, encoded);
+    defer decoded.deinit(allocator);
+    @memset(encoded, 0);
+    try std.testing.expectEqualDeep(selected, decoded.value);
+}
+
+test "access grant selected scopes own exact copies and unwind every allocation failure" {
+    try std.testing.checkAllAllocationFailures(a, selectedRoundTrip, .{});
+    var selected = sample;
+    selected.grant.ceiling.scope = .{ .objects = &.{resource} };
+    selected.grant.configured.scope = .{ .objects = &.{resource} };
+    const encoded = try selected.encodeAlloc(a);
+    defer a.free(encoded);
+    for (0..encoded.len) |length| {
+        try std.testing.expectError(error.MalformedRecord, Record.decodeOwned(a, encoded[0..length]));
+    }
+    var failing = std.testing.FailingAllocator.init(a, .{});
+    var decoded = try Record.decodeOwned(failing.allocator(), encoded);
+    defer decoded.deinit(failing.allocator());
+    try std.testing.expectEqual(@as(usize, 2), failing.alloc_index);
+    try std.testing.expectEqual(@as(usize, 2 * @sizeOf(core.ResourceId)), failing.allocated_bytes);
+}
+
+test "access grant record rejects oversized duplicate foreign and invalid structural fields" {
+    var invalid = sample;
+    invalid.grant.parent = invalid.grant.id;
+    try std.testing.expectError(error.InvalidRecord, invalid.encodeAlloc(a));
+    invalid = sample;
+    invalid.grant.configured.scope = .{ .objects = &.{ resource, resource } };
+    try std.testing.expectError(error.InvalidRecord, invalid.encodeAlloc(a));
+    invalid = sample;
+    invalid.grant.configured.scope.object.owner = @fromBackingInt(99);
+    try std.testing.expectError(error.InvalidRecord, invalid.encodeAlloc(a));
+    invalid = sample;
+    invalid.grant.ceiling.policy.schema = @fromBackingInt(99);
+    try std.testing.expectError(error.InvalidRecord, invalid.encodeAlloc(a));
+    try std.testing.expectError(error.InvalidRecord, Record.decodeOwned(a, "<12'access:grant1+16:0123456789abcdef0+1+2+f[[7'objects257+"));
+    try std.testing.expectError(error.InvalidRecord, Record.decodeOwned(a, "<12'access:grant1+16:0123456789abcdef0+0+"));
+    const bad_selection = "[[7'objects2+16:0123456789abcdef3+1+16:0123456789abcdef3+1+]16:0123456789abcdef1+[ffffffffffffffff]]";
+    try std.testing.expectError(error.InvalidRecord, Record.decodeOwned(a, "<12'access:grant1+16:0123456789abcdef0+1+2+f" ++ bad_selection));
+}
+
+test "access grant maximum selections and integers fit the encoded bound" {
+    var ids: [core.max_scope_objects]core.ResourceId = undefined;
+    for (&ids, 0..) |*id, i| id.* = .{ .owner = @fromBackingInt(std.math.maxInt(u128)), .slot = std.math.maxInt(u32) - @as(u32, @intCast(ids.len - i)), .generation = std.math.maxInt(u64) };
+    var maximal = sample;
+    maximal.grant.id.owner = ids[0].owner;
+    maximal.grant.id.slot = std.math.maxInt(u32);
+    maximal.grant.id.generation = std.math.maxInt(u64);
+    maximal.grant.parent = maximal.grant.id;
+    maximal.grant.parent.?.slot -= 1;
+    maximal.grant.ceiling.scope = .{ .objects = &ids };
+    maximal.grant.ceiling.policy.permissions = std.math.maxInt(u64);
+    @memset(&maximal.grant.ceiling.policy.bounds, std.math.maxInt(u64));
+    maximal.grant.configured = maximal.grant.ceiling;
+    maximal.grant.revision = @fromBackingInt(std.math.maxInt(u64));
+    maximal.grant.delegation_depth = std.math.maxInt(u16);
+    maximal.grant.child_count = std.math.maxInt(u32);
+    const encoded = try maximal.encodeAlloc(a);
+    defer a.free(encoded);
+    try std.testing.expect(encoded.len <= Record.max_encoded_bytes);
+    var decoded = try Record.decodeOwned(a, encoded);
+    defer decoded.deinit(a);
+    try std.testing.expectEqualDeep(maximal, decoded.value);
+    maximal.grant.configured.scope = .{ .owned_subtree = ids[0] };
+    const subtree = try maximal.encodeAlloc(a);
+    defer a.free(subtree);
+    var other = try Record.decodeOwned(a, subtree);
+    defer other.deinit(a);
+    try std.testing.expectEqualDeep(maximal, other.value);
+}
+
+test "access change records retain the exact revision pair and event kind" {
+    const kinds = [_]core.GrantLedger.Change.Kind{
+        .{ .issued = null },
+        .{ .issued = .{ .owner = owner, .slot = 9, .generation = 1 } },
+        .policy_changed,
+        .{ .status_changed = .{ .before = .active, .after = .paused } },
+        .{ .status_changed = .{ .before = .paused, .after = .active } },
+        .{ .status_changed = .{ .before = .paused, .after = .revoked } },
+    };
+    for (kinds) |kind| {
+        const event: Change = .{ .change = .{ .version = .{ .resources = @fromBackingInt(4), .grants = @fromBackingInt(5) }, .grant = sample.grant.id, .kind = kind } };
+        const encoded = try event.encodeAlloc(a);
+        defer a.free(encoded);
+        try std.testing.expect(encoded.len <= Change.max_encoded_bytes);
+        const decoded = try Change.decode(encoded);
+        try std.testing.expectEqualDeep(event, decoded);
+        for (0..encoded.len) |length| try std.testing.expectError(error.MalformedRecord, Change.decode(encoded[0..length]));
+        @memset(encoded, 0);
+        try std.testing.expectEqualDeep(event, decoded);
+    }
+    const event_golden = "<13'access:change1+4+5+16:0123456789abcdef0+1+14'status_changed6'active6'paused>";
+    const value = try Change.decode(event_golden);
+    const encoded = try value.encodeAlloc(a);
+    defer a.free(encoded);
+    try std.testing.expectEqualStrings(event_golden, encoded);
+    try std.testing.expectError(error.MalformedRecord, Change.decode(event_golden ++ "f"));
+    try std.testing.expectError(error.UnsupportedVersion, Change.decode("<13'access:change2+>"));
+    try std.testing.expectError(error.InvalidRecord, Change.decode("<13'access:change1+4+5+16:0123456789abcdef0+1+14'status_changed7'revoked6'active>"));
+}

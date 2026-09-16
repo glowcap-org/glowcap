@@ -23,6 +23,14 @@ It is a library, not a framework. You link it and manage its memory. The
 protocol core is synchronous and does no I/O of its own; sockets, scheduling,
 and encryption belong to the transport adapters.
 
+[Loam](docs/loam.md) provides atomic record storage, bounded leases, immutable
+collections, and an optional LMDB backend. Record-backed sleepy actors preserve
+held references while loading state on demand through the existing Host/Vat.
+Its managed access module supplies resource and grant primitives; their durable
+integration remains in the [application foundation plans](docs/planning/README.md).
+The [shipped inventory](docs/shipped.md) distinguishes those plans from the
+library available today.
+
 glowcap is built with AI coding assistants. The maintainer directs the work
 and is answerable for what lands.
 [`PROVENANCE.md`](PROVENANCE.md) records how, including the upstream-contact

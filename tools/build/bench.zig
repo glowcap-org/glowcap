@@ -19,7 +19,7 @@ pub fn register(
     fast_lib_mod: *std.Build.Module,
     host_mods: []*std.Build.Module,
     check_step: *std.Build.Step,
-    runtime_gate: *execution.SerialGate,
+    runtime_gate: *execution.RuntimeGate,
 ) void {
     // ── Benchmarks ───────────────────────────────────────────────────────────
     // Table-driven like the examples: each row builds one executable over
@@ -54,9 +54,8 @@ pub fn register(
         live_smoke_on_runtime: bool = false,
         gate_on_check: bool = false,
         /// The snapshot bench measures the persistent-actor divergence path, so
-        /// it imports the persistent-collections leaf module directly, the same
-        /// way the test module does; it is not on the public `glowcap`
-        /// namespace (ADR-0061).
+        /// it imports the dependency-free Loam collections leaf directly,
+        /// matching the map's tests without linking storage or native backends.
         needs_persistent: bool = false,
     }{
         .{ .step_name = "bench-frame-view", .description = "Run frame/view benchmark", .name = "frame-view-bench", .path = "bench/frame_view_bench.zig" },
@@ -69,7 +68,7 @@ pub fn register(
     for (benches) |bench| {
         const exe = glowcapExecutable(b, lib_mod, target, optimize, bench.name, bench.path);
         if (bench.needs_persistent) {
-            exe.root_module.addImport("persistent", host_mods[layerIndex("persistent")]);
+            exe.root_module.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
         }
         const run = execution.addArtifact(b, .benchmark, exe);
         run.addPassthruArgs();

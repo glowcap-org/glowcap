@@ -185,8 +185,11 @@ pub async fn exercise(
 		);
 		// Fill the event stream without reading it. Shutdown must wake the
 		// membership pump even while an attached view has stopped consuming.
-		for _ in 0..300 {
-			assert!(rooms.say("wasm-runtime-beta", "unconsumed event").await.is_ok());
+		for index in 0..300 {
+			rooms
+				.say("wasm-runtime-beta", "unconsumed event")
+				.await
+				.unwrap_or_else(|error| panic!("unconsumed event {index}: {}", rooms_runtime::Error::from(error)));
 		}
 		rooms.close().await.unwrap();
 		assert!(!rooms.connected("wasm-runtime-beta"));

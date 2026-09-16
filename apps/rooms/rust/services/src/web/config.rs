@@ -6,8 +6,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 pub struct Config {
 	pub bind: String,
 	pub port: u16,
-	pub root: PathBuf,
-	pub prepared: bool,
+	pub(super) browser_assets: BrowserAssets,
 	pub server: PathBuf,
 	pub server_args: Vec<String>,
 	pub room: server::Config,
@@ -15,10 +14,16 @@ pub struct Config {
 	pub(super) ice: super::ice::Config,
 	pub(super) relay: super::relay::Limits,
 }
+pub(super) enum BrowserAssets {
+	Source(PathBuf),
+	Prepared(PathBuf),
+	Disabled,
+}
 pub const HELP: &str = "rooms-web [http-port] [room-port] [options]
   --http-bind=<host> --http-port=<port>  HTTP listener (default: 0.0.0.0:8000)
   --assets=<directory>  Rooms web source, or an artifact directory with --prepared (default: apps/rooms/web)
   --prepared  serve a prepared bundle without invoking browser build tools
+  --no-browser-assets  serve native Rooms endpoints without a browser bundle (development tooling)
   --server=<executable>  rooms-server binary (default: beside rooms-web)
   --transport=iroh|tcp|onion  supervised directory (default: iroh)
   --state=<directory>  keep the directory identity and state across restarts
@@ -74,11 +79,26 @@ impl Config {
 			Some("1" | "true" | "yes") => true,
 			Some(_) => return Err("--prepared takes a boolean".into()),
 		};
+		let no_browser_assets = match options.remove("no-browser-assets").as_deref() {
+			None | Some("0" | "false" | "no") => false,
+			Some("1" | "true" | "yes") => true,
+			Some(_) => return Err("--no-browser-assets takes a boolean".into()),
+		};
 		let bind = options.remove("http-bind").unwrap_or_else(|| "0.0.0.0".into());
-		let root = options
-			.remove("assets")
-			.map(PathBuf::from)
-			.unwrap_or_else(|| "apps/rooms/web".into());
+		let assets = options.remove("assets").map(PathBuf::from);
+		if no_browser_assets && (assets.is_some() || prepared) {
+			return Err("--no-browser-assets cannot be combined with --assets or --prepared".into());
+		}
+		let browser_assets = if no_browser_assets {
+			BrowserAssets::Disabled
+		} else {
+			let root = assets.unwrap_or_else(|| "apps/rooms/web".into());
+			if prepared {
+				BrowserAssets::Prepared(root)
+			} else {
+				BrowserAssets::Source(root)
+			}
+		};
 		let server = options
 			.remove("server")
 			.or_else(|| env("GLOWCAP_ROOMS_SERVER_BIN"))
@@ -111,8 +131,7 @@ impl Config {
 		Ok(Some(Self {
 			bind,
 			port,
-			root,
-			prepared,
+			browser_assets,
 			server,
 			server_args,
 			room,
@@ -120,5 +139,41 @@ impl Config {
 			ice,
 			tor,
 		}))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{BrowserAssets, Config};
+	use std::path::Path;
+
+	fn parse(args: &[&str]) -> Config {
+		Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None)
+			.unwrap()
+			.unwrap()
+	}
+
+	#[test]
+	fn browser_asset_mode_is_explicit() {
+		assert!(
+			matches!(parse(&[]).browser_assets, BrowserAssets::Source(path) if path == Path::new("apps/rooms/web"))
+		);
+		assert!(
+			matches!(parse(&["--assets=prepared", "--prepared"]).browser_assets, BrowserAssets::Prepared(path) if path == Path::new("prepared"))
+		);
+		assert!(matches!(
+			parse(&["--no-browser-assets"]).browser_assets,
+			BrowserAssets::Disabled
+		));
+	}
+
+	#[test]
+	fn disabled_assets_cannot_hide_an_asset_configuration() {
+		for args in [
+			["--no-browser-assets", "--assets=prepared"].as_slice(),
+			["--no-browser-assets", "--prepared"].as_slice(),
+		] {
+			assert!(Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None).is_err());
+		}
 	}
 }

@@ -124,12 +124,13 @@
 	color: var(--ink-soft);
 	margin-bottom: calc(var(--field-tuck) * -1);
 }
-/* A field's aside belongs to its label, not to the column: dropped in as a
-   sibling it becomes a fourth evenly spaced line and the reader sees six
-   things where there are three. It takes the same tuck the label takes, on
-   both sides, so the label, the aside and the box read as one question. */
+/* A field's aside belongs to the box above it, not to the column: dropped in
+   as a sibling it becomes a fourth evenly spaced line and the reader sees six
+   things where there are three. So it takes the label's tuck upward, against
+   the box it describes, and keeps the column's own gap below, where the next
+   question starts. */
 .join-fields > .hint {
-	margin-block: calc(var(--field-tuck) * -1);
+	margin-block: calc(var(--field-tuck) * -1) 0;
 	font-size: var(--type-caption);
 	color: var(--ink-soft);
 	line-height: 1.4;

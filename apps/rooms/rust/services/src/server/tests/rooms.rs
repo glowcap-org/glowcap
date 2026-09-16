@@ -38,7 +38,7 @@ async fn next(messages: &mut Messages) -> Line {
 async fn next_said(messages: &mut Messages) -> Line {
 	loop {
 		let line = next(messages).await;
-		if line.presence.is_none() && line.facts.is_none() {
+		if line.presence().is_none() && line.facts().is_none() {
 			return line;
 		}
 	}
@@ -47,7 +47,7 @@ async fn next_said(messages: &mut Messages) -> Line {
 async fn next_presence(messages: &mut Messages) -> Presence<String> {
 	loop {
 		let line = next(messages).await;
-		if let Some(presence) = line.presence {
+		if let Some(rooms_application::room::inbox::metadata::Metadata::Presence(presence)) = line.metadata {
 			return presence;
 		}
 	}
@@ -158,7 +158,7 @@ async fn rooms() {
 	assert!(alice_seen.borrow().is_empty(), "the typer is not told");
 	alice_room.set_topic("seeds").await.unwrap();
 	let topic = next(&mut bob_lines).await;
-	assert_eq!(topic.facts.and_then(|facts| facts.topic).as_deref(), Some("seeds"));
+	assert_eq!(topic.facts().and_then(|facts| facts.topic.as_deref()), Some("seeds"));
 	let carol_runtime = runtime().await;
 	let carol = Client::new(
 		carol_runtime.connect(&dial, ConnectOptions::default()).await.unwrap(),
@@ -176,12 +176,12 @@ async fn rooms() {
 	assert!(
 		arrival
 			.iter()
-			.any(|line| matches!(&line.presence, Some(Presence::Away { name, .. }) if name == "Alice"))
+			.any(|line| matches!(line.presence(), Some(Presence::Away { name, .. }) if name == "Alice"))
 	);
 	assert!(
 		arrival
 			.iter()
-			.any(|line| line.facts.as_ref().and_then(|f| f.topic.as_deref()) == Some("seeds"))
+			.any(|line| line.facts().and_then(|f| f.topic.as_deref()) == Some("seeds"))
 	);
 	next_presence(&mut alice_lines).await;
 	next_presence(&mut bob_lines).await;
@@ -189,7 +189,7 @@ async fn rooms() {
 	// A file is admitted, posted, filled, and read by another member.
 	let description = FileDescription::parse("pic.png", "image/png", 5, 2, 2).unwrap();
 	let mut upload = alice_room.stage(description).await.unwrap();
-	alice_room.post_files("").await.unwrap();
+	let posted_file = alice_room.post_files("").await.unwrap().unwrap();
 	upload.write(vec![1, 2, 3, 4, 5]).await.unwrap();
 	assert!(upload.complete());
 	let with_file = next_said(&mut bob_lines).await;
@@ -197,10 +197,27 @@ async fn rooms() {
 	assert_eq!(with_file.attachments.len(), 1);
 	let attachment = with_file.attachments.into_iter().next().unwrap();
 	assert_eq!(attachment.description.name(), "pic.png");
-	let bytes = bob_room.file(attachment).fetch(|_| {}).await.unwrap();
+	let bytes = bob_room.file(attachment.clone()).fetch(|_| {}).await.unwrap();
 	assert_eq!(bytes, [1, 2, 3, 4, 5]);
-	next_said(&mut alice_lines).await;
-	next_said(&mut carol_lines).await;
+	let alice_file = next_said(&mut alice_lines).await.attachments.remove(0);
+	assert_eq!(
+		upload.blob(),
+		Some(&alice_file.blob),
+		"attach answers the exact published read identity"
+	);
+	let carol_file = next_said(&mut carol_lines).await.attachments.remove(0);
+	posted_file.refile("kept image", &[0]).await.unwrap();
+	for (messages, original) in [
+		(&mut alice_lines, alice_file),
+		(&mut bob_lines, attachment),
+		(&mut carol_lines, carol_file),
+	] {
+		let kept = next_said(messages).await;
+		assert_eq!(
+			kept.attachments[0].blob, original.blob,
+			"kept files preserve read identity for every subscriber"
+		);
+	}
 
 	// A private room admits by invitation, and the invited seat's kind is the
 	// inviter's choice.

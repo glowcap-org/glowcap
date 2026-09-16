@@ -5,6 +5,7 @@ use super::*;
 use rooms_platform::HostPlatform;
 mod config;
 mod operations;
+mod receipt_cost;
 mod rooms;
 use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh, tcp};
 use rooms_application::{

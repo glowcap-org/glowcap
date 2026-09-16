@@ -20,6 +20,8 @@ pub use crate::files::Blob;
 /// One thing a member's inbox hears.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Notice {
+	/// Release retained text even when its caller stopped awaiting the answer.
+	ReceiptRejected(u64),
 	/// A line said, edited, refiled, or withdrawn. The body is the row the
 	/// room keeps for the line, shared rather than copied to each member;
 	/// the adapter mints one blob capability per file on the hearing
@@ -27,6 +29,14 @@ pub enum Notice {
 	Line {
 		line: Arc<KeptLine>,
 		marker: Option<(ChangeKind, LineId)>,
+		files: Vec<Blob>,
+	},
+	/// A requested replacement for exactly one subscriber's full post.
+	Receipt {
+		request: u64,
+		line: Arc<KeptLine>,
+		id: LineId,
+		normalized: bool,
 		files: Vec<Blob>,
 	},
 	/// Who is present, said to the one reader who just arrived.
@@ -141,7 +151,7 @@ impl Notice {
 	/// notice already holds the sentence, composed where it does not.
 	pub fn said(&self) -> Cow<'_, str> {
 		match self {
-			Self::Line { line, .. } => Cow::Borrowed(&line.text),
+			Self::Line { line, .. } | Self::Receipt { line, .. } => Cow::Borrowed(&line.text),
 			Self::Roster(names) => super::state::roster_said(names).into(),
 			Self::Join { nick, count } => format!("{nick} joined ({count} here)").into(),
 			Self::Leave { nick, count } => format!("{nick} left ({count} here)").into(),
@@ -161,7 +171,8 @@ impl Notice {
 				}
 			}
 			Self::Said(text) | Self::Ended(text) => Cow::Borrowed(text),
-			Self::Listed(_)
+			Self::ReceiptRejected(_)
+			| Self::Listed(_)
 			| Self::Carries(_)
 			| Self::Typing { .. }
 			| Self::AuthorityChanged { .. }

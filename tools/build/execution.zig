@@ -92,36 +92,35 @@ pub fn addArtifact(
     };
 }
 
-/// A gate whose members must not overlap. Each member may keep its own
-/// internal parallelism, but the next family starts only after the previous
-/// family has released ports, target directories, and child processes.
-pub const SerialGate = struct {
+/// The aggregate for checks that own processes, ports, or shared language
+/// workspaces. Runtime runs inherit stdio, which gives each one the Zig build
+/// runner's global execution lock without adding dependencies to its focused
+/// step or to a product command that shares a build prerequisite.
+pub const RuntimeGate = struct {
     step: *std.Build.Step,
     members: std.ArrayListUnmanaged(*std.Build.Step) = .empty,
     prerequisite: ?*std.Build.Step = null,
     finalized: bool = false,
 
-    pub fn add(self: *SerialGate, member: *std.Build.Step) void {
-        if (self.finalized) @panic("cannot add a member to a finalized serial gate");
+    pub fn add(self: *RuntimeGate, member: *std.Build.Step) void {
+        if (self.finalized) @panic("cannot add a member to a finalized runtime gate");
         self.members.append(member.owner.allocator, member) catch @panic("OOM");
         self.step.dependOn(member);
     }
 
-    pub fn addPrerequisite(self: *SerialGate, prerequisite: *std.Build.Step) void {
-        if (self.finalized) @panic("cannot add a prerequisite to a finalized serial gate");
-        if (self.prerequisite != null) @panic("serial gate already has a prerequisite");
+    pub fn addPrerequisite(self: *RuntimeGate, prerequisite: *std.Build.Step) void {
+        if (self.finalized) @panic("cannot add a prerequisite to a finalized runtime gate");
+        if (self.prerequisite != null) @panic("runtime gate already has a prerequisite");
         self.prerequisite = prerequisite;
-        if (self.members.items.len == 0) {
-            self.step.dependOn(prerequisite);
-        }
+        self.step.dependOn(prerequisite);
     }
 
-    /// Add the sequencing edges after every registrar has finished wiring the
-    /// graph. `protected_root` owns shared prerequisites that this gate may
-    /// consume but must never mutate, or the protected gate can acquire a
-    /// runtime family through the new back edge.
-    pub fn finalize(self: *SerialGate, protected_root: *std.Build.Step) void {
-        if (self.finalized) @panic("serial gate finalized twice");
+    /// Mark side-effecting runtime commands as exclusive after every registrar
+    /// has finished wiring the graph. This changes how a command executes, not
+    /// what it depends on, so a focused check stays focused and a public launch
+    /// cannot acquire runtime-check families through a shared compiler step.
+    pub fn finalize(self: *RuntimeGate, protected_root: *std.Build.Step) void {
+        if (self.finalized) @panic("runtime gate finalized twice");
         self.finalized = true;
 
         const gpa = self.step.owner.allocator;
@@ -129,54 +128,25 @@ pub const SerialGate = struct {
         defer protected.deinit(gpa);
         collectReachable(gpa, protected_root, &protected);
 
-        // Shared prerequisites cannot carry a family barrier without pulling
-        // that family into the protected gate. Complete every shared node in
-        // the runtime preflight instead. Runtime-only process and workspace
-        // nodes can then serialize without racing those shared build outputs.
-        if (self.prerequisite) |prerequisite| {
-            var shared: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
-            defer shared.deinit(gpa);
-            for (self.members.items) |member| {
-                collectProtectedReachable(gpa, member, &protected, &shared);
-            }
-            var it = shared.keyIterator();
-            while (it.next()) |step| prerequisite.dependOn(step.*);
-        }
-
-        var previous = self.prerequisite;
         for (self.members.items) |member| {
             if (protected.contains(member)) {
-                @panic("serial-gate member is also reachable from its protected gate");
+                @panic("runtime-gate member is also reachable from its protected gate");
             }
-            if (previous) |barrier| {
-                sequenceRunsAfter(member, barrier, &protected);
-                member.dependOn(barrier);
-            }
-            previous = member;
+            makeRuntimeRunsExclusive(gpa, member);
         }
 
+        // Exclusivity must never change reachability. Recheck the protected
+        // root so a later edit cannot hide a gate-membership cycle here.
         var protected_after: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
         defer protected_after.deinit(gpa);
         collectReachable(gpa, protected_root, &protected_after);
-        for (self.members.items) |member| {
-            if (protected_after.contains(member)) {
-                @panic("serial-gate sequencing leaked a member into its protected gate");
-            }
-        }
-        if (self.prerequisite) |prerequisite| {
-            if (protected_after.contains(prerequisite)) {
-                @panic("serial-gate sequencing leaked its prerequisite into the protected gate");
-            }
-        }
+        for (self.members.items) |member| if (protected_after.contains(member)) {
+            @panic("runtime-gate member leaked into its protected gate");
+        };
     }
 };
 
-fn collectProtectedReachable(
-    gpa: std.mem.Allocator,
-    root: *std.Build.Step,
-    protected: *const std.AutoHashMapUnmanaged(*std.Build.Step, void),
-    shared: *std.AutoHashMapUnmanaged(*std.Build.Step, void),
-) void {
+fn makeRuntimeRunsExclusive(gpa: std.mem.Allocator, root: *std.Build.Step) void {
     var seen: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
     defer seen.deinit(gpa);
     var pending: std.ArrayList(*std.Build.Step) = .empty;
@@ -184,9 +154,14 @@ fn collectProtectedReachable(
     pending.append(gpa, root) catch @panic("OOM");
     while (pending.pop()) |current| {
         if ((seen.getOrPut(gpa, current) catch @panic("OOM")).found_existing) continue;
-        if (protected.contains(current)) {
-            shared.put(gpa, current, {}) catch @panic("OOM");
-            continue;
+        if (current.cast(std.Build.Step.Run)) |run| {
+            // Output-producing prerequisites remain cacheable and parallel.
+            // Only commands that Zig itself would treat as side-effecting
+            // receive the build runner's process-wide lock.
+            if (runHasSideEffects(run)) switch (run.stdio) {
+                .infer_from_args => run.stdio = .inherit,
+                else => {},
+            };
         }
         for (current.dependencies.items) |dependency| {
             pending.append(gpa, dependency) catch @panic("OOM");
@@ -194,29 +169,19 @@ fn collectProtectedReachable(
     }
 }
 
-fn sequenceRunsAfter(
-    member: *std.Build.Step,
-    previous: *std.Build.Step,
-    protected: *const std.AutoHashMapUnmanaged(*std.Build.Step, void),
-) void {
-    const gpa = member.owner.allocator;
-    var previous_nodes: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
-    defer previous_nodes.deinit(gpa);
-    collectReachable(gpa, previous, &previous_nodes);
-
-    var seen: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
-    defer seen.deinit(gpa);
-    var pending: std.ArrayList(*std.Build.Step) = .empty;
-    defer pending.deinit(gpa);
-    pending.append(gpa, member) catch @panic("OOM");
-    while (pending.pop()) |current| {
-        if ((seen.getOrPut(gpa, current) catch @panic("OOM")).found_existing) continue;
-        if (previous_nodes.contains(current) or protected.contains(current)) continue;
-        if (current.cast(std.Build.Step.Run) != null) current.dependOn(previous);
-        for (current.dependencies.items) |dependency| {
-            pending.append(gpa, dependency) catch @panic("OOM");
-        }
-    }
+/// Mirror `std.Build.Step.Run`'s `infer_from_args` rule before the build runner
+/// serializes the graph. An output argument makes a command cacheable. A
+/// passthrough or a command with no generated output is side-effecting.
+fn runHasSideEffects(run: *const std.Build.Step.Run) bool {
+    if (run.has_side_effects) return true;
+    if (run.captured_stdout != null or run.captured_stderr != null) return false;
+    var has_output = false;
+    for (run.argv.items) |arg| switch (arg) {
+        .passthru => return true,
+        .output_file, .output_file_dep, .output_directory => has_output = true,
+        else => {},
+    };
+    return !has_output;
 }
 
 fn collectReachable(

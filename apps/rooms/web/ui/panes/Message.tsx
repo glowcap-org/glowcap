@@ -69,7 +69,7 @@ function LineMenu(
 	// a screen reader, which already has the group's stamp and the log's order.
 	const at = new Date(item.at);
 	return (
-		<div className="line-acts" ref={holder}>
+		<div className={open ? "line-acts open" : "line-acts"} ref={holder}>
 			<time className="line-at" dateTime={at.toISOString()} aria-hidden="true">{fmtTime(at)}</time>
 			<IconButton
 				ref={trigger}

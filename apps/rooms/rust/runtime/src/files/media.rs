@@ -36,6 +36,14 @@ impl<K: Ord, P: Deadline + Clone + 'static> Media<K, P> {
 }
 
 impl<K: Ord + Clone, P: Deadline + Clone + 'static> Media<K, P> {
+	pub fn uploads(
+		&self,
+		session: &Session,
+		uploads: Vec<(Ref, rooms_glowcap::client::files::capture::Captured)>,
+		protected: &[Ref],
+	) -> Result<Vec<crate::files::media_files::UploadCapture>, Error> {
+		self.pool.uploads(session, uploads, protected)
+	}
 	/// Admit a line's current attachments, retaining any the line already held
 	/// so an edit keeps the bytes it kept. `previous` is updated to what the
 	/// line now carries.

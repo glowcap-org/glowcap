@@ -85,7 +85,6 @@ pub(super) struct LiveRoom<P: Platform> {
 	bridge_pending: Option<intent::Bridge>,
 	applied_bridge: Option<intent::Bridge>,
 	pub pending: VecDeque<(u64, PendingLine<P>)>,
-	pub next_pending: u64,
 	pub posted: HashMap<u64, Rc<PostedLine<P>>>,
 	/// Set when a room notice could not be queued; the worker rejoins to
 	/// resynchronize rather than carry on with a view it knows is behind.
@@ -245,14 +244,19 @@ impl<P: Platform> RoomRuntime<P> {
 				"say takes a conversation id and bounded text",
 			)));
 		}
-		let (room, slot) = self.reserve_pending(conversation).map_err(Failure::NotApplied)?;
-		match room.say_with_previews(text, &previews).await {
+		let PendingSend {
+			room,
+			request,
+			mut slot,
+		} = self.reserve_pending(conversation).map_err(Failure::NotApplied)?;
+		slot.dispatched(room.supports_retained(), &self.notices);
+		match room.say_retained(text, &previews, request).await {
 			Ok(posted) => {
 				slot.complete(posted);
 				Ok(())
 			}
 			Err(error) => {
-				slot.abort();
+				slot.failed(&error);
 				Err(failure(error))
 			}
 		}
@@ -334,33 +338,36 @@ impl<P: Platform> RoomRuntime<P> {
 	fn effect(&self, conversation: &str) -> Result<Rc<Room<P>>, Failure> {
 		self.room(conversation).map_err(Failure::NotApplied)
 	}
-	fn reserve_pending(&self, conversation: &str) -> Result<(Rc<Room<P>>, PendingSlot<P>), Error> {
+	fn reserve_pending(&self, conversation: &str) -> Result<PendingSend<P>, Error> {
 		let mut state = self.shared.borrow_mut();
 		let live = state
 			.rooms
 			.get_mut(conversation)
 			.ok_or_else(|| Error::closed("that room is not connected in this Rooms session"))?;
+		if live.resync {
+			return Err(Error::busy("that room is resynchronizing its line authority"));
+		}
 		if live.pending.len() >= PENDING_LINES {
 			return Err(Error::busy(
 				"that room has too many line capabilities waiting for their echoes",
 			));
 		}
 		let (tx, rx) = tokio::sync::oneshot::channel();
-		let id = live.next_pending;
-		live.next_pending = id
-			.checked_add(1)
-			.ok_or_else(|| Error::exhausted("room pending-line identifiers exhausted"))?;
+		let request = live.room.next_request().map_err(Error::peer)?;
+		let id = request.id();
 		live.pending.push_back((id, PendingLine::Wait(rx)));
-		Ok((
-			live.room.clone(),
-			PendingSlot {
+		Ok(PendingSend {
+			room: live.room.clone(),
+			request,
+			slot: PendingSlot {
 				conversation: conversation.to_owned(),
 				epoch: live.epoch,
 				id,
-				tx,
+				tx: Some(tx),
+				legacy_recovery: None,
 				shared: self.shared.clone(),
 			},
-		))
+		})
 	}
 	fn line(&self, conversation: &str, line: u64) -> Result<Rc<PostedLine<P>>, Error> {
 		connected(&self.shared.borrow(), conversation)?
@@ -424,20 +431,51 @@ fn failure(error: rooms_glowcap::client::Error) -> Failure {
 	}
 }
 
+struct PendingSend<P: Platform> {
+	room: Rc<Room<P>>,
+	request: rooms_glowcap::client::room::Request,
+	slot: PendingSlot<P>,
+}
 struct PendingSlot<P: Platform> {
 	conversation: String,
 	epoch: u64,
 	id: u64,
-	tx: tokio::sync::oneshot::Sender<Option<Rc<PostedLine<P>>>>,
+	tx: Option<tokio::sync::oneshot::Sender<Option<Rc<PostedLine<P>>>>>,
+	legacy_recovery: Option<mpsc::Sender<worker::Notice>>,
 	shared: Rc<RefCell<LiveRooms<P>>>,
 }
 impl<P: Platform> PendingSlot<P> {
-	fn complete(self, line: Option<PostedLine<P>>) {
+	fn dispatched(&mut self, retained: bool, notices: &mpsc::Sender<worker::Notice>) {
+		// Only legacy sends need a recovery wake on uncertainty. Correlated
+		// sends add no channel clone or reference-count operation here.
+		self.legacy_recovery = (!retained).then(|| notices.clone());
+	}
+	fn complete(mut self, line: Option<PostedLine<P>>) {
 		// tolerant: the pump that would receive this echo may have retired
 		// with its room; the line is then not one this session can edit.
-		let _ = self.tx.send(line.map(Rc::new));
+		let _ = self
+			.tx
+			.take()
+			.expect("unsettled line authority")
+			.send(line.map(Rc::new));
 	}
-	fn abort(self) {
+	fn abort(mut self) {
+		self.legacy_recovery = None;
+	}
+	fn failed(mut self, error: &rooms_glowcap::client::Error) {
+		if !matches!(
+			error,
+			rooms_glowcap::client::Error::Binding(_) | rooms_glowcap::client::Error::Timeout(_)
+		) {
+			self.legacy_recovery = None;
+		}
+	}
+}
+impl<P: Platform> Drop for PendingSlot<P> {
+	fn drop(&mut self) {
+		if self.tx.is_none() {
+			return;
+		}
 		if let Some(live) = self
 			.shared
 			.borrow_mut()
@@ -445,7 +483,22 @@ impl<P: Platform> PendingSlot<P> {
 			.get_mut(&self.conversation)
 			.filter(|live| live.epoch == self.epoch)
 		{
-			live.pending.retain(|(id, _)| *id != self.id);
+			if let Some(notices) = &self.legacy_recovery {
+				// With no correlation, either keeping or removing one FIFO row
+				// can misassign later authority. Stop matching until rejoin.
+				live.pending.clear();
+				live.resync = true;
+				// A full notice queue already wakes the worker, whose next turn
+				// observes resync. A closed queue means retirement already owns it.
+				let _ = notices.try_send(worker::Notice::Retired {
+					id: self.conversation.clone(),
+					epoch: self.epoch,
+					reason: "legacy room send outcome lost; rejoining to restore line correlation".into(),
+					terminal: false,
+				});
+			} else {
+				live.pending.retain(|(id, _)| *id != self.id);
+			}
 		}
 	}
 }

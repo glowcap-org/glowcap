@@ -2,8 +2,11 @@
 // that stands, or the word that an act went through.
 //
 // Toasts leave. These stay with the field, the bell, the meter, or the button
-// they describe, on a line of their own under it, so the act's controls never
-// move to make room for what they said. Refusal is danger ink, a standing
+// they describe, on a line of their own. Over a form control, because the
+// reader has to act on it before the answer will be taken; under a bell, a
+// meter, or an act, which have no answer to correct. A refusal arriving over a
+// field moves the field down as it lands. That is the price of keeping it out
+// from behind a phone's keyboard. Refusal is danger ink, a standing
 // condition is warning ink, and success is teal with a check, the three inks
 // the page's notices already use, so a reader who has seen one knows this.
 //

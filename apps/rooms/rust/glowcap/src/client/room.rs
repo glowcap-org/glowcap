@@ -18,7 +18,9 @@ mod bridge;
 mod conversation;
 mod messages;
 mod queries;
+mod receipts;
 pub use messages::Messages;
+pub use receipts::Request;
 
 pub enum Event<'a> {
 	Typing {
@@ -92,6 +94,37 @@ impl<D: Deadline> Inner<D> {
 			return Err("this room membership has ended".into());
 		}
 		let args: Vec<_> = args.iter().map(Value).collect();
+		if verb == rooms_application::room::receipt::REJECTED {
+			use rooms_application::room::{ArgumentView, receipt};
+			let [token] = args.as_slice() else {
+				return Err(receipt::Error::Malformed.to_string());
+			};
+			let request = token
+				.integer()
+				.and_then(receipt::request)
+				.ok_or_else(|| receipt::Error::Malformed.to_string())?;
+			let mut delivery = self.messages.borrow_mut();
+			let messages::Delivery { queue, pending, .. } = &mut *delivery;
+			pending.discard(request, queue);
+			return Ok(Argument::Void);
+		}
+		if verb == rooms_application::room::receipt::TAG {
+			let receipt = rooms_application::room::receipt::read(&args).map_err(|e| e.to_string())?;
+			let mut delivery = self.messages.borrow_mut();
+			let messages::Delivery { queue, pending, .. } = &mut *delivery;
+			let message = pending.complete(receipt, queue).map_err(|e| e.to_string())?;
+			let result = delivery.queue.push_owned(message);
+			if result.is_err() {
+				delivery.pending.clear();
+			}
+			let waker = delivery.waiter.take();
+			drop(delivery);
+			if let Some(waker) = waker {
+				waker.wake();
+			}
+			result.map_err(|e| e.to_string())?;
+			return Ok(Argument::Void);
+		}
 		let notice = inbox::read(verb, &args).map_err(|e| e.to_string())?;
 		match notice {
 			Notice::Ended(reason) => {
@@ -118,7 +151,7 @@ impl<D: Deadline> Inner<D> {
 			}
 			Notice::Line(message) => {
 				let arrived = message.arrived();
-				if let Some(facts) = &message.facts {
+				if let Some(facts) = message.facts() {
 					let mut state = self.state.borrow_mut();
 					if let Some(listed) = facts.listed {
 						state.listed = Some(listed);
@@ -130,6 +163,9 @@ impl<D: Deadline> Inner<D> {
 				let (result, waker) = {
 					let mut d = self.messages.borrow_mut();
 					let r = d.queue.push(message);
+					if r.is_err() {
+						d.pending.clear();
+					}
 					(r, d.waiter.take())
 				};
 				if let Some(w) = waker {
@@ -160,6 +196,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 	) -> Result<(Self, Messages), Error> {
 		let delivery = Rc::new(RefCell::new(messages::Delivery {
 			queue: Default::default(),
+			pending: Default::default(),
 			waiter: None,
 		}));
 		let inner = Rc::new(Inner {

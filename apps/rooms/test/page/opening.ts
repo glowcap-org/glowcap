@@ -388,7 +388,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		return {
 			standing: sink?.querySelector(".rwhere-how") != null,
 			said: sink?.querySelector(".said") != null,
-			longWhy: sink?.querySelector("#kitchenLongWhy") != null,
+			longWhy: sink?.querySelector("#kitchenLongSaid") != null,
 			toast: sink?.querySelector(".toast") != null,
 			crash: sink?.querySelector(".crash") != null,
 			// The controls that carry a choice, all three of them. A control drawn

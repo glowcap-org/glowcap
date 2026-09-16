@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 const common = @import("../common.zig");
 const execution = @import("../execution.zig");
 
-pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execution.SerialGate, wasm_archives: *std.Build.Step, wasm_driver: *std.Build.Step, peers: *std.Build.Step) *std.Build.Step {
+pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execution.RuntimeGate, wasm_archives: *std.Build.Step, wasm_driver: *std.Build.Step, peers: *std.Build.Step) *std.Build.Step {
     const layouts = execution.addSystemCommand(b, .build_tool, &.{
         "deno", "run", "--allow-read", "--allow-write", "tools/wasm/rust_layouts.ts",
     });

@@ -19,6 +19,7 @@ mod lines;
 mod membership;
 mod notice;
 mod presence;
+mod receipts;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -27,6 +28,7 @@ pub mod wire;
 pub use super::{Refusal, Release};
 pub use entrance::{Bootstrap, Entrance, Fresh, Gate, Open, Opening, Subscribed};
 pub use notice::{Blob, Effects, Mutation, Notice, Tell};
+pub use receipts::Delivery;
 pub use state::{InvitationKey, LineKey, MembershipKey, RoomKey, UploadKey};
 
 /// One live room as an inventory reads it.

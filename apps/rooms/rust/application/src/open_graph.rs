@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 mod metadata;
+mod selection_wire;
 pub use metadata::{
 	Image, MAX_PROPERTIES, MAX_PROPERTY_CONTENT_BYTES, MAX_PROPERTY_KEY_BYTES, MAX_TITLE_BYTES, Metadata,
 	OEmbedObservation, Observation, Property,
@@ -34,7 +35,7 @@ pub struct Target {
 /// The previews the sender kept for one exact authored message. Metadata is
 /// deliberately absent: every reader obtains and validates it through its own
 /// preview service, while this bounded selection is the durable user intent.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct Selection(Vec<String>);
 
@@ -64,7 +65,10 @@ impl Selection {
 	/// projection, then retain it in authored order. Exact normalized identity
 	/// prevents alternate spellings from bypassing suppression or cache bounds.
 	pub fn new<'a>(text: &str, selected: impl IntoIterator<Item = &'a str>) -> Result<Self, SelectionError> {
-		let selected: Vec<&str> = selected.into_iter().collect();
+		let selected: Vec<&str> = selected.into_iter().take(MAX_PREVIEWS + 1).collect();
+		if selected.is_empty() {
+			return Ok(Self::default());
+		}
 		if selected.len() > MAX_PREVIEWS {
 			return Err(SelectionError::Shape);
 		}
@@ -107,6 +111,9 @@ impl Selection {
 	/// explicit new selection rather than silently gaining a network effect.
 	#[must_use]
 	pub fn retained_for(&self, text: &str) -> Self {
+		if self.is_empty() {
+			return Self::default();
+		}
 		let present: BTreeSet<_> = Document::read(text)
 			.preview_targets()
 			.into_iter()
@@ -117,14 +124,22 @@ impl Selection {
 
 	#[must_use]
 	pub fn encode(&self) -> String {
+		if self.is_empty() {
+			return "[]".into();
+		}
 		// Vec<String> has no fallible serialization arm: there are no maps with
 		// non-string keys, floats, custom callbacks or I/O behind this formatter.
 		serde_json::to_string(self).expect("a link preview selection encodes")
 	}
 
 	pub fn decode(text: &str, encoded: &str) -> Result<Self, SelectionError> {
-		let selected: Vec<String> = serde_json::from_str(encoded).map_err(|_| SelectionError::Shape)?;
-		Self::new(text, selected.iter().map(String::as_str))
+		// Even fully Unicode-escaped URLs fit; excess whitespace cannot make
+		// JSON escape scratch grow beyond the selection's own byte budget.
+		if encoded.len() > selection_wire::MAX_ENCODED_BYTES {
+			return Err(SelectionError::Shape);
+		}
+		let selected: Self = serde_json::from_str(encoded).map_err(|_| SelectionError::Shape)?;
+		Self::new(text, selected.0.iter().map(String::as_str))
 	}
 
 	/// Read a display-only additive suffix. Unknown or malformed extensions do

@@ -1,5 +1,36 @@
 comptime {
+    _ = @import("loam/core/store_test.zig");
+    _ = @import("loam/core/cache_commit_test.zig");
+    _ = @import("loam/core/collection_test.zig");
+    _ = @import("loam/hosting/actors_test.zig");
+    _ = @import("loam/hosting/wire_test.zig");
+    _ = @import("loam/access/hosting_test.zig");
+    _ = @import("loam/access/hosting_wire_test.zig");
+    _ = @import("loam/access/sharing_test.zig");
+    _ = @import("loam/access/description_test.zig");
+    _ = @import("loam/core/record_test.zig");
     _ = @import("api_surface_test.zig");
+    _ = @import("loam/access/graph_test.zig");
+    _ = @import("loam/access/scope_test.zig");
+    _ = @import("loam/access/resource_view_test.zig");
+    _ = @import("loam/access/resource_record_test.zig");
+    _ = @import("loam/access/grant_view_test.zig");
+    _ = @import("loam/access/grant_record_test.zig");
+    _ = @import("loam/access/owner_test.zig");
+    _ = @import("loam/access/stored_capability_test.zig");
+    _ = @import("loam/access/stored_capability_memory_test.zig");
+    _ = @import("loam/access/stored_capability_record_test.zig");
+    _ = @import("loam/access/owner_records_test.zig");
+    _ = @import("loam/access/policy_test.zig");
+    _ = @import("loam/access/grants_test.zig");
+    _ = @import("loam/access/grant_limits_test.zig");
+    _ = @import("loam/access/grant_memory_test.zig");
+    _ = @import("loam/access/grant_events_test.zig");
+    _ = @import("loam/access/grant_transaction_test.zig");
+    _ = @import("loam/access/grant_transaction_memory_test.zig");
+    _ = @import("loam/access/graph_reservation_test.zig");
+    _ = @import("loam/access/grant_capability_test.zig");
+    _ = @import("loam/access/grant_capability_memory_test.zig");
     // Oracle protocol tests run under `zig build oracle-check` only.
     _ = @import("foundation/frame_test.zig");
     _ = @import("foundation/id_test.zig");
@@ -29,7 +60,7 @@ comptime {
     _ = @import("net/fuzz_test.zig");
     _ = @import("session/fuzz_test.zig");
     _ = @import("actors/fuzz_test.zig");
-    _ = @import("persistent/fuzz_test.zig");
+    _ = @import("loam/collections/fuzz_test.zig");
     _ = @import("codec/codec_equivalence_test.zig");
     _ = @import("model/model_test.zig");
     _ = @import("model/equality_test.zig");
@@ -47,7 +78,7 @@ comptime {
     _ = @import("actors/vat_footprint_budget_test.zig");
     _ = @import("actors/ocap_test.zig");
     _ = @import("actors/host_test.zig");
-    _ = @import("persistent/persistent_map_test.zig");
+    _ = @import("loam/collections/persistent_map_test.zig");
     _ = @import("c_abi/header_parity_test.zig");
     _ = @import("c_abi/archive_contract_test.zig");
     _ = @import("c_abi/locator_adapter_test.zig");
@@ -240,6 +271,7 @@ comptime {
     _ = @import("driver/core_host/redeem/withdraw_test.zig");
     _ = @import("driver/core_host/actors_test.zig");
     _ = @import("driver/core_host/actors/swiss_test.zig");
+    _ = @import("driver/core_host/publication_reservation_test.zig");
     _ = @import("driver/core_host/pairing_test.zig");
     _ = @import("driver/core_host/pairing/reentry_test.zig");
     _ = @import("driver/core_host/vow_test.zig");

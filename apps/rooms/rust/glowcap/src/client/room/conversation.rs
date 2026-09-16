@@ -16,7 +16,13 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 		&self,
 		description: rooms_application::files::FileDescription,
 	) -> Result<crate::client::files::Upload<D>, Error> {
-		crate::client::files::Upload::stage(self.inner.client.clone(), &self.files()?, description).await
+		crate::client::files::Upload::stage(
+			self.inner.client.clone(),
+			&self.files()?,
+			description,
+			self.supports_retained(),
+		)
+		.await
 	}
 	pub fn file(
 		&self,
@@ -33,8 +39,28 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 		text: &str,
 		previews: &rooms_application::open_graph::Selection,
 	) -> Result<Option<PostedLine<D>>, Error> {
+		self.say_retained(text, previews, self.next_request()?).await
+	}
+	pub async fn say_retained(
+		&self,
+		text: &str,
+		previews: &rooms_application::open_graph::Selection,
+		request: Request,
+	) -> Result<Option<PostedLine<D>>, Error> {
+		let request = request.consume(&self.inner.messages)?;
+		if self.supports_retained() {
+			return self
+				.retained_post(
+					&self.seat()?,
+					rooms_application::room::receipt::POST,
+					text,
+					previews,
+					request,
+				)
+				.await;
+		}
 		let supported = !previews.is_empty() && self.supports_preview_messages();
-		let encoded = previews.encode();
+		let encoded = if supported { previews.encode() } else { String::new() };
 		let fields: &[&str] = if supported { &[text, &encoded] } else { &[text] };
 		let reply = self
 			.inner
@@ -61,8 +87,28 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 		caption: &str,
 		previews: &rooms_application::open_graph::Selection,
 	) -> Result<Option<PostedLine<D>>, Error> {
+		self.post_files_retained(caption, previews, self.next_request()?).await
+	}
+	pub async fn post_files_retained(
+		&self,
+		caption: &str,
+		previews: &rooms_application::open_graph::Selection,
+		request: Request,
+	) -> Result<Option<PostedLine<D>>, Error> {
+		let request = request.consume(&self.inner.messages)?;
+		if self.supports_retained() {
+			return self
+				.retained_post(
+					&self.files()?,
+					rooms_application::room::receipt::POST_FILES,
+					caption,
+					previews,
+					request,
+				)
+				.await;
+		}
 		let supported = !previews.is_empty() && self.supports_preview_messages();
-		let encoded = previews.encode();
+		let encoded = if supported { previews.encode() } else { String::new() };
 		let fields: &[&str] = if supported { &[caption, &encoded] } else { &[caption] };
 		let reply = self
 			.inner

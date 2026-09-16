@@ -332,8 +332,8 @@ html:has(.app.covered) {
 .modal-card [role="tabpanel"] {
 	display: contents;
 }
-/* A refusal tucks up under the question it answers rather than sitting on a
-   line of its own. Colour and weight live on `.said`.
+/* A refusal tucks down onto the box it refused rather than sitting on a line
+   of its own. Colour and weight live on `.said`.
 
    It used to keep its slot while empty, so a rejected name would not shove the
    button down. The slot cost 1.2em plus the card's own gap, on every reading of
@@ -341,7 +341,7 @@ html:has(.app.covered) {
    the same reservation by matching this selector. The card renders a reply only
    when there is one now, and a refusal moves the button as it arrives. */
 .join .said {
-	margin: -4px 0 0;
+	margin: 0 0 -4px;
 }
 
 /* The capability-set draft has one model and two projections. Its tiny action

@@ -26,6 +26,7 @@ change as the state they describe:
 - `PROVENANCE.md`
 - `docs/vision.md`
 - `docs/architecture.md`
+- `docs/loam.md`
 - `docs/build-steps.md`
 - `docs/ladder.md`
 - `docs/roadmap.md`

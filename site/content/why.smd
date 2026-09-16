@@ -324,19 +324,36 @@ Memory-safe languages already enforce it inside one process. An object
 reference can only be used by code it was given to, and nothing conjures a
 pointer to a private object out of thin air. Object-capability security
 treats that guarantee as the whole security model.
-[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/), a protocol design that came
-out of the E language, carries the rule across a network between mutually
-suspicious programs. OCapN standardizes CapTP, under the
-[Spritely Institute](https://spritely.institute/) and a community group.
+
+The idea has been around since 1966, when
+[a paper](https://dl.acm.org/doi/10.1145/365230.365252) on programs sharing one
+machine gave it a name. Operating systems were built on it.
+[KeyKOS](https://en.wikipedia.org/wiki/KeyKOS) ran commercial workloads from
+1983, [EROS](https://en.wikipedia.org/wiki/EROS_%28microkernel%29) and
+[CapROS](https://github.com/capros-os/capros) rebuilt the design, and
+[seL4](https://sel4.systems/) holds the same rule under a machine-checked
+proof. The
+[E language](https://web.archive.org/web/20241231230559/http://erights.org/)
+took it onto a network and produced
+[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
+along with [vats]($link.page('modules')) and
+[promise pipelining]($link.page('concepts')).
+[Sandstorm](https://sandstorm.org/) runs web applications this way, giving every
+document its own sealed grain. [Agoric](https://agoric.com/) runs financial
+contracts on a hardened JavaScript.
+[Spritely Goblins](https://spritely.institute/goblins/) is where most people
+meet the idea now, and OCapN is the standard
+[that community](https://spritely.institute/) is writing so the implementations
+can reach each other.
 
 # What OCapN is
 
-OCapN is the standard that grew out of CapTP: one message model over a choice
-of wire encodings and transports, so the same references travel over encrypted
+OCapN is one message model over a choice of wire encodings and transports, so
+the same references travel over encrypted
 QUIC, a sealed TCP stream, or a browser DataChannel. Calls return promises you can keep calling
 through, which lets a chain of dependent calls cross the network once instead
 of once per call. glowcap checks its outside interoperability against
-[Spritely Goblins](https://spritely.institute/goblins/) on signed CapTP 1.0
+Spritely Goblins on signed CapTP 1.0
 over Syrup.
 
 You can watch a three-party introduction in the

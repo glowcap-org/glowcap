@@ -23,7 +23,7 @@ import { frontPage, railToggleLabel, yourRooms } from "../../../lib/text/control
 import { railCreateOrOpenIn, railRoomNameNoun, railRoomNamePlaceholder } from "../../../lib/text/rail.ts";
 import { railHide, railShow } from "../../../lib/text/conversation.ts";
 import { brandRooms } from "../../../lib/text/page.ts";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { implied, named } from "../intent.ts";
@@ -68,6 +68,14 @@ import { RailSection } from "../sidebar/Section.tsx";
 import type { AddField } from "../sidebar/NamePanel.tsx";
 import { useRoomsState } from "../hooks.ts";
 import { emptyDirs } from "../store.ts";
+
+/** Whether following this link is going to happen in this tab. A middle or
+ * modified click opens somewhere else, and rearranging the furniture here
+ * would be rearranging it behind a reader who never left. */
+function landsHere(press: MouseEvent<HTMLElement>): boolean {
+	if (press.defaultPrevented || press.button !== 0) return false;
+	return !press.metaKey && !press.ctrlKey && !press.shiftKey && !press.altKey;
+}
 
 function SidebarPane(
 	{
@@ -320,7 +328,19 @@ function SidebarPane(
 					aria-pressed={railShown}
 					onClick={() => browser.showRail(false)}
 				/>
-				<Link className="wordmark-link" to="/" aria-label={frontPage}>
+				{
+					/* Going to the front is a press as much as an address, so it puts the
+				    phone's list away the way pressing a room does. The route cannot:
+				    an address never moves the furniture (`router.tsx`). */
+				}
+				<Link
+					className="wordmark-link"
+					to="/"
+					aria-label={frontPage}
+					onClick={(press) => {
+						if (landsHere(press)) browser.showJoinCard();
+					}}
+				>
 					<Wordmark />
 				</Link>
 				{railShown && <SettingsButton id="settingsBtn" mobile={mobile} settingsOpen={settingsOpen} />}

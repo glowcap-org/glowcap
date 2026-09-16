@@ -35,13 +35,16 @@ pub enum Feature {
 	Previews,
 	/// The ephemeral typing signal, relayed to the other members.
 	Typing,
+	/// Correlated receipts and reuse of acknowledged upload storage.
+	Retained,
 }
 impl Feature {
-	pub const ALL: [Self; 2] = [Self::Previews, Self::Typing];
+	pub const ALL: [Self; 3] = [Self::Previews, Self::Typing, Self::Retained];
 	pub const fn wire(self) -> &'static str {
 		match self {
 			Self::Previews => "previews",
 			Self::Typing => "typing",
+			Self::Retained => "retained",
 		}
 	}
 	pub fn parse(word: &str) -> Option<Self> {
@@ -49,30 +52,35 @@ impl Feature {
 	}
 }
 
-/// What one room carries, as booleans a surface can switch on. Serialized
-/// with every field present, so a reader across a JSON boundary needs no
-/// default to tell "not carried" from "not said".
+/// What one room carries. JSON views expose the displayed features; delivery
+/// negotiation stays with the live membership that received the wire facts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Carries {
 	pub previews: bool,
 	pub typing: bool,
+	/// Transport optimization, not a displayed room feature.
+	#[serde(skip)]
+	pub retained: bool,
 }
 impl Carries {
 	/// Everything this vocabulary names: what a native room carries.
 	pub const EVERYTHING: Self = Self {
 		previews: true,
 		typing: true,
+		retained: true,
 	};
 	/// Nothing: what a room bridged to IRC carries beyond its lines.
 	pub const NOTHING: Self = Self {
 		previews: false,
 		typing: false,
+		retained: false,
 	};
 	pub const fn has(self, feature: Feature) -> bool {
 		match feature {
 			Feature::Previews => self.previews,
 			Feature::Typing => self.typing,
+			Feature::Retained => self.retained,
 		}
 	}
 	/// The features carried, in the wire's order.
@@ -98,6 +106,7 @@ impl Carries {
 			match Feature::parse(word) {
 				Some(Feature::Previews) => carries.previews = true,
 				Some(Feature::Typing) => carries.typing = true,
+				Some(Feature::Retained) => carries.retained = true,
 				None => {}
 			}
 		}
@@ -117,7 +126,7 @@ mod tests {
 			let read = Carries::read(words.iter().map(|word| Some(word.as_str()))).unwrap();
 			assert_eq!(read, carries);
 		}
-		assert_eq!(Carries::EVERYTHING.words(), ["previews", "typing"]);
+		assert_eq!(Carries::EVERYTHING.words(), ["previews", "typing", "retained"]);
 		assert!(Carries::NOTHING.words().is_empty());
 	}
 
@@ -128,7 +137,8 @@ mod tests {
 			read,
 			Carries {
 				previews: false,
-				typing: true
+				typing: true,
+				retained: false
 			}
 		);
 		assert_eq!(Carries::read([Some("typing"), None].into_iter()), None, "not a word");

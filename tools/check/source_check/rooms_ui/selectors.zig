@@ -101,7 +101,11 @@ const selectors = [_]Selector{
     // cards, made by a name that moved.
     .{ .literal = "id=\"roomAbout\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     .{ .literal = "titleId=\"convcardTitle\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
-    .{ .literal = "id=\"kitchenLongWhy\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
+    // The long refusal in the parts catalog. The proof presses `#kitchenLongSaid`,
+    // but no component writes that: the sample is a `Field`, and `Field` names its
+    // refusal after the control it belongs to. So the id the catalog owns is the
+    // one below, and the refusal's follows from it.
+    .{ .literal = "id=\"kitchenLong\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     .{ .literal = "titleId=\"errorTitle\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     .{ .literal = "id=\"errorBody\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     .{ .literal = "id=\"convcardLocator\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },

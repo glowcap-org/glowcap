@@ -258,7 +258,7 @@ pointing it at nothing.
   root, transferred at the seam that owns it; root zero retires the row past any
   running frame and parks the box on the retirement capacity registration
   escrowed before the actor became visible.
-- **Persistent map nodes** — `persistent.PersistentMap` (ADR-0061). O(log n)
+- **Persistent map nodes** — `collections.PersistentMap` (ADR-0061). O(log n)
   fresh nodes per write with refcounted structural sharing; an immutable trie is
   acyclic, so the count frees with no collector, and retains happen only after
   every allocation in a rebuild succeeds. Rebuilding whole makes `become`
@@ -552,3 +552,48 @@ name stays here.
   memoized re-stage's resync as an optimization**; staged copies retire two
   outermost-call windows later, because a call's returned views alias its staged
   inputs.
+
+- **Loam record staging** — `Record.encodeAlloc` measures before allocation and
+  copies payload and typed edges once into the prepared record.
+- **Loam record residency** — `Cache.acquire` reserves one bounded read buffer;
+  completion and leases retain it until their owner releases it.
+- **LMDB read materialization** — `Lmdb.readRecord` copies the requested row into
+  that buffer before ending the native read transaction.
+
+- **Loam retained actor call** — `hosting.calls.admit` copies borrowed inputs
+  into one fixed-size allocation, capped by attachment bytes and per-ingress
+  call/byte allowances. Handler scratch, held-reference lists, and the retained
+  reply use that buffer. It survives through terminal settlement; argument
+  borrows cannot pin an inbound frame across disk I/O.
+- **Loam managed activation** — `access.hosting.Service.behavior` uses that
+  retained arena for preparation state and application scratch. Its opaque
+  managed operation allocates through Capabilities' allocator and quotas;
+  `docs/loam.md` owns the native operation and shared-cache budgets. Preparation
+  restarts reclaim arena space after retiring reads. The portrait lease survives
+  through preparation deinit at settlement, including commit and reply retries.
+- **Loam access snapshot projection** — `description.encode` projects bounded
+  policy keys and exact unsigned values into the retained call arena. Only
+  inspection calls allocate their snapshot storage. The
+  maximum-metadata description test covers all 64 permissions and 16 bounds
+  across ceiling, configured, and effective policies within the default arena.
+- **Loam actor settlement preparation** — `hosting.calls.settle` uses a temporary
+  arena for model/value lowering into existing Vat/Host resolver ownership.
+  Allocation failure keeps the operation available for retry, without invoking
+  the behavior again. Core leases, staged records, Host queues, and backend
+  mapped pages retain their separate bounds.
+- **Loam derivation intent** — `DerivationRecord.encodeIntent` copies decoded
+  grant terms into canonical retained-call bytes for durable retry comparison.
+  Receipt staging owns its separate record copy; no borrowed wire bytes survive.
+- **Hidden durable publication** — `reserveDurableCapability` reserves the owned
+  name, registry capacity, actor root, and pending-work custody before storage
+  submission. Confirmation allocates nothing; cancellation releases custody.
+- **Loam committed residency** — `Store.retainOnCommit` transfers prepared
+  record buffers to eligible cache slots during installation, without another
+  allocation or copy. Pinned snapshots cannot be displaced; a full cache leaves
+  the buffer with its transaction owner for release.
+- **Loam collection preparation** — `Store.prepareCollection` owns a bounded
+  array of live roots and historical edges plus one record-sized worker scratch
+  buffer. Backend tracing copies the current row there before writes invalidate
+  mapped borrows. Both allocations survive through commit-outcome recovery.
+  `Store.retain` uses the fixed registry allocated at Store initialization;
+  marks and pending trace entries occupy backend storage, not actor residency.

@@ -37,3 +37,24 @@ pub const canonicalHandoffReceiveViewSignedBytes = canonical.canonicalHandoffRec
 pub const handoffGiveRecordBytesRawLocation = canonical.handoffGiveRecordBytesRawLocation;
 pub const wrapSignedHandoffGive = canonical.wrapSignedHandoffGive;
 pub const encodePeerLocatorRecord = signing.encodePeerLocatorRecord;
+
+/// Checked syntax shared by application and storage record grammars. These
+/// primitives encode/decode values without interpreting CapTP messages.
+pub const RecordSyntax = struct {
+    const syntax = @import("decode/syntax.zig");
+    const scalar = @import("scalar.zig");
+    pub const readByte = syntax.readByte;
+    pub const readSymbol = syntax.readSymbol;
+    pub const readPositiveInt = syntax.readPositiveInt;
+    pub const readBytesLimited = syntax.readBytesLimited;
+    pub const readBool = syntax.readBool;
+    pub const expectEnd = syntax.expectEnd;
+    pub const beginRecord = scalar.beginRecord;
+    pub const endRecord = scalar.endRecord;
+    pub const beginList = scalar.beginList;
+    pub const endList = scalar.endList;
+    pub const writeSymbol = scalar.writeSymbol;
+    pub const writePositiveInt = scalar.writePositiveInt;
+    pub const writeBytes = scalar.writeBytes;
+    pub const writeBool = scalar.writeBool;
+};

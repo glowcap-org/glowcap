@@ -8,6 +8,8 @@ use std::{
 	path::PathBuf,
 };
 pub mod atomic;
+#[cfg(test)]
+mod tests;
 #[derive(Debug)]
 pub enum StorageError {
 	Io(io::Error),
@@ -106,21 +108,22 @@ impl Directory {
 				StorageError::Io(error)
 			}
 		})?;
+		let owner = Self {
+			path,
+			directory,
+			_lock: lock,
+		};
 		// The lease is held, so a staging file still here belongs to an
 		// incarnation that died mid-replacement; its document was never renamed
 		// into place and it is nothing but debris.
-		for entry in fs::read_dir(&path)? {
+		for entry in fs::read_dir(&owner.path)? {
 			let entry = entry?;
 			let name = entry.file_name();
 			if atomic::is_staged(&name) && entry.file_type()?.is_file() {
 				fs::remove_file(entry.path())?;
 			}
 		}
-		Ok(Self {
-			path,
-			directory,
-			_lock: lock,
-		})
+		Ok(owner)
 	}
 
 	pub fn path(&self) -> &std::path::Path {
@@ -129,6 +132,17 @@ impl Directory {
 
 	pub fn sync(&self) -> io::Result<()> {
 		self.directory.sync_all()
+	}
+}
+
+impl Drop for Directory {
+	fn drop(&mut self) {
+		// A child can inherit this open-file description until exec closes it.
+		// Release the lease when its last worker finishes, rather than waiting
+		// for every inherited descriptor to close. File drop remains the fallback.
+		if let Err(error) = self._lock.unlock() {
+			eprintln!("rooms: releasing state directory {}: {error}", self.path.display());
+		}
 	}
 }
 

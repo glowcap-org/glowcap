@@ -11,7 +11,7 @@ use super::{
 use alloc::{string::String, vec::Vec};
 pub mod metadata;
 pub mod queue;
-use metadata::{Facts, Presence};
+use metadata::{Facts, Metadata, Presence};
 
 pub use crate::protocol_data::{
 	MEMBERSHIP_ENDED as ENDED, NOTIFY, ROOM_AUTHORITY_CHANGED as AUTHORITY_CHANGED,
@@ -87,8 +87,7 @@ pub fn nick_refusal(nick: &str) -> Option<alloc::string::String> {
 pub struct Message<T, C> {
 	pub from: T,
 	pub text: T,
-	pub presence: Option<Presence<T>>,
-	pub facts: Option<Facts<T>>,
+	pub metadata: Option<Metadata<T>>,
 	pub marker: Option<LineMarker>,
 	pub previews: crate::open_graph::Selection,
 	pub attachments: Vec<Attachment<C>>,
@@ -98,16 +97,32 @@ impl<T, C> Message<T, C> {
 		Message {
 			from: f(self.from),
 			text: f(self.text),
-			presence: self.presence.map(|p| p.map(&mut f)),
-			facts: self.facts.map(|p| p.map(f)),
+			metadata: self.metadata.map(|value| value.map(f)),
 			marker: self.marker,
 			previews: self.previews,
 			attachments: self.attachments,
 		}
 	}
 	pub fn arrived(&self) -> bool {
-		self.facts.as_ref().is_some_and(|f| f.listed.is_some())
-			|| matches!(self.presence, Some(Presence::Roster { .. }))
+		self.facts().is_some_and(|f| f.listed.is_some()) || matches!(self.presence(), Some(Presence::Roster { .. }))
+	}
+	pub fn presence(&self) -> Option<&Presence<T>> {
+		match &self.metadata {
+			Some(Metadata::Presence(value)) => Some(value),
+			_ => None,
+		}
+	}
+	pub fn facts(&self) -> Option<&Facts<T>> {
+		match &self.metadata {
+			Some(Metadata::Facts(value)) => Some(value),
+			_ => None,
+		}
+	}
+	pub fn local_request(&self) -> Option<u64> {
+		match self.metadata {
+			Some(Metadata::Receipt(request)) => Some(request),
+			_ => None,
+		}
 	}
 }
 impl<C> Message<&str, C> {
@@ -185,11 +200,10 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 		_ => {
 			let from = text(0).filter(|s| *s == ROOM || valid_nick(s)).ok_or(Refusal::Line)?;
 			let text = text(1).filter(|s| s.len() <= MAX_LINE_BYTES).ok_or(Refusal::Line)?;
-			let facts = metadata::facts(args);
-			let presence = metadata::presence(args);
+			let metadata = metadata::read(args);
 			if text.is_empty()
-				&& presence.is_none()
-				&& let Some(listed) = facts.as_ref().and_then(|f| f.listed)
+				&& let Some(Metadata::Facts(facts)) = &metadata
+				&& let Some(listed) = facts.listed
 			{
 				return Ok(Notice::Occupancy {
 					listed,
@@ -202,8 +216,7 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 			Ok(Notice::Line(Message {
 				from,
 				text,
-				presence,
-				facts,
+				metadata,
 				marker,
 				previews,
 				attachments,

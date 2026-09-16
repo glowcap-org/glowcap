@@ -160,7 +160,7 @@ export function KitchenSink() {
 			</Sample>
 			<Sample
 				label="A question"
-				note="Label, control, sentence, refusal, on one rhythm. Beside a field, the act stands level with the control at the field height. On a phone it drops under it. Inline lays a short list of knobs on one name column."
+				note="Label, refusal, control, sentence, on one rhythm: what you must act on stands over the box, what only informs sits under it. Beside a field, the act stands level with the control at the field height. On a phone it drops under it. Inline lays a short list of knobs on one name column."
 			>
 				<div className="kitchen-stack">
 					<Field id="kitchenFieldPlain" label="Display name" hint="Shown beside what you say.">

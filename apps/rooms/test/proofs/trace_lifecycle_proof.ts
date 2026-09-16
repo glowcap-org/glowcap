@@ -525,7 +525,7 @@ try {
 		"the room line travelled on the room sessions",
 		(p) => {
 			const since = p.messages.slice(beforeRoom);
-			return since.some((m) => m.op === "post" && m.session === roomEdge1) &&
+			return since.some((m) => m.op === "postRetained" && m.session === roomEdge1) &&
 				since.some((m) => m.op === "notify" && m.session === roomEdge2);
 		},
 	);

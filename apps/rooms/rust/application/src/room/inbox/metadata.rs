@@ -11,6 +11,30 @@ pub const MAX_SEAT_PREFIX: usize = 12;
 pub const MAX_SEAT_BADGE: usize = 12;
 pub const MAX_SEAT_SAID: usize = 120;
 
+/// A notification has one metadata tag. Local receipt correlation occupies
+/// the same slot, keeping mutually exclusive details out of ordinary lines.
+#[derive(Debug)]
+pub enum Metadata<T> {
+	Presence(Presence<T>),
+	Facts(Facts<T>),
+	Receipt(u64),
+}
+impl<T> Metadata<T> {
+	pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Metadata<U> {
+		match self {
+			Self::Presence(value) => Metadata::Presence(value.map(f)),
+			Self::Facts(value) => Metadata::Facts(value.map(&mut f)),
+			Self::Receipt(request) => Metadata::Receipt(request),
+		}
+	}
+}
+
+pub(super) fn read<A: ArgumentView>(args: &[A]) -> Option<Metadata<&str>> {
+	presence(args)
+		.map(Metadata::Presence)
+		.or_else(|| facts(args).map(Metadata::Facts))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Presence<T> {

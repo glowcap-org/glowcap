@@ -16,7 +16,7 @@ pub fn register(
     optimize: std.builtin.OptimizeMode,
     lib_mod: *std.Build.Module,
     check_step: *std.Build.Step,
-    runtime_gate: *execution.SerialGate,
+    runtime_gate: *execution.RuntimeGate,
     pin_port: ?u16,
     attach: bool,
     demo_usage_mod: *std.Build.Module,

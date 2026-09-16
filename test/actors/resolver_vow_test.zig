@@ -103,31 +103,26 @@ test "unminted local vows cannot capture a future operation's listener" {
     try std.testing.expectError(error.AlreadySettled, vat.on(real.vow, listener));
 }
 
-test "resolver fulfillment OOM leaves the same settle authority retryable" {
-    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var vat = actors.Vat.init(failing.allocator());
-    defer {
+test "resolver fulfillment and break OOM preserve the same settle authority" {
+    inline for (.{ false, true }) |breaking| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var vat = actors.Vat.init(failing.allocator());
+        defer {
+            failing.fail_index = std.math.maxInt(usize);
+            vat.deinit();
+        }
+        const pair = try vat.spawnVow();
+        var captured = Capture{};
+        try vat.on(pair.vow, .{ .ctx = &captured, .func = Capture.listener });
+        failing.fail_index = failing.alloc_index;
+        const refused = if (breaking) vat.breakVow(pair.resolver, "retryable") else vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" });
+        try std.testing.expectError(error.OutOfMemory, refused);
+        try std.testing.expect(!captured.fulfilled and !captured.broke);
         failing.fail_index = std.math.maxInt(usize);
-        vat.deinit();
+        if (breaking) try vat.breakVow(pair.resolver, "retryable") else try vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" });
+        try std.testing.expect(if (breaking) captured.broke else captured.fulfilled);
+        try std.testing.expectEqualStrings("retryable", captured.buf[0..captured.len]);
     }
-
-    const pair = try vat.spawnVow();
-    var captured = Capture{};
-    try vat.on(pair.vow, .{ .ctx = &captured, .func = Capture.listener });
-
-    // Fulfilled bytes need an owned settle-arena copy before the listener can
-    // run. Refusing that allocation must consume neither side of the pair.
-    failing.fail_index = failing.alloc_index;
-    try std.testing.expectError(
-        error.OutOfMemory,
-        vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" }),
-    );
-    try std.testing.expect(!captured.fulfilled);
-
-    failing.fail_index = std.math.maxInt(usize);
-    try vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" });
-    try std.testing.expect(captured.fulfilled);
-    try std.testing.expectEqualStrings("retryable", captured.buf[0..captured.len]);
 }
 
 test "breakVow fires the listener broken with the caller's reason, borrowed" {

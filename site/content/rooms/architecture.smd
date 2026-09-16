@@ -58,6 +58,21 @@ has to be checked against the outside world. A process reads both before it
 says it is ready, so it never claims a clean start while an earlier write,
 registration, or announcement is still unknown.
 
+# Why Rust
+
+To exercise a binding. Rooms is a working chat application built from Rust on
+glowcap's C ABI, so a product carries that ABI and not only examples. Zig
+could have done everything Rooms does, and would have needed neither the C ABI
+nor the WebAssembly boundary to do it. Using them is the point.
+
+The [move off TypeScript](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
+tightened two things. The crate holding the rules is `no_std`, so it cannot
+reach a file or a socket by importing the standard library, and the services
+ship as binaries with no runtime to install.
+
+It costs bundle size and build time, and typed commands are copied where the
+page meets WebAssembly.
+
 # How the code is divided
 
 [The browser and the server both stand on one shared runtime. Under it, one crate holds the rules and one holds the glowcap clients, which stand on the glowcap protocol core. Only the two top crates and the platform crate touch a browser or an operating system.]($image.siteAsset('diagram-rooms-layers.svg'))

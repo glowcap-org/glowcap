@@ -1,7 +1,8 @@
 # Vision
 
-glowcap should be a dependable OCapN implementation for people who need
-capability networking from Zig or another systems boundary.
+glowcap should be a dependable foundation for capability applications from Zig
+or another systems boundary. OCapN networking, actors, and persistence should
+compose through explicit ownership and usable application APIs.
 
 [What ships](shipped.md) describes the code today; [the roadmap](roadmap.md)
 names the work between here and that destination.
@@ -67,6 +68,26 @@ awkward in its host language is a reason to improve the shared boundary.
 Higher-level actor support belongs above the protocol engine. Applications may
 use it, replace it, or work directly with the session API; the protocol core
 should not grow framework policy to serve one runtime.
+
+## Durable capability applications
+
+Loam is the persistence foundation within glowcap. Applications should
+be able to store objects containing capabilities, retain their exact authority,
+and restore them after restart without building their own reference database.
+Bounded residency lets a durable graph grow beyond memory. Sleepy actors use
+the existing Vat and Host while their eligible behavior state leaves RAM.
+
+Loam includes resource access lifecycle management through its managed access extension.
+Managed access supplies scopes, grants, delegation, editable facets, pause/revoke, and
+authorized observation. Applications define their domain operations and content.
+Ordinary objects require no resource-management state, and both kinds can
+participate in the same persistence transaction.
+
+The [Loam design](planning/loam/architecture.md) owns that destination. The
+current [record storage and resource primitives](shipped.md#resource-models)
+implement part of it. Database I/O remains optional, local persistence needs no active network,
+and plain networking incurs no store or grant-state allocation. Durable graph
+size, resident actor count, and live session count have separate budgets.
 
 ## Reachability
 

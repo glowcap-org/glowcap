@@ -108,3 +108,11 @@ SuperHTML under `third_party/site-build/`. They are used only by the Zine site
 generator. Both packages are MIT licensed; their full notices are in
 `third_party/site-build/translate-c/LICENSE` and
 `third_party/site-build/superhtml/LICENSE`.
+
+## `third_party/lmdb/`
+
+Loam's optional native backend vendors LMDB 0.9.36 from the OpenLDAP project,
+commit `028f61b6832032174f893484719ed4848d8d60db`.
+The OpenLDAP Public License and copyright notice are included in
+`third_party/lmdb/LICENSE` and `third_party/lmdb/COPYRIGHT`.
+The library sources are unmodified; glowcap's adapter lives under `src/loam/`.

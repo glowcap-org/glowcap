@@ -47,7 +47,7 @@ impl Source for File {
 	fn description(&self) -> &FileDescription {
 		&self.description
 	}
-	async fn read(&self, offset: u64, maximum: usize) -> Result<Chunk, String> {
+	async fn read(&self, offset: u64, maximum: usize) -> Result<Chunk, rooms_runtime::Error> {
 		assert!(maximum <= CHUNK_BYTES);
 		Ok((offset..offset + maximum as u64)
 			.map(|n| (n % 251) as u8)

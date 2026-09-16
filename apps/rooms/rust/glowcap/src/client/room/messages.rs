@@ -12,6 +12,7 @@ use std::{
 
 pub(super) struct Delivery {
 	pub queue: Queue<Ref>,
+	pub pending: super::receipts::Pending,
 	pub waiter: Option<Waker>,
 }
 pub(super) type Shared = Rc<RefCell<Delivery>>;
@@ -43,6 +44,7 @@ pub(super) fn close(shared: &Shared) {
 	let waker = {
 		let mut d = shared.borrow_mut();
 		d.queue.close();
+		d.pending.clear();
 		d.waiter.take()
 	};
 	if let Some(waker) = waker {

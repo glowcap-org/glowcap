@@ -13,8 +13,8 @@ Every Rooms command is a `zig build` step. The ones a developer reaches for:
 | Command | Does | Needs |
 | --- | --- | --- |
 | `zig build rooms-web` | Builds the services and the page, serves the page; `-Dtransport=tcp` or `onion`, `-Dport=`, server flags after `--` | Cargo, Deno; Tor for `onion` |
-| `zig build rooms-dev` | `rooms-web` with every operator capability minted and state under `.local/.state/rooms` | Cargo, Deno |
-| `zig build rooms-server-test` | The in-tree server and page contract tests (part of `runtime-check`) | Deno |
+| `zig build rooms-dev` | React Fast Refresh by default; `-Dhot-reload=false` serves compiled generations natively. Both mint every operator capability and keep state under `.local/.state/rooms` | Cargo, Deno |
+| `zig build rooms-server-test` | The native server, production bundle, Vite configuration, and development lifecycle contracts (part of `runtime-check`) | Cargo, Deno |
 | `zig build rooms-rust-test` | The Rust application contracts (part of `runtime-check`) | Cargo |
 | `zig build rooms-peers-test` | The archive, session, and room server as installed processes: identity, restart, and signals (part of `runtime-check`) | Cargo |
 | `zig build rooms-terminal-client-test` | The Zig, Rust, Python, and Racket client contracts | Cargo, Python, Racket |
@@ -27,6 +27,54 @@ Every Rooms command is a `zig build` step. The ones a developer reaches for:
 [`docs/build-steps.md`](../../docs/build-steps.md) documents every step,
 including which ride `zig build check`, `runtime-check`, or `check-external`.
 The devcontainer image carries the Chromium the browser proofs use.
+
+### Browser compiler boundary
+
+`web/compiler.json` selects the production Deno invocation. Its `args` are
+passed directly to Deno from `web/`, with `{outdir}` replaced by the publisher's
+empty temporary directory. Its `inputs` list additional files that affect
+compilation, including any helpers imported by the compiler configuration.
+The recipe, those files, `deno.json`, and the lockfile participate in source
+identity alongside the application sources and assets.
+
+The compiler must emit `page.js` and its minified ESM chunks as sibling files.
+Static and literal dynamic imports must resolve within that output. Browser
+journeys exercise runtime-computed imports that inspection cannot resolve.
+The native publisher adds the page, CSS, fonts, Wasm, and revision metadata, then publishes the complete
+generation atomically. It also owns compiler cancellation and the build
+deadline. A bundler change therefore leaves serving and deployment intact.
+
+The shared source entry `ui/page.js` gives both Vite and Deno the required
+output name. To try `deno bundle`, replace the recipe with:
+
+```json
+{
+  "args": ["bundle", "--config", "deno.json", "--platform", "browser", "--minify", "--code-splitting", "--outdir", "{outdir}", "ui/page.js"],
+  "inputs": []
+}
+```
+
+`zig build rooms-server-test` applies the same publication and payload checks
+to the selected compiler and an isolated Deno build with Vite's dependencies
+removed. `zig build rooms-web-page` exercises the selected output in Chromium.
+
+Development can already use native generation serving:
+
+```sh
+zig build rooms-dev -Dhot-reload=false
+```
+
+That path keeps the same state, operator grants, transport, and build
+dependencies. It recompiles changed sources on requests and uses page reloads
+instead of React Fast Refresh. Production compiler selection stays in the
+recipe, independently of which development front serves the page.
+
+Removing Vite entirely means retaining this native launch in
+`tools/build/rooms/browser_front.zig`, deleting the Vite launch and `web/dev.ts`
+supervisor with their tests, and removing `web/vite.config.ts` and the Vite
+imports from `web/deno.json`. Update the app's check task and regenerate its
+lockfile after removing those imports. Publication, deployment, and the
+compiler-independent payload tests remain in place.
 
 ## Running the pieces by hand
 
@@ -75,6 +123,14 @@ replaced before it becomes a peer, and browsers withhold APIs Rooms needs
 there, so the page refuses that origin and says so. On a Tailscale host,
 `tailscale serve --bg 8000` gives the page an HTTPS name inside the tailnet.
 Beyond a trusted LAN, use iroh.
+
+The Vite dev server behind `zig build rooms-dev` answers to a tailnet name
+too. It checks the Host header and, on its own, allows an address or
+`localhost`; any other name has to be listed. Names under `ts.net` are listed
+by default, so a MagicDNS name and `tailscale serve` both reach it.
+`GLOWCAP_ROOMS_DEV_ALLOWED_HOSTS` replaces that list with a comma-separated
+one of your own, and `GLOWCAP_ROOMS_DEV_HOST` is where it listens, which the
+devcontainer already sets to `0.0.0.0`.
 
 ### As an onion service
 
@@ -240,6 +296,9 @@ composer clears.
 | `rust/browser/` | The Wasm application: session controllers, storage, signaling, transport |
 | `rust/proofs/` | The application contracts replayed from fixtures, natively and in Wasm |
 | `web/ui/` | The browser page: React components, the store, the session projection |
+| `web/compiler.json` | The production compiler invocation and additional source-identity inputs |
+| `web/deno.json`, `web/vite.config.ts` | The pinned browser toolchain and Vite configuration |
+| `web/dev.ts` | The internal process owner called by `zig build rooms-dev` |
 | `web/deploy/` | The Compose deployment and its `ops` front |
 | `lib/` | The Rooms protocol as TypeScript, for the Deno client, the demos, and the tests |
 | `lib/text/` | Every sentence the page shows a reader |

@@ -3,6 +3,7 @@
 //! opaque transport traffic for browsers.
 mod assets;
 mod bundle;
+mod compiler;
 mod config;
 mod http;
 mod ice;
@@ -18,6 +19,7 @@ mod status;
 mod supervisor;
 mod tor;
 mod upgrade;
+use config::BrowserAssets;
 pub use config::{Config, HELP};
 pub use notice::{Notice, Report};
 pub use prepare::Preparation;
@@ -43,8 +45,7 @@ async fn serve(
 	let Config {
 		bind,
 		port,
-		root,
-		prepared,
+		browser_assets,
 		server,
 		server_args,
 		room,
@@ -58,11 +59,18 @@ async fn serve(
 		.await
 		.map_err(|e| format!("binding the HTTP listener failed: {e}"))?;
 	let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-	let root = tokio::fs::canonicalize(&root)
-		.await
-		.map_err(|e| format!("opening web assets failed: {e}"))?;
-	let Some(assets) = assets::Assets::open(root, prepared, stopping.clone(), report.clone()).await? else {
-		return Ok(());
+	let prepared = matches!(&browser_assets, BrowserAssets::Prepared(_));
+	let assets = match browser_assets {
+		BrowserAssets::Disabled => None,
+		BrowserAssets::Source(root) | BrowserAssets::Prepared(root) => {
+			let root = tokio::fs::canonicalize(&root)
+				.await
+				.map_err(|e| format!("opening web assets failed: {e}"))?;
+			let Some(assets) = assets::Assets::open(root, prepared, stopping.clone(), report.clone()).await? else {
+				return Ok(());
+			};
+			Some(assets)
+		}
 	};
 	let ice = ice::Policy::open(ice).await?;
 	let previews = preview::Preview::open().await?;
@@ -113,7 +121,9 @@ async fn serve(
 	let (jobs, incoming) = tokio::sync::mpsc::channel(32);
 	let relay = relay::Relay::new(limits, current.clone(), jobs, stopping.clone());
 	let mut workers = tokio::task::JoinSet::new();
-	workers.spawn_local(assets.clone().run());
+	if let Some(assets) = &assets {
+		workers.spawn_local(assets.clone().run());
+	}
 	workers.spawn_local(supervisor.run(location, stopping.clone()));
 	workers.spawn_local(http::serve(
 		listener,

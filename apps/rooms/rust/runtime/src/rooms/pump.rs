@@ -49,18 +49,17 @@ pub(super) async fn pump<P: Platform>(
 			Err(error) => break Some(error.to_string()),
 		};
 		let line_id = message.marker.map(|marker| marker.id.get());
-		let pending = {
+		let (pending, publication) = {
 			let mut state = shared.borrow_mut();
 			let Some(live) = state.rooms.get_mut(&id).filter(|live| live.epoch == epoch) else {
 				return;
 			};
-			rooms_application::session::room_view::apply(
-				&mut live.view,
-				message.presence.as_ref(),
-				message.facts.as_ref(),
-			);
-			take_own_said(&mut live.pending, &live.nick, &message).map(|(_, pending)| pending)
+			rooms_application::session::room_view::apply(&mut live.view, message.presence(), message.facts());
+			let pending = take_own_said(&mut live.pending, &live.nick, &message, live.room.supports_retained())
+				.map(|(_, pending)| pending);
+			(pending, live.file_batch.publication(message.marker))
 		};
+		publication.await;
 		let posted = match pending {
 			Some(super::PendingLine::Wait(rx)) => rx.await.ok().flatten(),
 			None => None,
@@ -186,13 +185,25 @@ pub(super) async fn pump<P: Platform>(
 		.await;
 }
 
-/// A send intent is reconciled only by this membership's fresh-line echo.
-/// Other members' lines and every mutation are authoritative room events, but
-/// none of them is the outcome of the local FIFO intent at the head.
-fn take_own_said<T, C>(pending: &mut VecDeque<T>, nick: &str, message: &Message<String, C>) -> Option<T> {
-	(message.from == nick && message.marker.is_some_and(|marker| marker.kind == ChangeKind::Said))
-		.then(|| pending.pop_front())
-		.flatten()
+/// Correlate receipts by request, even when asynchronous staging changes send
+/// order. Peers without receipts retain their original nickname/FIFO behavior.
+fn take_own_said<T, C>(
+	pending: &mut VecDeque<(u64, T)>,
+	nick: &str,
+	message: &Message<String, C>,
+	retained: bool,
+) -> Option<(u64, T)> {
+	if !message.marker.is_some_and(|marker| marker.kind == ChangeKind::Said) {
+		return None;
+	}
+	if let Some(request) = message.local_request() {
+		let index = pending.iter().position(|(id, _)| *id == request)?;
+		pending.remove(index)
+	} else if !retained && message.from == nick {
+		pending.pop_front()
+	} else {
+		None
+	}
 }
 
 #[cfg(test)]
@@ -202,10 +213,9 @@ mod tests {
 
 	fn message(from: &str, kind: ChangeKind, id: u64) -> Message<String, ()> {
 		Message {
+			metadata: None,
 			from: from.into(),
 			text: "line".into(),
-			presence: None,
-			facts: None,
 			marker: Some(LineMarker {
 				id: LineId::new(id).unwrap(),
 				kind,
@@ -216,21 +226,43 @@ mod tests {
 	}
 
 	#[test]
+	fn receipts_match_the_request_despite_staging_order_and_delegated_posts() {
+		let mut pending = VecDeque::from([(7, "staging files"), (8, "text authority")]);
+		let mut said = message("alice", ChangeKind::Said, 1);
+		assert_eq!(take_own_said(&mut pending, "alice", &said, true), None);
+		said.metadata = Some(rooms_application::room::inbox::metadata::Metadata::Receipt(8));
+		assert_eq!(
+			take_own_said(&mut pending, "alice", &said, true),
+			Some((8, "text authority"))
+		);
+		assert_eq!(take_own_said(&mut pending, "alice", &said, true), None);
+		said.metadata = Some(rooms_application::room::inbox::metadata::Metadata::Receipt(7));
+		said.marker.as_mut().unwrap().kind = ChangeKind::Edited;
+		assert_eq!(take_own_said(&mut pending, "alice", &said, true), None);
+		said.marker.as_mut().unwrap().kind = ChangeKind::Said;
+		assert_eq!(
+			take_own_said(&mut pending, "alice", &said, true),
+			Some((7, "staging files"))
+		);
+		assert!(pending.is_empty());
+	}
+
+	#[test]
 	fn peer_lines_and_mutations_do_not_steal_a_local_send_intent() {
-		let mut pending = VecDeque::from(["local authority"]);
+		let mut pending = VecDeque::from([(7, "local authority")]);
 
 		assert_eq!(
-			take_own_said(&mut pending, "alice", &message("bob", ChangeKind::Said, 1)),
+			take_own_said(&mut pending, "alice", &message("bob", ChangeKind::Said, 1), false),
 			None
 		);
 		assert_eq!(
-			take_own_said(&mut pending, "alice", &message("alice", ChangeKind::Edited, 2)),
+			take_own_said(&mut pending, "alice", &message("alice", ChangeKind::Edited, 2), false),
 			None
 		);
 		assert_eq!(pending.len(), 1);
 		assert_eq!(
-			take_own_said(&mut pending, "alice", &message("alice", ChangeKind::Said, 3)),
-			Some("local authority")
+			take_own_said(&mut pending, "alice", &message("alice", ChangeKind::Said, 3), false),
+			Some((7, "local authority"))
 		);
 	}
 }

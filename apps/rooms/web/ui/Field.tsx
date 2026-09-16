@@ -1,5 +1,10 @@
-// One question on a form: its written label, the sentence that qualifies it,
-// the control that answers it, and the refusal that answer may have met.
+// One question on a form: its written label, the refusal its answer met, the
+// control that answers it, and the sentence that qualifies it.
+//
+// Above the control goes what the reader must act on, below it what only
+// informs; the README beside this file argues why. Every field-level refusal
+// on the page comes through here, so this one return is where that order
+// lives.
 //
 // The control is the caller's, because a field is a text input on one line, a
 // select on the next, a textarea or a file picker on the one after, and each
@@ -33,10 +38,12 @@ export function Field(
 		label: ReactNode;
 		/** Said beside the label for a question that may go unanswered. */
 		optional?: string;
-		/** The sentence under the label, before the control. */
+		/** The sentence under the control. */
 		hint?: ReactNode;
-		/** The refusal the answer met, or empty while it has not. */
-		said?: string;
+		/** The refusal the answer met, drawn above the control, or empty while
+		 * it has not met one. It takes a node because a refusal may carry the
+		 * way out with it, such as the name to use instead. */
+		said?: ReactNode;
 		layout?: "stack" | "inline";
 		/** How long an answer this expects, said by the box: a port or a count is
 		 * short, an address is medium, and prose takes the whole line. */
@@ -47,8 +54,9 @@ export function Field(
 ) {
 	const hintId = hint === undefined ? undefined : `${id}Hint`;
 	const saidId = `${id}Said`;
-	const refused = said !== undefined && said !== "";
-	const describedBy = [hintId, refused ? saidId : undefined].filter(Boolean).join(" ") || undefined;
+	const refused = said != null && said !== "";
+	// Announced in the order they are seen.
+	const describedBy = [refused ? saidId : undefined, hintId].filter(Boolean).join(" ") || undefined;
 	return (
 		<div
 			className="field-stack"
@@ -59,9 +67,9 @@ export function Field(
 				{label}
 				{optional !== undefined && <span className="optional">{optional}</span>}
 			</label>
+			{refused && <Said id={saidId} kind="failure">{said}</Said>}
 			{children({ id, describedBy, invalid: refused ? true : undefined })}
 			{hint !== undefined && <p className="hint" id={hintId}>{hint}</p>}
-			{refused && <Said id={saidId} kind="failure">{said}</Said>}
 		</div>
 	);
 }

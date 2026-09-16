@@ -84,5 +84,5 @@ jobs:
       - name: Check host-side infrastructure on macOS
         run: zig build infrastructure-check --test-timeout 30s --summary all
 
-      - name: Run the Zig test suite on macOS
-        run: zig build test --test-timeout 30s -j4 --summary all
+      - name: Run Zig and native Loam storage tests on macOS
+        run: zig build test loam-lmdb-test --test-timeout 30s -j4 --summary all

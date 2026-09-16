@@ -30,6 +30,7 @@
 //! Wired as the `zig build arch-check` step and into `zig build check`.
 
 const std = @import("std");
+const arch_std = @import("arch_std.zig");
 const Build = std.Build;
 const Step = Build.Step;
 
@@ -79,6 +80,12 @@ pub fn create(b: *Build, table: []const LayerSpec) *Step {
     main_mod.addImport("arch_check_table", table_mod);
     const exe = b.addExecutable(.{ .name = "arch-check-tool", .root_module = main_mod });
     const run = b.addRunArtifact(exe);
+    const tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/check/arch_std.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    }) });
+    run.step.dependOn(&b.addRunArtifact(tests).step);
     run.addArg(b.root.toString(b.allocator) catch @panic("OOM"));
     return &run.step;
 }
@@ -179,12 +186,18 @@ pub fn check(
         // not reach a socket or the filesystem directly — `std.net` and
         // `std.fs.File` are I/O the adapters own, so a core layer touching them
         // is the same boundary violation by another name.
-        for ([_][]const u8{ "std.Io", "std.net", "std.fs.File" }) |needle| {
-            if (spec.core and std.mem.indexOf(u8, contents, needle) != null) {
+        const standard = try arch_std.inspect(gpa, contents);
+        const effects = [_]struct { name: []const u8, used: bool }{
+            .{ .name = "std.Io", .used = standard.io },
+            .{ .name = "std.net", .used = standard.net },
+            .{ .name = "std.fs.File", .used = standard.file },
+        };
+        for (effects) |effect| {
+            if (spec.core and effect.used) {
                 try violations.append(gpa, try std.fmt.allocPrint(
                     gpa,
                     "{s}: core layer '{s}' references {s} — the core stays sync and no-I/O",
-                    .{ file_path, spec.name, needle },
+                    .{ file_path, spec.name, effect.name },
                 ));
             }
         }
@@ -201,14 +214,14 @@ pub fn check(
         // Thread still fails loud. (The engine's GiftRegistry carries no lock;
         // ADR-0056 deleted the prior spinlock, so no atomic is sanctioned there.)
         const allows_thread_id = std.mem.endsWith(u8, file_path, "driver/core/host/admission.zig");
-        if (spec.core and !allows_thread_id and std.mem.indexOf(u8, contents, "std.Thread") != null) {
+        if (spec.core and !allows_thread_id and standard.thread) {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
                 "{s}: core layer '{s}' references std.Thread — the core owns no threads or scheduler",
                 .{ file_path, spec.name },
             ));
         }
-        if (spec.core and std.mem.indexOf(u8, contents, "std.atomic") != null) {
+        if (spec.core and standard.atomic) {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
                 "{s}: core layer '{s}' references std.atomic — concurrency primitives belong in adapters",
@@ -283,10 +296,7 @@ pub fn check(
             std.mem.endsWith(u8, file_path, "net/completion/socket_tcp.zig") or
             std.mem.endsWith(u8, file_path, "net/wake_channel.zig") or
             std.mem.endsWith(u8, file_path, "net/readiness.zig");
-        if (!platform_gated and
-            (std.mem.indexOf(u8, contents, "std.os.linux") != null or
-                std.mem.indexOf(u8, contents, "std.os.windows") != null))
-        {
+        if (!platform_gated and (standard.linux or standard.windows)) {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
                 "{s}: names a platform syscall namespace (std.os.linux / std.os.windows) — portable code uses std.posix; platform-gated backends are allowlisted in tools/check/arch_check.zig",

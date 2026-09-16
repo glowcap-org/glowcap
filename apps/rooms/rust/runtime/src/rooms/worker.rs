@@ -246,7 +246,6 @@ impl<P: Platform> RoomWorker<P> {
 							bridge_pending: None,
 							applied_bridge: None,
 							pending: Default::default(),
-							next_pending: 0,
 							posted: HashMap::new(),
 							resync: false,
 							file_batch: Default::default(),

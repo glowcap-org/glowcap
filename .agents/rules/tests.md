@@ -99,8 +99,13 @@ both, including the escapes that shaped it.
 - `test/engine`: `Peer` dispatch, ownership, events, outbound drain.
 - `test/actors`: `Vat` turn loop, actor wire hosting over the engine, and local
   time-travel (snapshot/restore, copy-on-write, functional `become`).
-- `test/persistent`: the persistent immutable map — structural sharing across
-  versions, refcount correctness, and leak-freedom.
+- `test/loam`: the Zig storage and managed access contracts. `core` covers
+  records, transactions, leases, and allocation failures; `collections` covers
+  immutable maps; `access` covers resource graphs and grant authority. Native
+  LMDB tests use a separate module. `hosting` covers record-backed actors,
+  lazy capability edges, pressure, and internal CapTP delivery. Record and actor
+  process-kill proofs belong to `runtime-check`; they establish no external
+  interoperability or power-loss guarantee.
 - `test/net`: stream framing, connection pump, TCP, and completion loop.
 - `test/driver`: driver loopback — the owning `connect` / `listen` halves and
   the buffer-explicit `connectTcp` / `acceptTcp` halves, plus the application

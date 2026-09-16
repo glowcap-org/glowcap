@@ -15,6 +15,7 @@
     "@glowcap/web": "./bindings/ts/web/mod.ts",
     "@glowcap/webrtc": "./bindings/ts/webrtc/mod.ts",
     "playwright": "npm:playwright@1.63.0",
+    "es-module-lexer": "npm:es-module-lexer@3.0.2/minimal",
     "react": "npm:react@19.3.0",
     "react/jsx-runtime": "npm:react@19.3.0/jsx-runtime",
     "react-dom": "npm:react-dom@19.3.0",
@@ -40,35 +41,17 @@
   // viewer's own code. It is therefore one version with two homes, and
   // `zig build source-check` (`checkSharedNpmPins`) is what keeps the two in step
   // rather than a reader remembering to.
-  // The rooms browser page is the one TypeScript here that is JSX, and Deno reads
-  // compilerOptions only from the root config of a scope, so its transform is
-  // declared here. It applies to .tsx files alone, and this is the only
-  // directory that has any.
+  // Root-scope Rooms tests import the browser's TSX modules, so their transform
+  // remains available to that test graph even though the browser has its own
+  // Deno scope.
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "jsxImportSourceTypes": "npm:@types/react@19.3.0"
   },
-  // ocapnviz is its own Deno scope: its imports resolve through its own
-  // deno.json, not this one, and its checks run through its own tasks. The
-  // top-level exclude keeps every root-scope walk (check, lint, fmt) out.
-  "exclude": ["apps/ocapnviz"],
-  // Deno's recommended set carries most of the JSX rules already. The three
-  // below are tagged `react` and left out of it, and the first is the one that
-  // matters: `react-rules-of-hooks` is what catches a hook behind a condition,
-  // inside a loop, or outside a component. Those do not fail a type-check and
-  // do not fail a render — they corrupt the hook order and surface later as
-  // state belonging to the wrong call, which is among the hardest defects in a
-  // React codebase to read backwards from. The rooms page is the only React in
-  // this scope, and it is large enough to need the rule.
-  //
-  // The two `danger` rules are cheap insurance on a surface that renders text
-  // other people wrote.
-  "lint": {
-    "rules": {
-      "include": ["react-rules-of-hooks", "react-no-danger", "react-no-danger-with-children"]
-    }
-  },
+  // Each browser app owns its Deno configuration and checks. Keep root walks
+  // out so focused and aggregate checks do not lint and format them twice.
+  "exclude": ["apps/ocapnviz", "apps/rooms/web"],
   "fmt": {
     "lineWidth": 120,
     "semiColons": true,

@@ -14,6 +14,7 @@ import {
 	kitchenTryPictureAgain,
 } from "../../lib/text/kitchen.ts";
 import { CrashCard } from "./ErrorBoundary.tsx";
+import { Field } from "./Field.tsx";
 import { Icon } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
 import { useRoomsBrowser } from "./controller/browser.ts";
@@ -69,34 +70,42 @@ export function KitchenAnswers() {
 			>
 				<div className="kitchen-stack">
 					<p className="kitchen-note">A field that would not take the value</p>
-					<label className="group-label" htmlFor="kitchenInvalid">Display name</label>
-					<input
+					<Field
 						id="kitchenInvalid"
-						className="field"
-						readOnly
-						value="a name that will not fit"
-						aria-invalid="true"
-						aria-describedby="kitchenInvalidWhy"
-					/>
-					<Said id="kitchenInvalidWhy" kind="failure">
-						That name is too long for this room (32 characters).
-					</Said>
+						label="Display name"
+						said="That name is too long for this room (32 characters)."
+					>
+						{({ id, describedBy, invalid }) => (
+							<input
+								id={id}
+								className="field"
+								readOnly
+								value="a name that will not fit"
+								aria-invalid={invalid}
+								aria-describedby={describedBy}
+							/>
+						)}
+					</Field>
 				</div>
 				<div className="kitchen-stack">
 					<p className="kitchen-note">A reason too long to keep beside the field</p>
-					<label className="group-label" htmlFor="kitchenLong">Locator</label>
-					<input
+					<Field
 						id="kitchenLong"
-						className="field"
-						readOnly
-						value="ocapn://…"
-						aria-invalid="true"
-						aria-describedby="kitchenLongWhy"
-					/>
-					<Said id="kitchenLongWhy" kind="failure">
-						{"Could not reach ocapn://abcdefghijklmnopqrstuvwxyz0123456789.onion/s/" +
+						label="Locator"
+						said={"Could not reach ocapn://abcdefghijklmnopqrstuvwxyz0123456789.onion/s/" +
 							"unreachableswissnum: the peer closed the session before the handshake finished."}
-					</Said>
+					>
+						{({ id, describedBy, invalid }) => (
+							<input
+								id={id}
+								className="field"
+								readOnly
+								value="ocapn://…"
+								aria-invalid={invalid}
+								aria-describedby={describedBy}
+							/>
+						)}
+					</Field>
 				</div>
 				<div className="kitchen-stack">
 					<p className="kitchen-note">A standing condition on a control that stays</p>

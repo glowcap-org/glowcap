@@ -69,6 +69,15 @@ you can test it without a host runtime.
 > turn and returns a promise. That is also the only way to call across a
 > session.
 
+# Why Zig
+
+Memory control. An allocator is an argument in Zig, so nothing allocates
+without one being passed in, and there is no collector deciding when to run.
+[Performance]($link.page('performance')) publishes what glowcap costs.
+
+The compiler does not prove memory safety in exchange, so glowcap owes that in
+tests: leak checks, allocation budgets, and fuzzing on untrusted input.
+
 # Public entry points
 
 [Choose an API]($link.page('surfaces')) compares the entry points available to

@@ -33,8 +33,14 @@ impl Fixture {
 		fs::write(root.join("../../../ui/fonts/OFL.txt"), "fixture font license").unwrap();
 		fs::write(root.join("ui/main.tsx"), "// a source input\n").unwrap();
 		fs::write(root.join("ui/page.html"), "<!doctype html><title>Test</title>").unwrap();
-		fs::write(root.join("browser-bundle.json"), "{}").unwrap();
+		fs::write(root.join("deno.json"), "{}").unwrap();
 		fs::write(root.join("deno.lock"), "{}").unwrap();
+		fs::write(
+			root.join("compiler.json"),
+			r#"{"args":["fixture","--destination","{outdir}"],"inputs":["compiler-input.txt"]}"#,
+		)
+		.unwrap();
+		fs::write(root.join("compiler-input.txt"), "fixture compiler input\n").unwrap();
 		for name in ["rooms_browser.js", "rooms_browser.d.ts", "rooms_browser_bg.wasm"] {
 			fs::write(root.join("../../../zig-out/wasm/rooms").join(name), b"\0asm\x01\0\0\0").unwrap();
 		}
@@ -102,10 +108,11 @@ while True: signal.pause()
 }
 const COMPILER: &str = r#"import json, os, pathlib, signal, sys
 root = pathlib.Path(os.environ['GLOWCAP_ROOMS_TEST_FIXTURE'])
-out = pathlib.Path(sys.argv[sys.argv.index('--outdir') + 1])
+assert sys.argv[1:3] == ['fixture', '--destination'], sys.argv
+out = pathlib.Path(sys.argv[3])
 if os.environ.get('GLOWCAP_ROOMS_TEST_FIRST_BUILD') == '1' and not (root / 'built').exists():
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'main.js').write_text('// complete fixture artifact\n')
+    (out / 'page.js').write_text('// complete fixture artifact\n')
     (root / 'built').write_text('1')
 else:
     (root / 'waiting').write_text(json.dumps({'pid': os.getpid(), 'owned': str(out)}))
@@ -128,7 +135,7 @@ async fn web_reaps_the_browser_compiler_during_startup_and_after_a_request_disco
 			let mut request = None;
 			if during_request {
 				web.ready().await;
-				fs::write(assets.join("ui/main.tsx"), "// changed source input\n").unwrap();
+				fs::write(assets.join("compiler-input.txt"), "changed compiler input\n").unwrap();
 				tokio::time::sleep(Duration::from_millis(1050)).await;
 				let mut socket = TcpStream::connect(("127.0.0.1", web.port)).await.unwrap();
 				socket

@@ -3,7 +3,7 @@
 const std = @import("std");
 const appendViolation = @import("util.zig").appendViolation;
 
-const suite_roots = [_][]const u8{ "test/all_test.zig", "test/oracle_check.zig" };
+const suite_roots = [_][]const u8{ "test/all_test.zig", "test/oracle_check.zig", "test/loam_lmdb_test.zig" };
 
 const Separate = struct {
     test_path: []const u8,
@@ -13,6 +13,7 @@ const Separate = struct {
 /// Optional module graphs are compile roots owned by their build-family module.
 /// Naming that owner keeps this audit valid as `build.zig` is split by subject.
 const separately_registered = [_]Separate{
+    .{ .test_path = "loam_lmdb_test.zig", .owner_path = "tools/build/loam.zig" },
     .{ .test_path = "net/completion_loop_deadlines_test.zig", .owner_path = "tools/build/gates.zig" },
     .{ .test_path = "onion_loop_test.zig", .owner_path = "tools/build/gates.zig" },
     .{ .test_path = "net/iroh_locator_test.zig", .owner_path = "tools/build/iroh.zig" },

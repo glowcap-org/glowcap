@@ -69,18 +69,24 @@ pub fn renderRecordExact(
     comptime writeFn: anytype,
     args: anytype,
 ) WalkError![]u8 {
+    const storage = try allocator.alloc(u8, try measureRecord(writeFn, args));
+    errdefer allocator.free(storage);
+    try renderRecordInto(storage, writeFn, args);
+    return storage;
+}
+
+/// Measure without allocating, so a caller can enforce a storage budget before
+/// obtaining a buffer. The same writer must supply the subsequent fill pass.
+pub fn measureRecord(comptime writeFn: anytype, args: anytype) WalkError!usize {
     var count: CountSink = .{};
     try @call(.auto, writeFn, .{&count} ++ args);
+    return count.total;
+}
 
-    const storage = try allocator.alloc(u8, count.total);
+/// Fill the exact measured buffer. The caller owns the buffer on every outcome;
+/// failed or incomplete output must not be published.
+pub fn renderRecordInto(storage: []u8, comptime writeFn: anytype, args: anytype) WalkError!void {
     var fill: SliceSink = .{ .buf = storage };
-    @call(.auto, writeFn, .{&fill} ++ args) catch |err| {
-        allocator.free(storage);
-        return err;
-    };
-    if (fill.cursor != storage.len) {
-        allocator.free(storage);
-        return error.EncoderInvariantViolation;
-    }
-    return storage;
+    try @call(.auto, writeFn, .{&fill} ++ args);
+    if (fill.cursor != storage.len) return error.EncoderInvariantViolation;
 }

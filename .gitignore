@@ -58,11 +58,10 @@ apps/accountability-on-glowcap/.data/
 conformance/accountability-on-goblins/.data/
 conformance/accountability-on-goblins/racket/tests/.data/
 
-# The Rooms browser UI is code-split under ui/bundle, built on the fly in
-# development or prepared ahead of the network-free deployment.
-apps/rooms/web/ui/bundle/
-# Older local builds may still have the former single-file artifact.
-apps/rooms/web/ui/page.js
+# Vite runs through Deno for Rooms. The package directory is a reproducible
+# cache. The frozen lock beside the app remains the dependency authority.
+apps/rooms/web/node_modules/
+apps/rooms/web/vite.config.ts.timestamp-*.mjs
 
 # local scratch: reference clones, throwaway experiments, MCP CapTP state (never committed)
 .local/

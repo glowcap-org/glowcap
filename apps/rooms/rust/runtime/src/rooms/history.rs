@@ -16,6 +16,14 @@ struct Line {
 	captures: Vec<PreviousFile>,
 }
 impl History {
+	/// A delegated refile can reorder the peer's selection before its queued
+	/// callback reaches us. Protect every known file until that callback folds.
+	pub fn attachments(&self, key: &Key) -> Vec<Ref> {
+		self.0
+			.get(key)
+			.map(|line| line.attachments.iter().map(|file| file.blob.clone()).collect())
+			.unwrap_or_default()
+	}
 	pub fn fold(&mut self, key: Key, message: &mut Message<String, Ref>) -> Result<&mut Vec<PreviousFile>, Error> {
 		let edited = message.marker.is_some_and(|marker| marker.kind == ChangeKind::Edited);
 		if edited && !self.0.contains_key(&key) {

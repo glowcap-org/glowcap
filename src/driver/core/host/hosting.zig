@@ -58,6 +58,12 @@ pub const HostTurn = struct {
         return self.host.deferTurn(self.session, self.turn);
     }
 
+    /// Consume the application retains acquired while lifting incoming values.
+    /// Call after storing/transferring any references the behavior keeps.
+    pub fn releaseValues(self: *HostTurn, values: []const value_mod.Value) void {
+        @import("capabilities/lower.zig").releaseValueCapabilitiesTerminalAt(self.host, values, null);
+    }
+
     /// Forward this turn's answer to another opaque capability on the same
     /// causal session. The returned value is the turn's borrowed placeholder;
     /// the forwarded vow owns the real settlement.
@@ -107,7 +113,10 @@ pub fn Hosting(comptime B: type) type {
         inner: B,
 
         pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
-            const port = turn.port orelse return actors.Error.NotConnected;
+            const port = turn.port orelse {
+                if (@hasDecl(B, "handleLocal")) return self.inner.handleLocal(turn, msg);
+                return actors.Error.NotConnected;
+            };
             const served: *Served = @fieldParentPtr("port", port);
             const session: *HostSession = @alignCast(@fieldParentPtr("served", served));
             const host = session.host;

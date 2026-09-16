@@ -1,6 +1,6 @@
-//! Browser source identity, shared by preparation and development refresh.
-//! Metadata detects edits, additions, and removals; content earns the bundle
-//! claim, including fonts and the compiled Rust application. Prepared assets carry
+//! Browser source identity for immutable production generations. Metadata
+//! detects edits, additions, and removals. Content earns the bundle claim,
+//! including fonts and the compiled Rust application. Prepared assets carry
 //! that identity without requiring the source tree at runtime.
 use sha2::{Digest, Sha256};
 use std::{
@@ -22,8 +22,12 @@ impl Graph {
 		] {
 			walk(&root.join(path), name, &mut entries)?;
 		}
-		for name in ["browser-bundle.json", "deno.lock"] {
+		for name in ["deno.json", "deno.lock", "compiler.json"] {
 			entries.push((name.into(), root.join(name)));
+		}
+		for name in super::compiler::Recipe::read(root)?.inputs {
+			let path = root.join(&name);
+			entries.push((name, path));
 		}
 		for name in ["rooms_browser.js", "rooms_browser.d.ts", "rooms_browser_bg.wasm"] {
 			entries.push((name.into(), root.join("../../../zig-out/wasm/rooms").join(name)));
@@ -53,9 +57,9 @@ impl Graph {
 	}
 	pub fn version(&self) -> Result<String, String> {
 		let mut hash = Sha256::new();
-		// The compiler contract is part of the artifact identity: changing its
-		// flags or packaging requires a new version here.
-		hash.update(b"rooms-browser-assets/3");
+		// Compiler flags and inputs are hashed above. Bump only when the native
+		// packaging contract changes.
+		hash.update(b"rooms-browser-assets/5");
 		for (name, path) in &self.entries {
 			let body = std::fs::read(path).map_err(|e| e.to_string())?;
 			hash.update((name.len() as u64).to_be_bytes());
@@ -81,7 +85,7 @@ fn walk(directory: &Path, logical: &str, rows: &mut Vec<(String, PathBuf)>) -> R
 			&& entry
 				.path()
 				.extension()
-				.is_some_and(|ext| matches!(ext.to_str(), Some("css" | "html" | "ts" | "tsx" | "woff2")))
+				.is_some_and(|ext| matches!(ext.to_str(), Some("css" | "html" | "js" | "ts" | "tsx" | "woff2")))
 			&& std::fs::metadata(entry.path()).map_err(|e| e.to_string())?.is_file()
 		{
 			rows.push((logical, entry.path()));

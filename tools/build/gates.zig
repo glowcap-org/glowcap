@@ -32,7 +32,7 @@ pub const Context = struct {
 
 pub const Registered = struct {
     check_step: *std.Build.Step,
-    runtime_gate: *execution.SerialGate,
+    runtime_gate: *execution.RuntimeGate,
     test_filter: ?[]const u8,
     /// The wasm module's install step; every serve path and browser proof
     /// reads the on-disk artifact it writes.
@@ -82,14 +82,13 @@ fn wasmGraphMask() [layer_table.len]bool {
     @setEvalBranchQuota(20000);
     var reached: [layer_table.len]bool = @splat(false);
     for (layer_table[layerIndex("c_abi_wasm")].imports) |name| reached[layerIndex(name)] = true;
-    // Fixpoint: pull in every import of an already-reached row. Edges only point
-    // at earlier rows, so `layer_table.len` forward passes reach the fixpoint.
-    var pass: usize = 0;
-    while (pass < layer_table.len) : (pass += 1) {
-        for (layer_table, 0..) |spec, i| {
-            if (!reached[i]) continue;
-            for (spec.imports) |name| reached[layerIndex(name)] = true;
-        }
+    // Edges point only to earlier rows. One reverse traversal visits every
+    // reached dependency before advancing to its own prerequisites.
+    var cursor = layer_table.len;
+    while (cursor != 0) {
+        cursor -= 1;
+        if (!reached[cursor]) continue;
+        for (layer_table[cursor].imports) |name| reached[layerIndex(name)] = true;
     }
     var mask: [layer_table.len]bool = @splat(false);
     for (layer_table, 0..) |spec, i| mask[i] = reached[i] and spec.graph;
@@ -184,9 +183,9 @@ pub fn register(ctx: Context) Registered {
     // Each section below wires its gated runs into `check` where the artifacts
     // are built.
     const check_step = b.step("check", "Run in-process Zig, static, generated, performance, and compile-time checks");
-    const runtime_gate = b.allocator.create(execution.SerialGate) catch @panic("OOM");
+    const runtime_gate = b.allocator.create(execution.RuntimeGate) catch @panic("OOM");
     runtime_gate.* = .{
-        .step = b.step("runtime-check", "Run deterministic process, application, and language-workspace checks in contention-safe order"),
+        .step = b.step("runtime-check", "Run deterministic process, application, and language-workspace checks without cross-step contention"),
     };
 
     // ── Tests ────────────────────────────────────────────────────────────────
@@ -216,9 +215,9 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("c_abi_host", host_abi_mod);
     tests_mod.addImport("c_abi_driver", driver_abi_mod);
     tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
-    // The persistent-collections leaf module (ADR-0061) is not on the public
-    // `glowcap` namespace, so its direct test imports the layer module.
-    tests_mod.addImport("persistent", host_mods[layerIndex("persistent")]);
+    // Collection tests import the dependency-free Loam leaf directly, matching
+    // the snapshot benchmark without involving storage or native backends.
+    tests_mod.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
     // The header-parity test imports translated generated headers to prove they
     // agree with the Zig C ABI sources (sizes, offsets, constants), so the two
     // can never silently drift.
@@ -264,10 +263,10 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     fuzz_mod.addImport("glowcap", lib_mod);
-    // Same reason the ordinary suite takes it directly: the persistent
-    // collections leaf (ADR-0061) is not on the public `glowcap` namespace, and
+    // The immutable collections use the same direct leaf import as the suite;
+    // their fuzz target needs neither graph storage nor a native backend, and
     // its fuzz target drives it against a plain map to see where they disagree.
-    fuzz_mod.addImport("persistent", host_mods[layerIndex("persistent")]);
+    fuzz_mod.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
     const fuzz_tests = b.addTest(.{
         .root_module = fuzz_mod,
         .name = "fuzz-tests",

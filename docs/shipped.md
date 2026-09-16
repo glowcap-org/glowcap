@@ -72,7 +72,11 @@ preserves sessions already yielded. Wasm and explicitly supplied byte channels u
   stays inert, remote images never load on their own, and links carry only
   approved schemes. Link previews are a validated selection of at most five
   URLs, fetched by readers through a redirect- and private-address-safe
-  same-origin service. Room history is kept in files or PostgreSQL under one
+  same-origin service. Native room senders reconstruct their ordered receipt
+  from retained text, release rejected requests even after caller cancellation,
+  and reuse acknowledged immutable upload bytes for local
+  display and recording. Other members still receive the complete message.
+  Room history is kept in files or PostgreSQL under one
   index. The [Rooms page](../apps/rooms/README.md) is the way in, and
   [operating Rooms](../apps/rooms/operating.md) owns the grants, the
   services, and the limits. Operations credentials follow the retry class of
@@ -241,6 +245,137 @@ WebSockets use their runtime's carrier. The remaining secure relay evidence is r
 
 See [known limitations](boundaries.md#transports-and-peer-identity) for the security and reachability differences
 between these choices.
+
+## Resource models
+
+[Loam](loam.md) exposes immutable collections, checksummed records with typed
+local edges, and a portable transaction and lease core. The volatile backend
+and optional native LMDB module share batch validation, atomic record/root
+updates, exact encoded-byte totals, and completion/recovery decisions. Each
+exclusive opening reserves a new incarnation; committed object names survive
+reopen. Resident and pending record buffers have explicit bounds independent
+of stored object count. Native tests cover cyclic graph reopen, map exhaustion,
+and custody. Process tests send SIGKILL before commit and after commit before
+local installation, then verify the complete graph in a fresh process.
+
+The `hosting` module supplies record-backed sleepy actors on an existing
+Host/Vat, coalesced cold activation, bounded retained calls, same-attachment
+capability edges, and commit-gated replies. Durable publication descriptors and
+retirement tombstones preserve discovery decisions across reopen. Native process
+proofs kill a CapTP-invoked actor around commit, reopen its publication, and
+follow its cyclic capability graph. Pressure tests cover allocation refusal,
+lease lifetime, cancellation, and cold object growth without endpoint growth.
+
+Bounded collection batches trace durable roots, live actor custody, and pinned
+historical edges through a stored mark queue. They reclaim unreachable cycles
+without waking actors. Concurrent writes add tracing obligations atomically;
+process-kill tests verify safe sweep recovery and a fresh trace after reopen.
+
+Commit installation reuses unchanged cached records while preserving historical
+lease revisions. `bench-loam` measures native conversation graphs, cold message
+chains, hot/cold calls, edits, wakeup bursts, and collection with queued foreground
+reads. Its small workload runs under `check`; the
+[benchmark method](../bench/loam/README.md) explains the measured boundaries.
+
+Foreign capability fields, complete managed access owners,
+browser storage, and the Loam C/Rust APIs remain in the
+[Loam design](planning/loam/architecture.md). The native profile currently uses
+BSD `flock` custody locking and synchronous LMDB commits. Native inspection reports page
+geometry; exclusive map growth refuses active backend work and preserves copied
+leases. A failed remap fences the backend for reopen. Its crash evidence
+does not establish power-loss behavior or comparative performance.
+
+- **managed access resource core.** Native Zig exposes `glowcap.loam.access.core` for bounded
+  resource graphs, owner/generation identity, cycle-safe reparenting, and exact,
+  selected, or subtree scope evaluation. Graph mutation checks revisions and
+  allocates only at initialization. The grant ledger adds runtime permission
+  schemas, unsigned constraint bounds, issuance ceilings, bounded delegation,
+  editable terms, pause/resume, and terminal branch revocation. It evaluates
+  one local grant path against current containment and ancestor terms.
+  Successful mutations return owned change events; failed or unchanged
+  requests produce none. Prepared writes reserve scope and retain their inputs
+  until an exact completion. Unknown storage outcomes fence protected access
+  until resolved. Scoped event subscriptions are not implemented.
+  [Resource structure](decisions/adr/ADR-0153-access-resource-core.md) and
+  [grant lifecycle](decisions/adr/ADR-0154-access-local-grant-lifecycle.md) have
+  separate decision records; [prepared writes](decisions/adr/ADR-0155-access-prepared-grant-writes.md)
+  define storage completion. Native opaque use and control references convey
+  authority over one committed grant. Controls enforce independent lifecycle
+  powers and copied management ceilings through the same prepared-write path.
+  [Native grant capabilities](decisions/adr/ADR-0156-access-native-grant-capabilities.md)
+  define reference ownership and publication limits. The resident bindings
+  and durable bindings share control powers and ceiling admission. Managed
+  CapTP hosting remains unimplemented.
+
+  Resource scope and grant evaluation use revision-checked record views shared
+  with the resident graph and ledger. Unloaded records produce explicit read demands;
+  known absence and malformed or stale rows refuse separately.
+  `GrantPlan` shares mutation preparation across those sources, producing the
+  affected grant, optional parent update, and proposed event without publishing.
+  `glowcap.loam.access.records` encodes resources, grants, and change events using
+  the existing Syrup syntax. Decoding is bounded; only selected grant scopes
+  allocate, with at most two exact-sized lists and no retained input bytes.
+  [Resource record views](decisions/adr/ADR-0158-access-resource-record-views.md)
+  define structural lookup; [grant records and plans](decisions/adr/ADR-0166-access-grant-records-and-plans.md)
+  extend it to authority evaluation and mutation.
+
+  `glowcap.loam.access.storage` persists owner headers, policy descriptors,
+  allocation counters, and sparse resource/grant directories in ordinary Loam
+  records. A bounded read operation pins model records and resumes directory
+  traversal across storage misses. Resource creation and shared grant plans
+  stage metadata, retention edges, and the latest grant event alongside content
+  in the caller's transaction. Native LMDB tests verify reopen, committed and
+  aborted lost-acknowledgement recovery, and collection of replaced events.
+  Portable tests cover a 258-resource directory with two cache slots, stale
+  completions, malformed paths, allocation failure, and cleanup. Loaded grant
+  evaluation uses fixed scratch without allocator calls.
+  [Managed owner storage](decisions/adr/ADR-0167-managed-owner-storage.md) records
+  the profile.
+
+  `storage.Capabilities` restores opaque use/control references from committed
+  descriptor leases. Each descriptor retains its exact owner and grant records;
+  each live reference uses Loam retention without pinning the record. Bounded
+  opaque operations load current authority, expose explicit read work, and admit
+  only their bound role's use, delegation, or control edits. Derivation stages
+  the child grant and use descriptor atomically with content. Native LMDB tests
+  cover role-preserving reopen, uncertain revocation during cold reads, and
+  descriptor collection after final release. Portable tests cover ceilings,
+  allocation failures, quotas, and cleanup. [Durable managed capability bindings](decisions/adr/ADR-0168-durable-managed-capability-bindings.md)
+  records the contract.
+
+  `access.hosting.Service` integrates managed preparation with the existing
+  durable Host attachment. Fixed-resource use endpoints check current authority
+  before application invocation and commit content replacements before replying.
+  Control endpoints stage permitted lifecycle or policy edits through the shared
+  grant rules. Ordinary durable publications retain and restore these endpoints.
+  Tests cover held CapTP references across pause/resume/revoke, stale queued and
+  cold activation, role separation, commit gating, and cleanup. Native LMDB tests
+  restore endpoints and publications after reopen and fence calls through both
+  committed and aborted lost acknowledgements. [Managed Host turns](decisions/adr/ADR-0169-managed-host-turns.md)
+  records the contract. [Durable facet derivation](decisions/adr/ADR-0170-durable-facet-derivation.md)
+  adds fixed-resource `derive`, hidden publication reservations, and eight retained
+  retry receipts per source endpoint. Tests cover permission/delegation narrowing,
+  expiry without reissuance, publication custody, and native lost-reply recovery
+  after reopen without duplicate grants. [Explicit disclosure](decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)
+  lets a managed content method hand over a stored reference field's exact saved
+  authority through a declared disclosure. Any capability value the method did not
+  declare fails closed before settlement, proven both in-process and over a live
+  CapTP session. Dependent disclosure retains both the invoking endpoint and a
+  local stored target, then admits each target method through both current
+  grants. Local strong reference fields
+  can be replaced or removed in the content transaction, with aborted-write and
+  LMDB reopen evidence. [Dependent returned capabilities](decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)
+  records the contract. Independent control lifecycle, scoped event retention
+  and delivery, and the C ABI and Rust projection are not implemented.
+
+  `describe-access()` reports a use endpoint's own and effective policy through
+  the same evaluator as protected calls. Inactive replies expose status alone;
+  no ancestor identity or owner revision is disclosed. Resident and stored native
+  use APIs share this snapshot contract. Tests cover ancestor restrictions,
+  unrelated-owner activity, stale queued inspection, exact large bounds, and
+  LMDB recovery/reopen. [Scoped access descriptions](decisions/adr/ADR-0171-scoped-access-descriptions.md)
+  defines the representation. Event subscriptions and control inspection remain
+  unimplemented.
 
 ## Actors and hosting
 

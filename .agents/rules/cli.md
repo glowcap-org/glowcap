@@ -27,9 +27,9 @@ green log is not a failure verdict.
 that runs in a self-contained Zig process or has no service lifecycle: Zig unit
 and scenario tests, generated-state checks, compile-only consumers, and
 performance budgets. `runtime-check` owns suites with live process or socket
-lifecycles and language workspaces with shared output. Those families run in a
-fixed order so one family releases its processes, ports, and build directories
-before the next starts.
+lifecycles and language workspaces with shared output. Its side-effecting
+commands take the build runner's execution lock, so they cannot race ports,
+processes, or shared output directories.
 Run both in the devcontainer when both boundaries changed.
 
 `check` is not Zig-only: Python enforces deterministic deadlines and
@@ -78,11 +78,14 @@ Long-running service steps such as `docs-serve`, `rooms-dev`, and
 `ocapnviz-dev` do not take the lease. Direct host builds remain supported when
 the host provides the declared toolchain.
 
-Inside `runtime-check`, process families are serial even though each family may
-compile or test in parallel internally. CI invokes top-level gates in sequence
-and gives each one an outer containment deadline. Zig unit tests use the build
-runner's per-active-test deadline, so aggregate suite growth cannot make the
-last test look slow.
+Inside `runtime-check`, side-effecting process commands inherit stdio and use
+the build runner's global execution lock. The runtime aggregate changes their
+execution posture, not their dependencies. A focused check and a product
+launch cannot acquire unrelated runtime families through a shared compiler
+step. CI invokes top-level gates in sequence and gives each one an
+outer containment deadline. Zig unit tests use the build runner's
+per-active-test deadline, so aggregate suite growth cannot make the last test
+look slow.
 
 If the lease refuses the build or an explicit wait expires, inspect the current
 build and its children before changing code. If no owner is alive but a child

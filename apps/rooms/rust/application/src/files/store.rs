@@ -6,6 +6,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 pub struct FileStore {
 	pub(super) identity: Rc<()>,
 	next_id: u64,
+	retirements: u64,
 	now: u64,
 	limits: FileLimits,
 	pub(super) records: BTreeMap<u64, Record>,
@@ -20,10 +21,23 @@ impl Default for FileStore {
 }
 
 impl FileStore {
+	/// Adapter-held reader identities cannot extend the file's storage lease.
+	pub fn contains(&self, blob: &Blob) -> bool {
+		self.check(&blob.key).is_ok() && self.records.get(&blob.key.id).is_some_and(Record::live)
+	}
+	/// An adapter key is meaningful only in this exact store instance.
+	pub fn blob_id(&self, blob: &Blob) -> Option<u64> {
+		self.check(&blob.key).is_ok().then_some(blob.key.id)
+	}
+	/// Capability inventories sweep only after storage identities retire.
+	pub fn retirements(&self) -> u64 {
+		self.retirements
+	}
 	pub fn new(limits: FileLimits) -> Self {
 		Self {
 			identity: Rc::new(()),
 			next_id: 0,
+			retirements: 0,
 			now: 0,
 			limits,
 			records: BTreeMap::new(),
@@ -283,6 +297,9 @@ impl FileStore {
 	}
 	pub(super) fn expire(&mut self, id: u64) {
 		if let Some(record) = self.records.remove(&id) {
+			// Every removal consumes a distinct checked identity; this count
+			// cannot exceed next_id and cannot wrap independently of it.
+			self.retirements += 1;
 			if record.phase == Phase::Held {
 				self.usage.held_bytes -= record.bytes.len();
 				self.usage.held_files -= 1;

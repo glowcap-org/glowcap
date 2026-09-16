@@ -3,7 +3,12 @@
 const std = @import("std");
 const execution = @import("../execution.zig");
 
-pub fn register(b: *std.Build, runtime_gate: *execution.SerialGate, peers: *std.Build.Step, wasm: *std.Build.Step) void {
+pub fn register(
+    b: *std.Build,
+    runtime_gate: *execution.RuntimeGate,
+    peers: *std.Build.Step,
+    browser_prepare: *std.Build.Step,
+) void {
     const args: []const []const u8 = &.{
         "cargo", "test",           "--quiet",    "--locked",  "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "-p",    "rooms-services", "--features", "processes", "--test",          "web_process",
@@ -29,7 +34,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.SerialGate, peers: *std.
         if (tor) run.addArgs(&.{ "--", "--ignored" });
         run.setCwd(b.path("."));
         run.step.dependOn(&compile.step);
-        run.step.dependOn(wasm);
+        run.step.dependOn(browser_prepare);
         const step = if (tor) tor_step else web_test_step;
         step.dependOn(&run.step);
     }

@@ -497,10 +497,11 @@ pub fn retireActorRow(self: *Vat, id: u64) void {
 }
 
 /// Drop the vat's reference to every retired box without changing the backing
-/// reservation. Turn-boundary preparation decides transactionally whether a
+/// reservation. A destructor may release the last root of a sibling actor, so
+/// remove each box before running its destructor and continue through anything
+/// it retires. Turn-boundary preparation decides transactionally whether a
 /// burst-sized list should be replaced; teardown needs only this infallible
 /// release. A snapshot sharing a box keeps it alive past the boundary.
 pub fn releaseRetiredBoxes(self: *Vat) void {
-    for (self.retired_boxes.items) |box| releaseBox(self.allocator, box);
-    self.retired_boxes.clearRetainingCapacity();
+    while (self.retired_boxes.pop()) |box| releaseBox(self.allocator, box);
 }

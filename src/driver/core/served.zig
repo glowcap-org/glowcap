@@ -185,7 +185,6 @@ pub const Served = struct {
                 };
             }
         }
-        const event_pending = self.port.peer.hasEvent();
         // A zero local-turn budget is a probe, not an implicit one-turn
         // allowance. The Vat reports pending work without consuming it, so a
         // Host can condemn the session before any local turn runs.
@@ -211,7 +210,9 @@ pub const Served = struct {
             self.budgeted_local_turns = null;
         }
         try self.port.peer.stepToIdle();
-        return if (event_pending or turn_progress == .more_pending) .more_pending else .drained;
+        // Encoding a deferred resolution can synthesize local pipeline
+        // deliveries. Observe after stepToIdle so the Host schedules them.
+        return if (self.port.peer.hasEvent() or turn_progress == .more_pending) .more_pending else .drained;
     }
 
     /// Drain one encoded outbound frame for the caller to write to its

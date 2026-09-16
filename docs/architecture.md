@@ -99,7 +99,7 @@ The actor layer sits between the protocol peer and these application APIs.
 `actors.Vat` hosts local objects, turns incoming calls into actor turns, and
 settles their results. It also provides attenuation, revocation, and optional
 snapshots. A snapshot covers local actor state only; it never rewinds a network
-session. Persistent actor state uses a structurally shared map, so changing one
+session. Actor state can use `loam.collections.PersistentMap`, so changing one
 entry does not copy the whole map
 ([ADR-0060](decisions/adr/ADR-0060-vat-local-time-travel.md),
 [ADR-0061](decisions/adr/ADR-0061-persistent-collections-module.md)).
@@ -112,6 +112,98 @@ with at most one bounded spare for the whole Vat. The actor layer owns this
 admission and scheduling; the standard Host owns one Vat, and each session Port
 supplies its ingress identity but does not own a queue
 ([ADR-0099](decisions/adr/ADR-0099-shared-vat-scheduling.md)).
+
+## Resource models
+
+[Loam](loam.md) provides immutable collections, record storage, transactions,
+and bounded residency through `glowcap.loam`. The `collections` leaf has no
+storage dependency. The `records` module owns storage identities and checked
+Syrup envelopes; `core` consumes them for transaction and lease state. Optional
+LMDB execution and the volatile backend use the same batch validator. Native
+I/O runs through the embedding's executor, with no new Host or scheduler.
+The same transaction core owns incremental tracing and insertion barriers.
+Stored marks and queue entries keep traversal out of the actor working set;
+bounded live retention and pinned snapshots protect objects during sweep.
+
+The `hosting` module attaches record-backed actors to the existing Vat/Host.
+It owns bounded pending calls and lazy local capability restoration; ordinary
+Host promises carry commit-gated replies. It adds no I/O or scheduling loop.
+The included `access` module supplies resource authority and participates in
+Store transactions. Hosted-facet integration remains in the
+[Loam design](planning/loam/architecture.md).
+Rooms' existing durability remains application-owned until that integration.
+
+`glowcap.loam.access.core` owns resource graphs, scope evaluation, runtime policy
+algebra, and local grant lifecycle. Resource names include owner identity and
+generation; owned containment is bounded and acyclic. Exact selections and
+scopes over future descendants have different narrowing rules. Grant edits
+stay within immutable ceilings; effective access intersects every current
+ancestor and refuses paused or revoked paths. Prepared writes reserve graph
+scope and keep staged grants invisible until exact completion; uncertain
+outcomes fence protected access.
+
+Native opaque use and control references carry authority over a selected grant.
+Controls constrain edits with separate lifecycle powers and management ceilings.
+Their methods use the same evaluator and prepared-write implementation. The
+separate build module imports no protocol or runtime layer and creates no actor
+or Host.
+[ADR-0153](decisions/adr/ADR-0153-access-resource-core.md) records resource
+structure; [ADR-0154](decisions/adr/ADR-0154-access-local-grant-lifecycle.md)
+records the grant model. [ADR-0155](decisions/adr/ADR-0155-access-prepared-grant-writes.md)
+records preparation and storage completion;
+[ADR-0156](decisions/adr/ADR-0156-access-native-grant-capabilities.md) records native
+capability custody. [Known limitations](boundaries.md#api-gaps)
+names the remaining application and foreign-binding integration. The
+[storage plan](planning/loam/access/storage.md) places database I/O in optional
+adapters and keeps record loading, memory budgets, and authority decisions
+in shared Zig code. Loam owns shared persistence; managed access supplies resource and
+grant semantics as a transaction participant. `loam_access_records` encodes
+owners, sparse identity directories, resources, grants, and change events through
+Syrup. `loam_access_core` shares revision-checked evaluation and mutation planning
+between resident and stored models. `loam_access_storage` supplies bounded,
+resumable record loading through Loam leases and stages managed changes in the
+caller's Store transaction. Its owner header persists the policy descriptor,
+identity counters, logical revisions, directory roots, and latest grant event.
+[ADR-0167](decisions/adr/ADR-0167-managed-owner-storage.md) defines this storage
+profile and its costs; the existing Store owns commit and recovery.
+
+`access.storage.Capabilities` restores opaque native references from committed
+use/control descriptors. Each operation owns a bounded Read and checks current
+authority through the shared evaluator. Shared control rules enforce the same
+management ceiling and lifecycle powers in resident and stored bindings.
+Descriptors and derived grants join the caller's Store transaction. Loam's live
+retention protects held references without pinning their records.
+[ADR-0168](decisions/adr/ADR-0168-durable-managed-capability-bindings.md) defines
+operation custody and restoration. `access.hosting.Service` supplies managed
+working sets through the existing durable attachment's preparation seam. Its
+fixed-resource use endpoints authorize committed content before invocation;
+control endpoints stage permitted edits in the attachment's transaction.
+Derivation stages the child grant, endpoint, publication, and bounded receipt
+together. Host publication reservations stay hidden until confirmed commit;
+top-level reply materialization reserves custody outside the Vat callback.
+The same Host owns publication, Vat dispatch, recovery, and reply settlement.
+`loam_access_hosting` depends on the storage and hosting modules; neither
+lower module depends on managed hosting.
+[ADR-0169](decisions/adr/ADR-0169-managed-host-turns.md) defines these lifetimes.
+[ADR-0170](decisions/adr/ADR-0170-durable-facet-derivation.md) defines derivation
+sequences, receipt retention, and publication activation.
+Access descriptions share the admission evaluator and project only the held
+endpoint's current access. [ADR-0171](decisions/adr/ADR-0171-scoped-access-descriptions.md)
+defines their disclosure and snapshot contract.
+[ADR-0172](decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)
+defines disclosed replies: a managed content method hands over a stored reference
+field only through a declared exact disclosure, and an undeclared capability value
+fails closed.
+[ADR-0173](decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)
+adds runtime facets that require both invoking and target authority, plus
+transactional replacement and removal of local strong reference fields.
+
+The Loam facade exposes managed access without requiring resource state for ordinary
+objects. Its persistence core remains independent of managed access, Host, and CapTP
+session state; optional integration connects them. The
+[Loam API](planning/loam/api.md) separates record schemas, storage encoding,
+reference restoration, and wire codecs. The planned libglowcap_loam companion
+includes managed access, with no separate resource-management archive.
 
 ## Transports and connection loops
 

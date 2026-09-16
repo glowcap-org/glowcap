@@ -199,6 +199,11 @@ impl Blob {
 pub struct Upload {
 	blob: Blob,
 }
+impl Upload {
+	pub fn blob(&self) -> Blob {
+		self.blob.clone()
+	}
+}
 
 /// The line's ownership, separate from the blob read capability. This cannot
 /// be cloned. Dropping it disables every blob alias; retire reclaims promptly.

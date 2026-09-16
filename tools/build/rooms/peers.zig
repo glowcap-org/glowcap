@@ -9,7 +9,7 @@ pub const Peers = struct {
     web_build: *std.Build.Step,
 };
 
-pub fn register(b: *std.Build, runtime_gate: *execution.SerialGate, iroh_abi: *std.Build.Step) Peers {
+pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *std.Build.Step) Peers {
     const compile = execution.addSystemCommand(b, .build_tool, &.{"env"});
     compile.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
     compile.addArgs(&.{

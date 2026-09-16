@@ -115,8 +115,10 @@
 	line-height: 1.4;
 	overflow-wrap: anywhere;
 }
-/* One question: label, hint, the control, and the refusal it answered with,
-   stacked on a tight rhythm inside the group's looser one. Inline lays the
+/* One question: label, the refusal its answer met, the control, and the
+   sentence that qualifies it, stacked on a tight rhythm inside the group's
+   looser one. `Field.tsx` owns why the refusal is above and the sentence
+   below. Inline lays the
    name to the left of the control for a short list of knobs that would read
    as a form three times taller stacked; the name column is one width for the
    whole list so the fields line up down it. */
@@ -135,13 +137,20 @@
 .field-stack[data-layout="inline"] > .said {
 	grid-column: 1 / -1;
 }
-/* The label belongs to the box under it, so it stays at the stack's own gap.
-   The sentence and the refusal are about the answer rather than the question,
-   and at the same six pixels the four lines read as one flat list; two more
-   is enough to group the label with its control and step the commentary
-   back from it. */
-.field-stack > .hint,
-.field-stack > .said {
+/* Stacked, the refusal is above the control because that is where it stands in
+   the markup. Inline, the name and the control share a row, so a full-width
+   refusal placed between them in document order would take the second row and
+   leave the control to drop under the name column. Placing it first puts the
+   refusal over the whole row, which is the same rule where the row is the
+   control. */
+.field-stack[data-layout="inline"] > .said {
+	order: -1;
+}
+/* Label, refusal, and control are one block at the stack's own gap: a refusal
+   is the box's own state rather than a remark about it. The sentence is the one
+   line here that is commentary, and at the same six pixels the four read as one
+   flat list; two more steps it back from the control it qualifies. */
+.field-stack > .hint {
 	margin-top: 2px;
 }
 /* A short answer takes a short box. The box says how long an answer it

@@ -24,8 +24,9 @@
  * Holdings and opens the directory pane, and finally shares the session so a
  * second browser can attach to it. No product state or screenshot markup is
  * mocked; only the lines are scripted. Every capture is written twice, as
- * `<name>-dark.webp` and `<name>-light.webp`, so a page can show the face that
- * matches its own theme. The images land under `site/assets/`:
+ * `<name>-dark.webp` and `<name>-light.webp` as lossless WebP, so a page can
+ * show the face that matches its own theme without banding the UI gradients.
+ * The images land under `site/assets/`:
  *
  *   rooms-session-*.webp           the first-run choice of where session state lives
  *   rooms-join-*.webp              the join card, pointed at the directory that served the page
@@ -91,7 +92,9 @@ async function shot(page: Page, name: string, within?: string): Promise<void> {
 		await page.screenshot({
 			path: `${outDir}/${name}-${theme}.webp`,
 			type: "webp",
-			quality: 82,
+			// Chromium's WebP encoder is lossless at 100. These captures mix fine
+			// UI text with broad gradients, so lossy quantization is conspicuous.
+			quality: 100,
 			fullPage: false,
 			clip,
 		});

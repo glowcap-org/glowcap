@@ -381,7 +381,9 @@ export const JoinCard = memo(function JoinCard(
 							</>
 						)}
 					</label>
-					{!asLink && <p className="hint" id="locatorHint">{joinLocatorHint}</p>}
+					{error?.field === "locator" && error.text !== "" && (
+						<Said id="joinError" kind="failure">{error.text}</Said>
+					)}
 					<JoinLocator
 						locator={locator}
 						dirs={dirs}
@@ -392,13 +394,12 @@ export const JoinCard = memo(function JoinCard(
 						onType={(next) => browser.editJoin({ locator: next })}
 					/>
 					{
-						/* Connect is reaching this address. A refusal belongs under it,
-					    not under the name or as a leftover of the join the button is
-					    not performing. */
+						/* Connect is reaching this address, so a refusal stands over it
+					    rather than under the name or as a leftover of the join the
+					    button is not performing. The sentence about what to type
+					    follows the box it describes. */
 					}
-					{error?.field === "locator" && error.text !== "" && (
-						<Said id="joinError" kind="failure">{error.text}</Said>
-					)}
+					{!asLink && <p className="hint" id="locatorHint">{joinLocatorHint}</p>}
 					{
 						/* Out until the directory can describe what naming a room there
 					    would do. */
@@ -470,25 +471,6 @@ export const JoinCard = memo(function JoinCard(
 						)}
 					</div>
 					<label htmlFor="nick">{joinNickLabel}</label>
-					<p className="hint" id="nickHint">{joinNickHint}</p>
-					<JoinField invalid={nickNotice !== null}>
-						<JoinPrefix label={avatarLabel}>
-							<Avatar name={who} />
-						</JoinPrefix>
-						<input
-							id="nick"
-							name="nick"
-							placeholder={nickAnswer.placeholder}
-							enterKeyHint="go"
-							{...identifierField}
-							autoComplete="nickname"
-							aria-describedby={nickNotice === null ? "nickHint" : "nickHint joinNickError"}
-							aria-invalid={nickNotice !== null}
-							maxLength={MAX_NICK}
-							value={nick}
-							onChange={(e) => browser.editJoin({ nick: e.target.value })}
-						/>
-					</JoinField>
 					{nickNotice !== null && (
 						<Said
 							id="joinNickError"
@@ -511,6 +493,25 @@ export const JoinCard = memo(function JoinCard(
 							)}
 						</Said>
 					)}
+					<JoinField invalid={nickNotice !== null}>
+						<JoinPrefix label={avatarLabel}>
+							<Avatar name={who} />
+						</JoinPrefix>
+						<input
+							id="nick"
+							name="nick"
+							placeholder={nickAnswer.placeholder}
+							enterKeyHint="go"
+							{...identifierField}
+							autoComplete="nickname"
+							aria-describedby={nickNotice === null ? "nickHint" : "joinNickError nickHint"}
+							aria-invalid={nickNotice !== null}
+							maxLength={MAX_NICK}
+							value={nick}
+							onChange={(e) => browser.editJoin({ nick: e.target.value })}
+						/>
+					</JoinField>
+					<p className="hint" id="nickHint">{joinNickHint}</p>
 				</div>
 				{error != null && error.field !== "locator" && error.field !== "nick" && error.text !== "" && (
 					<Said id="joinError" kind="failure">{error.text}</Said>

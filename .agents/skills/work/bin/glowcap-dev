@@ -98,8 +98,16 @@ if [[ -z "$container_id" ]]; then
 	exit 1
 fi
 
+# A service's lifetime belongs to the terminal that launched it. Agent runners
+# must request a PTY explicitly. Without one, interrupting the Docker client
+# disconnects it and leaves the service tree running in the container.
+if [[ ${service_build:-false} == true && ! -t 0 ]]; then
+	echo "glowcap-dev: a host-side service build requires a terminal so Ctrl-C reaches its container process tree" >&2
+	exit 2
+fi
+
 tty_args=(-i)
-if [[ -t 0 && -t 1 ]]; then
+if [[ -t 0 ]]; then
 	tty_args=(-it)
 fi
 

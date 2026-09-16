@@ -230,6 +230,7 @@ require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_RELAY_HOST_PORT:?R
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_TRACE_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9300" "docker-compose.yml trace host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_OCAPNVIZ_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:5173" "docker-compose.yml ocapnviz host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_DOCS_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:1990" "docker-compose.yml docs-serve host port"
+require_literal "${compose_file}" "GLOWCAP_ROOMS_DEV_HOST: 0.0.0.0" "docker-compose.yml Rooms Vite bind"
 require_literal "${compose_file}" "OCAPNVIZ_HOST: 0.0.0.0" "docker-compose.yml ocapnviz Vite bind"
 require_literal "${compose_file}" "DOCS_SERVE_HOST: 0.0.0.0" "docker-compose.yml docs-serve bind"
 require_line "${compose_file}" "    init: true" "docker-compose.yml reaps orphaned tool grandchildren"

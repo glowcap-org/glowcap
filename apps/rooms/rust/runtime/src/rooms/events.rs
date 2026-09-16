@@ -38,14 +38,8 @@ pub fn from_message(
 		change: message.marker.map(|marker| marker.kind),
 		editable,
 		system,
-		presence: message
-			.presence
-			.as_ref()
-			.and_then(|value| serde_json::to_string(value).ok()),
-		facts: message
-			.facts
-			.as_ref()
-			.and_then(|value| serde_json::to_string(value).ok()),
+		presence: message.presence().and_then(|value| serde_json::to_string(value).ok()),
+		facts: message.facts().and_then(|value| serde_json::to_string(value).ok()),
 		history_source: None,
 		history_generation: None,
 		history_id: None,

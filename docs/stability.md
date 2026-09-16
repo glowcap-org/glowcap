@@ -34,7 +34,7 @@ change a deployment, read [known limitations](boundaries.md).
 | CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
 | Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. The recurring `web-peer-test` drives a Chromium Wasm peer and proves native-to-browser Noise rendezvous over local WSS; on demand, `ocapnviz-live-browser` drives the production visualizer bundle as an OCapN peer. | WebRTC and public-certificate WSS scenarios remain on-demand or unsupported as named above. |
 | Linux | The full CI sequence runs on Linux. TCP completion loops exercise io_uring when the host provides its required facilities and otherwise exercise the epoll fallback. Selection and its reasons are tested separately. | The recorded 500,000-session result used io_uring. No equivalent epoll scale result or claim exists. |
-| macOS | Recurring `zig build test` executes the native suite, including the host-selected kqueue path, on a macOS runner. | `zig build check` and the external-runtime matrix remain Linux-only. |
+| macOS | The macOS CI job runs `zig build test loam-lmdb-test`, covering the host-selected kqueue path and optional native storage adapter. | `zig build check` and the external-runtime matrix remain Linux-only. A Linux cross-compile does not establish macOS runtime behavior. |
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
 | Untrusted-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The recurring fuzz budget is shallow, and most assertions are written by glowcap. |
 
@@ -60,11 +60,11 @@ The first three entries divide local evidence by execution cost.
 `infrastructure-check` black-boxes the devcontainer and worktree tools in
 temporary repositories. `check` runs self-contained Zig tests, generated,
 static, compile-only, and performance evidence. `runtime-check` runs process,
-socket, application, and language-workspace families in order, so shared ports
-and output directories are released before the next family starts. Zig's
-30-second timeout applies to each active test. Non-Zig process tests retain
-their own process-group deadlines, and CI adds a much wider outer deadline only
-to contain a wedged gate.
+socket, application, and language-workspace checks. Its side-effecting commands
+take the build runner's execution lock, so shared ports and output directories
+cannot overlap. Zig's 30-second timeout applies to each active test. Non-Zig
+process tests retain their own process-group deadlines, and CI adds a much
+wider outer deadline only to contain a wedged gate.
 
 <!-- ci-gate-list:begin -->
 - `zig build infrastructure-check`

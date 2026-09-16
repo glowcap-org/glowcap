@@ -8,7 +8,7 @@ const execution = @import("execution.zig");
 pub fn register(
     b: *std.Build,
     check_step: *std.Build.Step,
-    runtime_gate: *execution.SerialGate,
+    runtime_gate: *execution.RuntimeGate,
     wasm_driver_install_step: *std.Build.Step,
     browser_preflight_step: *std.Build.Step,
     rooms_services_install: *std.Build.Step,

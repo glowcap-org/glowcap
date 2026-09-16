@@ -52,12 +52,19 @@ host_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-co
 
 build_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test)"
 [[ "${build_exec}" == *"/workspaces/glowcap/.agents/skills/work/bin/glowcap-build-lease zig build --test-timeout 30s test"* ]]
+[[ "${build_exec}" == *"exec -i --user"* ]]
 explicit_timeout_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test --test-timeout 7s)"
 [[ "${explicit_timeout_exec}" == *"glowcap-build-lease zig build test --test-timeout 7s"* ]]
 [[ "${explicit_timeout_exec}" != *"--test-timeout 30s"* ]]
-service_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build docs-serve)"
-[[ "${service_exec}" == *"zig build --test-timeout 30s docs-serve"* ]]
-[[ "${service_exec}" != *"glowcap-build-lease"* ]]
+service_status=0
+if service_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build docs-serve 2>&1)"; then
+    echo "test/build-front: glowcap-dev accepted a host-side service without a terminal" >&2
+    exit 1
+else
+    service_status=$?
+fi
+[[ ${service_status} -eq 2 ]]
+[[ "${service_exec}" == *"service build requires a terminal"* ]]
 
 local_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" "${front}" local-probe one two)"
 [[ "${local_exec}" == "${repo_root}|one two" ]]

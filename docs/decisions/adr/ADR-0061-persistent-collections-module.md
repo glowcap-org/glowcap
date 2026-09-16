@@ -3,9 +3,10 @@ id: ADR-0061
 status: accepted
 date: 2026-06-13
 tags: [actors, persistent, collections, layer, memory]
-decision: "A persistent immutable map lives in a sharp leaf module, `src/persistent/`, as a single `PersistentMap` (HAMT, non-atomic refcounted nodes, path-copy update). It imports nothing from the protocol layers, is not exported from the `glowcap` root module, and is reached only by opt-in persistent actors and the time-travel benchmark, not a general collections package and not a headline public API."
+decision: "Keep the immutable PersistentMap in Loam's dependency-free collections leaf, with non-atomic reference-counted nodes and path-copy updates for actor snapshots."
 supersedes: []
 superseded_by: []
+amended_by: [ADR-0162]
 ---
 
 # ADR-0061 Persistent collections module
@@ -28,7 +29,7 @@ the substrate to own.
 
 ## Decision
 
-A new leaf layer [`src/persistent/`](../../../src/persistent/) provides a single
+The leaf layer [`src/loam/collections/`](../../../src/loam/collections/) provides a single
 `PersistentMap`: a hash array mapped trie with path-copy updates and non-atomic
 refcounted nodes. An update shares every untouched subtree with the prior
 version, so a persistent actor that stores its state in it gets O(log n)
@@ -41,10 +42,9 @@ Containment is the decision as much as the structure:
 - It is a **sharp leaf module**, not a general collections package: one
   `PersistentMap`, no persistent vector or set (those are follow-on work, not
   built here).
-- It is **actor-support for time-travel**, reached by opt-in persistent actors
-  and the S5 benchmark. It is **not exported from the `glowcap` root module**,
-  so it is not a headline public API unless a later decision promotes it;
-  consumers import the `persistent` module directly.
+- It supports actor snapshots through `glowcap.loam.collections.PersistentMap`.
+  Direct internal consumers import `loam_collections`. Both paths use the same
+  leaf; neither requires a store, a backend, or managed resource state.
 - It **imports nothing from the protocol layers**. It is a `core` layer in
   build.zig's `layer_table` with an empty import set, so the actor-layer import
   law (ADR-0040) is untouched and `arch-check`, the architecture rule layer
@@ -55,9 +55,7 @@ Containment is the decision as much as the structure:
 
 - **No general collections library.** Only the map exists. A persistent vector,
   set, or ordered map is not implemented.
-- **No public `glowcap` surface.** The module is not re-exported from
-  `src/root.zig`; promoting it to a supported public API is a separate decision.
-- **Not required by the vat itself.** `vat.zig` never imports `persistent`;
+- **Not required by the vat itself.** The Vat does not import `loam_collections`;
   functional `become` works with any state type. The map only makes a large
   persistent actor's `become` cheap.
 
@@ -66,19 +64,15 @@ Containment is the decision as much as the structure:
 - **Put the map in `foundation`.** Rejected: `foundation` owns bytes, IDs, and
   frame ownership; a persistent map is the wrong semantic neighbor and would
   blur that module's responsibility.
-- **Export it on the `glowcap` root now.** Rejected: it is not yet a headline
-  API; exposing it would add a public-surface contract before a consumer
-  justifies it.
 - **Skip it; rebuild actor state each `become`.** Rejected: O(size) `become`
   loses the incremental cheapness that is the whole point of tier 3, and the
   benchmark could not show parity with Goblins's structural sharing.
 
 ## Consequences
 
-New `src/persistent/` module with `mod.zig` and the `PersistentMap`
-implementation; a new `core` row in build.zig's `layer_table` and the matching
-arch-check coverage; a layer entry in `docs/architecture.md` and the
-architecture rule. `test/persistent` proves structural sharing across updates,
+The `src/loam/collections/` module owns the `PersistentMap` implementation.
+Its `core` row in build.zig's `layer_table` enforces the dependency-free boundary.
+`test/loam/collections` proves structural sharing across updates,
 refcount correctness, no cycles, and leak-freedom under the testing allocator.
 The memory rule gains a load-bearing-allocation entry for the refcounted trie
 nodes. No protocol-layer source changes.

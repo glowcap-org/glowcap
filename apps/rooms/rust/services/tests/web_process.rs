@@ -29,6 +29,12 @@ impl Web {
 			.into()
 	}
 	fn command(trace: u16) -> Command {
+		let mut command = Self::endpoint_command(trace);
+		let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web");
+		command.arg(format!("--assets={}", assets.display()));
+		command
+	}
+	fn endpoint_command(trace: u16) -> Command {
 		let installed = std::env::var_os("GLOWCAP_ROOMS_WEB_TEST_BIN");
 		let mut command = Command::new(Self::binary());
 		let server = std::env::var_os("GLOWCAP_ROOMS_SERVER_TEST_BIN")
@@ -44,11 +50,9 @@ impl Web {
 				command.env_remove(key);
 			}
 		}
-		let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web");
 		command
 			.args(["0", "0", "--transport=tcp", "--trace"])
 			.arg(format!("--trace-port={trace}"))
-			.arg(format!("--assets={}", assets.display()))
 			.arg(format!("--server={}", Path::new(&server).display()))
 			.env("GLOWCAP_RELAY_MAX_SESSIONS", "1")
 			.env("GLOWCAP_RELAY_MAX_REGISTRATIONS", "2")
@@ -148,6 +152,23 @@ impl Web {
 			"web retires every owned worker"
 		);
 	}
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn web_can_serve_native_endpoints_without_loading_browser_assets() {
+	tokio::time::timeout(Duration::from_secs(20), async {
+		let mut command = Web::endpoint_command(0);
+		command.arg("--no-browser-assets");
+		let mut web = Web::spawn(command);
+		web.ready().await;
+		assert!(web.get("/locator").await.starts_with("HTTP/1.1 200"));
+		let page = web.get("/").await;
+		assert!(page.starts_with("HTTP/1.1 404"), "{page}");
+		assert!(page.ends_with("rooms: browser assets disabled\n"), "{page}");
+		web.stop().await;
+	})
+	.await
+	.expect("endpoint-only web service deadline");
 }
 impl Drop for Web {
 	fn drop(&mut self) {

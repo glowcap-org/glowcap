@@ -4,10 +4,11 @@ Every `zig build` step this repository declares, grouped by what it proves. Run
 `zig build` from the repository root: a run started in a subdirectory leaves its
 cache and output directories there and resolves relative paths wrong.
 
-Four aggregate gates divide evidence by the resources they own. `zig build check` runs
-in-process Zig tests, static, generated, and compile-only evidence. `zig build
-runtime-check` runs deterministic process suites and language workspaces in a
-fixed order, so their ports and build directories cannot overlap. `zig build
+Four aggregate gates divide evidence by the resources they own. `zig build
+check` runs in-process Zig tests, static, generated, and compile-only evidence.
+`zig build runtime-check` runs deterministic process suites and language
+workspaces. Its side-effecting commands take the build runner's execution lock,
+so their ports and output directories cannot overlap. `zig build
 check-external` runs checks whose authority lives outside glowcap plus the
 browser proofs of the shipped Rooms page. `zig build infrastructure-check`
 black-boxes the devcontainer and worktree integration tools. It is recurring CI
@@ -29,6 +30,9 @@ listener-admin capability, `--operator` the stewardship authority,
 `--trace` serves the live timeline endpoint (default port 9300;
 `GLOWCAP_ROOMS_TRACE_PORT` overrides) and mints its capability. `rooms-dev`
 passes all six.
+`-Dhot-reload=false` on `rooms-dev` serves compiled generations through the
+native front while keeping the same state and grants. The default uses Vite
+Fast Refresh; production compiler selection is independent of this option.
 
 ## Adding a step
 
@@ -50,7 +54,7 @@ The steps a session reaches for most, and the gates everything else feeds.
 
 ```sh
 zig build check                # in-process Zig tests, static, generated, performance, and compile-only evidence
-zig build runtime-check        # deterministic process, application, and language-workspace evidence, serialized by family
+zig build runtime-check        # deterministic process, application, and language-workspace evidence without cross-step contention
 zig build check-external       # outside-authority protocol conformance plus every shipped Rooms page proof (needs uv + racket + goblins + cargo + deno + Playwright)
 zig build test                 # the correctness suite
 zig build test -Dtest-filter=substring # only tests whose names match
@@ -58,6 +62,11 @@ zig build arch-check           # the layer boundaries: module edges, the no-I/O 
 zig build source-check         # static cross-file source, documentation, generated-mirror, and scaffolding contracts
 zig build infrastructure-check # devcontainer and worktree integration behavior in temporary fixtures (needs bash + git + python3)
 zig build toolchain-check      # hold check to the runtimes it declares: no member reaches for an undeclared program, and every declared program and toolchain target is installed here
+zig build loam-core-wasm-check # compile portable Loam calls for 32-bit Wasm without LMDB; part of check
+zig build loam-lmdb-test       # Loam record atomicity, capacity, custody, and reopen tests; part of check
+zig build loam-actors-crash-test # CapTP actor recovery and cyclic references across SIGKILL; part of runtime-check
+zig build loam-collection-crash-test # SIGKILL around a tracing sweep, then safe collection after reopen; part of runtime-check
+zig build loam-lmdb-crash-test # SIGKILL before commit and after commit before installation; part of runtime-check (needs python3)
 zig build oracle-check         # the protocol reference corpus and the scenario traces
 zig build fmt                  # format Zig sources in place (zig fmt)
 zig build fmt-check            # check Zig formatting (zig fmt --check), part of check
@@ -449,7 +458,7 @@ zig build rooms-chat                   # run the interactive Rust rooms chat cli
 zig build rooms-web-operations-refresh # operations pagination, search, capability removal, and reload on the shipped page (needs cargo + deno + a Playwright Chromium)
 zig build rooms-trace-tail             # tail a Rooms server's live trace as lines; pass `-- <sturdyref> [--json]` (the ROOMS-TRACE-LISTENING value, needs deno)
 zig build rooms-peer                   # run rooms presence via `glowcap app rooms-peer`; pass `-- <verb> [flags]`. Install ships a thin `rooms-peer` shim. Source: `cli/app/rooms_peer.zig`
-zig build rooms-server-test            # run the in-tree Rooms server and UI contract tests (needs deno, part of runtime-check)
+zig build rooms-server-test            # run the in-tree Rooms server and UI contract tests (needs cargo + deno, part of runtime-check)
 zig build rooms-terminal-client-test   # run the Zig, Rust, Python, and Racket client contracts for watcher parsing, the membership-ended notice, and unread backpressure (needs cargo + python3 + racket); the Zig one also rides `check`
 zig build rooms-browser-build          # production Rooms application Wasm and generated JavaScript glue
 zig build rooms-browser-metadata-check # verify browser limits and capability metadata against their Rust owners
@@ -475,7 +484,7 @@ zig build rooms-web-build              # build and install the HTTP front (needs
 zig build rooms-web-test               # the installed web front's HTTP, relay admission and startup/shutdown custody (needs cargo + deno + python3, part of runtime-check)
 zig build rooms-web-tor-test           # opt-in: private Tor ownership and durable directory service key, networking disabled (needs cargo + deno + python3 + tor)
 zig build rooms-web                    # serve the rooms browser UI; open the printed URL (needs cargo + deno). `-Dtransport=iroh|tcp|onion` picks the room transport: iroh (default, encrypted QUIC), tcp (cleartext, for a peer that speaks nothing else; `-- --bind= --announce-host=` expose it on a LAN), or onion (a Tor onion service; starts a private Tor unless GLOWCAP_ONION_SOCKS/GLOWCAP_ONION_CONTROL name one; needs tor). `-Dport` pins the HTTP port (default 8000); server flags such as `--diagnostics` follow `--`
-zig build rooms-dev                    # the development launch: rooms-web with every operator capability minted and the state kept under .local/.state/rooms, so identity, links, and swiss numbers survive a restart; takes the same `-Dtransport` (needs cargo + deno)
+zig build rooms-dev                    # React Fast Refresh by default; -Dhot-reload=false serves compiled generations natively, with the same operator grants, durable state, and -Dtransport (needs cargo + deno)
 zig build rooms-deploy-prep            # build and version everything the rooms deploy container mounts: shared libraries, iroh, wasm Host, browser UI, native session peer (needs cargo + deno)
 ```
 
@@ -519,6 +528,7 @@ zig build bench-dispatch-scaling # inbound dispatch ns/turn across N warmed peer
 zig build bench-outbound         # the outbound engine path (send/step/takeOutbound per answered deliver) and the op:gc-answers release-storm shape
 zig build bench-peer-scaling     # per-session memory report; add `-- --live` for authenticated socket scale (500k setup and result: docs/ladder.md)
 zig build bench-snapshot         # vat snapshot/restore (S5): O(objects), flat in object size, off by default
+zig build bench-loam -Doptimize=ReleaseFast # native LMDB conversation graph, sleepy actors, edits, and collection; -- --smoke under check
 zig build relay-scaling          # the reference relay's per-connection footprint and its descriptor and RAM ceiling; the relay-tier sibling of bench-peer-scaling (needs deno)
 zig build bench-iroh             # OCapN round-trip latency and throughput over encrypted iroh QUIC against a same-machine cleartext TCP baseline (needs cargo); `-- --smoke` forwarded
 zig build bench-goblins          # cross-implementation benchmark: glowcap's Racket binding and Spritely Goblins on one shared app (needs racket + goblins); `-- --smoke`/`--suite=<name>` forwarded

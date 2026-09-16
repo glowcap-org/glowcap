@@ -402,6 +402,53 @@ export async function run(
 			}
 		}
 
+		// An open menu stays over the mark it was opened from, with the pointer
+		// nowhere near either. The menu is drawn in the top layer rather than
+		// inside the bubble, so opening one takes the focus out of the bubble's
+		// `:focus-within` and walking into it takes the pointer out of its
+		// `:hover`. The strip went back to `display: none` under the reader, an
+		// element with no box measures 0,0,0,0, and the observer that keeps the
+		// menu over its mark believed that and put the menu in the corner of the
+		// page.
+		{
+			const bubble = tab.locator(`.bubble:has-text("${said.first}")`).last();
+			await bubble.hover();
+			await bubble.getByLabel(/More for this message/).click();
+			await tab.waitForSelector(".line-menu", { timeout: 10_000 })
+				.catch(() => fail("a message menu would not open"));
+			await tab.mouse.move(10, 10);
+			const placed = await tab.evaluate(() => {
+				const menu = document.querySelector(".line-menu");
+				const mark = document.querySelector(".line-acts.open");
+				if (menu == null || mark == null) return null;
+				const m = menu.getBoundingClientRect();
+				const a = mark.getBoundingClientRect();
+				return {
+					// The menu is wider than the strip it hangs from and pinned to one of
+					// its edges, so it reaches past the mark on the far side; and it opens
+					// upward when the line is low on the screen. What says it is still
+					// placed against the mark is that the two share a column, and that
+					// they are touching on one edge or the other.
+					overlaps: m.right > a.left && m.left < a.right,
+					gap: m.top >= a.bottom ? m.top - a.bottom : a.top >= m.bottom ? a.top - m.bottom : 0,
+					shown: getComputedStyle(mark).display !== "none",
+					where: `menu ${Math.round(m.left)},${Math.round(m.top)} mark ${Math.round(a.left)},${
+						Math.round(a.top)
+					}`,
+				};
+			});
+			if (placed === null) fail("an open message menu lost the mark it was opened from");
+			else {
+				if (!placed.shown) fail("the mark that opens a message's menu goes away under its own open menu");
+				if (!placed.overlaps || placed.gap > 40) {
+					fail(`an open message menu left its mark when the pointer did: ${placed.where}`);
+				}
+			}
+			await tab.keyboard.press("Escape");
+			await tab.waitForSelector(".line-menu", { state: "detached", timeout: 10_000 })
+				.catch(() => fail("a message menu would not close on Escape"));
+		}
+
 		const items = async (page: Page, text: string) => {
 			const bubble = page.locator(`.bubble:has-text("${text}")`).last();
 			await bubble.hover();

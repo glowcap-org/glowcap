@@ -62,11 +62,22 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "codec", .prefix = "ocapn/codec/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits", "syrup", "capnp" }, .core = true },
     .{ .name = "session", .prefix = "ocapn/session/", .imports = &.{ "foundation", "model" }, .core = true },
     .{ .name = "engine", .prefix = "ocapn/engine/", .imports = &.{ "foundation", "model", "codec", "session" }, .core = true },
-    .{ .name = "persistent", .prefix = "persistent/", .imports = &.{}, .core = true },
+    .{ .name = "loam_collections", .prefix = "loam/collections/", .imports = &.{}, .core = true },
     .{ .name = "actors", .prefix = "actors/", .imports = &.{ "model", "engine" }, .core = true },
+    .{ .name = "loam_records", .prefix = "loam/records/", .imports = &.{"syrup"}, .core = true },
+    .{ .name = "loam_core", .prefix = "loam/core/", .imports = &.{"loam_records"}, .core = true },
+    .{ .name = "loam_volatile", .prefix = "loam/backends/volatile.zig", .imports = &.{"loam_core"}, .core = true },
+    .{ .name = "loam_lmdb", .prefix = "loam/backends/lmdb/", .imports = &.{"loam_core"}, .core = false, .graph = false },
+    .{ .name = "loam_access_core", .prefix = "loam/access/core/", .imports = &.{}, .core = true },
+    .{ .name = "loam_access_records", .prefix = "loam/access/records/", .imports = &.{ "loam_access_core", "loam_records", "syrup" }, .core = true },
+    .{ .name = "loam_access_storage", .prefix = "loam/access/storage/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_core" }, .core = true },
     .{ .name = "net", .prefix = "net/", .imports = &.{ "foundation", "model", "codec", "engine" }, .core = false },
     .{ .name = "oracle", .prefix = "oracle/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
     .{ .name = "driver_core", .prefix = "driver/core/", .imports = &.{ "foundation", "model", "engine", "actors" }, .core = true },
+    .{ .name = "loam_hosting", .prefix = "loam/hosting/", .imports = &.{ "loam_core", "actors", "driver_core", "model" }, .core = true },
+    .{ .name = "loam_access_hosting", .prefix = "loam/access/hosting/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_access_storage", "loam_core", "loam_hosting", "driver_core" }, .core = true },
+    .{ .name = "loam_access", .prefix = "loam/access/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_access_storage", "loam_access_hosting" }, .core = true },
+    .{ .name = "loam", .prefix = "loam/", .imports = &.{ "loam_collections", "loam_records", "loam_core", "loam_volatile", "loam_access", "loam_hosting" }, .core = true },
     .{ .name = "driver", .prefix = "driver/", .imports = &.{ "foundation", "model", "engine", "actors", "net", "driver_core" }, .core = false },
     .{ .name = "diagnostics", .prefix = "diagnostics/", .imports = &.{}, .core = false },
     .{ .name = "c_abi_shared", .prefix = "c_abi/shared/", .imports = &.{ "foundation", "model", "engine", "diagnostics" }, .core = false },
@@ -80,7 +91,7 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "c_abi_host", .prefix = "c_abi/host/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_driver", .prefix = "c_abi/driver/", .imports = &.{ "foundation", "model", "engine", "net", "driver_core", "driver", "c_abi_shared", "c_abi_host" }, .core = false, .graph = false },
     .{ .name = "c_abi_wasm", .prefix = "c_abi/wasm/", .imports = &.{ "c_abi_shared", "c_abi", "c_abi_host" }, .core = false, .graph = false },
-    .{ .name = "glowcap", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "net", "driver", "c_abi" }, .core = false },
+    .{ .name = "glowcap", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "loam", "net", "driver", "c_abi" }, .core = false },
 };
 
 /// The composable C ABI archive set (ADR-0059), declared once beside
@@ -154,43 +165,7 @@ pub fn layerIndex(comptime name: []const u8) usize {
 /// `b.dependency("glowcap", ...).module("glowcap")` resolves to the same graph
 /// the artifacts are built from. The cross-target graphs pass false: they are
 /// compile-only gates, not the public module.
-pub fn graphFromTable(
-    b: *std.Build,
-    t: std.Build.ResolvedTarget,
-    o: std.builtin.OptimizeMode,
-    table: []const arch_check.LayerSpec,
-    expose_root: bool,
-) []*std.Build.Module {
-    const mods = b.allocator.alloc(*std.Build.Module, table.len) catch @panic("OOM");
-    for (table, 0..) |spec, i| {
-        // Out-of-graph rows (e.g. `c_abi_net_transport_iroh`) are claimed by arch-check for file
-        // coverage and edge liveness but are not DAG participants, they link a
-        // non-Zig sidecar and import an injected resident, so `irohAbiModule`
-        // mints them. No graph row imports such a row, so the slot stays unread.
-        if (!spec.graph) continue;
-        const root_source = if (std.mem.endsWith(u8, spec.prefix, ".zig"))
-            b.fmt("src/{s}", .{spec.prefix})
-        else
-            b.fmt("src/{s}mod.zig", .{spec.prefix});
-        const create_options: std.Build.Module.CreateOptions = .{
-            .root_source_file = b.path(root_source),
-            .target = t,
-            .optimize = o,
-            .pic = true,
-        };
-        mods[i] = if (expose_root and std.mem.eql(u8, spec.name, "glowcap"))
-            b.addModule("glowcap", create_options)
-        else
-            b.createModule(create_options);
-        for (spec.imports) |edge| {
-            const j = for (table[0..i], 0..) |prior, k| {
-                if (std.mem.eql(u8, prior.name, edge)) break k;
-            } else @panic("layer_table edge does not name an earlier row");
-            mods[i].addImport(edge, mods[j]);
-        }
-    }
-    return mods;
-}
+pub const graphFromTable = @import("tools/build/module_graph.zig").create;
 
 const addInstalledSystemRun = build_common.addInstalledSystemRun;
 const installArchive = build_common.installArchive;
@@ -366,6 +341,7 @@ pub fn build(b: *std.Build) void {
     const runtime_gate = gates.runtime_gate;
     const test_filter = gates.test_filter;
     const wasm_driver_install_step = gates.wasm_install;
+    @import("tools/build/loam.zig").register(b, target, optimize, host_mods[layerIndex("loam_core")], gates);
 
     // The generated headers and binding mirrors register from
     // tools/build/gen.zig; the resident-dependent rows join below once the

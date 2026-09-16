@@ -64,6 +64,7 @@ pub(super) const WORK_LIMIT: usize = 256;
 /// operator names it by.
 struct Connection {
 	session: Session,
+	files: super::files::Capabilities,
 	claimant: Option<String>,
 	operator_id: String,
 	/// The room presence last stated on the live trace for this session:
@@ -224,6 +225,7 @@ impl State {
 			id,
 			Connection {
 				session,
+				files: Default::default(),
 				claimant,
 				operator_id: Id::from_entropy(entropy).as_str().into(),
 				presence: RefCell::new(None),
@@ -234,6 +236,12 @@ impl State {
 	}
 	pub fn session(&self, connection: u64) -> Option<&Session> {
 		self.connections.get(&connection).map(|held| &held.session)
+	}
+	pub fn file_capabilities(&self, session: &Session) -> Option<&super::files::Capabilities> {
+		self.connections
+			.values()
+			.find(|held| held.session.same_session(session))
+			.map(|held| &held.files)
 	}
 	/// The connection `session` is served over. A room reference crosses
 	/// connections, so the calling session names the caller, not the session
@@ -430,15 +438,13 @@ impl State {
 			let Some(session) = self.connections.get(&tell.connection) else {
 				continue;
 			};
-			let mut encoder = super::files::Minter {
-				state: self,
-				session: &session.session,
-			};
+			let mut encoder = super::files::Minter::connected(self, &session.session, &session.files);
+			let verb = rooms::wire::verb(&tell.notice);
 			match rooms::wire::arguments(&tell.notice, &mut encoder) {
 				Ok(args) => {
-					self.tell(tell.connection, &tell.inbox, NOTIFY, &args);
+					self.tell(tell.connection, &tell.inbox, verb, &args);
 				}
-				Err(cause) => self.report(Notice::Undelivered { verb: NOTIFY, cause }),
+				Err(cause) => self.report(Notice::Undelivered { verb, cause }),
 			}
 		}
 		self.announce(&effects.events);

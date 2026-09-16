@@ -105,6 +105,11 @@ while IFS=: read -r _ path; do
 done <<< "$(glowcap_devcontainer_host_home_bind_rows)"
 
 bash "${dir}/test/env-sync.sh"
+# env-sync.sh holds the Compose file to its contracts. This holds the running
+# container to the Compose file: a container created before a variable was
+# declared keeps running without it, and the service that wanted it falls back
+# to a default nobody chose.
+bash "${dir}/hooks/verify-compose-env.sh"
 # Linked worktrees do not inherit submodule working trees from the clone.
 # CI checks them out with the repository; this hook fills them here so every
 # checkout is a complete environment.

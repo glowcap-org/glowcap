@@ -288,7 +288,7 @@ impl Generation {
 				.map_err(|_| "browser bundle filename is not Unicode")?;
 			if entry.file_type().map_err(|e| e.to_string())?.is_file() && name.ends_with(".js") && leaf(&name) {
 				let mut body = read(&entry.path(), MAX_ASSET)?;
-				if name == "main.js" {
+				if name == "page.js" {
 					let prefix = format!(
 						"document.documentElement.dataset.uiBuild={};\ndocument.documentElement.dataset.roomsWasm={};\n",
 						serde_json::to_string(&revision).map_err(|e| e.to_string())?,
@@ -298,16 +298,12 @@ impl Generation {
 					main.append(&mut body);
 					body = main;
 				}
-				let route = if name == "main.js" {
-					"/page.js".into()
-				} else {
-					format!("/{name}")
-				};
+				let route = format!("/{name}");
 				generation.insert(route, Asset::new(body.into(), "text/javascript; charset=utf-8"))?;
 			}
 		}
 		if !generation.files.contains_key("/page.js") {
-			return Err("browser bundle has no main.js".into());
+			return Err("browser bundle has no page.js".into());
 		}
 		let page = text(&bundle.join("page.html"), MAX_ASSET)?;
 		let mut html = Asset::new(page.as_bytes().to_vec().into(), "text/html; charset=utf-8");

@@ -219,7 +219,7 @@ file.
 | --- | --- |
 | Before creation | `hooks/initialize.sh` creates the shared host agent-state paths and missing primary-checkout configuration, validates Git identity and ports, and prepares the managed Docker networks |
 | Image build | `Dockerfile`, `image/` installers, then `image/verify-toolchains.sh` |
-| First open | `hooks/post-create.sh` verifies host binds are writable, proves the Zig cache filesystem, checks pins, and fills the conformance submodules |
+| First open | `hooks/post-create.sh` verifies host binds are writable, proves the Zig cache filesystem, checks pins, holds the container to the environment Compose declares, and fills the conformance submodules |
 | Development | You run `zig build check` and focused build steps |
 
 ## Toolchains
@@ -400,6 +400,11 @@ and the docs preview open as localhost on that published port. A tailnet
 listener such as Tailscale Serve can bind the same numbers on the machine's
 tailnet addresses without colliding with this publish.
 
+`zig build rooms-dev` binds its Vite listener to the container interface and
+keeps its native backend on an ephemeral container-loopback port. This leaves
+the published web port as the only Rooms development address exposed to the
+host. Outside the container, the same command defaults to host loopback.
+
 They are declared rather than left to the editor noticing a listener, because a
 guessed forward goes away again when it stops noticing, and
 [`apps/rooms/developing.md`](../apps/rooms/developing.md) uses canonical
@@ -458,6 +463,7 @@ finding fails container open and the CI push checks.
 | `hooks/initialize.sh` | Bootstraps and validates checkout configuration, then prepares managed networks | host |
 | `hooks/post-create.sh` | Verifies an open container and fills the conformance submodules | container |
 | `hooks/verify-ptrace.sh` | Checks ptrace access | container |
+| `hooks/verify-compose-env.sh` | Holds the running container to the environment Compose declares, so one created before a new variable says so instead of falling back to a default | container |
 | `pane/host/.bashrc` | Host half of the pane runtime: enters the container, and decides whether the pane ends with the shell that leaves it | host |
 | `pane/container/.zshrc` | Container half: initializes the shell, runs that pane's function from the worktree's ignored `pane/panes.sh`, and owns `glowcap_devcontainer_exit` | container |
 | `pane/panes.example.sh` | The shape a worktree's own `pane/panes.sh` takes | example |

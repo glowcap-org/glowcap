@@ -171,10 +171,29 @@ root to reach test support.
   near-call `$`, eventual-send `<-`, promises) above the engine, adding no CapTP
   semantics the engine lacks. Also owns opt-in local time-travel (ADR-0060),
   which is local-only and never wire state.
-- `persistent`: a sharp leaf of persistent immutable collections, one
-  refcounted-HAMT `PersistentMap` (ADR-0061) so a persistent actor's functional
-  `become` is O(log n). Pure, no-I/O, imports nothing, off the public `glowcap`
-  namespace, reached only by opt-in persistent actors.
+- `loam`: application persistence and its included managed access extension.
+  `loam_collections` owns the dependency-free immutable HAMT at
+  `loam/collections/`; actor snapshots use it without disk storage.
+  `loam_records` owns storage identities and bounded Syrup record envelopes;
+  `loam_core` imports it for transactions and record leases, with no I/O or
+  resource policy. `loam_volatile` realizes shared batches in memory, and the
+  optional `loam_lmdb` module realizes them through native LMDB. The facade
+  also exposes `loam_hosting`: bounded record-backed actors and stored local
+  capability restoration above `loam_core`, `actors`, and `driver_core`. It
+  queues wakeups through the existing Vat/Host and imports no native adapter.
+  `docs/loam.md` owns the supported durable behavior profile.
+  The access module owns resource identity, containment, policy algebra, and local grants,
+  reached through `glowcap.loam.access.core`. `loam_access_core` owns `loam/access/core/` and
+  imports no Host, actors, protocol, or I/O layer. `loam_access_records` owns bounded
+  record encoding over `loam_access_core` and `syrup`, with no I/O.
+  `loam_access_storage` loads managed records and stages changes in the existing
+  Store. `loam_access_hosting` prepares fixed-resource use/control/derive calls
+  through `loam_hosting`; the existing Host owns dispatch and settlement, and the
+  attachment owns commit. Reply materialization reserves publication custody at
+  the top-level Host boundary, outside the Vat callback (ADR-0170).
+  `loam_access` exports these modules through `glowcap.loam.access`; the build
+  graph enforces dependency direction. Resource IDs name data; restored
+  use/control references convey the bound grant's authority.
 - `diagnostics`: the vendor-neutral typed record and bounded journal for a
   failure whose last deterministic return recipient has gone (ADR-0115).
   Mutable storage belongs to an explicit Context, Host, or driver; the module

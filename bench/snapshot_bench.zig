@@ -34,7 +34,7 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const persistent = @import("persistent");
+const persistent = @import("loam_collections");
 
 const actors = glowcap.actors;
 const model = glowcap.ocapn.model;

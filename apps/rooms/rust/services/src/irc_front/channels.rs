@@ -138,7 +138,12 @@ async fn pump(
 		let Some(mut message) = item else { return Ok(()) };
 		let attachments = message.attachments.len();
 		message.attachments.clear();
-		match message.presence {
+		let (presence, facts) = match message.metadata.take() {
+			Some(rooms_application::room::inbox::metadata::Metadata::Presence(value)) => (Some(value), None),
+			Some(rooms_application::room::inbox::metadata::Metadata::Facts(value)) => (None, Some(value)),
+			_ => (None, None),
+		};
+		match presence {
 			Some(Presence::Roster { names: roster }) => {
 				let mut next = BTreeMap::new();
 				for name in roster {
@@ -171,7 +176,7 @@ async fn pump(
 			}
 			_ => {}
 		}
-		if let Some(topic) = message.facts.and_then(|f| f.topic) {
+		if let Some(topic) = facts.and_then(|f| f.topic) {
 			view.borrow_mut().topic = Some(topic.clone());
 			match protocol::encode_message("TOPIC", &[channel, &topic], Some(&output.server)) {
 				Ok(bytes) => output.enqueue(bytes)?.wait().await.map_err(|e| e.reason)?,

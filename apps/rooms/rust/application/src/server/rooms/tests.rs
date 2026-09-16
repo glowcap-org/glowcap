@@ -11,6 +11,7 @@ use alloc::{format, vec};
 use support::*;
 
 mod file_clock;
+mod receipts;
 mod support;
 
 #[test]

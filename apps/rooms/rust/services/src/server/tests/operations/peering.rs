@@ -176,14 +176,14 @@ async fn peering() {
 	let roster = tokio::time::timeout(Duration::from_secs(5), async {
 		loop {
 			let line = messages.next().await.unwrap().unwrap();
-			if line.presence.is_some() {
+			if line.presence().is_some() {
 				break line;
 			}
 		}
 	})
 	.await
 	.expect("the roster in time");
-	assert!(roster.presence.is_some());
+	assert!(roster.presence().is_some());
 	room.say("hello from the destination").await.unwrap();
 	let said = tokio::time::timeout(Duration::from_secs(5), async {
 		loop {

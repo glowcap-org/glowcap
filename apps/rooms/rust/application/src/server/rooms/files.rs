@@ -5,6 +5,21 @@ use super::{Refusal, Rooms, UploadKey};
 use crate::files::{Blob, FileArgument, FileCallError, ReadOutcome};
 
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
+	pub fn upload_blob(&self, key: UploadKey) -> Option<Blob> {
+		self.uploads.get(&key).map(|held| held.upload.blob())
+	}
+	/// Roll back a reservation whose adapter could not publish its authority.
+	/// Storage and the staged handle retire together, without waiting for a timer.
+	pub fn cancel_upload(&mut self, key: UploadKey, monotonic_ms: u64) -> Result<(), Refusal> {
+		self.file_time(monotonic_ms)?;
+		let upload = self
+			.uploads
+			.get(&key)
+			.ok_or_else(|| Refusal::plain("upload reservation is no longer held"))?;
+		self.files.discard(&upload.upload).map_err(Refusal::plain)?;
+		self.uploads.remove(&key);
+		Ok(())
+	}
 	pub(super) fn file_time(&mut self, monotonic_ms: u64) -> Result<(), Refusal> {
 		self.files.observe_time(monotonic_ms).map_err(Refusal::plain)
 	}

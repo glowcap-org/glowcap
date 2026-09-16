@@ -30,7 +30,7 @@ impl SessionEvents for Events {
 	async fn preparing(
 		&mut self,
 		_checkpoint: &rooms_application::session::checkpoint::Checkpoint,
-	) -> Result<impl Sized + 'static, String> {
+	) -> Result<impl Sized + 'static, rooms_runtime::Error> {
 		Ok(())
 	}
 

@@ -18,5 +18,5 @@ comptime {
     _ = @import("net/fuzz_test.zig");
     _ = @import("session/fuzz_test.zig");
     _ = @import("actors/fuzz_test.zig");
-    _ = @import("persistent/fuzz_test.zig");
+    _ = @import("loam/collections/fuzz_test.zig");
 }

@@ -8,7 +8,7 @@ use std::{convert::Infallible, rc::Rc, time::Duration};
 use tokio::{net::TcpListener, sync::watch, task::JoinSet};
 
 pub(super) struct Environment {
-	pub assets: Rc<super::assets::Assets>,
+	pub assets: Option<Rc<super::assets::Assets>>,
 	pub ice: super::ice::Policy,
 	pub location: watch::Receiver<Option<crate::server::readiness::Announcement>>,
 	pub previews: Rc<super::preview::Preview>,
@@ -247,7 +247,14 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 			.relay
 			.proxy(request, format!("ws://127.0.0.1:{port}{endpoint}{query}"));
 	}
-	match environment.assets.get(path).await {
+	let Some(assets) = &environment.assets else {
+		return response(
+			StatusCode::NOT_FOUND,
+			"text/plain",
+			"rooms: browser assets disabled\n".into(),
+		);
+	};
+	match assets.get(path).await {
 		Ok(Some(asset)) => asset.response(&request),
 		Ok(None) => response(StatusCode::NOT_FOUND, "text/plain", "rooms: asset not found\n".into()),
 		Err(error) => {

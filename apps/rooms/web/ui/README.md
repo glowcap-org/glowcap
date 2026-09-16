@@ -34,9 +34,13 @@ one size on the ramp wherever the two meet.
 
 ## The page and its chunks
 
-It is a React application entered through `main.tsx`. `rooms-web` bundles
-`page.js` with Deno's browser compiler and splits the graph at the waits a
-reader can name. The opening screen in `page.html` covers the boot module,
+`page.js` is the shared browser entry and loads the React application in
+`main.tsx`. Production preparation
+runs the app-owned Vite configuration through Deno's pinned toolchain and
+publishes the entry as `page.js`. Vite splits the graph at the waits a reader
+can name. During `zig build rooms-dev`, the same configuration serves source
+modules with React Fast Refresh and proxies native Rooms endpoints to an ephemeral
+loopback backend. The opening screen in `page.html` covers the boot module,
 the Wasm runtime, and whichever of session choice or the session shell comes
 next; that next chunk starts as soon as the branch is known, so the splash
 does not fade onto a second wait. After a session exists, Operations is its
@@ -48,6 +52,10 @@ what explains a missing chunk. A required chunk that `import()` refuses
 stamps the opening screen lost, because that rejection is not a window
 error. The wait on screen is the same quiet sheen a pane uses for its first
 answer from the server.
+
+Production JavaScript targets Mobile Safari on iOS 26 as the oldest engine.
+Current Chrome and Firefox are supported at their current releases. The build
+adds no legacy bundle or module-preload polyfill.
 
 The component tree names visual ownership. `shell/` composes the page frame,
 `cards/` owns focused subject cards, `panes/` owns the conversation and modal
@@ -70,8 +78,17 @@ Every card and pane draws its forms from one vocabulary, held in `forms.css`
 and the components beside it (`Field`, `Confirm`, `ModalHead`, `Button`),
 and Help's parts catalog shows each piece next to its siblings.
 
-A question is a `Field`: its label, the control, the sentence under it, and
-the refusal it met, wired together so the control announces all three. A
+A question is a `Field`: its label, the refusal its answer met, the control,
+and the sentence under it, wired together so the control announces all three
+and speaks them in the order they are seen. The two slots around a control
+carry different kinds of thing, and that is the rule every form on this page
+keeps. Above the control goes what the reader has to act on before the answer
+will be taken, which is the refusal. Below it goes what only informs the
+answer, which is the sentence. Holding them apart means a refusal never
+displaces the guidance that would fix it, and on a phone it keeps the refusal
+above the keyboard instead of behind it, where anything under a focused
+control ends up. Every field-level refusal comes through `Field`, so that
+order lives in one place. A
 single-line field stands at the touch height (`--field-h`), and a button
 beside it in a `field-row` stands level with the control. The acts a surface
 offers sit in an `actions` row at the end of the line they belong to, with
@@ -192,7 +209,7 @@ a form that starts keeping a value across screens needs one.
 A failure lands on the thing that failed, with the retry attached to that
 thing, and it interrupts nothing else. In order of preference: the act's own
 widget keeps its control and gains the reason, the way a bubble tints "Not
-sent" with retry on it and a refused form answer lands beside the field that
+sent" with retry on it and a refused form answer lands above the field that
 asked; the conversation the act belongs to carries a system line when the
 act has no widget of its own, with the way forward in the same sentence; a
 condition that stays true lives on the surface that owns the claim, the way

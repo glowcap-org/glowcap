@@ -19,6 +19,8 @@
 //! - `actors` is the Goblins-shaped layer above the engine: a `Vat` of local
 //!   objects, plus session `Port`s that route far sends over the owning peer. It
 //!   stays in the sync, no-I/O core and adds no protocol the engine lacks.
+//! - `loam.access` supplies portable resource identity, owned containment, and scope
+//!   evaluation. Its graph is application data and creates no actors or Host.
 //! - `net` owns transport realization and connection loops. It drives a `Peer`
 //!   over byte streams and adds no protocol behavior of its own.
 //! - `driver` sits above both `actors` and `net`: `driver.connect` and
@@ -59,6 +61,7 @@ pub const ocapn = struct {
 };
 
 pub const actors = @import("actors");
+pub const loam = @import("loam");
 pub const net = @import("net");
 pub const driver = @import("driver");
 

@@ -97,6 +97,13 @@ fence) is being used as the default joint so the content thins and the tactic go
   sentence on these pages is under a hundred characters; `zig build source-check` (`checkProseSentenceLength`) refuses
   one past 250, which is well past the point a reader has lost the thread.
 
+- Fencing: defining everything against an alternative. An opener that denies a claim nobody made, a sentence built as
+  "not X, only Y," a thing named by what was taken out of it, a paragraph that closes on what its subject discarded.
+  One contrast, placed where the distinction is load-bearing, is the tool this rule already recommends. A passage where
+  every sentence is positioned against something is arguing with a reader who is not in the room, and it reads as
+  machine prose whatever the words are. Say what the thing is, forward, and let the contrast arrive once. The tell is
+  that the passage cannot be read without the alternative it keeps gesturing at.
+
 - Self-awarded praise. Prose that calls the project's own arithmetic "honest," a surface "elegant," or a path "instant"
   is congratulation, not information. State the fact plainly and let the reader judge it; superlatives need a
   measurement behind them.

@@ -86,7 +86,7 @@ const in_tree_capabilities = [_]Capability{
 pub fn register(
     b: *std.Build,
     check_step: *std.Build.Step,
-    runtime_gate: *execution.SerialGate,
+    runtime_gate: *execution.RuntimeGate,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {

@@ -180,6 +180,10 @@ directory, and command instead of racing caches or ports. A contributor with
 the complete declared toolchain may still invoke `zig build` directly on the
 host.
 
+A host-side live service invocation needs a PTY so Ctrl-C crosses `docker exec`
+and reaches its container process tree. `glowcap-dev` refuses a service build
+without one instead of leaving children behind when its caller disconnects.
+
 When the user has directed worktree commits into the shared `dev` integration
 ref, start a clean work stint with
 `.agents/skills/work/bin/glowcap-integrate --sync`; it rebases onto the current

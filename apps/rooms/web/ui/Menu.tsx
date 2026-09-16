@@ -132,6 +132,11 @@ export function MenuLayer(
 		if (layer === null || host === null) return;
 		const place = () => {
 			const at = host.getBoundingClientRect();
+			// A box of no size is not a position. An element that has been hidden
+			// or taken out of the document measures 0,0,0,0, and the observer below
+			// reports exactly that as a resize, so believing it would send the menu
+			// to the corner of the page. Keep the last place the host had instead.
+			if (at.width === 0 && at.height === 0) return;
 			layer.style.top = `${at.top}px`;
 			layer.style.left = `${at.left}px`;
 			layer.style.width = `${at.width}px`;

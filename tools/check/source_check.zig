@@ -39,6 +39,7 @@ const ps_zig_module_surface = @import("source_check/project_shape/zig_module_sur
 const ps_budgets = @import("source_check/project_shape/budgets.zig");
 const ps_ops_fronts = @import("source_check/project_shape/ops_fronts.zig");
 const ps_playwright = @import("source_check/project_shape/playwright.zig");
+const ps_npm_pins = @import("source_check/project_shape/npm_pins.zig");
 const ps_formatting = @import("source_check/project_shape/formatting.zig");
 const ps_zig_version = @import("source_check/project_shape/zig_version.zig");
 const doc_orphans = @import("source_check/doc_orphans.zig");
@@ -285,6 +286,7 @@ pub fn check(
     try ps_hygiene.checkRoomsTestHeaders(io, gpa, root, &violations);
     try ps_budgets.checkFootprintBudgetQuotes(io, gpa, root, &violations);
     try ps_playwright.checkPlaywrightPin(io, gpa, root, &violations);
+    try ps_npm_pins.checkSharedNpmPins(io, gpa, root, &violations);
     try ps_formatting.check(io, gpa, root, &violations);
     try ps_zig_version.check(io, gpa, root, &violations);
     try ps_hygiene.checkDevcontainerBashScripts(io, gpa, root, &violations);
@@ -354,6 +356,7 @@ test {
     _ = file_length;
     _ = ps_packages;
     _ = ps_formatting;
+    _ = ps_npm_pins;
     _ = ps_steps;
     _ = ps_gate_membership;
     _ = ps_execution_deadlines;

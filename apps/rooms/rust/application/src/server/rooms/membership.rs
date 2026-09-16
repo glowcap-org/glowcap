@@ -80,12 +80,31 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		previews: crate::open_graph::Selection,
 		now: u64,
 	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
+		self.post_delivered(room, membership, text, previews, now, None)
+	}
+	#[allow(clippy::too_many_arguments)]
+	pub fn post_delivered(
+		&mut self,
+		room: &RoomKey,
+		membership: MembershipKey,
+		text: &str,
+		previews: crate::open_graph::Selection,
+		now: u64,
+		delivery: Option<super::Delivery<C>>,
+	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
 		let member = participant(&self.rooms, room, membership)?;
 		if text.len() > MAX_LINE_BYTES {
 			return Err(Refusal::plain(format!("a line may be at most {MAX_LINE_BYTES} bytes")));
 		}
 		let nick = member.nick.clone();
-		self.said(room, nick, text, previews, now, Vec::new())
+		let receipt = delivery
+			.filter(|d| d.caller == member.connection)
+			.map(|d| super::receipts::Retained {
+				membership,
+				request: d.request,
+				normalized: false,
+			});
+		self.said(room, nick, text, previews, now, Vec::new(), receipt)
 	}
 
 	/// Publish every file staged by this membership as one line. Wall time
@@ -117,6 +136,19 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		wall_ms: u64,
 		monotonic_ms: u64,
 	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
+		self.post_files_delivered(room, membership, caption, previews, wall_ms, monotonic_ms, None)
+	}
+	#[allow(clippy::too_many_arguments)]
+	pub fn post_files_delivered(
+		&mut self,
+		room: &RoomKey,
+		membership: MembershipKey,
+		caption: &str,
+		previews: crate::open_graph::Selection,
+		wall_ms: u64,
+		monotonic_ms: u64,
+		delivery: Option<super::Delivery<C>>,
+	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
 		self.file_time(monotonic_ms)?;
 		let member = participant(&self.rooms, room, membership)?;
 		if caption.len() > MAX_LINE_BYTES {
@@ -125,6 +157,13 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			)));
 		}
 		let nick = member.nick.clone();
+		let receipt = delivery
+			.filter(|d| d.caller == member.connection)
+			.map(|d| super::receipts::Retained {
+				membership,
+				request: d.request,
+				normalized: caption.is_empty(),
+			});
 		let files = self.files.post(&member.files).map_err(Refusal::plain)?;
 		if files.is_empty() {
 			return Err(Refusal::coded(FailureCode::UploadIncomplete, "no files are staged"));
@@ -138,9 +177,10 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			caption.into()
 		};
 		let previews = previews.retained_for(&caption);
-		self.said(room, nick, &caption, previews, wall_ms, files)
+		self.said(room, nick, &caption, previews, wall_ms, files, receipt)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	fn said(
 		&mut self,
 		room: &RoomKey,
@@ -149,6 +189,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		previews: crate::open_graph::Selection,
 		now: u64,
 		mut files: Vec<crate::files::HostedFile>,
+		receipt: Option<super::receipts::Retained>,
 	) -> Result<(LineKey, super::Mutation<C, R>), Refusal> {
 		let id = self.next_line(room)?;
 		let blobs: Vec<_> = files.iter().map(|file| file.blob()).collect();
@@ -227,7 +268,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			.expect("a seated room is live")
 			.lines
 			.insert(key);
-		self.broadcast(
+		self.broadcast_line(
 			room,
 			&mut effects,
 			Notice::Line {
@@ -235,7 +276,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				marker: Some((ChangeKind::Said, id)),
 				files: blobs,
 			},
-			None,
+			receipt,
 		);
 		mutation.effects = effects;
 		Ok((key, mutation))

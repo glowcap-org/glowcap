@@ -33,6 +33,7 @@ const crypto = foundation.crypto;
 pub const Publication = struct {
     name: []const u8,
     actor: actors.Ref,
+    active: bool = true,
 };
 
 /// `pub` for the Host-core siblings, not for embedders. Host-core internal.
@@ -40,6 +41,7 @@ pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, swissn
     const host: *Host = @ptrCast(@alignCast(ctx.?));
     const session = host.sessions.get(scope) orelse return null;
     const row = host.giftables.get(swissnum) orelse return null;
+    if (!row.active) return null;
     return (try session.served.port.projectActor(&host.vat, row.actor)).export_position;
 }
 
@@ -128,6 +130,8 @@ pub fn unpublish(
 /// A minted durable swiss name: fixed-size, POD, returned by value so
 /// the caller owns the bytes with no allocation (ADR-0098).
 pub const DurableSwiss = struct {
+    pub const Entropy = [engine.durable_swiss_entropy_len]u8;
+    pub const fromEntropy = mintDurableSwiss;
     bytes: [engine.durable_swiss_len]u8,
 
     pub fn slice(self: *const DurableSwiss) []const u8 {
@@ -200,6 +204,65 @@ pub fn bindDurable(self: *Host, entropy: [engine.durable_swiss_entropy_len]u8, a
     return minted;
 }
 
+/// Publish already-held local authority under a durable name. The publication
+/// takes its own root; failure leaves the caller's capability unchanged.
+pub fn publishDurableCapability(self: *Host, entropy: [engine.durable_swiss_entropy_len]u8, ref: @import("capability.zig").Ref) !DurableSwiss {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    const actor = self.localActorFor(ref) orelse return error.NotLocal;
+    self.vat.retainActor(actor.local);
+    errdefer self.vat.releaseActor(actor.local);
+    return bindDurable(self, entropy, actor);
+}
+
+/// Owns a hidden registry row and Host pending-work lease until commit/cancel.
+/// Move this value; copying it does not create another reservation.
+pub const DurableReservation = struct {
+    host: ?*Host,
+    swiss: DurableSwiss,
+    lifetime: Host.PendingWorkLease,
+
+    pub fn commit(self: *DurableReservation) void {
+        const host = self.host orelse return;
+        host.assertOwner();
+        host.giftables.getPtr(self.swiss.slice()).?.active = true;
+        self.host = null;
+        self.lifetime.complete();
+    }
+
+    pub fn cancel(self: *DurableReservation) void {
+        const host = self.host orelse return;
+        host.assertOwner();
+        const removed = host.giftables.fetchRemove(self.swiss.slice()).?;
+        std.debug.assert(!removed.value.active);
+        host.allocator.free(@constCast(removed.value.name));
+        host.vat.releaseActor(removed.value.actor.local);
+        self.host = null;
+        self.lifetime.complete();
+    }
+};
+
+/// Reserve exact held authority without exposing its name to fetch. All fallible
+/// allocation occurs here; confirmed storage can activate the row infallibly.
+pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref: capability.Ref) !DurableReservation {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    const actor = self.localActorFor(ref) orelse return error.NotLocal;
+    const minted = mintDurableSwiss(entropy);
+    if (self.giftables.get(minted.slice())) |row| {
+        if (!std.meta.eql(row.actor, actor)) return error.DurableNameCollision;
+        if (!row.active) return error.PublicationPending;
+        return .{ .host = null, .swiss = minted, .lifetime = .{ .host = null } };
+    }
+    var lifetime = try self.admitPendingWork();
+    errdefer lifetime.complete();
+    self.vat.retainActor(actor.local);
+    errdefer self.vat.releaseActor(actor.local);
+    const swiss = try bindDurable(self, entropy, actor);
+    self.giftables.getPtr(swiss.slice()).?.active = false;
+    return .{ .host = self, .swiss = swiss, .lifetime = lifetime };
+}
+
 /// Remove a minted durable publication (ADR-0098): its live row is
 /// reclaimed, future enlivenment of the old sturdyref misses, and a
 /// later mint never deliberately reuses the bytes. Alias-only like
@@ -214,6 +277,7 @@ pub fn removeDurable(
     try self.refuseReentry();
     try self.admitApplicationOperation();
     if (!engine.isDurableSwiss(swiss)) return error.NotDurableName;
+    if (self.giftables.get(swiss)) |row| if (!row.active) return error.UnknownPublication;
     const removed = self.giftables.fetchRemove(swiss) orelse return error.UnknownPublication;
     self.allocator.free(@constCast(removed.value.name));
     self.vat.releaseActor(localActorId(removed.value.actor) catch unreachable);
@@ -254,7 +318,7 @@ pub fn publishedCapability(self: *Host, session: *HostSession, name: []const u8)
     const actor = if (session.served.port.peer.session_state.bootstrapLookup(name)) |position|
         session.served.refForExport(position.int()) orelse return actors.Error.NoSuchActor
     else if (self.giftables.get(name)) |row|
-        row.actor
+        if (row.active) row.actor else return null
     else
         return null;
     return @as(?capability.Ref, try self.retainLocalCapability(actor));

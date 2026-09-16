@@ -1,5 +1,5 @@
-//! The host front owns the bundle claim. Deno is invoked only as a browser
-//! compiler; it does not own a listener, relay, or application session.
+//! The host front owns the bundle claim and compiler lifetime. The app's
+//! compiler recipe selects the bundler and flags without changing publication.
 use super::{process::Temporary, source::Graph};
 use std::{
 	path::{Path, PathBuf},
@@ -47,22 +47,13 @@ async fn compile(root: &Path, outdir: &Path, before: &str, mut stop: watch::Rece
 	if *stop.borrow() {
 		return Ok(false);
 	}
+	let source = root.to_owned();
+	let recipe = tokio::task::spawn_blocking(move || super::compiler::Recipe::read(&source))
+		.await
+		.map_err(|e| e.to_string())??;
 	let mut child = Command::new("deno")
-		.args(["bundle", "--lock"])
-		.arg(root.join("deno.lock"))
-		.args([
-			"--frozen",
-			"--platform",
-			"browser",
-			"--quiet",
-			"--code-splitting",
-			"--minify",
-			"--config",
-		])
-		.arg(root.join("browser-bundle.json"))
-		.arg("--outdir")
-		.arg(outdir)
-		.arg(root.join("ui/main.tsx"))
+		.args(recipe.arguments(outdir)?)
+		.current_dir(root)
 		.stdin(Stdio::null())
 		.stdout(Stdio::inherit())
 		.stderr(Stdio::inherit())

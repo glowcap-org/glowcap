@@ -22,7 +22,7 @@ const ID: &str = "00000000-0000-4000-8000-000000000001";
 
 struct Notices(Rc<Cell<usize>>);
 impl GrantCommandEffects for Notices {
-	fn local_reply_failed(&mut self, error: String) {
+	fn local_reply_failed(&mut self, error: rooms_runtime::Error) {
 		panic!("unexpected abandoned grant failure: {error}");
 	}
 	fn reply_failed(&mut self, error: glowcap::Error) {
@@ -32,10 +32,12 @@ impl GrantCommandEffects for Notices {
 		&mut self,
 		notice: GrantNotice<'_>,
 		grants: &PublishedGrants<D>,
-	) -> Result<(), String> {
+	) -> Result<(), rooms_runtime::Error> {
 		match notice {
 			GrantNotice::Committed { .. } => {
-				grants.grants().map_err(|e| e.to_string())?;
+				grants
+					.grants()
+					.map_err(|e| rooms_runtime::Error::closed(e.to_string()))?;
 			}
 			GrantNotice::Unavailable => assert!(grants.grants().is_err()),
 			GrantNotice::Routed => assert!(grants.grants().is_ok()),

@@ -40,6 +40,9 @@ pub trait Entropy {
 }
 #[derive(Clone, Debug)]
 pub enum Error {
+	/// The binding refused admission; this operation was never sent.
+	Unsent(Box<glowcap::Error>),
+	Receipt(rooms_application::room::receipt::Error),
 	ArchiveShare(rooms_application::archive::shares::Error),
 	Archive(rooms_application::archive::Error),
 	Inbox(rooms_application::direct::publication::Error),
@@ -65,7 +68,7 @@ impl Error {
 	/// and a missed deadline mean this client no longer has a proved live peer.
 	pub fn connection_failed(&self) -> bool {
 		match self {
-			Self::Binding(error) => binding_kind_connection_failed(error.kind()),
+			Self::Binding(error) | Self::Unsent(error) => binding_kind_connection_failed(error.kind()),
 			Self::Timeout(_) => true,
 			_ => false,
 		}
@@ -74,7 +77,7 @@ impl Error {
 	/// Untyped application refusals may depend on either a different request or
 	/// changed peer state; transport loss always needs the connection to change.
 	pub fn retry(&self) -> Retry {
-		if let Self::Binding(error) = self {
+		if let Self::Binding(error) | Self::Unsent(error) = self {
 			return binding_retry(error);
 		}
 		if matches!(self, Self::Timeout(_)) {
@@ -215,11 +218,12 @@ impl From<glowcap::Error> for Error {
 impl core::fmt::Display for Error {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
-			Self::Binding(e) => e.fmt(f),
+			Self::Binding(e) | Self::Unsent(e) => e.fmt(f),
 			Self::Timeout(what) => f.write_str(what),
 			Self::Reply(e) => e.fmt(f),
 			Self::Custody(e) => e.fmt(f),
 			Self::Membership(e) => e.fmt(f),
+			Self::Receipt(e) => e.fmt(f),
 			Self::History(e) => e.fmt(f),
 			Self::Transfer(e) => e.fmt(f),
 			Self::Invitation(e) => e.fmt(f),
@@ -355,14 +359,34 @@ impl<D: Deadline> Client<D> {
 		milliseconds: u64,
 	) -> impl Future<Output = Result<Reply, Error>> + use<'_, D> {
 		let pending = session.send(target, verb, args);
-		async move {
-			self.deadline
-				.within(milliseconds, pending.into_future())
-				.await
-				.ok_or(Error::Timeout(what))?
-				.map(Reply)
-				.map_err(Error::from)
-		}
+		self.await_reply(pending, what, milliseconds)
+	}
+	fn admitted_call(
+		&self,
+		target: &Ref,
+		verb: &'static str,
+		args: &[Argument],
+		what: &'static str,
+	) -> Result<impl Future<Output = Result<Reply, Error>> + use<'_, D>, Error> {
+		let pending = self
+			.session
+			.send(target, verb, args)
+			.into_admitted()
+			.map_err(|error| Error::Unsent(Box::new(error)))?;
+		Ok(self.await_reply(pending, what, authority::REQUEST_TIMEOUT_MS))
+	}
+	async fn await_reply(
+		&self,
+		pending: glowcap::RemotePromise,
+		what: &'static str,
+		milliseconds: u64,
+	) -> Result<Reply, Error> {
+		self.deadline
+			.within(milliseconds, pending.into_future())
+			.await
+			.ok_or(Error::Timeout(what))?
+			.map(Reply)
+			.map_err(Error::from)
 	}
 }
 struct Reply(Argument);

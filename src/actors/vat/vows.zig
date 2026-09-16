@@ -80,19 +80,17 @@ fn settleResolver(self: *Vat, resolver: u64, resolution: Resolution) Error!void 
     // settle arena's depth guard covers both.
     self.drive_depth += 1;
     defer self.drive_depth -= 1;
-    switch (resolution) {
-        .fulfilled => |value| {
-            if (self.listeners.contains(vow)) {
-                const arena = beginSettle(self);
-                defer endSettle(self);
-                const owned = try model.cloneArgument(arena, value);
-                std.debug.assert(self.resolver_vows.remove(resolver));
-                settleLocalPrepared(self, vow, .{ .fulfilled = owned });
-                return;
-            }
-        },
-        .broken => {},
-        .give => unreachable,
+    if (self.listeners.contains(vow)) {
+        const arena = beginSettle(self);
+        defer endSettle(self);
+        const owned: Resolution = switch (resolution) {
+            .fulfilled => |value| .{ .fulfilled = try model.cloneArgument(arena, value) },
+            .broken => |reason| .{ .broken = try arena.dupe(u8, reason) },
+            .give => unreachable,
+        };
+        std.debug.assert(self.resolver_vows.remove(resolver));
+        settleLocalPrepared(self, vow, owned);
+        return;
     }
     std.debug.assert(self.resolver_vows.remove(resolver));
     try settleLocal(self, vow, resolution);

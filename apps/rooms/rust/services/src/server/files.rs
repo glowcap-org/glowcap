@@ -1,25 +1,91 @@
 //! The bytes a room holds for the files posted in it, as the actors members
 //! reach them through: one upload capability per admitted file, filled by
-//! its poster, and one blob capability per file per hearing member, minted on
-//! that member's own connection when the line is told.
+//! its poster, and one read capability per live file and receiving connection,
+//! reused whenever a notification names that file.
 use super::{
 	answer, history, lines, seat,
 	state::{Shared, State},
 };
-use glowcap::{Argument, Session};
+use glowcap::{Argument, Ref, Session};
 use rooms_application::{
 	failure::FailureCode,
-	files::{Blob, FileError, ReadOutcome, ReadTicket},
+	files::{Blob, FileError, FileStore, ReadOutcome, ReadTicket},
 	server::rooms::{MembershipKey, RoomKey, UploadKey, wire::Encoder},
 };
 use rooms_glowcap::Value;
-use std::{cell::Cell, future::poll_fn, rc::Rc};
+use std::{
+	cell::{Cell, RefCell},
+	collections::BTreeMap,
+	future::poll_fn,
+	rc::Rc,
+};
 
-/// Draws a room notice for one hearing member, minting each file's blob
-/// capability on that member's session.
+/// One connection retains one reader identity per file. Reclaiming retired
+/// identities before insertion bounds this inventory by the store's peak live
+/// file count; closing the connection drops all its local roots.
+#[derive(Default)]
+pub(super) struct Capabilities {
+	held: RefCell<BTreeMap<u64, (Blob, Ref)>>,
+	retirements: Cell<u64>,
+}
+impl Capabilities {
+	fn reader(
+		&self,
+		store: &FileStore,
+		blob: &Blob,
+		mint: impl FnOnce() -> Result<Ref, glowcap::Error>,
+	) -> Result<Ref, glowcap::Error> {
+		let mut held = self.held.borrow_mut();
+		let id = store.blob_id(blob).expect("the server's own file store");
+		if let Some((_, reference)) = held.get(&id) {
+			return Ok(reference.clone());
+		}
+		// New uploads and repeated refiles are ordered lookups. A storage
+		// retirement triggers one sweep before this inventory next grows.
+		if self.retirements.get() != store.retirements() {
+			held.retain(|_, (blob, _)| store.contains(blob));
+			self.retirements.set(store.retirements());
+		}
+		// Lines can still carry expired files after pruning. Reissuing them
+		// preserves their refusal behavior without growing retained identities.
+		if !store.contains(blob) {
+			return mint();
+		}
+		let reference = mint()?;
+		held.insert(id, (blob.clone(), reference.clone()));
+		Ok(reference)
+	}
+}
+fn reader(state: &State, session: &Session, blob: &Blob) -> Result<Ref, glowcap::Error> {
+	let shared = Rc::downgrade(&state.shared());
+	let blob = blob.clone();
+	session.spawn_owned(move |verb, args| {
+		let shared = shared.upgrade().ok_or("room file owner is closed")?;
+		read(&shared, &blob, verb, args)
+	})
+}
+
+/// Draws a room notice using the receiving connection's file capabilities.
 pub(super) struct Minter<'a> {
 	pub state: &'a State,
 	pub session: &'a Session,
+	capabilities: Option<&'a Capabilities>,
+}
+impl<'a> Minter<'a> {
+	pub fn new(state: &'a State, session: &'a Session) -> Self {
+		Self {
+			state,
+			session,
+			capabilities: state.file_capabilities(session),
+		}
+	}
+	pub fn connected(state: &'a State, session: &'a Session, capabilities: &'a Capabilities) -> Self {
+		Self {
+			state,
+			session,
+			capabilities: Some(capabilities),
+		}
+	}
 }
 
 impl rooms_application::server::rooms::wire::DataEncoder for Minter<'_> {
@@ -37,14 +103,18 @@ impl rooms_application::server::rooms::wire::DataEncoder for Minter<'_> {
 impl Encoder for Minter<'_> {
 	type Error = glowcap::Error;
 	fn blob(&mut self, blob: &Blob) -> Result<Argument, glowcap::Error> {
-		let shared = self.state.shared();
-		let blob = blob.clone();
-		let reference = self
-			.session
-			.spawn_owned(move |verb, args| read(&shared, &blob, verb, args))?;
+		let reference = match self.capabilities {
+			Some(held) => held.reader(self.state.rooms.files(), blob, || {
+				reader(self.state, self.session, blob)
+			})?,
+			None => reader(self.state, self.session, blob)?,
+		};
 		Ok(Argument::Reference(reference))
 	}
 }
+
+#[cfg(test)]
+mod tests;
 
 /// The blob capability members read a posted file through: `read(offset,
 /// maxLen)` answers at most one chunk, and an empty slice at the end. A file
@@ -101,42 +171,63 @@ pub(super) fn facet(
 		let mut state = shared.borrow_mut();
 		let text = |at: usize| args.get(at).and_then(Argument::as_str);
 		match verb {
-			POST_FILES => {
-				let (Some(caption), 1) = (text(0), args.len()) else {
-					return Err(format!(
-						"{}: postFiles needs one caption",
-						FailureCode::BadAttachment.wire()
-					));
-				};
-				let key = Rc::new(Cell::new(None));
-				let actor = session
-					.spawn_owned(lines::line(shared.clone(), key.clone()))
-					.map_err(|e| e.to_string())?;
-				let now = state.now();
-				let line = history::mutate(&mut state, |rooms| {
-					rooms.post_files(&room, membership, caption, State::wall_clock(), now)
-				})?;
-				key.set(Some(line));
-				Ok(Argument::Reference(actor))
+			POST_FILES
+			| rooms_application::open_graph::ROOM_POST_FILES_VERB
+			| rooms_application::room::receipt::POST_FILES => {
+				let retained = verb == rooms_application::room::receipt::POST_FILES;
+				super::receipts::post(
+					&mut state,
+					&room,
+					membership,
+					&session,
+					args,
+					retained,
+					|state, delivery| {
+						let previews = verb != POST_FILES;
+						let expected = if retained {
+							3
+						} else if previews {
+							2
+						} else {
+							1
+						};
+						let caption = text(0).filter(|_| args.len() == expected).ok_or_else(|| {
+							format!(
+								"{}: postFiles needs a caption and the selected delivery fields",
+								FailureCode::BadAttachment.wire()
+							)
+						})?;
+						let previews = if previews && !(retained && matches!(args[1], Argument::Boolean(false))) {
+							rooms_application::open_graph::Selection::decode(
+								caption,
+								text(1).ok_or("postFiles needs one preview selection")?,
+							)
+							.map_err(|e| e.to_string())?
+						} else {
+							Default::default()
+						};
+						let key = Rc::new(Cell::new(None));
+						let actor = session
+							.spawn_owned(lines::line(shared.clone(), key.clone()))
+							.map_err(|e| e.to_string())?;
+						let now = state.now();
+						let line = history::mutate(state, |rooms| {
+							rooms.post_files_delivered(
+								&room,
+								membership,
+								caption,
+								previews,
+								State::wall_clock(),
+								now,
+								delivery,
+							)
+						})?;
+						key.set(Some(line));
+						Ok(Argument::Reference(actor))
+					},
+				)
 			}
-			rooms_application::open_graph::ROOM_POST_FILES_VERB => {
-				let (Some(caption), Some(encoded), 2) = (text(0), text(1), args.len()) else {
-					return Err("postFilesWithPreviews needs a caption and one preview selection".into());
-				};
-				let previews = rooms_application::open_graph::Selection::decode(caption, encoded)
-					.map_err(|error| error.to_string())?;
-				let key = Rc::new(Cell::new(None));
-				let actor = session
-					.spawn_owned(lines::line(shared.clone(), key.clone()))
-					.map_err(|e| e.to_string())?;
-				let now = state.now();
-				let line = history::mutate(&mut state, |rooms| {
-					rooms.post_files_with_previews(&room, membership, caption, previews, State::wall_clock(), now)
-				})?;
-				key.set(Some(line));
-				Ok(Argument::Reference(actor))
-			}
-			ATTACH => {
+			ATTACH | rooms_application::room::receipt::ATTACH => {
 				let description =
 					rooms_application::server::rooms::wire::attachment(args.len(), |at| args.get(at).map(Value))
 						.map_err(seat::refusal)?;
@@ -146,10 +237,22 @@ pub(super) fn facet(
 					.attach(&room, membership, description, now)
 					.map_err(seat::refusal)?;
 				state.upload_admitted.notify_one();
-				let upload = session
-					.spawn_owned(upload(shared.clone(), key))
-					.map_err(|e| e.to_string())?;
-				Ok(Argument::Reference(upload))
+				let minted = (|| {
+					let upload = session
+						.spawn_owned(upload(shared.clone(), key))
+						.map_err(|e| e.to_string())?;
+					if verb == rooms_application::room::receipt::ATTACH {
+						let blob = state.rooms.upload_blob(key).expect("just admitted upload");
+						let blob = Minter::new(&state, &session).blob(&blob).map_err(|e| e.to_string())?;
+						Ok(Argument::List(vec![upload.into(), blob]))
+					} else {
+						Ok(Argument::Reference(upload))
+					}
+				})();
+				minted.map_err(|primary: String| match state.rooms.cancel_upload(key, now) {
+					Ok(()) => primary,
+					Err(cleanup) => format!("{primary}; upload cleanup failed: {}", cleanup.reason()),
+				})
 			}
 			_ => Err(format!("room files facet has no method {verb}")),
 		}

@@ -195,6 +195,92 @@ not ship a native Zig QUIC or WebRTC stack.
 
 ## API gaps
 
+- **Loam supports local records and record-backed sleepy actors.** Its optional
+  LMDB backend and Host attachment restore same-attachment capability edges and
+  committed actor state. Callbacks explicitly encode durable state and perform
+  no external effects. Incoming calls accept plain data; owning capability
+  replies use Host/CapTP. Pending messages are not durable, and a lost reply
+  does not imply an aborted mutation. Local tracing collection protects live
+  custody and pinned historical edges; it needs storage headroom for its queue
+  and marks. Native workload measurements cover collection service time and
+  queued reads; concurrent executor scheduling, whole-process memory, and
+  compaction remain unmeasured.
+  Foreign/cross-vat restoration, complete managed owners, browser storage, and Loam C/Rust
+  APIs remain unimplemented. Publication enumeration and the commit-to-registry
+  admission barrier belong to the embedding for administrative publication;
+  managed derivation reserves and activates its own Host publication custody.
+  Native storage uses advisory BSD `flock` custody locking and explicitly budgeted map growth; process-kill
+  tests do not establish power-loss behavior. The [usage guide](loam.md) explains
+  costs and limits; the [implementation sequence](planning/loam/architecture.md)
+  owns the remaining integration. Rooms still uses application-owned durability.
+
+- **Managed access hosts fixed-resource use, control, and derivation; broader integration remains.**
+  Opaque use and control references enforce selected grants and management
+  ceilings. Durable descriptors restore the exact use/control role through
+  bounded native operations. The existing Host attachment now hosts fixed-resource
+  managed use and control endpoints, including held CapTP calls and ordinary
+  publication restoration. Fixed-resource derivation atomically stores the child
+  and its publication with eight retained retry receipts per source endpoint.
+  Cross-resource transactions, C ABI, and Rust bindings remain unimplemented.
+  A managed content method can disclose a local stored reference through an
+  exact handoff or a runtime facet gated by both the invoking and target grants.
+  It can replace or remove local strong fields in the content transaction.
+  Foreign and cross-vat fields remain unimplemented. Undeclared capability
+  values fail closed. Descriptor creation can join grant and content updates;
+  restoring its native reference still allocates. Derivation reserves actor and
+  publication custody before writing; receipt expiry fails without reissuing.
+  Other mutations lack a general retry journal. Evaluation results cannot be
+  reused to authorize a later content effect. Rooms does not use this core yet.
+  Use endpoints provide scoped access snapshots through `describe-access`;
+  inactive access exposes status alone. These snapshots do not provide event
+  delivery, cursors, or control inventory/inspection.
+  The current graph and grant ledger reserve their full capacity in memory.
+  Resource and grant views share evaluation and mutation preparation with those
+  resident models. The storage participant persists owner headers and indexed
+  resource/grant records, with bounded resumable loading and native LMDB evidence
+  for atomic content/grant/event updates and recovery. It stages one managed
+  owner mutation per transaction; repeated updates to that header refuse through
+  Loam's duplicate-record check. Control descriptors persist immutable powers;
+  independent control attenuation/revocation
+  remain requirements in the [storage plan](planning/loam/access/storage.md).
+  That plan also owns resource reparenting/deletion and child listing indexes. The
+  [managed access architecture](planning/loam/access/architecture.md) and
+  [Rooms plan](planning/rooms/access-grants.md) own integration.
+
+  Resident grant mutations return committed change events. Stored mutations
+  return proposed events for publication after confirmed commit; the owner
+  retains its latest event. Replacing it makes the old event collectible unless
+  otherwise retained. Scoped subscriptions, retained replay, resource-move
+  events, and receipts for other remote mutations remain unimplemented. Store reads expire
+  after any commit and refuse during uncertainty. A storage read cannot close
+  while an append borrows it or submitted read work remains outstanding.
+  Graph and ledger destruction also refuse while a write remains pending.
+
+  Native capability operations retain their source reference, descriptor lease,
+  and bounded managed working set. Close refuses submitted reads, and the
+  Capabilities owner refuses live references or operations. Release finished
+  operations before admitting new work within a tight cache budget. Descriptors
+  need explicit root or containing-edge retention to survive final native release.
+
+  The stored profile never reuses committed resource/grant slots. Its owner root
+  retains indexed records, including revoked grants. Owner retirement and record
+  deletion are not yet implemented. Directory traversal takes up to four page
+  reads plus the target, in addition to the owner header. Read working sets pin
+  bounded records; cache buffers reserve the configured maximum record size per
+  slot. The [usage guide](loam.md#managed-access-records) gives the memory and
+  lifetime contract. No managed-owner throughput or 500k scale claim is established.
+
+  One ledger borrows one stable graph and copies one immutable policy schema.
+  Schemas allow at most 64 Boolean permissions and 16 unsigned lower or upper
+  bounds. Applications must declare every fact relevant to an effect; fact
+  relations, alternatives, projections, and remote dependencies are not
+  implemented. Fresh stores require fresh identities; neither graph nor
+  ledger supports growth or restoration. Revoked records retain capacity,
+  including their child counts, until ledger destruction. Selected scopes
+  require bounded copies on issuance and editing. Reads and lifecycle changes
+  allocate nothing; traversal is bounded by the configured ancestry limits.
+  Reparenting costs one bounded ancestry walk and two subtree traversals.
+
 - **Rooms runs on Linux and macOS hosts and in Chromium-class browsers.**
   One Rust implementation owns every Rooms service and the browser
   application; TypeScript renders the page and drives the Deno client, the
@@ -258,6 +344,15 @@ not ship a native Zig QUIC or WebRTC stack.
   indefinite at-most-once guarantee. Private-room and durable-authority effects
   instead keep a typed pending result and an idempotent recovery key until
   resolution.
+
+- **Room delivery receipts require retained local state.** Native room senders
+  share one 256-message, 2 MiB budget between pending text and unread messages.
+  Receipts preserve ordering and correlation; they do not make retries
+  idempotent. Upload reuse depends on an immutable source, acknowledgement,
+  and admission to the existing media cache. Streaming sources and cache
+  pressure may require ordinary reads. The delivery contract and measured
+  costs are recorded in
+  [ADR-0160](decisions/adr/ADR-0160-rooms-retained-delivery.md).
 
 - **Room durability is separate authority from membership.** Ordinary
   `open`/`enter` and a room entrance reference grant no right to create durable

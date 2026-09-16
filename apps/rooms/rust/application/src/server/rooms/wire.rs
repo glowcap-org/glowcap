@@ -66,9 +66,18 @@ pub trait Encoder: DataEncoder {
 /// structured fields after. A line copies its sender and text once each,
 /// straight from the shared body into the wire value; the room notices
 /// render their sentence through `Notice::said`.
+pub fn verb(notice: &Notice) -> &'static str {
+	match notice {
+		Notice::Receipt { .. } => crate::room::receipt::TAG,
+		Notice::ReceiptRejected(_) => crate::room::receipt::REJECTED,
+		_ => crate::room::inbox::NOTIFY,
+	}
+}
+
 pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>, E::Error> {
 	let mut out = Vec::new();
 	match notice {
+		Notice::ReceiptRejected(request) => out.push(e.integer(*request)),
 		Notice::Line { line, marker, files } => {
 			out.push(e.text(line.from.clone()));
 			out.push(e.text(line.text.clone()));
@@ -77,21 +86,33 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 				out.push(e.integer(id.get()));
 			}
 			if marker.is_none_or(|(kind, _)| kind != ChangeKind::Edited && kind != ChangeKind::Withdrawn) {
-				for blob in files {
-					let description = blob.description();
-					let (width, height) = description.dimensions();
-					out.push(e.text("file".into()));
-					out.push(e.text(description.name().into()));
-					out.push(e.text(description.mime().into()));
-					out.push(e.integer(description.size() as u64));
-					out.push(e.blob(blob)?);
-					out.push(e.integer(width as u64));
-					out.push(e.integer(height as u64));
-				}
+				attachments(files, e, &mut out)?;
 			}
 			out.push(e.text(crate::open_graph::WIRE_TAG.into()));
 			out.push(e.text(line.previews.encode()));
 			return Ok(out);
+		}
+		Notice::Receipt {
+			request,
+			line,
+			id,
+			normalized,
+			files,
+		} => {
+			out.push(e.integer(*request));
+			out.push(e.integer(id.get()));
+			out.push(e.text(line.from.clone()));
+			out.push(if *normalized {
+				e.text(line.text.clone())
+			} else {
+				e.boolean(false)
+			});
+			out.push(if line.previews.is_empty() {
+				e.boolean(false)
+			} else {
+				e.text(line.previews.encode())
+			});
+			attachments(files, e, &mut out)?;
 		}
 		Notice::Roster(names) => {
 			out.push(e.text(ROOM.into()));
@@ -186,4 +207,19 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 		}
 	}
 	Ok(out)
+}
+
+fn attachments<E: Encoder>(files: &[Blob], e: &mut E, out: &mut Vec<E::Value>) -> Result<(), E::Error> {
+	for blob in files {
+		let description = blob.description();
+		let (width, height) = description.dimensions();
+		out.push(e.text("file".into()));
+		out.push(e.text(description.name().into()));
+		out.push(e.text(description.mime().into()));
+		out.push(e.integer(description.size() as u64));
+		out.push(e.blob(blob)?);
+		out.push(e.integer(width as u64));
+		out.push(e.integer(height as u64));
+	}
+	Ok(())
 }

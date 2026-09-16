@@ -20,7 +20,7 @@ const execution = @import("execution.zig");
 const rooms_tests = @import("rooms/tests.zig");
 const rooms_rust = @import("rooms/rust.zig");
 const rooms_peers = @import("rooms/peers.zig");
-const rooms_web_native = @import("rooms/web.zig");
+const rooms_browser_front = @import("rooms/browser_front.zig");
 
 /// What the rooms family draws from the root build graph. Everything here is
 /// minted by the root before the family registers; the family adds no layer
@@ -35,7 +35,7 @@ pub const Context = struct {
     demo_rooms_cli_mod: *std.Build.Module,
     demo_usage_mod: *std.Build.Module,
     check_step: *std.Build.Step,
-    runtime_gate: *execution.SerialGate,
+    runtime_gate: *execution.RuntimeGate,
     browser_preflight: *std.Build.Step,
     wasm_driver_install: *std.Build.Step,
     wasm_archives: *std.Build.Step,
@@ -51,63 +51,6 @@ pub const Context = struct {
     pin_port: ?u16,
     attach: bool,
 };
-
-/// The room transport a `rooms-web` or `rooms-dev` launch serves; the name is
-/// passed straight through as `--transport=`.
-const RoomsTransport = enum { iroh, tcp, onion };
-
-const RoomsWebLaunch = struct {
-    /// A state directory for the room server, or the front's temporary one.
-    state_dir: ?[]const u8 = null,
-    /// Mint every operator capability, the development posture. Otherwise
-    /// nothing is minted unless the invocation passes the server's own flags
-    /// after `--` (`--diagnostics`, `--trace`, …): the flags are the front's,
-    /// so the step does not respell them as build options.
-    mint_everything: bool = false,
-};
-
-/// One `env … rooms-web --transport=<transport> [port] [flags] -- …` launch,
-/// the recipe `rooms-web` and `rooms-dev` share. The front opens the dynamic
-/// archives and launches the installed Rust server, and the browser loads the
-/// Wasm Host module, so a stale one ships a layout descriptor the freshly
-/// bundled page refuses: every launch waits for both to be current.
-fn addRoomsWebLaunch(
-    b: *std.Build,
-    ctx: Context,
-    transport: RoomsTransport,
-    launch: RoomsWebLaunch,
-    browser_application: *std.Build.Step,
-    archive_install: *std.Build.Step,
-) *std.Build.Step.Run {
-    const posture: execution.Posture = if (transport == .onion) .real_internet else .service;
-    const run = common.addInstalledSystemRun(b, posture, &.{"env"});
-    run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
-    if (launch.state_dir) |dir| run.addArg(b.fmt("GLOWCAP_ROOMS_STATE={s}", .{dir}));
-    run.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .make_absolute = true });
-    run.addArg(b.fmt("--transport={s}", .{@tagName(transport)}));
-    if (ctx.pin_port) |p| run.addArg(b.fmt("{d}", .{p}));
-    if (launch.mint_everything) {
-        run.addArgs(&.{ "--admin-listeners", "--diagnostics", "--irc", "--operator", "--peering", "--trace" });
-    }
-    run.addPassthruArgs();
-    run.step.dependOn(browser_application);
-    run.step.dependOn(archive_install);
-    switch (transport) {
-        // The bridge announces and dials ocapn:// URIs over iroh, so it needs
-        // the iroh C ABI companion built first, and thus `cargo`.
-        .iroh => run.step.dependOn(ctx.iroh_abi_step),
-        // The front dlopens exactly these archives for a cleartext room.
-        .tcp => {
-            run.step.dependOn(ctx.ocapn_install);
-            run.step.dependOn(ctx.host_install);
-            run.step.dependOn(ctx.driver_install);
-            run.step.dependOn(ctx.tcp_install);
-            run.step.dependOn(ctx.relay_install);
-        },
-        .onion => {},
-    }
-    return run;
-}
 
 /// One `rooms-web-*` proof: a Deno harness driving the served page or its
 /// peers, needing the wasm module and the installed archives, plus a
@@ -154,7 +97,20 @@ pub fn register(ctx: Context) Registered {
     const archive_install = peers.installed;
     const browser_application = rooms_rust.register(b, check_step, runtime_gate, ctx.wasm_archives, ctx.wasm_driver_install, archive_install);
     peers.web_build.dependOn(browser_application);
-    rooms_web_native.register(b, runtime_gate, archive_install, browser_application);
+
+    rooms_browser_front.register(.{
+        .b = b,
+        .runtime_gate = runtime_gate,
+        .browser_application = browser_application,
+        .archive_install = archive_install,
+        .iroh_abi_step = ctx.iroh_abi_step,
+        .ocapn_install = ctx.ocapn_install,
+        .host_install = ctx.host_install,
+        .driver_install = ctx.driver_install,
+        .tcp_install = ctx.tcp_install,
+        .relay_install = ctx.relay_install,
+        .pin_port = ctx.pin_port,
+    });
 
     const rooms_client_exe = common.glowcapExecutable(b, lib_mod, target, optimize, "glowcap-rooms-client", "apps/rooms/clients/zig/client.zig");
     rooms_client_exe.root_module.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
@@ -404,22 +360,6 @@ pub fn register(ctx: Context) Registered {
     b.step("demo-rooms-dm-iroh-discovery", "Opt-in: rooms DM-by-introduction over iroh by node id ALONE through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)")
         .dependOn(&rooms_dm_iroh_discovery.step);
 
-    // The native front serves browser assets and relays opaque byte streams.
-    // Deno is used only to compile the browser when its source graph changes.
-    // The room's transport is one build option because the front already
-    // takes `--transport=`; three steps spelling it were three copies of one
-    // recipe. iroh is the default and the production shape. tcp is the
-    // cleartext sibling for a peer that speaks nothing else. onion publishes
-    // the directory as a Tor onion service: the supervisor starts a private
-    // Tor unless GLOWCAP_ONION_SOCKS / GLOWCAP_ONION_CONTROL already name one,
-    // so it wants `tor` on PATH, and browser tabs still reach the room through
-    // /relay, which carries an admitted onion target to the service's local
-    // forward endpoint.
-    const transport = b.option(RoomsTransport, "transport", "The room transport rooms-web and rooms-dev serve: iroh (default, encrypted QUIC), tcp (cleartext, for a peer that speaks nothing else), or onion (a Tor onion service; needs tor)") orelse .iroh;
-    const rooms_web = addRoomsWebLaunch(b, ctx, transport, .{}, browser_application, archive_install);
-    b.step("rooms-web", "Serve the rooms browser UI (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno; `-Dtransport=onion` also needs tor). `-Dtransport=iroh|tcp|onion` picks the room transport, default iroh. Server flags follow `--`: `--diagnostics` / `--admin-listeners` / `--operator` / `--peering` / `--trace` / `--irc` mint the operations capabilities, and `--bind=<host> --announce-host=<host>` expose a cleartext room on a LAN")
-        .dependOn(&rooms_web.step);
-
     // The rooms browser-peer proof: a wasm browser peer drives the real
     // room directory through
     // the native web front's `/relay` byte pipe, no dlopen and no JSON bridge in its process.
@@ -569,43 +509,5 @@ pub fn register(ctx: Context) Registered {
         web_proofs_step.dependOn(&run.step);
     }
 
-    // The development launch: the same UI with every operator capability
-    // minted and a state directory under the gitignored `.local`, so
-    // identity, room links, and the swiss numbers survive a restart and the
-    // Operations pages have something to show. `rooms-web` stays the safe
-    // default with nothing minted; this is the one command a developer reaches
-    // for instead of remembering six flags and an environment variable. It
-    // takes the same `-Dtransport`, so a cleartext room for a peer that
-    // speaks nothing else is one option away, not a second launcher.
-    const rooms_dev = addRoomsWebLaunch(b, ctx, transport, .{
-        .state_dir = common.rootPath(b, ".local/.state/rooms"),
-        .mint_everything = true,
-    }, browser_application, archive_install);
-    b.step("rooms-dev", "Serve the rooms browser UI for development: every operator capability minted and the state kept under .local/.state/rooms; `-Dtransport` as on rooms-web (needs cargo + deno)")
-        .dependOn(&rooms_dev.step);
-
-    // Prepare one complete browser artifact after its native publisher and
-    // Wasm host exist. The deployment runs no compiler and mounts no source.
-    const rooms_deploy_bundle = execution.addSystemCommand(b, .build_tool, &.{"env"});
-    rooms_deploy_bundle.addFileArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "rooms-web" } }, .{ .make_absolute = true });
-    rooms_deploy_bundle.addArg("--prepare=zig-out/rooms-web");
-    rooms_deploy_bundle.setCwd(b.path("."));
-    rooms_deploy_bundle.has_side_effects = true;
-    rooms_deploy_bundle.step.dependOn(archive_install);
-    rooms_deploy_bundle.step.dependOn(browser_application);
-    // This marker commits last. The deployment front can therefore distinguish
-    // "the UI was bundled" from "every mounted artifact finished for this
-    // checkout" without trying to reverse-engineer Zig's build cache.
-    const rooms_deploy_finish = execution.addSystemCommand(b, .build_tool, &.{
-        "sh", "apps/rooms/web/finish-deployment.sh",
-    });
-    rooms_deploy_finish.setCwd(b.path("."));
-    rooms_deploy_finish.has_side_effects = true;
-    rooms_deploy_finish.step.dependOn(b.getInstallStep());
-    rooms_deploy_finish.step.dependOn(ctx.iroh_abi_step);
-    rooms_deploy_finish.step.dependOn(archive_install);
-    rooms_deploy_finish.step.dependOn(&rooms_deploy_bundle.step);
-    const rooms_deploy_step = b.step("rooms-deploy-prep", "Build and version everything the rooms deploy container mounts: shared libraries, iroh, the wasm Host, browser UI, and native peers (needs cargo + deno)");
-    rooms_deploy_step.dependOn(&rooms_deploy_finish.step);
     return .{ .services_install = archive_install, .web_proofs = web_proofs_step };
 }

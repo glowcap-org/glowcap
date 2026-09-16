@@ -22,6 +22,7 @@ impl core::error::Error for Error {}
 pub struct Queue<C> {
 	unread: VecDeque<(Message<String, C>, usize)>,
 	bytes: usize,
+	pending: usize,
 	terminal: Option<Error>,
 }
 impl<C> Default for Queue<C> {
@@ -29,6 +30,7 @@ impl<C> Default for Queue<C> {
 		Self {
 			unread: VecDeque::new(),
 			bytes: 0,
+			pending: 0,
 			terminal: None,
 		}
 	}
@@ -38,17 +40,46 @@ impl<C> Queue<C> {
 	/// came through their small fixed record bounds; original wire custody
 	/// remains in the binding until this call returns.
 	pub fn push(&mut self, message: Message<&str, C>) -> Result<(), Error> {
+		let bytes = retained_bytes(&message, |text: &&str| text.len());
+		self.admit(bytes)?;
+		self.unread.push_back((message.into_owned(), bytes));
+		Ok(())
+	}
+	/// Adopt reconstructed text directly, charging actual retained capacity.
+	pub fn push_owned(&mut self, message: Message<String, C>) -> Result<(), Error> {
+		let bytes = retained_bytes(&message, String::capacity);
+		self.admit(bytes)?;
+		self.unread.push_back((message, bytes));
+		Ok(())
+	}
+	fn admit(&mut self, bytes: usize) -> Result<(), Error> {
 		if let Some(error) = self.terminal {
 			return Err(error);
 		}
-		let bytes = retained_bytes(&message);
-		if self.unread.len() == MAX_MESSAGES || bytes > MAX_MESSAGE_BYTES.saturating_sub(self.bytes) {
+		if self.unread.len() + self.pending >= MAX_MESSAGES || bytes > MAX_MESSAGE_BYTES.saturating_sub(self.bytes) {
 			self.finish(Error::Overflow);
 			return Err(Error::Overflow);
 		}
 		self.bytes += bytes;
-		self.unread.push_back((message.into_owned(), bytes));
 		Ok(())
+	}
+	/// Retained outgoing payloads and unread events spend one shared budget.
+	pub fn reserve(&mut self, bytes: usize) -> Result<(), Error> {
+		if self.terminal.is_some() {
+			return Err(Error::Closed);
+		}
+		if self.unread.len() + self.pending >= MAX_MESSAGES || bytes > MAX_MESSAGE_BYTES.saturating_sub(self.bytes) {
+			return Err(Error::Overflow);
+		}
+		self.pending += 1;
+		self.bytes += bytes;
+		Ok(())
+	}
+	pub fn release(&mut self, bytes: usize) {
+		if self.terminal.is_none() {
+			self.pending -= 1;
+			self.bytes -= bytes;
+		}
 	}
 	pub fn pop(&mut self) -> Result<Option<Message<String, C>>, Error> {
 		if let Some((message, bytes)) = self.unread.pop_front() {
@@ -69,14 +100,15 @@ impl<C> Queue<C> {
 		self.terminal = Some(reason);
 		self.unread = VecDeque::new();
 		self.bytes = 0;
+		self.pending = 0;
 	}
 }
-fn retained_bytes<C>(message: &Message<&str, C>) -> usize {
+fn retained_bytes<T, C>(message: &Message<T, C>, size: impl Fn(&T) -> usize) -> usize {
 	// Each copied string requests exactly its UTF-8 length. Include the owned
 	// struct, retained vector slots, descriptions and capability handles.
-	let mut bytes = core::mem::size_of::<Message<String, C>>() + message.from.len() + message.text.len();
-	if let Some(presence) = &message.presence {
-		presence.visit(|text| bytes = bytes.saturating_add(text.len()));
+	let mut bytes = core::mem::size_of::<Message<String, C>>() + size(&message.from) + size(&message.text);
+	if let Some(presence) = message.presence() {
+		presence.visit(|text| bytes = bytes.saturating_add(size(text)));
 		if matches!(presence, Presence::Seat(_)) {
 			bytes = bytes.saturating_add(core::mem::size_of::<super::metadata::Seat<String>>());
 		}
@@ -84,8 +116,8 @@ fn retained_bytes<C>(message: &Message<&str, C>) -> usize {
 			bytes = bytes.saturating_add(names.len().saturating_mul(core::mem::size_of::<String>()));
 		}
 	}
-	if let Some(facts) = &message.facts {
-		facts.visit(|text| bytes = bytes.saturating_add(text.len()));
+	if let Some(facts) = message.facts() {
+		facts.visit(|text| bytes = bytes.saturating_add(size(text)));
 		if facts.bridge.is_some() {
 			bytes = bytes.saturating_add(core::mem::size_of::<super::metadata::Bridge<String>>());
 		}
